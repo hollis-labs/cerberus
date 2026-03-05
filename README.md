@@ -26,6 +26,7 @@ cerberus --config /path/to/config.yaml  # use alternate config
 | `s` | Start selected service |
 | `x` | Stop selected (SIGTERM, SIGKILL after 5s) |
 | `r` | Restart |
+| `b` | Build (run configured build command) |
 | `enter` / `l` | Open URL in browser |
 | `a` | Start all |
 | `X` | Stop all |
@@ -61,6 +62,7 @@ services:
     project: cortex
     dir: ~/Projects-apps/cortex
     command: ["./contextd", "serve", "--addr", ":8080"]
+    build: ["go", "build", "-o", "contextd", "./cmd/contextd/"]  # optional build command
     env:                          # optional env vars (~ expanded)
       CONTEXTD_ROOT: ~/.cortex
     env_file: .env.local          # optional dotenv file (relative to dir)
@@ -72,7 +74,7 @@ services:
 
 ## Status Detection
 
-Polls every 2 seconds via `lsof -ti :<port>`. Shows PID, uptime, and color-coded status (green=running, red=stopped, yellow=starting). If a process crashes on start, the last line of its log is shown as the error.
+Polls every 2 seconds via `lsof -ti :<port>`. Shows PID, uptime, and color-coded status (green=running, red=stopped, yellow=starting/building). If a process crashes on start, the last line of its log is shown as the error.
 
 ## Logs
 

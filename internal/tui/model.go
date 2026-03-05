@@ -63,6 +63,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		for _, s := range m.services {
+			// Check for completed builds
+			if s.BuildDone != nil {
+				select {
+				case <-s.BuildDone:
+					s.BuildDone = nil
+					if s.BuildErr != "" {
+						m.setMsg("Build failed: " + s.Def.Name)
+					} else {
+						m.setMsg("Build complete: " + s.Def.Name)
+					}
+				default:
+				}
+			}
 			s.Poll()
 		}
 		return m, tickCmd()
@@ -130,6 +143,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.setMsg("Error: " + err.Error())
 				} else {
 					m.setMsg("Restarting " + svc.Def.Name + "...")
+				}
+			}
+
+		case "b":
+			if svc := m.selected(visible); svc != nil {
+				if err := svc.Build(); err != nil {
+					m.setMsg("Error: " + err.Error())
+				} else {
+					m.setMsg("Building " + svc.Def.Name + "...")
 				}
 			}
 

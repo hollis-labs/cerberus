@@ -21,6 +21,7 @@ type ServiceDef struct {
 	Port    int               `yaml:"port"`
 	Tags    []string          `yaml:"tags,omitempty"`
 	Health  string            `yaml:"health,omitempty"`
+	Build   []string          `yaml:"build,omitempty"`
 }
 
 type Config struct {
@@ -91,6 +92,7 @@ services:
     project: volon
     dir: ~/Projects-apps/volon
     command: ["go", "run", "./cmd/gui-server", "--repo", ".", "--http", ":8085"]
+    build: ["go", "build", "-o", "gui-server", "./cmd/gui-server"]
     env_file: .env.local
     url: http://127.0.0.1:8085
     port: 8085
@@ -112,6 +114,7 @@ services:
     project: hadron
     dir: ~/Projects-apps/hadron
     command: ["./bin/hadrond", "serve"]
+    build: ["go", "build", "-o", "bin/hadrond", "./cmd/hadrond"]
     url: http://127.0.0.1:8095
     port: 8095
     health: http://127.0.0.1:8095/
@@ -130,6 +133,7 @@ services:
     name: "Cortex API"
     project: cortex
     dir: ~/Projects-apps/cortex
+    build: ["go", "build", "-o", "contextd", "./cmd/contextd/"]
     command: ["./contextd", "serve", "--addr", ":8080"]
     env:
       CONTEXTD_ROOT: ~/.cortex
