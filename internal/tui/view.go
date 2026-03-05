@@ -54,17 +54,20 @@ func (m Model) View() string {
 	b.WriteString("\n")
 
 	// Summary bar
-	running, stopped, starting := 0, 0, 0
+	running, stopped, starting, building := 0, 0, 0, 0
 	for _, s := range m.services {
 		switch s.Status {
 		case service.StatusRunning:
 			running++
 		case service.StatusStarting:
 			starting++
+		case service.StatusBuilding:
+			building++
 		default:
 			stopped++
 		}
 	}
+	_ = building
 	summary := fmt.Sprintf("  %s %d  %s %d  %s %d",
 		runningStyle.Render("●"), running,
 		stoppedStyle.Render("●"), stopped,
@@ -91,6 +94,7 @@ func (m Model) View() string {
 		{"s", "start"},
 		{"x", "stop"},
 		{"r", "restart"},
+		{"b", "build"},
 		{"enter", "open"},
 		{"a", "start all"},
 		{"X", "stop all"},
@@ -117,6 +121,8 @@ func (m Model) renderRow(svc *service.Service, selected bool) string {
 		statusStr = runningStyle.Render("● running")
 	case service.StatusStarting:
 		statusStr = startingStyle.Render("◐ starting")
+	case service.StatusBuilding:
+		statusStr = startingStyle.Render("⚙ building")
 	default:
 		statusStr = stoppedStyle.Render("○ stopped")
 	}
@@ -167,6 +173,10 @@ func (m Model) renderRow(svc *service.Service, selected bool) string {
 	// Show error on the line below if present
 	if svc.Error != "" && selected {
 		errLine := errorStyle.Render("    ⚠ " + svc.Error)
+		result += "\n" + errLine
+	}
+	if svc.BuildErr != "" && selected {
+		errLine := errorStyle.Render("    ⚠ build: " + svc.BuildErr)
 		result += "\n" + errLine
 	}
 

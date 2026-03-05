@@ -19,6 +19,7 @@ const (
 	StatusStopped Status = iota
 	StatusRunning
 	StatusStarting
+	StatusBuilding
 )
 
 func (s Status) String() string {
@@ -27,6 +28,8 @@ func (s Status) String() string {
 		return "running"
 	case StatusStarting:
 		return "starting"
+	case StatusBuilding:
+		return "building"
 	default:
 		return "stopped"
 	}
@@ -38,8 +41,10 @@ type Service struct {
 	PID     int
 	Uptime  time.Time
 	Error   string
-	logPath string
-	exited  chan struct{} // closed when the process exits
+	logPath    string
+	exited     chan struct{} // closed when the process exits
+	BuildErr   string
+	BuildDone  chan struct{} // closed when build finishes
 }
 
 func NewFromConfig(cfg *config.Config) []*Service {
@@ -52,6 +57,9 @@ func NewFromConfig(cfg *config.Config) []*Service {
 
 // Poll checks if the service port is in use and updates status/PID.
 func (s *Service) Poll() {
+	if s.Status == StatusBuilding {
+		return
+	}
 	pid := findPIDByPort(s.Def.Port)
 	if pid > 0 {
 		s.PID = pid
@@ -149,6 +157,65 @@ func (s *Service) Start() error {
 			logFile.Close()
 		}
 		close(s.exited)
+	}()
+
+	return nil
+}
+
+// Build runs the service's build command synchronously in a goroutine.
+func (s *Service) Build() error {
+	if len(s.Def.Build) == 0 {
+		return fmt.Errorf("no build command configured")
+	}
+	if s.Status == StatusBuilding {
+		return fmt.Errorf("build already in progress")
+	}
+
+	prevStatus := s.Status
+	s.Status = StatusBuilding
+	s.BuildErr = ""
+	s.BuildDone = make(chan struct{})
+
+	go func() {
+		defer close(s.BuildDone)
+
+		cmd := exec.Command(s.Def.Build[0], s.Def.Build[1:]...)
+		cmd.Dir = s.Def.Dir
+
+		// Inherit environment
+		env := os.Environ()
+		if s.Def.EnvFile != "" {
+			envPath := s.Def.EnvFile
+			if !strings.HasPrefix(envPath, "/") {
+				envPath = s.Def.Dir + "/" + envPath
+			}
+			env = append(env, loadEnvFile(envPath)...)
+		}
+		home, _ := os.UserHomeDir()
+		for k, v := range s.Def.Env {
+			if strings.HasPrefix(v, "~/") {
+				v = home + v[1:]
+			}
+			env = append(env, k+"="+v)
+		}
+		cmd.Env = env
+
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			errMsg := strings.TrimSpace(string(out))
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			if len(errMsg) > 80 {
+				errMsg = errMsg[len(errMsg)-77:] + "..."
+			}
+			s.BuildErr = errMsg
+		}
+
+		// Restore previous status
+		if s.Status == StatusBuilding {
+			s.Status = prevStatus
+		}
 	}()
 
 	return nil
