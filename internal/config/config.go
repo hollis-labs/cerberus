@@ -155,7 +155,7 @@ services:
   - id: carrier-api
     name: "Carrier API"
     project: carrier
-    dir: ~/src/content-ops
+    dir: ~/src/carrier
     command: ["./bin/carrier", "serve", "--config", "config/config.yaml", "--repos", "config/repos.yaml"]
     url: http://127.0.0.1:8096
     port: 8096
@@ -164,7 +164,7 @@ services:
   - id: carrier-frontend
     name: "Carrier Frontend"
     project: carrier
-    dir: ~/src/content-ops/tasks/contentops-frontend-template
+    dir: ~/src/carrier/frontend
     command: ["npm", "run", "dev"]
     url: http://localhost:5174
     port: 5174
