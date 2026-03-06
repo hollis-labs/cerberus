@@ -91,7 +91,7 @@ services:
     name: "app-h API"
     project: app-h
     dir: ~/src/app-h
-    command: ["go", "run", "./cmd/gui-server", "--repo", ".", "--http", ":8085"]
+    command: ["./gui-server", "--repo", ".", "--http", ":8085"]
     build: ["go", "build", "-o", "gui-server", "./cmd/gui-server"]
     env_file: .env.local
     url: http://127.0.0.1:8085
