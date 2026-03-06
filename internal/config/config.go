@@ -125,6 +125,8 @@ services:
     project: hadron
     dir: ~/Projects-apps/hadron/cmd/hadron-app
     command: ["wails", "dev"]
+    env:
+      HADRON_DAEMON_EXTERNAL: "true"
     port: 34116
     tags: [gui, desktop, wails]
 
