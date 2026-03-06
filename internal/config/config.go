@@ -125,6 +125,8 @@ services:
     project: app-d
     dir: ~/src/app-d/cmd/app-d-app
     command: ["wails", "dev"]
+    env:
+      HADRON_DAEMON_EXTERNAL: "true"
     port: 34116
     tags: [gui, desktop, wails]
 
