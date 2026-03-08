@@ -1,0 +1,2 @@
+project: cerberus
+storage_backend: db+files
