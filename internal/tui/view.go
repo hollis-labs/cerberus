@@ -160,7 +160,26 @@ func (m Model) View() string {
 	}
 	b.WriteString(footerStyle.Render(strings.Join(helpParts, "  ")) + "\n")
 
-	return b.String()
+	// Copyright + version
+	contentWidth := colWidthName + colWidthStatus + colWidthHealth + colWidthPort + colWidthURL + colWidthPID + colWidthAction + 4
+	copyLine := "(c) HOLLIS LABS"
+	versionLine := fmt.Sprintf("cerberus %s (built %s)", m.version, m.buildDate)
+	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
+	b.WriteString("\n" + lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(dimStyle.Render(copyLine)) + "\n")
+	b.WriteString(lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center).Render(dimStyle.Render(versionLine)) + "\n")
+
+	// Center the content block within the terminal by padding left.
+	content := b.String()
+	pad := (m.width - contentWidth) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	padStr := strings.Repeat(" ", pad)
+	var out strings.Builder
+	for _, line := range strings.Split(content, "\n") {
+		out.WriteString(padStr + line + "\n")
+	}
+	return out.String()
 }
 
 func (m Model) renderRow(svc *service.Service, selected bool) string {
