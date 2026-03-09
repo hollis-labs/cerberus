@@ -302,6 +302,45 @@ func (s *Service) tailLog() string {
 	return "process exited"
 }
 
+// LogPath returns the path to this service's log file.
+func (s *Service) LogPath() string {
+	if s.logPath == "" {
+		return fmt.Sprintf("%s/cerberus-%s.log", os.TempDir(), s.Def.ID)
+	}
+	return s.logPath
+}
+
+// BuildSync runs the service's build command synchronously (blocking).
+// Returns the combined output and any error.
+func (s *Service) BuildSync() (string, error) {
+	if len(s.Def.Build) == 0 {
+		return "", fmt.Errorf("no build command configured")
+	}
+
+	cmd := exec.Command(s.Def.Build[0], s.Def.Build[1:]...)
+	cmd.Dir = s.Def.Dir
+
+	env := os.Environ()
+	if s.Def.EnvFile != "" {
+		envPath := s.Def.EnvFile
+		if !strings.HasPrefix(envPath, "/") {
+			envPath = s.Def.Dir + "/" + envPath
+		}
+		env = append(env, loadEnvFile(envPath)...)
+	}
+	home, _ := os.UserHomeDir()
+	for k, v := range s.Def.Env {
+		if strings.HasPrefix(v, "~/") {
+			v = home + v[1:]
+		}
+		env = append(env, k+"="+v)
+	}
+	cmd.Env = env
+
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 func loadEnvFile(path string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
