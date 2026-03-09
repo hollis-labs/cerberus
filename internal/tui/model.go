@@ -27,6 +27,15 @@ type Model struct {
 	height    int
 	message   string
 	msgExpiry time.Time
+	logView   *LogViewModel
+
+	// Grouping state
+	groups    []ServiceGroup
+	grouped   bool
+	tagFilter string
+	allTags   []string
+	tagIndex  int // current index in allTags for cycling
+	flatItems []flatItem
 }
 
 type tickMsg time.Time
@@ -37,11 +46,16 @@ func NewModel(services []*service.Service) Model {
 		s.Poll()
 	}
 
-	return Model{
+	m := Model{
 		services: services,
 		width:    120,
 		height:   30,
+		grouped:  true,
+		allTags:  collectUniqueTags(services),
+		tagIndex: -1, // -1 means no tag filter active
 	}
+	m.rebuildGroups()
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -55,6 +69,29 @@ func tickCmd() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle log view exit
+	if _, ok := msg.(logViewExitMsg); ok {
+		m.logView = nil
+		return m, nil
+	}
+
+	// Delegate to log view if active
+	if m.logView != nil {
+		switch msg := msg.(type) {
+		case tickMsg:
+			// Reload log on tick and also poll services
+			m.logView.Reload()
+			for _, s := range m.services {
+				s.Poll()
+			}
+			return m, tickCmd()
+		default:
+			lv, cmd := m.logView.Update(msg)
+			m.logView = &lv
+			return m, cmd
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -155,10 +192,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case "enter", "l":
+		case "enter":
 			if svc := m.selected(visible); svc != nil && svc.Def.URL != "" {
 				exec.Command("open", svc.Def.URL).Start()
 				m.setMsg("Opening " + svc.Def.URL)
+			}
+
+		case "l":
+			if svc := m.selected(visible); svc != nil {
+				lv := NewLogViewModel(svc, m.width, m.height)
+				m.logView = &lv
 			}
 
 		case "tab":

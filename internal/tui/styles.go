@@ -50,6 +50,16 @@ var (
 	startingStyle = lipgloss.NewStyle().
 			Foreground(colorYellow)
 
+	healthyStyle = lipgloss.NewStyle().
+			Foreground(colorGreen)
+
+	unhealthyStyle = lipgloss.NewStyle().
+			Foreground(colorRed)
+
+	failedStyle = lipgloss.NewStyle().
+			Foreground(colorRed).
+			Bold(true)
+
 	// Footer
 	footerStyle = lipgloss.NewStyle().
 			Foreground(colorDim).
