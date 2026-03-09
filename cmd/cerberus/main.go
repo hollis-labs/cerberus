@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/mcp"
 	"github.com/chrispian/cerberus/internal/service"
 	"github.com/chrispian/cerberus/internal/tui"
 	"github.com/spf13/cobra"
@@ -469,8 +470,16 @@ var initCmd = &cobra.Command{
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "MCP server",
-	Long:  "Starts the MCP server for tool integration.",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("MCP server not implemented yet")
+	Long:  "Starts the MCP server for tool integration over stdio (JSON-RPC 2.0).",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		services, err := loadServices()
+		if err != nil {
+			return err
+		}
+
+		srv := mcp.NewServer("cerberus", "0.1.0")
+		srv.RegisterTool(mcp.NewCerberusStatusTool(services))
+
+		return srv.Run()
 	},
 }
