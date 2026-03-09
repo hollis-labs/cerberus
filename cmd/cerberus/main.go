@@ -482,6 +482,9 @@ var mcpCmd = &cobra.Command{
 		srv.RegisterTool(mcp.NewCerberusStartTool(services))
 		srv.RegisterTool(mcp.NewCerberusStopTool(services))
 		srv.RegisterTool(mcp.NewCerberusRestartTool(services))
+		srv.RegisterTool(mcp.NewCerberusLogsTool(services))
+		srv.RegisterTool(mcp.NewCerberusBuildTool(services))
+		srv.RegisterTool(mcp.NewCerberusHealthTool(services))
 
 		return srv.Run()
 	},
