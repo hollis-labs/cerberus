@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/chrispian/cerberus/schema/cerberus.yaml.schema.json",
+  "title": "Cerberus Config",
+  "description": "Configuration file for Cerberus, the Tiamat ecosystem service manager.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Config schema version. Currently 1.",
+      "default": 1,
+      "enum": [1]
+    },
+    "services": {
+      "type": "array",
+      "description": "List of services managed by Cerberus.",
+      "items": {
+        "$ref": "#/$defs/ServiceDef"
+      }
+    }
+  },
+  "required": ["services"],
+  "additionalProperties": false,
+  "$defs": {
+    "ServiceDef": {
+      "type": "object",
+      "description": "Definition of a managed service.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the service."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable display name."
+        },
+        "project": {
+          "type": "string",
+          "description": "Parent project this service belongs to."
+        },
+        "dir": {
+          "type": "string",
+          "description": "Working directory for the service. Supports ~ for home directory."
+        },
+        "command": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Command and arguments to start the service."
+        },
+        "build": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional build command to run before starting."
+        },
+        "env_file": {
+          "type": "string",
+          "description": "Path to an env file to load (relative to dir)."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Environment variables to set."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL where the service is accessible."
+        },
+        "port": {
+          "type": "integer",
+          "description": "Port the service listens on."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tags for filtering and grouping services."
+        },
+        "health": {
+          "type": "string",
+          "format": "uri",
+          "description": "Legacy health check URL. Prefer health_check instead."
+        },
+        "health_check": {
+          "$ref": "#/$defs/HealthCheck"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "IDs of services this service depends on."
+        },
+        "auto_start": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start this service automatically when Cerberus launches."
+        },
+        "auto_restart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically restart the service if it exits."
+        },
+        "restart_delay": {
+          "type": "string",
+          "description": "Delay before restarting (Go duration, e.g. '5s').",
+          "examples": ["5s", "30s", "1m"]
+        },
+        "profiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Profiles this service belongs to for selective startup."
+        }
+      },
+      "required": ["id", "name", "project", "dir", "command", "port"],
+      "additionalProperties": false
+    },
+    "HealthCheck": {
+      "type": "object",
+      "description": "Health check configuration for a service.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to poll for health status (expects 2xx)."
+        },
+        "command": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Command to run for health check (exit 0 = healthy)."
+        },
+        "interval": {
+          "type": "string",
+          "description": "How often to run the health check (Go duration).",
+          "examples": ["10s", "30s"]
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Timeout for each health check attempt (Go duration).",
+          "examples": ["3s", "5s"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

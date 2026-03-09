@@ -18,33 +18,45 @@ type Status int
 const (
 	StatusStopped Status = iota
 	StatusRunning
+	StatusHealthy
+	StatusUnhealthy
 	StatusStarting
 	StatusBuilding
+	StatusFailed
 )
 
 func (s Status) String() string {
 	switch s {
 	case StatusRunning:
 		return "running"
+	case StatusHealthy:
+		return "healthy"
+	case StatusUnhealthy:
+		return "unhealthy"
 	case StatusStarting:
 		return "starting"
 	case StatusBuilding:
 		return "building"
+	case StatusFailed:
+		return "failed"
 	default:
 		return "stopped"
 	}
 }
 
 type Service struct {
-	Def     config.ServiceDef
-	Status  Status
-	PID     int
-	Uptime  time.Time
-	Error   string
-	logPath    string
-	exited     chan struct{} // closed when the process exits
-	BuildErr   string
-	BuildDone  chan struct{} // closed when build finishes
+	Def           config.ServiceDef
+	Status        Status
+	PID           int
+	Uptime        time.Time
+	Error         string
+	HealthStatus  HealthStatus
+	logPath       string
+	exited        chan struct{} // closed when the process exits
+	BuildErr      string
+	BuildDone     chan struct{} // closed when build finishes
+	RestartPolicy *RestartPolicy
+	RestartCount  int
 }
 
 func NewFromConfig(cfg *config.Config) []*Service {
@@ -55,15 +67,29 @@ func NewFromConfig(cfg *config.Config) []*Service {
 	return services
 }
 
-// Poll checks if the service port is in use and updates status/PID.
+// Poll checks if the service is alive. It checks the PID file first for a
+// fast path, then falls back to port-based detection via lsof.
 func (s *Service) Poll() {
 	if s.Status == StatusBuilding {
 		return
 	}
+
+	// Fast path: validate PID file if one exists
+	if pidFromFile, alive := ValidatePIDFile(s.Def.ID); alive {
+		s.PID = pidFromFile
+		if s.Status != StatusRunning && s.Status != StatusHealthy && s.Status != StatusUnhealthy {
+			s.Status = StatusRunning
+			s.Uptime = time.Now()
+		}
+		s.Error = ""
+		return
+	}
+
+	// Fall back to port-based detection
 	pid := findPIDByPort(s.Def.Port)
 	if pid > 0 {
 		s.PID = pid
-		if s.Status != StatusRunning {
+		if s.Status != StatusRunning && s.Status != StatusHealthy && s.Status != StatusUnhealthy {
 			s.Status = StatusRunning
 			s.Uptime = time.Now()
 		}
@@ -89,17 +115,42 @@ func (s *Service) Poll() {
 		}
 		s.Status = StatusStopped
 		s.PID = 0
+		// Clean up stale PID file if process is gone
+		_ = RemovePIDFile(s.Def.ID)
 	}
 }
 
 // Start launches the service process in the background.
 func (s *Service) Start() error {
-	if s.Status == StatusRunning {
+	if s.Status == StatusRunning || s.Status == StatusHealthy || s.Status == StatusUnhealthy {
 		return fmt.Errorf("already running (pid %d)", s.PID)
 	}
 
+	// Acquire lock to prevent concurrent start operations
+	lock, err := AcquireLock(s.Def.ID)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	if len(s.Def.Command) == 0 {
 		return fmt.Errorf("no command configured")
+	}
+
+	// Proactive port conflict detection
+	if s.Def.Port > 0 {
+		conflict, err := CheckPortConflict(s.Def.Port, s.Def.ID)
+		if err == nil && conflict != nil {
+			if conflict.CerberusManaged && conflict.ManagedServiceID == s.Def.ID {
+				return fmt.Errorf("already running on port %d (pid %d)", conflict.Port, conflict.PID)
+			}
+			if conflict.CerberusManaged {
+				return fmt.Errorf("port %d in use by Cerberus service %q (pid %d)",
+					conflict.Port, conflict.ManagedServiceID, conflict.PID)
+			}
+			return fmt.Errorf("port %d in use by external process %q (pid %d)",
+				conflict.Port, conflict.ProcessName, conflict.PID)
+		}
 	}
 
 	cmd := exec.Command(s.Def.Command[0], s.Def.Command[1:]...)
@@ -149,6 +200,18 @@ func (s *Service) Start() error {
 	s.Uptime = time.Now()
 	s.Error = ""
 
+	// Write PID file and meta for service tracking
+	if cmd.Process != nil {
+		pid := cmd.Process.Pid
+		_ = WritePIDFile(s.Def.ID, pid)
+		_ = WriteMetaFile(s.Def.ID, PIDMeta{
+			PID:             pid,
+			StartedAt:       s.Uptime,
+			ConfigHash:      ConfigHash(s.Def),
+			CerberusVersion: CerberusVersion,
+		})
+	}
+
 	// Track process exit so we can detect early crashes
 	s.exited = make(chan struct{})
 	go func() {
@@ -156,8 +219,15 @@ func (s *Service) Start() error {
 		if logFile != nil {
 			logFile.Close()
 		}
+		// Clean up PID file on exit
+		_ = RemovePIDFile(s.Def.ID)
 		close(s.exited)
 	}()
+
+	// Start auto-restart watcher if policy is enabled
+	if s.RestartPolicy != nil && s.RestartPolicy.Enabled {
+		s.RestartPolicy.Watch(s)
+	}
 
 	return nil
 }
@@ -171,12 +241,19 @@ func (s *Service) Build() error {
 		return fmt.Errorf("build already in progress")
 	}
 
+	// Acquire lock to prevent concurrent build operations
+	lock, err := AcquireLock(s.Def.ID)
+	if err != nil {
+		return err
+	}
+
 	prevStatus := s.Status
 	s.Status = StatusBuilding
 	s.BuildErr = ""
 	s.BuildDone = make(chan struct{})
 
 	go func() {
+		defer lock.Release()
 		defer close(s.BuildDone)
 
 		cmd := exec.Command(s.Def.Build[0], s.Def.Build[1:]...)
@@ -223,6 +300,13 @@ func (s *Service) Build() error {
 
 // Stop sends SIGTERM to the process owning this port.
 func (s *Service) Stop() error {
+	// Acquire lock to prevent concurrent stop operations
+	lock, err := AcquireLock(s.Def.ID)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	pid := findPIDByPort(s.Def.Port)
 	if pid <= 0 {
 		s.Status = StatusStopped
@@ -248,6 +332,7 @@ func (s *Service) Stop() error {
 
 	s.Status = StatusStopped
 	s.PID = 0
+	_ = RemovePIDFile(s.Def.ID)
 	return nil
 }
 
@@ -300,6 +385,45 @@ func (s *Service) tailLog() string {
 		}
 	}
 	return "process exited"
+}
+
+// LogPath returns the path to this service's log file.
+func (s *Service) LogPath() string {
+	if s.logPath == "" {
+		return fmt.Sprintf("%s/cerberus-%s.log", os.TempDir(), s.Def.ID)
+	}
+	return s.logPath
+}
+
+// BuildSync runs the service's build command synchronously (blocking).
+// Returns the combined output and any error.
+func (s *Service) BuildSync() (string, error) {
+	if len(s.Def.Build) == 0 {
+		return "", fmt.Errorf("no build command configured")
+	}
+
+	cmd := exec.Command(s.Def.Build[0], s.Def.Build[1:]...)
+	cmd.Dir = s.Def.Dir
+
+	env := os.Environ()
+	if s.Def.EnvFile != "" {
+		envPath := s.Def.EnvFile
+		if !strings.HasPrefix(envPath, "/") {
+			envPath = s.Def.Dir + "/" + envPath
+		}
+		env = append(env, loadEnvFile(envPath)...)
+	}
+	home, _ := os.UserHomeDir()
+	for k, v := range s.Def.Env {
+		if strings.HasPrefix(v, "~/") {
+			v = home + v[1:]
+		}
+		env = append(env, k+"="+v)
+	}
+	cmd.Env = env
+
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 func loadEnvFile(path string) []string {
