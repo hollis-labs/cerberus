@@ -29,6 +29,10 @@ type Model struct {
 	msgExpiry time.Time
 	logView   *LogViewModel
 
+	// Version info
+	version   string
+	buildDate string
+
 	// Grouping state
 	groups    []ServiceGroup
 	grouped   bool
@@ -40,17 +44,19 @@ type Model struct {
 
 type tickMsg time.Time
 
-func NewModel(services []*service.Service) Model {
+func NewModel(services []*service.Service, version, buildDate string) Model {
 	// Do initial poll
 	for _, s := range services {
 		s.Poll()
 	}
 
 	m := Model{
-		services: services,
-		width:    120,
-		height:   30,
-		grouped:  true,
+		services:  services,
+		version:   version,
+		buildDate: buildDate,
+		width:     120,
+		height:    30,
+		grouped:   true,
 		allTags:  collectUniqueTags(services),
 		tagIndex: -1, // -1 means no tag filter active
 	}

@@ -18,7 +18,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var cfgPath string
+var (
+	cfgPath string
+
+	// Set via -ldflags at build time
+	version   = "dev"
+	buildDate = "unknown"
+)
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
@@ -30,11 +36,19 @@ func main() {
 var rootCmd = &cobra.Command{
 	Use:   "cerberus",
 	Short: "Tiamat service manager",
-	Long:  "Cerberus is a TUI service manager for the Tiamat ecosystem.",
-	RunE:  runTUI,
+	Long: `Cerberus — agent-first local service manager for the Tiamat ecosystem.
+
+Manage, monitor, and protect your dev services from a single TUI,
+CLI, or MCP server. Prevents agents from clobbering each other's
+servers with PID tracking, port conflict detection, and service locks.
+
+(c) HOLLIS LABS`,
+	Version: version,
+	RunE:    runTUI,
 }
 
 func init() {
+	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (built %s)\n(c) HOLLIS LABS\n", version, buildDate))
 	rootCmd.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
 
 	rootCmd.AddCommand(upCmd)
@@ -65,7 +79,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 
 	services := service.NewFromConfig(cfg)
-	m := tui.NewModel(services)
+	m := tui.NewModel(services, version, buildDate)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
