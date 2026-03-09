@@ -102,6 +102,22 @@ func (s *Service) Start() error {
 		return fmt.Errorf("no command configured")
 	}
 
+	// Proactive port conflict detection
+	if s.Def.Port > 0 {
+		conflict, err := CheckPortConflict(s.Def.Port, s.Def.ID)
+		if err == nil && conflict != nil {
+			if conflict.CerberusManaged && conflict.ManagedServiceID == s.Def.ID {
+				return fmt.Errorf("already running on port %d (pid %d)", conflict.Port, conflict.PID)
+			}
+			if conflict.CerberusManaged {
+				return fmt.Errorf("port %d in use by Cerberus service %q (pid %d)",
+					conflict.Port, conflict.ManagedServiceID, conflict.PID)
+			}
+			return fmt.Errorf("port %d in use by external process %q (pid %d)",
+				conflict.Port, conflict.ProcessName, conflict.PID)
+		}
+	}
+
 	cmd := exec.Command(s.Def.Command[0], s.Def.Command[1:]...)
 	cmd.Dir = s.Def.Dir
 
