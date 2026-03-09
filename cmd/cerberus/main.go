@@ -479,6 +479,9 @@ var mcpCmd = &cobra.Command{
 
 		srv := mcp.NewServer("cerberus", "0.1.0")
 		srv.RegisterTool(mcp.NewCerberusStatusTool(services))
+		srv.RegisterTool(mcp.NewCerberusLogsTool(services))
+		srv.RegisterTool(mcp.NewCerberusBuildTool(services))
+		srv.RegisterTool(mcp.NewCerberusHealthTool(services))
 
 		return srv.Run()
 	},
