@@ -20,6 +20,7 @@ const (
 	StatusRunning
 	StatusStarting
 	StatusBuilding
+	StatusFailed
 )
 
 func (s Status) String() string {
@@ -30,21 +31,25 @@ func (s Status) String() string {
 		return "starting"
 	case StatusBuilding:
 		return "building"
+	case StatusFailed:
+		return "failed"
 	default:
 		return "stopped"
 	}
 }
 
 type Service struct {
-	Def     config.ServiceDef
-	Status  Status
-	PID     int
-	Uptime  time.Time
-	Error   string
-	logPath    string
-	exited     chan struct{} // closed when the process exits
-	BuildErr   string
-	BuildDone  chan struct{} // closed when build finishes
+	Def           config.ServiceDef
+	Status        Status
+	PID           int
+	Uptime        time.Time
+	Error         string
+	logPath       string
+	exited        chan struct{} // closed when the process exits
+	BuildErr      string
+	BuildDone     chan struct{} // closed when build finishes
+	RestartPolicy *RestartPolicy
+	RestartCount  int
 }
 
 func NewFromConfig(cfg *config.Config) []*Service {
@@ -204,6 +209,11 @@ func (s *Service) Start() error {
 		_ = RemovePIDFile(s.Def.ID)
 		close(s.exited)
 	}()
+
+	// Start auto-restart watcher if policy is enabled
+	if s.RestartPolicy != nil && s.RestartPolicy.Enabled {
+		s.RestartPolicy.Watch(s)
+	}
 
 	return nil
 }
