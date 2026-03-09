@@ -121,6 +121,13 @@ func (s *Service) Start() error {
 		return fmt.Errorf("already running (pid %d)", s.PID)
 	}
 
+	// Acquire lock to prevent concurrent start operations
+	lock, err := AcquireLock(s.Def.ID)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	if len(s.Def.Command) == 0 {
 		return fmt.Errorf("no command configured")
 	}
@@ -224,12 +231,19 @@ func (s *Service) Build() error {
 		return fmt.Errorf("build already in progress")
 	}
 
+	// Acquire lock to prevent concurrent build operations
+	lock, err := AcquireLock(s.Def.ID)
+	if err != nil {
+		return err
+	}
+
 	prevStatus := s.Status
 	s.Status = StatusBuilding
 	s.BuildErr = ""
 	s.BuildDone = make(chan struct{})
 
 	go func() {
+		defer lock.Release()
 		defer close(s.BuildDone)
 
 		cmd := exec.Command(s.Def.Build[0], s.Def.Build[1:]...)
@@ -276,6 +290,13 @@ func (s *Service) Build() error {
 
 // Stop sends SIGTERM to the process owning this port.
 func (s *Service) Stop() error {
+	// Acquire lock to prevent concurrent stop operations
+	lock, err := AcquireLock(s.Def.ID)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	pid := findPIDByPort(s.Def.Port)
 	if pid <= 0 {
 		s.Status = StatusStopped
