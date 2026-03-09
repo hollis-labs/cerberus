@@ -77,12 +77,6 @@ func filterServicesByTag(services []*service.Service, tag string) []*service.Ser
 	return result
 }
 
-// groupServiceCount returns the number of services in a group that match the
-// current filter state (text filter + tag filter).
-func groupServiceCount(group ServiceGroup) int {
-	return len(group.Services)
-}
-
 // flatItem represents either a group header or a service in the flat cursor list.
 type flatItem struct {
 	isHeader   bool
