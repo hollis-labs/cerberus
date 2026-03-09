@@ -10,14 +10,12 @@ import (
 var (
 	groupHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#7b68ee")).
-				PaddingLeft(1)
+				Foreground(lipgloss.Color("#7b68ee"))
 
 	groupHeaderSelectedStyle = lipgloss.NewStyle().
 					Bold(true).
 					Foreground(lipgloss.Color("#7b68ee")).
-					Background(lipgloss.Color("#2a2a4e")).
-					PaddingLeft(1)
+					Background(lipgloss.Color("#2a2a4e"))
 
 	groupCountStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#666666"))
