@@ -77,7 +77,7 @@ func (s *Service) Poll() {
 	// Fast path: validate PID file if one exists
 	if pidFromFile, alive := ValidatePIDFile(s.Def.ID); alive {
 		s.PID = pidFromFile
-		if s.Status != StatusRunning {
+		if s.Status != StatusRunning && s.Status != StatusHealthy && s.Status != StatusUnhealthy {
 			s.Status = StatusRunning
 			s.Uptime = time.Now()
 		}
@@ -89,7 +89,7 @@ func (s *Service) Poll() {
 	pid := findPIDByPort(s.Def.Port)
 	if pid > 0 {
 		s.PID = pid
-		if s.Status != StatusRunning {
+		if s.Status != StatusRunning && s.Status != StatusHealthy && s.Status != StatusUnhealthy {
 			s.Status = StatusRunning
 			s.Uptime = time.Now()
 		}
@@ -122,7 +122,7 @@ func (s *Service) Poll() {
 
 // Start launches the service process in the background.
 func (s *Service) Start() error {
-	if s.Status == StatusRunning {
+	if s.Status == StatusRunning || s.Status == StatusHealthy || s.Status == StatusUnhealthy {
 		return fmt.Errorf("already running (pid %d)", s.PID)
 	}
 

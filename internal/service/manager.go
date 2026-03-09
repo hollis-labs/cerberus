@@ -112,7 +112,7 @@ func (m *Manager) StartService(id string, autoStartDeps bool) []error {
 	// Filter to only services that are not already running.
 	var toStart []*Service
 	for _, s := range needed {
-		if s.Status != StatusRunning {
+		if s.Status != StatusRunning && s.Status != StatusHealthy && s.Status != StatusUnhealthy {
 			toStart = append(toStart, s)
 		}
 	}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -87,33 +88,29 @@ func processName(pid int) string {
 	return name
 }
 
-// checkPIDFiles scans the Cerberus PID directory (if it exists) to see if a
-// given PID matches a managed service. Returns the service ID or empty string.
-// This gracefully handles the case where PID file support (TASK-042) is not
-// yet integrated.
+// checkPIDFiles scans the Cerberus PID directory (~/.cerberus/pids/) to see if
+// a given PID matches a managed service. Returns the service ID or empty string.
 func checkPIDFiles(pid int) string {
-	// PID files are expected at /tmp/cerberus-<serviceID>.pid
-	// containing just the PID number.
-	matches, _ := exec.Command("sh", "-c",
-		`for f in /tmp/cerberus-*.pid; do [ -f "$f" ] && echo "$f $(cat "$f")"; done`).Output()
-	if len(matches) == 0 {
+	dir, err := pidDir()
+	if err != nil {
+		return ""
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
 		return ""
 	}
 
-	pidStr := strconv.Itoa(pid)
-	for _, line := range strings.Split(strings.TrimSpace(string(matches)), "\n") {
-		parts := strings.Fields(line)
-		if len(parts) != 2 {
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pid") {
 			continue
 		}
-		filePath := parts[0]
-		filePID := strings.TrimSpace(parts[1])
-		if filePID == pidStr {
-			// Extract service ID from /tmp/cerberus-<id>.pid
-			base := filePath
-			base = strings.TrimPrefix(base, "/tmp/cerberus-")
-			base = strings.TrimSuffix(base, ".pid")
-			return base
+		serviceID := strings.TrimSuffix(entry.Name(), ".pid")
+		filePID, err := ReadPIDFile(serviceID)
+		if err != nil {
+			continue
+		}
+		if filePID == pid {
+			return serviceID
 		}
 	}
 	return ""

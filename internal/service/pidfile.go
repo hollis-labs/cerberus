@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -271,8 +272,13 @@ func ConfigHash(def config.ServiceDef) string {
 	fmt.Fprintf(h, "command:%s\n", strings.Join(def.Command, " "))
 	fmt.Fprintf(h, "envfile:%s\n", def.EnvFile)
 	// Sort env keys for stability
-	for k, v := range def.Env {
-		fmt.Fprintf(h, "env:%s=%s\n", k, v)
+	envKeys := make([]string, 0, len(def.Env))
+	for k := range def.Env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		fmt.Fprintf(h, "env:%s=%s\n", k, def.Env[k])
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }

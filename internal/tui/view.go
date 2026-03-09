@@ -62,14 +62,33 @@ func (m Model) View() string {
 	b.WriteString("  " + sep + "\n")
 
 	// Rows
-	visible := m.visibleServices()
-	for i, svc := range visible {
-		row := m.renderRow(svc, i == m.cursor)
-		b.WriteString(row + "\n")
+	if m.grouped {
+		for i, item := range m.flatItems {
+			if item.isHeader {
+				group := m.groups[item.groupIndex]
+				b.WriteString(renderGroupHeader(group, i == m.cursor) + "\n")
+			} else {
+				svc := m.groups[item.groupIndex].Services[item.svcIndex]
+				b.WriteString(m.renderRow(svc, i == m.cursor) + "\n")
+			}
+		}
+		if len(m.flatItems) == 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(colorDim).PaddingLeft(3).Render("No services match filter") + "\n")
+		}
+	} else {
+		visible := m.visibleServices()
+		for i, svc := range visible {
+			row := m.renderRow(svc, i == m.cursor)
+			b.WriteString(row + "\n")
+		}
+		if len(visible) == 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(colorDim).PaddingLeft(3).Render("No services match filter") + "\n")
+		}
 	}
 
-	if len(visible) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(colorDim).PaddingLeft(3).Render("No services match filter") + "\n")
+	// Tag filter indicator
+	if m.tagFilter != "" {
+		b.WriteString(renderTagFilter(m.tagFilter) + "\n")
 	}
 
 	// Spacer
@@ -103,15 +122,6 @@ func (m Model) View() string {
 		failedStyle.Render("●"), failed,
 		stoppedStyle.Render("●"), stopped,
 	)
-	summaryLabels := fmt.Sprintf("  %s    %s      %s        %s        %s     %s",
-		lipgloss.NewStyle().Foreground(colorDim).Render("run"),
-		lipgloss.NewStyle().Foreground(colorDim).Render("healthy"),
-		lipgloss.NewStyle().Foreground(colorDim).Render("starting"),
-		lipgloss.NewStyle().Foreground(colorDim).Render("unhealthy"),
-		lipgloss.NewStyle().Foreground(colorDim).Render("failed"),
-		lipgloss.NewStyle().Foreground(colorDim).Render("stopped"),
-	)
-	_ = summaryLabels
 	b.WriteString(summary + "\n")
 
 	// Message
