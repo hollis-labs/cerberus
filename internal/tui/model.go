@@ -78,10 +78,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Delegate to log view if active
 	if m.logView != nil {
 		switch msg := msg.(type) {
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+			m.logView.width = msg.Width
+			m.logView.height = msg.Height
+			m.logView.clampScroll()
+			return m, nil
 		case tickMsg:
 			// Reload log on tick and also poll services
 			m.logView.Reload()
 			for _, s := range m.services {
+				if s.BuildDone != nil {
+					select {
+					case <-s.BuildDone:
+						s.BuildDone = nil
+					default:
+					}
+				}
 				s.Poll()
 			}
 			return m, tickCmd()
@@ -138,6 +152,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Rebuild groups/flat items on each key press to reflect current state
+		m.rebuildGroups()
 		visible := m.visibleServices()
 
 		switch msg.String() {
@@ -145,8 +161,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "j", "down":
-			if m.cursor < len(visible)-1 {
-				m.cursor++
+			if m.grouped {
+				if m.cursor < len(m.flatItems)-1 {
+					m.cursor++
+				}
+			} else {
+				if m.cursor < len(visible)-1 {
+					m.cursor++
+				}
 			}
 
 		case "k", "up":
@@ -155,7 +177,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "s":
-			if svc := m.selected(visible); svc != nil {
+			if svc := m.selectedService(); svc != nil {
 				if err := svc.Start(); err != nil {
 					m.setMsg("Error: " + err.Error())
 				} else {
@@ -164,7 +186,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "x":
-			if svc := m.selected(visible); svc != nil {
+			if svc := m.selectedService(); svc != nil {
 				if err := svc.Stop(); err != nil {
 					m.setMsg("Error: " + err.Error())
 				} else {
@@ -173,7 +195,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "r":
-			if svc := m.selected(visible); svc != nil {
+			if svc := m.selectedService(); svc != nil {
 				svc.Stop()
 				time.Sleep(500 * time.Millisecond)
 				if err := svc.Start(); err != nil {
@@ -184,7 +206,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "b":
-			if svc := m.selected(visible); svc != nil {
+			if svc := m.selectedService(); svc != nil {
 				if err := svc.Build(); err != nil {
 					m.setMsg("Error: " + err.Error())
 				} else {
@@ -193,15 +215,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter":
-			if svc := m.selected(visible); svc != nil && svc.Def.URL != "" {
+			if m.grouped && m.cursor >= 0 && m.cursor < len(m.flatItems) {
+				item := m.flatItems[m.cursor]
+				if item.isHeader {
+					m.groups[item.groupIndex].Collapsed = !m.groups[item.groupIndex].Collapsed
+					m.flatItems = buildFlatItems(m.groups)
+					// Clamp cursor
+					if m.cursor >= len(m.flatItems) {
+						m.cursor = len(m.flatItems) - 1
+					}
+					return m, nil
+				}
+			}
+			if svc := m.selectedService(); svc != nil && svc.Def.URL != "" {
 				exec.Command("open", svc.Def.URL).Start()
 				m.setMsg("Opening " + svc.Def.URL)
 			}
 
 		case "l":
-			if svc := m.selected(visible); svc != nil {
+			if svc := m.selectedService(); svc != nil {
 				lv := NewLogViewModel(svc, m.width, m.height)
 				m.logView = &lv
+			}
+
+		case "g":
+			m.grouped = !m.grouped
+			m.cursor = 0
+			if m.grouped {
+				m.rebuildGroups()
+				m.setMsg("Grouped view")
+			} else {
+				m.setMsg("Flat view")
+			}
+
+		case "t":
+			// Cycle through tags
+			if len(m.allTags) == 0 {
+				m.setMsg("No tags available")
+			} else {
+				m.tagIndex++
+				if m.tagIndex >= len(m.allTags) {
+					m.tagIndex = -1
+					m.tagFilter = ""
+					m.setMsg("Tag filter cleared")
+				} else {
+					m.tagFilter = m.allTags[m.tagIndex]
+					m.setMsg("Tag filter: " + m.tagFilter)
+				}
+				m.cursor = 0
+				m.rebuildGroups()
 			}
 
 		case "tab":
@@ -247,9 +309,41 @@ func (m Model) selected(visible []*service.Service) *service.Service {
 	return nil
 }
 
+// selectedService returns the service under the cursor, respecting grouped mode.
+// Returns nil if cursor is on a group header or out of range.
+func (m Model) selectedService() *service.Service {
+	if m.grouped {
+		if m.cursor >= 0 && m.cursor < len(m.flatItems) {
+			item := m.flatItems[m.cursor]
+			if !item.isHeader {
+				return m.groups[item.groupIndex].Services[item.svcIndex]
+			}
+		}
+		return nil
+	}
+	visible := m.visibleServices()
+	return m.selected(visible)
+}
+
+// rebuildGroups rebuilds the group list and flat items from current services,
+// applying text filter and tag filter.
+func (m *Model) rebuildGroups() {
+	svcs := m.filteredServices()
+	svcs = filterServicesByTag(svcs, m.tagFilter)
+	sorted := m.sorted(svcs)
+	m.groups = GroupByProject(sorted)
+	m.flatItems = buildFlatItems(m.groups)
+}
+
 func (m Model) visibleServices() []*service.Service {
+	svcs := m.filteredServices()
+	svcs = filterServicesByTag(svcs, m.tagFilter)
+	return m.sorted(svcs)
+}
+
+func (m Model) filteredServices() []*service.Service {
 	if m.filter == "" {
-		return m.sorted(m.services)
+		return m.services
 	}
 
 	f := strings.ToLower(m.filter)
@@ -262,7 +356,7 @@ func (m Model) visibleServices() []*service.Service {
 			filtered = append(filtered, s)
 		}
 	}
-	return m.sorted(filtered)
+	return filtered
 }
 
 func (m Model) sorted(svcs []*service.Service) []*service.Service {
