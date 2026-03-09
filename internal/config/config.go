@@ -118,6 +118,8 @@ version: 1
 #   9085  | Volon gRPC (started by volon-api)
 #   34116 | Hadron Frontend (Wails/Vite)
 #   5174  | Carrier Frontend (Vite)
+#   5176  | Mentat Chat Frontend (Vite)
+#   8090  | Mentat Chat API (Go)
 #   8096  | Carrier API (Python)
 
 services:
@@ -224,4 +226,25 @@ services:
     command: ["wails", "dev"]
     port: 7765
     tags: [gui, desktop, wails]
+
+  # --- Mentat Chat ---
+  - id: mentat-api
+    name: "Mentat Chat API"
+    project: mentat-chat
+    dir: ~/Projects-apps/mentat-chat
+    command: ["go", "run", "./cmd/mentat-chat"]
+    build: ["go", "build", "-o", "bin/mentat-chat", "./cmd/mentat-chat"]
+    url: http://127.0.0.1:8090
+    port: 8090
+    health: http://127.0.0.1:8090/api/health
+    tags: [api, go]
+
+  - id: mentat-frontend
+    name: "Mentat Chat Frontend"
+    project: mentat-chat
+    dir: ~/Projects-apps/mentat-chat/ui
+    command: ["npm", "run", "dev"]
+    url: http://localhost:5176
+    port: 5176
+    tags: [gui, frontend, vite]
 `
