@@ -9,6 +9,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// HealthCheck defines how Cerberus checks whether a service is alive.
+type HealthCheck struct {
+	URL      string   `yaml:"url,omitempty"`
+	Command  []string `yaml:"command,omitempty"`
+	Interval string   `yaml:"interval,omitempty"`
+	Timeout  string   `yaml:"timeout,omitempty"`
+}
+
 type ServiceDef struct {
 	ID      string            `yaml:"id"`
 	Name    string            `yaml:"name"`
@@ -20,11 +28,23 @@ type ServiceDef struct {
 	URL     string            `yaml:"url,omitempty"`
 	Port    int               `yaml:"port"`
 	Tags    []string          `yaml:"tags,omitempty"`
-	Health  string            `yaml:"health,omitempty"`
 	Build   []string          `yaml:"build,omitempty"`
+
+	// Legacy field — still parsed for backward compat.
+	// If health_check is empty, Health is mapped to HealthCheck.URL.
+	Health string `yaml:"health,omitempty"`
+
+	// New v1 fields
+	HealthCheckCfg HealthCheck `yaml:"health_check,omitempty"`
+	DependsOn      []string    `yaml:"depends_on,omitempty"`
+	AutoStart      bool        `yaml:"auto_start,omitempty"`
+	AutoRestart    bool        `yaml:"auto_restart,omitempty"`
+	RestartDelay   string      `yaml:"restart_delay,omitempty"`
+	Profiles       []string    `yaml:"profiles,omitempty"`
 }
 
 type Config struct {
+	Version  int          `yaml:"version,omitempty"`
 	Services []ServiceDef `yaml:"services"`
 }
 
@@ -44,11 +64,23 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	// Expand ~ in dir paths
+	// Default version to 1 if omitted
+	if cfg.Version == 0 {
+		cfg.Version = 1
+	}
+
 	home, _ := os.UserHomeDir()
 	for i := range cfg.Services {
-		if strings.HasPrefix(cfg.Services[i].Dir, "~/") {
-			cfg.Services[i].Dir = filepath.Join(home, cfg.Services[i].Dir[2:])
+		svc := &cfg.Services[i]
+
+		// Expand ~ in dir paths
+		if strings.HasPrefix(svc.Dir, "~/") {
+			svc.Dir = filepath.Join(home, svc.Dir[2:])
+		}
+
+		// Backward compat: map legacy Health field → HealthCheck.URL
+		if svc.Health != "" && svc.HealthCheckCfg.URL == "" && len(svc.HealthCheckCfg.Command) == 0 {
+			svc.HealthCheckCfg.URL = svc.Health
 		}
 	}
 
@@ -70,6 +102,9 @@ func EnsureDefault() error {
 }
 
 const defaultConfig = `# Cerberus - Tiamat Service Manager
+# Config version (currently 1)
+version: 1
+
 # Port map for Project Tiamat (all unique, no collisions)
 #
 #   Port  | Service
@@ -98,6 +133,15 @@ services:
     port: 8085
     health: http://127.0.0.1:8085/v1/tasks
     tags: [api, daemon, go]
+    # depends_on: [cortex-api]
+    # auto_start: true
+    # auto_restart: true
+    # restart_delay: "5s"
+    # health_check:
+    #   url: http://127.0.0.1:8085/v1/tasks
+    #   interval: "10s"
+    #   timeout: "3s"
+    # profiles: [default, backend]
 
   - id: volon-frontend
     name: "Volon Frontend"
