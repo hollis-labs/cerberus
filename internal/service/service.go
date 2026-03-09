@@ -18,6 +18,8 @@ type Status int
 const (
 	StatusStopped Status = iota
 	StatusRunning
+	StatusHealthy
+	StatusUnhealthy
 	StatusStarting
 	StatusBuilding
 )
@@ -26,6 +28,10 @@ func (s Status) String() string {
 	switch s {
 	case StatusRunning:
 		return "running"
+	case StatusHealthy:
+		return "healthy"
+	case StatusUnhealthy:
+		return "unhealthy"
 	case StatusStarting:
 		return "starting"
 	case StatusBuilding:
@@ -36,15 +42,16 @@ func (s Status) String() string {
 }
 
 type Service struct {
-	Def     config.ServiceDef
-	Status  Status
-	PID     int
-	Uptime  time.Time
-	Error   string
-	logPath    string
-	exited     chan struct{} // closed when the process exits
-	BuildErr   string
-	BuildDone  chan struct{} // closed when build finishes
+	Def          config.ServiceDef
+	Status       Status
+	PID          int
+	Uptime       time.Time
+	Error        string
+	HealthStatus HealthStatus
+	logPath      string
+	exited       chan struct{} // closed when the process exits
+	BuildErr     string
+	BuildDone    chan struct{} // closed when build finishes
 }
 
 func NewFromConfig(cfg *config.Config) []*Service {
