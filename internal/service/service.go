@@ -55,11 +55,25 @@ func NewFromConfig(cfg *config.Config) []*Service {
 	return services
 }
 
-// Poll checks if the service port is in use and updates status/PID.
+// Poll checks if the service is alive. It checks the PID file first for a
+// fast path, then falls back to port-based detection via lsof.
 func (s *Service) Poll() {
 	if s.Status == StatusBuilding {
 		return
 	}
+
+	// Fast path: validate PID file if one exists
+	if pidFromFile, alive := ValidatePIDFile(s.Def.ID); alive {
+		s.PID = pidFromFile
+		if s.Status != StatusRunning {
+			s.Status = StatusRunning
+			s.Uptime = time.Now()
+		}
+		s.Error = ""
+		return
+	}
+
+	// Fall back to port-based detection
 	pid := findPIDByPort(s.Def.Port)
 	if pid > 0 {
 		s.PID = pid
@@ -89,6 +103,8 @@ func (s *Service) Poll() {
 		}
 		s.Status = StatusStopped
 		s.PID = 0
+		// Clean up stale PID file if process is gone
+		_ = RemovePIDFile(s.Def.ID)
 	}
 }
 
@@ -149,6 +165,18 @@ func (s *Service) Start() error {
 	s.Uptime = time.Now()
 	s.Error = ""
 
+	// Write PID file and meta for service tracking
+	if cmd.Process != nil {
+		pid := cmd.Process.Pid
+		_ = WritePIDFile(s.Def.ID, pid)
+		_ = WriteMetaFile(s.Def.ID, PIDMeta{
+			PID:             pid,
+			StartedAt:       s.Uptime,
+			ConfigHash:      ConfigHash(s.Def),
+			CerberusVersion: CerberusVersion,
+		})
+	}
+
 	// Track process exit so we can detect early crashes
 	s.exited = make(chan struct{})
 	go func() {
@@ -156,6 +184,8 @@ func (s *Service) Start() error {
 		if logFile != nil {
 			logFile.Close()
 		}
+		// Clean up PID file on exit
+		_ = RemovePIDFile(s.Def.ID)
 		close(s.exited)
 	}()
 
@@ -248,6 +278,7 @@ func (s *Service) Stop() error {
 
 	s.Status = StatusStopped
 	s.PID = 0
+	_ = RemovePIDFile(s.Def.ID)
 	return nil
 }
 
