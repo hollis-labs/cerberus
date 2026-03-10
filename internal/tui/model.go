@@ -40,6 +40,7 @@ type Model struct {
 	allTags   []string
 	tagIndex  int // current index in allTags for cycling
 	flatItems []flatItem
+	scrollOff int // first visible row index for viewport scrolling
 }
 
 type tickMsg time.Time
@@ -299,6 +300,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setMsg("Stopping all services...")
 		}
 	}
+
+	// Keep scroll offset in sync with cursor
+	m.scrollOff = m.clampedScrollOff(m.maxServiceRows())
 
 	return m, nil
 }
