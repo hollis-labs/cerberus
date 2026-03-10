@@ -153,18 +153,14 @@ func (s *Service) Start() error {
 		}
 	}
 
-	// Run commands through the user's shell so that PATH and other
-	// profile setup (e.g. Homebrew, nvm) are available to child processes.
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-	cmdStr := strings.Join(s.Def.Command, " ")
-	cmd := exec.Command(shell, "-l", "-c", cmdStr)
+	cmd := exec.Command(s.Def.Command[0], s.Def.Command[1:]...)
 	cmd.Dir = s.Def.Dir
 
-	// Build environment: inherit current env, then layer on config
+	// Build environment: inherit current env, then layer on config.
+	// Ensure common tool paths (Homebrew, Go) are in PATH so that
+	// shebang scripts (e.g. npm → #!/usr/bin/env node) can resolve.
 	env := os.Environ()
+	env = ensurePath(env)
 
 	// Load env file if specified
 	if s.Def.EnvFile != "" {
@@ -431,6 +427,38 @@ func (s *Service) BuildSync() (string, error) {
 
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// ensurePath makes sure common macOS tool directories are present in PATH.
+// This prevents "no such file or directory" errors when child processes use
+// shebang scripts that need node, go, etc.
+func ensurePath(env []string) []string {
+	extra := []string{
+		"/opt/homebrew/bin",
+		"/opt/homebrew/sbin",
+		"/usr/local/bin",
+		"/usr/local/go/bin",
+	}
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		extra = append(extra, home+"/go/bin")
+	}
+
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			current := e[5:]
+			for _, dir := range extra {
+				if !strings.Contains(current, dir) {
+					if _, err := os.Stat(dir); err == nil {
+						current = current + ":" + dir
+					}
+				}
+			}
+			env[i] = "PATH=" + current
+			return env
+		}
+	}
+	return env
 }
 
 func loadEnvFile(path string) []string {
