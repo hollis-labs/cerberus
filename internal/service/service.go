@@ -153,7 +153,14 @@ func (s *Service) Start() error {
 		}
 	}
 
-	cmd := exec.Command(s.Def.Command[0], s.Def.Command[1:]...)
+	// Run commands through the user's shell so that PATH and other
+	// profile setup (e.g. Homebrew, nvm) are available to child processes.
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	cmdStr := strings.Join(s.Def.Command, " ")
+	cmd := exec.Command(shell, "-l", "-c", cmdStr)
 	cmd.Dir = s.Def.Dir
 
 	// Build environment: inherit current env, then layer on config
