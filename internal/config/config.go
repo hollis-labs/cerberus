@@ -232,7 +232,7 @@ services:
     name: "Mentat Chat API"
     project: mentat-chat
     dir: ~/Projects-apps/mentat-chat
-    command: ["go", "run", "./cmd/mentat-chat"]
+    command: ["go", "run", "./cmd/mentat-chat", "serve"]
     build: ["go", "build", "-o", "bin/mentat-chat", "./cmd/mentat-chat"]
     url: http://127.0.0.1:8090
     port: 8090
