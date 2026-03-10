@@ -221,6 +221,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+		case "R":
+			if svc := m.selectedService(); svc != nil {
+				if len(svc.Def.Build) == 0 {
+					// No build command — just restart
+					svc.Stop()
+					time.Sleep(500 * time.Millisecond)
+					if err := svc.Start(); err != nil {
+						m.setMsg("Error: " + err.Error())
+					} else {
+						m.setMsg("Restarting " + svc.Def.Name + " (no build configured)...")
+					}
+				} else {
+					m.setMsg("Building " + svc.Def.Name + "...")
+					go func() {
+						out, err := svc.BuildSync()
+						if err != nil {
+							_ = out
+							svc.BuildErr = err.Error()
+							return
+						}
+						svc.Stop()
+						time.Sleep(500 * time.Millisecond)
+						svc.Start()
+					}()
+				}
+			}
+
 		case "enter":
 			if m.grouped && m.cursor >= 0 && m.cursor < len(m.flatItems) {
 				item := m.flatItems[m.cursor]

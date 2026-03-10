@@ -57,6 +57,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(rebuildCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(initCmd)
@@ -400,6 +401,62 @@ func init() {
 	buildCmd.Flags().StringVar(&buildTag, "tag", "", "filter services by tag")
 }
 
+// --- rebuild ---
+
+var rebuildTag string
+
+var rebuildCmd = &cobra.Command{
+	Use:   "rebuild [service...]",
+	Short: "Build then restart services",
+	Long:  "Builds specified services, then stops and restarts them. If build fails, the service is NOT restarted. Use --tag to filter by tag.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		services, err := loadServices()
+		if err != nil {
+			return err
+		}
+
+		targets := filterServices(services, args, rebuildTag)
+		if len(targets) == 0 {
+			fmt.Println("No matching services found.")
+			return nil
+		}
+
+		hasError := false
+		for _, svc := range targets {
+			if len(svc.Def.Build) == 0 {
+				fmt.Printf("%-20s no build command, restarting only...\n", svc.Def.ID)
+			} else {
+				fmt.Printf("%-20s building...\n", svc.Def.ID)
+				out, err := svc.BuildSync()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%-20s build failed, skipping restart:\n%s\n", svc.Def.ID, strings.TrimSpace(out))
+					hasError = true
+					continue
+				}
+				fmt.Printf("%-20s build ok\n", svc.Def.ID)
+			}
+
+			svc.Poll()
+			svc.Stop()
+			time.Sleep(500 * time.Millisecond)
+			if err := svc.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "%-20s start error: %v\n", svc.Def.ID, err)
+				hasError = true
+			} else {
+				fmt.Printf("%-20s restarted\n", svc.Def.ID)
+			}
+		}
+		if hasError {
+			return fmt.Errorf("one or more rebuild-restarts failed")
+		}
+		return nil
+	},
+}
+
+func init() {
+	rebuildCmd.Flags().StringVar(&rebuildTag, "tag", "", "filter services by tag")
+}
+
 // --- validate ---
 
 var validateCmd = &cobra.Command{
@@ -508,6 +565,7 @@ var mcpCmd = &cobra.Command{
 		srv.RegisterTool(mcp.NewCerberusStartTool(services))
 		srv.RegisterTool(mcp.NewCerberusStopTool(services))
 		srv.RegisterTool(mcp.NewCerberusRestartTool(services))
+		srv.RegisterTool(mcp.NewCerberusRebuildTool(services))
 		srv.RegisterTool(mcp.NewCerberusLogsTool(services))
 		srv.RegisterTool(mcp.NewCerberusBuildTool(services))
 		srv.RegisterTool(mcp.NewCerberusHealthTool(services))

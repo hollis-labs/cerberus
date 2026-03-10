@@ -170,6 +170,7 @@ func (m Model) View() string {
 		{"x", "stop"},
 		{"r", "restart"},
 		{"b", "build"},
+		{"R", "rebuild"},
 		{"enter", "open"},
 		{"l", "logs"},
 		{"a", "start all"},

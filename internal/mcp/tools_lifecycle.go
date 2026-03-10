@@ -3,16 +3,18 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/chrispian/cerberus/internal/service"
 )
 
-// lifecycleResult is the JSON response for start/stop/restart operations.
+// lifecycleResult is the JSON response for start/stop/restart/rebuild operations.
 type lifecycleResult struct {
-	Success   bool   `json:"success"`
-	ServiceID string `json:"service_id"`
-	Message   string `json:"message,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Success     bool   `json:"success"`
+	ServiceID   string `json:"service_id"`
+	Message     string `json:"message,omitempty"`
+	BuildOutput string `json:"build_output,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 func marshalResult(r lifecycleResult) string {
@@ -139,7 +141,7 @@ func NewCerberusStopTool(services []*service.Service) Tool {
 func NewCerberusRestartTool(services []*service.Service) Tool {
 	return Tool{
 		Name:        "cerberus_restart",
-		Description: "Restart a Cerberus-managed service (stop then start). Use force=true to proceed with start even if stop fails.",
+		Description: "Restart a Cerberus-managed service (stop then start) without rebuilding. To rebuild before restarting, use cerberus_rebuild instead. Use force=true to proceed with start even if stop fails.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -198,6 +200,80 @@ func NewCerberusRestartTool(services []*service.Service) Tool {
 				Success:   true,
 				ServiceID: serviceID,
 				Message:   fmt.Sprintf("service %q restarted successfully", serviceID),
+			}), nil
+		},
+	}
+}
+
+// NewCerberusRebuildTool creates the cerberus_rebuild tool.
+func NewCerberusRebuildTool(services []*service.Service) Tool {
+	return Tool{
+		Name:        "cerberus_rebuild",
+		Description: "Build then restart a Cerberus-managed service. Runs the build command first; if build succeeds (or force=true), stops and starts the service. If no build command is configured, just restarts.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"service_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The service ID to rebuild and restart.",
+				},
+				"force": map[string]interface{}{
+					"type":        "boolean",
+					"description": "If true, proceed with restart even if build fails. Defaults to false.",
+					"default":     false,
+				},
+			},
+			"required": []string{"service_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			serviceID, _ := args["service_id"].(string)
+			if serviceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "service_id is required",
+				}), nil
+			}
+
+			force, _ := args["force"].(bool)
+
+			svc := findService(services, serviceID)
+			if svc == nil {
+				return marshalResult(lifecycleResult{
+					Success:   false,
+					ServiceID: serviceID,
+					Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", serviceID),
+				}), nil
+			}
+
+			var buildOutput string
+			if len(svc.Def.Build) > 0 {
+				out, err := svc.BuildSync()
+				buildOutput = strings.TrimSpace(out)
+				if err != nil && !force {
+					return marshalResult(lifecycleResult{
+						Success:     false,
+						ServiceID:   serviceID,
+						BuildOutput: buildOutput,
+						Error:       fmt.Sprintf("build failed for %q: %s (use force=true to restart anyway)", serviceID, err.Error()),
+					}), nil
+				}
+			}
+
+			svc.Stop()
+			if err := svc.Start(); err != nil {
+				return marshalResult(lifecycleResult{
+					Success:     false,
+					ServiceID:   serviceID,
+					BuildOutput: buildOutput,
+					Error:       fmt.Sprintf("build succeeded but failed to start %q: %s", serviceID, err.Error()),
+				}), nil
+			}
+
+			return marshalResult(lifecycleResult{
+				Success:     true,
+				ServiceID:   serviceID,
+				BuildOutput: buildOutput,
+				Message:     fmt.Sprintf("service %q rebuilt and restarted successfully", serviceID),
 			}), nil
 		},
 	}
