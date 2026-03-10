@@ -61,28 +61,44 @@ func (m Model) View() string {
 	sep := lipgloss.NewStyle().Foreground(colorDim).Render(strings.Repeat("─", min(m.width, 100)))
 	b.WriteString("  " + sep + "\n")
 
-	// Rows
+	// Rows — viewport scrolling to fit terminal height.
+	maxRows := m.maxServiceRows()
+	scrollOff := m.clampedScrollOff(maxRows)
+
 	if m.grouped {
-		for i, item := range m.flatItems {
-			if item.isHeader {
-				group := m.groups[item.groupIndex]
-				b.WriteString(renderGroupHeader(group, i == m.cursor) + "\n")
-			} else {
-				svc := m.groups[item.groupIndex].Services[item.svcIndex]
-				b.WriteString(m.renderRow(svc, i == m.cursor) + "\n")
-			}
-		}
-		if len(m.flatItems) == 0 {
+		totalItems := len(m.flatItems)
+		if totalItems == 0 {
 			b.WriteString(lipgloss.NewStyle().Foreground(colorDim).PaddingLeft(3).Render("No services match filter") + "\n")
+		} else {
+			end := scrollOff + maxRows
+			if end > totalItems {
+				end = totalItems
+			}
+			for i := scrollOff; i < end; i++ {
+				item := m.flatItems[i]
+				if item.isHeader {
+					group := m.groups[item.groupIndex]
+					b.WriteString(renderGroupHeader(group, i == m.cursor) + "\n")
+				} else {
+					svc := m.groups[item.groupIndex].Services[item.svcIndex]
+					b.WriteString(m.renderRow(svc, i == m.cursor) + "\n")
+				}
+			}
 		}
 	} else {
 		visible := m.visibleServices()
-		for i, svc := range visible {
-			row := m.renderRow(svc, i == m.cursor)
-			b.WriteString(row + "\n")
-		}
-		if len(visible) == 0 {
+		totalItems := len(visible)
+		if totalItems == 0 {
 			b.WriteString(lipgloss.NewStyle().Foreground(colorDim).PaddingLeft(3).Render("No services match filter") + "\n")
+		} else {
+			end := scrollOff + maxRows
+			if end > totalItems {
+				end = totalItems
+			}
+			for i := scrollOff; i < end; i++ {
+				row := m.renderRow(visible[i], i == m.cursor)
+				b.WriteString(row + "\n")
+			}
 		}
 	}
 
@@ -281,6 +297,43 @@ func (m Model) renderRow(svc *service.Service, selected bool) string {
 	}
 
 	return result
+}
+
+// maxServiceRows returns how many service/group rows fit in the terminal.
+func (m Model) maxServiceRows() int {
+	// Fixed chrome: title(2) + headers(1) + sep(1) + spacer(1) + summary(1) +
+	//   message(1) + help(1) + copyright(3) + tag/filter(~1) = ~12-13 lines
+	const chromeLines = 13
+	rows := m.height - chromeLines
+	if rows < 3 {
+		rows = 3
+	}
+	return rows
+}
+
+// clampedScrollOff returns a scroll offset that keeps the cursor visible.
+func (m Model) clampedScrollOff(maxRows int) int {
+	var total int
+	if m.grouped {
+		total = len(m.flatItems)
+	} else {
+		total = len(m.visibleServices())
+	}
+
+	off := m.scrollOff
+	if m.cursor < off {
+		off = m.cursor
+	}
+	if m.cursor >= off+maxRows {
+		off = m.cursor - maxRows + 1
+	}
+	if total > maxRows && off > total-maxRows {
+		off = total - maxRows
+	}
+	if off < 0 {
+		off = 0
+	}
+	return off
 }
 
 func min(a, b int) int {
