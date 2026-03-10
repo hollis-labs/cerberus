@@ -232,7 +232,7 @@ services:
     name: "app-f Chat API"
     project: app-f-chat
     dir: ~/src/app-f-chat
-    command: ["go", "run", "./cmd/app-f-chat"]
+    command: ["go", "run", "./cmd/app-f-chat", "serve"]
     build: ["go", "build", "-o", "bin/app-f-chat", "./cmd/app-f-chat"]
     url: http://127.0.0.1:8090
     port: 8090
