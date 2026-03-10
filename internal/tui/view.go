@@ -65,8 +65,11 @@ func (m Model) View() string {
 	maxRows := m.maxServiceRows()
 	scrollOff := m.clampedScrollOff(maxRows)
 
+	var rows []string
+	var totalItems int
+
 	if m.grouped {
-		totalItems := len(m.flatItems)
+		totalItems = len(m.flatItems)
 		if totalItems == 0 {
 			b.WriteString(lipgloss.NewStyle().Foreground(colorDim).PaddingLeft(3).Render("No services match filter") + "\n")
 		} else {
@@ -78,16 +81,16 @@ func (m Model) View() string {
 				item := m.flatItems[i]
 				if item.isHeader {
 					group := m.groups[item.groupIndex]
-					b.WriteString(renderGroupHeader(group, i == m.cursor) + "\n")
+					rows = append(rows, renderGroupHeader(group, i == m.cursor))
 				} else {
 					svc := m.groups[item.groupIndex].Services[item.svcIndex]
-					b.WriteString(m.renderRow(svc, i == m.cursor) + "\n")
+					rows = append(rows, m.renderRow(svc, i == m.cursor))
 				}
 			}
 		}
 	} else {
 		visible := m.visibleServices()
-		totalItems := len(visible)
+		totalItems = len(visible)
 		if totalItems == 0 {
 			b.WriteString(lipgloss.NewStyle().Foreground(colorDim).PaddingLeft(3).Render("No services match filter") + "\n")
 		} else {
@@ -96,9 +99,16 @@ func (m Model) View() string {
 				end = totalItems
 			}
 			for i := scrollOff; i < end; i++ {
-				row := m.renderRow(visible[i], i == m.cursor)
-				b.WriteString(row + "\n")
+				rows = append(rows, m.renderRow(visible[i], i == m.cursor))
 			}
+		}
+	}
+
+	// Render rows with optional scrollbar
+	if len(rows) > 0 {
+		scrollbar := buildScrollbar(len(rows), totalItems, scrollOff)
+		for i, row := range rows {
+			b.WriteString(row + scrollbar[i] + "\n")
 		}
 	}
 
@@ -334,6 +344,42 @@ func (m Model) clampedScrollOff(maxRows int) int {
 		off = 0
 	}
 	return off
+}
+
+// buildScrollbar returns a string slice with a scrollbar character for each
+// visible row. If all items fit on screen, returns empty strings (no bar).
+func buildScrollbar(viewportSize, totalItems, scrollOff int) []string {
+	result := make([]string, viewportSize)
+
+	if totalItems <= viewportSize {
+		// Everything fits — no scrollbar needed
+		for i := range result {
+			result[i] = ""
+		}
+		return result
+	}
+
+	trackStyle := lipgloss.NewStyle().Foreground(colorDim)
+	thumbStyle := lipgloss.NewStyle().Foreground(colorAccent)
+
+	// Calculate thumb position and size
+	thumbSize := viewportSize * viewportSize / totalItems
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
+	thumbPos := scrollOff * viewportSize / totalItems
+	if thumbPos+thumbSize > viewportSize {
+		thumbPos = viewportSize - thumbSize
+	}
+
+	for i := range result {
+		if i >= thumbPos && i < thumbPos+thumbSize {
+			result[i] = " " + thumbStyle.Render("┃")
+		} else {
+			result[i] = " " + trackStyle.Render("│")
+		}
+	}
+	return result
 }
 
 func min(a, b int) int {
