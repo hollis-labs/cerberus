@@ -40,6 +40,7 @@ type ServiceDef struct {
 	AutoStart      bool        `yaml:"auto_start,omitempty"`
 	AutoRestart    bool        `yaml:"auto_restart,omitempty"`
 	RestartDelay   string      `yaml:"restart_delay,omitempty"`
+	LogFile        string      `yaml:"log_file,omitempty"`
 	Profiles       []string    `yaml:"profiles,omitempty"`
 }
 
@@ -76,6 +77,11 @@ func Load(path string) (*Config, error) {
 		// Expand ~ in dir paths
 		if strings.HasPrefix(svc.Dir, "~/") {
 			svc.Dir = filepath.Join(home, svc.Dir[2:])
+		}
+
+		// Expand ~ in log_file paths
+		if strings.HasPrefix(svc.LogFile, "~/") {
+			svc.LogFile = filepath.Join(home, svc.LogFile[2:])
 		}
 
 		// Backward compat: map legacy Health field → HealthCheck.URL
