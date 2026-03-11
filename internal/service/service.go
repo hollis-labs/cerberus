@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -186,8 +187,15 @@ func (s *Service) Start() error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Redirect output to log file
-	logDir := os.TempDir()
-	s.logPath = fmt.Sprintf("%s/cerberus-%s.log", logDir, s.Def.ID)
+	if s.Def.LogFile != "" {
+		// Ensure parent directory exists for custom log paths
+		if dir := filepath.Dir(s.Def.LogFile); dir != "" {
+			_ = os.MkdirAll(dir, 0755)
+		}
+		s.logPath = s.Def.LogFile
+	} else {
+		s.logPath = fmt.Sprintf("%s/cerberus-%s.log", os.TempDir(), s.Def.ID)
+	}
 	logFile, err := os.Create(s.logPath)
 	if err == nil {
 		cmd.Stdout = logFile
