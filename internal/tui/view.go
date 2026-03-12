@@ -12,6 +12,7 @@ import (
 // Column widths for consistent alignment
 const (
 	colWidthName   = 20
+	colWidthFlags  = 4
 	colWidthStatus = 12
 	colWidthHealth = 10
 	colWidthPort   = 6
@@ -49,6 +50,7 @@ func (m Model) View() string {
 
 	headers := "  " +
 		cell(colWidthName, colHeaderStyle.Render("SERVICE"+sortIndicator(sortName))) +
+		cell(colWidthFlags, colHeaderStyle.Render("FL")) +
 		cell(colWidthStatus, colHeaderStyle.Render("STATUS"+sortIndicator(sortStatus))) +
 		cell(colWidthHealth, colHeaderStyle.Render("HEALTH")) +
 		cell(colWidthPort, colHeaderStyle.Render("PORT"+sortIndicator(sortPort))) +
@@ -188,7 +190,7 @@ func (m Model) View() string {
 	b.WriteString(footerStyle.Render(strings.Join(helpParts, "  ")) + "\n")
 
 	// Copyright + version
-	contentWidth := colWidthName + colWidthStatus + colWidthHealth + colWidthPort + colWidthURL + colWidthPID + colWidthAction + 4
+	contentWidth := colWidthName + colWidthFlags + colWidthStatus + colWidthHealth + colWidthPort + colWidthURL + colWidthPID + colWidthAction + 4
 	copyLine := "(c) HOLLIS LABS"
 	versionLine := fmt.Sprintf("cerberus %s (built %s)", m.version, m.buildDate)
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
@@ -256,8 +258,10 @@ func (m Model) renderRow(svc *service.Service, selected bool) string {
 
 	// URL
 	urlStr := svc.Def.URL
-	if urlStr == "" {
+	if urlStr == "" && svc.Def.Port > 0 {
 		urlStr = fmt.Sprintf(":%d", svc.Def.Port)
+	} else if urlStr == "" {
+		urlStr = "—"
 	}
 
 	// Action hint
@@ -276,11 +280,24 @@ func (m Model) renderRow(svc *service.Service, selected bool) string {
 		cursor = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("▸ ")
 	}
 
+	// Flags: P=protected, A=auto-restart
+	dimFlag := lipgloss.NewStyle().Foreground(colorDim)
+	pFlag := dimFlag.Render("P")
+	if svc.Def.Protected {
+		pFlag = lipgloss.NewStyle().Foreground(colorRed).Render("P")
+	}
+	aFlag := dimFlag.Render("A")
+	if svc.Def.AutoRestart {
+		aFlag = lipgloss.NewStyle().Foreground(colorBlue).Render("A")
+	}
+	flagsStr := pFlag + aFlag
+
 	row := cursor +
 		cell(colWidthName, svc.Def.Name) +
+		cell(colWidthFlags, flagsStr) +
 		cell(colWidthStatus, statusStr) +
 		cell(colWidthHealth, healthStr) +
-		cell(colWidthPort, fmt.Sprintf("%d", svc.Def.Port)) +
+		cell(colWidthPort, func() string { if svc.Def.Port > 0 { return fmt.Sprintf("%d", svc.Def.Port) }; return "—" }()) +
 		cell(colWidthURL, lipgloss.NewStyle().Foreground(colorDim).Render(urlStr)) +
 		cell(colWidthPID, pidStr) +
 		cell(colWidthAction, action)

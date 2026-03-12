@@ -1,17 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/daemon"
 	"github.com/chrispian/cerberus/internal/mcp"
 	"github.com/chrispian/cerberus/internal/service"
 	"github.com/chrispian/cerberus/internal/tui"
@@ -61,6 +64,7 @@ func init() {
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(mcpCmd)
 }
 
@@ -551,6 +555,72 @@ var initCmd = &cobra.Command{
 	},
 }
 
+// --- daemon ---
+
+var daemonCmd = &cobra.Command{
+	Use:   "daemon",
+	Short: "Run daemon mode with health monitoring",
+	Long:  "Starts Cerberus in daemon mode with health monitoring and auto-restart capabilities. Runs both MCP server and health monitor.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		services, err := loadServices()
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+
+		// Start health monitor
+		monitorConfig := daemon.DefaultMonitorConfig()
+		monitor := daemon.NewMonitor(services, monitorConfig)
+
+		var wg sync.WaitGroup
+
+		// Start monitor in background
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := monitor.Run(ctx); err != nil && err != context.Canceled {
+				fmt.Fprintf(os.Stderr, "Monitor error: %v\n", err)
+			}
+		}()
+
+		// Start MCP server in background
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			srv := mcp.NewServer("cerberus", "0.1.0")
+			srv.RegisterTool(mcp.NewCerberusStatusTool(services, monitor))
+			srv.RegisterTool(mcp.NewCerberusStartTool(services))
+			srv.RegisterTool(mcp.NewCerberusStopTool(services))
+			srv.RegisterTool(mcp.NewCerberusRestartTool(services))
+			srv.RegisterTool(mcp.NewCerberusRebuildTool(services))
+			srv.RegisterTool(mcp.NewCerberusLogsTool(services))
+			srv.RegisterTool(mcp.NewCerberusBuildTool(services))
+			srv.RegisterTool(mcp.NewCerberusHealthTool(services, monitor))
+
+			if err := srv.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
+			}
+		}()
+
+		fmt.Println("Cerberus daemon started - health monitoring and MCP server active")
+		fmt.Println("Press Ctrl+C to stop...")
+
+		// Wait for shutdown signal
+		<-ctx.Done()
+		fmt.Println("Shutting down...")
+
+		// Stop monitor gracefully
+		monitor.Stop()
+
+		// Wait for all goroutines to finish
+		wg.Wait()
+
+		return nil
+	},
+}
+
 // --- mcp ---
 
 var mcpCmd = &cobra.Command{
@@ -564,14 +634,14 @@ var mcpCmd = &cobra.Command{
 		}
 
 		srv := mcp.NewServer("cerberus", "0.1.0")
-		srv.RegisterTool(mcp.NewCerberusStatusTool(services))
+		srv.RegisterTool(mcp.NewCerberusStatusTool(services, nil))
 		srv.RegisterTool(mcp.NewCerberusStartTool(services))
 		srv.RegisterTool(mcp.NewCerberusStopTool(services))
 		srv.RegisterTool(mcp.NewCerberusRestartTool(services))
 		srv.RegisterTool(mcp.NewCerberusRebuildTool(services))
 		srv.RegisterTool(mcp.NewCerberusLogsTool(services))
 		srv.RegisterTool(mcp.NewCerberusBuildTool(services))
-		srv.RegisterTool(mcp.NewCerberusHealthTool(services))
+		srv.RegisterTool(mcp.NewCerberusHealthTool(services, nil))
 
 		return srv.Run()
 	},

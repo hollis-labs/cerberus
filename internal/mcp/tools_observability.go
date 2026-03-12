@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/chrispian/cerberus/internal/daemon"
 	"github.com/chrispian/cerberus/internal/service"
 )
 
@@ -230,11 +231,21 @@ type healthEntry struct {
 	ConsecutiveFailures int    `json:"consecutive_failures"`
 }
 
+// healthResponse is the full JSON response including daemon-level status.
+type healthResponse struct {
+	Services         []healthEntry `json:"services"`
+	DaemonRunning    bool          `json:"daemon_running"`
+	MonitorInterval  string        `json:"monitor_interval,omitempty"`
+	ServicesProtected int          `json:"services_protected"`
+	ServicesFailed   int          `json:"services_failed"`
+}
+
 // NewCerberusHealthTool creates the cerberus_health tool.
-func NewCerberusHealthTool(services []*service.Service) Tool {
+// If monitor is non-nil, daemon-level health statistics are included.
+func NewCerberusHealthTool(services []*service.Service, monitor *daemon.Monitor) Tool {
 	return Tool{
 		Name:        "cerberus_health",
-		Description: "Returns health check results for one or all services.",
+		Description: "Returns health check results for one or all services, plus daemon monitor status.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -280,7 +291,40 @@ func NewCerberusHealthTool(services []*service.Service) Tool {
 				return "", fmt.Errorf("unknown service: %s", filterID)
 			}
 
-			data, err := json.MarshalIndent(entries, "", "  ")
+			// Build response with daemon-level fields
+			response := healthResponse{
+				Services: entries,
+			}
+
+			// Add daemon status if monitor is available
+			if monitor != nil {
+				monStatus := monitor.GetStatus()
+				response.DaemonRunning = monStatus.Running
+				response.MonitorInterval = monStatus.CheckInterval.String()
+
+				// Count protected services and failed services
+				protectedCount := 0
+				failedCount := 0
+				for _, svc := range services {
+					if svc.Def.Protected {
+						protectedCount++
+					}
+					if stats, hasStats := monStatus.ServiceStats[svc.Def.ID]; hasStats {
+						// Determine max attempts for this service
+						maxAttempts := 3 // default
+						if svc.Def.MaxRestartAttempts > 0 {
+							maxAttempts = svc.Def.MaxRestartAttempts
+						}
+						if stats.FailureCount >= maxAttempts {
+							failedCount++
+						}
+					}
+				}
+				response.ServicesProtected = protectedCount
+				response.ServicesFailed = failedCount
+			}
+
+			data, err := json.MarshalIndent(response, "", "  ")
 			if err != nil {
 				return "", err
 			}

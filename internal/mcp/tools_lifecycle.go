@@ -17,6 +17,57 @@ type lifecycleResult struct {
 	Error       string `json:"error,omitempty"`
 }
 
+// auditContext captures who requested a destructive lifecycle operation and why.
+type auditContext struct {
+	Reason    string `json:"reason"`
+	TaskID    string `json:"task_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// extractAudit reads the audit fields from MCP tool args.
+// Returns the audit context and an error string if reason is missing.
+func extractAudit(args map[string]interface{}) (auditContext, string) {
+	ac := auditContext{
+		Reason:    strings.TrimSpace(fmt.Sprintf("%v", args["reason"])),
+		TaskID:    strings.TrimSpace(fmt.Sprintf("%v", args["task_id"])),
+		SessionID: strings.TrimSpace(fmt.Sprintf("%v", args["session_id"])),
+	}
+	// Clean up "<nil>" from missing optional fields
+	if ac.TaskID == "<nil>" {
+		ac.TaskID = ""
+	}
+	if ac.SessionID == "<nil>" {
+		ac.SessionID = ""
+	}
+	if ac.Reason == "" || ac.Reason == "<nil>" {
+		return ac, "reason is required for destructive operations (stop/restart/rebuild). Provide a short explanation of why this service needs to be stopped."
+	}
+	return ac, ""
+}
+
+// auditProperties returns the shared InputSchema properties for audit fields.
+func auditProperties() map[string]interface{} {
+	return map[string]interface{}{
+		"reason": map[string]interface{}{
+			"type":        "string",
+			"description": "REQUIRED. Why this service is being stopped/restarted/rebuilt. Include context so operators can understand the intent.",
+		},
+		"task_id": map[string]interface{}{
+			"type":        "string",
+			"description": "The Volon task ID that initiated this operation (e.g. TASK-20260312-61233).",
+		},
+		"session_id": map[string]interface{}{
+			"type":        "string",
+			"description": "The agent session or conversation ID.",
+		},
+	}
+}
+
+// logAudit writes an audit entry to the Cerberus lifecycle log.
+func logAudit(operation, serviceID string, ac auditContext) {
+	service.LogAudit(operation, serviceID, ac.Reason, ac.TaskID, ac.SessionID)
+}
+
 func marshalResult(r lifecycleResult) string {
 	data, _ := json.MarshalIndent(r, "", "  ")
 	return string(data)
@@ -89,18 +140,23 @@ func NewCerberusStartTool(services []*service.Service) Tool {
 
 // NewCerberusStopTool creates the cerberus_stop tool.
 func NewCerberusStopTool(services []*service.Service) Tool {
+	props := map[string]interface{}{
+		"service_id": map[string]interface{}{
+			"type":        "string",
+			"description": "The service ID to stop.",
+		},
+	}
+	for k, v := range auditProperties() {
+		props[k] = v
+	}
+
 	return Tool{
 		Name:        "cerberus_stop",
-		Description: "Stop a Cerberus-managed service by ID. Sends SIGTERM and waits briefly before force-killing.",
+		Description: "Stop a Cerberus-managed service by ID. Sends SIGTERM and waits briefly before force-killing. Requires a reason explaining why the service is being stopped.",
 		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"service_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The service ID to stop.",
-				},
-			},
-			"required": []string{"service_id"},
+			"type":       "object",
+			"properties": props,
+			"required":   []string{"service_id", "reason"},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
 			serviceID, _ := args["service_id"].(string)
@@ -108,6 +164,15 @@ func NewCerberusStopTool(services []*service.Service) Tool {
 				return marshalResult(lifecycleResult{
 					Success: false,
 					Error:   "service_id is required",
+				}), nil
+			}
+
+			audit, auditErr := extractAudit(args)
+			if auditErr != "" {
+				return marshalResult(lifecycleResult{
+					Success:   false,
+					ServiceID: serviceID,
+					Error:     auditErr,
 				}), nil
 			}
 
@@ -120,6 +185,17 @@ func NewCerberusStopTool(services []*service.Service) Tool {
 				}), nil
 			}
 
+			// Check if service is protected
+			if svc.Def.Protected {
+				return marshalResult(lifecycleResult{
+					Success:   false,
+					ServiceID: serviceID,
+					Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", serviceID),
+				}), nil
+			}
+
+			logAudit("stop", serviceID, audit)
+
 			if err := svc.Stop(); err != nil {
 				return marshalResult(lifecycleResult{
 					Success:   false,
@@ -131,7 +207,7 @@ func NewCerberusStopTool(services []*service.Service) Tool {
 			return marshalResult(lifecycleResult{
 				Success:   true,
 				ServiceID: serviceID,
-				Message:   fmt.Sprintf("service %q stopped successfully", serviceID),
+				Message:   fmt.Sprintf("service %q stopped successfully (reason: %s)", serviceID, audit.Reason),
 			}), nil
 		},
 	}
@@ -139,23 +215,28 @@ func NewCerberusStopTool(services []*service.Service) Tool {
 
 // NewCerberusRestartTool creates the cerberus_restart tool.
 func NewCerberusRestartTool(services []*service.Service) Tool {
+	props := map[string]interface{}{
+		"service_id": map[string]interface{}{
+			"type":        "string",
+			"description": "The service ID to restart.",
+		},
+		"force": map[string]interface{}{
+			"type":        "boolean",
+			"description": "If true, proceed with start even if stop returns an error (e.g. service already stopped). Defaults to false.",
+			"default":     false,
+		},
+	}
+	for k, v := range auditProperties() {
+		props[k] = v
+	}
+
 	return Tool{
 		Name:        "cerberus_restart",
-		Description: "Restart a Cerberus-managed service (stop then start) without rebuilding. To rebuild before restarting, use cerberus_rebuild instead. Use force=true to proceed with start even if stop fails.",
+		Description: "Restart a Cerberus-managed service (stop then start) without rebuilding. To rebuild before restarting, use cerberus_rebuild instead. Requires a reason explaining why the service is being restarted.",
 		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"service_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The service ID to restart.",
-				},
-				"force": map[string]interface{}{
-					"type":        "boolean",
-					"description": "If true, proceed with start even if stop returns an error (e.g. service already stopped). Defaults to false.",
-					"default":     false,
-				},
-			},
-			"required": []string{"service_id"},
+			"type":       "object",
+			"properties": props,
+			"required":   []string{"service_id", "reason"},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
 			serviceID, _ := args["service_id"].(string)
@@ -163,6 +244,15 @@ func NewCerberusRestartTool(services []*service.Service) Tool {
 				return marshalResult(lifecycleResult{
 					Success: false,
 					Error:   "service_id is required",
+				}), nil
+			}
+
+			audit, auditErr := extractAudit(args)
+			if auditErr != "" {
+				return marshalResult(lifecycleResult{
+					Success:   false,
+					ServiceID: serviceID,
+					Error:     auditErr,
 				}), nil
 			}
 
@@ -176,6 +266,17 @@ func NewCerberusRestartTool(services []*service.Service) Tool {
 					Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", serviceID),
 				}), nil
 			}
+
+			// Check if service is protected
+			if svc.Def.Protected {
+				return marshalResult(lifecycleResult{
+					Success:   false,
+					ServiceID: serviceID,
+					Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", serviceID),
+				}), nil
+			}
+
+			logAudit("restart", serviceID, audit)
 
 			if err := svc.Stop(); err != nil {
 				if !force {
@@ -199,7 +300,7 @@ func NewCerberusRestartTool(services []*service.Service) Tool {
 			return marshalResult(lifecycleResult{
 				Success:   true,
 				ServiceID: serviceID,
-				Message:   fmt.Sprintf("service %q restarted successfully", serviceID),
+				Message:   fmt.Sprintf("service %q restarted successfully (reason: %s)", serviceID, audit.Reason),
 			}), nil
 		},
 	}
@@ -207,23 +308,28 @@ func NewCerberusRestartTool(services []*service.Service) Tool {
 
 // NewCerberusRebuildTool creates the cerberus_rebuild tool.
 func NewCerberusRebuildTool(services []*service.Service) Tool {
+	props := map[string]interface{}{
+		"service_id": map[string]interface{}{
+			"type":        "string",
+			"description": "The service ID to rebuild and restart.",
+		},
+		"force": map[string]interface{}{
+			"type":        "boolean",
+			"description": "If true, proceed with restart even if build fails. Defaults to false.",
+			"default":     false,
+		},
+	}
+	for k, v := range auditProperties() {
+		props[k] = v
+	}
+
 	return Tool{
 		Name:        "cerberus_rebuild",
-		Description: "Build then restart a Cerberus-managed service. Runs the build command first; if build succeeds (or force=true), stops and starts the service. If no build command is configured, just restarts.",
+		Description: "Build then restart a Cerberus-managed service. Runs the build command first; if build succeeds (or force=true), stops and starts the service. Requires a reason explaining why the service is being rebuilt.",
 		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"service_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The service ID to rebuild and restart.",
-				},
-				"force": map[string]interface{}{
-					"type":        "boolean",
-					"description": "If true, proceed with restart even if build fails. Defaults to false.",
-					"default":     false,
-				},
-			},
-			"required": []string{"service_id"},
+			"type":       "object",
+			"properties": props,
+			"required":   []string{"service_id", "reason"},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
 			serviceID, _ := args["service_id"].(string)
@@ -231,6 +337,15 @@ func NewCerberusRebuildTool(services []*service.Service) Tool {
 				return marshalResult(lifecycleResult{
 					Success: false,
 					Error:   "service_id is required",
+				}), nil
+			}
+
+			audit, auditErr := extractAudit(args)
+			if auditErr != "" {
+				return marshalResult(lifecycleResult{
+					Success:   false,
+					ServiceID: serviceID,
+					Error:     auditErr,
 				}), nil
 			}
 
@@ -244,6 +359,17 @@ func NewCerberusRebuildTool(services []*service.Service) Tool {
 					Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", serviceID),
 				}), nil
 			}
+
+			// Check if service is protected
+			if svc.Def.Protected {
+				return marshalResult(lifecycleResult{
+					Success:   false,
+					ServiceID: serviceID,
+					Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", serviceID),
+				}), nil
+			}
+
+			logAudit("rebuild", serviceID, audit)
 
 			var buildOutput string
 			if len(svc.Def.Build) > 0 {
@@ -273,7 +399,7 @@ func NewCerberusRebuildTool(services []*service.Service) Tool {
 				Success:     true,
 				ServiceID:   serviceID,
 				BuildOutput: buildOutput,
-				Message:     fmt.Sprintf("service %q rebuilt and restarted successfully", serviceID),
+				Message:     fmt.Sprintf("service %q rebuilt and restarted successfully (reason: %s)", serviceID, audit.Reason),
 			}), nil
 		},
 	}
