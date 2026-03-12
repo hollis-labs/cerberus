@@ -233,22 +233,22 @@ services:
     port: 7765
     tags: [gui, desktop, wails]
 
-  # --- Mentat Chat ---
+  # --- Mentat ---
   - id: mentat-api
-    name: "Mentat Chat API"
-    project: mentat-chat
-    dir: ~/Projects-apps/mentat-chat
-    command: ["go", "run", "./cmd/mentat-chat", "serve"]
-    build: ["go", "build", "-o", "bin/mentat-chat", "./cmd/mentat-chat"]
+    name: "Mentat API"
+    project: mentat
+    dir: ~/Projects-apps/mentat
+    command: ["go", "run", "./cmd/mentat", "serve"]
+    build: ["go", "build", "-o", "bin/mentat", "./cmd/mentat"]
     url: http://127.0.0.1:8090
     port: 8090
     health: http://127.0.0.1:8090/api/health
     tags: [api, go]
 
   - id: mentat-frontend
-    name: "Mentat Chat Frontend"
-    project: mentat-chat
-    dir: ~/Projects-apps/mentat-chat/ui
+    name: "Mentat Frontend"
+    project: mentat
+    dir: ~/Projects-apps/mentat/ui
     command: ["npm", "run", "dev"]
     url: http://localhost:5176
     port: 5176
