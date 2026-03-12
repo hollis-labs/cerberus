@@ -233,22 +233,22 @@ services:
     port: 7765
     tags: [gui, desktop, wails]
 
-  # --- app-f Chat ---
+  # --- app-f ---
   - id: app-f-api
-    name: "app-f Chat API"
-    project: app-f-chat
-    dir: ~/src/app-f-chat
-    command: ["go", "run", "./cmd/app-f-chat", "serve"]
-    build: ["go", "build", "-o", "bin/app-f-chat", "./cmd/app-f-chat"]
+    name: "app-f API"
+    project: app-f
+    dir: ~/src/app-f
+    command: ["go", "run", "./cmd/app-f", "serve"]
+    build: ["go", "build", "-o", "bin/app-f", "./cmd/app-f"]
     url: http://127.0.0.1:8090
     port: 8090
     health: http://127.0.0.1:8090/api/health
     tags: [api, go]
 
   - id: app-f-frontend
-    name: "app-f Chat Frontend"
-    project: app-f-chat
-    dir: ~/src/app-f-chat/ui
+    name: "app-f Frontend"
+    project: app-f
+    dir: ~/src/app-f/ui
     command: ["npm", "run", "dev"]
     url: http://localhost:5176
     port: 5176
