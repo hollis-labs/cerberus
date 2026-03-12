@@ -36,11 +36,16 @@ func NewRestartPolicy(svc *Service) *RestartPolicy {
 		}
 	}
 
+	maxRetries := 5 // default
+	if svc.Def.MaxRestartAttempts > 0 {
+		maxRetries = svc.Def.MaxRestartAttempts
+	}
+
 	return &RestartPolicy{
 		Enabled:      svc.Def.AutoRestart,
 		InitialDelay: initialDelay,
 		MaxDelay:     60 * time.Second,
-		MaxRetries:   5,
+		MaxRetries:   maxRetries,
 		currentDelay: initialDelay,
 		stopCh:       make(chan struct{}),
 	}

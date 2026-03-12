@@ -70,11 +70,15 @@ services:
     port: 8080                    # used for status polling (lsof)
     health: http://127.0.0.1:8080/v1/health/readiness
     tags: [api, daemon, go]       # filterable with /
+    protected: true               # blocks external stop/restart via MCP
+    auto_restart: true            # daemon monitor restarts if crashed
 ```
+
+**Never set `port: 0`** — omit the field entirely for services without a port. `lsof -ti :0` returns random system PIDs, causing false "running" status.
 
 ## Status Detection
 
-Polls every 2 seconds via `lsof -ti :<port>`. Shows PID, uptime, and color-coded status (green=running, red=stopped, yellow=starting/building). If a process crashes on start, the last line of its log is shown as the error.
+Uses PID file as primary detection (written on start, validated with signal 0). Falls back to `lsof -ti :<port>` only for services with a port configured. Polls every 2 seconds. Shows PID, uptime, and color-coded status (green=running, red=stopped, yellow=starting/building). If a process crashes on start, the last line of its log is shown as the error.
 
 ## Logs
 

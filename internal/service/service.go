@@ -429,7 +429,16 @@ func (s *Service) Stop() error {
 	return nil
 }
 
+// findPIDByPort uses lsof to find the PID of a process listening on the given port.
+//
+// WARNING: port 0 MUST be rejected. `lsof -ti :0` returns arbitrary system
+// processes (e.g. identityservicesd, mDNSResponder) causing false-positive
+// "running" status in the TUI. This was a recurring bug — do NOT remove
+// the port <= 0 guard.
 func findPIDByPort(port int) int {
+	if port <= 0 {
+		return 0
+	}
 	// Use lsof to find process listening on the port
 	out, err := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", port)).Output()
 	if err != nil {
@@ -486,6 +495,11 @@ func (s *Service) LogPath() string {
 		return fmt.Sprintf("%s/cerberus-%s.log", os.TempDir(), s.Def.ID)
 	}
 	return s.logPath
+}
+
+// IsProtected returns true if this service is protected from external stop/restart operations.
+func (s *Service) IsProtected() bool {
+	return s.Def.Protected
 }
 
 // BuildSync runs the service's build command synchronously (blocking).

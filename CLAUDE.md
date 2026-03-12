@@ -22,7 +22,31 @@ go test ./...
 
 ## Architecture
 
-- `cmd/cerberus/` — Entry point, TUI application
+- `cmd/cerberus/` — Entry point, TUI application, daemon mode
 - `internal/config/` — Configuration loading and service definitions
 - `internal/service/` — Service lifecycle management (start/stop/monitor)
+- `internal/daemon/` — Health monitor, auto-restart, alerting
+- `internal/mcp/` — MCP tools (status, health, lifecycle)
 - `internal/tui/` — Bubble Tea TUI models and views
+
+## CRITICAL: Never Set port: 0
+
+**Do NOT set `port: 0` on any service in the config.** Omit the `port` field entirely for services that don't listen on a TCP port (CLIs, daemons without HTTP, build-only entries).
+
+**Why:** Cerberus uses `lsof -ti :<port>` for status detection. `lsof -ti :0` returns arbitrary macOS system PIDs (identityservicesd, mDNSResponder, etc.), causing false-positive "running" status in the TUI and daemon monitor. This has caused repeated incidents.
+
+**Correct:**
+```yaml
+- id: my-daemon
+  command: ["./my-daemon"]
+  # No port field — detection uses PID file only
+  tags: [daemon]
+```
+
+**Wrong:**
+```yaml
+- id: my-daemon
+  command: ["./my-daemon"]
+  port: 0        # NEVER do this
+  tags: [daemon]
+```
