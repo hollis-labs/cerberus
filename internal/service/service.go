@@ -86,7 +86,31 @@ func (s *Service) Poll() {
 		return
 	}
 
-	// Fall back to port-based detection — only trust during grace period
+	// Fall back to port-based detection — skip if no port configured
+	if s.Def.Port <= 0 {
+		if s.Status == StatusStarting {
+			if s.exited != nil {
+				select {
+				case <-s.exited:
+					s.Status = StatusStopped
+					s.Error = s.tailLog()
+					return
+				default:
+				}
+			}
+			if time.Since(s.Uptime) > 30*time.Second {
+				s.Status = StatusStopped
+				s.Error = "start timeout"
+			}
+			return
+		}
+		s.Status = StatusStopped
+		s.PID = 0
+		_ = RemovePIDFile(s.Def.ID)
+		return
+	}
+
+	// Port-based detection — only trust during startup grace period
 	pid := findPIDByPort(s.Def.Port)
 	if pid > 0 && s.Status == StatusStarting {
 		// Grace period: process probably just started and PID file hasn't
@@ -99,8 +123,11 @@ func (s *Service) Poll() {
 		s.Error = ""
 	} else if pid > 0 {
 		// Port is occupied but we have no PID file — not our process.
-		llog().Warn("poll.untracked", "service", s.Def.ID, "port", s.Def.Port,
-			"pid", pid, "process", processName(pid))
+		// Log once, not on every poll cycle.
+		if s.Status != StatusStopped {
+			llog().Warn("poll.untracked", "service", s.Def.ID, "port", s.Def.Port,
+				"pid", pid, "process", processName(pid))
+		}
 		s.Status = StatusStopped
 		s.PID = 0
 		_ = RemovePIDFile(s.Def.ID)
