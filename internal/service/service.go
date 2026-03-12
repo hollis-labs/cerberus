@@ -86,15 +86,24 @@ func (s *Service) Poll() {
 		return
 	}
 
-	// Fall back to port-based detection
+	// Fall back to port-based detection — only trust during grace period
 	pid := findPIDByPort(s.Def.Port)
-	if pid > 0 {
+	if pid > 0 && s.Status == StatusStarting {
+		// Grace period: process probably just started and PID file hasn't
+		// been written yet, or was cleaned up prematurely. Adopt it and
+		// write a PID file so the fast-path works next time.
 		s.PID = pid
-		if s.Status != StatusRunning && s.Status != StatusHealthy && s.Status != StatusUnhealthy {
-			s.Status = StatusRunning
-			s.Uptime = time.Now()
-		}
+		_ = WritePIDFile(s.Def.ID, pid)
+		s.Status = StatusRunning
+		s.Uptime = time.Now()
 		s.Error = ""
+	} else if pid > 0 {
+		// Port is occupied but we have no PID file — not our process.
+		llog().Warn("poll.untracked", "service", s.Def.ID, "port", s.Def.Port,
+			"pid", pid, "process", processName(pid))
+		s.Status = StatusStopped
+		s.PID = 0
+		_ = RemovePIDFile(s.Def.ID)
 	} else {
 		if s.Status == StatusStarting {
 			// Check if process already exited (crashed on start)
@@ -214,6 +223,8 @@ func (s *Service) Start() error {
 	// Write PID file and meta for service tracking
 	if cmd.Process != nil {
 		pid := cmd.Process.Pid
+		llog().Info("service.start", "service", s.Def.ID, "pid", pid,
+			"port", s.Def.Port, "command", strings.Join(s.Def.Command, " "))
 		_ = WritePIDFile(s.Def.ID, pid)
 		_ = WriteMetaFile(s.Def.ID, PIDMeta{
 			PID:             pid,
@@ -230,6 +241,7 @@ func (s *Service) Start() error {
 		if logFile != nil {
 			logFile.Close()
 		}
+		llog().Info("service.exited", "service", s.Def.ID, "pid", cmd.Process.Pid)
 		// Clean up PID file on exit
 		_ = RemovePIDFile(s.Def.ID)
 		close(s.exited)
@@ -309,7 +321,9 @@ func (s *Service) Build() error {
 	return nil
 }
 
-// Stop sends SIGTERM to the process owning this port.
+// Stop terminates the service process. It prefers the PID file (which we
+// wrote at Start) over port-based lookup, and kills the process group when
+// we started the process ourselves.
 func (s *Service) Stop() error {
 	// Acquire lock to prevent concurrent stop operations
 	lock, err := AcquireLock(s.Def.ID)
@@ -318,26 +332,67 @@ func (s *Service) Stop() error {
 	}
 	defer lock.Release()
 
-	pid := findPIDByPort(s.Def.Port)
-	if pid <= 0 {
-		s.Status = StatusStopped
-		return nil
+	var pid int
+	var useGroup bool // true when we trust this is our process group
+
+	// Primary: use PID file
+	if pidFromFile, err := ReadPIDFile(s.Def.ID); err == nil && processAlive(pidFromFile) {
+		pid = pidFromFile
+		useGroup = true
+		llog().Info("service.stop", "service", s.Def.ID, "pid", pid, "method", "pidfile", "verified", true)
+	} else {
+		// Fallback: port-based lookup with command verification
+		portPID := findPIDByPort(s.Def.Port)
+		if portPID <= 0 {
+			llog().Info("service.stop", "service", s.Def.ID, "method", "none", "msg", "no process found")
+			s.Status = StatusStopped
+			s.PID = 0
+			_ = RemovePIDFile(s.Def.ID)
+			return nil
+		}
+
+		// Verify the port process looks like our expected command
+		if len(s.Def.Command) > 0 {
+			name := processName(portPID)
+			expected := filepath.Base(s.Def.Command[0])
+			if name != "unknown" && !strings.Contains(name, expected) {
+				llog().Warn("service.stop.refused", "service", s.Def.ID, "pid", portPID,
+					"process", name, "expected", expected)
+				return fmt.Errorf("port %d held by %q, not %q — refusing to kill",
+					s.Def.Port, name, expected)
+			}
+		}
+
+		pid = portPID
+		useGroup = false // not our process group — only kill the single PID
+		llog().Warn("service.stop", "service", s.Def.ID, "pid", pid,
+			"method", "port-fallback", "verified", len(s.Def.Command) > 0)
 	}
 
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return err
+	// Send SIGTERM — group kill if we own the process group
+	if useGroup {
+		llog().Info("service.kill", "pid", pid, "signal", "SIGTERM", "group", true)
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+	} else {
+		llog().Info("service.kill", "pid", pid, "signal", "SIGTERM", "group", false)
+		if proc, err := os.FindProcess(pid); err == nil {
+			_ = proc.Signal(syscall.SIGTERM)
+		}
 	}
 
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return err
-	}
-
-	// Wait briefly, then force kill if still alive
+	// Escalation: SIGKILL after 5s if still alive
 	go func() {
 		time.Sleep(5 * time.Second)
-		if p := findPIDByPort(s.Def.Port); p == pid {
-			proc.Signal(syscall.SIGKILL)
+		if !processAlive(pid) {
+			return
+		}
+		llog().Warn("service.kill.escalate", "service", s.Def.ID, "pid", pid, "signal", "SIGKILL", "group", useGroup)
+		if useGroup {
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+		} else {
+			if proc, err := os.FindProcess(pid); err == nil {
+				_ = proc.Signal(syscall.SIGKILL)
+			}
 		}
 	}()
 

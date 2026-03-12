@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 )
@@ -72,7 +71,7 @@ func (rp *RestartPolicy) Watch(svc *Service) {
 			rp.mu.Lock()
 			if rp.retryCount >= rp.MaxRetries {
 				rp.mu.Unlock()
-				log.Printf("[autorestart] %s: giving up after %d retries", svc.Def.ID, rp.MaxRetries)
+				llog().Warn("autorestart.exhausted", "service", svc.Def.ID, "retries", rp.MaxRetries)
 				svc.Status = StatusFailed
 				svc.Error = fmt.Sprintf("auto-restart gave up after %d retries", rp.MaxRetries)
 				return
@@ -89,7 +88,8 @@ func (rp *RestartPolicy) Watch(svc *Service) {
 			}
 			rp.mu.Unlock()
 
-			log.Printf("[autorestart] %s: restarting in %s (attempt %d/%d)", svc.Def.ID, delay, rp.retryCount, rp.MaxRetries)
+			llog().Info("autorestart.retry", "service", svc.Def.ID, "delay", delay.String(),
+				"attempt", rp.retryCount, "max", rp.MaxRetries)
 
 			// Wait for delay or stop signal
 			select {
@@ -99,7 +99,7 @@ func (rp *RestartPolicy) Watch(svc *Service) {
 			}
 
 			if err := svc.Start(); err != nil {
-				log.Printf("[autorestart] %s: restart failed: %v", svc.Def.ID, err)
+				llog().Warn("autorestart.failed", "service", svc.Def.ID, "error", err.Error())
 			}
 		}
 	}()

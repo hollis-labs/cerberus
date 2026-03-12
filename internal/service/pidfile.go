@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,7 +16,7 @@ import (
 )
 
 // CerberusVersion is the current version of Cerberus, embedded in PID meta files.
-const CerberusVersion = "0.1.0"
+const CerberusVersion = "0.2.0"
 
 // PIDMeta stores metadata alongside a PID file.
 type PIDMeta struct {

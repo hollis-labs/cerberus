@@ -22,7 +22,7 @@ var (
 	cfgPath string
 
 	// Set via -ldflags at build time
-	version   = "dev"
+	version   = "0.2.0"
 	buildDate = "unknown"
 )
 
@@ -66,6 +66,8 @@ func init() {
 
 // runTUI launches the interactive Bubble Tea TUI (default behavior).
 func runTUI(cmd *cobra.Command, args []string) error {
+	service.InitLifecycleLog()
+
 	// Auto-create config on first run
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) && cfgPath == config.DefaultPath() {
 		if err := config.EnsureDefault(); err != nil {
@@ -91,6 +93,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 
 // loadServices loads config and creates service objects.
 func loadServices() ([]*service.Service, error) {
+	service.InitLifecycleLog()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return nil, fmt.Errorf("error loading config: %w", err)
