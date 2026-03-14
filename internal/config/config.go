@@ -187,14 +187,6 @@ services:
     tags: [gui, frontend, vite]
     auto_restart: true
 
-  # app-h-cli: build-only, no port, no command to run
-  - id: app-h-cli
-    name: "app-h CLI"
-    project: app-h
-    dir: ~/src/app-h
-    build: ["sh", "-c", "go build -o app-h ./cmd/app-h && go build -o gui-server ./cmd/gui-server"]
-    tags: [cli, go, build-only, app-h-go]
-
   # --- app-d (automation) ---
   - id: app-d-daemon
     name: "app-d Daemon"
