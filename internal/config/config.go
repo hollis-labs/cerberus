@@ -187,14 +187,6 @@ services:
     tags: [gui, frontend, vite]
     auto_restart: true
 
-  # volon-cli: build-only, no port, no command to run
-  - id: volon-cli
-    name: "Volon CLI"
-    project: volon
-    dir: ~/Projects-apps/volon
-    build: ["sh", "-c", "go build -o volon ./cmd/volon && go build -o gui-server ./cmd/gui-server"]
-    tags: [cli, go, build-only, volon-go]
-
   # --- Hadron (automation) ---
   - id: hadron-daemon
     name: "Hadron Daemon"
