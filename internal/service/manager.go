@@ -5,6 +5,11 @@ import (
 	"sync"
 )
 
+// BulkStopThreshold is the number of running services above which a bulk stop
+// operation will log a warning. This guards against accidental mass termination
+// when the caller did not explicitly request a full shutdown.
+const BulkStopThreshold = 2
+
 // Manager orchestrates service lifecycle using dependency ordering from the DAG.
 type Manager struct {
 	services []*Service
@@ -173,6 +178,7 @@ func (m *Manager) collectDeps(id string) []*Service {
 
 // StopAll stops all services in reverse topological order (dependents first,
 // then their dependencies). Services within a level are stopped concurrently.
+// This is the explicit "stop everything" path and always proceeds.
 func (m *Manager) StopAll() []error {
 	levels, err := m.dag.TopologicalOrder()
 	if err != nil {
@@ -180,6 +186,55 @@ func (m *Manager) StopAll() []error {
 	}
 
 	// Reverse the levels so dependents stop before their dependencies.
+	var allErrors []error
+	for i := len(levels) - 1; i >= 0; i-- {
+		errs := m.stopLevel(levels[i])
+		allErrors = append(allErrors, errs...)
+	}
+	return allErrors
+}
+
+// StopSubset stops the given services in reverse dependency order. If the
+// number of running services to stop exceeds BulkStopThreshold and
+// explicitBulk is false, a warning is logged. This guards against accidental
+// mass termination from automated callers.
+func (m *Manager) StopSubset(targets []*Service, explicitBulk bool) []error {
+	// Count how many of the targets are actually running.
+	var running int
+	for _, svc := range targets {
+		svc.Poll()
+		if svc.Status == StatusRunning || svc.Status == StatusHealthy || svc.Status == StatusUnhealthy {
+			running++
+		}
+	}
+
+	if running > BulkStopThreshold && !explicitBulk {
+		llog().Warn("lifecycle.bulk_stop_guard",
+			"running_count", running,
+			"threshold", BulkStopThreshold,
+			"message", fmt.Sprintf("Stopping %d running services at once — this exceeds the bulk threshold of %d. If this is intentional, use explicit bulk stop.", running, BulkStopThreshold),
+		)
+	}
+
+	// Build a sub-DAG for proper reverse ordering.
+	subDAG, err := BuildDAG(targets)
+	if err != nil {
+		// Fallback: stop sequentially without ordering.
+		var errs []error
+		for _, svc := range targets {
+			if stopErr := svc.Stop(); stopErr != nil {
+				errs = append(errs, fmt.Errorf("stop %s: %w", svc.Def.ID, stopErr))
+			}
+		}
+		return errs
+	}
+
+	levels, err := subDAG.TopologicalOrder()
+	if err != nil {
+		return []error{err}
+	}
+
+	// Reverse order: dependents first.
 	var allErrors []error
 	for i := len(levels) - 1; i >= 0; i-- {
 		errs := m.stopLevel(levels[i])
