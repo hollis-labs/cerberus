@@ -407,9 +407,9 @@ func (s *Service) Stop() error {
 		}
 	}
 
-	// Escalation: SIGKILL after 5s if still alive
+	// Escalation: SIGKILL after 10s if still alive
 	go func() {
-		time.Sleep(5 * time.Second)
+		time.Sleep(10 * time.Second)
 		if !processAlive(pid) {
 			return
 		}
