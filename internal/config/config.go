@@ -30,25 +30,25 @@ type ServiceDef struct {
 	// IMPORTANT: Omit this field for services that don't listen on a port.
 	// Do NOT set port: 0 — `lsof -ti :0` returns random system PIDs, causing
 	// false-positive "running" status in the TUI and daemon monitor.
-	Port int `yaml:"port,omitempty"`
-	Tags    []string          `yaml:"tags,omitempty"`
-	Build   []string          `yaml:"build,omitempty"`
+	Port  int      `yaml:"port,omitempty"`
+	Tags  []string `yaml:"tags,omitempty"`
+	Build []string `yaml:"build,omitempty"`
 
 	// Legacy field — still parsed for backward compat.
 	// If health_check is empty, Health is mapped to HealthCheck.URL.
 	Health string `yaml:"health,omitempty"`
 
 	// New v1 fields
-	HealthCheckCfg    HealthCheck `yaml:"health_check,omitempty"`
-	DependsOn         []string    `yaml:"depends_on,omitempty"`
-	AutoStart         bool        `yaml:"auto_start,omitempty"`
-	AutoRestart       bool        `yaml:"auto_restart,omitempty"`
-	RestartDelay      string      `yaml:"restart_delay,omitempty"`
-	MaxRestartAttempts int        `yaml:"max_restart_attempts,omitempty"`
-	RestartCooldown   string      `yaml:"restart_cooldown,omitempty"`
-	LogFile           string      `yaml:"log_file,omitempty"`
-	Profiles          []string    `yaml:"profiles,omitempty"`
-	Protected         bool        `yaml:"protected,omitempty"`
+	HealthCheckCfg     HealthCheck `yaml:"health_check,omitempty"`
+	DependsOn          []string    `yaml:"depends_on,omitempty"`
+	AutoStart          bool        `yaml:"auto_start,omitempty"`
+	AutoRestart        bool        `yaml:"auto_restart,omitempty"`
+	RestartDelay       string      `yaml:"restart_delay,omitempty"`
+	MaxRestartAttempts int         `yaml:"max_restart_attempts,omitempty"`
+	RestartCooldown    string      `yaml:"restart_cooldown,omitempty"`
+	LogFile            string      `yaml:"log_file,omitempty"`
+	Profiles           []string    `yaml:"profiles,omitempty"`
+	Protected          bool        `yaml:"protected,omitempty"`
 }
 
 type Config struct {
@@ -128,13 +128,13 @@ version: 1
 #   8080  | Cortex API
 #   8085  | Volon API (Go backend)
 #   8086  | Volon Scheduler (standalone daemon)
-#   8090  | Mentat API (Go)
+#   8090  | Conduit API (Go)
 #   8095  | Hadron Daemon
 #   8096  | Carrier API (Python)
 #   9085  | Volon gRPC (started by volon-api)
 #   34116 | Hadron Frontend (Wails/Vite)
 #   5174  | Carrier Frontend (Vite)
-#   5176  | Mentat Frontend (Vite)
+#   5176  | Conduit Frontend (Vite)
 #
 # IMPORTANT: Do NOT set "port: 0" on any service. Omit the port field entirely
 # for services that don't listen on a port (e.g. CLI tools, daemons without
@@ -258,21 +258,21 @@ services:
     tags: [gui, frontend, vite]
     auto_restart: true
 
-  # --- Mentat (meta-agent) ---
-  - id: mentat-api
-    name: "Mentat API"
+  # --- Conduit (chat harness) ---
+  - id: conduit-api
+    name: "Conduit API"
     project: mentat
     dir: ~/Projects-apps/mentat
-    command: ["./mentat", "serve"]
-    build: ["go", "build", "-o", "mentat", "./cmd/mentat"]
+    command: ["conduit", "serve"]
+    build: ["go", "install", "./cmd/conduit"]
     url: http://127.0.0.1:8090
     port: 8090
     health: http://127.0.0.1:8090/api/health
     tags: [api, daemon, go]
     auto_restart: true
 
-  - id: mentat-frontend
-    name: "Mentat Frontend"
+  - id: conduit-frontend
+    name: "Conduit Frontend"
     project: mentat
     dir: ~/Projects-apps/mentat/ui
     command: ["npm", "run", "dev"]
