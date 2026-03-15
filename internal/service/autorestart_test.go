@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewRestartPolicyDefaults(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart: true,
 		},
@@ -31,7 +31,7 @@ func TestNewRestartPolicyDefaults(t *testing.T) {
 }
 
 func TestNewRestartPolicyDisabled(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart: false,
 		},
@@ -45,7 +45,7 @@ func TestNewRestartPolicyDisabled(t *testing.T) {
 }
 
 func TestNewRestartPolicyCustomDelay(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart:  true,
 			RestartDelay: "5s",
@@ -60,7 +60,7 @@ func TestNewRestartPolicyCustomDelay(t *testing.T) {
 }
 
 func TestNewRestartPolicyInvalidDelay(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart:  true,
 			RestartDelay: "not-a-duration",
@@ -76,7 +76,7 @@ func TestNewRestartPolicyInvalidDelay(t *testing.T) {
 }
 
 func TestExponentialBackoff(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart: true,
 		},
@@ -116,7 +116,7 @@ func TestExponentialBackoff(t *testing.T) {
 }
 
 func TestMaxRetriesExhausted(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			ID:          "test-svc",
 			AutoRestart: true,
@@ -142,7 +142,7 @@ func TestMaxRetriesExhausted(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart:  true,
 			RestartDelay: "2s",
@@ -169,7 +169,7 @@ func TestReset(t *testing.T) {
 }
 
 func TestStopCancelsWatch(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			ID:          "test-svc",
 			AutoRestart: true,
@@ -198,7 +198,7 @@ func TestStopCancelsWatch(t *testing.T) {
 }
 
 func TestStopIdempotent(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart: true,
 		},
@@ -213,7 +213,7 @@ func TestStopIdempotent(t *testing.T) {
 }
 
 func TestStats(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart:  true,
 			RestartDelay: "3s",
@@ -246,12 +246,12 @@ func TestParseDurationVariants(t *testing.T) {
 		{"500ms", 500 * time.Millisecond},
 		{"2m", 2 * time.Minute},
 		{"1m30s", 90 * time.Second},
-		{"", 1 * time.Second},           // default
-		{"invalid", 1 * time.Second},    // fallback to default
+		{"", 1 * time.Second},        // default
+		{"invalid", 1 * time.Second}, // fallback to default
 	}
 
 	for _, tc := range cases {
-		svc := &Service{
+		svc := &ManagedService{
 			Def: config.ServiceDef{
 				AutoRestart:  true,
 				RestartDelay: tc.input,
@@ -265,7 +265,7 @@ func TestParseDurationVariants(t *testing.T) {
 }
 
 func TestWatchDisabledDoesNothing(t *testing.T) {
-	svc := &Service{
+	svc := &ManagedService{
 		Def: config.ServiceDef{
 			AutoRestart: false,
 		},

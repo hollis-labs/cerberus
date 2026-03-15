@@ -8,8 +8,8 @@ import (
 )
 
 // helper to build a service with an ID and optional dependencies.
-func makeSvc(id string, deps ...string) *Service {
-	return &Service{
+func makeSvc(id string, deps ...string) *ManagedService {
+	return &ManagedService{
 		Def: config.ServiceDef{
 			ID:        id,
 			Name:      id,
@@ -20,7 +20,7 @@ func makeSvc(id string, deps ...string) *Service {
 }
 
 // levelIDs extracts sorted service IDs from a topological level for comparison.
-func levelIDs(level []*Service) map[string]bool {
+func levelIDs(level []*ManagedService) map[string]bool {
 	m := make(map[string]bool, len(level))
 	for _, s := range level {
 		m[s.Def.ID] = true
@@ -34,7 +34,7 @@ func TestLinearChain(t *testing.T) {
 	b := makeSvc("B", "A")
 	c := makeSvc("C", "B")
 
-	dag, err := BuildDAG([]*Service{a, b, c})
+	dag, err := BuildDAG([]*ManagedService{a, b, c})
 	if err != nil {
 		t.Fatalf("BuildDAG failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestParallelDeps(t *testing.T) {
 	b := makeSvc("B")
 	c := makeSvc("C", "A", "B")
 
-	dag, err := BuildDAG([]*Service{a, b, c})
+	dag, err := BuildDAG([]*ManagedService{a, b, c})
 	if err != nil {
 		t.Fatalf("BuildDAG failed: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCircularDependency(t *testing.T) {
 	a := makeSvc("A", "B")
 	b := makeSvc("B", "A")
 
-	_, err := BuildDAG([]*Service{a, b})
+	_, err := BuildDAG([]*ManagedService{a, b})
 	if err == nil {
 		t.Fatal("expected error for circular dependency, got nil")
 	}
@@ -113,7 +113,7 @@ func TestMissingDependency(t *testing.T) {
 	// A depends on "ghost" which doesn't exist.
 	a := makeSvc("A", "ghost")
 
-	_, err := BuildDAG([]*Service{a})
+	_, err := BuildDAG([]*ManagedService{a})
 	if err == nil {
 		t.Fatal("expected error for missing dependency, got nil")
 	}
@@ -128,7 +128,7 @@ func TestMissingDependency(t *testing.T) {
 func TestSingleServiceNoDeps(t *testing.T) {
 	a := makeSvc("A")
 
-	dag, err := BuildDAG([]*Service{a})
+	dag, err := BuildDAG([]*ManagedService{a})
 	if err != nil {
 		t.Fatalf("BuildDAG failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestSingleServiceNoDeps(t *testing.T) {
 }
 
 func TestEmptyServices(t *testing.T) {
-	dag, err := BuildDAG([]*Service{})
+	dag, err := BuildDAG([]*ManagedService{})
 	if err != nil {
 		t.Fatalf("BuildDAG failed: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestDependenciesOf(t *testing.T) {
 	b := makeSvc("B")
 	c := makeSvc("C", "A", "B")
 
-	dag, err := BuildDAG([]*Service{a, b, c})
+	dag, err := BuildDAG([]*ManagedService{a, b, c})
 	if err != nil {
 		t.Fatalf("BuildDAG failed: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestDependentsOf(t *testing.T) {
 	b := makeSvc("B", "A")
 	c := makeSvc("C", "A")
 
-	dag, err := BuildDAG([]*Service{a, b, c})
+	dag, err := BuildDAG([]*ManagedService{a, b, c})
 	if err != nil {
 		t.Fatalf("BuildDAG failed: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestThreeLevelCycle(t *testing.T) {
 	b := makeSvc("B", "A")
 	c := makeSvc("C", "B")
 
-	_, err := BuildDAG([]*Service{a, b, c})
+	_, err := BuildDAG([]*ManagedService{a, b, c})
 	if err == nil {
 		t.Fatal("expected error for 3-node cycle, got nil")
 	}
@@ -230,13 +230,13 @@ func TestThreeLevelCycle(t *testing.T) {
 	}
 }
 
-func TestManagerNewManager(t *testing.T) {
+func TestManagerNewServiceManager(t *testing.T) {
 	a := makeSvc("A")
 	b := makeSvc("B", "A")
 
-	mgr, err := NewManager([]*Service{a, b})
+	mgr, err := NewServiceManager([]*ManagedService{a, b})
 	if err != nil {
-		t.Fatalf("NewManager failed: %v", err)
+		t.Fatalf("NewServiceManager failed: %v", err)
 	}
 
 	if len(mgr.Services()) != 2 {
@@ -248,13 +248,13 @@ func TestManagerNewManager(t *testing.T) {
 	}
 }
 
-func TestManagerNewManagerCycleError(t *testing.T) {
+func TestManagerNewServiceManagerCycleError(t *testing.T) {
 	a := makeSvc("A", "B")
 	b := makeSvc("B", "A")
 
-	_, err := NewManager([]*Service{a, b})
+	_, err := NewServiceManager([]*ManagedService{a, b})
 	if err == nil {
-		t.Fatal("expected error for circular dependency in NewManager")
+		t.Fatal("expected error for circular dependency in NewServiceManager")
 	}
 }
 
@@ -270,7 +270,7 @@ func TestDiamondDependency(t *testing.T) {
 	c := makeSvc("C", "A")
 	d := makeSvc("D", "B", "C")
 
-	dag, err := BuildDAG([]*Service{a, b, c, d})
+	dag, err := BuildDAG([]*ManagedService{a, b, c, d})
 	if err != nil {
 		t.Fatalf("BuildDAG failed: %v", err)
 	}

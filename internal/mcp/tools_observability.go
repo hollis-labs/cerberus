@@ -85,7 +85,7 @@ func readLastNLines(path string, n int) (string, error) {
 }
 
 // NewCerberusLogsTool creates the cerberus_logs tool.
-func NewCerberusLogsTool(services []*service.Service) Tool {
+func NewCerberusLogsTool(services []*service.ManagedService) Tool {
 	return Tool{
 		Name:        "cerberus_logs",
 		Description: "Returns the last N lines from a service's log file.",
@@ -110,7 +110,7 @@ func NewCerberusLogsTool(services []*service.Service) Tool {
 			}
 
 			// Find the service
-			var svc *service.Service
+			var svc *service.ManagedService
 			for _, s := range services {
 				if s.Def.ID == serviceID {
 					svc = s
@@ -157,7 +157,7 @@ type buildResult struct {
 }
 
 // NewCerberusBuildTool creates the cerberus_build tool.
-func NewCerberusBuildTool(services []*service.Service) Tool {
+func NewCerberusBuildTool(services []*service.ManagedService) Tool {
 	return Tool{
 		Name:        "cerberus_build",
 		Description: "Runs the build command for a service synchronously and returns the result.",
@@ -177,7 +177,7 @@ func NewCerberusBuildTool(services []*service.Service) Tool {
 				return "", fmt.Errorf("service_id is required")
 			}
 
-			var svc *service.Service
+			var svc *service.ManagedService
 			for _, s := range services {
 				if s.Def.ID == serviceID {
 					svc = s
@@ -233,16 +233,16 @@ type healthEntry struct {
 
 // healthResponse is the full JSON response including daemon-level status.
 type healthResponse struct {
-	Services         []healthEntry `json:"services"`
-	DaemonRunning    bool          `json:"daemon_running"`
-	MonitorInterval  string        `json:"monitor_interval,omitempty"`
-	ServicesProtected int          `json:"services_protected"`
-	ServicesFailed   int          `json:"services_failed"`
+	Services          []healthEntry `json:"services"`
+	DaemonRunning     bool          `json:"daemon_running"`
+	MonitorInterval   string        `json:"monitor_interval,omitempty"`
+	ServicesProtected int           `json:"services_protected"`
+	ServicesFailed    int           `json:"services_failed"`
 }
 
 // NewCerberusHealthTool creates the cerberus_health tool.
 // If monitor is non-nil, daemon-level health statistics are included.
-func NewCerberusHealthTool(services []*service.Service, monitor *daemon.Monitor) Tool {
+func NewCerberusHealthTool(services []*service.ManagedService, monitor *daemon.Monitor) Tool {
 	return Tool{
 		Name:        "cerberus_health",
 		Description: "Returns health check results for one or all services, plus daemon monitor status.",

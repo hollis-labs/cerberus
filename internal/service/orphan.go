@@ -35,7 +35,7 @@ func (o OrphanProcess) String() string {
 //     service, it is flagged as a potential orphan.
 //   - Only port-based services can be detected this way. Services without ports
 //     that have stale PID files are cleaned up by CleanStalePIDFiles instead.
-func DetectOrphans(services []*Service) []OrphanProcess {
+func DetectOrphans(services []*ManagedService) []OrphanProcess {
 	var orphans []OrphanProcess
 
 	// Build a set of PIDs that Cerberus is currently tracking.

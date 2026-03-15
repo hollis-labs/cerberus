@@ -211,7 +211,7 @@ func (m Model) View() string {
 	return out.String()
 }
 
-func (m Model) renderRow(svc *service.Service, selected bool) string {
+func (m Model) renderRow(svc *service.ManagedService, selected bool) string {
 	// Status badge
 	var statusStr string
 	switch svc.Status {
@@ -297,7 +297,12 @@ func (m Model) renderRow(svc *service.Service, selected bool) string {
 		cell(colWidthFlags, flagsStr) +
 		cell(colWidthStatus, statusStr) +
 		cell(colWidthHealth, healthStr) +
-		cell(colWidthPort, func() string { if svc.Def.Port > 0 { return fmt.Sprintf("%d", svc.Def.Port) }; return "—" }()) +
+		cell(colWidthPort, func() string {
+			if svc.Def.Port > 0 {
+				return fmt.Sprintf("%d", svc.Def.Port)
+			}
+			return "—"
+		}()) +
 		cell(colWidthURL, lipgloss.NewStyle().Foreground(colorDim).Render(urlStr)) +
 		cell(colWidthPID, pidStr) +
 		cell(colWidthAction, action)

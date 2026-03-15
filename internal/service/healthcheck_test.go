@@ -24,8 +24,8 @@ func findBin(name string) string {
 	return p
 }
 
-func newTestService(cfg config.HealthCheck) *Service {
-	return &Service{
+func newTestService(cfg config.HealthCheck) *ManagedService {
+	return &ManagedService{
 		Def: config.ServiceDef{
 			ID:             "test-svc",
 			HealthCheckCfg: cfg,

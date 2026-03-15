@@ -45,7 +45,7 @@ func (s Status) String() string {
 	}
 }
 
-type Service struct {
+type ManagedService struct {
 	Def           config.ServiceDef
 	Status        Status
 	PID           int
@@ -60,17 +60,17 @@ type Service struct {
 	RestartCount  int
 }
 
-func NewFromConfig(cfg *config.Config) []*Service {
-	services := make([]*Service, len(cfg.Services))
+func NewFromConfig(cfg *config.Config) []*ManagedService {
+	services := make([]*ManagedService, len(cfg.Services))
 	for i, def := range cfg.Services {
-		services[i] = &Service{Def: def}
+		services[i] = &ManagedService{Def: def}
 	}
 	return services
 }
 
 // Poll checks if the service is alive. It checks the PID file first for a
 // fast path, then falls back to port-based detection via lsof.
-func (s *Service) Poll() {
+func (s *ManagedService) Poll() {
 	if s.Status == StatusBuilding {
 		return
 	}
@@ -158,7 +158,7 @@ func (s *Service) Poll() {
 }
 
 // Start launches the service process in the background.
-func (s *Service) Start() error {
+func (s *ManagedService) Start() error {
 	if s.Status == StatusRunning || s.Status == StatusHealthy || s.Status == StatusUnhealthy {
 		return fmt.Errorf("already running (pid %d)", s.PID)
 	}
@@ -283,7 +283,7 @@ func (s *Service) Start() error {
 }
 
 // Build runs the service's build command synchronously in a goroutine.
-func (s *Service) Build() error {
+func (s *ManagedService) Build() error {
 	if len(s.Def.Build) == 0 {
 		return fmt.Errorf("no build command configured")
 	}
@@ -351,7 +351,7 @@ func (s *Service) Build() error {
 // Stop terminates the service process. It prefers the PID file (which we
 // wrote at Start) over port-based lookup, and kills the process group when
 // we started the process ourselves.
-func (s *Service) Stop() error {
+func (s *ManagedService) Stop() error {
 	// Acquire lock to prevent concurrent stop operations
 	lock, err := AcquireLock(s.Def.ID)
 	if err != nil {
@@ -439,8 +439,11 @@ func findPIDByPort(port int) int {
 	if port <= 0 {
 		return 0
 	}
-	// Use lsof to find process listening on the port
-	out, err := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", port)).Output()
+	// Use lsof to find process LISTENING on the port.
+	// The -sTCP:LISTEN flag filters out client connections (ESTABLISHED,
+	// CLOSED, etc.) which otherwise cause false positives — e.g. Chrome
+	// holding a stale connection to a port we want to bind.
+	out, err := exec.Command("lsof", "-nP", "-iTCP:"+fmt.Sprintf("%d", port), "-sTCP:LISTEN", "-t").Output() //nolint:gosec // port is a validated int, not user input
 	if err != nil {
 		// Also try a quick TCP connect as fallback
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
@@ -466,7 +469,7 @@ func findPIDByPort(port int) int {
 }
 
 // tailLog reads the last meaningful line from the service log to show as error context.
-func (s *Service) tailLog() string {
+func (s *ManagedService) tailLog() string {
 	if s.logPath == "" {
 		return "process exited"
 	}
@@ -490,7 +493,7 @@ func (s *Service) tailLog() string {
 }
 
 // LogPath returns the path to this service's log file.
-func (s *Service) LogPath() string {
+func (s *ManagedService) LogPath() string {
 	if s.logPath == "" {
 		return fmt.Sprintf("%s/cerberus-%s.log", os.TempDir(), s.Def.ID)
 	}
@@ -498,13 +501,13 @@ func (s *Service) LogPath() string {
 }
 
 // IsProtected returns true if this service is protected from external stop/restart operations.
-func (s *Service) IsProtected() bool {
+func (s *ManagedService) IsProtected() bool {
 	return s.Def.Protected
 }
 
 // BuildSync runs the service's build command synchronously (blocking).
 // Returns the combined output and any error.
-func (s *Service) BuildSync() (string, error) {
+func (s *ManagedService) BuildSync() (string, error) {
 	if len(s.Def.Build) == 0 {
 		return "", fmt.Errorf("no build command configured")
 	}

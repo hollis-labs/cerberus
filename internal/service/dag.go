@@ -7,7 +7,7 @@ import (
 
 // DAG represents a directed acyclic graph of service dependencies.
 type DAG struct {
-	services map[string]*Service
+	services map[string]*ManagedService
 	// edges maps a service ID to the IDs it depends on (prerequisites).
 	edges map[string][]string
 	// reverse maps a service ID to IDs that depend on it (dependents).
@@ -17,9 +17,9 @@ type DAG struct {
 // BuildDAG constructs a DAG from a slice of services using their DependsOn fields.
 // It returns an error if any dependency references an unknown service ID or if
 // there is a circular dependency.
-func BuildDAG(services []*Service) (*DAG, error) {
+func BuildDAG(services []*ManagedService) (*DAG, error) {
 	d := &DAG{
-		services: make(map[string]*Service, len(services)),
+		services: make(map[string]*ManagedService, len(services)),
 		edges:    make(map[string][]string, len(services)),
 		reverse:  make(map[string][]string, len(services)),
 	}
@@ -106,7 +106,7 @@ func (d *DAG) detectCycle() []string {
 // services with no dependencies. Level 1 contains services whose dependencies
 // are all in level 0, and so on. Services within a level can be started in
 // parallel.
-func (d *DAG) TopologicalOrder() ([][]*Service, error) {
+func (d *DAG) TopologicalOrder() ([][]*ManagedService, error) {
 	// Kahn's algorithm.
 	inDegree := make(map[string]int, len(d.services))
 	for id := range d.services {
@@ -121,12 +121,12 @@ func (d *DAG) TopologicalOrder() ([][]*Service, error) {
 		}
 	}
 
-	var levels [][]*Service
+	var levels [][]*ManagedService
 	visited := 0
 
 	for len(currentLevel) > 0 {
 		// Convert current level IDs to services.
-		level := make([]*Service, len(currentLevel))
+		level := make([]*ManagedService, len(currentLevel))
 		for i, id := range currentLevel {
 			level[i] = d.services[id]
 		}
@@ -154,9 +154,9 @@ func (d *DAG) TopologicalOrder() ([][]*Service, error) {
 }
 
 // DependenciesOf returns the direct dependencies (prerequisites) of the given service.
-func (d *DAG) DependenciesOf(serviceID string) []*Service {
+func (d *DAG) DependenciesOf(serviceID string) []*ManagedService {
 	deps := d.edges[serviceID]
-	result := make([]*Service, 0, len(deps))
+	result := make([]*ManagedService, 0, len(deps))
 	for _, dep := range deps {
 		if svc, ok := d.services[dep]; ok {
 			result = append(result, svc)
@@ -166,9 +166,9 @@ func (d *DAG) DependenciesOf(serviceID string) []*Service {
 }
 
 // DependentsOf returns the services that directly depend on the given service.
-func (d *DAG) DependentsOf(serviceID string) []*Service {
+func (d *DAG) DependentsOf(serviceID string) []*ManagedService {
 	deps := d.reverse[serviceID]
-	result := make([]*Service, 0, len(deps))
+	result := make([]*ManagedService, 0, len(deps))
 	for _, dep := range deps {
 		if svc, ok := d.services[dep]; ok {
 			result = append(result, svc)
@@ -177,7 +177,7 @@ func (d *DAG) DependentsOf(serviceID string) []*Service {
 	return result
 }
 
-// Service returns the service with the given ID, or nil if not found.
-func (d *DAG) Service(id string) *Service {
+// ManagedService returns the service with the given ID, or nil if not found.
+func (d *DAG) ManagedService(id string) *ManagedService {
 	return d.services[id]
 }

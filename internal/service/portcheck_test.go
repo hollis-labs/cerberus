@@ -84,9 +84,9 @@ func TestCheckPortConflict_String(t *testing.T) {
 
 func TestScanAllPorts_NoConflict(t *testing.T) {
 	// Use ports that are (very likely) free — high ephemeral range
-	services := []*Service{
-		{Def: config.ServiceDef{ID: "svc-a", Port: 0}},       // port 0 is skipped
-		{Def: config.ServiceDef{ID: "svc-b", Port: 59871}},   // likely free
+	services := []*ManagedService{
+		{Def: config.ServiceDef{ID: "svc-a", Port: 0}},     // port 0 is skipped
+		{Def: config.ServiceDef{ID: "svc-b", Port: 59871}}, // likely free
 	}
 	conflicts := ScanAllPorts(services)
 	// svc-a is skipped (port 0), svc-b should be free
@@ -101,7 +101,7 @@ func TestScanAllPorts_WithConflict(t *testing.T) {
 	ln, port := listenOnPort(t)
 	defer ln.Close()
 
-	services := []*Service{
+	services := []*ManagedService{
 		{Def: config.ServiceDef{ID: "busy-svc", Port: port}},
 		{Def: config.ServiceDef{ID: "free-svc", Port: 59872}},
 	}
@@ -130,7 +130,7 @@ func TestProcessName(t *testing.T) {
 }
 
 func TestDoctor_MissingDir(t *testing.T) {
-	services := []*Service{
+	services := []*ManagedService{
 		{Def: config.ServiceDef{
 			ID:      "ghost",
 			Dir:     "/tmp/cerberus-test-nonexistent-" + strconv.Itoa(59999),
@@ -151,7 +151,7 @@ func TestDoctor_MissingDir(t *testing.T) {
 }
 
 func TestDoctor_MissingBinary(t *testing.T) {
-	services := []*Service{
+	services := []*ManagedService{
 		{Def: config.ServiceDef{
 			ID:      "no-bin",
 			Dir:     "/tmp",
@@ -172,7 +172,7 @@ func TestDoctor_MissingBinary(t *testing.T) {
 }
 
 func TestDoctor_NoCommand(t *testing.T) {
-	services := []*Service{
+	services := []*ManagedService{
 		{Def: config.ServiceDef{
 			ID:      "empty",
 			Dir:     "/tmp",
@@ -193,7 +193,7 @@ func TestDoctor_NoCommand(t *testing.T) {
 }
 
 func TestDoctor_AllOK(t *testing.T) {
-	services := []*Service{
+	services := []*ManagedService{
 		{Def: config.ServiceDef{
 			ID:      "ok-svc",
 			Dir:     "/tmp",
