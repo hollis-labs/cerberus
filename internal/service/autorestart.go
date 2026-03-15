@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/chrispian/cerberus/internal/pausectl"
 )
 
 // RestartStats holds the current state of a restart policy for display.
@@ -27,8 +29,8 @@ type RestartPolicy struct {
 	stopCh       chan struct{}
 }
 
-// NewRestartPolicy creates a RestartPolicy from a Service's config fields.
-func NewRestartPolicy(svc *Service) *RestartPolicy {
+// NewRestartPolicy creates a RestartPolicy from a ManagedService's config fields.
+func NewRestartPolicy(svc *ManagedService) *RestartPolicy {
 	initialDelay := 1 * time.Second
 	if svc.Def.RestartDelay != "" {
 		if d, err := time.ParseDuration(svc.Def.RestartDelay); err == nil && d > 0 {
@@ -53,7 +55,7 @@ func NewRestartPolicy(svc *Service) *RestartPolicy {
 
 // Watch monitors the service's exited channel and restarts it with exponential backoff.
 // This should be called as a goroutine.
-func (rp *RestartPolicy) Watch(svc *Service) {
+func (rp *RestartPolicy) Watch(svc *ManagedService) {
 	if !rp.Enabled {
 		return
 	}
@@ -71,6 +73,22 @@ func (rp *RestartPolicy) Watch(svc *Service) {
 				// Process exited
 			case <-rp.stopCh:
 				return
+			}
+
+			// Check if auto-restart is paused before proceeding
+			if pausectl.IsServicePaused(svc.Def.ID) {
+				llog().Info("autorestart.paused", "service", svc.Def.ID,
+					"message", "Auto-restart paused, skipping restart")
+				// Wait for unpause or stop — poll every 5 seconds
+				for pausectl.IsServicePaused(svc.Def.ID) {
+					select {
+					case <-time.After(5 * time.Second):
+						continue
+					case <-rp.stopCh:
+						return
+					}
+				}
+				llog().Info("autorestart.resumed", "service", svc.Def.ID)
 			}
 
 			rp.mu.Lock()

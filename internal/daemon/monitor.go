@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/service"
 )
 
@@ -38,19 +39,20 @@ func DefaultMonitorConfig() MonitorConfig {
 // Monitor periodically checks service health and auto-restarts failed services.
 type Monitor struct {
 	config   MonitorConfig
-	services []*service.Service
+	services []*service.ManagedService
 	logger   *slog.Logger
 
-	mu           sync.RWMutex
-	running      bool
-	cancel       context.CancelFunc
-	done         chan struct{}
+	mu      sync.RWMutex
+	running bool
+	cancel  context.CancelFunc
+	done    chan struct{}
 
 	// Track restart failures per service
-	failureCount map[string]int
-	lastRestart  map[string]time.Time
-	lastError    map[string]string
-	allAttempts  map[string][]attemptRecord
+	failureCount    map[string]int
+	lastRestart     map[string]time.Time
+	lastError       map[string]string
+	allAttempts     map[string][]attemptRecord
+	maxExceededOnce map[string]bool // log max_restarts_exceeded only once per service
 }
 
 // attemptRecord captures one restart attempt for alert payloads.
@@ -62,16 +64,17 @@ type attemptRecord struct {
 }
 
 // NewMonitor creates a new daemon monitor for the given services.
-func NewMonitor(services []*service.Service, config MonitorConfig) *Monitor {
+func NewMonitor(services []*service.ManagedService, config MonitorConfig) *Monitor {
 	return &Monitor{
-		config:       config,
-		services:     services,
-		logger:       service.GetLogger(),
-		failureCount: make(map[string]int),
-		lastRestart:  make(map[string]time.Time),
-		lastError:    make(map[string]string),
-		allAttempts:  make(map[string][]attemptRecord),
-		done:         make(chan struct{}),
+		config:          config,
+		services:        services,
+		logger:          service.GetLogger(),
+		failureCount:    make(map[string]int),
+		lastRestart:     make(map[string]time.Time),
+		lastError:       make(map[string]string),
+		allAttempts:     make(map[string][]attemptRecord),
+		maxExceededOnce: make(map[string]bool),
+		done:            make(chan struct{}),
 	}
 }
 
@@ -144,9 +147,9 @@ func (m *Monitor) GetStatus() MonitorStatus {
 	defer m.mu.RUnlock()
 
 	status := MonitorStatus{
-		Running:      m.running,
+		Running:       m.running,
 		CheckInterval: m.config.CheckInterval,
-		ServiceStats: make(map[string]ServiceStats),
+		ServiceStats:  make(map[string]ServiceStats),
 	}
 
 	for serviceID, count := range m.failureCount {
@@ -164,9 +167,9 @@ func (m *Monitor) GetStatus() MonitorStatus {
 
 // MonitorStatus represents the current state of the daemon monitor.
 type MonitorStatus struct {
-	Running       bool                     `json:"running"`
-	CheckInterval time.Duration            `json:"check_interval"`
-	ServiceStats  map[string]ServiceStats  `json:"service_stats"`
+	Running       bool                    `json:"running"`
+	CheckInterval time.Duration           `json:"check_interval"`
+	ServiceStats  map[string]ServiceStats `json:"service_stats"`
 }
 
 // ServiceStats holds monitoring statistics for a single service.
@@ -188,7 +191,7 @@ func (m *Monitor) checkAllServices(ctx context.Context) {
 }
 
 // checkService checks a single service and restarts it if needed.
-func (m *Monitor) checkService(ctx context.Context, svc *service.Service) {
+func (m *Monitor) checkService(ctx context.Context, svc *service.ManagedService) {
 	// Only monitor services with auto-restart enabled OR protected flag
 	if !svc.Def.AutoRestart && !svc.Def.Protected {
 		return
@@ -215,7 +218,15 @@ func (m *Monitor) checkService(ctx context.Context, svc *service.Service) {
 			m.failureCount[svc.Def.ID] = 0
 			m.lastError[svc.Def.ID] = ""
 			m.allAttempts[svc.Def.ID] = nil
+			m.maxExceededOnce[svc.Def.ID] = false
 		}
+		return
+	}
+
+	// Check if auto-restart is paused (globally or per-service)
+	if pausectl.IsServicePaused(svc.Def.ID) {
+		m.logger.Info("daemon.monitor.paused", "service", svc.Def.ID,
+			"message", "Auto-restart paused, skipping restart")
 		return
 	}
 
@@ -228,12 +239,16 @@ func (m *Monitor) checkService(ctx context.Context, svc *service.Service) {
 	}
 
 	if m.failureCount[svc.Def.ID] >= maxAttempts {
-		m.logger.Warn("daemon.monitor.max_restarts_exceeded",
-			"service_id", svc.Def.ID,
-			"failure_count", m.failureCount[svc.Def.ID],
-			"last_error", m.lastError[svc.Def.ID],
-			"max", maxAttempts,
-			"message", fmt.Sprintf("Service %s failed %d restart attempts and will not be retried", svc.Def.ID, m.failureCount[svc.Def.ID]))
+		// Only log max_restarts_exceeded once per service to avoid log spam
+		if !m.maxExceededOnce[svc.Def.ID] {
+			m.logger.Warn("daemon.monitor.max_restarts_exceeded",
+				"service_id", svc.Def.ID,
+				"failure_count", m.failureCount[svc.Def.ID],
+				"last_error", m.lastError[svc.Def.ID],
+				"max", maxAttempts,
+				"message", fmt.Sprintf("Service %s failed %d restart attempts and will not be retried", svc.Def.ID, m.failureCount[svc.Def.ID]))
+			m.maxExceededOnce[svc.Def.ID] = true
+		}
 		return
 	}
 
@@ -249,7 +264,7 @@ func (m *Monitor) checkService(ctx context.Context, svc *service.Service) {
 		if time.Since(lastRestart) < cooldown {
 			m.logger.Info("daemon.monitor.cooldown_wait",
 				"service", svc.Def.ID,
-				"remaining", cooldown - time.Since(lastRestart))
+				"remaining", cooldown-time.Since(lastRestart))
 			return
 		}
 	}
@@ -395,8 +410,11 @@ func (m *Monitor) writeAlertFile(serviceID string, failureCount int, lastError s
 }
 
 // isPortAlive checks if a port is responding to connections.
+// Uses "localhost" so the OS resolver handles IPv4/IPv6 naturally.
+// Vite dev servers on macOS bind to ::1 (IPv6 only), so hardcoding
+// 127.0.0.1 would cause false-negative port checks.
 func (m *Monitor) isPortAlive(port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), 2*time.Second)
 	if err != nil {
 		return false
 	}

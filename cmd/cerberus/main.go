@@ -5,17 +5,22 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"text/tabwriter"
+	"text/template"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/daemon"
 	"github.com/chrispian/cerberus/internal/mcp"
+	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/service"
 	"github.com/chrispian/cerberus/internal/tui"
 	"github.com/spf13/cobra"
@@ -66,6 +71,10 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(installCmd)
+	rootCmd.AddCommand(uninstallCmd)
+	rootCmd.AddCommand(pauseCmd)
+	rootCmd.AddCommand(resumeCmd)
 }
 
 // runTUI launches the interactive Bubble Tea TUI (default behavior).
@@ -96,7 +105,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 }
 
 // loadServices loads config and creates service objects.
-func loadServices() ([]*service.Service, error) {
+func loadServices() ([]*service.ManagedService, error) {
 	service.InitLifecycleLog()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -107,12 +116,12 @@ func loadServices() ([]*service.Service, error) {
 
 // filterServices returns services matching the given IDs or tag.
 // If no IDs and no tag, returns all services.
-func filterServices(services []*service.Service, ids []string, tag string) []*service.Service {
+func filterServices(services []*service.ManagedService, ids []string, tag string) []*service.ManagedService {
 	if len(ids) == 0 && tag == "" {
 		return services
 	}
 
-	var result []*service.Service
+	var result []*service.ManagedService
 	for _, svc := range services {
 		if matchesFilter(svc, ids, tag) {
 			result = append(result, svc)
@@ -121,7 +130,7 @@ func filterServices(services []*service.Service, ids []string, tag string) []*se
 	return result
 }
 
-func matchesFilter(svc *service.Service, ids []string, tag string) bool {
+func matchesFilter(svc *service.ManagedService, ids []string, tag string) bool {
 	if tag != "" {
 		for _, t := range svc.Def.Tags {
 			if strings.EqualFold(t, tag) {
@@ -144,7 +153,7 @@ var upTag string
 var upCmd = &cobra.Command{
 	Use:   "up [service...]",
 	Short: "Start services headlessly",
-	Long:  "Starts specified services (or all if none given). Use --tag to filter by tag.",
+	Long:  "Starts specified services (or all if none given) in dependency order. Use --tag to filter by tag.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {
@@ -157,14 +166,50 @@ var upCmd = &cobra.Command{
 			return nil
 		}
 
+		// Use Manager for dependency-ordered startup.
+		mgr, err := service.NewServiceManager(services)
+		if err != nil {
+			// Fallback: start without ordering if DAG fails.
+			fmt.Fprintf(os.Stderr, "Warning: dependency ordering unavailable: %v\n", err)
+			for _, svc := range targets {
+				svc.Poll()
+				if svc.Status == service.StatusRunning {
+					fmt.Printf("%-20s already running (pid %d)\n", svc.Def.ID, svc.PID)
+					continue
+				}
+				if err := svc.Start(); err != nil {
+					fmt.Fprintf(os.Stderr, "%-20s error: %v\n", svc.Def.ID, err)
+				} else {
+					fmt.Printf("%-20s starting...\n", svc.Def.ID)
+				}
+			}
+			return nil
+		}
+
+		// If starting all services, use StartAll for full dependency ordering.
+		if len(args) == 0 && upTag == "" {
+			errs := mgr.StartAll()
+			for _, e := range errs {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", e)
+			}
+			if len(errs) == 0 {
+				fmt.Printf("All %d services starting in dependency order.\n", len(targets))
+			}
+			return nil
+		}
+
+		// Starting specific services: start each with auto-deps.
 		for _, svc := range targets {
 			svc.Poll()
-			if svc.Status == service.StatusRunning {
+			if svc.Status == service.StatusRunning || svc.Status == service.StatusHealthy {
 				fmt.Printf("%-20s already running (pid %d)\n", svc.Def.ID, svc.PID)
 				continue
 			}
-			if err := svc.Start(); err != nil {
-				fmt.Fprintf(os.Stderr, "%-20s error: %v\n", svc.Def.ID, err)
+			errs := mgr.StartService(svc.Def.ID, true)
+			if len(errs) > 0 {
+				for _, e := range errs {
+					fmt.Fprintf(os.Stderr, "%-20s error: %v\n", svc.Def.ID, e)
+				}
 			} else {
 				fmt.Printf("%-20s starting...\n", svc.Def.ID)
 			}
@@ -184,7 +229,7 @@ var downTag string
 var downCmd = &cobra.Command{
 	Use:   "down [service...]",
 	Short: "Stop services headlessly",
-	Long:  "Stops specified services (or all if none given). Use --tag to filter by tag.",
+	Long:  "Stops specified services (or all if none given) in reverse dependency order. Use --tag to filter by tag.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {
@@ -197,15 +242,45 @@ var downCmd = &cobra.Command{
 			return nil
 		}
 
-		for _, svc := range targets {
-			svc.Poll()
-			if svc.Status == service.StatusStopped {
-				fmt.Printf("%-20s already stopped\n", svc.Def.ID)
-				continue
+		// Use Manager for reverse-dependency ordered shutdown.
+		mgr, err := service.NewServiceManager(services)
+		if err != nil {
+			// Fallback: stop without ordering if DAG fails.
+			fmt.Fprintf(os.Stderr, "Warning: dependency ordering unavailable: %v\n", err)
+			for _, svc := range targets {
+				svc.Poll()
+				if svc.Status == service.StatusStopped {
+					fmt.Printf("%-20s already stopped\n", svc.Def.ID)
+					continue
+				}
+				if err := svc.Stop(); err != nil {
+					fmt.Fprintf(os.Stderr, "%-20s error: %v\n", svc.Def.ID, err)
+				} else {
+					fmt.Printf("%-20s stopping...\n", svc.Def.ID)
+				}
 			}
-			if err := svc.Stop(); err != nil {
-				fmt.Fprintf(os.Stderr, "%-20s error: %v\n", svc.Def.ID, err)
-			} else {
+			return nil
+		}
+
+		// Explicit bulk stop: user issued `cerberus down` (all services).
+		explicitBulk := len(args) == 0 && downTag == ""
+
+		if explicitBulk {
+			fmt.Printf("Stopping all %d services in reverse dependency order...\n", len(targets))
+			errs := mgr.StopAll()
+			for _, e := range errs {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", e)
+			}
+			return nil
+		}
+
+		// Stopping a subset: use StopSubset with bulk guard.
+		errs := mgr.StopSubset(targets, false)
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "  error: %v\n", e)
+		}
+		if len(errs) == 0 {
+			for _, svc := range targets {
 				fmt.Printf("%-20s stopping...\n", svc.Def.ID)
 			}
 		}
@@ -303,7 +378,7 @@ var logsCmd = &cobra.Command{
 			return err
 		}
 
-		var target *service.Service
+		var target *service.ManagedService
 		for _, svc := range services {
 			if strings.EqualFold(svc.Def.ID, args[0]) {
 				target = svc
@@ -557,14 +632,63 @@ var initCmd = &cobra.Command{
 
 // --- daemon ---
 
+var daemonReplace bool
+
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
 	Short: "Run daemon mode with health monitoring",
 	Long:  "Starts Cerberus in daemon mode with health monitoring and auto-restart capabilities. Runs both MCP server and health monitor.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Single-instance guard: check if another daemon is already running
+		existingPID, err := daemon.CheckDaemonRunning()
+		if err != nil {
+			return fmt.Errorf("checking daemon PID: %w", err)
+		}
+		if existingPID > 0 {
+			if !daemonReplace {
+				return fmt.Errorf("Cerberus daemon already running (PID %d). Use 'cerberus daemon --replace' to take over.", existingPID)
+			}
+			fmt.Printf("Replacing existing daemon (PID %d)...\n", existingPID)
+			if err := daemon.KillDaemon(existingPID); err != nil {
+				return fmt.Errorf("failed to kill existing daemon: %w", err)
+			}
+			// Give the old daemon time to shut down
+			time.Sleep(2 * time.Second)
+		}
+
+		// Write our PID file
+		if err := daemon.WriteDaemonPID(); err != nil {
+			return fmt.Errorf("writing daemon PID file: %w", err)
+		}
+		defer daemon.RemoveDaemonPID()
+
 		services, err := loadServices()
 		if err != nil {
 			return err
+		}
+
+		// Clean stale PID files from prior runs
+		if err := service.CleanStalePIDFiles(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean stale PID files: %v\n", err)
+		}
+
+		// Detect orphaned processes from prior Cerberus runs (log only, never kill)
+		orphans := service.DetectOrphans(services)
+		if len(orphans) > 0 {
+			logger := service.GetLogger()
+			logger.Warn("daemon.orphan_detection",
+				"count", len(orphans),
+				"message", fmt.Sprintf("Found %d potential orphan process(es) from prior runs", len(orphans)),
+			)
+			for _, o := range orphans {
+				logger.Warn("daemon.orphan_detected",
+					"service", o.ServiceID,
+					"pid", o.PID,
+					"port", o.Port,
+					"process", o.ProcessName,
+				)
+			}
+			fmt.Printf("Warning: detected %d orphaned process(es) from prior runs. See cerberus.log for details.\n", len(orphans))
 		}
 
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -604,7 +728,7 @@ var daemonCmd = &cobra.Command{
 			}
 		}()
 
-		fmt.Println("Cerberus daemon started - health monitoring and MCP server active")
+		fmt.Printf("Cerberus daemon started (PID %d) - health monitoring and MCP server active\n", os.Getpid())
 		fmt.Println("Press Ctrl+C to stop...")
 
 		// Wait for shutdown signal
@@ -617,6 +741,58 @@ var daemonCmd = &cobra.Command{
 		// Wait for all goroutines to finish
 		wg.Wait()
 
+		return nil
+	},
+}
+
+func init() {
+	daemonCmd.Flags().BoolVar(&daemonReplace, "replace", false, "kill existing daemon before starting")
+}
+
+// --- pause ---
+
+var pauseCmd = &cobra.Command{
+	Use:   "pause [service-id]",
+	Short: "Pause auto-restart",
+	Long:  "Pauses auto-restart for all services, or a specific service if an ID is given. While paused, services that crash will not be automatically restarted.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			serviceID := args[0]
+			if err := pausectl.PauseService(serviceID); err != nil {
+				return fmt.Errorf("pausing service %s: %w", serviceID, err)
+			}
+			fmt.Printf("Auto-restart paused for %s. Run 'cerberus resume %s' to re-enable.\n", serviceID, serviceID)
+			return nil
+		}
+		if err := pausectl.PauseAll(); err != nil {
+			return fmt.Errorf("pausing auto-restart: %w", err)
+		}
+		fmt.Println("Auto-restart paused. Run 'cerberus resume' to re-enable.")
+		return nil
+	},
+}
+
+// --- resume ---
+
+var resumeCmd = &cobra.Command{
+	Use:   "resume [service-id]",
+	Short: "Resume auto-restart",
+	Long:  "Resumes auto-restart for all services, or a specific service if an ID is given.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			serviceID := args[0]
+			if err := pausectl.ResumeService(serviceID); err != nil {
+				return fmt.Errorf("resuming service %s: %w", serviceID, err)
+			}
+			fmt.Printf("Auto-restart resumed for %s.\n", serviceID)
+			return nil
+		}
+		if err := pausectl.ResumeAll(); err != nil {
+			return fmt.Errorf("resuming auto-restart: %w", err)
+		}
+		fmt.Println("Auto-restart resumed.")
 		return nil
 	},
 }
@@ -644,5 +820,147 @@ var mcpCmd = &cobra.Command{
 		srv.RegisterTool(mcp.NewCerberusHealthTool(services, nil))
 
 		return srv.Run()
+	},
+}
+
+// --- install / uninstall ---
+
+const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tiamat.cerberus</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{.BinaryPath}}</string>
+        <string>daemon</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{.WorkingDir}}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{{.HomeDir}}/.cerberus/logs/launchd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{.HomeDir}}/.cerberus/logs/launchd-stderr.log</string>
+</dict>
+</plist>
+`
+
+const launchdPlistName = "com.tiamat.cerberus.plist"
+
+type launchdData struct {
+	BinaryPath string
+	WorkingDir string
+	HomeDir    string
+}
+
+var installCmd = &cobra.Command{
+	Use:   "install",
+	Short: "Install cerberus as a system service",
+	Long:  "Installs a macOS launch agent so the cerberus daemon starts automatically on login and restarts if it exits.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS != "darwin" {
+			return fmt.Errorf("install is currently supported on macOS only")
+		}
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("could not determine home directory: %w", err)
+		}
+
+		binPath, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("could not determine binary path: %w", err)
+		}
+		binPath, err = filepath.EvalSymlinks(binPath)
+		if err != nil {
+			return fmt.Errorf("could not resolve binary path: %w", err)
+		}
+
+		workDir := filepath.Dir(binPath)
+
+		// Ensure logs directory exists
+		logsDir := filepath.Join(home, ".cerberus", "logs")
+		if err := os.MkdirAll(logsDir, 0755); err != nil {
+			return fmt.Errorf("creating logs directory: %w", err)
+		}
+
+		// Render the plist template
+		tmpl, err := template.New("plist").Parse(launchdPlistTemplate)
+		if err != nil {
+			return fmt.Errorf("parsing plist template: %w", err)
+		}
+
+		plistPath := filepath.Join(home, "Library", "LaunchAgents", launchdPlistName)
+
+		// Unload existing agent if present
+		if _, err := os.Stat(plistPath); err == nil {
+			exec.Command("launchctl", "unload", plistPath).Run()
+		}
+
+		f, err := os.Create(plistPath)
+		if err != nil {
+			return fmt.Errorf("creating plist: %w", err)
+		}
+
+		data := launchdData{
+			BinaryPath: binPath,
+			WorkingDir: workDir,
+			HomeDir:    home,
+		}
+		if err := tmpl.Execute(f, data); err != nil {
+			f.Close()
+			return fmt.Errorf("writing plist: %w", err)
+		}
+		f.Close()
+
+		// Load the agent
+		if out, err := exec.Command("launchctl", "load", plistPath).CombinedOutput(); err != nil {
+			return fmt.Errorf("launchctl load failed: %s: %w", strings.TrimSpace(string(out)), err)
+		}
+
+		fmt.Printf("Installed launch agent: %s\n", plistPath)
+		fmt.Printf("Binary: %s\n", binPath)
+		fmt.Println("Cerberus daemon will start automatically on login.")
+		return nil
+	},
+}
+
+var uninstallCmd = &cobra.Command{
+	Use:   "uninstall",
+	Short: "Remove cerberus system service",
+	Long:  "Unloads and removes the macOS launch agent for the cerberus daemon.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS != "darwin" {
+			return fmt.Errorf("uninstall is currently supported on macOS only")
+		}
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("could not determine home directory: %w", err)
+		}
+
+		plistPath := filepath.Join(home, "Library", "LaunchAgents", launchdPlistName)
+
+		if _, err := os.Stat(plistPath); os.IsNotExist(err) {
+			fmt.Println("Launch agent not installed, nothing to do.")
+			return nil
+		}
+
+		// Unload the agent
+		exec.Command("launchctl", "unload", plistPath).Run()
+
+		// Remove the plist
+		if err := os.Remove(plistPath); err != nil {
+			return fmt.Errorf("removing plist: %w", err)
+		}
+
+		fmt.Printf("Removed launch agent: %s\n", plistPath)
+		fmt.Println("Cerberus daemon will no longer start automatically.")
+		return nil
 	},
 }
