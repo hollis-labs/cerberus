@@ -261,8 +261,8 @@ services:
   # --- Conduit (chat harness) ---
   - id: conduit-api
     name: "Conduit API"
-    project: mentat
-    dir: ~/Projects-apps/mentat
+    project: conduit
+    dir: ~/Projects-apps/fragments-engine/conduit
     command: ["conduit", "serve"]
     build: ["go", "install", "./cmd/conduit"]
     url: http://127.0.0.1:8090
@@ -273,8 +273,8 @@ services:
 
   - id: conduit-frontend
     name: "Conduit Frontend"
-    project: mentat
-    dir: ~/Projects-apps/mentat/ui
+    project: conduit
+    dir: ~/Projects-apps/fragments-engine/conduit/ui
     command: ["npm", "run", "dev"]
     url: http://localhost:5176
     port: 5176
@@ -284,15 +284,16 @@ services:
   # --- Cerberus (self-managed daemon) ---
   # No port field — cerberus daemon doesn't expose an HTTP port.
   # Status detection uses PID file only.
+  # NOTE: auto_restart is deliberately OFF — the daemon must not try to
+  # restart itself (recursive fork bomb). Use launchd KeepAlive instead.
   - id: cerberus-daemon
     name: "Cerberus Daemon"
     project: cerberus
     dir: ~/Projects-apps/cerberus
-    command: ["./cerberus", "daemon"]
-    build: ["go", "build", "-o", "cerberus", "./cmd/cerberus"]
+    command: ["cerberus", "daemon"]
+    build: ["go", "install", "./cmd/cerberus"]
     tags: [daemon, go, infrastructure]
     protected: true
-    auto_restart: true
 
   # --- Nanite (notes) ---
   - id: nanite-dev

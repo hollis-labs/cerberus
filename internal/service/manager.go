@@ -10,26 +10,26 @@ import (
 // when the caller did not explicitly request a full shutdown.
 const BulkStopThreshold = 2
 
-// Manager orchestrates service lifecycle using dependency ordering from the DAG.
-type Manager struct {
-	services []*Service
+// ServiceManager orchestrates service lifecycle using dependency ordering from the DAG.
+type ServiceManager struct {
+	services []*ManagedService
 	dag      *DAG
-	byID     map[string]*Service
+	byID     map[string]*ManagedService
 }
 
-// NewManager creates a Manager and builds the dependency DAG from the provided services.
-func NewManager(services []*Service) (*Manager, error) {
+// NewServiceManager creates a ServiceManager and builds the dependency DAG from the provided services.
+func NewServiceManager(services []*ManagedService) (*ServiceManager, error) {
 	dag, err := BuildDAG(services)
 	if err != nil {
 		return nil, fmt.Errorf("build dependency graph: %w", err)
 	}
 
-	byID := make(map[string]*Service, len(services))
+	byID := make(map[string]*ManagedService, len(services))
 	for _, svc := range services {
 		byID[svc.Def.ID] = svc
 	}
 
-	return &Manager{
+	return &ServiceManager{
 		services: services,
 		dag:      dag,
 		byID:     byID,
@@ -37,18 +37,18 @@ func NewManager(services []*Service) (*Manager, error) {
 }
 
 // DAG returns the underlying dependency graph.
-func (m *Manager) DAG() *DAG {
+func (m *ServiceManager) DAG() *DAG {
 	return m.dag
 }
 
 // Services returns all managed services.
-func (m *Manager) Services() []*Service {
+func (m *ServiceManager) Services() []*ManagedService {
 	return m.services
 }
 
 // StartAll starts all services in topological order, parallelizing within each level.
 // Services in level 0 (no dependencies) start first, then level 1, etc.
-func (m *Manager) StartAll() []error {
+func (m *ServiceManager) StartAll() []error {
 	levels, err := m.dag.TopologicalOrder()
 	if err != nil {
 		return []error{err}
@@ -63,7 +63,7 @@ func (m *Manager) StartAll() []error {
 }
 
 // startLevel starts all services in a level concurrently using goroutines.
-func (m *Manager) startLevel(services []*Service) []error {
+func (m *ServiceManager) startLevel(services []*ManagedService) []error {
 	if len(services) == 0 {
 		return nil
 	}
@@ -82,7 +82,7 @@ func (m *Manager) startLevel(services []*Service) []error {
 
 	wg.Add(len(services))
 	for _, svc := range services {
-		go func(s *Service) {
+		go func(s *ManagedService) {
 			defer wg.Done()
 			if err := s.Start(); err != nil {
 				mu.Lock()
@@ -98,7 +98,7 @@ func (m *Manager) startLevel(services []*Service) []error {
 
 // StartService starts a single service by ID. If autoStartDeps is true,
 // any unstarted dependencies are started first (recursively, in correct order).
-func (m *Manager) StartService(id string, autoStartDeps bool) []error {
+func (m *ServiceManager) StartService(id string, autoStartDeps bool) []error {
 	svc, ok := m.byID[id]
 	if !ok {
 		return []error{fmt.Errorf("unknown service: %s", id)}
@@ -115,7 +115,7 @@ func (m *Manager) StartService(id string, autoStartDeps bool) []error {
 	needed := m.collectDeps(id)
 
 	// Filter to only services that are not already running.
-	var toStart []*Service
+	var toStart []*ManagedService
 	for _, s := range needed {
 		if s.Status != StatusRunning && s.Status != StatusHealthy && s.Status != StatusUnhealthy {
 			toStart = append(toStart, s)
@@ -158,9 +158,9 @@ func (m *Manager) StartService(id string, autoStartDeps bool) []error {
 
 // collectDeps returns all transitive dependencies of the given service (not
 // including the service itself), in no particular order.
-func (m *Manager) collectDeps(id string) []*Service {
+func (m *ServiceManager) collectDeps(id string) []*ManagedService {
 	visited := make(map[string]bool)
-	var result []*Service
+	var result []*ManagedService
 
 	var walk func(string)
 	walk = func(current string) {
@@ -179,7 +179,7 @@ func (m *Manager) collectDeps(id string) []*Service {
 // StopAll stops all services in reverse topological order (dependents first,
 // then their dependencies). Services within a level are stopped concurrently.
 // This is the explicit "stop everything" path and always proceeds.
-func (m *Manager) StopAll() []error {
+func (m *ServiceManager) StopAll() []error {
 	levels, err := m.dag.TopologicalOrder()
 	if err != nil {
 		return []error{err}
@@ -198,7 +198,7 @@ func (m *Manager) StopAll() []error {
 // number of running services to stop exceeds BulkStopThreshold and
 // explicitBulk is false, a warning is logged. This guards against accidental
 // mass termination from automated callers.
-func (m *Manager) StopSubset(targets []*Service, explicitBulk bool) []error {
+func (m *ServiceManager) StopSubset(targets []*ManagedService, explicitBulk bool) []error {
 	// Count how many of the targets are actually running.
 	var running int
 	for _, svc := range targets {
@@ -244,7 +244,7 @@ func (m *Manager) StopSubset(targets []*Service, explicitBulk bool) []error {
 }
 
 // stopLevel stops all services in a level concurrently.
-func (m *Manager) stopLevel(services []*Service) []error {
+func (m *ServiceManager) stopLevel(services []*ManagedService) []error {
 	if len(services) == 0 {
 		return nil
 	}
@@ -263,7 +263,7 @@ func (m *Manager) stopLevel(services []*Service) []error {
 
 	wg.Add(len(services))
 	for _, svc := range services {
-		go func(s *Service) {
+		go func(s *ManagedService) {
 			defer wg.Done()
 			if err := s.Stop(); err != nil {
 				mu.Lock()

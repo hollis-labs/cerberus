@@ -15,7 +15,7 @@ type DoctorResult struct {
 
 // RunDoctor performs health checks across all services and returns results.
 // Checks include: port conflicts, missing binaries, missing working directories.
-func RunDoctor(services []*Service) []DoctorResult {
+func RunDoctor(services []*ManagedService) []DoctorResult {
 	var results []DoctorResult
 
 	for _, svc := range services {
@@ -32,7 +32,7 @@ func RunDoctor(services []*Service) []DoctorResult {
 	return results
 }
 
-func checkPort(svc *Service) []DoctorResult {
+func checkPort(svc *ManagedService) []DoctorResult {
 	if svc.Def.Port == 0 {
 		return []DoctorResult{{
 			ServiceID: svc.Def.ID,
@@ -69,7 +69,7 @@ func checkPort(svc *Service) []DoctorResult {
 	}}
 }
 
-func checkBinary(svc *Service) DoctorResult {
+func checkBinary(svc *ManagedService) DoctorResult {
 	if len(svc.Def.Command) == 0 {
 		return DoctorResult{
 			ServiceID: svc.Def.ID,
@@ -116,7 +116,7 @@ func checkBinary(svc *Service) DoctorResult {
 	}
 }
 
-func checkDir(svc *Service) DoctorResult {
+func checkDir(svc *ManagedService) DoctorResult {
 	if svc.Def.Dir == "" {
 		return DoctorResult{
 			ServiceID: svc.Def.ID,

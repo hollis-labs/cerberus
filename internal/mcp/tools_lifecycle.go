@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/service"
 )
 
@@ -74,7 +75,7 @@ func marshalResult(r lifecycleResult) string {
 }
 
 // findService looks up a service by ID from the services slice.
-func findService(services []*service.Service, id string) *service.Service {
+func findService(services []*service.ManagedService, id string) *service.ManagedService {
 	for _, svc := range services {
 		if svc.Def.ID == id {
 			return svc
@@ -84,7 +85,7 @@ func findService(services []*service.Service, id string) *service.Service {
 }
 
 // NewCerberusStartTool creates the cerberus_start tool.
-func NewCerberusStartTool(services []*service.Service) Tool {
+func NewCerberusStartTool(services []*service.ManagedService) Tool {
 	return Tool{
 		Name:        "cerberus_start",
 		Description: "Start a Cerberus-managed service by ID. Handles lock acquisition and port conflict detection automatically.",
@@ -139,7 +140,7 @@ func NewCerberusStartTool(services []*service.Service) Tool {
 }
 
 // NewCerberusStopTool creates the cerberus_stop tool.
-func NewCerberusStopTool(services []*service.Service) Tool {
+func NewCerberusStopTool(services []*service.ManagedService) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -196,6 +197,11 @@ func NewCerberusStopTool(services []*service.Service) Tool {
 
 			logAudit("stop", serviceID, audit)
 
+			// Pause auto-restart so the monitor doesn't undo the stop.
+			_ = pausectl.PauseService(serviceID)
+			// NOTE: no defer resume — a deliberate stop should stay stopped
+			// until the user explicitly starts or resumes the service.
+
 			if err := svc.Stop(); err != nil {
 				return marshalResult(lifecycleResult{
 					Success:   false,
@@ -214,7 +220,7 @@ func NewCerberusStopTool(services []*service.Service) Tool {
 }
 
 // NewCerberusRestartTool creates the cerberus_restart tool.
-func NewCerberusRestartTool(services []*service.Service) Tool {
+func NewCerberusRestartTool(services []*service.ManagedService) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -278,6 +284,10 @@ func NewCerberusRestartTool(services []*service.Service) Tool {
 
 			logAudit("restart", serviceID, audit)
 
+			// Pause auto-restart so the monitor doesn't race us.
+			_ = pausectl.PauseService(serviceID)
+			defer func() { _ = pausectl.ResumeService(serviceID) }()
+
 			if err := svc.Stop(); err != nil {
 				if !force {
 					return marshalResult(lifecycleResult{
@@ -307,7 +317,7 @@ func NewCerberusRestartTool(services []*service.Service) Tool {
 }
 
 // NewCerberusRebuildTool creates the cerberus_rebuild tool.
-func NewCerberusRebuildTool(services []*service.Service) Tool {
+func NewCerberusRebuildTool(services []*service.ManagedService) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -370,6 +380,10 @@ func NewCerberusRebuildTool(services []*service.Service) Tool {
 			}
 
 			logAudit("rebuild", serviceID, audit)
+
+			// Pause auto-restart so the monitor doesn't race us mid-build.
+			_ = pausectl.PauseService(serviceID)
+			defer func() { _ = pausectl.ResumeService(serviceID) }()
 
 			var buildOutput string
 			if len(svc.Def.Build) > 0 {

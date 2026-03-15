@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	defaultInterval        = 30 * time.Second
-	defaultTimeout         = 5 * time.Second
-	unhealthyThreshold     = 3
+	defaultInterval    = 30 * time.Second
+	defaultTimeout     = 5 * time.Second
+	unhealthyThreshold = 3
 )
 
 // HealthStatus represents the current health state of a service.
@@ -25,7 +25,7 @@ type HealthStatus struct {
 
 // HealthChecker runs periodic health checks against a service.
 type HealthChecker struct {
-	svc      *Service
+	svc      *ManagedService
 	interval time.Duration
 	timeout  time.Duration
 
@@ -37,7 +37,7 @@ type HealthChecker struct {
 
 // NewHealthChecker creates a HealthChecker for the given service.
 // Returns nil if the service has no health check configured.
-func NewHealthChecker(svc *Service) *HealthChecker {
+func NewHealthChecker(svc *ManagedService) *HealthChecker {
 	cfg := svc.Def.HealthCheckCfg
 	if cfg.URL == "" && len(cfg.Command) == 0 {
 		return nil

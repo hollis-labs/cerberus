@@ -30,7 +30,7 @@ var (
 	cfgPath string
 
 	// Set via -ldflags at build time
-	version   = "0.2.0"
+	version   = "0.3.0"
 	buildDate = "unknown"
 )
 
@@ -312,6 +312,17 @@ var restartCmd = &cobra.Command{
 			return nil
 		}
 
+		// Pause auto-restart for targets so the daemon monitor doesn't
+		// race us by restarting with the old binary mid-cycle.
+		for _, svc := range targets {
+			_ = pausectl.PauseService(svc.Def.ID)
+		}
+		defer func() {
+			for _, svc := range targets {
+				_ = pausectl.ResumeService(svc.Def.ID)
+			}
+		}()
+
 		for _, svc := range targets {
 			svc.Poll()
 			fmt.Printf("%-20s restarting...\n", svc.Def.ID)
@@ -503,6 +514,17 @@ var rebuildCmd = &cobra.Command{
 			return nil
 		}
 
+		// Pause auto-restart for targets so the daemon monitor doesn't
+		// race us by restarting with the old binary mid-build.
+		for _, svc := range targets {
+			_ = pausectl.PauseService(svc.Def.ID)
+		}
+		defer func() {
+			for _, svc := range targets {
+				_ = pausectl.ResumeService(svc.Def.ID)
+			}
+		}()
+
 		hasError := false
 		for _, svc := range targets {
 			if len(svc.Def.Build) == 0 {
@@ -650,10 +672,10 @@ var daemonCmd = &cobra.Command{
 			}
 			if existingPID > 0 {
 				if !daemonReplace {
-					return fmt.Errorf("Cerberus daemon already running (PID %d). Use 'cerberus daemon --replace' to take over.", existingPID)
+					return fmt.Errorf("cerberus daemon already running (PID %d) — use 'cerberus daemon --replace' to take over", existingPID)
 				}
-				if err := daemon.KillDaemon(existingPID); err != nil {
-					return fmt.Errorf("failed to kill existing daemon: %w", err)
+				if killErr := daemon.KillDaemon(existingPID); killErr != nil {
+					return fmt.Errorf("failed to kill existing daemon: %w", killErr)
 				}
 				fmt.Printf("Killed existing daemon (PID %d)\n", existingPID)
 			}
@@ -667,7 +689,7 @@ var daemonCmd = &cobra.Command{
 			if daemonReplace {
 				childArgs = append(childArgs, "--replace")
 			}
-			child := exec.Command(exe, childArgs...)
+			child := exec.Command(exe, childArgs...) //nolint:gosec // exe is from os.Executable(), not user input
 			child.Env = append(os.Environ(), "CERBERUS_DAEMON_CHILD=1")
 			child.Stdout = nil
 			child.Stderr = nil
@@ -677,7 +699,7 @@ var daemonCmd = &cobra.Command{
 			}
 			fmt.Printf("Cerberus daemon started (PID %d)\n", child.Process.Pid)
 			// Detach — parent exits, child continues
-			child.Process.Release()
+			_ = child.Process.Release()
 			return nil
 		}
 
@@ -888,6 +910,7 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <array>
         <string>{{.BinaryPath}}</string>
         <string>daemon</string>
+        <string>--foreground</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{{.WorkingDir}}</string>
@@ -925,16 +948,25 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("could not determine home directory: %w", err)
 		}
 
-		binPath, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("could not determine binary path: %w", err)
+		// Prefer GOBIN / GOPATH/bin so launchd always uses the go-installed
+		// binary. This avoids stale-binary issues when agents build locally
+		// (go build -o ./cerberus) but the PATH resolves to ~/go/bin.
+		binPath := filepath.Join(home, "go", "bin", "cerberus")
+		if gobin := os.Getenv("GOBIN"); gobin != "" {
+			binPath = filepath.Join(gobin, "cerberus")
+		} else if gopath := os.Getenv("GOPATH"); gopath != "" {
+			binPath = filepath.Join(gopath, "bin", "cerberus")
 		}
-		binPath, err = filepath.EvalSymlinks(binPath)
-		if err != nil {
-			return fmt.Errorf("could not resolve binary path: %w", err)
+		if _, statErr := os.Stat(binPath); statErr != nil {
+			// Fallback: use whichever binary is running right now
+			exePath, exeErr := os.Executable()
+			if exeErr != nil {
+				return fmt.Errorf("could not determine binary path: %w", exeErr)
+			}
+			binPath, _ = filepath.EvalSymlinks(exePath)
 		}
 
-		workDir := filepath.Dir(binPath)
+		workDir := home
 
 		// Ensure logs directory exists
 		logsDir := filepath.Join(home, ".cerberus", "logs")

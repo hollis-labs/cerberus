@@ -72,7 +72,7 @@ type LogViewModel struct {
 }
 
 // NewLogViewModel creates a LogViewModel for the given service.
-func NewLogViewModel(svc *service.Service, width, height int) LogViewModel {
+func NewLogViewModel(svc *service.ManagedService, width, height int) LogViewModel {
 	lv := LogViewModel{
 		serviceID:   svc.Def.ID,
 		serviceName: svc.Def.Name,
@@ -279,7 +279,7 @@ func (lv LogViewModel) View() string {
 		helpParts = append(helpParts,
 			logFooterKeyStyle.Render(h.key)+" "+logFooterDescStyle.Render(h.desc))
 	}
-	b.WriteString(logFooterStyle.Render(" " + strings.Join(helpParts, "  ")) + "\n")
+	b.WriteString(logFooterStyle.Render(" "+strings.Join(helpParts, "  ")) + "\n")
 
 	return b.String()
 }

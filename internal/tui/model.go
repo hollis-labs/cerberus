@@ -18,7 +18,7 @@ const (
 )
 
 type Model struct {
-	services  []*service.Service
+	services  []*service.ManagedService
 	cursor    int
 	sortBy    sortField
 	filter    string
@@ -45,7 +45,7 @@ type Model struct {
 
 type tickMsg time.Time
 
-func NewModel(services []*service.Service, version, buildDate string) Model {
+func NewModel(services []*service.ManagedService, version, buildDate string) Model {
 	// Do initial poll
 	for _, s := range services {
 		s.Poll()
@@ -58,8 +58,8 @@ func NewModel(services []*service.Service, version, buildDate string) Model {
 		width:     120,
 		height:    30,
 		grouped:   true,
-		allTags:  collectUniqueTags(services),
-		tagIndex: -1, // -1 means no tag filter active
+		allTags:   collectUniqueTags(services),
+		tagIndex:  -1, // -1 means no tag filter active
 	}
 	m.rebuildGroups()
 	return m
@@ -339,7 +339,7 @@ func (m *Model) setMsg(msg string) {
 	m.msgExpiry = time.Now().Add(3 * time.Second)
 }
 
-func (m Model) selected(visible []*service.Service) *service.Service {
+func (m Model) selected(visible []*service.ManagedService) *service.ManagedService {
 	if m.cursor >= 0 && m.cursor < len(visible) {
 		return visible[m.cursor]
 	}
@@ -348,7 +348,7 @@ func (m Model) selected(visible []*service.Service) *service.Service {
 
 // selectedService returns the service under the cursor, respecting grouped mode.
 // Returns nil if cursor is on a group header or out of range.
-func (m Model) selectedService() *service.Service {
+func (m Model) selectedService() *service.ManagedService {
 	if m.grouped {
 		if m.cursor >= 0 && m.cursor < len(m.flatItems) {
 			item := m.flatItems[m.cursor]
@@ -372,19 +372,19 @@ func (m *Model) rebuildGroups() {
 	m.flatItems = buildFlatItems(m.groups)
 }
 
-func (m Model) visibleServices() []*service.Service {
+func (m Model) visibleServices() []*service.ManagedService {
 	svcs := m.filteredServices()
 	svcs = filterServicesByTag(svcs, m.tagFilter)
 	return m.sorted(svcs)
 }
 
-func (m Model) filteredServices() []*service.Service {
+func (m Model) filteredServices() []*service.ManagedService {
 	if m.filter == "" {
 		return m.services
 	}
 
 	f := strings.ToLower(m.filter)
-	var filtered []*service.Service
+	var filtered []*service.ManagedService
 	for _, s := range m.services {
 		name := strings.ToLower(s.Def.Name)
 		id := strings.ToLower(s.Def.ID)
@@ -396,8 +396,8 @@ func (m Model) filteredServices() []*service.Service {
 	return filtered
 }
 
-func (m Model) sorted(svcs []*service.Service) []*service.Service {
-	out := make([]*service.Service, len(svcs))
+func (m Model) sorted(svcs []*service.ManagedService) []*service.ManagedService {
+	out := make([]*service.ManagedService, len(svcs))
 	copy(out, svcs)
 
 	for i := 0; i < len(out)-1; i++ {

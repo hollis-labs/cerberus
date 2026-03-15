@@ -192,8 +192,9 @@ func (m *Monitor) checkAllServices(ctx context.Context) {
 
 // checkService checks a single service and restarts it if needed.
 func (m *Monitor) checkService(ctx context.Context, svc *service.ManagedService) {
-	// Only monitor services with auto-restart enabled OR protected flag
-	if !svc.Def.AutoRestart && !svc.Def.Protected {
+	// Only auto-restart services that explicitly opt in.
+	// Protected means "shield from external stop via MCP" — not "auto-restart."
+	if !svc.Def.AutoRestart {
 		return
 	}
 

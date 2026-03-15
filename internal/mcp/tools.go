@@ -28,7 +28,7 @@ type serviceStatusEntry struct {
 // NewCerberusStatusTool creates the cerberus_status tool.
 // The services slice is polled each time the tool is called.
 // If monitor is non-nil, daemon restart stats are included per service.
-func NewCerberusStatusTool(services []*service.Service, monitor *daemon.Monitor) Tool {
+func NewCerberusStatusTool(services []*service.ManagedService, monitor *daemon.Monitor) Tool {
 	return Tool{
 		Name:        "cerberus_status",
 		Description: "Returns the current status of Cerberus-managed services. Optionally filter by service_id. Includes daemon protection and auto-restart state.",
@@ -116,7 +116,7 @@ func NewCerberusStatusTool(services []*service.Service, monitor *daemon.Monitor)
 }
 
 // deriveDaemonState computes a human-readable daemon state for a service.
-func deriveDaemonState(svc *service.Service, monStatus *daemon.MonitorStatus, maxAttempts int) string {
+func deriveDaemonState(svc *service.ManagedService, monStatus *daemon.MonitorStatus, maxAttempts int) string {
 	if !svc.Def.AutoRestart && !svc.Def.Protected {
 		return "unmanaged"
 	}

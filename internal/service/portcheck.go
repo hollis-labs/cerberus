@@ -58,7 +58,7 @@ func CheckPortConflict(port int, serviceID string) (*PortConflict, error) {
 
 // ScanAllPorts checks every service's declared port for conflicts and returns
 // a slice of all detected conflicts.
-func ScanAllPorts(services []*Service) []PortConflict {
+func ScanAllPorts(services []*ManagedService) []PortConflict {
 	var conflicts []PortConflict
 	for _, svc := range services {
 		if svc.Def.Port == 0 {

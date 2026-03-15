@@ -10,15 +10,15 @@ import (
 // ServiceGroup represents a collection of services grouped by project name.
 type ServiceGroup struct {
 	Name      string
-	Services  []*service.Service
+	Services  []*service.ManagedService
 	Collapsed bool
 }
 
 // GroupByProject groups services by their Def.Project field.
 // Groups are sorted alphabetically by name. Services within each group
 // maintain the order they were passed in.
-func GroupByProject(services []*service.Service) []ServiceGroup {
-	groupMap := make(map[string][]*service.Service)
+func GroupByProject(services []*service.ManagedService) []ServiceGroup {
+	groupMap := make(map[string][]*service.ManagedService)
 	for _, svc := range services {
 		project := svc.Def.Project
 		if project == "" {
@@ -43,7 +43,7 @@ func GroupByProject(services []*service.Service) []ServiceGroup {
 }
 
 // collectUniqueTags returns a sorted list of all unique tags across all services.
-func collectUniqueTags(services []*service.Service) []string {
+func collectUniqueTags(services []*service.ManagedService) []string {
 	tagSet := make(map[string]struct{})
 	for _, svc := range services {
 		for _, tag := range svc.Def.Tags {
@@ -60,12 +60,12 @@ func collectUniqueTags(services []*service.Service) []string {
 }
 
 // filterServicesByTag returns only services that have the given tag.
-func filterServicesByTag(services []*service.Service, tag string) []*service.Service {
+func filterServicesByTag(services []*service.ManagedService, tag string) []*service.ManagedService {
 	if tag == "" {
 		return services
 	}
 	tag = strings.ToLower(tag)
-	var result []*service.Service
+	var result []*service.ManagedService
 	for _, svc := range services {
 		for _, t := range svc.Def.Tags {
 			if strings.ToLower(t) == tag {
