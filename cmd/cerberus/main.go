@@ -634,11 +634,55 @@ var initCmd = &cobra.Command{
 
 var daemonReplace bool
 
+var daemonForeground bool
+
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
 	Short: "Run daemon mode with health monitoring",
-	Long:  "Starts Cerberus in daemon mode with health monitoring and auto-restart capabilities. Runs both MCP server and health monitor.",
+	Long:  "Starts Cerberus in daemon mode. Forks to background by default. Use --foreground to stay in foreground.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// If not foreground and not already the forked child, fork and exit
+		if !daemonForeground && os.Getenv("CERBERUS_DAEMON_CHILD") == "" {
+			// Single-instance guard before forking
+			existingPID, err := daemon.CheckDaemonRunning()
+			if err != nil {
+				return fmt.Errorf("checking daemon PID: %w", err)
+			}
+			if existingPID > 0 {
+				if !daemonReplace {
+					return fmt.Errorf("Cerberus daemon already running (PID %d). Use 'cerberus daemon --replace' to take over.", existingPID)
+				}
+				if err := daemon.KillDaemon(existingPID); err != nil {
+					return fmt.Errorf("failed to kill existing daemon: %w", err)
+				}
+				fmt.Printf("Killed existing daemon (PID %d)\n", existingPID)
+			}
+
+			// Fork: re-exec ourselves with the child marker
+			exe, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("finding executable: %w", err)
+			}
+			childArgs := []string{"daemon", "--foreground"}
+			if daemonReplace {
+				childArgs = append(childArgs, "--replace")
+			}
+			child := exec.Command(exe, childArgs...)
+			child.Env = append(os.Environ(), "CERBERUS_DAEMON_CHILD=1")
+			child.Stdout = nil
+			child.Stderr = nil
+			child.Stdin = nil
+			if err := child.Start(); err != nil {
+				return fmt.Errorf("forking daemon: %w", err)
+			}
+			fmt.Printf("Cerberus daemon started (PID %d)\n", child.Process.Pid)
+			// Detach — parent exits, child continues
+			child.Process.Release()
+			return nil
+		}
+
+		// --- Below here is the actual daemon (child or --foreground) ---
+
 		// Single-instance guard: check if another daemon is already running
 		existingPID, err := daemon.CheckDaemonRunning()
 		if err != nil {
@@ -728,8 +772,16 @@ var daemonCmd = &cobra.Command{
 			}
 		}()
 
-		fmt.Printf("Cerberus daemon started (PID %d) - health monitoring and MCP server active\n", os.Getpid())
-		fmt.Println("Press Ctrl+C to stop...")
+		// Write PID file after all setup is done
+		if err := daemon.WriteDaemonPID(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write PID file: %v\n", err)
+		}
+		defer daemon.RemoveDaemonPID()
+
+		if daemonForeground && os.Getenv("CERBERUS_DAEMON_CHILD") == "" {
+			// Only print interactive message if truly in foreground (not forked child)
+			fmt.Printf("Cerberus daemon running (PID %d) — press Ctrl+C to stop\n", os.Getpid())
+		}
 
 		// Wait for shutdown signal
 		<-ctx.Done()
@@ -747,6 +799,7 @@ var daemonCmd = &cobra.Command{
 
 func init() {
 	daemonCmd.Flags().BoolVar(&daemonReplace, "replace", false, "kill existing daemon before starting")
+	daemonCmd.Flags().BoolVar(&daemonForeground, "foreground", false, "run in foreground instead of forking to background")
 }
 
 // --- pause ---
