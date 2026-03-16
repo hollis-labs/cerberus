@@ -147,9 +147,9 @@ services:
     name: "Volon API"
     project: volon
     dir: ~/Projects-apps/volon
-    command: ["./scripts/volon-api-wrapper.sh", "--repo", ".", "--http", ":8085"]
+    command: ["./scripts/volon-api-wrapper.sh", "--http", ":8085"]
     build: ["sh", "-c", "go build -o gui-server ./cmd/gui-server && go build -o volon ./cmd/volon"]
-    env_file: .env.local
+    env_file: .env
     url: http://127.0.0.1:8085
     port: 8085
     health: http://127.0.0.1:8085/v1/tasks
@@ -161,9 +161,9 @@ services:
     name: "Volon Scheduler"
     project: volon
     dir: ~/Projects-apps/volon
-    command: ["./scripts/volon-scheduler-wrapper.sh", "--repo", ".", "--health-addr", ":8086"]
+    command: ["./scripts/volon-scheduler-wrapper.sh", "--health-addr", ":8086"]
     build: ["sh", "-c", "go build -o volon-scheduler ./cmd/scheduler && go build -o volon ./cmd/volon"]
-    env_file: .env.local
+    env_file: .env
     env:
       OTEL_SDK_DISABLED: "true"
     url: http://127.0.0.1:8086
