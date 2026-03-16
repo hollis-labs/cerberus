@@ -65,7 +65,7 @@ services:
     build: ["go", "build", "-o", "contextd", "./cmd/contextd/"]  # optional build command
     env:                          # optional env vars (~ expanded)
       CONTEXTD_ROOT: ~/.cortex
-    env_file: .env.local          # optional dotenv file (relative to dir)
+    env_file: .env                # optional dotenv file (relative to dir)
     url: http://127.0.0.1:8080   # opened by enter/l key
     port: 8080                    # used for status polling (lsof)
     health: http://127.0.0.1:8080/v1/health/readiness
