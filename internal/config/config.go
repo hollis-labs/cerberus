@@ -114,193 +114,22 @@ func EnsureDefault() error {
 	return os.WriteFile(path, []byte(defaultConfig), 0644)
 }
 
-const defaultConfig = `# Cerberus - suite Service Manager
-# Config version (currently 1)
+const defaultConfig = `# Cerberus — Fragments Engine Service Manager
+# This is a SEED template. It is only written when ~/.cerberus/config.yaml
+# does not exist. The live config is ALWAYS ~/.cerberus/config.yaml.
+# Edit that file directly — changes here have NO effect on running systems.
 version: 1
 
-# Port map for Project suite (all unique, no collisions)
-#
-#   Port  | Service
-#   ------|------------------
-#   1420  | app-h Frontend (Vite)
-#   5173  | Cortex Frontend (Vite)
-#   7765  | app-a API (embedded)
-#   8080  | Cortex API
-#   8085  | app-h API (Go backend)
-#   8086  | app-h Scheduler (standalone daemon)
-#   8090  | Conduit API (Go)
-#   8095  | app-d Daemon
-#   8096  | Carrier API (Python)
-#   9085  | app-h gRPC (started by app-h-api)
-#   34116 | app-d Frontend (Wails/Vite)
-#   5174  | Carrier Frontend (Vite)
-#   5176  | Conduit Frontend (Vite)
-#
-# IMPORTANT: Do NOT set "port: 0" on any service. Omit the port field entirely
-# for services that don't listen on a port (e.g. CLI tools, daemons without
-# an HTTP interface). lsof -ti :0 returns arbitrary system PIDs, which causes
-# false-positive "running" status in the TUI and daemon monitor.
-
 services:
-  # --- app-h (orchestration) ---
-  - id: app-h-api
-    name: "app-h API"
-    project: app-h
-    dir: ~/src/app-h
-    command: ["./scripts/app-h-api-wrapper.sh", "--http", ":8085"]
-    build: ["sh", "-c", "go build -o gui-server ./cmd/gui-server && go build -o app-h ./cmd/app-h"]
-    env_file: .env
-    url: http://127.0.0.1:8085
-    port: 8085
-    health: http://127.0.0.1:8085/v1/tasks
-    tags: [api, daemon, go, app-h-go]
-    protected: true
-    auto_restart: true
-
-  - id: app-h-scheduler
-    name: "app-h Scheduler"
-    project: app-h
-    dir: ~/src/app-h
-    command: ["./scripts/app-h-scheduler-wrapper.sh", "--health-addr", ":8086"]
-    build: ["sh", "-c", "go build -o app-h-scheduler ./cmd/scheduler && go build -o app-h ./cmd/app-h"]
-    env_file: .env
-    env:
-      OTEL_SDK_DISABLED: "true"
-    url: http://127.0.0.1:8086
-    port: 8086
-    health: http://127.0.0.1:8086/v1/health
-    log_file: ~/src/app-h/logs/scheduler.log
-    tags: [daemon, go, scheduler, app-h-go]
-    depends_on: [app-h-api]
-    auto_start: false
-    auto_restart: true
-    restart_delay: "5s"
-    protected: true
-
-  - id: app-h-frontend
-    name: "app-h Frontend"
-    project: app-h
-    dir: ~/src/app-h/apps/gui
-    command: ["npm", "run", "dev"]
-    url: http://127.0.0.1:1420
-    port: 1420
-    tags: [gui, frontend, vite]
-    auto_restart: true
-
-  # --- app-d (automation) ---
-  - id: app-d-daemon
-    name: "app-d Daemon"
-    project: app-d
-    dir: ~/src/app-d
-    command: ["./bin/hadrond", "serve"]
-    build: ["go", "build", "-o", "bin/hadrond", "./cmd/hadrond"]
-    url: http://127.0.0.1:8095
-    port: 8095
-    health: http://127.0.0.1:8095/
-    tags: [daemon, api, go]
-    protected: true
-    auto_restart: true
-
-  - id: app-d-gui
-    name: "app-d GUI"
-    project: app-d
-    dir: ~/src/app-d/cmd/app-d-app
-    command: ["wails", "dev"]
-    env:
-      HADRON_DAEMON_EXTERNAL: "true"
-    port: 34116
-    tags: [gui, desktop, wails]
-
-  # --- Cortex (memory) ---
-  - id: cortex-api
-    name: "Cortex API"
-    project: cortex
-    dir: ~/src/cortex
-    command: ["./contextd", "serve", "--addr", ":8080"]
-    build: ["go", "build", "-o", "contextd", "./cmd/contextd/"]
-    env:
-      CONTEXTD_ROOT: ~/.cortex
-    url: http://127.0.0.1:8080
-    port: 8080
-    health: http://127.0.0.1:8080/v1/health/readiness
-    tags: [api, daemon, go]
-    protected: true
-    auto_restart: true
-
-  - id: cortex-frontend
-    name: "Cortex Frontend"
-    project: cortex
-    dir: ~/src/cortex/frontend
-    command: ["npm", "run", "dev"]
-    url: http://localhost:5173
-    port: 5173
-    tags: [gui, frontend, vite]
-    auto_restart: true
-
-  # --- Carrier (content-ops) ---
-  - id: carrier-api
-    name: "Carrier API"
-    project: carrier
-    dir: ~/src/carrier
-    command: ["./bin/carrier", "serve", "--config", "config/config.yaml", "--repos", "config/repos.yaml"]
-    url: http://127.0.0.1:8096
-    port: 8096
-    tags: [api, python]
-    auto_restart: true
-
-  - id: carrier-frontend
-    name: "Carrier Frontend"
-    project: carrier
-    dir: ~/src/carrier/frontend
-    command: ["npm", "run", "dev"]
-    url: http://localhost:5174
-    port: 5174
-    tags: [gui, frontend, vite]
-    auto_restart: true
-
-  # --- Conduit (chat harness) ---
-  - id: conduit-api
-    name: "Conduit API"
-    project: conduit
-    dir: ~/src/fragments-engine/conduit
-    command: ["conduit", "serve"]
-    build: ["go", "install", "./cmd/conduit"]
-    url: http://127.0.0.1:8090
-    port: 8090
-    health: http://127.0.0.1:8090/api/health
-    tags: [api, daemon, go]
-    auto_restart: true
-
-  - id: conduit-frontend
-    name: "Conduit Frontend"
-    project: conduit
-    dir: ~/src/fragments-engine/conduit/ui
-    command: ["npm", "run", "dev"]
-    url: http://localhost:5176
-    port: 5176
-    tags: [gui, frontend, vite]
-    auto_restart: true
-
-  # --- Cerberus (self-managed daemon) ---
-  # No port field — cerberus daemon doesn't expose an HTTP port.
-  # Status detection uses PID file only.
-  # NOTE: auto_restart is deliberately OFF — the daemon must not try to
-  # restart itself (recursive fork bomb). Use launchd KeepAlive instead.
-  - id: cerberus-daemon
-    name: "Cerberus Daemon"
-    project: cerberus
-    dir: ~/src/cerberus
-    command: ["cerberus", "daemon"]
-    build: ["go", "install", "./cmd/cerberus"]
-    tags: [daemon, go, infrastructure]
-    protected: true
-
-  # --- app-a (notes) ---
-  - id: app-a-dev
-    name: "app-a Dev"
-    project: app-a
-    dir: ~/src/app-a
-    command: ["wails", "dev"]
-    port: 7765
-    tags: [gui, desktop, wails]
+  # Add services here. See ~/.cerberus/config.yaml for the full configuration.
+  # Example:
+  #   - id: my-service
+  #     name: "My Service"
+  #     dir: ~/src/my-project
+  #     command: ["my-binary", "serve"]
+  #     build: ["go", "install", "./cmd/my-binary"]
+  #     env_file: .env
+  #     port: 8080
+  #     health: http://127.0.0.1:8080/health
+  #     auto_restart: true
 `
