@@ -37,7 +37,7 @@ func (m Model) View() string {
 
 	// Title bar
 	title := titleStyle.Render(" CERBERUS ")
-	subtitle := headerStyle.Render("Tiamat Service Manager")
+	subtitle := headerStyle.Render("Fragments Engine Service Manager")
 	b.WriteString(title + " " + subtitle + "\n\n")
 
 	// Column headers

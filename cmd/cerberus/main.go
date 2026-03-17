@@ -43,8 +43,8 @@ func main() {
 // rootCmd launches the TUI when no subcommand is given.
 var rootCmd = &cobra.Command{
 	Use:   "cerberus",
-	Short: "Tiamat service manager",
-	Long: `Cerberus — agent-first local service manager for the Tiamat ecosystem.
+	Short: "Fragments Engine service manager",
+	Long: `Cerberus — agent-first local service manager for the Fragments Engine ecosystem.
 
 Manage, monitor, and protect your dev services from a single TUI,
 CLI, or MCP server. Prevents agents from clobbering each other's
@@ -905,7 +905,7 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.tiamat.cerberus</string>
+    <string>com.fragments-engine.cerberus</string>
     <key>ProgramArguments</key>
     <array>
         <string>{{.BinaryPath}}</string>
@@ -926,7 +926,7 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
-const launchdPlistName = "com.tiamat.cerberus.plist"
+const launchdPlistName = "com.fragments-engine.cerberus.plist"
 
 type launchdData struct {
 	BinaryPath string
