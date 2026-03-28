@@ -32,14 +32,14 @@ Cerberus evolves from a local process manager into a **universal infrastructure 
 - CLI: `pipeline list/show/run`, `github status/releases/runs`, `server list/show`
 - MCP: 15 tools total (8 original + 7 new)
 
-### Next Session — Connector Batch
-
-Five new connectors in one session:
-1. **SSH** — remote command execution for agent work on servers
-2. **Namecheap** — domain registration, DNS management, SSL certs
-3. **Laravel Forge** — read-only view/review of existing Forge-managed servers (transitional — moving away from Forge)
-4. **Cloudflare** — DNS zones/records, tunnels, SSL
-5. **Docker** — container/compose lifecycle for local dev
+**Phase 3 — Connector Batch:**
+- SSH connector (`internal/connector/ssh/`) — remote command execution via `golang.org/x/crypto/ssh`, public key auth, exec + status
+- Namecheap connector (`internal/connector/namecheap/`) — domain list/status, DNS record listing via XML API (no external SDK)
+- Laravel Forge connector (`internal/connector/forge/`) — read-only server/site listing via REST API (transitional)
+- Cloudflare connector (`internal/connector/cloudflare/`) — **dual backend**: API (cloudflare-go v4) + CLI (wrangler), zones, DNS CRUD
+- Docker connector (`internal/connector/docker/`) — CLI-only backend (`docker`/`docker compose`), container + compose lifecycle
+- CLI: `ssh exec/status`, `domain list/status`, `dns list`, `forge servers/server/sites`, `cloudflare zones/dns list/dns create`, `docker ps/logs/up/down`
+- MCP: 29 tools total (15 prior + 14 new)
 
 TUI refresh deferred to last.
 
@@ -145,7 +145,12 @@ cmd/cerberus/
 ├── cmd_resource.go      -- resource list/show
 ├── cmd_pipeline.go      -- pipeline list/show/run
 ├── cmd_github.go        -- github status/releases/runs
-└── cmd_server.go        -- server list/show
+├── cmd_server.go        -- server list/show
+├── cmd_ssh.go           -- ssh exec/status
+├── cmd_namecheap.go     -- domain list/status, dns list
+├── cmd_forge.go         -- forge servers/server/sites
+├── cmd_cloudflare.go    -- cloudflare zones, dns list/create
+└── cmd_docker.go        -- docker ps/logs/up/down
 
 internal/
 ├── domain/              -- Pure types and interfaces
@@ -180,9 +185,33 @@ internal/
 │   │   ├── api_backend.go  -- go-github v72 SDK
 │   │   ├── cli_backend.go  -- gh CLI wrapper
 │   │   └── connector.go    -- Unified facade, auto-selects API vs CLI
-│   └── digitalocean/
-│       ├── types.go     -- DropletStatus
-│       └── connector.go -- Full CRUD via godo
+│   ├── digitalocean/
+│   │   ├── types.go     -- DropletStatus
+│   │   └── connector.go -- Full CRUD via godo
+│   ├── ssh/
+│   │   ├── types.go     -- ExecResult, HostStatus
+│   │   ├── backend.go   -- Backend interface (Connect, Exec, Ping, Close)
+│   │   ├── api_backend.go -- golang.org/x/crypto/ssh implementation
+│   │   └── connector.go -- Connector facade, key file resolution
+│   ├── namecheap/
+│   │   ├── types.go     -- Domain, DNSRecord, DomainStatus
+│   │   ├── client.go    -- HTTP client wrapping Namecheap XML API
+│   │   └── connector.go -- Connector facade, SplitDomain helper
+│   ├── forge/
+│   │   ├── types.go     -- Server, Site, Deployment
+│   │   ├── client.go    -- HTTP client for Forge REST API
+│   │   └── connector.go -- Read-only connector (CanHealth only)
+│   ├── cloudflare/
+│   │   ├── types.go     -- Zone, DNSRecord, Tunnel
+│   │   ├── backend.go   -- Backend interface
+│   │   ├── api_backend.go -- cloudflare-go v4 SDK
+│   │   ├── cli_backend.go -- wrangler CLI wrapper
+│   │   └── connector.go -- Dual backend facade, auto-selects API vs CLI
+│   └── docker/
+│       ├── types.go     -- Container, ComposeStack, ComposeService
+│       ├── backend.go   -- Backend interface (9 methods)
+│       ├── cli_backend.go -- docker/docker compose CLI wrapper
+│       └── connector.go -- Connector facade, compose-aware
 ├── pipeline/
 │   ├── pipeline.go      -- Pipeline, Stage types
 │   ├── builder.go       -- Fluent builder API
@@ -205,14 +234,19 @@ internal/
 │   ├── tools_observability.go -- logs/build/health tools
 │   ├── tools_resources.go    -- project_list/resource_list tools
 │   ├── tools_pipeline.go     -- pipeline_list/pipeline_run tools
-│   └── tools_github.go       -- github_status/github_releases/github_runs tools
+│   ├── tools_github.go       -- github_status/github_releases/github_runs tools
+│   ├── tools_ssh.go          -- ssh_exec/ssh_status tools
+│   ├── tools_namecheap.go    -- domain_list/domain_status/dns_list tools
+│   ├── tools_forge.go        -- forge_servers/forge_server/forge_sites tools
+│   ├── tools_cloudflare.go   -- cloudflare_zones/dns_list/dns_create tools
+│   └── tools_docker.go       -- docker_ps/docker_logs/docker_up/docker_down tools
 ├── service/             -- Existing process lifecycle (unchanged)
 ├── daemon/              -- Health monitor, auto-restart
 ├── pausectl/            -- File-flag pause/resume
 └── tui/                 -- Bubble Tea views
 ```
 
-## MCP Tools (15 total)
+## MCP Tools (29 total)
 
 | Tool | Source File | Description |
 |------|-----------|-------------|
@@ -231,6 +265,21 @@ internal/
 | `cerberus_github_status` | tools_github.go | GitHub repo status |
 | `cerberus_github_releases` | tools_github.go | GitHub releases |
 | `cerberus_github_runs` | tools_github.go | GitHub Actions runs |
+| `cerberus_ssh_exec` | tools_ssh.go | Execute command on remote host |
+| `cerberus_ssh_status` | tools_ssh.go | Check SSH host connectivity |
+| `cerberus_domain_list` | tools_namecheap.go | List Namecheap domains |
+| `cerberus_domain_status` | tools_namecheap.go | Domain registration status |
+| `cerberus_dns_list` | tools_namecheap.go | List DNS records for domain |
+| `cerberus_forge_servers` | tools_forge.go | List Forge servers |
+| `cerberus_forge_server` | tools_forge.go | Forge server details |
+| `cerberus_forge_sites` | tools_forge.go | List sites on Forge server |
+| `cerberus_cloudflare_zones` | tools_cloudflare.go | List Cloudflare zones |
+| `cerberus_cloudflare_dns_list` | tools_cloudflare.go | List DNS records for zone |
+| `cerberus_cloudflare_dns_create` | tools_cloudflare.go | Create DNS record |
+| `cerberus_docker_ps` | tools_docker.go | List Docker containers |
+| `cerberus_docker_logs` | tools_docker.go | Container logs |
+| `cerberus_docker_up` | tools_docker.go | Start container/compose stack |
+| `cerberus_docker_down` | tools_docker.go | Stop container/compose stack |
 
 ## External Dependencies
 
@@ -243,6 +292,8 @@ internal/
 | `github.com/charmbracelet/bubbletea` | v1.3.10 | TUI framework |
 | `github.com/spf13/cobra` | v1.10.2 | CLI framework |
 | `gopkg.in/yaml.v3` | v3.0.1 | YAML config |
+| `golang.org/x/crypto` | v0.49.0 | SSH client (ssh connector) |
+| `github.com/cloudflare/cloudflare-go/v4` | v4.6.0 | Cloudflare API |
 
 ## Connector Implementation Guide
 
@@ -279,59 +330,42 @@ resources:
       droplet_id: 12345
 ```
 
-## Next Connector Batch (Planned)
+## Connector Reference
 
-### SSH Connector
-- **Purpose:** Remote command execution on servers for agent work
-- **Backend:** Pure Go SSH via `golang.org/x/crypto/ssh`
-- **Resource type:** `server` (same as DO, but for arbitrary SSH-accessible hosts)
-- **Operations:** Status (ping/connect), Start (no-op or wake), Stop (shutdown command), Create/Destroy (no-op)
-- **Extra methods:** `Exec(ctx, host, command)` for running arbitrary commands
-- **Config keys:** `host`, `port` (default 22), `user`, `key_file` or `key` (from secrets)
-- **CLI:** `cerberus ssh exec <resource> <command>`, `cerberus ssh status <resource>`
-- **MCP:** `cerberus_ssh_exec`, `cerberus_ssh_status`
+### SSH (`internal/connector/ssh/`)
+- **Backend:** `golang.org/x/crypto/ssh` (API-only, no CLI backend)
+- **Resource type:** `server`
+- **Config keys:** `host`, `port` (default 22), `user`, `key_file`
+- **Secrets:** `ssh/<resource-id>/key` or `CERBERUS_SSH_KEY_FILE` env
+- **Capabilities:** CanStatus, CanStop
 
-### Namecheap Connector
-- **Purpose:** Domain registration, DNS management, SSL certificates
-- **SDK:** `github.com/namecheap/go-namecheap-sdk/v2` or direct API (XML API)
-- **Resource types:** `domain`, `dns-record`
-- **Operations:** Status (check domain/DNS), Create (register domain, add DNS record)
-- **Config keys:** `domain`, `record_type`, `host`, `value`, `ttl`
-- **Secrets:** `namecheap/api_user`, `namecheap/api_key`
-- **CLI:** `cerberus domain list`, `cerberus domain status <domain>`, `cerberus dns list <domain>`
-- **MCP:** `cerberus_domain_list`, `cerberus_domain_status`, `cerberus_dns_list`
+### Namecheap (`internal/connector/namecheap/`)
+- **Backend:** Direct HTTP + XML API (no external SDK)
+- **Resource type:** `domain`
+- **Config keys:** `domain`
+- **Secrets:** `namecheap/api_user`, `namecheap/api_key`, `namecheap/username`, `CERBERUS_NAMECHEAP_CLIENT_IP`
+- **Capabilities:** CanStatus only
 
-### Laravel Forge Connector (Read-Only, Transitional)
-- **Purpose:** View/review existing Forge-managed servers and sites during migration away from Forge
-- **SDK:** Forge has a REST API — use direct HTTP client, no official Go SDK
-- **Resource types:** `server`, `site`
-- **Operations:** Status only (read-only). No Create/Start/Stop/Destroy.
-- **Config keys:** `server_id`, `site_id`
+### Laravel Forge (`internal/connector/forge/`) — Read-Only, Transitional
+- **Backend:** Direct HTTP + JSON (Forge REST API)
+- **Resource type:** `server`
+- **Config keys:** `server_id`
 - **Secrets:** `forge/api_token`
-- **CLI:** `cerberus forge servers`, `cerberus forge sites <server-id>`, `cerberus forge server <server-id>`
-- **MCP:** `cerberus_forge_servers`, `cerberus_forge_sites`, `cerberus_forge_server`
-- **Note:** This is transitional — will be removed once all services are migrated to direct DO/SSH management
+- **Capabilities:** CanStatus only (all writes return "not supported: forge connector is read-only")
+- **Note:** Will be removed once migration from Forge is complete
 
-### Cloudflare Connector
-- **Purpose:** DNS zones/records, tunnels, SSL management
-- **SDK:** `github.com/cloudflare/cloudflare-go` (official)
-- **Dual backend:** API (cloudflare-go) + CLI (wrangler) if applicable
-- **Resource types:** `domain`, `dns-record`, `tunnel`
-- **Operations:** Create/Status/Destroy for DNS records, Status for zones
+### Cloudflare (`internal/connector/cloudflare/`)
+- **Backend:** Dual — API (`cloudflare-go/v4`) + CLI (`wrangler`)
+- **Resource type:** `domain`
 - **Config keys:** `zone_id`, `record_type`, `name`, `content`, `ttl`, `proxied`
 - **Secrets:** `cloudflare/api_token`
-- **CLI:** `cerberus cloudflare zones`, `cerberus cloudflare dns list <zone>`, `cerberus cloudflare dns create`
-- **MCP:** `cerberus_cloudflare_zones`, `cerberus_cloudflare_dns_list`, `cerberus_cloudflare_dns_create`
+- **Capabilities:** CanStatus, CanCreate, CanDestroy
 
-### Docker Connector
-- **Purpose:** Container and compose stack lifecycle for local dev
-- **SDK:** `github.com/docker/docker/client` (official)
-- **Dual backend:** API (Docker SDK) + CLI (`docker` / `docker compose`)
-- **Resource types:** `container`, `compose-stack`
-- **Operations:** Create, Start, Stop, Destroy, Status, Logs
-- **Config keys:** `image`, `ports`, `volumes`, `environment`, `compose_file`
-- **CLI:** `cerberus docker ps`, `cerberus docker logs <container>`, `cerberus docker up/down`
-- **MCP:** `cerberus_docker_ps`, `cerberus_docker_logs`, `cerberus_docker_up`, `cerberus_docker_down`
+### Docker (`internal/connector/docker/`)
+- **Backend:** CLI-only (`docker`, `docker compose`) — Backend interface ready for future API backend
+- **Resource type:** `container`
+- **Config keys:** `container_name` or `compose_file` (determines mode)
+- **Capabilities:** CanStatus, CanStart, CanStop, CanDestroy
 
 ## Key Design Decisions
 

@@ -161,6 +161,31 @@ var daemonCmd = &cobra.Command{
 			srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(a.Secrets))
 			srv.RegisterTool(mcp.NewCerberusGithubRunsTool(a.Secrets))
 
+			// SSH tools
+			srv.RegisterTool(mcp.NewCerberusSSHExecTool(a.Config, a.Secrets))
+			srv.RegisterTool(mcp.NewCerberusSSHStatusTool(a.Config, a.Secrets))
+
+			// Namecheap tools
+			srv.RegisterTool(mcp.NewCerberusDomainListTool(a.Secrets))
+			srv.RegisterTool(mcp.NewCerberusDomainStatusTool(a.Secrets))
+			srv.RegisterTool(mcp.NewCerberusDNSListTool(a.Secrets))
+
+			// Forge tools
+			srv.RegisterTool(mcp.NewCerberusForgeServersTool(a.Secrets))
+			srv.RegisterTool(mcp.NewCerberusForgeServerTool(a.Secrets))
+			srv.RegisterTool(mcp.NewCerberusForgeSitesTool(a.Secrets))
+
+			// Cloudflare tools
+			srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(a.Secrets))
+			srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(a.Secrets))
+			srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(a.Secrets))
+
+			// Docker tools
+			srv.RegisterTool(mcp.NewCerberusDockerPSTool())
+			srv.RegisterTool(mcp.NewCerberusDockerLogsTool())
+			srv.RegisterTool(mcp.NewCerberusDockerUpTool())
+			srv.RegisterTool(mcp.NewCerberusDockerDownTool())
+
 			if err := srv.Run(); err != nil {
 				fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 			}
