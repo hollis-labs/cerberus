@@ -7,7 +7,7 @@
 
 Cerberus is evolving from a local service manager into a universal infrastructure control plane. **Read `.agentrc/docs/architecture-v2.md` first** — it has the complete architecture, current implementation status, package layout, all 15 MCP tools, and the connector implementation guide.
 
-Phase 1 (foundation) and Phase 2 (pipeline engine, GitHub, DO connectors) are complete. Next batch: SSH, Namecheap, Laravel Forge (read-only), Cloudflare, Docker connectors. Use `internal/connector/github/` as the reference implementation for the dual-backend pattern.
+Phases 1–3 are complete. Phase 1: foundation (domain model, store, config v2, app struct). Phase 2: pipelines + GitHub/DO connectors. Phase 3: SSH, Namecheap, Forge (read-only), Cloudflare (dual backend), Docker (CLI-only) connectors. 29 MCP tools total. Use `internal/connector/github/` as the reference implementation for the dual-backend pattern.
 
 ## Stack
 

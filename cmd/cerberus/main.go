@@ -67,6 +67,12 @@ func init() {
 	rootCmd.AddCommand(pipelineCmd)
 	rootCmd.AddCommand(githubCmd)
 	rootCmd.AddCommand(serverCmd)
+	rootCmd.AddCommand(sshCmd)
+	rootCmd.AddCommand(domainCmd)
+	rootCmd.AddCommand(dnsCmd)
+	rootCmd.AddCommand(forgeCmd)
+	rootCmd.AddCommand(cloudflareCmd)
+	rootCmd.AddCommand(dockerCmd)
 }
 
 // runTUI launches the interactive Bubble Tea TUI (default behavior).
