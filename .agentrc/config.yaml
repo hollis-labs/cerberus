@@ -21,3 +21,6 @@ agents:
     description: Code review for Cerberus PRs
     roles: [code-review, go]
     skills: [go-lint, go-test]
+
+docs:
+  architecture: docs/architecture-v2.md

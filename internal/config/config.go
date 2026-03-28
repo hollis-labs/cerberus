@@ -100,6 +100,45 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// versionProbe is used to peek at the version field before full parsing.
+type versionProbe struct {
+	Version int `yaml:"version"`
+}
+
+// LoadUnified loads a config file and returns a ConfigV2 regardless of
+// the on-disk format. v0/v1 configs are automatically migrated to v2.
+func LoadUnified(path string) (*ConfigV2, error) {
+	data, err := os.ReadFile(path) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	var probe versionProbe
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("parse config version: %w", err)
+	}
+
+	switch probe.Version {
+	case 0, 1:
+		// Load as v1 and migrate.
+		v1, err := Load(path)
+		if err != nil {
+			return nil, fmt.Errorf("load v1 config: %w", err)
+		}
+		return MigrateV1ToV2(v1), nil
+
+	case 2:
+		var v2 ConfigV2
+		if err := yaml.Unmarshal(data, &v2); err != nil {
+			return nil, fmt.Errorf("parse v2 config: %w", err)
+		}
+		return &v2, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported config version: %d", probe.Version)
+	}
+}
+
 func EnsureDefault() error {
 	path := DefaultPath()
 	if _, err := os.Stat(path); err == nil {

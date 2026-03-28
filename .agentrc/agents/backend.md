@@ -3,6 +3,12 @@
 > Project-specific backend conventions. Loaded by the backend agent role when working in this project.
 > Lives at `cerberus/.agentrc/backend.md`.
 
+## v2 Architecture
+
+Cerberus is evolving from a local service manager into a universal infrastructure control plane. **Read `.agentrc/docs/architecture-v2.md` first** — it has the complete architecture, current implementation status, package layout, all 15 MCP tools, and the connector implementation guide.
+
+Phase 1 (foundation) and Phase 2 (pipeline engine, GitHub, DO connectors) are complete. Next batch: SSH, Namecheap, Laravel Forge (read-only), Cloudflare, Docker connectors. Use `internal/connector/github/` as the reference implementation for the dual-backend pattern.
+
 ## Stack
 
 - **Go version:** 1.25.3
