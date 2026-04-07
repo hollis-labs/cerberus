@@ -41,10 +41,10 @@ All ports are unique across the suite suite:
 | Port | Service |
 |------|---------|
 | 1420 | app-h Frontend (Vite) |
-| 5173 | Cortex Frontend (Vite) |
+| 5173 | acme Conduit Frontend (Vite) |
 | 5174 | Carrier Frontend (Vite) |
 | 7765 | app-a API (embedded) |
-| 8080 | Cortex API |
+| 8080 | acme Conduit API |
 | 8085 | app-h API |
 | 8095 | app-d Daemon |
 | 8096 | Carrier API |
@@ -57,14 +57,14 @@ Config lives at `~/.cerberus/config.yaml`. Each service entry:
 
 ```yaml
 services:
-  - id: cortex-api
-    name: "Cortex API"
-    project: cortex
-    dir: ~/src/cortex
+  - id: conduit-api
+    name: "acme Conduit API"
+    project: conduit
+    dir: ~/src/conduit
     command: ["./contextd", "serve", "--addr", ":8080"]
     build: ["go", "build", "-o", "contextd", "./cmd/contextd/"]  # optional build command
     env:                          # optional env vars (~ expanded)
-      CONTEXTD_ROOT: ~/.cortex
+      CONTEXTD_ROOT: ~/.conduit
     env_file: .env                # optional dotenv file (relative to dir)
     url: http://127.0.0.1:8080   # opened by enter/l key
     port: 8080                    # used for status polling (lsof)
