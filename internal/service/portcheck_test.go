@@ -75,9 +75,9 @@ func TestCheckPortConflict_String(t *testing.T) {
 
 	// Cerberus-managed variant
 	c.CerberusManaged = true
-	c.ManagedServiceID = "cortex-api"
+	c.ManagedServiceID = "conduit-api"
 	s = c.String()
-	if !contains(s, "cortex-api") {
+	if !contains(s, "conduit-api") {
 		t.Errorf("expected string to contain managed service ID, got: %s", s)
 	}
 }

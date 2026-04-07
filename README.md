@@ -41,10 +41,10 @@ All ports are unique across the Tiamat suite:
 | Port | Service |
 |------|---------|
 | 1420 | Volon Frontend (Vite) |
-| 5173 | Cortex Frontend (Vite) |
+| 5173 | Vanta Conduit Frontend (Vite) |
 | 5174 | Carrier Frontend (Vite) |
 | 7765 | Nanite API (embedded) |
-| 8080 | Cortex API |
+| 8080 | Vanta Conduit API |
 | 8085 | Volon API |
 | 8095 | Hadron Daemon |
 | 8096 | Carrier API |
@@ -57,14 +57,14 @@ Config lives at `~/.cerberus/config.yaml`. Each service entry:
 
 ```yaml
 services:
-  - id: cortex-api
-    name: "Cortex API"
-    project: cortex
-    dir: ~/Projects-apps/cortex
+  - id: conduit-api
+    name: "Vanta Conduit API"
+    project: conduit
+    dir: ~/Projects-apps/conduit
     command: ["./contextd", "serve", "--addr", ":8080"]
     build: ["go", "build", "-o", "contextd", "./cmd/contextd/"]  # optional build command
     env:                          # optional env vars (~ expanded)
-      CONTEXTD_ROOT: ~/.cortex
+      CONTEXTD_ROOT: ~/.conduit
     env_file: .env                # optional dotenv file (relative to dir)
     url: http://127.0.0.1:8080   # opened by enter/l key
     port: 8080                    # used for status polling (lsof)

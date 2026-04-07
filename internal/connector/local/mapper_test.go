@@ -98,17 +98,17 @@ func TestServiceDefToResourceOmitsEmptyFields(t *testing.T) {
 
 func TestRoundTrip(t *testing.T) {
 	original := config.ServiceDef{
-		ID:      "cortex",
-		Name:    "Cortex",
+		ID:      "conduit",
+		Name:    "Vanta Conduit",
 		Project: "tiamat",
-		Dir:     "/home/user/cortex",
-		Command: []string{"cortex", "serve"},
+		Dir:     "/home/user/conduit",
+		Command: []string{"conduit", "serve"},
 		EnvFile: ".env",
 		Env:     map[string]string{"GO_ENV": "development"},
 		URL:     "http://localhost:8082",
 		Port:    8082,
 		Tags:    []string{"backend"},
-		Build:   []string{"go", "install", "./cmd/cortex"},
+		Build:   []string{"go", "install", "./cmd/conduit"},
 		HealthCheckCfg: config.HealthCheck{
 			URL:      "http://127.0.0.1:8082/health",
 			Interval: "10s",
@@ -120,7 +120,7 @@ func TestRoundTrip(t *testing.T) {
 		RestartDelay:       "5s",
 		MaxRestartAttempts: 3,
 		RestartCooldown:    "60s",
-		LogFile:            "/tmp/cortex.log",
+		LogFile:            "/tmp/conduit.log",
 		Profiles:           []string{"dev"},
 		Protected:          true,
 	}
