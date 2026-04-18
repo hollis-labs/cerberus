@@ -112,6 +112,14 @@ func loadServices() ([]*service.ManagedService, error) {
 	return service.NewFromConfig(cfg), nil
 }
 
+// loadUnifiedForTools is a thin wrapper around config.LoadUnified used
+// by the standalone `cerberus mcp` subprocess for the few remaining
+// connector-based tools (SSH) that read config locally. All
+// service-lifecycle tools route through the daemon socket instead.
+func loadUnifiedForTools(path string) (*config.ConfigV2, error) {
+	return config.LoadUnified(path)
+}
+
 // filterServices returns services matching the given IDs or tag.
 // If no IDs and no tag, returns all services.
 func filterServices(services []*service.ManagedService, ids []string, tag string) []*service.ManagedService {
