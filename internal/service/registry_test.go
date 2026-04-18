@@ -162,6 +162,113 @@ func TestRegistryRequiresSource(t *testing.T) {
 	}
 }
 
+// withFakeStarter replaces the package-level startService hook for the
+// duration of a test so we can observe auto-start decisions without
+// spawning real processes. Callers receive a pointer to a slice that
+// records every service Start() was called on.
+func withFakeStarter(t *testing.T) *[]string {
+	t.Helper()
+	prev := startService
+	var called []string
+	startService = func(svc *ManagedService) error {
+		called = append(called, svc.Def.ID)
+		return nil
+	}
+	t.Cleanup(func() { startService = prev })
+	return &called
+}
+
+func TestRegistryReloadAutoStartsAddedWithAutoStart(t *testing.T) {
+	t.Run("auto_start=true added service is started", func(t *testing.T) {
+		called := withFakeStarter(t)
+
+		src := config.NewStaticSource(&config.Config{Services: []config.ServiceDef{
+			newSvcDef("a", "run"),
+		}})
+		reg, err := NewServiceRegistry(src, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Nothing should have been started on the initial load
+		// (initial load isn't the "added on reload" path). We only
+		// care about the reload-added code path here.
+		if len(*called) != 0 {
+			t.Fatalf("no services should have been auto-started on initial load, got %v", *called)
+		}
+
+		addedDef := newSvcDef("b", "run")
+		addedDef.AutoStart = true
+		src.Set(&config.Config{Services: []config.ServiceDef{
+			newSvcDef("a", "run"),
+			addedDef,
+		}})
+		if err := reg.Reload(); err != nil {
+			t.Fatal(err)
+		}
+
+		if reg.Find("b") == nil {
+			t.Fatal("service b was not registered after reload")
+		}
+		if len(*called) != 1 || (*called)[0] != "b" {
+			t.Fatalf("expected Start() on newly-added service b with auto_start=true, got %v", *called)
+		}
+	})
+
+	t.Run("auto_start=false added service is not started", func(t *testing.T) {
+		called := withFakeStarter(t)
+
+		src := config.NewStaticSource(&config.Config{Services: []config.ServiceDef{
+			newSvcDef("a", "run"),
+		}})
+		reg, err := NewServiceRegistry(src, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// AutoStart omitted (zero value = false).
+		src.Set(&config.Config{Services: []config.ServiceDef{
+			newSvcDef("a", "run"),
+			newSvcDef("c", "run"),
+		}})
+		if err := reg.Reload(); err != nil {
+			t.Fatal(err)
+		}
+
+		if reg.Find("c") == nil {
+			t.Fatal("service c was not registered after reload")
+		}
+		if len(*called) != 0 {
+			t.Fatalf("expected no auto-start when auto_start is false/omitted, got %v", *called)
+		}
+	})
+
+	t.Run("existing service with auto_start=true is NOT re-started on reload", func(t *testing.T) {
+		// auto_start only fires for services added by this reload.
+		// Changing auto_start on an existing service does not kick Start.
+		called := withFakeStarter(t)
+
+		initial := newSvcDef("a", "run")
+		initial.AutoStart = true
+		src := config.NewStaticSource(&config.Config{Services: []config.ServiceDef{initial}})
+		reg, err := NewServiceRegistry(src, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(*called) != 0 {
+			t.Fatalf("no services should be auto-started on initial load, got %v", *called)
+		}
+
+		// Same def, reload — not an add, should not start.
+		src.Set(&config.Config{Services: []config.ServiceDef{initial}})
+		if err := reg.Reload(); err != nil {
+			t.Fatal(err)
+		}
+		if len(*called) != 0 {
+			t.Fatalf("existing auto_start service should not be (re-)started on reload, got %v", *called)
+		}
+	})
+}
+
 func TestRegistryCurrentIsCopy(t *testing.T) {
 	src := config.NewStaticSource(&config.Config{Services: []config.ServiceDef{newSvcDef("a", "run")}})
 	reg, err := NewServiceRegistry(src, nil)

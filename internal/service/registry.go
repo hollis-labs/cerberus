@@ -108,7 +108,19 @@ func (r *ServiceRegistry) Reload() error {
 			toStop = append(toStop, svc)
 		}
 	}
-	r.applyDiffLocked(newCfg, diff)
+	// applyDiffLocked returns pointers for services that were newly
+	// added AND opted in via auto_start:true. We Start them outside
+	// the lock (same reasoning as Stop — Start does I/O and can block).
+	//
+	// On the first (initial) load everything looks "added" from the
+	// diff's perspective, but that code path is owned by the daemon's
+	// boot sequence, not by the reload flow this spec covers. Skip
+	// auto-start on first load to keep the change scoped to the
+	// reload-added behavior called out by the spec review.
+	toStart := r.applyDiffLocked(newCfg, diff)
+	if firstLoad {
+		toStart = nil
+	}
 	r.lastCfg = newCfg
 	r.mu.Unlock()
 
@@ -120,6 +132,18 @@ func (r *ServiceRegistry) Reload() error {
 				"error", err.Error())
 		} else {
 			r.logger.Info("config.reload.stopped_removed",
+				"service", svc.Def.ID)
+		}
+	}
+
+	// Auto-start newly-added services that opted in.
+	for _, svc := range toStart {
+		if err := startService(svc); err != nil {
+			r.logger.Warn("config.reload.auto_start_failed",
+				"service", svc.Def.ID,
+				"error", err.Error())
+		} else {
+			r.logger.Info("config.reload.auto_started",
 				"service", svc.Def.ID)
 		}
 	}
@@ -156,9 +180,14 @@ func (r *ServiceRegistry) Reload() error {
 // config. Stopping of removed services is performed by the caller of
 // Reload() *after* this method returns (outside the lock), to avoid holding
 // the registry mutex across a blocking syscall.
-func (r *ServiceRegistry) applyDiffLocked(newCfg *config.Config, diff config.Diff) {
+//
+// Returns the set of freshly-registered services whose ServiceDef.AutoStart
+// is true. The caller is responsible for actually calling Start on them,
+// outside the lock, for the same reason Stop is deferred.
+func (r *ServiceRegistry) applyDiffLocked(newCfg *config.Config, diff config.Diff) []*ManagedService {
 	newByID := make(map[string]*ManagedService, len(newCfg.Services))
 	newOrder := make([]*ManagedService, 0, len(newCfg.Services))
+	var toStart []*ManagedService
 
 	for i := range newCfg.Services {
 		def := newCfg.Services[i]
@@ -179,16 +208,26 @@ func (r *ServiceRegistry) applyDiffLocked(newCfg *config.Config, diff config.Dif
 			newOrder = append(newOrder, existing)
 			continue
 		}
-		// Newly registered service. We do NOT auto-start here; the spec
-		// requires that the health monitor / lifecycle layer decides.
+		// Newly registered service. Per spec: auto-register always,
+		// auto-start only if def.AutoStart is true. The actual Start()
+		// call happens outside the registry mutex (see Reload()).
 		fresh := &ManagedService{Def: def}
 		newByID[def.ID] = fresh
 		newOrder = append(newOrder, fresh)
+		if def.AutoStart {
+			toStart = append(toStart, fresh)
+		}
 	}
 
 	r.services = newOrder
 	r.byID = newByID
+	return toStart
 }
+
+// startService is an indirection point so tests can substitute a fake
+// starter without spawning real processes. Production code always calls
+// ManagedService.Start via this variable.
+var startService = func(svc *ManagedService) error { return svc.Start() }
 
 func containsSlug(xs []string, v string) bool {
 	for _, x := range xs {
