@@ -17,8 +17,7 @@ import (
 // App is the central dependency container for Cerberus. It wires together
 // config, store, connector registry, and secrets provider.
 type App struct {
-	Config   *config.ConfigV2
-	V1Config *config.Config // retained for backward compat with existing code paths
+	Config *config.ConfigV2
 
 	// Source is the live config source for long-running processes.
 	// Every lifecycle op should re-read through it (typically via
@@ -39,7 +38,7 @@ type App struct {
 	storePath string
 }
 
-// New creates an App from a config file path. It loads config (v1 or v2),
+// New creates an App from a config file path. It loads the unified v2 config,
 // creates the connector registry with the local connector, and initializes
 // the service registry backed by a file-based config Source.
 //
@@ -47,12 +46,6 @@ type App struct {
 // needed. This keeps the default path (local services via config) lightweight.
 func New(cfgPath string) (*App, error) {
 	service.InitLifecycleLog()
-
-	// Load v1 config (existing path — used by connectors).
-	v1, err := config.Load(cfgPath)
-	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
-	}
 
 	// Load unified v2 config.
 	v2, err := config.LoadUnified(cfgPath)
@@ -90,7 +83,6 @@ func New(cfgPath string) (*App, error) {
 
 	return &App{
 		Config:          v2,
-		V1Config:        v1,
 		Source:          src,
 		Store:           nil, // lazily opened
 		Registry:        registry,

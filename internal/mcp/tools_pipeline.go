@@ -49,7 +49,13 @@ func NewCerberusPipelineListTool(cfg *config.ConfigV2) Tool {
 }
 
 // NewCerberusPipelineRunTool creates the cerberus_pipeline_run tool.
-func NewCerberusPipelineRunTool(cfg *config.ConfigV2, services []*service.ManagedService, local *localconn.Connector) Tool {
+//
+// The tool routes through the ServiceRegistry (rather than capturing a
+// []*ManagedService slice at construction time) so pipelines always resolve
+// against the current on-disk config. Services added via reload become
+// visible to pipelines immediately, and services removed via reload are
+// no longer reachable — matching the rest of the MCP tool surface.
+func NewCerberusPipelineRunTool(cfg *config.ConfigV2, reg *service.ServiceRegistry, local *localconn.Connector) Tool {
 	return Tool{
 		Name:        "cerberus_pipeline_run",
 		Description: "Executes a pipeline by ID. Stages run in dependency order with parallel execution where possible. Returns the full result with per-stage status and duration.",
@@ -87,8 +93,14 @@ func NewCerberusPipelineRunTool(cfg *config.ConfigV2, services []*service.Manage
 				}), nil
 			}
 
+			// Refresh services from disk before resolving so the pipeline
+			// sees services added/removed since tool construction. Reload
+			// failures fall back to the last-good snapshot; the registry
+			// already logs them.
+			_ = reg.Reload()
+
 			// Resolve and execute
-			p, err := pipeline.Resolve(*pdef, services, local)
+			p, err := pipeline.Resolve(*pdef, reg.Current(), local)
 			if err != nil {
 				return marshalResult(lifecycleResult{
 					Success: false,
