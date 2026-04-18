@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/pipeline"
+	"github.com/chrispian/cerberus/internal/procscan"
 	"github.com/chrispian/cerberus/internal/service"
 )
 
@@ -369,6 +371,12 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 	_ = pausectl.PauseService(id)
 	defer func() { _ = pausectl.ResumeService(id) }()
 
+	// Capture the binary fingerprint BEFORE the build step so we can
+	// identify processes still running the pre-build inode after
+	// `go install` (or equivalent) replaces the file on disk. See
+	// internal/procscan for the full rationale (CERB-3).
+	fp := captureRebuildFingerprint(svc, c.logger)
+
 	var buildOutput string
 	if len(svc.Def.Build) > 0 {
 		out, err := svc.BuildSync()
@@ -382,6 +390,12 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 			}, nil
 		}
 	}
+
+	// Cascade-kill foreign subprocesses still running the pre-build
+	// inode. Their parents will respawn against the freshly-installed
+	// binary on the next tool call. No-op when fp is zero (e.g. for
+	// services whose Command[0] is an interpreter like `go run`).
+	_ = procscan.CascadeKillStaleSubprocesses(fp, c.logger)
 
 	_ = svc.Stop()
 	if err := svc.Start(); err != nil {
@@ -398,6 +412,35 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 		BuildOutput: buildOutput,
 		Message:     fmt.Sprintf("service %q rebuilt and restarted successfully (reason: %s)", id, args.Audit.Reason),
 	}, nil
+}
+
+// captureRebuildFingerprint resolves the service's command binary and
+// captures its (device, inode) before a build runs. Returns a zero
+// fingerprint (with logging) on any failure — callers treat zero as
+// "skip cascade-kill" rather than a hard error, so a missing binary or
+// interpreter command (like `go run`) silently disables cleanup
+// instead of breaking the rebuild.
+func captureRebuildFingerprint(svc *service.ManagedService, logger *slog.Logger) procscan.BinaryFingerprint {
+	binPath, err := procscan.ResolveCommandBinary(svc.Def.Command, svc.Def.Dir)
+	if err != nil {
+		if !errors.Is(err, procscan.ErrSkipFingerprint) {
+			logger.Warn("rebuild.cascade.resolve_failed",
+				"service", svc.Def.ID,
+				"error", err.Error(),
+			)
+		}
+		return procscan.BinaryFingerprint{}
+	}
+	fp, err := procscan.Capture(binPath)
+	if err != nil {
+		logger.Warn("rebuild.cascade.capture_failed",
+			"service", svc.Def.ID,
+			"binary_path", binPath,
+			"error", err.Error(),
+		)
+		return procscan.BinaryFingerprint{}
+	}
+	return fp
 }
 
 // BuildService implements Client.
