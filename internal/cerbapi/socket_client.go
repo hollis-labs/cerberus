@@ -104,6 +104,13 @@ func (c *SocketClient) Ping(ctx context.Context) error {
 	return err
 }
 
+// DialPath returns the unix-socket path this client is bound to. Used
+// by multi-client tests that want to construct additional clients
+// against the same daemon socket.
+func (c *SocketClient) DialPath() string {
+	return c.dialPath
+}
+
 // ---- Client impl ----
 
 func (c *SocketClient) ListServices(ctx context.Context) ([]ServiceStatus, error) {

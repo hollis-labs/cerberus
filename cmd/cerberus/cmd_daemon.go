@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/app"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/daemon"
 	"github.com/chrispian/cerberus/internal/mcp"
@@ -357,22 +358,57 @@ func runDaemonBody() error {
 		}()
 	}
 
+	// Build the canonical InProcessClient. All MCP tool handlers
+	// (daemon-embedded stdio MCP server AND external callers via the
+	// unix socket) are backed by this single client so state lives in
+	// one place.
+	inProc := cerbapi.NewInProcessClient(reg,
+		cerbapi.WithMonitor(monitor),
+		cerbapi.WithConfigV2(a.Config),
+		cerbapi.WithLocalConnector(a.Local),
+	)
+
+	// ---- Unix-socket RPC server (CERB-2). ----
+	//
+	// The standalone `cerberus mcp` subprocess dials this socket and
+	// forwards every tool call to us, eliminating its own config
+	// cache. Sits alongside (not instead of) the stdio MCP server
+	// below so direct-MCP-over-stdio consumers still work.
+	sockPath, sockErr := cerbapi.SocketPath()
+	if sockErr != nil {
+		logger.Warn("daemon.socket.path_resolve_failed", "error", sockErr.Error())
+	} else {
+		socketServer := cerbapi.NewSocketServer(inProc, sockPath, cerbapi.WithLogger(logger))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := socketServer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Warn("daemon.socket.exited", "error", err.Error())
+			}
+		}()
+	}
+
+	// ---- Stdio MCP server (existing surface). ----
+	//
+	// Preserved for consumers that invoke `cerberus daemon` directly
+	// with stdio piping. Runs against the same InProcessClient so it
+	// sees identical state to the socket-routed subprocess.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		srv := mcp.NewServer("cerberus", "0.1.0")
-		srv.RegisterTool(mcp.NewCerberusStatusTool(reg, monitor))
-		srv.RegisterTool(mcp.NewCerberusStartTool(reg))
-		srv.RegisterTool(mcp.NewCerberusStopTool(reg))
-		srv.RegisterTool(mcp.NewCerberusRestartTool(reg))
-		srv.RegisterTool(mcp.NewCerberusRebuildTool(reg))
-		srv.RegisterTool(mcp.NewCerberusLogsTool(reg))
-		srv.RegisterTool(mcp.NewCerberusBuildTool(reg))
-		srv.RegisterTool(mcp.NewCerberusHealthTool(reg, monitor))
-		srv.RegisterTool(mcp.NewCerberusProjectListTool(a.Config))
-		srv.RegisterTool(mcp.NewCerberusResourceListTool(a.Config))
-		srv.RegisterTool(mcp.NewCerberusPipelineListTool(a.Config))
-		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(a.Config, reg, a.Local))
+		srv.RegisterTool(mcp.NewCerberusStatusTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusStartTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusStopTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusRestartTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusRebuildTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusLogsTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusBuildTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusHealthTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusProjectListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusResourceListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusPipelineListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(a.Secrets))
 		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(a.Secrets))
 		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(a.Secrets))

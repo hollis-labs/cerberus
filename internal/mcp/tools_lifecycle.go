@@ -1,39 +1,27 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/pausectl"
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 )
 
-// lifecycleResult is the JSON response for start/stop/restart/rebuild operations.
-type lifecycleResult struct {
-	Success     bool   `json:"success"`
-	ServiceID   string `json:"service_id"`
-	Message     string `json:"message,omitempty"`
-	BuildOutput string `json:"build_output,omitempty"`
-	Error       string `json:"error,omitempty"`
-}
-
-// auditContext captures who requested a destructive lifecycle operation and why.
-type auditContext struct {
-	Reason    string `json:"reason"`
-	TaskID    string `json:"task_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-}
+// lifecycleResult is the JSON response shape preserved from pre-CERB-2.
+// Kept as a local alias over cerbapi.OpResult so JSON output stays byte-
+// identical for MCP consumers that pattern-match on field order.
+type lifecycleResult = cerbapi.OpResult
 
 // extractAudit reads the audit fields from MCP tool args.
 // Returns the audit context and an error string if reason is missing.
-func extractAudit(args map[string]interface{}) (auditContext, string) {
-	ac := auditContext{
+func extractAudit(args map[string]interface{}) (cerbapi.AuditContext, string) {
+	ac := cerbapi.AuditContext{
 		Reason:    strings.TrimSpace(fmt.Sprintf("%v", args["reason"])),
 		TaskID:    strings.TrimSpace(fmt.Sprintf("%v", args["task_id"])),
 		SessionID: strings.TrimSpace(fmt.Sprintf("%v", args["session_id"])),
 	}
-	// Clean up "<nil>" from missing optional fields
 	if ac.TaskID == "<nil>" {
 		ac.TaskID = ""
 	}
@@ -64,28 +52,13 @@ func auditProperties() map[string]interface{} {
 	}
 }
 
-// logAudit writes an audit entry to the Cerberus lifecycle log.
-func logAudit(operation, serviceID string, ac auditContext) {
-	service.LogAudit(operation, serviceID, ac.Reason, ac.TaskID, ac.SessionID)
-}
-
 func marshalResult(r lifecycleResult) string {
 	data, _ := json.MarshalIndent(r, "", "  ")
 	return string(data)
 }
 
-// reloadAndFind refreshes the registry from disk and returns the service
-// pointer for id. If the reload fails the registry falls back to its
-// last-good snapshot, so we still return whatever was previously registered.
-// The reload-result error is surfaced separately so handlers can decide
-// whether to warn callers.
-func reloadAndFind(reg *service.ServiceRegistry, id string) (*service.ManagedService, error) {
-	err := reg.Reload()
-	return reg.Find(id), err
-}
-
 // NewCerberusStartTool creates the cerberus_start tool.
-func NewCerberusStartTool(reg *service.ServiceRegistry) Tool {
+func NewCerberusStartTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_start",
 		Description: "Start a Cerberus-managed service by ID. Handles lock acquisition and port conflict detection automatically.",
@@ -112,35 +85,17 @@ func NewCerberusStartTool(reg *service.ServiceRegistry) Tool {
 					Error:   "service_id is required",
 				}), nil
 			}
-
-			svc, _ := reloadAndFind(reg, serviceID)
-			if svc == nil {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", serviceID),
-				}), nil
+			res, err := client.StartService(context.Background(), serviceID)
+			if err != nil {
+				return "", err
 			}
-
-			if err := svc.Start(); err != nil {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("failed to start service %q: %s", serviceID, err.Error()),
-				}), nil
-			}
-
-			return marshalResult(lifecycleResult{
-				Success:   true,
-				ServiceID: serviceID,
-				Message:   fmt.Sprintf("service %q started successfully", serviceID),
-			}), nil
+			return marshalResult(*res), nil
 		},
 	}
 }
 
 // NewCerberusStopTool creates the cerberus_stop tool.
-func NewCerberusStopTool(reg *service.ServiceRegistry) Tool {
+func NewCerberusStopTool(client cerbapi.Client) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -167,7 +122,6 @@ func NewCerberusStopTool(reg *service.ServiceRegistry) Tool {
 					Error:   "service_id is required",
 				}), nil
 			}
-
 			audit, auditErr := extractAudit(args)
 			if auditErr != "" {
 				return marshalResult(lifecycleResult{
@@ -176,51 +130,17 @@ func NewCerberusStopTool(reg *service.ServiceRegistry) Tool {
 					Error:     auditErr,
 				}), nil
 			}
-
-			svc, _ := reloadAndFind(reg, serviceID)
-			if svc == nil {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", serviceID),
-				}), nil
+			res, err := client.StopService(context.Background(), serviceID, audit)
+			if err != nil {
+				return "", err
 			}
-
-			// Check if service is protected
-			if svc.Def.Protected {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", serviceID),
-				}), nil
-			}
-
-			logAudit("stop", serviceID, audit)
-
-			// Pause auto-restart so the monitor doesn't undo the stop.
-			_ = pausectl.PauseService(serviceID)
-			// NOTE: no defer resume — a deliberate stop should stay stopped
-			// until the user explicitly starts or resumes the service.
-
-			if err := svc.Stop(); err != nil {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("failed to stop service %q: %s", serviceID, err.Error()),
-				}), nil
-			}
-
-			return marshalResult(lifecycleResult{
-				Success:   true,
-				ServiceID: serviceID,
-				Message:   fmt.Sprintf("service %q stopped successfully (reason: %s)", serviceID, audit.Reason),
-			}), nil
+			return marshalResult(*res), nil
 		},
 	}
 }
 
 // NewCerberusRestartTool creates the cerberus_restart tool.
-func NewCerberusRestartTool(reg *service.ServiceRegistry) Tool {
+func NewCerberusRestartTool(client cerbapi.Client) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -252,7 +172,6 @@ func NewCerberusRestartTool(reg *service.ServiceRegistry) Tool {
 					Error:   "service_id is required",
 				}), nil
 			}
-
 			audit, auditErr := extractAudit(args)
 			if auditErr != "" {
 				return marshalResult(lifecycleResult{
@@ -261,63 +180,21 @@ func NewCerberusRestartTool(reg *service.ServiceRegistry) Tool {
 					Error:     auditErr,
 				}), nil
 			}
-
 			force, _ := args["force"].(bool)
-
-			svc, _ := reloadAndFind(reg, serviceID)
-			if svc == nil {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", serviceID),
-				}), nil
+			res, err := client.RestartService(context.Background(), serviceID, cerbapi.RestartServiceArgs{
+				Audit: audit,
+				Force: force,
+			})
+			if err != nil {
+				return "", err
 			}
-
-			// Check if service is protected
-			if svc.Def.Protected {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", serviceID),
-				}), nil
-			}
-
-			logAudit("restart", serviceID, audit)
-
-			// Pause auto-restart so the monitor doesn't race us.
-			_ = pausectl.PauseService(serviceID)
-			defer func() { _ = pausectl.ResumeService(serviceID) }()
-
-			if err := svc.Stop(); err != nil {
-				if !force {
-					return marshalResult(lifecycleResult{
-						Success:   false,
-						ServiceID: serviceID,
-						Error:     fmt.Sprintf("failed to stop service %q during restart: %s (use force=true to proceed anyway)", serviceID, err.Error()),
-					}), nil
-				}
-				// force=true: continue to start despite stop error
-			}
-
-			if err := svc.Start(); err != nil {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q stopped but failed to start: %s", serviceID, err.Error()),
-				}), nil
-			}
-
-			return marshalResult(lifecycleResult{
-				Success:   true,
-				ServiceID: serviceID,
-				Message:   fmt.Sprintf("service %q restarted successfully (reason: %s)", serviceID, audit.Reason),
-			}), nil
+			return marshalResult(*res), nil
 		},
 	}
 }
 
 // NewCerberusRebuildTool creates the cerberus_rebuild tool.
-func NewCerberusRebuildTool(reg *service.ServiceRegistry) Tool {
+func NewCerberusRebuildTool(client cerbapi.Client) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -349,7 +226,6 @@ func NewCerberusRebuildTool(reg *service.ServiceRegistry) Tool {
 					Error:   "service_id is required",
 				}), nil
 			}
-
 			audit, auditErr := extractAudit(args)
 			if auditErr != "" {
 				return marshalResult(lifecycleResult{
@@ -358,63 +234,15 @@ func NewCerberusRebuildTool(reg *service.ServiceRegistry) Tool {
 					Error:     auditErr,
 				}), nil
 			}
-
 			force, _ := args["force"].(bool)
-
-			svc, _ := reloadAndFind(reg, serviceID)
-			if svc == nil {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", serviceID),
-				}), nil
+			res, err := client.RebuildService(context.Background(), serviceID, cerbapi.RebuildServiceArgs{
+				Audit: audit,
+				Force: force,
+			})
+			if err != nil {
+				return "", err
 			}
-
-			// Check if service is protected
-			if svc.Def.Protected {
-				return marshalResult(lifecycleResult{
-					Success:   false,
-					ServiceID: serviceID,
-					Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", serviceID),
-				}), nil
-			}
-
-			logAudit("rebuild", serviceID, audit)
-
-			// Pause auto-restart so the monitor doesn't race us mid-build.
-			_ = pausectl.PauseService(serviceID)
-			defer func() { _ = pausectl.ResumeService(serviceID) }()
-
-			var buildOutput string
-			if len(svc.Def.Build) > 0 {
-				out, err := svc.BuildSync()
-				buildOutput = strings.TrimSpace(out)
-				if err != nil && !force {
-					return marshalResult(lifecycleResult{
-						Success:     false,
-						ServiceID:   serviceID,
-						BuildOutput: buildOutput,
-						Error:       fmt.Sprintf("build failed for %q: %s (use force=true to restart anyway)", serviceID, err.Error()),
-					}), nil
-				}
-			}
-
-			svc.Stop()
-			if err := svc.Start(); err != nil {
-				return marshalResult(lifecycleResult{
-					Success:     false,
-					ServiceID:   serviceID,
-					BuildOutput: buildOutput,
-					Error:       fmt.Sprintf("build succeeded but failed to start %q: %s", serviceID, err.Error()),
-				}), nil
-			}
-
-			return marshalResult(lifecycleResult{
-				Success:     true,
-				ServiceID:   serviceID,
-				BuildOutput: buildOutput,
-				Message:     fmt.Sprintf("service %q rebuilt and restarted successfully (reason: %s)", serviceID, audit.Reason),
-			}), nil
+			return marshalResult(*res), nil
 		},
 	}
 }

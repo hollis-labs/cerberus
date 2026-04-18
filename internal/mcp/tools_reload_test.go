@@ -1,12 +1,14 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/service"
 )
@@ -41,7 +43,8 @@ services:
 		t.Fatal(err)
 	}
 
-	tool := NewCerberusStatusTool(reg, nil)
+	client := cerbapi.NewInProcessClient(reg)
+	tool := NewCerberusStatusTool(client)
 
 	// Baseline: one service.
 	out, err := tool.Handler(map[string]interface{}{})
@@ -113,9 +116,12 @@ services:
 		t.Fatal(err)
 	}
 
-	// Tool handlers call reg.Reload() internally — invoking the tool
-	// must surface the new command string.
-	_, _ = reloadAndFind(reg, "stale")
+	// Trigger a reload via the Client surface — matches what the tool
+	// handler would do on a real invocation.
+	client := cerbapi.NewInProcessClient(reg)
+	if _, gerr := client.GetService(context.Background(), "stale"); gerr != nil {
+		t.Fatal(gerr)
+	}
 	svc := reg.Find("stale")
 	if svc == nil {
 		t.Fatal("service lost across reload")
@@ -174,7 +180,8 @@ services:
 		},
 	}
 
-	tool := NewCerberusPipelineRunTool(cfg, reg, nil)
+	client := cerbapi.NewInProcessClient(reg, cerbapi.WithConfigV2(cfg))
+	tool := NewCerberusPipelineRunTool(client)
 
 	// Baseline: service two doesn't exist — resolve must fail with
 	// "resource not found".
@@ -255,7 +262,8 @@ services:
 		t.Fatal(rerr)
 	}
 
-	tool := NewCerberusStatusTool(reg, nil)
+	client := cerbapi.NewInProcessClient(reg)
+	tool := NewCerberusStatusTool(client)
 	out, err := tool.Handler(map[string]interface{}{"service_id": "svc"})
 	if err != nil {
 		t.Fatal(err)
