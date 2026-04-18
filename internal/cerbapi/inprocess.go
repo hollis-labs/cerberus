@@ -16,6 +16,7 @@ import (
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/pipeline"
+	"github.com/chrispian/cerberus/internal/procscan"
 	"github.com/chrispian/cerberus/internal/service"
 )
 
@@ -369,6 +370,12 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 	_ = pausectl.PauseService(id)
 	defer func() { _ = pausectl.ResumeService(id) }()
 
+	// Capture the binary fingerprint BEFORE the build step so we can
+	// identify processes still running the pre-build inode after
+	// `go install` (or equivalent) replaces the file on disk. See
+	// internal/procscan for the full rationale (CERB-3).
+	fp := procscan.CaptureForService(svc.Def.Command, svc.Def.Dir, c.logger)
+
 	var buildOutput string
 	if len(svc.Def.Build) > 0 {
 		out, err := svc.BuildSync()
@@ -382,6 +389,16 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 			}, nil
 		}
 	}
+
+	// Cascade-kill foreign subprocesses still running the pre-build
+	// inode. Their parents will respawn against the freshly-installed
+	// binary on the next tool call. No-op when fp is zero (e.g. for
+	// services whose Command[0] is an interpreter like `go run`).
+	//
+	// TODO(CERB-followup): cascade-kill targets foreign PIDs and doesn't
+	// need opMu protection. Lift this out of the critical section so
+	// concurrent unrelated tool calls don't block for ~2.5s grace + kill.
+	_ = procscan.CascadeKillStaleSubprocesses(fp, c.logger)
 
 	_ = svc.Stop()
 	if err := svc.Start(); err != nil {

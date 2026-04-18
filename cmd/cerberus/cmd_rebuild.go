@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/pausectl"
+	"github.com/chrispian/cerberus/internal/procscan"
+	"github.com/chrispian/cerberus/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -39,8 +41,15 @@ var rebuildCmd = &cobra.Command{
 			}
 		}()
 
+		logger := service.GetLogger()
 		hasError := false
 		for _, svc := range targets {
+			// Capture the binary fingerprint BEFORE the build step so
+			// we can identify processes still running the pre-build
+			// inode after `go install` (or equivalent) replaces the
+			// file on disk. See internal/procscan for the why.
+			fp := procscan.CaptureForService(svc.Def.Command, svc.Def.Dir, logger)
+
 			if len(svc.Def.Build) == 0 {
 				fmt.Printf("%-20s no build command, restarting only...\n", svc.Def.ID)
 			} else {
@@ -52,6 +61,14 @@ var rebuildCmd = &cobra.Command{
 					continue
 				}
 				fmt.Printf("%-20s build ok\n", svc.Def.ID)
+			}
+
+			// Cascade-kill foreign subprocesses still running the
+			// pre-build inode (e.g. Nanite-spawned `clockwork mcp`).
+			// Their parents will respawn against the freshly-installed
+			// binary on the next tool call. No-op when fp is zero.
+			if outcomes := procscan.CascadeKillStaleSubprocesses(fp, logger); len(outcomes) > 0 {
+				fmt.Printf("%-20s cascade-killed %d stale subprocess(es)\n", svc.Def.ID, len(outcomes))
 			}
 
 			svc.Poll()
