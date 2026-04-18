@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -28,8 +29,24 @@ import (
 type InProcessClient struct {
 	reg     *service.ServiceRegistry
 	monitor *daemon.Monitor
-	cfg     *config.ConfigV2
 	local   *localconn.Connector
+	logger  *slog.Logger
+
+	// cfgPath is the on-disk path for the unified v2 config. When set,
+	// every project / resource / pipeline endpoint re-reads the file
+	// via config.LoadUnified(cfgPath) before serving — this is the
+	// analog of ServiceRegistry.Reload() for the v2 config tree and
+	// closes the staleness bug that CERB-2 exists to prevent.
+	//
+	// Empty in tests that seed cfg in-memory via WithConfigV2.
+	cfgPath string
+
+	// cfgMu guards cfg. cfg holds the last-known-good ConfigV2
+	// snapshot: it is hydrated from LoadUnified(cfgPath) on each
+	// project/resource/pipeline call (when cfgPath is set) and used
+	// as a read-only fallback when reload fails.
+	cfgMu sync.RWMutex
+	cfg   *config.ConfigV2
 
 	// opMu serializes registry reloads, service polling, and the
 	// lifecycle critical sections executed on this client's behalf.
@@ -56,11 +73,28 @@ func WithMonitor(m *daemon.Monitor) InProcessOption {
 	return func(c *InProcessClient) { c.monitor = m }
 }
 
-// WithConfigV2 attaches the v2 config snapshot used by project / resource
-// / pipeline list endpoints. Without it those endpoints return empty
-// lists.
+// WithConfigV2 seeds an in-memory v2 config snapshot. Intended for
+// tests that don't want a file-backed config. Production callers
+// should use WithConfigPath so the client re-reads the file on every
+// project/resource/pipeline call (eliminating staleness).
+//
+// When both WithConfigV2 and WithConfigPath are set, WithConfigV2
+// becomes the initial last-good snapshot used only as a fallback when
+// the on-disk load fails.
 func WithConfigV2(cfg *config.ConfigV2) InProcessOption {
 	return func(c *InProcessClient) { c.cfg = cfg }
+}
+
+// WithConfigPath stashes the on-disk path for the unified v2 config.
+// When set, ListProjects / ListResources / ListPipelines / RunPipeline
+// call config.LoadUnified(path) on every invocation so edits to
+// config.yaml surface without a daemon restart — the v2-config analog
+// of ServiceRegistry.Reload() for the service tree.
+//
+// Production wiring: the daemon passes the same cfgPath that app.New
+// used to bootstrap its initial Config.
+func WithConfigPath(path string) InProcessOption {
+	return func(c *InProcessClient) { c.cfgPath = path }
 }
 
 // WithLocalConnector attaches the local connector used by pipeline
@@ -69,15 +103,42 @@ func WithLocalConnector(l *localconn.Connector) InProcessOption {
 	return func(c *InProcessClient) { c.local = l }
 }
 
+// WithInProcessLogger attaches a slog logger for InProcessClient
+// events such as config/registry reload failures. Defaults to
+// slog.Default() when not set.
+//
+// Named explicitly (rather than WithLogger / WithClientLogger) to
+// avoid package-level collision with SocketServer.WithLogger and
+// SocketClient.WithClientLogger.
+func WithInProcessLogger(l *slog.Logger) InProcessOption {
+	return func(c *InProcessClient) {
+		if l != nil {
+			c.logger = l
+		}
+	}
+}
+
 // NewInProcessClient constructs an InProcessClient. reg is required; all
 // other collaborators are optional (see WithMonitor, WithConfigV2,
-// WithLocalConnector).
+// WithConfigPath, WithLocalConnector, WithInProcessLogger).
 func NewInProcessClient(reg *service.ServiceRegistry, opts ...InProcessOption) *InProcessClient {
-	c := &InProcessClient{reg: reg}
+	c := &InProcessClient{reg: reg, logger: slog.Default()}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
+}
+
+// reloadLogged reloads the registry from disk, logging any failure.
+// The fallback behavior (continue with last-good registry state) is
+// intentional — a corrupt config file should not take the daemon
+// offline. But silent failure is the "looks fine but isn't" class of
+// bug CERB-2 exists to eliminate, so we always surface the error on
+// the logger.
+func (c *InProcessClient) reloadLogged() {
+	if err := c.reg.Reload(); err != nil {
+		c.logger.Warn("client.reload.failed", "error", err.Error())
+	}
 }
 
 // reloadAndFind refreshes the registry from disk before resolving. This
@@ -90,8 +151,42 @@ func NewInProcessClient(reg *service.ServiceRegistry, opts ...InProcessOption) *
 // calls from other goroutines. Holding opMu keeps callers in a safe
 // quiescent window.
 func (c *InProcessClient) reloadAndFind(id string) *service.ManagedService {
-	_ = c.reg.Reload()
+	c.reloadLogged()
 	return c.reg.Find(id)
+}
+
+// snapshotConfig returns the current v2 config snapshot used by the
+// project/resource/pipeline endpoints. When cfgPath is set it re-reads
+// the file on every call (closing the staleness bug for v2 config).
+// On read failure it falls back to the last-good snapshot — and logs
+// the error so silent drift can't hide.
+//
+// When cfgPath is not set (tests seeding cfg via WithConfigV2), the
+// stored pointer is returned directly.
+//
+// The returned *ConfigV2 is safe to read for the duration of a single
+// call: the client never mutates it in place — reload replaces the
+// whole pointer under cfgMu.
+func (c *InProcessClient) snapshotConfig() *config.ConfigV2 {
+	if c.cfgPath == "" {
+		c.cfgMu.RLock()
+		defer c.cfgMu.RUnlock()
+		return c.cfg
+	}
+	fresh, err := config.LoadUnified(c.cfgPath)
+	if err != nil {
+		c.logger.Warn("client.config_reload.failed",
+			"path", c.cfgPath,
+			"error", err.Error(),
+		)
+		c.cfgMu.RLock()
+		defer c.cfgMu.RUnlock()
+		return c.cfg
+	}
+	c.cfgMu.Lock()
+	c.cfg = fresh
+	c.cfgMu.Unlock()
+	return fresh
 }
 
 // ListServices implements Client.
@@ -99,7 +194,7 @@ func (c *InProcessClient) ListServices(_ context.Context) ([]ServiceStatus, erro
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
 
-	_ = c.reg.Reload()
+	c.reloadLogged()
 	svcs := c.reg.Current()
 
 	var monStatus *daemon.MonitorStatus
@@ -390,7 +485,7 @@ func (c *InProcessClient) ServiceLogs(_ context.Context, id string, lines int) (
 func (c *InProcessClient) Health(_ context.Context, id string) (*DaemonHealth, error) {
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
-	_ = c.reg.Reload()
+	c.reloadLogged()
 	svcs := c.reg.Current()
 
 	var entries []ServiceHealth
@@ -449,15 +544,16 @@ func (c *InProcessClient) Health(_ context.Context, id string) (*DaemonHealth, e
 
 // ListProjects implements Client.
 func (c *InProcessClient) ListProjects(_ context.Context) ([]ProjectInfo, error) {
-	if c.cfg == nil {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
 		return nil, nil
 	}
 	counts := make(map[string]int)
-	for _, r := range c.cfg.Resources {
+	for _, r := range cfg.Resources {
 		counts[r.Project]++
 	}
-	out := make([]ProjectInfo, 0, len(c.cfg.Projects))
-	for _, p := range c.cfg.Projects {
+	out := make([]ProjectInfo, 0, len(cfg.Projects))
+	for _, p := range cfg.Projects {
 		out = append(out, ProjectInfo{
 			ID:          p.ID,
 			Name:        p.Name,
@@ -470,11 +566,12 @@ func (c *InProcessClient) ListProjects(_ context.Context) ([]ProjectInfo, error)
 
 // ListResources implements Client.
 func (c *InProcessClient) ListResources(_ context.Context, args ResourceListArgs) ([]ResourceInfo, error) {
-	if c.cfg == nil {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
 		return nil, nil
 	}
 	var out []ResourceInfo
-	for _, r := range c.cfg.Resources {
+	for _, r := range cfg.Resources {
 		if args.ProjectID != "" && r.Project != args.ProjectID {
 			continue
 		}
@@ -498,11 +595,12 @@ func (c *InProcessClient) ListResources(_ context.Context, args ResourceListArgs
 
 // ListPipelines implements Client.
 func (c *InProcessClient) ListPipelines(_ context.Context) ([]PipelineInfo, error) {
-	if c.cfg == nil {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
 		return nil, nil
 	}
-	out := make([]PipelineInfo, 0, len(c.cfg.Pipelines))
-	for _, p := range c.cfg.Pipelines {
+	out := make([]PipelineInfo, 0, len(cfg.Pipelines))
+	for _, p := range cfg.Pipelines {
 		out = append(out, PipelineInfo{
 			ID:          p.ID,
 			Name:        p.Name,
@@ -515,13 +613,14 @@ func (c *InProcessClient) ListPipelines(_ context.Context) ([]PipelineInfo, erro
 
 // RunPipeline implements Client.
 func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error) {
-	if c.cfg == nil {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
 		return &PipelineRunResult{Success: false, Error: "no config available"}, nil
 	}
 	var pdef *config.PipelineDef
-	for i := range c.cfg.Pipelines {
-		if c.cfg.Pipelines[i].ID == id {
-			pdef = &c.cfg.Pipelines[i]
+	for i := range cfg.Pipelines {
+		if cfg.Pipelines[i].ID == id {
+			pdef = &cfg.Pipelines[i]
 			break
 		}
 	}
@@ -531,7 +630,7 @@ func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*Pipeline
 
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
-	_ = c.reg.Reload()
+	c.reloadLogged()
 	p, err := pipeline.Resolve(*pdef, c.reg.Current(), c.local)
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("resolve pipeline: %s", err.Error())}, nil

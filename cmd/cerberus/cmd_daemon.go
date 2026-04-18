@@ -365,7 +365,9 @@ func runDaemonBody() error {
 	inProc := cerbapi.NewInProcessClient(reg,
 		cerbapi.WithMonitor(monitor),
 		cerbapi.WithConfigV2(a.Config),
+		cerbapi.WithConfigPath(cfgPath),
 		cerbapi.WithLocalConnector(a.Local),
+		cerbapi.WithInProcessLogger(logger),
 	)
 
 	// ---- Unix-socket RPC server (CERB-2). ----
