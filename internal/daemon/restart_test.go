@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -242,18 +243,40 @@ func TestStopDaemon_ESRCHIsNotAnError(t *testing.T) {
 }
 
 func TestKillStrayDaemons_SkipsSelf(t *testing.T) {
-	selfPID := 1 // dummy; we only check that FindCerberusDaemonPIDs entries matching os.Getpid are skipped
-	_ = selfPID
-	alive := newFakeAlive()
-	sig := &fakeSignaler{alive: alive}
-	ident := &fakeIdent{strays: []int{}} // no strays to kill
+	// Seed strays with the current PID (which KillStrayDaemons must skip) and a
+	// second cerberus-daemon PID that should be killed. Asserts the skip-self
+	// guard is actually exercised — not just a no-op over an empty slice.
+	self := os.Getpid()
+	const otherPID = 9999
+
+	alive := newFakeAlive(self, otherPID)
+	sig := &fakeSignaler{alive: alive, onTerm: func(pid int) {
+		go func() { time.Sleep(2 * time.Millisecond); alive.setDead(pid) }()
+	}}
+	ident := &fakeIdent{
+		// Both registered as cerberus daemons so the identity check passes for each.
+		daemonPIDs: map[int]bool{self: true, otherPID: true},
+		strays:     []int{self, otherPID},
+	}
 
 	killed, err := KillStrayDaemons(testCtx(t), stopOptsWith(sig, alive, ident))
 	if err != nil {
 		t.Fatalf("KillStrayDaemons: %v", err)
 	}
-	if len(killed) != 0 {
-		t.Errorf("expected no kills, got %v", killed)
+
+	if len(killed) != 1 || killed[0] != otherPID {
+		t.Fatalf("expected killed=[%d], got %v", otherPID, killed)
+	}
+	for _, call := range sig.sent {
+		if call.PID == self {
+			t.Errorf("self PID %d was signaled: %+v", self, call)
+		}
+	}
+	if !alive.Alive(self) {
+		t.Errorf("self PID %d was marked dead", self)
+	}
+	if alive.Alive(otherPID) {
+		t.Errorf("stray PID %d still alive", otherPID)
 	}
 }
 

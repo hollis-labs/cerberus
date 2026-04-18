@@ -162,20 +162,3 @@ func CheckDaemonRunning() (int, error) {
 	RemoveDaemonPID()
 	return 0, nil
 }
-
-// KillDaemon sends SIGTERM to the running daemon process.
-// Returns an error if the process cannot be signaled.
-//
-// This is a best-effort signal send — it does NOT wait for the process to
-// actually exit. For a verified stop-and-wait sequence, use StopDaemon or
-// RestartWithVerify.
-func KillDaemon(pid int) error {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("find process %d: %w", pid, err)
-	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("send SIGTERM to %d: %w", pid, err)
-	}
-	return nil
-}

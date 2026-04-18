@@ -21,6 +21,19 @@ import (
 // The flag now routes through the same RestartWithVerify path as `daemon restart`.
 var daemonReplace bool
 
+// Restart-verification timings. Kept at package scope (rather than inlined at
+// the call site) so the parallel with daemon.DefaultStopOptions /
+// DefaultRestartOptions is explicit and drift-visible.
+//
+//   - daemonRestartPollInterval mirrors DefaultStopOptions().PollInterval.
+//   - daemonRestartHealthTimeout intentionally differs from
+//     DefaultRestartOptions().HealthTimeout (5s): the CLI path allows more
+//     slack for the child to fork, detach, and write its pidfile.
+const (
+	daemonRestartPollInterval  = 100 * time.Millisecond
+	daemonRestartHealthTimeout = 10 * time.Second
+)
+
 // daemonForeground keeps the daemon in the foreground (no fork + detach).
 // Used by the re-exec'd child via CERBERUS_DAEMON_CHILD=1 and by users who
 // want to tail the daemon directly.
@@ -136,8 +149,8 @@ func runDaemonRestart(ctx context.Context) error {
 	opts.Spawn = func(spawnCtx context.Context) (int, error) {
 		return spawnDaemonChild(spawnCtx)
 	}
-	opts.Health = daemon.PIDFileHealth("", 100*time.Millisecond, daemon.PosixAliveChecker{})
-	opts.HealthTimeout = 10 * time.Second
+	opts.Health = daemon.PIDFileHealth("", daemonRestartPollInterval, daemon.PosixAliveChecker{})
+	opts.HealthTimeout = daemonRestartHealthTimeout
 
 	if err := daemon.RestartWithVerify(ctx, opts); err != nil {
 		logger.Error("daemon.restart.failed", "error", err.Error())
@@ -312,6 +325,10 @@ func init() {
 	daemonCmd.Flags().BoolVar(&daemonReplace, "replace", false, "restart: kill existing daemon before starting (routes through the atomic restart sequence)")
 	daemonCmd.Flags().BoolVar(&daemonForeground, "foreground", false, "run in foreground instead of forking to background")
 
+	// Mirror --replace + --foreground on `daemon start` so `cerberus daemon start --replace`
+	// behaves identically to `cerberus daemon --replace` (both route through runDaemonStart,
+	// which honors daemonReplace by calling runDaemonRestart).
+	daemonStartCmd.Flags().BoolVar(&daemonReplace, "replace", false, "restart: kill existing daemon before starting (routes through the atomic restart sequence)")
 	daemonStartCmd.Flags().BoolVar(&daemonForeground, "foreground", false, "run in foreground instead of forking to background")
 
 	daemonCmd.AddCommand(daemonStartCmd)
