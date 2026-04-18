@@ -39,7 +39,7 @@ func DefaultMonitorConfig() MonitorConfig {
 // Monitor periodically checks service health and auto-restarts failed services.
 type Monitor struct {
 	config   MonitorConfig
-	services []*service.ManagedService
+	registry *service.ServiceRegistry
 	logger   *slog.Logger
 
 	mu      sync.RWMutex
@@ -63,11 +63,15 @@ type attemptRecord struct {
 	Success   bool      `json:"success"`
 }
 
-// NewMonitor creates a new daemon monitor for the given services.
-func NewMonitor(services []*service.ManagedService, config MonitorConfig) *Monitor {
+// NewMonitor creates a new daemon monitor backed by a ServiceRegistry.
+//
+// The monitor always walks registry.Current() so that services added by a
+// config reload are picked up automatically and services removed by a reload
+// stop being polled.
+func NewMonitor(registry *service.ServiceRegistry, config MonitorConfig) *Monitor {
 	return &Monitor{
 		config:          config,
-		services:        services,
+		registry:        registry,
 		logger:          service.GetLogger(),
 		failureCount:    make(map[string]int),
 		lastRestart:     make(map[string]time.Time),
@@ -179,8 +183,12 @@ type ServiceStats struct {
 }
 
 // checkAllServices checks each service that has auto-restart enabled.
+//
+// The service list is resolved from the registry on every tick so that
+// add/remove events from config reloads take effect without a daemon
+// restart.
 func (m *Monitor) checkAllServices(ctx context.Context) {
-	for _, svc := range m.services {
+	for _, svc := range m.registry.Current() {
 		select {
 		case <-ctx.Done():
 			return
