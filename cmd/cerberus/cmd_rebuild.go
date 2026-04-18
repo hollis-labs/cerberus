@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -49,24 +48,7 @@ var rebuildCmd = &cobra.Command{
 			// we can identify processes still running the pre-build
 			// inode after `go install` (or equivalent) replaces the
 			// file on disk. See internal/procscan for the why.
-			binPath, resolveErr := procscan.ResolveCommandBinary(svc.Def.Command, svc.Def.Dir)
-			var fp procscan.BinaryFingerprint
-			if resolveErr == nil {
-				if captured, captureErr := procscan.Capture(binPath); captureErr == nil {
-					fp = captured
-				} else {
-					logger.Warn("rebuild.cascade.capture_failed",
-						"service", svc.Def.ID,
-						"binary_path", binPath,
-						"error", captureErr.Error(),
-					)
-				}
-			} else if !errors.Is(resolveErr, procscan.ErrSkipFingerprint) {
-				logger.Warn("rebuild.cascade.resolve_failed",
-					"service", svc.Def.ID,
-					"error", resolveErr.Error(),
-				)
-			}
+			fp := procscan.CaptureForService(svc.Def.Command, svc.Def.Dir, logger)
 
 			if len(svc.Def.Build) == 0 {
 				fmt.Printf("%-20s no build command, restarting only...\n", svc.Def.ID)
