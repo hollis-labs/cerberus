@@ -127,7 +127,11 @@ the operator to start one with 'cerberus daemon'.`,
 		// binary on disk while we're running, exit cleanly so the parent
 		// MCP host (Claude Code, Nanite, etc.) respawns us against the
 		// new binary on the next tool call. Default 30s polling cadence.
-		go selfexec.WatchAndExit(cmd.Context(), selfexec.DefaultOptions())
+		// Thread the lifecycle logger so selfexec events land in
+		// ~/.cerberus/cerberus.log alongside every other daemon event.
+		selfexecOpts := selfexec.DefaultOptions()
+		selfexecOpts.Logger = logger
+		go selfexec.WatchAndExit(cmd.Context(), selfexecOpts)
 
 		return srv.Run()
 	},
