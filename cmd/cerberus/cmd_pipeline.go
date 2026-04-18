@@ -65,8 +65,11 @@ var pipelineRunCmd = &cobra.Command{
 				continue
 			}
 
-			// Resolve config def into executable pipeline
-			p, err := pipeline.Resolve(pd, a.Services, a.Local)
+			// Resolve config def into executable pipeline.
+			// Re-read config first so the pipeline reflects any edits
+			// made since the app was initialized.
+			_ = a.ServiceRegistry.Reload()
+			p, err := pipeline.Resolve(pd, a.ServiceRegistry.Current(), a.Local)
 			if err != nil {
 				return fmt.Errorf("resolve pipeline: %w", err)
 			}
