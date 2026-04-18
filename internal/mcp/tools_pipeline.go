@@ -5,23 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/config"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/pipeline"
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 )
 
-// pipelineListEntry is the JSON output for a single pipeline.
-type pipelineListEntry struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Stages      int    `json:"stage_count"`
-}
-
 // NewCerberusPipelineListTool creates the cerberus_pipeline_list tool.
-func NewCerberusPipelineListTool(cfg *config.ConfigV2) Tool {
+func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_pipeline_list",
 		Description: "Lists all pipelines defined in the Cerberus config.",
@@ -30,16 +18,14 @@ func NewCerberusPipelineListTool(cfg *config.ConfigV2) Tool {
 			"properties": map[string]interface{}{},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
-			entries := make([]pipelineListEntry, 0, len(cfg.Pipelines))
-			for _, p := range cfg.Pipelines {
-				entries = append(entries, pipelineListEntry{
-					ID:          p.ID,
-					Name:        p.Name,
-					Description: p.Description,
-					Stages:      len(p.Stages),
-				})
+			list, err := client.ListPipelines(context.Background())
+			if err != nil {
+				return "", err
 			}
-			data, err := json.MarshalIndent(entries, "", "  ")
+			if list == nil {
+				list = []cerbapi.PipelineInfo{}
+			}
+			data, err := json.MarshalIndent(list, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -49,7 +35,12 @@ func NewCerberusPipelineListTool(cfg *config.ConfigV2) Tool {
 }
 
 // NewCerberusPipelineRunTool creates the cerberus_pipeline_run tool.
-func NewCerberusPipelineRunTool(cfg *config.ConfigV2, services []*service.ManagedService, local *localconn.Connector) Tool {
+//
+// Routes through the Client — the daemon's InProcessClient runs the
+// pipeline against its live registry; the socket-backed client forwards
+// the run to the daemon. Either way the pipeline sees fresh-from-disk
+// service definitions because reg.Reload() is called before resolving.
+func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_pipeline_run",
 		Description: "Executes a pipeline by ID. Stages run in dependency order with parallel execution where possible. Returns the full result with per-stage status and duration.",
@@ -71,46 +62,22 @@ func NewCerberusPipelineRunTool(cfg *config.ConfigV2, services []*service.Manage
 					Error:   "pipeline_id is required",
 				}), nil
 			}
-
-			// Find pipeline definition
-			var pdef *config.PipelineDef
-			for i := range cfg.Pipelines {
-				if cfg.Pipelines[i].ID == pipelineID {
-					pdef = &cfg.Pipelines[i]
-					break
-				}
-			}
-			if pdef == nil {
-				return marshalResult(lifecycleResult{
-					Success: false,
-					Error:   fmt.Sprintf("pipeline %q not found in config", pipelineID),
-				}), nil
-			}
-
-			// Resolve and execute
-			p, err := pipeline.Resolve(*pdef, services, local)
-			if err != nil {
-				return marshalResult(lifecycleResult{
-					Success: false,
-					Error:   fmt.Sprintf("resolve pipeline: %s", err.Error()),
-				}), nil
-			}
-
-			env := &domain.PipelineEnv{Values: make(map[string]any)}
-			exec := pipeline.NewExecutor(nil)
-			result, err := exec.Run(context.Background(), p, env)
-			if err != nil {
-				return marshalResult(lifecycleResult{
-					Success: false,
-					Error:   fmt.Sprintf("pipeline execution: %s", err.Error()),
-				}), nil
-			}
-
-			data, err := json.MarshalIndent(result, "", "  ")
+			res, err := client.RunPipeline(context.Background(), pipelineID)
 			if err != nil {
 				return "", err
 			}
-			return string(data), nil
+			if !res.Success {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   res.Error,
+				}), nil
+			}
+			// Raw already holds the marshaled pipeline.Result JSON; we
+			// pass it through verbatim rather than re-indenting.
+			if len(res.Raw) > 0 {
+				return string(res.Raw), nil
+			}
+			return fmt.Sprintf("pipeline %q completed", pipelineID), nil
 		},
 	}
 }

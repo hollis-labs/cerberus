@@ -1,22 +1,14 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
-	"strings"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 )
 
-// projectEntry is the JSON output for a single project.
-type projectEntry struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Resources   int    `json:"resource_count"`
-}
-
 // NewCerberusProjectListTool creates the cerberus_project_list tool.
-func NewCerberusProjectListTool(cfg *config.ConfigV2) Tool {
+func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_project_list",
 		Description: "Lists all projects defined in the Cerberus config with their resource counts.",
@@ -25,23 +17,14 @@ func NewCerberusProjectListTool(cfg *config.ConfigV2) Tool {
 			"properties": map[string]interface{}{},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
-			// Count resources per project
-			counts := make(map[string]int)
-			for _, r := range cfg.Resources {
-				counts[r.Project]++
+			list, err := client.ListProjects(context.Background())
+			if err != nil {
+				return "", err
 			}
-
-			entries := make([]projectEntry, 0, len(cfg.Projects))
-			for _, p := range cfg.Projects {
-				entries = append(entries, projectEntry{
-					ID:          p.ID,
-					Name:        p.Name,
-					Description: p.Description,
-					Resources:   counts[p.ID],
-				})
+			if list == nil {
+				list = []cerbapi.ProjectInfo{}
 			}
-
-			data, err := json.MarshalIndent(entries, "", "  ")
+			data, err := json.MarshalIndent(list, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -50,18 +33,8 @@ func NewCerberusProjectListTool(cfg *config.ConfigV2) Tool {
 	}
 }
 
-// resourceEntry is the JSON output for a single resource.
-type resourceEntry struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Type      string   `json:"type"`
-	Project   string   `json:"project"`
-	Connector string   `json:"connector"`
-	Tags      []string `json:"tags,omitempty"`
-}
-
 // NewCerberusResourceListTool creates the cerberus_resource_list tool.
-func NewCerberusResourceListTool(cfg *config.ConfigV2) Tool {
+func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_list",
 		Description: "Lists all resources defined in the Cerberus config. Optionally filter by project_id, connector, or tag.",
@@ -87,42 +60,22 @@ func NewCerberusResourceListTool(cfg *config.ConfigV2) Tool {
 			connectorFilter, _ := args["connector"].(string)
 			tagFilter, _ := args["tag"].(string)
 
-			var entries []resourceEntry
-			for _, r := range cfg.Resources {
-				if projectID != "" && r.Project != projectID {
-					continue
-				}
-				if connectorFilter != "" && r.Connector != connectorFilter {
-					continue
-				}
-				if tagFilter != "" && !containsTag(r.Tags, tagFilter) {
-					continue
-				}
-
-				entries = append(entries, resourceEntry{
-					ID:        r.ID,
-					Name:      r.Name,
-					Type:      r.Type,
-					Project:   r.Project,
-					Connector: r.Connector,
-					Tags:      r.Tags,
-				})
+			list, err := client.ListResources(context.Background(), cerbapi.ResourceListArgs{
+				ProjectID: projectID,
+				Connector: connectorFilter,
+				Tag:       tagFilter,
+			})
+			if err != nil {
+				return "", err
 			}
-
-			data, err := json.MarshalIndent(entries, "", "  ")
+			if list == nil {
+				list = []cerbapi.ResourceInfo{}
+			}
+			data, err := json.MarshalIndent(list, "", "  ")
 			if err != nil {
 				return "", err
 			}
 			return string(data), nil
 		},
 	}
-}
-
-func containsTag(tags []string, target string) bool {
-	for _, t := range tags {
-		if strings.EqualFold(t, target) {
-			return true
-		}
-	}
-	return false
 }
