@@ -9,15 +9,42 @@ import (
 	"syscall"
 )
 
-// DaemonPIDPath returns the path to ~/.cerberus/cerberus.pid.
-func DaemonPIDPath() (string, error) {
+// daemonDir returns the path to ~/.cerberus/, creating it if needed.
+func daemonDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
 	}
 	dir := filepath.Join(home, ".cerberus")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return "", fmt.Errorf("create cerberus dir: %w", err)
+	}
+	return dir, nil
+}
+
+// daemonDirAt returns a cerberus dir rooted at a custom base (for testing).
+func daemonDirAt(base string) (string, error) {
+	dir := filepath.Join(base, ".cerberus")
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return "", fmt.Errorf("create cerberus dir: %w", err)
+	}
+	return dir, nil
+}
+
+// DaemonPIDPath returns the path to ~/.cerberus/cerberus.pid.
+func DaemonPIDPath() (string, error) {
+	dir, err := daemonDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "cerberus.pid"), nil
+}
+
+// DaemonPIDPathAt returns a daemon PID path rooted at a custom base.
+func DaemonPIDPathAt(base string) (string, error) {
+	dir, err := daemonDirAt(base)
+	if err != nil {
+		return "", err
 	}
 	return filepath.Join(dir, "cerberus.pid"), nil
 }
@@ -29,6 +56,19 @@ func ReadDaemonPID() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	return readDaemonPIDFrom(path)
+}
+
+// ReadDaemonPIDAt reads the daemon PID from a custom base directory.
+func ReadDaemonPIDAt(base string) (int, error) {
+	path, err := DaemonPIDPathAt(base)
+	if err != nil {
+		return 0, err
+	}
+	return readDaemonPIDFrom(path)
+}
+
+func readDaemonPIDFrom(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err
@@ -40,13 +80,38 @@ func ReadDaemonPID() (int, error) {
 	return pid, nil
 }
 
-// WriteDaemonPID writes the current process PID to the daemon PID file.
+// WriteDaemonPID writes the current process PID to the daemon PID file atomically.
 func WriteDaemonPID() error {
 	path, err := DaemonPIDPath()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"), 0644)
+	return writeDaemonPIDTo(path, os.Getpid())
+}
+
+// WriteDaemonPIDAt writes the given PID to a daemon PID file in a custom base.
+func WriteDaemonPIDAt(base string, pid int) error {
+	path, err := DaemonPIDPathAt(base)
+	if err != nil {
+		return err
+	}
+	return writeDaemonPIDTo(path, pid)
+}
+
+// writeDaemonPIDTo writes the PID atomically using a temp-then-rename pattern
+// so readers never observe a half-written file.
+func writeDaemonPIDTo(path string, pid int) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strconv.Itoa(pid)+"\n"), 0600); err != nil {
+		return fmt.Errorf("write daemon PID tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		// Best-effort cleanup; ignore error from Remove since the rename failure
+		// is the actionable one.
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename daemon PID tmp: %w", err)
+	}
+	return nil
 }
 
 // RemoveDaemonPID removes the daemon PID file.
@@ -55,7 +120,16 @@ func RemoveDaemonPID() {
 	if err != nil {
 		return
 	}
-	os.Remove(path)
+	_ = os.Remove(path) // best-effort
+}
+
+// RemoveDaemonPIDAt removes the daemon PID file in a custom base.
+func RemoveDaemonPIDAt(base string) {
+	path, err := DaemonPIDPathAt(base)
+	if err != nil {
+		return
+	}
+	_ = os.Remove(path) // best-effort
 }
 
 // daemonProcessAlive checks if a process with the given PID is running.
@@ -77,7 +151,7 @@ func CheckDaemonRunning() (int, error) {
 	pid, err := ReadDaemonPID()
 	if err != nil {
 		// No PID file or corrupt — not running.
-		return 0, nil
+		return 0, nil //nolint:nilerr // stale/missing pidfile is not an error at this layer
 	}
 
 	if daemonProcessAlive(pid) {
@@ -87,17 +161,4 @@ func CheckDaemonRunning() (int, error) {
 	// Stale PID file — process is dead, clean up.
 	RemoveDaemonPID()
 	return 0, nil
-}
-
-// KillDaemon sends SIGTERM to the running daemon process.
-// Returns an error if the process cannot be signaled.
-func KillDaemon(pid int) error {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("find process %d: %w", pid, err)
-	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("send SIGTERM to %d: %w", pid, err)
-	}
-	return nil
 }
