@@ -23,12 +23,18 @@ type serviceStatusEntry struct {
 	RestartCount  int     `json:"restart_count,omitempty"`
 	LastRestartAt string  `json:"last_restart_at,omitempty"`
 	DaemonState   string  `json:"daemon_state,omitempty"`
+	// Stale indicates the on-disk config for this service changed since
+	// the running process was started. Clears on the next successful
+	// Start() (or Rebuild/Restart).
+	Stale bool `json:"stale,omitempty"`
 }
 
 // NewCerberusStatusTool creates the cerberus_status tool.
-// The services slice is polled each time the tool is called.
-// If monitor is non-nil, daemon restart stats are included per service.
-func NewCerberusStatusTool(services []*service.ManagedService, monitor *daemon.Monitor) Tool {
+// The registry is reloaded from disk on each invocation so the status
+// reflects the current on-disk config (including services added/removed
+// since the daemon started). If monitor is non-nil, daemon restart stats
+// are included per service.
+func NewCerberusStatusTool(reg *service.ServiceRegistry, monitor *daemon.Monitor) Tool {
 	return Tool{
 		Name:        "cerberus_status",
 		Description: "Returns the current status of Cerberus-managed services. Optionally filter by service_id. Includes daemon protection and auto-restart state.",
@@ -44,6 +50,11 @@ func NewCerberusStatusTool(services []*service.ManagedService, monitor *daemon.M
 		Handler: func(args map[string]interface{}) (string, error) {
 			filterID, _ := args["service_id"].(string)
 
+			// Status reads live from disk so it sees services that were
+			// added/removed after the daemon started. Reload failures are
+			// logged by the registry; we proceed with the last-good list.
+			_ = reg.Reload()
+
 			// Grab monitor status once if available
 			var monStatus *daemon.MonitorStatus
 			if monitor != nil {
@@ -52,7 +63,7 @@ func NewCerberusStatusTool(services []*service.ManagedService, monitor *daemon.M
 			}
 
 			var entries []serviceStatusEntry
-			for _, svc := range services {
+			for _, svc := range reg.Current() {
 				if filterID != "" && svc.Def.ID != filterID {
 					continue
 				}
@@ -84,6 +95,7 @@ func NewCerberusStatusTool(services []*service.ManagedService, monitor *daemon.M
 					Error:         svc.Error,
 					Protected:     svc.Def.Protected,
 					AutoRestart:   svc.Def.AutoRestart,
+					Stale:         svc.Stale,
 				}
 
 				// Add daemon monitor stats if available

@@ -74,18 +74,18 @@ func marshalResult(r lifecycleResult) string {
 	return string(data)
 }
 
-// findService looks up a service by ID from the services slice.
-func findService(services []*service.ManagedService, id string) *service.ManagedService {
-	for _, svc := range services {
-		if svc.Def.ID == id {
-			return svc
-		}
-	}
-	return nil
+// reloadAndFind refreshes the registry from disk and returns the service
+// pointer for id. If the reload fails the registry falls back to its
+// last-good snapshot, so we still return whatever was previously registered.
+// The reload-result error is surfaced separately so handlers can decide
+// whether to warn callers.
+func reloadAndFind(reg *service.ServiceRegistry, id string) (*service.ManagedService, error) {
+	err := reg.Reload()
+	return reg.Find(id), err
 }
 
 // NewCerberusStartTool creates the cerberus_start tool.
-func NewCerberusStartTool(services []*service.ManagedService) Tool {
+func NewCerberusStartTool(reg *service.ServiceRegistry) Tool {
 	return Tool{
 		Name:        "cerberus_start",
 		Description: "Start a Cerberus-managed service by ID. Handles lock acquisition and port conflict detection automatically.",
@@ -113,7 +113,7 @@ func NewCerberusStartTool(services []*service.ManagedService) Tool {
 				}), nil
 			}
 
-			svc := findService(services, serviceID)
+			svc, _ := reloadAndFind(reg, serviceID)
 			if svc == nil {
 				return marshalResult(lifecycleResult{
 					Success:   false,
@@ -140,7 +140,7 @@ func NewCerberusStartTool(services []*service.ManagedService) Tool {
 }
 
 // NewCerberusStopTool creates the cerberus_stop tool.
-func NewCerberusStopTool(services []*service.ManagedService) Tool {
+func NewCerberusStopTool(reg *service.ServiceRegistry) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -177,7 +177,7 @@ func NewCerberusStopTool(services []*service.ManagedService) Tool {
 				}), nil
 			}
 
-			svc := findService(services, serviceID)
+			svc, _ := reloadAndFind(reg, serviceID)
 			if svc == nil {
 				return marshalResult(lifecycleResult{
 					Success:   false,
@@ -220,7 +220,7 @@ func NewCerberusStopTool(services []*service.ManagedService) Tool {
 }
 
 // NewCerberusRestartTool creates the cerberus_restart tool.
-func NewCerberusRestartTool(services []*service.ManagedService) Tool {
+func NewCerberusRestartTool(reg *service.ServiceRegistry) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -264,7 +264,7 @@ func NewCerberusRestartTool(services []*service.ManagedService) Tool {
 
 			force, _ := args["force"].(bool)
 
-			svc := findService(services, serviceID)
+			svc, _ := reloadAndFind(reg, serviceID)
 			if svc == nil {
 				return marshalResult(lifecycleResult{
 					Success:   false,
@@ -317,7 +317,7 @@ func NewCerberusRestartTool(services []*service.ManagedService) Tool {
 }
 
 // NewCerberusRebuildTool creates the cerberus_rebuild tool.
-func NewCerberusRebuildTool(services []*service.ManagedService) Tool {
+func NewCerberusRebuildTool(reg *service.ServiceRegistry) Tool {
 	props := map[string]interface{}{
 		"service_id": map[string]interface{}{
 			"type":        "string",
@@ -361,7 +361,7 @@ func NewCerberusRebuildTool(services []*service.ManagedService) Tool {
 
 			force, _ := args["force"].(bool)
 
-			svc := findService(services, serviceID)
+			svc, _ := reloadAndFind(reg, serviceID)
 			if svc == nil {
 				return marshalResult(lifecycleResult{
 					Success:   false,

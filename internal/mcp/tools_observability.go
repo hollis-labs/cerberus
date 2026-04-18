@@ -85,7 +85,7 @@ func readLastNLines(path string, n int) (string, error) {
 }
 
 // NewCerberusLogsTool creates the cerberus_logs tool.
-func NewCerberusLogsTool(services []*service.ManagedService) Tool {
+func NewCerberusLogsTool(reg *service.ServiceRegistry) Tool {
 	return Tool{
 		Name:        "cerberus_logs",
 		Description: "Returns the last N lines from a service's log file.",
@@ -109,14 +109,8 @@ func NewCerberusLogsTool(services []*service.ManagedService) Tool {
 				return "", fmt.Errorf("service_id is required")
 			}
 
-			// Find the service
-			var svc *service.ManagedService
-			for _, s := range services {
-				if s.Def.ID == serviceID {
-					svc = s
-					break
-				}
-			}
+			_ = reg.Reload()
+			svc := reg.Find(serviceID)
 			if svc == nil {
 				return "", fmt.Errorf("unknown service: %s", serviceID)
 			}
@@ -157,7 +151,7 @@ type buildResult struct {
 }
 
 // NewCerberusBuildTool creates the cerberus_build tool.
-func NewCerberusBuildTool(services []*service.ManagedService) Tool {
+func NewCerberusBuildTool(reg *service.ServiceRegistry) Tool {
 	return Tool{
 		Name:        "cerberus_build",
 		Description: "Runs the build command for a service synchronously and returns the result.",
@@ -177,13 +171,8 @@ func NewCerberusBuildTool(services []*service.ManagedService) Tool {
 				return "", fmt.Errorf("service_id is required")
 			}
 
-			var svc *service.ManagedService
-			for _, s := range services {
-				if s.Def.ID == serviceID {
-					svc = s
-					break
-				}
-			}
+			_ = reg.Reload()
+			svc := reg.Find(serviceID)
 			if svc == nil {
 				return "", fmt.Errorf("unknown service: %s", serviceID)
 			}
@@ -242,7 +231,7 @@ type healthResponse struct {
 
 // NewCerberusHealthTool creates the cerberus_health tool.
 // If monitor is non-nil, daemon-level health statistics are included.
-func NewCerberusHealthTool(services []*service.ManagedService, monitor *daemon.Monitor) Tool {
+func NewCerberusHealthTool(reg *service.ServiceRegistry, monitor *daemon.Monitor) Tool {
 	return Tool{
 		Name:        "cerberus_health",
 		Description: "Returns health check results for one or all services, plus daemon monitor status.",
@@ -257,6 +246,9 @@ func NewCerberusHealthTool(services []*service.ManagedService, monitor *daemon.M
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
 			filterID, _ := args["service_id"].(string)
+
+			_ = reg.Reload()
+			services := reg.Current()
 
 			var entries []healthEntry
 			for _, svc := range services {
