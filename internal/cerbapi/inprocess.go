@@ -3,7 +3,6 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -375,7 +374,7 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 	// identify processes still running the pre-build inode after
 	// `go install` (or equivalent) replaces the file on disk. See
 	// internal/procscan for the full rationale (CERB-3).
-	fp := captureRebuildFingerprint(svc, c.logger)
+	fp := procscan.CaptureForService(svc.Def.Command, svc.Def.Dir, c.logger)
 
 	var buildOutput string
 	if len(svc.Def.Build) > 0 {
@@ -395,6 +394,10 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 	// inode. Their parents will respawn against the freshly-installed
 	// binary on the next tool call. No-op when fp is zero (e.g. for
 	// services whose Command[0] is an interpreter like `go run`).
+	//
+	// TODO(CERB-followup): cascade-kill targets foreign PIDs and doesn't
+	// need opMu protection. Lift this out of the critical section so
+	// concurrent unrelated tool calls don't block for ~2.5s grace + kill.
 	_ = procscan.CascadeKillStaleSubprocesses(fp, c.logger)
 
 	_ = svc.Stop()
@@ -412,35 +415,6 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 		BuildOutput: buildOutput,
 		Message:     fmt.Sprintf("service %q rebuilt and restarted successfully (reason: %s)", id, args.Audit.Reason),
 	}, nil
-}
-
-// captureRebuildFingerprint resolves the service's command binary and
-// captures its (device, inode) before a build runs. Returns a zero
-// fingerprint (with logging) on any failure — callers treat zero as
-// "skip cascade-kill" rather than a hard error, so a missing binary or
-// interpreter command (like `go run`) silently disables cleanup
-// instead of breaking the rebuild.
-func captureRebuildFingerprint(svc *service.ManagedService, logger *slog.Logger) procscan.BinaryFingerprint {
-	binPath, err := procscan.ResolveCommandBinary(svc.Def.Command, svc.Def.Dir)
-	if err != nil {
-		if !errors.Is(err, procscan.ErrSkipFingerprint) {
-			logger.Warn("rebuild.cascade.resolve_failed",
-				"service", svc.Def.ID,
-				"error", err.Error(),
-			)
-		}
-		return procscan.BinaryFingerprint{}
-	}
-	fp, err := procscan.Capture(binPath)
-	if err != nil {
-		logger.Warn("rebuild.cascade.capture_failed",
-			"service", svc.Def.ID,
-			"binary_path", binPath,
-			"error", err.Error(),
-		)
-		return procscan.BinaryFingerprint{}
-	}
-	return fp
 }
 
 // BuildService implements Client.

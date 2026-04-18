@@ -7,6 +7,47 @@ import (
 	"time"
 )
 
+// pidUIDFn is a test seam; production is pidUID. Tests that need to
+// inject a fake (e.g. to exercise foreign-uid filtering without a
+// second-user process) replace this var and restore it on cleanup.
+var pidUIDFn = pidUID
+
+// CaptureForService resolves a service's command to its binary path and
+// captures the (dev, inode) fingerprint. Returns a zero fingerprint
+// (with logging) if the binary can't be resolved or stat'd — wrapper
+// scripts, `go run`, missing files, etc. CascadeKillStaleSubprocesses
+// is a no-op on zero fingerprints, which is the correct behavior for
+// those cases.
+//
+// This factors the resolve→capture sequence shared by the CLI rebuild
+// command and the in-process MCP rebuild handler, so both call sites
+// get identical logging keys and skip semantics.
+func CaptureForService(command []string, workDir string, logger *slog.Logger) BinaryFingerprint {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	binary, err := ResolveCommandBinary(command, workDir)
+	if err != nil {
+		// ErrSkipFingerprint is the expected "interpreter command"
+		// signal — log at debug, not warn, so it doesn't pollute
+		// rebuild output for `go run`-wrapped services.
+		logger.Debug("rebuild.cascade.resolve_failed",
+			"command", command,
+			"error", err.Error(),
+		)
+		return BinaryFingerprint{}
+	}
+	fp, err := Capture(binary)
+	if err != nil {
+		logger.Debug("rebuild.cascade.capture_failed",
+			"binary", binary,
+			"error", err.Error(),
+		)
+		return BinaryFingerprint{}
+	}
+	return fp
+}
+
 // CascadeKillStaleSubprocesses is the high-level entry point used by
 // the rebuild path. Given a fingerprint captured BEFORE the build, it
 // scans for processes still running the old (now-unlinked) inode and
@@ -76,7 +117,7 @@ func filterByUID(pids []int, logger *slog.Logger) []int {
 	}
 	out := make([]int, 0, len(pids))
 	for _, pid := range pids {
-		uid, err := pidUID(pid)
+		uid, err := pidUIDFn(pid)
 		if err != nil {
 			// Best-effort: keep the PID rather than silently dropping
 			// it on a probe error. The signal will fail with EPERM
