@@ -109,8 +109,7 @@ func NewCerberusLogsTool(reg *service.ServiceRegistry) Tool {
 				return "", fmt.Errorf("service_id is required")
 			}
 
-			_ = reg.Reload()
-			svc := reg.Find(serviceID)
+			svc, _ := reloadAndFind(reg, serviceID)
 			if svc == nil {
 				return "", fmt.Errorf("unknown service: %s", serviceID)
 			}
@@ -171,8 +170,7 @@ func NewCerberusBuildTool(reg *service.ServiceRegistry) Tool {
 				return "", fmt.Errorf("service_id is required")
 			}
 
-			_ = reg.Reload()
-			svc := reg.Find(serviceID)
+			svc, _ := reloadAndFind(reg, serviceID)
 			if svc == nil {
 				return "", fmt.Errorf("unknown service: %s", serviceID)
 			}

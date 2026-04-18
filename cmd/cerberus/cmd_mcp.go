@@ -38,7 +38,7 @@ var mcpCmd = &cobra.Command{
 		srv.RegisterTool(mcp.NewCerberusProjectListTool(a.Config))
 		srv.RegisterTool(mcp.NewCerberusResourceListTool(a.Config))
 		srv.RegisterTool(mcp.NewCerberusPipelineListTool(a.Config))
-		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(a.Config, a.ServiceRegistry.Current(), a.Local))
+		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(a.Config, a.ServiceRegistry, a.Local))
 		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(a.Secrets))
 		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(a.Secrets))
 		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(a.Secrets))

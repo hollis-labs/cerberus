@@ -210,7 +210,7 @@ var daemonCmd = &cobra.Command{
 			srv.RegisterTool(mcp.NewCerberusProjectListTool(a.Config))
 			srv.RegisterTool(mcp.NewCerberusResourceListTool(a.Config))
 			srv.RegisterTool(mcp.NewCerberusPipelineListTool(a.Config))
-			srv.RegisterTool(mcp.NewCerberusPipelineRunTool(a.Config, reg.Current(), a.Local))
+			srv.RegisterTool(mcp.NewCerberusPipelineRunTool(a.Config, reg, a.Local))
 			srv.RegisterTool(mcp.NewCerberusGithubStatusTool(a.Secrets))
 			srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(a.Secrets))
 			srv.RegisterTool(mcp.NewCerberusGithubRunsTool(a.Secrets))
