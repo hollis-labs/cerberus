@@ -8,6 +8,7 @@ import (
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/mcp"
 	"github.com/chrispian/cerberus/internal/secrets"
+	"github.com/chrispian/cerberus/internal/selfexec"
 	"github.com/chrispian/cerberus/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -120,6 +121,13 @@ the operator to start one with 'cerberus daemon'.`,
 		srv.RegisterTool(mcp.NewCerberusDockerLogsTool())
 		srv.RegisterTool(mcp.NewCerberusDockerUpTool())
 		srv.RegisterTool(mcp.NewCerberusDockerDownTool())
+
+		// CERB-4: self-heal on binary replacement. If `cerberus rebuild`,
+		// `go install`, a package manager, or anything else swaps this
+		// binary on disk while we're running, exit cleanly so the parent
+		// MCP host (Claude Code, Nanite, etc.) respawns us against the
+		// new binary on the next tool call. Default 30s polling cadence.
+		go selfexec.WatchAndExit(cmd.Context(), selfexec.DefaultOptions())
 
 		return srv.Run()
 	},
