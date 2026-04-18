@@ -147,6 +147,113 @@ func TestRebuildTool_ViaSocket_DaemonUnreachable_ReturnsCleanError(t *testing.T)
 	}
 }
 
+// startDaemonSocketWithPath is the v2-config analog of startDaemonSocket:
+// the InProcessClient is wired with a cfgPath so project/resource/pipeline
+// endpoints reload the v2 config file on every call — proving the
+// CERB-2 staleness fix extends to the v2-config-backed endpoints, not
+// just the service registry.
+func startDaemonSocketWithPath(t *testing.T, reg *service.ServiceRegistry, cfgPath string) *cerbapi.SocketClient {
+	t.Helper()
+	sockPath := shortSocketPath(t)
+
+	inProc := cerbapi.NewInProcessClient(reg, cerbapi.WithConfigPath(cfgPath))
+	srv := cerbapi.NewSocketServer(inProc, sockPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := srv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			t.Logf("socket server: %v", err)
+		}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatalf("socket %s never appeared", sockPath)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cerbapi.NewSocketClient(sockPath)
+}
+
+// TestProjectListTool_ViaSocket_PicksUpConfigEdit is the v2-config
+// analog of TestStatusTool_ViaSocket_PicksUpConfigEdit: a project
+// added to the v2 config on disk must surface through a long-lived
+// SocketClient on the next tool invocation — no subprocess restart,
+// no tool re-construction. This closes the staleness bug class for
+// project / resource / pipeline endpoints that the review flagged.
+func TestProjectListTool_ViaSocket_PicksUpConfigEdit(t *testing.T) {
+	dir := t.TempDir()
+	// A single v2 config file drives both the (empty) registry and
+	// the project/resource/pipeline endpoints. v2 has no `services`
+	// key, so the registry starts empty — that's fine, this test
+	// exercises the v2-config path only.
+	path := writeConfig(t, dir, `
+version: 2
+projects:
+  - id: alpha
+    name: Project Alpha
+  - id: bravo
+    name: Project Bravo
+`)
+
+	reg, err := service.NewServiceRegistry(config.NewFileSource(path), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	socketClient := startDaemonSocketWithPath(t, reg, path)
+
+	tool := NewCerberusProjectListTool(socketClient)
+
+	// Baseline: alpha + bravo via the socket round-trip.
+	out, err := tool.Handler(map[string]interface{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"id": "alpha"`) || !strings.Contains(out, `"id": "bravo"`) {
+		t.Fatalf("baseline missing expected projects: %s", out)
+	}
+	if strings.Contains(out, `"id": "charlie"`) {
+		t.Fatalf("baseline should not have charlie: %s", out)
+	}
+
+	// Edit config on disk: add charlie, remove alpha. No daemon
+	// restart, no tool re-construction.
+	if werr := os.WriteFile(path, []byte(`
+version: 2
+projects:
+  - id: bravo
+    name: Project Bravo
+  - id: charlie
+    name: Project Charlie
+`), 0600); werr != nil {
+		t.Fatal(werr)
+	}
+
+	// Next call must reflect both the addition AND the removal.
+	out, err = tool.Handler(map[string]interface{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"id": "charlie"`) {
+		t.Fatalf("post-edit: project_list did not pick up charlie: %s", out)
+	}
+	if strings.Contains(out, `"id": "alpha"`) {
+		t.Fatalf("post-edit: project_list still shows removed alpha (stale snapshot): %s", out)
+	}
+}
+
 // TestMultipleSubprocesses_SeeSameConfigEdit simulates the 3-subprocess
 // scenario from the CERB-2 manual validation plan: three long-lived
 // SocketClients (all connected to the same daemon) each observe a
