@@ -46,16 +46,22 @@ func (s Status) String() string {
 }
 
 type ManagedService struct {
-	Def           config.ServiceDef
-	Status        Status
-	PID           int
-	Uptime        time.Time
-	Error         string
-	HealthStatus  HealthStatus
-	logPath       string
-	exited        chan struct{} // closed when the process exits
-	BuildErr      string
-	BuildDone     chan struct{} // closed when build finishes
+	Def          config.ServiceDef
+	Status       Status
+	PID          int
+	Uptime       time.Time
+	Error        string
+	HealthStatus HealthStatus
+	logPath      string
+	exited       chan struct{} // closed when the process exits
+	BuildErr     string
+	BuildDone    chan struct{} // closed when build finishes
+	// Stale is set to true when the on-disk config changed while the
+	// service was running. The in-memory Def has been updated to match
+	// disk but the running process was started from a prior definition —
+	// callers should surface this in status output so operators know a
+	// restart is needed to pick up the new config.
+	Stale         bool
 	RestartPolicy *RestartPolicy
 	RestartCount  int
 }
@@ -246,6 +252,10 @@ func (s *ManagedService) Start() error {
 	s.Status = StatusStarting
 	s.Uptime = time.Now()
 	s.Error = ""
+	// A successful (re)start realigns the running process with the
+	// current in-memory Def — clear the stale flag set by a config
+	// reload.
+	s.Stale = false
 
 	// Write PID file and meta for service tracking
 	if cmd.Process != nil {

@@ -21,21 +21,24 @@ var mcpCmd = &cobra.Command{
 
 		srv := mcp.NewServer("cerberus", "0.1.0")
 
-		// Existing tools (backward compatible — same names, same schemas)
-		srv.RegisterTool(mcp.NewCerberusStatusTool(a.Services, nil))
-		srv.RegisterTool(mcp.NewCerberusStartTool(a.Services))
-		srv.RegisterTool(mcp.NewCerberusStopTool(a.Services))
-		srv.RegisterTool(mcp.NewCerberusRestartTool(a.Services))
-		srv.RegisterTool(mcp.NewCerberusRebuildTool(a.Services))
-		srv.RegisterTool(mcp.NewCerberusLogsTool(a.Services))
-		srv.RegisterTool(mcp.NewCerberusBuildTool(a.Services))
-		srv.RegisterTool(mcp.NewCerberusHealthTool(a.Services, nil))
+		// Lifecycle tools — all route through the ServiceRegistry, which
+		// re-parses ~/.cerberus/config.yaml on every call. This removes
+		// the stale-config trap that required a daemon bounce after
+		// every config edit.
+		srv.RegisterTool(mcp.NewCerberusStatusTool(a.ServiceRegistry, nil))
+		srv.RegisterTool(mcp.NewCerberusStartTool(a.ServiceRegistry))
+		srv.RegisterTool(mcp.NewCerberusStopTool(a.ServiceRegistry))
+		srv.RegisterTool(mcp.NewCerberusRestartTool(a.ServiceRegistry))
+		srv.RegisterTool(mcp.NewCerberusRebuildTool(a.ServiceRegistry))
+		srv.RegisterTool(mcp.NewCerberusLogsTool(a.ServiceRegistry))
+		srv.RegisterTool(mcp.NewCerberusBuildTool(a.ServiceRegistry))
+		srv.RegisterTool(mcp.NewCerberusHealthTool(a.ServiceRegistry, nil))
 
 		// New v2 tools
 		srv.RegisterTool(mcp.NewCerberusProjectListTool(a.Config))
 		srv.RegisterTool(mcp.NewCerberusResourceListTool(a.Config))
 		srv.RegisterTool(mcp.NewCerberusPipelineListTool(a.Config))
-		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(a.Config, a.Services, a.Local))
+		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(a.Config, a.ServiceRegistry, a.Local))
 		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(a.Secrets))
 		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(a.Secrets))
 		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(a.Secrets))
