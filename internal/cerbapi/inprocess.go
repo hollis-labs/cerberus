@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chrispian/cerberus/internal/config"
@@ -29,6 +30,21 @@ type InProcessClient struct {
 	monitor *daemon.Monitor
 	cfg     *config.ConfigV2
 	local   *localconn.Connector
+
+	// opMu serializes registry reloads, service polling, and the
+	// lifecycle critical sections executed on this client's behalf.
+	//
+	// ManagedService.Poll / ServiceRegistry.Reload mutate service
+	// state without fine-grained locking at the ManagedService level
+	// (pre-existing concern in internal/service — a single daemon
+	// process historically only hit these paths serially). Once N
+	// MCP subprocesses fire concurrent RPCs through the socket, every
+	// inbound request triggers Reload + Poll — so without this mutex
+	// the race detector (correctly) flags writes to *ManagedService
+	// fields. Fixing that at the service-package level is out of
+	// scope for CERB-2; serializing at the Client layer is a
+	// targeted, correct workaround.
+	opMu sync.Mutex
 }
 
 // InProcessOption tunes construction of an InProcessClient.
@@ -67,6 +83,12 @@ func NewInProcessClient(reg *service.ServiceRegistry, opts ...InProcessOption) *
 // reloadAndFind refreshes the registry from disk before resolving. This
 // mirrors internal/mcp.reloadAndFind — the sole purpose of this method
 // is to ensure every lifecycle op sees the current on-disk config.
+//
+// Reload itself is protected by ServiceRegistry.mu, but the registry
+// mutates existing *ManagedService pointers in-place during Reload
+// (Def, Stale) so readers must not hold those pointers across Reload
+// calls from other goroutines. Holding opMu keeps callers in a safe
+// quiescent window.
 func (c *InProcessClient) reloadAndFind(id string) *service.ManagedService {
 	_ = c.reg.Reload()
 	return c.reg.Find(id)
@@ -74,6 +96,9 @@ func (c *InProcessClient) reloadAndFind(id string) *service.ManagedService {
 
 // ListServices implements Client.
 func (c *InProcessClient) ListServices(_ context.Context) ([]ServiceStatus, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
 	_ = c.reg.Reload()
 	svcs := c.reg.Current()
 
@@ -92,6 +117,9 @@ func (c *InProcessClient) ListServices(_ context.Context) ([]ServiceStatus, erro
 
 // GetService implements Client.
 func (c *InProcessClient) GetService(_ context.Context, id string) (*ServiceStatus, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
 	svc := c.reloadAndFind(id)
 	if svc == nil {
 		return nil, fmt.Errorf("service %q not found", id)
@@ -107,6 +135,8 @@ func (c *InProcessClient) GetService(_ context.Context, id string) (*ServiceStat
 
 // StartService implements Client.
 func (c *InProcessClient) StartService(_ context.Context, id string) (*OpResult, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	svc := c.reloadAndFind(id)
 	if svc == nil {
 		return &OpResult{
@@ -131,6 +161,8 @@ func (c *InProcessClient) StartService(_ context.Context, id string) (*OpResult,
 
 // StopService implements Client.
 func (c *InProcessClient) StopService(_ context.Context, id string, audit AuditContext) (*OpResult, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	svc := c.reloadAndFind(id)
 	if svc == nil {
 		return &OpResult{
@@ -171,6 +203,8 @@ func (c *InProcessClient) StopService(_ context.Context, id string, audit AuditC
 
 // RestartService implements Client.
 func (c *InProcessClient) RestartService(_ context.Context, id string, args RestartServiceArgs) (*OpResult, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	svc := c.reloadAndFind(id)
 	if svc == nil {
 		return &OpResult{
@@ -217,6 +251,8 @@ func (c *InProcessClient) RestartService(_ context.Context, id string, args Rest
 
 // RebuildService implements Client.
 func (c *InProcessClient) RebuildService(_ context.Context, id string, args RebuildServiceArgs) (*OpResult, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	svc := c.reloadAndFind(id)
 	if svc == nil {
 		return &OpResult{
@@ -271,6 +307,8 @@ func (c *InProcessClient) RebuildService(_ context.Context, id string, args Rebu
 
 // BuildService implements Client.
 func (c *InProcessClient) BuildService(_ context.Context, id string) (*OpResult, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	svc := c.reloadAndFind(id)
 	if svc == nil {
 		return &OpResult{
@@ -308,6 +346,8 @@ func (c *InProcessClient) BuildService(_ context.Context, id string) (*OpResult,
 
 // ServiceLogs implements Client.
 func (c *InProcessClient) ServiceLogs(_ context.Context, id string, lines int) (*LogLines, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	svc := c.reloadAndFind(id)
 	if svc == nil {
 		return nil, fmt.Errorf("unknown service: %s", id)
@@ -315,7 +355,17 @@ func (c *InProcessClient) ServiceLogs(_ context.Context, id string, lines int) (
 	if lines <= 0 {
 		lines = 50
 	}
-	logPath := svc.LogPath()
+	// svc.LogPath() returns the live tempdir path that was assigned on
+	// Start(). Before the first Start — or when the process was
+	// started in a prior daemon — logPath is unset and LogPath()
+	// falls back to the tempdir default. Prefer an explicit
+	// Def.LogFile when it's configured so operators can point at a
+	// persistent log (e.g. ~/.cerberus/logs/svc.log) and still see
+	// output via cerberus_logs before the service starts.
+	logPath := svc.Def.LogFile
+	if logPath == "" {
+		logPath = svc.LogPath()
+	}
 	if logPath == "" {
 		return &LogLines{ServiceID: id, Content: "No log path configured for this service."}, nil
 	}
@@ -338,6 +388,8 @@ func (c *InProcessClient) ServiceLogs(_ context.Context, id string, lines int) (
 
 // Health implements Client.
 func (c *InProcessClient) Health(_ context.Context, id string) (*DaemonHealth, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	_ = c.reg.Reload()
 	svcs := c.reg.Current()
 
@@ -477,6 +529,8 @@ func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*Pipeline
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("pipeline %q not found in config", id)}, nil
 	}
 
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	_ = c.reg.Reload()
 	p, err := pipeline.Resolve(*pdef, c.reg.Current(), c.local)
 	if err != nil {
