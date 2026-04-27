@@ -252,7 +252,7 @@ func writeFileIfChanged(path string, data []byte, mode os.FileMode) (bool, error
 }
 
 func (b launchdBackend) serviceName(res *domain.Resource, spec ProcessSpec) (string, error) {
-	layout, err := b.artifactInstaller().EnsureInstalled(res, spec)
+	layout, err := defaultInstallLayoutFromBackend(b, res, spec)
 	if err != nil {
 		return "", err
 	}

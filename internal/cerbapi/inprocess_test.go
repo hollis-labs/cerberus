@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/service"
 )
 
@@ -285,5 +286,71 @@ services: []
 	}
 	if len(pipelines) != 1 || pipelines[0].Stages != 1 {
 		t.Fatalf("unexpected pipelines: %+v", pipelines)
+	}
+}
+
+func TestInProcessClient_ListResourcesIncludesLocalRuntimeSummary(t *testing.T) {
+	reg, _ := newTestRegistry(t, `
+version: 1
+services: []
+`)
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(workspace, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	cfg := &config.ConfigV2{
+		Version: 2,
+		Resources: []config.ResourceDef{
+			{
+				ID:        "r1",
+				Name:      "Res One",
+				Type:      string(domain.ResourceProcess),
+				Project:   "p1",
+				Connector: "local",
+				Config: map[string]any{
+					"mode":       "os_service",
+					"run_from":   "artifact",
+					"dir":        workspace,
+					"command":    []any{"./app", "serve"},
+					"supervisor": "launchd",
+				},
+			},
+		},
+	}
+	c := NewInProcessClient(reg, WithConfigV2(cfg))
+
+	resources, err := c.ListResources(context.Background(), ResourceListArgs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("want 1 resource, got %d", len(resources))
+	}
+	if !resources[0].ArtifactInstalled {
+		t.Fatalf("expected artifact_installed=true")
+	}
+	if resources[0].Status == "" {
+		t.Fatalf("expected status to be populated")
+	}
+
+	writeErr := os.WriteFile(sourcePath, []byte("v2"), 0755) //nolint:gosec
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	resources, err = c.ListResources(context.Background(), ResourceListArgs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resources[0].ArtifactStale {
+		t.Fatalf("expected artifact_stale=true")
+	}
+	if resources[0].RecommendedAction == "" {
+		t.Fatalf("expected recommended action to be populated")
 	}
 }

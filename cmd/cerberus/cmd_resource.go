@@ -28,16 +28,24 @@ var resourceListCmd = &cobra.Command{
 	Short: "List resources",
 	Long:  "Lists all resources defined in the config. Use --project to filter by project.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if client, err := newResourceSocketClient(); err == nil {
+			list, listErr := client.ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: resourceListProject})
+			if listErr == nil {
+				printResourceList(list)
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(listErr, &dErr) {
+				return listErr
+			}
+		}
+
 		v2, err := config.LoadUnified(cfgPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
 
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tTAGS")
-		fmt.Fprintln(w, "--\t----\t----\t-------\t---------\t----\t----------\t--------\t----")
-
-		count := 0
+		var list []cerbapi.ResourceInfo
 		for _, r := range v2.Resources {
 			if resourceListProject != "" && r.Project != resourceListProject {
 				continue
@@ -60,19 +68,19 @@ var resourceListCmd = &cobra.Command{
 					}
 				}
 			}
-			tags := "-"
-			if len(r.Tags) > 0 {
-				tags = strings.Join(r.Tags, ", ")
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.ID, r.Name, r.Type, r.Project, r.Connector, mode, supervisor, runFrom, tags)
-			count++
+			list = append(list, cerbapi.ResourceInfo{
+				ID:         r.ID,
+				Name:       r.Name,
+				Type:       r.Type,
+				Project:    r.Project,
+				Connector:  r.Connector,
+				Mode:       mode,
+				Supervisor: supervisor,
+				RunFrom:    runFrom,
+				Tags:       append([]string(nil), r.Tags...),
+			})
 		}
-		w.Flush() //nolint:errcheck
-
-		if count == 0 {
-			fmt.Println("No resources found.")
-		}
+		printResourceList(list)
 		return nil
 	},
 }
@@ -404,6 +412,42 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	if st.RecommendedReason != "" {
 		fmt.Printf("Why:         %s\n", st.RecommendedReason)
 	}
+}
+
+func printResourceList(list []cerbapi.ResourceInfo) {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tSTATUS\tARTIFACT\tNEXT\tTAGS")
+	fmt.Fprintln(w, "--\t----\t----\t-------\t---------\t----\t----------\t--------\t------\t--------\t----\t----")
+	for _, r := range list {
+		tags := "-"
+		if len(r.Tags) > 0 {
+			tags = strings.Join(r.Tags, ", ")
+		}
+		status := valueOrDash(r.Status)
+		artifact := "-"
+		if r.ArtifactInstalled {
+			artifact = "installed"
+		}
+		if r.ArtifactStale {
+			artifact = "stale"
+		}
+		next := valueOrDash(r.RecommendedAction)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.ID, r.Name, r.Type, r.Project, r.Connector,
+			valueOrDash(r.Mode), valueOrDash(r.Supervisor), valueOrDash(r.RunFrom),
+			status, artifact, next, tags)
+	}
+	w.Flush() //nolint:errcheck
+	if len(list) == 0 {
+		fmt.Println("No resources found.")
+	}
+}
+
+func valueOrDash(v string) string {
+	if v == "" {
+		return "-"
+	}
+	return v
 }
 
 func init() {

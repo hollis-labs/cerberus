@@ -582,7 +582,7 @@ func (c *InProcessClient) ListProjects(_ context.Context) ([]ProjectInfo, error)
 }
 
 // ListResources implements Client.
-func (c *InProcessClient) ListResources(_ context.Context, args ResourceListArgs) ([]ResourceInfo, error) {
+func (c *InProcessClient) ListResources(ctx context.Context, args ResourceListArgs) ([]ResourceInfo, error) {
 	cfg := c.snapshotConfig()
 	if cfg == nil {
 		return nil, nil
@@ -598,7 +598,7 @@ func (c *InProcessClient) ListResources(_ context.Context, args ResourceListArgs
 		if args.Tag != "" && !containsTagFold(r.Tags, args.Tag) {
 			continue
 		}
-		out = append(out, ResourceInfo{
+		info := ResourceInfo{
 			ID:         r.ID,
 			Name:       r.Name,
 			Type:       r.Type,
@@ -608,7 +608,24 @@ func (c *InProcessClient) ListResources(_ context.Context, args ResourceListArgs
 			Supervisor: resourceSupervisor(r),
 			RunFrom:    resourceRunFrom(r),
 			Tags:       r.Tags,
-		})
+		}
+		if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
+			spec, _ := localconn.SpecFromResourceConfig(r.Config)
+			dr := resourceDefToDomain(&r)
+			if state, err := c.localConnector().Status(ctx, dr); err == nil {
+				info.Status = string(state)
+			}
+			if _, art, err := localconn.InspectArtifactInstall(dr, spec); err == nil {
+				info.ArtifactInstalled = art.Installed
+				info.ArtifactStale = art.Stale
+				if info.Status != "" {
+					if action, _ := localconn.RecommendedStatusAction(spec, domain.State(info.Status), art); action != "" {
+						info.RecommendedAction = action
+					}
+				}
+			}
+		}
+		out = append(out, info)
 	}
 	return out, nil
 }

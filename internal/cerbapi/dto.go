@@ -130,15 +130,19 @@ type ProjectInfo struct {
 
 // ResourceInfo is the DTO for resource-list responses.
 type ResourceInfo struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	Project    string   `json:"project"`
-	Connector  string   `json:"connector"`
-	Mode       string   `json:"mode,omitempty"`
-	Supervisor string   `json:"supervisor,omitempty"`
-	RunFrom    string   `json:"run_from,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Type              string   `json:"type"`
+	Project           string   `json:"project"`
+	Connector         string   `json:"connector"`
+	Mode              string   `json:"mode,omitempty"`
+	Supervisor        string   `json:"supervisor,omitempty"`
+	RunFrom           string   `json:"run_from,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	ArtifactInstalled bool     `json:"artifact_installed,omitempty"`
+	ArtifactStale     bool     `json:"artifact_stale,omitempty"`
+	RecommendedAction string   `json:"recommended_action,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
 }
 
 // ResourceListArgs filters the resource list response.
