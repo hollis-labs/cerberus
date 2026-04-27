@@ -127,15 +127,27 @@ func (b launchdBackend) Status(ctx context.Context, res *domain.Resource, spec P
 		}
 		return domain.StateUnknown, fmt.Errorf("launchctl print %s: %w", label, err)
 	}
-	text := string(out)
-	switch {
-	case strings.Contains(text, "state = running"):
-		return domain.StateRunning, nil
-	case strings.Contains(text, "state = waiting"):
-		return domain.StateStopped, nil
-	default:
-		return domain.StateUnknown, nil
+	return parseLaunchdState(string(out)), nil
+}
+
+func (b launchdBackend) Remove(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
+	layout, err := defaultInstallLayoutFromBackend(b, res, spec)
+	if err != nil {
+		return err
 	}
+	label := layout.ServiceName
+	target := b.serviceTarget(label)
+	out, bootErr := b.runner.CombinedOutput(ctx, "launchctl", "bootout", target)
+	if bootErr != nil && !isLaunchdNotFound(string(out), bootErr) {
+		return fmt.Errorf("launchctl bootout %s: %w", label, bootErr)
+	}
+	if rmErr := os.Remove(layout.PlistPath); rmErr != nil && !os.IsNotExist(rmErr) {
+		return fmt.Errorf("remove plist: %w", rmErr)
+	}
+	if _, rmErr := b.artifactInstaller().Remove(res, spec); rmErr != nil {
+		return rmErr
+	}
+	return nil
 }
 
 func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (string, string, error) {
@@ -233,6 +245,47 @@ func isLaunchdNotFound(out string, err error) bool {
 	return strings.Contains(text, "could not find service") ||
 		strings.Contains(text, "service is disabled") ||
 		strings.Contains(text, "no such process")
+}
+
+func parseLaunchdState(text string) domain.State {
+	switch {
+	case strings.Contains(text, "state = running"):
+		return domain.StateRunning
+	case strings.Contains(text, "state = spawn scheduled"),
+		strings.Contains(text, "state = spawning"):
+		return domain.StateStarting
+	case strings.Contains(text, "state = throttled"):
+		return domain.StateFailed
+	case strings.Contains(text, "state = waiting") && hasNonZeroLaunchdExit(text):
+		return domain.StateFailed
+	case strings.Contains(text, "state = waiting"):
+		return domain.StateStopped
+	default:
+		return domain.StateUnknown
+	}
+}
+
+func hasNonZeroLaunchdExit(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "last exit code =") {
+			continue
+		}
+		parts := strings.Split(line, "=")
+		if len(parts) != 2 {
+			return false
+		}
+		return strings.TrimSpace(parts[1]) != "0"
+	}
+	return false
+}
+
+func defaultInstallLayoutFromBackend(b launchdBackend, res *domain.Resource, spec ProcessSpec) (InstallLayout, error) {
+	home, err := b.homeDir()
+	if err != nil {
+		return InstallLayout{}, fmt.Errorf("resolve home dir: %w", err)
+	}
+	return DefaultInstallLayout(home, res, spec)
 }
 
 func (b launchdBackend) artifactInstaller() artifactInstaller {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
 )
@@ -171,5 +172,71 @@ func TestLaunchdBackendStopIgnoresMissingService(t *testing.T) {
 		ServiceName: label,
 	}); err != nil {
 		t.Fatalf("Stop failed: %v", err)
+	}
+}
+
+func TestParseLaunchdState(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want domain.State
+	}{
+		{name: "running", in: "state = running", want: domain.StateRunning},
+		{name: "spawn scheduled", in: "state = spawn scheduled", want: domain.StateStarting},
+		{name: "throttled", in: "state = throttled", want: domain.StateFailed},
+		{name: "waiting clean", in: "state = waiting\nlast exit code = 0", want: domain.StateStopped},
+		{name: "waiting failed", in: "state = waiting\nlast exit code = 78", want: domain.StateFailed},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseLaunchdState(tc.in); got != tc.want {
+				t.Fatalf("state = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLaunchdBackendRemoveRemovesInstallRootAndPlist(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "app"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{
+			homeDir: func() (string, error) { return tmp, nil },
+			now:     time.Now,
+		},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./app", "serve"},
+	}
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	layout, err := defaultInstallLayoutFromBackend(backend, res, spec)
+	if err != nil {
+		t.Fatalf("defaultInstallLayoutFromBackend failed: %v", err)
+	}
+	if err := backend.Remove(context.Background(), res, spec); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+	if _, err := os.Stat(layout.PlistPath); !os.IsNotExist(err) {
+		t.Fatalf("expected plist removed, got err=%v", err)
+	}
+	if _, err := os.Stat(layout.RootDir); !os.IsNotExist(err) {
+		t.Fatalf("expected install root removed, got err=%v", err)
 	}
 }

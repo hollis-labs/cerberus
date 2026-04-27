@@ -279,6 +279,28 @@ func (c *SocketClient) ApplyResource(ctx context.Context, id string) (*OpResult,
 	return &out, nil
 }
 
+func (c *SocketClient) SyncResource(ctx context.Context, id string) (*OpResult, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	var out OpResult
+	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/sync", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *SocketClient) RemoveResource(ctx context.Context, id string) (*OpResult, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	var out OpResult
+	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/remove", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *SocketClient) ListPipelines(ctx context.Context) ([]PipelineInfo, error) {
 	var out []PipelineInfo
 	if err := c.doJSON(ctx, http.MethodGet, "/pipelines", nil, &out); err != nil {

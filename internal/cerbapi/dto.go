@@ -150,18 +150,21 @@ type ResourceListArgs struct {
 
 // ResourceRuntimeStatus is the DTO for resource-runtime status and apply flows.
 type ResourceRuntimeStatus struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	Project      string `json:"project"`
-	Connector    string `json:"connector"`
-	Mode         string `json:"mode,omitempty"`
-	Supervisor   string `json:"supervisor,omitempty"`
-	RunFrom      string `json:"run_from,omitempty"`
-	Status       string `json:"status"`
-	ServiceName  string `json:"service_name,omitempty"`
-	ArtifactPath string `json:"artifact_path,omitempty"`
-	InstallRoot  string `json:"install_root,omitempty"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Project           string `json:"project"`
+	Connector         string `json:"connector"`
+	Mode              string `json:"mode,omitempty"`
+	Supervisor        string `json:"supervisor,omitempty"`
+	RunFrom           string `json:"run_from,omitempty"`
+	Status            string `json:"status"`
+	ServiceName       string `json:"service_name,omitempty"`
+	ArtifactPath      string `json:"artifact_path,omitempty"`
+	InstallRoot       string `json:"install_root,omitempty"`
+	ArtifactInstalled bool   `json:"artifact_installed,omitempty"`
+	ArtifactSource    string `json:"artifact_source,omitempty"`
+	ArtifactSyncedAt  string `json:"artifact_synced_at,omitempty"`
 }
 
 // PipelineInfo is the DTO for pipeline-list responses.

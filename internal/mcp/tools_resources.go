@@ -151,3 +151,75 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 		},
 	}
 }
+
+// NewCerberusResourceSyncTool creates the cerberus_resource_sync tool.
+func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_sync",
+		Description: "Syncs a specific resource's installed runtime artifacts without applying the runtime backend. Intended for local process resources using run_from=artifact.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to sync.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			res, err := client.SyncResource(context.Background(), resourceID)
+			if err != nil {
+				return "", err
+			}
+			return marshalResult(lifecycleResult{
+				Success: res.Success,
+				Message: res.Message,
+				Error:   res.Error,
+			}), nil
+		},
+	}
+}
+
+// NewCerberusResourceRemoveTool creates the cerberus_resource_remove tool.
+func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_remove",
+		Description: "Removes a specific resource from its configured runtime backend. For local os_service resources on macOS, this unloads the launch agent and removes installed artifacts.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to remove.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			res, err := client.RemoveResource(context.Background(), resourceID)
+			if err != nil {
+				return "", err
+			}
+			return marshalResult(lifecycleResult{
+				Success: res.Success,
+				Message: res.Message,
+				Error:   res.Error,
+			}), nil
+		},
+	}
+}
