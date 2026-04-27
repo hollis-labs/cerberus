@@ -83,17 +83,29 @@ type plistEnvEntry struct {
 }
 
 func (b launchdBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
-	plistPath, label, err := b.writePlist(res, spec)
+	plistPath, label, artifactChanged, plistChanged, err := b.writePlist(res, spec)
 	if err != nil {
 		return err
 	}
 
 	domainTarget := b.domainTarget()
 	serviceTarget := b.serviceTarget(label)
+	loaded, state, err := b.loadedState(ctx, label)
+	if err != nil {
+		return err
+	}
 
-	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
-	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath); err != nil {
-		return fmt.Errorf("launchctl bootstrap %s: %w", label, err)
+	needsReload := !loaded || artifactChanged || plistChanged
+	if needsReload && loaded {
+		_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
+	}
+	if needsReload {
+		if _, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath); err != nil {
+			return fmt.Errorf("launchctl bootstrap %s: %w", label, err)
+		}
+	}
+	if !needsReload && (state == domain.StateRunning || state == domain.StateStarting) {
+		return nil
 	}
 	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", serviceTarget); err != nil {
 		return fmt.Errorf("launchctl kickstart %s: %w", label, err)
@@ -150,22 +162,23 @@ func (b launchdBackend) Remove(ctx context.Context, res *domain.Resource, spec P
 	return nil
 }
 
-func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (string, string, error) {
-	layout, err := b.artifactInstaller().EnsureInstalled(res, spec)
+func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (string, string, bool, bool, error) {
+	layout, syncRes, err := b.artifactInstaller().Sync(res, spec)
 	if err != nil {
-		return "", "", err
+		return "", "", false, false, err
 	}
+	artifactChanged := syncRes.Performed && syncRes.Changed
 	programArgs, err := launchdProgramArguments(layout, spec)
 	if err != nil {
-		return "", "", err
+		return "", "", false, false, err
 	}
 
 	logDir := filepath.Join(layout.RootDir, "logs")
 	if mkErr := os.MkdirAll(logDir, 0755); mkErr != nil { //nolint:gosec
-		return "", "", fmt.Errorf("create log dir: %w", mkErr)
+		return "", "", false, false, fmt.Errorf("create log dir: %w", mkErr)
 	}
 	if mkErr := os.MkdirAll(filepath.Dir(layout.PlistPath), 0755); mkErr != nil { //nolint:gosec
-		return "", "", fmt.Errorf("create launch agents dir: %w", mkErr)
+		return "", "", false, false, fmt.Errorf("create launch agents dir: %w", mkErr)
 	}
 
 	data := plistTemplateData{
@@ -182,13 +195,41 @@ func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (stri
 
 	rendered, err := renderLaunchdPlist(data)
 	if err != nil {
-		return "", "", err
+		return "", "", false, false, err
 	}
-	if err := os.WriteFile(layout.PlistPath, rendered, 0600); err != nil {
-		return "", "", fmt.Errorf("write plist: %w", err)
+	plistChanged, err := writeFileIfChanged(layout.PlistPath, rendered, 0600)
+	if err != nil {
+		return "", "", false, false, fmt.Errorf("write plist: %w", err)
 	}
 
-	return layout.PlistPath, layout.ServiceName, nil
+	return layout.PlistPath, layout.ServiceName, artifactChanged, plistChanged, nil
+}
+
+func (b launchdBackend) loadedState(ctx context.Context, label string) (bool, domain.State, error) {
+	target := b.serviceTarget(label)
+	out, err := b.runner.CombinedOutput(ctx, "launchctl", "print", target)
+	if err != nil {
+		if isLaunchdNotFound(string(out), err) {
+			return false, domain.StateStopped, nil
+		}
+		return false, domain.StateUnknown, fmt.Errorf("launchctl print %s: %w", label, err)
+	}
+	return true, parseLaunchdState(string(out)), nil
+}
+
+func writeFileIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
+	existing, err := os.ReadFile(path) //nolint:gosec // path is Cerberus-managed output
+	if err == nil {
+		if bytes.Equal(existing, data) {
+			return false, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	if err := os.WriteFile(path, data, mode); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (b launchdBackend) serviceName(res *domain.Resource, spec ProcessSpec) (string, error) {

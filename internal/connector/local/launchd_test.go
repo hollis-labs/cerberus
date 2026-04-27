@@ -24,6 +24,12 @@ type fakeCall struct {
 	args []string
 }
 
+func setLaunchdPrintNotFound(runner *fakeCommandRunner, label string) {
+	key := "launchctl print gui/501/" + label
+	runner.out[key] = []byte("Could not find service")
+	runner.err[key] = errors.New("exit status 113")
+}
+
 func (f *fakeCommandRunner) CombinedOutput(_ context.Context, name string, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, fakeCall{name: name, args: append([]string(nil), args...)})
 	key := name + " " + strings.Join(args, " ")
@@ -82,6 +88,7 @@ func TestLaunchdBackendStartWritesPlistAndRunsLaunchctl(t *testing.T) {
 		out: map[string][]byte{},
 		err: map[string]error{},
 	}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.volon.volon-api")
 	backend := launchdBackend{
 		runner: runner,
 		homeDir: func() (string, error) {
@@ -120,6 +127,117 @@ func TestLaunchdBackendStartWritesPlistAndRunsLaunchctl(t *testing.T) {
 
 	if len(runner.calls) != 3 {
 		t.Fatalf("launchctl calls = %d, want 3", len(runner.calls))
+	}
+}
+
+func TestLaunchdBackendStartNoopsWhenLoadedAndCurrent(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	source := filepath.Join(workspace, "app")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{homeDir: func() (string, error) { return tmp, nil }, now: time.Now},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./app", "serve"},
+	}
+
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("initial Start failed: %v", err)
+	}
+
+	runner.calls = nil
+	runner.out["launchctl print gui/501/com.fragments-engine.cerberus.demo.app"] = []byte("state = running")
+	delete(runner.err, "launchctl print gui/501/com.fragments-engine.cerberus.demo.app")
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("second Start failed: %v", err)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("launchctl calls = %d, want 1", len(runner.calls))
+	}
+	if got := runner.calls[0]; got.name != "launchctl" || strings.Join(got.args, " ") != "print gui/501/com.fragments-engine.cerberus.demo.app" {
+		t.Fatalf("unexpected call: %#v", got)
+	}
+}
+
+func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	source := filepath.Join(workspace, "app")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{homeDir: func() (string, error) { return tmp, nil }, now: time.Now},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./app", "serve"},
+	}
+
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("initial Start failed: %v", err)
+	}
+
+	if err := os.WriteFile(source, []byte("#!/bin/sh\necho changed\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	runner.calls = nil
+	runner.out["launchctl print gui/501/com.fragments-engine.cerberus.demo.app"] = []byte("state = running")
+	delete(runner.err, "launchctl print gui/501/com.fragments-engine.cerberus.demo.app")
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("second Start failed: %v", err)
+	}
+
+	if len(runner.calls) != 4 {
+		t.Fatalf("launchctl calls = %d, want 4", len(runner.calls))
+	}
+	got := []string{
+		runner.calls[0].name + " " + strings.Join(runner.calls[0].args, " "),
+		runner.calls[1].name + " " + strings.Join(runner.calls[1].args, " "),
+		runner.calls[2].name + " " + strings.Join(runner.calls[2].args, " "),
+		runner.calls[3].name + " " + strings.Join(runner.calls[3].args, " "),
+	}
+	want := []string{
+		"launchctl print gui/501/com.fragments-engine.cerberus.demo.app",
+		"launchctl bootout gui/501/com.fragments-engine.cerberus.demo.app",
+		"launchctl bootstrap gui/501 " + filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.demo.app.plist"),
+		"launchctl kickstart -k gui/501/com.fragments-engine.cerberus.demo.app",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("call[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 
@@ -206,6 +324,7 @@ func TestLaunchdBackendRemoveRemovesInstallRootAndPlist(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
