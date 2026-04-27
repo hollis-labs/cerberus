@@ -167,6 +167,8 @@ type ResourceRuntimeStatus struct {
 	ArtifactStaleReason string `json:"artifact_stale_reason,omitempty"`
 	ArtifactSource      string `json:"artifact_source,omitempty"`
 	ArtifactSyncedAt    string `json:"artifact_synced_at,omitempty"`
+	RecommendedAction   string `json:"recommended_action,omitempty"`
+	RecommendedReason   string `json:"recommended_reason,omitempty"`
 }
 
 // PipelineInfo is the DTO for pipeline-list responses.
