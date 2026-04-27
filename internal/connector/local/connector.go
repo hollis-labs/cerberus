@@ -87,11 +87,16 @@ func (c *Connector) Create(_ context.Context, _ *domain.Resource) error {
 }
 
 func (c *Connector) Start(ctx context.Context, res *domain.Resource) error {
+	_, err := c.Apply(ctx, res)
+	return err
+}
+
+func (c *Connector) Apply(ctx context.Context, res *domain.Resource) (ApplyResult, error) {
 	backend, spec, svc, err := c.runtimeFor(res)
 	if err != nil {
-		return err
+		return ApplyResult{}, err
 	}
-	return backend.Start(ctx, res, spec, svc)
+	return backend.Apply(ctx, res, spec, svc)
 }
 
 func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {

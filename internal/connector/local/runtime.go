@@ -12,19 +12,34 @@ import (
 )
 
 type runtimeBackend interface {
-	Start(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
+	Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) (ApplyResult, error)
 	Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
 	Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
 	Status(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) (domain.State, error)
 }
 
+type ApplyAction string
+
+const (
+	ApplyActionStarted   ApplyAction = "started"
+	ApplyActionReloaded  ApplyAction = "reloaded"
+	ApplyActionRestarted ApplyAction = "restarted"
+	ApplyActionNoop      ApplyAction = "noop"
+)
+
+type ApplyResult struct {
+	Action          ApplyAction
+	ArtifactChanged bool
+	PlistChanged    bool
+}
+
 type devSessionBackend struct{}
 
-func (b devSessionBackend) Start(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) error {
+func (b devSessionBackend) Apply(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) (ApplyResult, error) {
 	if svc == nil {
-		return fmt.Errorf("dev_session backend requires a managed service")
+		return ApplyResult{}, fmt.Errorf("dev_session backend requires a managed service")
 	}
-	return svc.Start()
+	return ApplyResult{Action: ApplyActionStarted}, svc.Start()
 }
 
 func (b devSessionBackend) Stop(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) error {
@@ -51,15 +66,20 @@ type osServiceBackend struct {
 }
 
 func (b osServiceBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) error {
+	_, err := b.Apply(ctx, res, spec, nil)
+	return err
+}
+
+func (b osServiceBackend) Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) (ApplyResult, error) {
 	supervisor, err := effectiveSupervisor(spec)
 	if err != nil {
-		return err
+		return ApplyResult{}, err
 	}
 	switch supervisor {
 	case ProcessSupervisorLaunchd:
-		return b.launchdBackend().Start(ctx, res, spec)
+		return b.launchdBackend().Apply(ctx, res, spec)
 	default:
-		return fmt.Errorf("os_service start not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
+		return ApplyResult{}, fmt.Errorf("os_service start not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
 	}
 }
 
