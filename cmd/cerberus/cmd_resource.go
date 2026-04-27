@@ -386,6 +386,12 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	if st.ArtifactInstalled {
 		fmt.Printf("Installed:   true\n")
 	}
+	if st.ArtifactStale {
+		fmt.Printf("Stale:       true\n")
+	}
+	if st.ArtifactStaleReason != "" {
+		fmt.Printf("Drift:       %s\n", st.ArtifactStaleReason)
+	}
 	if st.ArtifactSource != "" {
 		fmt.Printf("Source:      %s\n", st.ArtifactSource)
 	}

@@ -28,6 +28,8 @@ type artifactStatus struct {
 	SourcePath   string
 	ArtifactPath string
 	SyncedAt     time.Time
+	Stale        bool
+	StaleReason  string
 }
 
 // ArtifactStatus is the exported read-only view of an installed artifact.
@@ -154,12 +156,36 @@ func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (Insta
 		}
 		return InstallLayout{}, artifactStatus{}, statErr
 	}
+	stale, staleReason := inspectArtifactDrift(spec, manifest)
 	return layout, artifactStatus{
 		Installed:    true,
 		SourcePath:   manifest.SourcePath,
 		ArtifactPath: manifest.ArtifactPath,
 		SyncedAt:     manifest.SyncedAt,
+		Stale:        stale,
+		StaleReason:  staleReason,
 	}, nil
+}
+
+func inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, string) {
+	sourcePath, err := resolveArtifactSource(spec)
+	if err != nil {
+		return true, "source_unresolvable"
+	}
+	if sourcePath != manifest.SourcePath {
+		return true, "source_path_changed"
+	}
+	sourceHash, err := fileSHA256(sourcePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, "source_missing"
+		}
+		return true, "source_unreadable"
+	}
+	if sourceHash != manifest.SourceHash {
+		return true, "source_changed"
+	}
+	return false, ""
 }
 
 func (i artifactInstaller) Remove(res *domain.Resource, spec ProcessSpec) (InstallLayout, error) {
