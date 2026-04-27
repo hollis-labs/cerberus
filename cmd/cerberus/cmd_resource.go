@@ -244,6 +244,43 @@ var resourceDoctorCmd = &cobra.Command{
 	},
 }
 
+var resourceReloadCmd = &cobra.Command{
+	Use:   "reload <resource-id>",
+	Short: "Kickstart a local process resource through its runtime backend",
+	Long:  "Asks the configured runtime backend to restart the current installed resource without syncing artifacts or rewriting service definitions. For launchd-backed os_service resources, this runs launchctl kickstart -k against the loaded service.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; reload currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, reloadErr := client.ReloadResource(cmd.Context(), res.ID)
+			if reloadErr == nil {
+				if out.Message != "" {
+					fmt.Println(out.Message)
+				} else {
+					fmt.Printf("Reloaded resource %s\n", res.ID)
+				}
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(reloadErr, &dErr) {
+				return reloadErr
+			}
+		}
+		conn := localconn.New()
+		if err := conn.Reload(cmd.Context(), toDomainResource(res)); err != nil {
+			return err
+		}
+		fmt.Printf("Reloaded resource %s\n", res.ID)
+		return nil
+	},
+}
+
 var resourceApplyCmd = &cobra.Command{
 	Use:   "apply <resource-id>",
 	Short: "Apply a local process resource",
@@ -537,6 +574,24 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	if st.RecommendedReason != "" {
 		fmt.Printf("Why:         %s\n", st.RecommendedReason)
 	}
+	if st.LaunchdLoaded {
+		fmt.Printf("Loaded:      true\n")
+	}
+	if st.LaunchdState != "" {
+		fmt.Printf("Launchd:     %s\n", st.LaunchdState)
+	}
+	if st.LaunchdPID > 0 {
+		fmt.Printf("Launchd PID: %d\n", st.LaunchdPID)
+	}
+	if st.LaunchdLastExitCode != nil {
+		fmt.Printf("Last Exit:   %d\n", *st.LaunchdLastExitCode)
+	}
+	if st.LaunchdThrottled {
+		fmt.Printf("Throttled:   true\n")
+	}
+	if st.LaunchdReason != "" {
+		fmt.Printf("Reason:      %s\n", st.LaunchdReason)
+	}
 }
 
 func printResourceInspect(st *cerbapi.ResourceInspect) {
@@ -612,6 +667,31 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 	if st.RecommendedReason != "" {
 		fmt.Printf("Why:         %s\n", st.RecommendedReason)
 	}
+	if st.LaunchdLoaded {
+		fmt.Printf("Loaded:      true\n")
+	}
+	if st.LaunchdState != "" {
+		fmt.Printf("Launchd:     %s\n", st.LaunchdState)
+	}
+	if st.LaunchdPID > 0 {
+		fmt.Printf("Launchd PID: %d\n", st.LaunchdPID)
+	}
+	if st.LaunchdLastExitCode != nil {
+		fmt.Printf("Last Exit:   %d\n", *st.LaunchdLastExitCode)
+	}
+	if st.LaunchdThrottled {
+		fmt.Printf("Throttled:   true\n")
+	}
+	if st.LaunchdReason != "" {
+		fmt.Printf("Reason:      %s\n", st.LaunchdReason)
+	}
+	if st.LaunchdRaw != "" {
+		fmt.Println("Launchctl:")
+		fmt.Print(st.LaunchdRaw)
+		if !strings.HasSuffix(st.LaunchdRaw, "\n") {
+			fmt.Println()
+		}
+	}
 }
 
 func printResourceDoctor(out *cerbapi.ResourceDoctor) {
@@ -675,6 +755,7 @@ func init() {
 	resourceCmd.AddCommand(resourceInspectCmd)
 	resourceCmd.AddCommand(resourceDoctorCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
+	resourceCmd.AddCommand(resourceReloadCmd)
 	resourceCmd.AddCommand(resourceStatusCmd)
 	resourceLogsCmd.Flags().IntVarP(&resourceLogsLines, "lines", "n", 50, "number of log lines to return")
 	resourceLogsCmd.Flags().StringVar(&resourceLogsStream, "stream", "stdout", "log stream to read: stdout or stderr")

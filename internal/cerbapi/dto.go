@@ -175,6 +175,12 @@ type ResourceRuntimeStatus struct {
 	ArtifactSyncedAt    string `json:"artifact_synced_at,omitempty"`
 	RecommendedAction   string `json:"recommended_action,omitempty"`
 	RecommendedReason   string `json:"recommended_reason,omitempty"`
+	LaunchdLoaded       bool   `json:"launchd_loaded,omitempty"`
+	LaunchdState        string `json:"launchd_state,omitempty"`
+	LaunchdPID          int    `json:"launchd_pid,omitempty"`
+	LaunchdLastExitCode *int   `json:"launchd_last_exit_code,omitempty"`
+	LaunchdThrottled    bool   `json:"launchd_throttled,omitempty"`
+	LaunchdReason       string `json:"launchd_reason,omitempty"`
 }
 
 // ResourceInspect is the detailed operator-facing inspection view for a local process resource.
@@ -207,6 +213,13 @@ type ResourceInspect struct {
 	StderrLogPath       string   `json:"stderr_log_path,omitempty"`
 	RecommendedAction   string   `json:"recommended_action,omitempty"`
 	RecommendedReason   string   `json:"recommended_reason,omitempty"`
+	LaunchdLoaded       bool     `json:"launchd_loaded,omitempty"`
+	LaunchdState        string   `json:"launchd_state,omitempty"`
+	LaunchdPID          int      `json:"launchd_pid,omitempty"`
+	LaunchdLastExitCode *int     `json:"launchd_last_exit_code,omitempty"`
+	LaunchdThrottled    bool     `json:"launchd_throttled,omitempty"`
+	LaunchdReason       string   `json:"launchd_reason,omitempty"`
+	LaunchdRaw          string   `json:"launchd_raw,omitempty"`
 }
 
 type ResourceDoctorCheck struct {

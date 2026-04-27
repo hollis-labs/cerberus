@@ -325,6 +325,52 @@ func TestParseLaunchdState(t *testing.T) {
 	}
 }
 
+func TestLaunchdBackendInspectParsesLiveRecord(t *testing.T) {
+	runner := &fakeCommandRunner{
+		out: map[string][]byte{
+			"launchctl print gui/501/com.example.app": []byte("state = throttled\npid = 123\nlast exit code = 78\nreason = crashed\n"),
+		},
+		err: map[string]error{},
+	}
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return "/tmp", nil },
+		uid:     func() int { return 501 },
+	}
+	rec, err := backend.Inspect(context.Background(), &domain.Resource{ID: "app"}, ProcessSpec{
+		ServiceName: "com.example.app",
+	})
+	if err != nil {
+		t.Fatalf("Inspect failed: %v", err)
+	}
+	if !rec.Loaded || rec.State != "throttled" || rec.PID != 123 || rec.LastExitCode == nil || *rec.LastExitCode != 78 || !rec.Throttled || rec.Reason != "crashed" {
+		t.Fatalf("unexpected record: %+v", rec)
+	}
+}
+
+func TestLaunchdBackendReloadKickstartsLoadedService(t *testing.T) {
+	runner := &fakeCommandRunner{
+		out: map[string][]byte{
+			"launchctl print gui/501/com.example.app":        []byte("state = running"),
+			"launchctl kickstart -k gui/501/com.example.app": []byte(""),
+		},
+		err: map[string]error{},
+	}
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return "/tmp", nil },
+		uid:     func() int { return 501 },
+	}
+	if err := backend.Reload(context.Background(), &domain.Resource{ID: "app"}, ProcessSpec{
+		ServiceName: "com.example.app",
+	}); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("launchctl calls = %d, want 2", len(runner.calls))
+	}
+}
+
 func TestLaunchdBackendRemoveRemovesInstallRootAndPlist(t *testing.T) {
 	tmp := t.TempDir()
 	workspace := filepath.Join(tmp, "workspace")
