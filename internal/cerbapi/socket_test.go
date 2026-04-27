@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/domain"
 )
 
 // shortSocketPath returns a unix-socket path short enough to fit under
@@ -205,6 +208,69 @@ services:
 	}
 	if strings.Contains(ll.Content, "line1") {
 		t.Fatalf("did not expect line1, got: %q", ll.Content)
+	}
+}
+
+func TestSocketServer_ResourceLogs(t *testing.T) {
+	reg, _ := newTestRegistry(t, `
+version: 1
+services: []
+`)
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(workspace, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	logDir := filepath.Join(home, ".cerberus", "apps", "p1", "r1", "logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(logDir, "stderr.log"), []byte("x\ny\nz\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Setenv("HOME", oldHome) }()
+
+	cfg := &config.ConfigV2{
+		Version: 2,
+		Resources: []config.ResourceDef{
+			{
+				ID:        "r1",
+				Name:      "Res One",
+				Type:      string(domain.ResourceProcess),
+				Project:   "p1",
+				Connector: "local",
+				Config: map[string]any{
+					"mode":       "os_service",
+					"run_from":   "artifact",
+					"dir":        workspace,
+					"command":    []any{"./app", "serve"},
+					"supervisor": "launchd",
+				},
+			},
+		},
+	}
+	cli, stop := startSocket(t, NewInProcessClient(reg, WithConfigV2(cfg)))
+	defer stop()
+
+	out, err := cli.ResourceLogs(context.Background(), "r1", 2, "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Content, "y") || !strings.Contains(out.Content, "z") {
+		t.Fatalf("expected last 2 lines, got %q", out.Content)
+	}
+	if strings.Contains(out.Content, "x") {
+		t.Fatalf("did not expect first line, got %q", out.Content)
 	}
 }
 

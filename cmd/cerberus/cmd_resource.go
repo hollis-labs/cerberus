@@ -22,6 +22,8 @@ var resourceCmd = &cobra.Command{
 }
 
 var resourceListProject string
+var resourceLogsLines int
+var resourceLogsStream string
 
 var resourceListCmd = &cobra.Command{
 	Use:   "list",
@@ -245,6 +247,51 @@ var resourceStatusCmd = &cobra.Command{
 	},
 }
 
+var resourceLogsCmd = &cobra.Command{
+	Use:   "logs <resource-id>",
+	Short: "Show local process resource logs",
+	Long:  "Shows recent logs for a local process resource. For os_service resources on macOS, use --stream stdout or --stream stderr to select the launchd log stream.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; logs currently support local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, logErr := client.ResourceLogs(cmd.Context(), res.ID, resourceLogsLines, resourceLogsStream)
+			if logErr == nil {
+				fmt.Print(out.Content)
+				if !strings.HasSuffix(out.Content, "\n") {
+					fmt.Println()
+				}
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(logErr, &dErr) {
+				return logErr
+			}
+		}
+
+		v2, err := config.LoadUnified(cfgPath)
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		out, err := cerbapi.NewInProcessClient(nil, cerbapi.WithConfigV2(v2)).ResourceLogs(cmd.Context(), res.ID, resourceLogsLines, resourceLogsStream)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out.Content)
+		if !strings.HasSuffix(out.Content, "\n") {
+			fmt.Println()
+		}
+		return nil
+	},
+}
+
 var resourceSyncCmd = &cobra.Command{
 	Use:   "sync <resource-id>",
 	Short: "Sync installed runtime artifacts for a local process resource",
@@ -456,6 +503,9 @@ func init() {
 	resourceCmd.AddCommand(resourceShowCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceStatusCmd)
+	resourceLogsCmd.Flags().IntVarP(&resourceLogsLines, "lines", "n", 50, "number of log lines to return")
+	resourceLogsCmd.Flags().StringVar(&resourceLogsStream, "stream", "stdout", "log stream to read: stdout or stderr")
+	resourceCmd.AddCommand(resourceLogsCmd)
 	resourceCmd.AddCommand(resourceSyncCmd)
 	resourceCmd.AddCommand(resourceRemoveCmd)
 }

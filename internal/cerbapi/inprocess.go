@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -188,6 +189,33 @@ func (c *InProcessClient) snapshotConfig() *config.ConfigV2 {
 	c.cfg = fresh
 	c.cfgMu.Unlock()
 	return fresh
+}
+
+func (c *InProcessClient) resourceLogPath(res *domain.Resource, spec localconn.ProcessSpec, stream string) (string, error) {
+	switch spec.Mode {
+	case "", localconn.ProcessModeDevSession:
+		def := localconn.ResourceToServiceDef(res)
+		if def.LogFile != "" {
+			return def.LogFile, nil
+		}
+		return (&service.ManagedService{Def: def}).LogPath(), nil
+	case localconn.ProcessModeOSService:
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		layout, err := localconn.DefaultInstallLayout(home, res, spec)
+		if err != nil {
+			return "", err
+		}
+		logName := "stdout.log"
+		if strings.EqualFold(stream, "stderr") {
+			logName = "stderr.log"
+		}
+		return filepath.Join(layout.RootDir, "logs", logName), nil
+	default:
+		return "", fmt.Errorf("unsupported process mode %q for resource %q", spec.Mode, res.ID)
+	}
 }
 
 // ListServices implements Client.
@@ -496,6 +524,52 @@ func (c *InProcessClient) ServiceLogs(_ context.Context, id string, lines int) (
 		content = fmt.Sprintf("Log file is empty: %s", logPath)
 	}
 	return &LogLines{ServiceID: id, LogPath: logPath, Content: content}, nil
+}
+
+// ResourceLogs implements Client.
+func (c *InProcessClient) ResourceLogs(_ context.Context, id string, lines int, stream string) (*LogLines, error) {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
+		return nil, fmt.Errorf("no config available")
+	}
+	res := findResourceDef(cfg, id)
+	if res == nil {
+		return nil, fmt.Errorf("resource %q not found", id)
+	}
+	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+		return nil, fmt.Errorf("resource %q is %s/%s; logs currently support local process resources only", res.ID, res.Type, res.Connector)
+	}
+	if lines <= 0 {
+		lines = 50
+	}
+	if stream == "" {
+		stream = "stdout"
+	}
+
+	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	logPath, err := c.resourceLogPath(resourceDefToDomain(res), spec, stream)
+	if err != nil {
+		return nil, err
+	}
+	if logPath == "" {
+		return &LogLines{ResourceID: id, Stream: stream, Content: "No log path configured for this resource."}, nil
+	}
+	content, err := readLastNLines(logPath, lines)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &LogLines{
+				ResourceID: id,
+				Stream:     stream,
+				LogPath:    logPath,
+				Content:    fmt.Sprintf("Log file does not exist: %s", logPath),
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to read log file: %w", err)
+	}
+	if content == "" {
+		content = fmt.Sprintf("Log file is empty: %s", logPath)
+	}
+	return &LogLines{ResourceID: id, Stream: stream, LogPath: logPath, Content: content}, nil
 }
 
 // Health implements Client.

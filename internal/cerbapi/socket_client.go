@@ -215,6 +215,28 @@ func (c *SocketClient) ServiceLogs(ctx context.Context, id string, lines int) (*
 	return &out, nil
 }
 
+func (c *SocketClient) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	q := url.Values{}
+	if lines > 0 {
+		q.Set("lines", strconv.Itoa(lines))
+	}
+	if stream != "" {
+		q.Set("stream", stream)
+	}
+	path := "/resources/" + url.PathEscape(id) + "/logs"
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out LogLines
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *SocketClient) Health(ctx context.Context, id string) (*DaemonHealth, error) {
 	path := "/health"
 	if id != "" {

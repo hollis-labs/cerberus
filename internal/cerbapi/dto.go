@@ -108,9 +108,11 @@ type DaemonHealth struct {
 
 // LogLines is the DTO for tail-logs responses.
 type LogLines struct {
-	ServiceID string `json:"service_id"`
-	Content   string `json:"content"`
-	LogPath   string `json:"log_path"`
+	ServiceID  string `json:"service_id,omitempty"`
+	ResourceID string `json:"resource_id,omitempty"`
+	Stream     string `json:"stream,omitempty"`
+	Content    string `json:"content"`
+	LogPath    string `json:"log_path"`
 }
 
 // ErrorResponse is the JSON body emitted by the socket server when a
