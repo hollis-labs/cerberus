@@ -346,6 +346,9 @@ func TestLaunchdBackendInspectParsesLiveRecord(t *testing.T) {
 	if !rec.Loaded || rec.State != "throttled" || rec.PID != 123 || rec.LastExitCode == nil || *rec.LastExitCode != 78 || !rec.Throttled || rec.Reason != "crashed" {
 		t.Fatalf("unexpected record: %+v", rec)
 	}
+	if rec.Diagnosis == "" || len(rec.Highlights) == 0 {
+		t.Fatalf("expected diagnosis/highlights, got %+v", rec)
+	}
 }
 
 func TestLaunchdBackendReloadKickstartsLoadedService(t *testing.T) {

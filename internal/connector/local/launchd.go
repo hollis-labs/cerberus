@@ -89,6 +89,8 @@ type launchdRecord struct {
 	LastExitCode *int
 	Throttled    bool
 	Reason       string
+	Diagnosis    string
+	Highlights   []string
 	Raw          string
 }
 
@@ -202,6 +204,7 @@ func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec 
 		return launchdRecord{}, fmt.Errorf("launchctl print %s: %w", label, err)
 	}
 	text := string(out)
+	diagnosis, highlights := diagnoseLaunchdRecord(text)
 	return launchdRecord{
 		Loaded:       true,
 		State:        extractLaunchdValue(text, "state ="),
@@ -209,6 +212,8 @@ func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec 
 		LastExitCode: extractLaunchdOptionalInt(text, "last exit code ="),
 		Throttled:    strings.Contains(text, "state = throttled"),
 		Reason:       extractLaunchdValue(text, "reason ="),
+		Diagnosis:    diagnosis,
+		Highlights:   highlights,
 		Raw:          text,
 	}, nil
 }
@@ -404,6 +409,35 @@ func extractLaunchdOptionalInt(text, prefix string) *int {
 		return nil
 	}
 	return &out
+}
+
+func diagnoseLaunchdRecord(text string) (string, []string) {
+	highlights := make([]string, 0, 4)
+	for _, prefix := range []string{"state =", "pid =", "last exit code =", "reason ="} {
+		if v := extractLaunchdValue(text, prefix); v != "" {
+			highlights = append(highlights, strings.TrimSpace(prefix)+" "+v)
+		}
+	}
+
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "state = throttled"):
+		return "launchd is throttling restarts after repeated failures", highlights
+	case strings.Contains(lower, "reason = crashed"):
+		return "process crashed after launch", highlights
+	case strings.Contains(lower, "state = waiting") && hasNonZeroLaunchdExit(text):
+		return "process exited with a non-zero status", highlights
+	case strings.Contains(lower, "state = spawn scheduled"):
+		return "launchd is waiting to spawn the process", highlights
+	case strings.Contains(lower, "state = spawning"):
+		return "launchd is spawning the process", highlights
+	case strings.Contains(lower, "state = running"):
+		return "service is loaded and running", highlights
+	case strings.Contains(lower, "state = waiting"):
+		return "service is loaded but currently idle", highlights
+	default:
+		return "", highlights
+	}
 }
 
 func hasNonZeroLaunchdExit(text string) bool {

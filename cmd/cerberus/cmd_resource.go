@@ -592,6 +592,12 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	if st.LaunchdReason != "" {
 		fmt.Printf("Reason:      %s\n", st.LaunchdReason)
 	}
+	if st.LaunchdDiagnosis != "" {
+		fmt.Printf("Diagnosis:   %s\n", st.LaunchdDiagnosis)
+	}
+	if len(st.LaunchdHighlights) > 0 {
+		fmt.Printf("Highlights:  %s\n", strings.Join(st.LaunchdHighlights, " | "))
+	}
 }
 
 func printResourceInspect(st *cerbapi.ResourceInspect) {
@@ -684,6 +690,12 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 	}
 	if st.LaunchdReason != "" {
 		fmt.Printf("Reason:      %s\n", st.LaunchdReason)
+	}
+	if st.LaunchdDiagnosis != "" {
+		fmt.Printf("Diagnosis:   %s\n", st.LaunchdDiagnosis)
+	}
+	if len(st.LaunchdHighlights) > 0 {
+		fmt.Printf("Highlights:  %s\n", strings.Join(st.LaunchdHighlights, " | "))
 	}
 	if st.LaunchdRaw != "" {
 		fmt.Println("Launchctl:")
