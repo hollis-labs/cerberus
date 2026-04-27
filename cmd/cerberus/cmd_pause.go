@@ -9,8 +9,8 @@ import (
 
 var pauseCmd = &cobra.Command{
 	Use:   "pause [service-id]",
-	Short: "Pause auto-restart",
-	Long:  "Pauses auto-restart for all services, or a specific service if an ID is given. While paused, services that crash will not be automatically restarted.",
+	Short: "Pause legacy service auto-restart",
+	Long:  "Pauses daemon auto-restart for legacy v1 services managed under services:. While paused, crashed legacy services will not be automatically restarted.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {
@@ -31,8 +31,8 @@ var pauseCmd = &cobra.Command{
 
 var resumeCmd = &cobra.Command{
 	Use:   "resume [service-id]",
-	Short: "Resume auto-restart",
-	Long:  "Resumes auto-restart for all services, or a specific service if an ID is given.",
+	Short: "Resume legacy service auto-restart",
+	Long:  "Resumes daemon auto-restart for legacy v1 services managed under services:.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {

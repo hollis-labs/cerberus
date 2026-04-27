@@ -16,8 +16,8 @@ var rebuildTag string
 
 var rebuildCmd = &cobra.Command{
 	Use:   "rebuild [service...]",
-	Short: "Build then restart services",
-	Long:  "Builds specified services, then stops and restarts them. If build fails, the service is NOT restarted. Use --tag to filter by tag.",
+	Short: "Build then restart legacy services",
+	Long:  "Builds legacy v1 services defined under services:, then stops and restarts them. If build fails, the service is not restarted. Use --tag to filter by tag. For modern local process resources, use `cerberus resource sync` and `cerberus resource apply`.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {
