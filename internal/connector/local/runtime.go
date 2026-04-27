@@ -14,6 +14,7 @@ import (
 type runtimeBackend interface {
 	Start(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
 	Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
+	Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
 	Status(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) (domain.State, error)
 }
 
@@ -31,6 +32,10 @@ func (b devSessionBackend) Stop(_ context.Context, _ *domain.Resource, _ Process
 		return fmt.Errorf("dev_session backend requires a managed service")
 	}
 	return svc.Stop()
+}
+
+func (b devSessionBackend) Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error {
+	return b.Stop(ctx, res, spec, svc)
 }
 
 func (b devSessionBackend) Status(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) (domain.State, error) {
@@ -68,6 +73,19 @@ func (b osServiceBackend) Stop(ctx context.Context, res *domain.Resource, spec P
 		return b.launchdBackend().Stop(ctx, res, spec)
 	default:
 		return fmt.Errorf("os_service stop not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
+	}
+}
+
+func (b osServiceBackend) Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) error {
+	supervisor, err := effectiveSupervisor(spec)
+	if err != nil {
+		return err
+	}
+	switch supervisor {
+	case ProcessSupervisorLaunchd:
+		return b.launchdBackend().Remove(ctx, res, spec)
+	default:
+		return fmt.Errorf("os_service remove not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
 	}
 }
 

@@ -23,6 +23,27 @@ type artifactManifest struct {
 	SyncedAt     time.Time `json:"synced_at"`
 }
 
+type artifactStatus struct {
+	Installed    bool
+	SourcePath   string
+	ArtifactPath string
+	SyncedAt     time.Time
+}
+
+// ArtifactStatus is the exported read-only view of an installed artifact.
+type ArtifactStatus = artifactStatus
+
+type artifactSyncResult struct {
+	Performed    bool
+	Changed      bool
+	SourcePath   string
+	ArtifactPath string
+	SyncedAt     time.Time
+}
+
+// ArtifactSyncResult is the exported result of a sync operation.
+type ArtifactSyncResult = artifactSyncResult
+
 type artifactInstaller struct {
 	homeDir func() (string, error)
 	now     func() time.Time
@@ -36,44 +57,55 @@ func newArtifactInstaller() artifactInstaller {
 }
 
 func (i artifactInstaller) EnsureInstalled(res *domain.Resource, spec ProcessSpec) (InstallLayout, error) {
+	layout, _, err := i.Sync(res, spec)
+	return layout, err
+}
+
+func (i artifactInstaller) Sync(res *domain.Resource, spec ProcessSpec) (InstallLayout, artifactSyncResult, error) {
 	home, err := i.homeDir()
 	if err != nil {
-		return InstallLayout{}, fmt.Errorf("resolve home dir: %w", err)
+		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("resolve home dir: %w", err)
 	}
 	layout, err := DefaultInstallLayout(home, res, spec)
 	if err != nil {
-		return InstallLayout{}, err
+		return InstallLayout{}, artifactSyncResult{}, err
 	}
 	if spec.RunFrom != ProcessRunFromArtifact {
-		return layout, nil
+		return layout, artifactSyncResult{}, nil
 	}
 
 	sourcePath, err := resolveArtifactSource(spec)
 	if err != nil {
-		return InstallLayout{}, err
+		return InstallLayout{}, artifactSyncResult{}, err
 	}
 	sourceHash, err := fileSHA256(sourcePath)
 	if err != nil {
-		return InstallLayout{}, fmt.Errorf("hash source artifact: %w", err)
+		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("hash source artifact: %w", err)
 	}
 
 	manifestPath := filepath.Join(layout.RootDir, artifactManifestName)
 	if manifest, err := readArtifactManifest(manifestPath); err == nil {
 		if manifest.SourcePath == sourcePath && manifest.SourceHash == sourceHash {
 			if _, statErr := os.Stat(layout.ArtifactPath); statErr == nil {
-				return layout, nil
+				return layout, artifactSyncResult{
+					Performed:    true,
+					Changed:      false,
+					SourcePath:   sourcePath,
+					ArtifactPath: layout.ArtifactPath,
+					SyncedAt:     manifest.SyncedAt,
+				}, nil
 			}
 		}
 	}
 
 	if err := os.MkdirAll(layout.BinDir, 0755); err != nil { //nolint:gosec
-		return InstallLayout{}, fmt.Errorf("create artifact bin dir: %w", err)
+		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("create artifact bin dir: %w", err)
 	}
 	if err := os.MkdirAll(layout.CurrentDir, 0755); err != nil { //nolint:gosec
-		return InstallLayout{}, fmt.Errorf("create install work dir: %w", err)
+		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("create install work dir: %w", err)
 	}
 	if err := copyFile(sourcePath, layout.ArtifactPath); err != nil {
-		return InstallLayout{}, fmt.Errorf("copy artifact: %w", err)
+		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("copy artifact: %w", err)
 	}
 
 	manifest := artifactManifest{
@@ -83,10 +115,77 @@ func (i artifactInstaller) EnsureInstalled(res *domain.Resource, spec ProcessSpe
 		SyncedAt:     i.now().UTC(),
 	}
 	if err := writeArtifactManifest(manifestPath, manifest); err != nil {
-		return InstallLayout{}, fmt.Errorf("write artifact manifest: %w", err)
+		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("write artifact manifest: %w", err)
 	}
 
+	return layout, artifactSyncResult{
+		Performed:    true,
+		Changed:      true,
+		SourcePath:   sourcePath,
+		ArtifactPath: layout.ArtifactPath,
+		SyncedAt:     manifest.SyncedAt,
+	}, nil
+}
+
+func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (InstallLayout, artifactStatus, error) {
+	home, err := i.homeDir()
+	if err != nil {
+		return InstallLayout{}, artifactStatus{}, fmt.Errorf("resolve home dir: %w", err)
+	}
+	layout, err := DefaultInstallLayout(home, res, spec)
+	if err != nil {
+		return InstallLayout{}, artifactStatus{}, err
+	}
+	if spec.RunFrom != ProcessRunFromArtifact {
+		return layout, artifactStatus{}, nil
+	}
+
+	manifestPath := filepath.Join(layout.RootDir, artifactManifestName)
+	manifest, err := readArtifactManifest(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return layout, artifactStatus{}, nil
+		}
+		return InstallLayout{}, artifactStatus{}, err
+	}
+	if _, statErr := os.Stat(layout.ArtifactPath); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return layout, artifactStatus{}, nil
+		}
+		return InstallLayout{}, artifactStatus{}, statErr
+	}
+	return layout, artifactStatus{
+		Installed:    true,
+		SourcePath:   manifest.SourcePath,
+		ArtifactPath: manifest.ArtifactPath,
+		SyncedAt:     manifest.SyncedAt,
+	}, nil
+}
+
+func (i artifactInstaller) Remove(res *domain.Resource, spec ProcessSpec) (InstallLayout, error) {
+	home, err := i.homeDir()
+	if err != nil {
+		return InstallLayout{}, fmt.Errorf("resolve home dir: %w", err)
+	}
+	layout, err := DefaultInstallLayout(home, res, spec)
+	if err != nil {
+		return InstallLayout{}, err
+	}
+	if rmErr := os.RemoveAll(layout.RootDir); rmErr != nil {
+		return InstallLayout{}, fmt.Errorf("remove install root: %w", rmErr)
+	}
 	return layout, nil
+}
+
+// InspectArtifactInstall reports the current install state for a local process
+// resource without mutating it.
+func InspectArtifactInstall(res *domain.Resource, spec ProcessSpec) (InstallLayout, ArtifactStatus, error) {
+	return newArtifactInstaller().Status(res, spec)
+}
+
+// SyncArtifactInstall performs an artifact sync without starting the runtime.
+func SyncArtifactInstall(res *domain.Resource, spec ProcessSpec) (InstallLayout, ArtifactSyncResult, error) {
+	return newArtifactInstaller().Sync(res, spec)
 }
 
 func resolveArtifactSource(spec ProcessSpec) (string, error) {

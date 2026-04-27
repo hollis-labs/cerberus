@@ -212,7 +212,7 @@ var resourceStatusCmd = &cobra.Command{
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			st, statusErr := client.GetResourceRuntime(cmd.Context(), res.ID)
 			if statusErr == nil {
-				fmt.Printf("%s\n", st.Status)
+				printResourceRuntimeStatus(st)
 				return nil
 			}
 			var dErr *cerbapi.DaemonUnreachableError
@@ -226,7 +226,98 @@ var resourceStatusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s\n", state)
+		fmt.Printf("Resource: %s\n", res.ID)
+		fmt.Printf("Status:   %s\n", state)
+		return nil
+	},
+}
+
+var resourceSyncCmd = &cobra.Command{
+	Use:   "sync <resource-id>",
+	Short: "Sync installed runtime artifacts for a local process resource",
+	Long:  "Syncs installed runtime artifacts without applying the runtime backend. This is primarily useful for os_service resources using run_from=artifact.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; sync currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, syncErr := client.SyncResource(cmd.Context(), res.ID)
+			if syncErr == nil {
+				if out.Message != "" {
+					fmt.Println(out.Message)
+				} else {
+					fmt.Printf("Synced resource %s\n", res.ID)
+				}
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(syncErr, &dErr) {
+				return syncErr
+			}
+		}
+
+		spec, err := localconn.SpecFromResourceConfig(res.Config)
+		if err != nil {
+			return err
+		}
+		if spec.RunFrom != localconn.ProcessRunFromArtifact {
+			fmt.Printf("Resource %s does not use artifact mode; nothing to sync\n", res.ID)
+			return nil
+		}
+		_, syncRes, err := localconn.SyncArtifactInstall(toDomainResource(res), spec)
+		if err != nil {
+			return err
+		}
+		if syncRes.Changed {
+			fmt.Printf("Resource %s artifact synced\n", res.ID)
+		} else {
+			fmt.Printf("Resource %s artifact already current\n", res.ID)
+		}
+		return nil
+	},
+}
+
+var resourceRemoveCmd = &cobra.Command{
+	Use:   "remove <resource-id>",
+	Short: "Remove a local process resource from its runtime backend",
+	Long:  "Removes a local process resource from its configured runtime backend. For os_service resources on macOS, this unloads the launch agent and removes the installed artifact tree.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; remove currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, removeErr := client.RemoveResource(cmd.Context(), res.ID)
+			if removeErr == nil {
+				if out.Message != "" {
+					fmt.Println(out.Message)
+				} else {
+					fmt.Printf("Removed resource %s\n", res.ID)
+				}
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(removeErr, &dErr) {
+				return removeErr
+			}
+		}
+
+		conn := localconn.New()
+		if err := conn.Destroy(cmd.Context(), toDomainResource(res)); err != nil {
+			return err
+		}
+		fmt.Printf("Removed resource %s\n", res.ID)
 		return nil
 	},
 }
@@ -265,10 +356,45 @@ func newResourceSocketClient() (*cerbapi.SocketClient, error) {
 	return cerbapi.NewSocketClient(path), nil
 }
 
+func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
+	fmt.Printf("Resource:    %s\n", st.ID)
+	fmt.Printf("Name:        %s\n", st.Name)
+	fmt.Printf("Status:      %s\n", st.Status)
+	if st.Mode != "" {
+		fmt.Printf("Mode:        %s\n", st.Mode)
+	}
+	if st.Supervisor != "" {
+		fmt.Printf("Supervisor:  %s\n", st.Supervisor)
+	}
+	if st.RunFrom != "" {
+		fmt.Printf("Run From:    %s\n", st.RunFrom)
+	}
+	if st.ServiceName != "" {
+		fmt.Printf("Service:     %s\n", st.ServiceName)
+	}
+	if st.InstallRoot != "" {
+		fmt.Printf("Install:     %s\n", st.InstallRoot)
+	}
+	if st.ArtifactPath != "" {
+		fmt.Printf("Artifact:    %s\n", st.ArtifactPath)
+	}
+	if st.ArtifactInstalled {
+		fmt.Printf("Installed:   true\n")
+	}
+	if st.ArtifactSource != "" {
+		fmt.Printf("Source:      %s\n", st.ArtifactSource)
+	}
+	if st.ArtifactSyncedAt != "" {
+		fmt.Printf("Synced At:   %s\n", st.ArtifactSyncedAt)
+	}
+}
+
 func init() {
 	resourceListCmd.Flags().StringVar(&resourceListProject, "project", "", "filter by project ID")
 	resourceCmd.AddCommand(resourceListCmd)
 	resourceCmd.AddCommand(resourceShowCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceStatusCmd)
+	resourceCmd.AddCommand(resourceSyncCmd)
+	resourceCmd.AddCommand(resourceRemoveCmd)
 }

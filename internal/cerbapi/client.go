@@ -49,6 +49,10 @@ type Client interface {
 	GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error)
 	// ApplyResource applies a specific resource through its runtime backend.
 	ApplyResource(ctx context.Context, id string) (*OpResult, error)
+	// SyncResource syncs installed runtime artifacts without applying the backend.
+	SyncResource(ctx context.Context, id string) (*OpResult, error)
+	// RemoveResource removes a specific resource from its runtime backend.
+	RemoveResource(ctx context.Context, id string) (*OpResult, error)
 	// ListPipelines returns pipeline-list output.
 	ListPipelines(ctx context.Context) ([]PipelineInfo, error)
 	// RunPipeline executes a pipeline and returns the raw result JSON.

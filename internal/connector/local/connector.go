@@ -33,7 +33,7 @@ func (c *Connector) ResourceTypes() []string { return []string{"process"} }
 func (c *Connector) Capabilities() domain.ConnectorCapabilities {
 	return domain.ConnectorCapabilities{
 		CanCreate:  false, // local processes aren't "created" — they're started
-		CanDestroy: false,
+		CanDestroy: true,
 		CanBuild:   true,
 		CanLogs:    true,
 		CanHealth:  true,
@@ -102,8 +102,12 @@ func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {
 	return backend.Stop(ctx, res, spec, svc)
 }
 
-func (c *Connector) Destroy(_ context.Context, _ *domain.Resource) error {
-	return fmt.Errorf("local connector does not support Destroy — use Stop instead")
+func (c *Connector) Destroy(ctx context.Context, res *domain.Resource) error {
+	backend, spec, svc, err := c.runtimeFor(res)
+	if err != nil {
+		return err
+	}
+	return backend.Destroy(ctx, res, spec, svc)
 }
 
 func (c *Connector) Status(ctx context.Context, res *domain.Resource) (domain.State, error) {

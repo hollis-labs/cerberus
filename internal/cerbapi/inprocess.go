@@ -634,19 +634,46 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 	}
 
 	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	installRoot := spec.InstallRoot
+	serviceName := spec.ServiceName
+	artifactPath := spec.ArtifactPath
+	artifactInstalled := false
+	artifactSource := ""
+	artifactSyncedAt := ""
+	if spec.Mode == localconn.ProcessModeOSService {
+		if layout, art, inspectErr := localconn.InspectArtifactInstall(dr, spec); inspectErr == nil {
+			if installRoot == "" {
+				installRoot = layout.RootDir
+			}
+			if serviceName == "" {
+				serviceName = layout.ServiceName
+			}
+			if artifactPath == "" {
+				artifactPath = layout.ArtifactPath
+			}
+			artifactInstalled = art.Installed
+			artifactSource = art.SourcePath
+			if !art.SyncedAt.IsZero() {
+				artifactSyncedAt = art.SyncedAt.Format(time.RFC3339)
+			}
+		}
+	}
 	status := &ResourceRuntimeStatus{
-		ID:           res.ID,
-		Name:         res.Name,
-		Type:         res.Type,
-		Project:      res.Project,
-		Connector:    res.Connector,
-		Mode:         resourceMode(*res),
-		Supervisor:   resourceSupervisor(*res),
-		RunFrom:      resourceRunFrom(*res),
-		Status:       string(state),
-		ServiceName:  spec.ServiceName,
-		ArtifactPath: spec.ArtifactPath,
-		InstallRoot:  spec.InstallRoot,
+		ID:                res.ID,
+		Name:              res.Name,
+		Type:              res.Type,
+		Project:           res.Project,
+		Connector:         res.Connector,
+		Mode:              resourceMode(*res),
+		Supervisor:        resourceSupervisor(*res),
+		RunFrom:           resourceRunFrom(*res),
+		Status:            string(state),
+		ServiceName:       serviceName,
+		ArtifactPath:      artifactPath,
+		InstallRoot:       installRoot,
+		ArtifactInstalled: artifactInstalled,
+		ArtifactSource:    artifactSource,
+		ArtifactSyncedAt:  artifactSyncedAt,
 	}
 	return status, nil
 }
@@ -669,7 +696,26 @@ func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResu
 		}, nil
 	}
 
-	startErr := c.localConnector().Start(ctx, resourceDefToDomain(res))
+	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	dr := resourceDefToDomain(res)
+	syncMsg := ""
+	if spec.RunFrom == localconn.ProcessRunFromArtifact {
+		if _, syncRes, syncErr := localconn.SyncArtifactInstall(dr, spec); syncErr != nil {
+			return &OpResult{ //nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
+				Success:   false,
+				ServiceID: id,
+				Error:     syncErr.Error(),
+			}, nil
+		} else if syncRes.Performed {
+			if syncRes.Changed {
+				syncMsg = "artifact synced"
+			} else {
+				syncMsg = "artifact already current"
+			}
+		}
+	}
+
+	startErr := c.localConnector().Start(ctx, dr)
 	if startErr != nil {
 		//nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
 		return &OpResult{
@@ -681,7 +727,82 @@ func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResu
 	return &OpResult{
 		Success:   true,
 		ServiceID: id,
-		Message:   fmt.Sprintf("resource %q applied successfully", id),
+		Message:   applyResourceMessage(id, spec, syncMsg),
+	}, nil
+}
+
+// SyncResource implements Client.
+func (c *InProcessClient) SyncResource(_ context.Context, id string) (*OpResult, error) {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: "no config available"}, nil
+	}
+	res := findResourceDef(cfg, id)
+	if res == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: fmt.Sprintf("resource %q not found", id)}, nil
+	}
+	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+		return &OpResult{
+			Success:   false,
+			ServiceID: id,
+			Error:     fmt.Sprintf("resource %q is %s/%s; sync currently supports local process resources only", res.ID, res.Type, res.Connector),
+		}, nil
+	}
+	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	if spec.RunFrom != localconn.ProcessRunFromArtifact {
+		return &OpResult{
+			Success:   true,
+			ServiceID: id,
+			Message:   fmt.Sprintf("resource %q does not use artifact mode; nothing to sync", id),
+		}, nil
+	}
+	_, syncRes, err := localconn.SyncArtifactInstall(resourceDefToDomain(res), spec)
+	if err != nil {
+		return &OpResult{ //nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
+			Success:   false,
+			ServiceID: id,
+			Error:     err.Error(),
+		}, nil
+	}
+	msg := fmt.Sprintf("resource %q artifact already current", id)
+	if syncRes.Changed {
+		msg = fmt.Sprintf("resource %q artifact synced", id)
+	}
+	return &OpResult{
+		Success:   true,
+		ServiceID: id,
+		Message:   msg,
+	}, nil
+}
+
+// RemoveResource implements Client.
+func (c *InProcessClient) RemoveResource(ctx context.Context, id string) (*OpResult, error) {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: "no config available"}, nil
+	}
+	res := findResourceDef(cfg, id)
+	if res == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: fmt.Sprintf("resource %q not found", id)}, nil
+	}
+	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+		return &OpResult{
+			Success:   false,
+			ServiceID: id,
+			Error:     fmt.Sprintf("resource %q is %s/%s; remove currently supports local process resources only", res.ID, res.Type, res.Connector),
+		}, nil
+	}
+	if err := c.localConnector().Destroy(ctx, resourceDefToDomain(res)); err != nil {
+		return &OpResult{ //nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
+			Success:   false,
+			ServiceID: id,
+			Error:     err.Error(),
+		}, nil
+	}
+	return &OpResult{
+		Success:   true,
+		ServiceID: id,
+		Message:   fmt.Sprintf("resource %q removed successfully", id),
 	}, nil
 }
 
@@ -690,6 +811,19 @@ func (c *InProcessClient) localConnector() *localconn.Connector {
 		return c.local
 	}
 	return localconn.New()
+}
+
+func applyResourceMessage(id string, spec localconn.ProcessSpec, syncMsg string) string {
+	if spec.Mode == localconn.ProcessModeOSService && spec.Supervisor == localconn.ProcessSupervisorLaunchd {
+		if syncMsg != "" {
+			return fmt.Sprintf("resource %q applied successfully (%s, launchd updated)", id, syncMsg)
+		}
+		return fmt.Sprintf("resource %q applied successfully (launchd updated)", id)
+	}
+	if syncMsg != "" {
+		return fmt.Sprintf("resource %q applied successfully (%s)", id, syncMsg)
+	}
+	return fmt.Sprintf("resource %q applied successfully", id)
 }
 
 // ListPipelines implements Client.
