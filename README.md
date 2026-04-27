@@ -27,6 +27,8 @@ Cerberus currently has two local runtime lanes:
   - `dev_session`: repo-local development processes
   - `os_service`: native supervisor-managed background services
 
+Use the `service` lane when you are operating old-style `services:` entries or the TUI. Use the `resource` lane for new v2 local process management across CLI, daemon, socket API, and MCP.
+
 For local v2 `process` resources, the key commands are:
 
 ```bash
@@ -34,9 +36,11 @@ cerberus resource list
 cerberus resource show <resource-id>
 cerberus resource status <resource-id>
 cerberus resource apply <resource-id>
+cerberus resource sync <resource-id>
+cerberus resource remove <resource-id>
 ```
 
-On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied.
+On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied. `resource status` and `resource list` now surface artifact drift plus a recommended next action (`sync` or `apply`) for artifact-backed services.
 
 ## Controls
 
@@ -128,6 +132,24 @@ Notes:
 - `mode: os_service` uses the native OS supervisor.
 - `run_from: artifact` installs a user-area runtime artifact before applying the service.
 - For artifact mode, `command[0]` must be a filesystem path, not a bare PATH lookup.
+
+## V2 Resource Workflow
+
+Typical `os_service` flow on macOS:
+
+```bash
+cerberus resource list
+cerberus resource status volon-api
+cerberus resource sync volon-api
+cerberus resource apply volon-api
+cerberus resource remove volon-api
+```
+
+Guidance:
+
+- Use `resource sync` when the installed artifact is stale and the service is stopped.
+- Use `resource apply` when the service should be loaded, reloaded, or restarted through `launchd`.
+- Use `resource remove` to unload the launch agent and remove the installed artifact tree.
 
 ## Status Detection
 

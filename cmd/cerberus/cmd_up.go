@@ -12,8 +12,8 @@ var upTag string
 
 var upCmd = &cobra.Command{
 	Use:   "up [service...]",
-	Short: "Start services headlessly",
-	Long:  "Starts specified services (or all if none given) in dependency order. Use --tag to filter by tag.",
+	Short: "Start legacy services headlessly",
+	Long:  "Starts legacy v1 services defined under services: in dependency order. Use --tag to filter by tag. For modern local process resources, use `cerberus resource apply`.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {
