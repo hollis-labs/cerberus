@@ -254,6 +254,56 @@ projects:
 	}
 }
 
+func TestResourceStatusTool_ViaSocket_ReturnsRuntimeMetadata(t *testing.T) {
+	dir := t.TempDir()
+	workspace := filepath.Join(dir, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "app-h-api"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	path := writeConfig(t, dir, `
+version: 2
+projects:
+  - id: app-h
+    name: app-h
+resources:
+  - id: app-h-api
+    name: app-h API
+    type: process
+    project: app-h
+    connector: local
+    config:
+      dir: `+workspace+`
+      command: ["./app-h-api", "serve"]
+      mode: os_service
+      supervisor: launchd
+      run_from: artifact
+`)
+
+	reg, err := service.NewServiceRegistry(config.NewFileSource(path), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	socketClient := startDaemonSocketWithPath(t, reg, path)
+	tool := NewCerberusResourceStatusTool(socketClient)
+
+	out, err := tool.Handler(map[string]interface{}{"resource_id": "app-h-api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"id": "app-h-api"`) {
+		t.Fatalf("missing resource id: %s", out)
+	}
+	if !strings.Contains(out, `"mode": "os_service"`) {
+		t.Fatalf("missing mode: %s", out)
+	}
+	if !strings.Contains(out, `"supervisor": "launchd"`) {
+		t.Fatalf("missing supervisor: %s", out)
+	}
+}
+
 // TestMultipleSubprocesses_SeeSameConfigEdit simulates the 3-subprocess
 // scenario from the CERB-2 manual validation plan: three long-lived
 // SocketClients (all connected to the same daemon) each observe a

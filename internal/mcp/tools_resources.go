@@ -37,7 +37,7 @@ func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_list",
-		Description: "Lists all resources defined in the Cerberus config. Optionally filter by project_id, connector, or tag.",
+		Description: "Lists all resources defined in the Cerberus config. Optionally filter by project_id, connector, or tag. Local process resources include runtime metadata such as mode, supervisor, and run_from.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -76,6 +76,78 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 				return "", err
 			}
 			return string(data), nil
+		},
+	}
+}
+
+// NewCerberusResourceStatusTool creates the cerberus_resource_status tool.
+func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_status",
+		Description: "Returns runtime status for a specific resource. Currently supports local process resources and reports status through their configured runtime backend.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to inspect.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			st, err := client.GetResourceRuntime(context.Background(), resourceID)
+			if err != nil {
+				return "", err
+			}
+			data, err := json.MarshalIndent(st, "", "  ")
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
+		},
+	}
+}
+
+// NewCerberusResourceApplyTool creates the cerberus_resource_apply tool.
+func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_apply",
+		Description: "Applies a specific resource through its configured runtime backend. For local os_service resources on macOS, this syncs the installed artifact and updates the launch agent.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to apply.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			res, err := client.ApplyResource(context.Background(), resourceID)
+			if err != nil {
+				return "", err
+			}
+			return marshalResult(lifecycleResult{
+				Success: res.Success,
+				Message: res.Message,
+				Error:   res.Error,
+			}), nil
 		},
 	}
 }

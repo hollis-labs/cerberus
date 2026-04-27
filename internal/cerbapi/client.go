@@ -45,6 +45,10 @@ type Client interface {
 	ListProjects(ctx context.Context) ([]ProjectInfo, error)
 	// ListResources returns resource-list output with optional filters.
 	ListResources(ctx context.Context, args ResourceListArgs) ([]ResourceInfo, error)
+	// GetResourceRuntime returns the runtime status of a specific resource.
+	GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error)
+	// ApplyResource applies a specific resource through its runtime backend.
+	ApplyResource(ctx context.Context, id string) (*OpResult, error)
 	// ListPipelines returns pipeline-list output.
 	ListPipelines(ctx context.Context) ([]PipelineInfo, error)
 	// RunPipeline executes a pipeline and returns the raw result JSON.

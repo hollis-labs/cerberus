@@ -14,12 +14,16 @@ import (
 type Connector struct {
 	mu       sync.RWMutex
 	services map[string]*service.ManagedService
+	dev      runtimeBackend
+	service  runtimeBackend
 }
 
 // New creates a local connector.
 func New() *Connector {
 	return &Connector{
 		services: make(map[string]*service.ManagedService),
+		dev:      devSessionBackend{},
+		service:  newOSServiceBackend(),
 	}
 }
 
@@ -82,24 +86,48 @@ func (c *Connector) Create(_ context.Context, _ *domain.Resource) error {
 	return fmt.Errorf("local connector does not support Create — use Start instead")
 }
 
-func (c *Connector) Start(_ context.Context, res *domain.Resource) error {
-	svc := c.getOrCreate(res)
-	return svc.Start()
+func (c *Connector) Start(ctx context.Context, res *domain.Resource) error {
+	backend, spec, svc, err := c.runtimeFor(res)
+	if err != nil {
+		return err
+	}
+	return backend.Start(ctx, res, spec, svc)
 }
 
-func (c *Connector) Stop(_ context.Context, res *domain.Resource) error {
-	svc := c.getOrCreate(res)
-	return svc.Stop()
+func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {
+	backend, spec, svc, err := c.runtimeFor(res)
+	if err != nil {
+		return err
+	}
+	return backend.Stop(ctx, res, spec, svc)
 }
 
 func (c *Connector) Destroy(_ context.Context, _ *domain.Resource) error {
 	return fmt.Errorf("local connector does not support Destroy — use Stop instead")
 }
 
-func (c *Connector) Status(_ context.Context, res *domain.Resource) (domain.State, error) {
-	svc := c.getOrCreate(res)
-	svc.Poll()
-	return mapStatus(svc.Status), nil
+func (c *Connector) Status(ctx context.Context, res *domain.Resource) (domain.State, error) {
+	backend, spec, svc, err := c.runtimeFor(res)
+	if err != nil {
+		return domain.StateUnknown, err
+	}
+	return backend.Status(ctx, res, spec, svc)
+}
+
+func (c *Connector) runtimeFor(res *domain.Resource) (runtimeBackend, ProcessSpec, *service.ManagedService, error) {
+	spec, err := SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return nil, ProcessSpec{}, nil, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
+	}
+
+	switch spec.Mode {
+	case "", ProcessModeDevSession:
+		return c.dev, spec, c.getOrCreate(res), nil
+	case ProcessModeOSService:
+		return c.service, spec, nil, nil
+	default:
+		return nil, ProcessSpec{}, nil, fmt.Errorf("unsupported process mode %q for resource %q", spec.Mode, res.ID)
+	}
 }
 
 // mapStatus converts the existing service.Status enum to the domain.State enum.

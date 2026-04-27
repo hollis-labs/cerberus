@@ -257,6 +257,28 @@ func (c *SocketClient) ListResources(ctx context.Context, args ResourceListArgs)
 	return out, nil
 }
 
+func (c *SocketClient) GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	var out ResourceRuntimeStatus
+	if err := c.doJSON(ctx, http.MethodGet, "/resources/"+url.PathEscape(id)+"/status", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *SocketClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	var out OpResult
+	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/apply", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *SocketClient) ListPipelines(ctx context.Context) ([]PipelineInfo, error) {
 	var out []PipelineInfo
 	if err := c.doJSON(ctx, http.MethodGet, "/pipelines", nil, &out); err != nil {

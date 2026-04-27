@@ -130,12 +130,15 @@ type ProjectInfo struct {
 
 // ResourceInfo is the DTO for resource-list responses.
 type ResourceInfo struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Type      string   `json:"type"`
-	Project   string   `json:"project"`
-	Connector string   `json:"connector"`
-	Tags      []string `json:"tags,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Type       string   `json:"type"`
+	Project    string   `json:"project"`
+	Connector  string   `json:"connector"`
+	Mode       string   `json:"mode,omitempty"`
+	Supervisor string   `json:"supervisor,omitempty"`
+	RunFrom    string   `json:"run_from,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 // ResourceListArgs filters the resource list response.
@@ -143,6 +146,22 @@ type ResourceListArgs struct {
 	ProjectID string
 	Connector string
 	Tag       string
+}
+
+// ResourceRuntimeStatus is the DTO for resource-runtime status and apply flows.
+type ResourceRuntimeStatus struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Project      string `json:"project"`
+	Connector    string `json:"connector"`
+	Mode         string `json:"mode,omitempty"`
+	Supervisor   string `json:"supervisor,omitempty"`
+	RunFrom      string `json:"run_from,omitempty"`
+	Status       string `json:"status"`
+	ServiceName  string `json:"service_name,omitempty"`
+	ArtifactPath string `json:"artifact_path,omitempty"`
+	InstallRoot  string `json:"install_root,omitempty"`
 }
 
 // PipelineInfo is the DTO for pipeline-list responses.
