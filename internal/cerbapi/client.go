@@ -35,6 +35,8 @@ type Client interface {
 
 	// ServiceLogs returns the last N lines of the service log.
 	ServiceLogs(ctx context.Context, id string, lines int) (*LogLines, error)
+	// ResourceLogs returns the last N lines of the resource log for a given stream.
+	ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error)
 
 	// Health returns daemon + per-service health state. If id is empty,
 	// all services are included.

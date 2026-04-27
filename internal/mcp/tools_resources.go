@@ -116,6 +116,55 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 	}
 }
 
+// NewCerberusResourceLogsTool creates the cerberus_resource_logs tool.
+func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_logs",
+		Description: "Returns the last N lines from a local process resource log stream. For os_service resources on macOS, stream may be stdout or stderr.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to inspect.",
+				},
+				"lines": map[string]interface{}{
+					"type":        "integer",
+					"description": "How many lines to return. Defaults to 50.",
+				},
+				"stream": map[string]interface{}{
+					"type":        "string",
+					"description": "Log stream to read. Supported values are stdout and stderr.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			lines := 50
+			if raw, ok := args["lines"].(float64); ok && raw > 0 {
+				lines = int(raw)
+			}
+			stream, _ := args["stream"].(string)
+			out, err := client.ResourceLogs(context.Background(), resourceID, lines, stream)
+			if err != nil {
+				return "", err
+			}
+			data, err := json.MarshalIndent(out, "", "  ")
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
+		},
+	}
+}
+
 // NewCerberusResourceApplyTool creates the cerberus_resource_apply tool.
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 	return Tool{

@@ -354,3 +354,65 @@ services: []
 		t.Fatalf("expected recommended action to be populated")
 	}
 }
+
+func TestInProcessClient_ResourceLogsOSService(t *testing.T) {
+	reg, _ := newTestRegistry(t, `
+version: 1
+services: []
+`)
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(workspace, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	installRoot := filepath.Join(home, ".cerberus", "apps", "p1", "r1")
+	logDir := filepath.Join(installRoot, "logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(logDir, "stdout.log"), []byte("a\nb\nc\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Setenv("HOME", oldHome) }()
+
+	cfg := &config.ConfigV2{
+		Version: 2,
+		Resources: []config.ResourceDef{
+			{
+				ID:        "r1",
+				Name:      "Res One",
+				Type:      string(domain.ResourceProcess),
+				Project:   "p1",
+				Connector: "local",
+				Config: map[string]any{
+					"mode":       "os_service",
+					"run_from":   "artifact",
+					"dir":        workspace,
+					"command":    []any{"./app", "serve"},
+					"supervisor": "launchd",
+				},
+			},
+		},
+	}
+	c := NewInProcessClient(reg, WithConfigV2(cfg))
+	out, err := c.ResourceLogs(context.Background(), "r1", 2, "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Content, "b") || !strings.Contains(out.Content, "c") {
+		t.Fatalf("expected last 2 lines, got %q", out.Content)
+	}
+	if strings.Contains(out.Content, "a") {
+		t.Fatalf("did not expect first line, got %q", out.Content)
+	}
+}

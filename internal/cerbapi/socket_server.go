@@ -450,6 +450,24 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeJSON(w, http.StatusOK, st)
+	case "logs":
+		if r.Method != http.MethodGet {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		lines := 50
+		if raw := r.URL.Query().Get("lines"); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+				lines = n
+			}
+		}
+		stream := r.URL.Query().Get("stream")
+		out, err := s.client.ResourceLogs(r.Context(), id, lines, stream)
+		if err != nil {
+			writeJSONError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
 	case "apply":
 		if r.Method != http.MethodPost {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
