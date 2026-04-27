@@ -12,8 +12,8 @@ import (
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Check system health",
-	Long:  "Checks ports, binaries, and working directories for all configured services.",
+	Short: "Check legacy service health",
+	Long:  "Checks ports, binaries, and working directories for legacy v1 services defined under services:. This does not yet validate v2 os_service install state.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load(cfgPath)
 		if err != nil {

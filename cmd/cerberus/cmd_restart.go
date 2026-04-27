@@ -13,8 +13,8 @@ var restartTag string
 
 var restartCmd = &cobra.Command{
 	Use:   "restart [service...]",
-	Short: "Restart services headlessly",
-	Long:  "Stops then starts specified services (or all if none given). Use --tag to filter by tag.",
+	Short: "Restart legacy services headlessly",
+	Long:  "Stops then starts legacy v1 services defined under services:. Use --tag to filter by tag. For modern local process resources, use `cerberus resource apply`.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {

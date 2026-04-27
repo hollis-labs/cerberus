@@ -12,8 +12,8 @@ var buildTag string
 
 var buildCmd = &cobra.Command{
 	Use:   "build [service...]",
-	Short: "Run build commands",
-	Long:  "Runs build commands for specified services (or all if none given). Use --tag to filter by tag.",
+	Short: "Run legacy service build commands",
+	Long:  "Runs build commands for legacy v1 services defined under services:. Use --tag to filter by tag. For modern artifact-backed resources, use the v2 resource lane and apply/sync flows.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {

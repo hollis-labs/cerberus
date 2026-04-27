@@ -17,8 +17,8 @@ var logsFollow bool
 
 var logsCmd = &cobra.Command{
 	Use:   "logs <service>",
-	Short: "Tail service logs",
-	Long:  "Tails the log file for a service. Use -f to follow.",
+	Short: "Tail legacy service logs",
+	Long:  "Tails the log file for a legacy v1 service defined under services:. Use -f to follow. This command does not yet expose v2 os_service logs.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
