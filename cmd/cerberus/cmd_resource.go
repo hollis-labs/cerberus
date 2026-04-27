@@ -398,6 +398,12 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	if st.ArtifactSyncedAt != "" {
 		fmt.Printf("Synced At:   %s\n", st.ArtifactSyncedAt)
 	}
+	if st.RecommendedAction != "" {
+		fmt.Printf("Recommend:   %s\n", st.RecommendedAction)
+	}
+	if st.RecommendedReason != "" {
+		fmt.Printf("Why:         %s\n", st.RecommendedReason)
+	}
 }
 
 func init() {

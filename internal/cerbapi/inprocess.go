@@ -642,6 +642,8 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 	artifactStaleReason := ""
 	artifactSource := ""
 	artifactSyncedAt := ""
+	recommendedAction := ""
+	recommendedReason := ""
 	if spec.Mode == localconn.ProcessModeOSService {
 		if layout, art, inspectErr := localconn.InspectArtifactInstall(dr, spec); inspectErr == nil {
 			if installRoot == "" {
@@ -660,6 +662,7 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 			if !art.SyncedAt.IsZero() {
 				artifactSyncedAt = art.SyncedAt.Format(time.RFC3339)
 			}
+			recommendedAction, recommendedReason = localconn.RecommendedStatusAction(spec, state, art)
 		}
 	}
 	status := &ResourceRuntimeStatus{
@@ -680,6 +683,8 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 		ArtifactStaleReason: artifactStaleReason,
 		ArtifactSource:      artifactSource,
 		ArtifactSyncedAt:    artifactSyncedAt,
+		RecommendedAction:   recommendedAction,
+		RecommendedReason:   recommendedReason,
 	}
 	return status, nil
 }
