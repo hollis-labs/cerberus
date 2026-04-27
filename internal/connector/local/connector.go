@@ -99,6 +99,14 @@ func (c *Connector) Apply(ctx context.Context, res *domain.Resource) (ApplyResul
 	return backend.Apply(ctx, res, spec, svc)
 }
 
+func (c *Connector) Reload(ctx context.Context, res *domain.Resource) error {
+	backend, spec, svc, err := c.runtimeFor(res)
+	if err != nil {
+		return err
+	}
+	return backend.Reload(ctx, res, spec, svc)
+}
+
 func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {
 	backend, spec, svc, err := c.runtimeFor(res)
 	if err != nil {

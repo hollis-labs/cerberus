@@ -237,6 +237,42 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 	}
 }
 
+// NewCerberusResourceReloadTool creates the cerberus_resource_reload tool.
+func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_reload",
+		Description: "Requests a runtime restart or kickstart for a local process resource without syncing artifacts or rewriting service definitions.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to reload.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			res, err := client.ReloadResource(context.Background(), resourceID)
+			if err != nil {
+				return "", err
+			}
+			return marshalResult(lifecycleResult{
+				Success: res.Success,
+				Message: res.Message,
+				Error:   res.Error,
+			}), nil
+		},
+	}
+}
+
 // NewCerberusResourceApplyTool creates the cerberus_resource_apply tool.
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 	return Tool{

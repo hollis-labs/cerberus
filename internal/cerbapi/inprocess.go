@@ -735,6 +735,7 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 	artifactSyncedAt := ""
 	recommendedAction := ""
 	recommendedReason := ""
+	var launchdRec localconn.LaunchdRecord
 	if spec.Mode == localconn.ProcessModeOSService {
 		if layout, art, inspectErr := localconn.InspectArtifactInstall(dr, spec); inspectErr == nil {
 			if installRoot == "" {
@@ -754,6 +755,9 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 				artifactSyncedAt = art.SyncedAt.Format(time.RFC3339)
 			}
 			recommendedAction, recommendedReason = localconn.RecommendedStatusAction(spec, state, art)
+		}
+		if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
+			launchdRec = rec
 		}
 	}
 	status := &ResourceRuntimeStatus{
@@ -776,6 +780,12 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 		ArtifactSyncedAt:    artifactSyncedAt,
 		RecommendedAction:   recommendedAction,
 		RecommendedReason:   recommendedReason,
+		LaunchdLoaded:       launchdRec.Loaded,
+		LaunchdState:        launchdRec.State,
+		LaunchdPID:          launchdRec.PID,
+		LaunchdLastExitCode: launchdRec.LastExitCode,
+		LaunchdThrottled:    launchdRec.Throttled,
+		LaunchdReason:       launchdRec.Reason,
 	}
 	return status, nil
 }
@@ -865,6 +875,15 @@ func (c *InProcessClient) GetResourceInspect(ctx context.Context, id string) (*R
 			}
 			out.RecommendedAction, out.RecommendedReason = localconn.RecommendedStatusAction(spec, state, art)
 		}
+		if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
+			out.LaunchdLoaded = rec.Loaded
+			out.LaunchdState = rec.State
+			out.LaunchdPID = rec.PID
+			out.LaunchdLastExitCode = rec.LastExitCode
+			out.LaunchdThrottled = rec.Throttled
+			out.LaunchdReason = rec.Reason
+			out.LaunchdRaw = rec.Raw
+		}
 	}
 
 	return out, nil
@@ -938,6 +957,24 @@ func (c *InProcessClient) GetResourceDoctor(ctx context.Context, id string) (*Re
 				add("artifact_source", "pass", inspect.ArtifactSource)
 			}
 		}
+		if inspect.LaunchdLoaded {
+			add("launchd_loaded", "pass", fmt.Sprintf("launchd state is %s", valueOrUnknown(inspect.LaunchdState)))
+		} else {
+			add("launchd_loaded", "warn", "launchd service is not loaded")
+		}
+		if inspect.LaunchdThrottled {
+			add("launchd_throttle", "fail", "launchd reports the service as throttled")
+		}
+		if inspect.LaunchdLastExitCode != nil {
+			if *inspect.LaunchdLastExitCode == 0 {
+				add("launchd_exit", "pass", "last exit code is 0")
+			} else {
+				add("launchd_exit", "warn", fmt.Sprintf("last exit code is %d", *inspect.LaunchdLastExitCode))
+			}
+		}
+		if inspect.LaunchdReason != "" {
+			add("launchd_reason", "warn", inspect.LaunchdReason)
+		}
 	}
 
 	failCount := 0
@@ -973,6 +1010,44 @@ func (c *InProcessClient) GetResourceDoctor(ctx context.Context, id string) (*Re
 		RecommendedAction: inspect.RecommendedAction,
 		RecommendedReason: inspect.RecommendedReason,
 		Checks:            checks,
+	}, nil
+}
+
+func valueOrUnknown(v string) string {
+	if v == "" {
+		return "unknown"
+	}
+	return v
+}
+
+// ReloadResource implements Client.
+func (c *InProcessClient) ReloadResource(ctx context.Context, id string) (*OpResult, error) {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: "no config available"}, nil
+	}
+	res := findResourceDef(cfg, id)
+	if res == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: fmt.Sprintf("resource %q not found", id)}, nil
+	}
+	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+		return &OpResult{
+			Success:   false,
+			ServiceID: id,
+			Error:     fmt.Sprintf("resource %q is %s/%s; reload currently supports local process resources only", res.ID, res.Type, res.Connector),
+		}, nil
+	}
+	if err := c.localConnector().Reload(ctx, resourceDefToDomain(res)); err != nil {
+		return &OpResult{ //nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
+			Success:   false,
+			ServiceID: id,
+			Error:     err.Error(),
+		}, nil
+	}
+	return &OpResult{
+		Success:   true,
+		ServiceID: id,
+		Message:   fmt.Sprintf("resource %q reloaded successfully", id),
 	}, nil
 }
 

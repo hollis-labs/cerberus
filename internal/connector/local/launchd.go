@@ -82,6 +82,19 @@ type plistEnvEntry struct {
 	Value string
 }
 
+type launchdRecord struct {
+	Loaded       bool
+	State        string
+	PID          int
+	LastExitCode *int
+	Throttled    bool
+	Reason       string
+	Raw          string
+}
+
+// LaunchdRecord is the exported read-only launchd inspection view.
+type LaunchdRecord = launchdRecord
+
 func (b launchdBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
 	_, err := b.Apply(ctx, res, spec)
 	return err
@@ -146,19 +159,58 @@ func (b launchdBackend) Stop(ctx context.Context, res *domain.Resource, spec Pro
 }
 
 func (b launchdBackend) Status(ctx context.Context, res *domain.Resource, spec ProcessSpec) (domain.State, error) {
-	label, err := b.serviceName(res, spec)
+	rec, err := b.Inspect(ctx, res, spec)
 	if err != nil {
 		return domain.StateUnknown, err
+	}
+	if !rec.Loaded {
+		return domain.StateStopped, nil
+	}
+	return parseLaunchdState(rec.Raw), nil
+}
+
+func (b launchdBackend) Reload(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
+	label, err := b.serviceName(res, spec)
+	if err != nil {
+		return err
+	}
+	loaded, _, err := b.loadedState(ctx, label)
+	if err != nil {
+		return err
+	}
+	if !loaded {
+		return fmt.Errorf("launchd service %q is not loaded; use resource apply", label)
+	}
+	target := b.serviceTarget(label)
+	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", target); err != nil {
+		return fmt.Errorf("launchctl kickstart %s: %w", label, err)
+	}
+	return nil
+}
+
+func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec ProcessSpec) (launchdRecord, error) {
+	label, err := b.serviceName(res, spec)
+	if err != nil {
+		return launchdRecord{}, err
 	}
 	target := b.serviceTarget(label)
 	out, err := b.runner.CombinedOutput(ctx, "launchctl", "print", target)
 	if err != nil {
 		if isLaunchdNotFound(string(out), err) {
-			return domain.StateStopped, nil
+			return launchdRecord{Loaded: false, Raw: string(out)}, nil
 		}
-		return domain.StateUnknown, fmt.Errorf("launchctl print %s: %w", label, err)
+		return launchdRecord{}, fmt.Errorf("launchctl print %s: %w", label, err)
 	}
-	return parseLaunchdState(string(out)), nil
+	text := string(out)
+	return launchdRecord{
+		Loaded:       true,
+		State:        extractLaunchdValue(text, "state ="),
+		PID:          extractLaunchdInt(text, "pid ="),
+		LastExitCode: extractLaunchdOptionalInt(text, "last exit code ="),
+		Throttled:    strings.Contains(text, "state = throttled"),
+		Reason:       extractLaunchdValue(text, "reason ="),
+		Raw:          text,
+	}, nil
 }
 
 func (b launchdBackend) Remove(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
@@ -325,6 +377,35 @@ func parseLaunchdState(text string) domain.State {
 	}
 }
 
+func extractLaunchdValue(text, prefix string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
+
+func extractLaunchdInt(text, prefix string) int {
+	if v := extractLaunchdOptionalInt(text, prefix); v != nil {
+		return *v
+	}
+	return 0
+}
+
+func extractLaunchdOptionalInt(text, prefix string) *int {
+	value := extractLaunchdValue(text, prefix)
+	if value == "" {
+		return nil
+	}
+	var out int
+	if _, err := fmt.Sscanf(value, "%d", &out); err != nil {
+		return nil
+	}
+	return &out
+}
+
 func hasNonZeroLaunchdExit(text string) bool {
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -357,4 +438,9 @@ func (b launchdBackend) artifactInstaller() artifactInstaller {
 		out.now = time.Now
 	}
 	return out
+}
+
+// InspectLaunchdRecord returns the live launchd record for an os_service resource.
+func InspectLaunchdRecord(ctx context.Context, res *domain.Resource, spec ProcessSpec) (LaunchdRecord, error) {
+	return newOSServiceBackend().launchdBackend().Inspect(ctx, res, spec)
 }

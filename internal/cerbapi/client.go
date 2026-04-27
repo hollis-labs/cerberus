@@ -55,6 +55,8 @@ type Client interface {
 	GetResourceDoctor(ctx context.Context, id string) (*ResourceDoctor, error)
 	// ApplyResource applies a specific resource through its runtime backend.
 	ApplyResource(ctx context.Context, id string) (*OpResult, error)
+	// ReloadResource asks the runtime backend to restart or kickstart the current installed resource without reinstalling it.
+	ReloadResource(ctx context.Context, id string) (*OpResult, error)
 	// SyncResource syncs installed runtime artifacts without applying the backend.
 	SyncResource(ctx context.Context, id string) (*OpResult, error)
 	// RemoveResource removes a specific resource from its runtime backend.
