@@ -274,6 +274,59 @@ services: []
 	}
 }
 
+func TestSocketServer_ResourceInspect(t *testing.T) {
+	reg, _ := newTestRegistry(t, `
+version: 1
+services: []
+`)
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(workspace, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Setenv("HOME", oldHome) }()
+
+	cfg := &config.ConfigV2{
+		Version: 2,
+		Resources: []config.ResourceDef{
+			{
+				ID:        "r1",
+				Name:      "Res One",
+				Type:      string(domain.ResourceProcess),
+				Project:   "p1",
+				Connector: "local",
+				Config: map[string]any{
+					"mode":       "os_service",
+					"run_from":   "artifact",
+					"dir":        workspace,
+					"command":    []any{"./app", "serve"},
+					"supervisor": "launchd",
+				},
+			},
+		},
+	}
+	cli, stop := startSocket(t, NewInProcessClient(reg, WithConfigV2(cfg)))
+	defer stop()
+
+	out, err := cli.GetResourceInspect(context.Background(), "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.PlistPath == "" || out.StdoutLogPath == "" || out.ServiceName == "" {
+		t.Fatalf("expected inspect fields, got %+v", out)
+	}
+}
+
 // TestSocketServer_ConcurrentStopsFromMultipleClients is the multi-session
 // equivalent from the CERB-2 spec: 3 simulated MCP subprocesses fire
 // lifecycle ops concurrently through the same daemon and all see

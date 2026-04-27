@@ -177,6 +177,38 @@ type ResourceRuntimeStatus struct {
 	RecommendedReason   string `json:"recommended_reason,omitempty"`
 }
 
+// ResourceInspect is the detailed operator-facing inspection view for a local process resource.
+type ResourceInspect struct {
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	Type                string   `json:"type"`
+	Project             string   `json:"project"`
+	Connector           string   `json:"connector"`
+	Mode                string   `json:"mode,omitempty"`
+	Supervisor          string   `json:"supervisor,omitempty"`
+	RunFrom             string   `json:"run_from,omitempty"`
+	Status              string   `json:"status,omitempty"`
+	WorkspaceDir        string   `json:"workspace_dir,omitempty"`
+	WorkingDir          string   `json:"working_dir,omitempty"`
+	Command             []string `json:"command,omitempty"`
+	Build               []string `json:"build,omitempty"`
+	ServiceName         string   `json:"service_name,omitempty"`
+	PlistPath           string   `json:"plist_path,omitempty"`
+	InstallRoot         string   `json:"install_root,omitempty"`
+	InstallWorkDir      string   `json:"install_work_dir,omitempty"`
+	BinDir              string   `json:"bin_dir,omitempty"`
+	ArtifactPath        string   `json:"artifact_path,omitempty"`
+	ArtifactInstalled   bool     `json:"artifact_installed,omitempty"`
+	ArtifactStale       bool     `json:"artifact_stale,omitempty"`
+	ArtifactStaleReason string   `json:"artifact_stale_reason,omitempty"`
+	ArtifactSource      string   `json:"artifact_source,omitempty"`
+	ArtifactSyncedAt    string   `json:"artifact_synced_at,omitempty"`
+	StdoutLogPath       string   `json:"stdout_log_path,omitempty"`
+	StderrLogPath       string   `json:"stderr_log_path,omitempty"`
+	RecommendedAction   string   `json:"recommended_action,omitempty"`
+	RecommendedReason   string   `json:"recommended_reason,omitempty"`
+}
+
 // PipelineInfo is the DTO for pipeline-list responses.
 type PipelineInfo struct {
 	ID          string `json:"id"`

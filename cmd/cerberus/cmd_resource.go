@@ -166,6 +166,45 @@ var resourceShowCmd = &cobra.Command{
 	},
 }
 
+var resourceInspectCmd = &cobra.Command{
+	Use:   "inspect <resource-id>",
+	Short: "Inspect local process resource runtime details",
+	Long:  "Shows detailed runtime, install, and log-path details for a local process resource. For os_service resources on macOS, this includes launchd label, plist path, artifact install layout, and log files.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; inspect currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, inspectErr := client.GetResourceInspect(cmd.Context(), res.ID)
+			if inspectErr == nil {
+				printResourceInspect(out)
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(inspectErr, &dErr) {
+				return inspectErr
+			}
+		}
+
+		v2, err := config.LoadUnified(cfgPath)
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		out, err := cerbapi.NewInProcessClient(nil, cerbapi.WithConfigV2(v2)).GetResourceInspect(cmd.Context(), res.ID)
+		if err != nil {
+			return err
+		}
+		printResourceInspect(out)
+		return nil
+	},
+}
+
 var resourceApplyCmd = &cobra.Command{
 	Use:   "apply <resource-id>",
 	Short: "Apply a local process resource",
@@ -461,6 +500,81 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	}
 }
 
+func printResourceInspect(st *cerbapi.ResourceInspect) {
+	fmt.Printf("Resource:    %s\n", st.ID)
+	fmt.Printf("Name:        %s\n", st.Name)
+	fmt.Printf("Status:      %s\n", st.Status)
+	fmt.Printf("Type:        %s\n", st.Type)
+	fmt.Printf("Project:     %s\n", st.Project)
+	fmt.Printf("Connector:   %s\n", st.Connector)
+	if st.Mode != "" {
+		fmt.Printf("Mode:        %s\n", st.Mode)
+	}
+	if st.Supervisor != "" {
+		fmt.Printf("Supervisor:  %s\n", st.Supervisor)
+	}
+	if st.RunFrom != "" {
+		fmt.Printf("Run From:    %s\n", st.RunFrom)
+	}
+	if st.WorkspaceDir != "" {
+		fmt.Printf("Workspace:   %s\n", st.WorkspaceDir)
+	}
+	if st.WorkingDir != "" {
+		fmt.Printf("Working Dir: %s\n", st.WorkingDir)
+	}
+	if len(st.Command) > 0 {
+		fmt.Printf("Command:     %s\n", strings.Join(st.Command, " "))
+	}
+	if len(st.Build) > 0 {
+		fmt.Printf("Build:       %s\n", strings.Join(st.Build, " "))
+	}
+	if st.ServiceName != "" {
+		fmt.Printf("Service:     %s\n", st.ServiceName)
+	}
+	if st.PlistPath != "" {
+		fmt.Printf("Plist:       %s\n", st.PlistPath)
+	}
+	if st.InstallRoot != "" {
+		fmt.Printf("Install:     %s\n", st.InstallRoot)
+	}
+	if st.InstallWorkDir != "" {
+		fmt.Printf("Current:     %s\n", st.InstallWorkDir)
+	}
+	if st.BinDir != "" {
+		fmt.Printf("Bin Dir:     %s\n", st.BinDir)
+	}
+	if st.ArtifactPath != "" {
+		fmt.Printf("Artifact:    %s\n", st.ArtifactPath)
+	}
+	if st.ArtifactInstalled {
+		fmt.Printf("Installed:   true\n")
+	}
+	if st.ArtifactStale {
+		fmt.Printf("Stale:       true\n")
+	}
+	if st.ArtifactStaleReason != "" {
+		fmt.Printf("Drift:       %s\n", st.ArtifactStaleReason)
+	}
+	if st.ArtifactSource != "" {
+		fmt.Printf("Source:      %s\n", st.ArtifactSource)
+	}
+	if st.ArtifactSyncedAt != "" {
+		fmt.Printf("Synced At:   %s\n", st.ArtifactSyncedAt)
+	}
+	if st.StdoutLogPath != "" {
+		fmt.Printf("Stdout Log:  %s\n", st.StdoutLogPath)
+	}
+	if st.StderrLogPath != "" {
+		fmt.Printf("Stderr Log:  %s\n", st.StderrLogPath)
+	}
+	if st.RecommendedAction != "" {
+		fmt.Printf("Recommend:   %s\n", st.RecommendedAction)
+	}
+	if st.RecommendedReason != "" {
+		fmt.Printf("Why:         %s\n", st.RecommendedReason)
+	}
+}
+
 func printResourceList(list []cerbapi.ResourceInfo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tSTATUS\tARTIFACT\tNEXT\tTAGS")
@@ -501,6 +615,7 @@ func init() {
 	resourceListCmd.Flags().StringVar(&resourceListProject, "project", "", "filter by project ID")
 	resourceCmd.AddCommand(resourceListCmd)
 	resourceCmd.AddCommand(resourceShowCmd)
+	resourceCmd.AddCommand(resourceInspectCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceStatusCmd)
 	resourceLogsCmd.Flags().IntVarP(&resourceLogsLines, "lines", "n", 50, "number of log lines to return")

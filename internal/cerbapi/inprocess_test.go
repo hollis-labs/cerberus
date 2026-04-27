@@ -416,3 +416,64 @@ services: []
 		t.Fatalf("did not expect first line, got %q", out.Content)
 	}
 }
+
+func TestInProcessClient_GetResourceInspect(t *testing.T) {
+	reg, _ := newTestRegistry(t, `
+version: 1
+services: []
+`)
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(workspace, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Setenv("HOME", oldHome) }()
+
+	cfg := &config.ConfigV2{
+		Version: 2,
+		Resources: []config.ResourceDef{
+			{
+				ID:        "r1",
+				Name:      "Res One",
+				Type:      string(domain.ResourceProcess),
+				Project:   "p1",
+				Connector: "local",
+				Config: map[string]any{
+					"mode":       "os_service",
+					"run_from":   "artifact",
+					"dir":        workspace,
+					"command":    []any{"./app", "serve"},
+					"build":      []any{"go", "build", "./cmd/app"},
+					"supervisor": "launchd",
+				},
+			},
+		},
+	}
+	c := NewInProcessClient(reg, WithConfigV2(cfg))
+	out, err := c.GetResourceInspect(context.Background(), "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.ServiceName == "" || out.PlistPath == "" || out.InstallRoot == "" {
+		t.Fatalf("expected launchd/install fields, got %+v", out)
+	}
+	if out.StdoutLogPath == "" || out.StderrLogPath == "" {
+		t.Fatalf("expected log paths, got %+v", out)
+	}
+	if out.WorkspaceDir != workspace {
+		t.Fatalf("workspace dir = %q, want %q", out.WorkspaceDir, workspace)
+	}
+	if len(out.Command) == 0 || len(out.Build) == 0 {
+		t.Fatalf("expected command and build to be populated, got %+v", out)
+	}
+}
