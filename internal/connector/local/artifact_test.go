@@ -123,3 +123,89 @@ func TestEnsureInstalledSkipsUnchangedArtifact(t *testing.T) {
 		t.Fatalf("expected unchanged artifact modtime, got %v then %v", firstInfo.ModTime(), secondInfo.ModTime())
 	}
 }
+
+func TestInspectArtifactInstallDetectsChangedSource(t *testing.T) {
+	tmp := t.TempDir()
+	sourceDir := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil { //nolint:gosec
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	sourcePath := filepath.Join(sourceDir, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatalf("write source artifact: %v", err)
+	}
+
+	installer := artifactInstaller{
+		homeDir: func() (string, error) { return tmp, nil },
+		now:     func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		RunFrom: ProcessRunFromArtifact,
+		Dir:     sourceDir,
+		Command: []string{"./app", "serve"},
+	}
+	if _, err := installer.EnsureInstalled(res, spec); err != nil {
+		t.Fatalf("EnsureInstalled failed: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("v2"), 0755); err != nil { //nolint:gosec
+		t.Fatalf("rewrite source artifact: %v", err)
+	}
+
+	_, status, err := installer.Status(res, spec)
+	if err != nil {
+		t.Fatalf("Status failed: %v", err)
+	}
+	if !status.Installed {
+		t.Fatalf("expected installed=true")
+	}
+	if !status.Stale {
+		t.Fatalf("expected stale=true")
+	}
+	if status.StaleReason != "source_changed" {
+		t.Fatalf("stale reason = %q, want %q", status.StaleReason, "source_changed")
+	}
+}
+
+func TestInspectArtifactInstallDetectsMissingSource(t *testing.T) {
+	tmp := t.TempDir()
+	sourceDir := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil { //nolint:gosec
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	sourcePath := filepath.Join(sourceDir, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatalf("write source artifact: %v", err)
+	}
+
+	installer := artifactInstaller{
+		homeDir: func() (string, error) { return tmp, nil },
+		now:     func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		RunFrom: ProcessRunFromArtifact,
+		Dir:     sourceDir,
+		Command: []string{"./app", "serve"},
+	}
+	if _, err := installer.EnsureInstalled(res, spec); err != nil {
+		t.Fatalf("EnsureInstalled failed: %v", err)
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("remove source artifact: %v", err)
+	}
+
+	_, status, err := installer.Status(res, spec)
+	if err != nil {
+		t.Fatalf("Status failed: %v", err)
+	}
+	if !status.Installed {
+		t.Fatalf("expected installed=true")
+	}
+	if !status.Stale {
+		t.Fatalf("expected stale=true")
+	}
+	if status.StaleReason != "source_missing" {
+		t.Fatalf("stale reason = %q, want %q", status.StaleReason, "source_missing")
+	}
+}

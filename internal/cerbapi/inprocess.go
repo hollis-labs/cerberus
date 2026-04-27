@@ -638,6 +638,8 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 	serviceName := spec.ServiceName
 	artifactPath := spec.ArtifactPath
 	artifactInstalled := false
+	artifactStale := false
+	artifactStaleReason := ""
 	artifactSource := ""
 	artifactSyncedAt := ""
 	if spec.Mode == localconn.ProcessModeOSService {
@@ -652,6 +654,8 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 				artifactPath = layout.ArtifactPath
 			}
 			artifactInstalled = art.Installed
+			artifactStale = art.Stale
+			artifactStaleReason = art.StaleReason
 			artifactSource = art.SourcePath
 			if !art.SyncedAt.IsZero() {
 				artifactSyncedAt = art.SyncedAt.Format(time.RFC3339)
@@ -659,21 +663,23 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 		}
 	}
 	status := &ResourceRuntimeStatus{
-		ID:                res.ID,
-		Name:              res.Name,
-		Type:              res.Type,
-		Project:           res.Project,
-		Connector:         res.Connector,
-		Mode:              resourceMode(*res),
-		Supervisor:        resourceSupervisor(*res),
-		RunFrom:           resourceRunFrom(*res),
-		Status:            string(state),
-		ServiceName:       serviceName,
-		ArtifactPath:      artifactPath,
-		InstallRoot:       installRoot,
-		ArtifactInstalled: artifactInstalled,
-		ArtifactSource:    artifactSource,
-		ArtifactSyncedAt:  artifactSyncedAt,
+		ID:                  res.ID,
+		Name:                res.Name,
+		Type:                res.Type,
+		Project:             res.Project,
+		Connector:           res.Connector,
+		Mode:                resourceMode(*res),
+		Supervisor:          resourceSupervisor(*res),
+		RunFrom:             resourceRunFrom(*res),
+		Status:              string(state),
+		ServiceName:         serviceName,
+		ArtifactPath:        artifactPath,
+		InstallRoot:         installRoot,
+		ArtifactInstalled:   artifactInstalled,
+		ArtifactStale:       artifactStale,
+		ArtifactStaleReason: artifactStaleReason,
+		ArtifactSource:      artifactSource,
+		ArtifactSyncedAt:    artifactSyncedAt,
 	}
 	return status, nil
 }
