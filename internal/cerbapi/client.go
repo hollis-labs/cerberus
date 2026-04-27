@@ -49,6 +49,8 @@ type Client interface {
 	ListResources(ctx context.Context, args ResourceListArgs) ([]ResourceInfo, error)
 	// GetResourceRuntime returns the runtime status of a specific resource.
 	GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error)
+	// GetResourceInspect returns detailed inspection output for a specific resource.
+	GetResourceInspect(ctx context.Context, id string) (*ResourceInspect, error)
 	// ApplyResource applies a specific resource through its runtime backend.
 	ApplyResource(ctx context.Context, id string) (*OpResult, error)
 	// SyncResource syncs installed runtime artifacts without applying the backend.

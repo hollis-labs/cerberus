@@ -780,6 +780,96 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 	return status, nil
 }
 
+// GetResourceInspect implements Client.
+func (c *InProcessClient) GetResourceInspect(ctx context.Context, id string) (*ResourceInspect, error) {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
+		return nil, fmt.Errorf("no config available")
+	}
+	res := findResourceDef(cfg, id)
+	if res == nil {
+		return nil, fmt.Errorf("resource %q not found", id)
+	}
+	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+		return nil, fmt.Errorf("resource %q is %s/%s; inspect currently supports local process resources only", res.ID, res.Type, res.Connector)
+	}
+
+	dr := resourceDefToDomain(res)
+	state, err := c.localConnector().Status(ctx, dr)
+	if err != nil {
+		return nil, err
+	}
+	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+
+	out := &ResourceInspect{
+		ID:           res.ID,
+		Name:         res.Name,
+		Type:         res.Type,
+		Project:      res.Project,
+		Connector:    res.Connector,
+		Mode:         resourceMode(*res),
+		Supervisor:   resourceSupervisor(*res),
+		RunFrom:      resourceRunFrom(*res),
+		Status:       string(state),
+		WorkspaceDir: spec.Dir,
+		Command:      append([]string(nil), spec.Command...),
+		Build:        append([]string(nil), spec.Build...),
+		WorkingDir:   spec.Dir,
+	}
+
+	if spec.Mode == localconn.ProcessModeOSService {
+		if home, homeErr := os.UserHomeDir(); homeErr == nil {
+			if layout, layoutErr := localconn.DefaultInstallLayout(home, dr, spec); layoutErr == nil {
+				out.WorkingDir = layout.WorkingDir
+				out.ServiceName = layout.ServiceName
+				out.PlistPath = layout.PlistPath
+				out.InstallRoot = layout.RootDir
+				out.InstallWorkDir = layout.CurrentDir
+				out.BinDir = layout.BinDir
+				out.ArtifactPath = layout.ArtifactPath
+				out.StdoutLogPath = filepath.Join(layout.RootDir, "logs", "stdout.log")
+				out.StderrLogPath = filepath.Join(layout.RootDir, "logs", "stderr.log")
+			}
+		}
+		if layout, art, inspectErr := localconn.InspectArtifactInstall(dr, spec); inspectErr == nil {
+			if out.ServiceName == "" {
+				out.ServiceName = layout.ServiceName
+			}
+			if out.PlistPath == "" {
+				out.PlistPath = layout.PlistPath
+			}
+			if out.InstallRoot == "" {
+				out.InstallRoot = layout.RootDir
+			}
+			if out.InstallWorkDir == "" {
+				out.InstallWorkDir = layout.CurrentDir
+			}
+			if out.BinDir == "" {
+				out.BinDir = layout.BinDir
+			}
+			if out.ArtifactPath == "" {
+				out.ArtifactPath = layout.ArtifactPath
+			}
+			if out.StdoutLogPath == "" {
+				out.StdoutLogPath = filepath.Join(layout.RootDir, "logs", "stdout.log")
+			}
+			if out.StderrLogPath == "" {
+				out.StderrLogPath = filepath.Join(layout.RootDir, "logs", "stderr.log")
+			}
+			out.ArtifactInstalled = art.Installed
+			out.ArtifactStale = art.Stale
+			out.ArtifactStaleReason = art.StaleReason
+			out.ArtifactSource = art.SourcePath
+			if !art.SyncedAt.IsZero() {
+				out.ArtifactSyncedAt = art.SyncedAt.Format(time.RFC3339)
+			}
+			out.RecommendedAction, out.RecommendedReason = localconn.RecommendedStatusAction(spec, state, art)
+		}
+	}
+
+	return out, nil
+}
+
 // ApplyResource implements Client.
 func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
 	cfg := c.snapshotConfig()
