@@ -152,6 +152,42 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 	}
 }
 
+// NewCerberusResourceDoctorTool creates the cerberus_resource_doctor tool.
+func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_doctor",
+		Description: "Runs explicit runtime and install checks for a local process resource and returns pass/warn/fail results.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to diagnose.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			st, err := client.GetResourceDoctor(context.Background(), resourceID)
+			if err != nil {
+				return "", err
+			}
+			data, err := json.MarshalIndent(st, "", "  ")
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
+		},
+	}
+}
+
 // NewCerberusResourceLogsTool creates the cerberus_resource_logs tool.
 func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 	return Tool{

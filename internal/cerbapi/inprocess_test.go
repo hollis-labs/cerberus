@@ -477,3 +477,64 @@ services: []
 		t.Fatalf("expected command and build to be populated, got %+v", out)
 	}
 }
+
+func TestInProcessClient_GetResourceDoctor(t *testing.T) {
+	reg, _ := newTestRegistry(t, `
+version: 1
+services: []
+`)
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(workspace, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Setenv("HOME", oldHome) }()
+
+	cfg := &config.ConfigV2{
+		Version: 2,
+		Resources: []config.ResourceDef{
+			{
+				ID:        "r1",
+				Name:      "Res One",
+				Type:      string(domain.ResourceProcess),
+				Project:   "p1",
+				Connector: "local",
+				Config: map[string]any{
+					"mode":       "os_service",
+					"run_from":   "artifact",
+					"dir":        workspace,
+					"command":    []any{"./app", "serve"},
+					"supervisor": "launchd",
+				},
+			},
+		},
+	}
+	c := NewInProcessClient(reg, WithConfigV2(cfg))
+	out, err := c.GetResourceDoctor(context.Background(), "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Summary == "" || len(out.Checks) == 0 {
+		t.Fatalf("expected doctor output, got %+v", out)
+	}
+	foundArtifact := false
+	for _, check := range out.Checks {
+		if check.Name == "artifact_install" {
+			foundArtifact = true
+			break
+		}
+	}
+	if !foundArtifact {
+		t.Fatalf("expected artifact_install check, got %+v", out.Checks)
+	}
+}
