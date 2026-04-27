@@ -870,6 +870,112 @@ func (c *InProcessClient) GetResourceInspect(ctx context.Context, id string) (*R
 	return out, nil
 }
 
+// GetResourceDoctor implements Client.
+func (c *InProcessClient) GetResourceDoctor(ctx context.Context, id string) (*ResourceDoctor, error) {
+	inspect, err := c.GetResourceInspect(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	checks := make([]ResourceDoctorCheck, 0, 8)
+	add := func(name, status, msg string) {
+		checks = append(checks, ResourceDoctorCheck{Name: name, Status: status, Message: msg})
+	}
+
+	if inspect.Status == "" || inspect.Status == string(domain.StateUnknown) {
+		add("runtime_status", "warn", "runtime state is unknown")
+	} else {
+		add("runtime_status", "pass", fmt.Sprintf("runtime state is %s", inspect.Status))
+	}
+
+	if inspect.Mode == string(localconn.ProcessModeOSService) {
+		checkPathCheck := func(name, path string, required bool) {
+			if path == "" {
+				if required {
+					add(name, "fail", "path is not configured")
+				} else {
+					add(name, "warn", "path is not configured")
+				}
+				return
+			}
+			if _, err := os.Stat(path); err != nil {
+				if os.IsNotExist(err) {
+					if required {
+						add(name, "fail", fmt.Sprintf("path does not exist: %s", path))
+					} else {
+						add(name, "warn", fmt.Sprintf("path does not exist: %s", path))
+					}
+					return
+				}
+				add(name, "warn", fmt.Sprintf("could not stat path %s: %v", path, err))
+				return
+			}
+			add(name, "pass", path)
+		}
+
+		checkPathCheck("install_root", inspect.InstallRoot, true)
+		checkPathCheck("plist", inspect.PlistPath, true)
+		checkPathCheck("stdout_log", inspect.StdoutLogPath, false)
+		checkPathCheck("stderr_log", inspect.StderrLogPath, false)
+
+		switch {
+		case !inspect.ArtifactInstalled:
+			add("artifact_install", "fail", "installed artifact is missing")
+		case inspect.ArtifactStale:
+			add("artifact_install", "warn", fmt.Sprintf("installed artifact is stale (%s)", inspect.ArtifactStaleReason))
+		default:
+			add("artifact_install", "pass", "installed artifact is current")
+		}
+
+		if inspect.ArtifactSource != "" {
+			if _, err := os.Stat(inspect.ArtifactSource); err != nil {
+				if os.IsNotExist(err) {
+					add("artifact_source", "fail", fmt.Sprintf("source artifact is missing: %s", inspect.ArtifactSource))
+				} else {
+					add("artifact_source", "warn", fmt.Sprintf("could not stat source artifact %s: %v", inspect.ArtifactSource, err))
+				}
+			} else {
+				add("artifact_source", "pass", inspect.ArtifactSource)
+			}
+		}
+	}
+
+	failCount := 0
+	warnCount := 0
+	for _, c := range checks {
+		switch c.Status {
+		case "fail":
+			failCount++
+		case "warn":
+			warnCount++
+		}
+	}
+
+	summary := "all checks passed"
+	switch {
+	case failCount > 0:
+		summary = fmt.Sprintf("%d failed, %d warning", failCount, warnCount)
+		if warnCount != 1 {
+			summary = fmt.Sprintf("%d failed, %d warnings", failCount, warnCount)
+		}
+	case warnCount > 0:
+		if warnCount == 1 {
+			summary = "1 warning"
+		} else {
+			summary = fmt.Sprintf("%d warnings", warnCount)
+		}
+	}
+
+	return &ResourceDoctor{
+		ResourceID:        inspect.ID,
+		Status:            inspect.Status,
+		Summary:           summary,
+		RecommendedAction: inspect.RecommendedAction,
+		RecommendedReason: inspect.RecommendedReason,
+		Checks:            checks,
+	}, nil
+}
+
 // ApplyResource implements Client.
 func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
 	cfg := c.snapshotConfig()

@@ -209,6 +209,21 @@ type ResourceInspect struct {
 	RecommendedReason   string   `json:"recommended_reason,omitempty"`
 }
 
+type ResourceDoctorCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+type ResourceDoctor struct {
+	ResourceID        string                `json:"resource_id"`
+	Status            string                `json:"status,omitempty"`
+	Summary           string                `json:"summary"`
+	RecommendedAction string                `json:"recommended_action,omitempty"`
+	RecommendedReason string                `json:"recommended_reason,omitempty"`
+	Checks            []ResourceDoctorCheck `json:"checks"`
+}
+
 // PipelineInfo is the DTO for pipeline-list responses.
 type PipelineInfo struct {
 	ID          string `json:"id"`

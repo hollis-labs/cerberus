@@ -301,6 +301,17 @@ func (c *SocketClient) GetResourceInspect(ctx context.Context, id string) (*Reso
 	return &out, nil
 }
 
+func (c *SocketClient) GetResourceDoctor(ctx context.Context, id string) (*ResourceDoctor, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	var out ResourceDoctor
+	if err := c.doJSON(ctx, http.MethodGet, "/resources/"+url.PathEscape(id)+"/doctor", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *SocketClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
 	if id == "" {
 		return nil, errors.New("resource id required")

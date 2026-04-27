@@ -79,6 +79,7 @@ the operator to start one with 'cerberus daemon'.`,
 		srv.RegisterTool(mcp.NewCerberusResourceListTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceStatusTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceInspectTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusResourceDoctorTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceLogsTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceSyncTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceApplyTool(socketClient))

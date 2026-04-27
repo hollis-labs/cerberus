@@ -439,6 +439,17 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 	}
 
 	switch action {
+	case "doctor":
+		if r.Method != http.MethodGet {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		st, err := s.client.GetResourceDoctor(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
 	case "inspect":
 		if r.Method != http.MethodGet {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")

@@ -205,6 +205,45 @@ var resourceInspectCmd = &cobra.Command{
 	},
 }
 
+var resourceDoctorCmd = &cobra.Command{
+	Use:   "doctor <resource-id>",
+	Short: "Run explicit runtime checks for a local process resource",
+	Long:  "Runs pass/warn/fail checks against the runtime and install surface of a local process resource. For os_service resources on macOS, this validates launchd/plist, install paths, artifact state, and log paths.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; doctor currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, doctorErr := client.GetResourceDoctor(cmd.Context(), res.ID)
+			if doctorErr == nil {
+				printResourceDoctor(out)
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(doctorErr, &dErr) {
+				return doctorErr
+			}
+		}
+
+		v2, err := config.LoadUnified(cfgPath)
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		out, err := cerbapi.NewInProcessClient(nil, cerbapi.WithConfigV2(v2)).GetResourceDoctor(cmd.Context(), res.ID)
+		if err != nil {
+			return err
+		}
+		printResourceDoctor(out)
+		return nil
+	},
+}
+
 var resourceApplyCmd = &cobra.Command{
 	Use:   "apply <resource-id>",
 	Short: "Apply a local process resource",
@@ -575,6 +614,24 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 	}
 }
 
+func printResourceDoctor(out *cerbapi.ResourceDoctor) {
+	fmt.Printf("Resource:    %s\n", out.ResourceID)
+	if out.Status != "" {
+		fmt.Printf("Status:      %s\n", out.Status)
+	}
+	fmt.Printf("Summary:     %s\n", out.Summary)
+	if out.RecommendedAction != "" {
+		fmt.Printf("Recommend:   %s\n", out.RecommendedAction)
+	}
+	if out.RecommendedReason != "" {
+		fmt.Printf("Why:         %s\n", out.RecommendedReason)
+	}
+	fmt.Println("Checks:")
+	for _, c := range out.Checks {
+		fmt.Printf("  [%s] %s: %s\n", strings.ToUpper(c.Status), c.Name, c.Message)
+	}
+}
+
 func printResourceList(list []cerbapi.ResourceInfo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tSTATUS\tARTIFACT\tNEXT\tTAGS")
@@ -616,6 +673,7 @@ func init() {
 	resourceCmd.AddCommand(resourceListCmd)
 	resourceCmd.AddCommand(resourceShowCmd)
 	resourceCmd.AddCommand(resourceInspectCmd)
+	resourceCmd.AddCommand(resourceDoctorCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceStatusCmd)
 	resourceLogsCmd.Flags().IntVarP(&resourceLogsLines, "lines", "n", 50, "number of log lines to return")
