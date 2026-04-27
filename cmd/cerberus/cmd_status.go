@@ -10,8 +10,8 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show service status table",
-	Long:  "Prints a formatted table of all services with their current status.",
+	Short: "Show legacy service status table",
+	Long:  "Prints a formatted table of legacy v1 services defined under services:. For modern local process resources, use `cerberus resource list` or `cerberus resource status`.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {

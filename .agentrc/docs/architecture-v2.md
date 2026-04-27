@@ -19,7 +19,7 @@ Cerberus evolves from a local process manager into a **universal infrastructure 
 - Config v2 (`internal/config/`) — v2 schema, v1-to-v2 auto-migration, `LoadUnified()`, 16 tests
 - App struct (`internal/app/`) — central dependency container
 - CLI split — `cmd/cerberus/main.go` split into 14+ per-command files
-- New CLI commands: `config migrate`, `project list/show`, `resource list/show/apply/status`
+- New CLI commands: `config migrate`, `project list/show`, `resource list/show/status/apply/sync/remove`
 - MCP backward compat — all 8 original tools unchanged, wired through App
 
 **Phase 2 — External Connectors + Pipelines:**
@@ -48,7 +48,9 @@ TUI refresh deferred to last.
 - Dual local runtime seam: `dev_session` and `os_service`
 - macOS `launchd` backend for local `process` resources
 - User-area artifact install/sync layout under `~/.cerberus/apps/<project>/<resource>/...`
-- Daemon/socket API + MCP support for resource runtime status and apply
+- Daemon/socket API + MCP support for resource runtime status, apply, sync, and remove
+- Resource status now exposes artifact drift plus recommended operator actions
+- Resource list now surfaces compact runtime summary when the daemon is reachable
 
 ## Core Principles
 
@@ -149,7 +151,7 @@ cmd/cerberus/
 ├── cmd_pause.go         -- pause/resume
 ├── cmd_config.go        -- config migrate
 ├── cmd_project.go       -- project list/show
-├── cmd_resource.go      -- resource list/show
+├── cmd_resource.go      -- resource list/show/status/apply/sync/remove
 ├── cmd_pipeline.go      -- pipeline list/show/run
 ├── cmd_github.go        -- github status/releases/runs
 ├── cmd_server.go        -- server list/show
@@ -187,9 +189,11 @@ internal/
 │   │   ├── mapper.go    -- ServiceDefToResource / ResourceToServiceDef
 │   │   ├── spec.go      -- Typed local process config (`mode`, `supervisor`, `run_from`)
 │   │   ├── runtime.go   -- `dev_session` vs `os_service` runtime backends
-│   │   ├── launchd.go   -- macOS launchd apply/status backend
+│   │   ├── launchd.go   -- macOS launchd apply/status/remove backend
 │   │   ├── install_layout.go -- User-area artifact/install path derivation
 │   │   ├── artifact.go  -- Artifact sync + install manifest
+│   │   ├── apply_result.go -- Operator-facing apply outcome formatting
+│   │   ├── status_advice.go -- Recommended action derivation for resource status
 │   │   └── *_test.go
 │   ├── github/
 │   │   ├── types.go     -- RepoStatus, Release, WorkflowRun
@@ -274,6 +278,8 @@ internal/
 | `cerberus_resource_list` | tools_resources.go | Resource list with local runtime metadata |
 | `cerberus_resource_status` | tools_resources.go | Runtime status for a specific resource |
 | `cerberus_resource_apply` | tools_resources.go | Apply a specific resource through its runtime backend |
+| `cerberus_resource_sync` | tools_resources.go | Sync installed artifacts for an artifact-backed resource |
+| `cerberus_resource_remove` | tools_resources.go | Remove a resource from its runtime backend |
 | `cerberus_project_list` | tools_resources.go | List projects |
 | `cerberus_resource_list` | tools_resources.go | List resources with filters |
 | `cerberus_pipeline_list` | tools_pipeline.go | List pipelines |

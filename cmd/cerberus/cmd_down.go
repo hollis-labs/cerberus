@@ -12,8 +12,8 @@ var downTag string
 
 var downCmd = &cobra.Command{
 	Use:   "down [service...]",
-	Short: "Stop services headlessly",
-	Long:  "Stops specified services (or all if none given) in reverse dependency order. Use --tag to filter by tag.",
+	Short: "Stop legacy services headlessly",
+	Long:  "Stops legacy v1 services defined under services: in reverse dependency order. Use --tag to filter by tag. For modern local process resources, use `cerberus resource remove` or `cerberus resource status`.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		services, err := loadServices()
 		if err != nil {

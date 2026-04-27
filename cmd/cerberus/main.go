@@ -29,12 +29,15 @@ func main() {
 // rootCmd launches the TUI when no subcommand is given.
 var rootCmd = &cobra.Command{
 	Use:   "cerberus",
-	Short: "Fragments Engine service manager",
-	Long: `Cerberus — agent-first local service manager for the Fragments Engine ecosystem.
+	Short: "Agent-first local infrastructure manager",
+	Long: `Cerberus — agent-first local infrastructure manager for the Fragments Engine ecosystem.
 
-Manage, monitor, and protect your dev services from a single TUI,
-CLI, or MCP server. Prevents agents from clobbering each other's
-servers with PID tracking, port conflict detection, and service locks.
+Cerberus currently exposes two local runtime lanes:
+- legacy v1 service management via the TUI and service-oriented CLI commands
+- modern v2 resource management via resource-oriented CLI, daemon, socket API, and MCP flows
+
+Use the service commands for existing v1 services: workflows.
+Use the resource commands for modern local process resources, especially os_service and artifact-backed runtime management.
 
 (c) HOLLIS LABS`,
 	Version: version,
