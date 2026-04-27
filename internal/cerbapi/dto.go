@@ -156,31 +156,33 @@ type ResourceListArgs struct {
 
 // ResourceRuntimeStatus is the DTO for resource-runtime status and apply flows.
 type ResourceRuntimeStatus struct {
-	ID                  string `json:"id"`
-	Name                string `json:"name"`
-	Type                string `json:"type"`
-	Project             string `json:"project"`
-	Connector           string `json:"connector"`
-	Mode                string `json:"mode,omitempty"`
-	Supervisor          string `json:"supervisor,omitempty"`
-	RunFrom             string `json:"run_from,omitempty"`
-	Status              string `json:"status"`
-	ServiceName         string `json:"service_name,omitempty"`
-	ArtifactPath        string `json:"artifact_path,omitempty"`
-	InstallRoot         string `json:"install_root,omitempty"`
-	ArtifactInstalled   bool   `json:"artifact_installed,omitempty"`
-	ArtifactStale       bool   `json:"artifact_stale,omitempty"`
-	ArtifactStaleReason string `json:"artifact_stale_reason,omitempty"`
-	ArtifactSource      string `json:"artifact_source,omitempty"`
-	ArtifactSyncedAt    string `json:"artifact_synced_at,omitempty"`
-	RecommendedAction   string `json:"recommended_action,omitempty"`
-	RecommendedReason   string `json:"recommended_reason,omitempty"`
-	LaunchdLoaded       bool   `json:"launchd_loaded,omitempty"`
-	LaunchdState        string `json:"launchd_state,omitempty"`
-	LaunchdPID          int    `json:"launchd_pid,omitempty"`
-	LaunchdLastExitCode *int   `json:"launchd_last_exit_code,omitempty"`
-	LaunchdThrottled    bool   `json:"launchd_throttled,omitempty"`
-	LaunchdReason       string `json:"launchd_reason,omitempty"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	Type                string   `json:"type"`
+	Project             string   `json:"project"`
+	Connector           string   `json:"connector"`
+	Mode                string   `json:"mode,omitempty"`
+	Supervisor          string   `json:"supervisor,omitempty"`
+	RunFrom             string   `json:"run_from,omitempty"`
+	Status              string   `json:"status"`
+	ServiceName         string   `json:"service_name,omitempty"`
+	ArtifactPath        string   `json:"artifact_path,omitempty"`
+	InstallRoot         string   `json:"install_root,omitempty"`
+	ArtifactInstalled   bool     `json:"artifact_installed,omitempty"`
+	ArtifactStale       bool     `json:"artifact_stale,omitempty"`
+	ArtifactStaleReason string   `json:"artifact_stale_reason,omitempty"`
+	ArtifactSource      string   `json:"artifact_source,omitempty"`
+	ArtifactSyncedAt    string   `json:"artifact_synced_at,omitempty"`
+	RecommendedAction   string   `json:"recommended_action,omitempty"`
+	RecommendedReason   string   `json:"recommended_reason,omitempty"`
+	LaunchdLoaded       bool     `json:"launchd_loaded,omitempty"`
+	LaunchdState        string   `json:"launchd_state,omitempty"`
+	LaunchdPID          int      `json:"launchd_pid,omitempty"`
+	LaunchdLastExitCode *int     `json:"launchd_last_exit_code,omitempty"`
+	LaunchdThrottled    bool     `json:"launchd_throttled,omitempty"`
+	LaunchdReason       string   `json:"launchd_reason,omitempty"`
+	LaunchdDiagnosis    string   `json:"launchd_diagnosis,omitempty"`
+	LaunchdHighlights   []string `json:"launchd_highlights,omitempty"`
 }
 
 // ResourceInspect is the detailed operator-facing inspection view for a local process resource.
@@ -219,6 +221,8 @@ type ResourceInspect struct {
 	LaunchdLastExitCode *int     `json:"launchd_last_exit_code,omitempty"`
 	LaunchdThrottled    bool     `json:"launchd_throttled,omitempty"`
 	LaunchdReason       string   `json:"launchd_reason,omitempty"`
+	LaunchdDiagnosis    string   `json:"launchd_diagnosis,omitempty"`
+	LaunchdHighlights   []string `json:"launchd_highlights,omitempty"`
 	LaunchdRaw          string   `json:"launchd_raw,omitempty"`
 }
 

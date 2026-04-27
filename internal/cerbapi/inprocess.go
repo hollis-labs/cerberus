@@ -786,6 +786,8 @@ func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*R
 		LaunchdLastExitCode: launchdRec.LastExitCode,
 		LaunchdThrottled:    launchdRec.Throttled,
 		LaunchdReason:       launchdRec.Reason,
+		LaunchdDiagnosis:    launchdRec.Diagnosis,
+		LaunchdHighlights:   append([]string(nil), launchdRec.Highlights...),
 	}
 	return status, nil
 }
@@ -882,6 +884,8 @@ func (c *InProcessClient) GetResourceInspect(ctx context.Context, id string) (*R
 			out.LaunchdLastExitCode = rec.LastExitCode
 			out.LaunchdThrottled = rec.Throttled
 			out.LaunchdReason = rec.Reason
+			out.LaunchdDiagnosis = rec.Diagnosis
+			out.LaunchdHighlights = append([]string(nil), rec.Highlights...)
 			out.LaunchdRaw = rec.Raw
 		}
 	}
@@ -974,6 +978,13 @@ func (c *InProcessClient) GetResourceDoctor(ctx context.Context, id string) (*Re
 		}
 		if inspect.LaunchdReason != "" {
 			add("launchd_reason", "warn", inspect.LaunchdReason)
+		}
+		if inspect.LaunchdDiagnosis != "" {
+			status := "warn"
+			if inspect.LaunchdThrottled {
+				status = "fail"
+			}
+			add("launchd_diagnosis", status, inspect.LaunchdDiagnosis)
 		}
 	}
 

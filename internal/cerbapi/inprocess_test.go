@@ -531,7 +531,6 @@ services: []
 	for _, check := range out.Checks {
 		if check.Name == "artifact_install" {
 			foundArtifact = true
-			break
 		}
 	}
 	if !foundArtifact {
