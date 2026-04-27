@@ -187,10 +187,15 @@ var resourceApplyCmd = &cobra.Command{
 		}
 
 		conn := localconn.New()
-		if err := conn.Start(cmd.Context(), toDomainResource(res)); err != nil {
+		spec, err := localconn.SpecFromResourceConfig(res.Config)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("Applied resource %s\n", res.ID)
+		applyRes, err := conn.Apply(cmd.Context(), toDomainResource(res))
+		if err != nil {
+			return err
+		}
+		fmt.Println(localconn.FormatApplyResultMessage(res.ID, spec, applyRes))
 		return nil
 	},
 }

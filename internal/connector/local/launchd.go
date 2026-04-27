@@ -83,16 +83,21 @@ type plistEnvEntry struct {
 }
 
 func (b launchdBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
+	_, err := b.Apply(ctx, res, spec)
+	return err
+}
+
+func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec) (ApplyResult, error) {
 	plistPath, label, artifactChanged, plistChanged, err := b.writePlist(res, spec)
 	if err != nil {
-		return err
+		return ApplyResult{}, err
 	}
 
 	domainTarget := b.domainTarget()
 	serviceTarget := b.serviceTarget(label)
 	loaded, state, err := b.loadedState(ctx, label)
 	if err != nil {
-		return err
+		return ApplyResult{}, err
 	}
 
 	needsReload := !loaded || artifactChanged || plistChanged
@@ -101,16 +106,30 @@ func (b launchdBackend) Start(ctx context.Context, res *domain.Resource, spec Pr
 	}
 	if needsReload {
 		if _, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath); err != nil {
-			return fmt.Errorf("launchctl bootstrap %s: %w", label, err)
+			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s: %w", label, err)
 		}
 	}
 	if !needsReload && (state == domain.StateRunning || state == domain.StateStarting) {
-		return nil
+		return ApplyResult{
+			Action:          ApplyActionNoop,
+			ArtifactChanged: artifactChanged,
+			PlistChanged:    plistChanged,
+		}, nil
 	}
 	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", serviceTarget); err != nil {
-		return fmt.Errorf("launchctl kickstart %s: %w", label, err)
+		return ApplyResult{}, fmt.Errorf("launchctl kickstart %s: %w", label, err)
 	}
-	return nil
+	action := ApplyActionRestarted
+	if !loaded {
+		action = ApplyActionStarted
+	} else if artifactChanged || plistChanged {
+		action = ApplyActionReloaded
+	}
+	return ApplyResult{
+		Action:          action,
+		ArtifactChanged: artifactChanged,
+		PlistChanged:    plistChanged,
+	}, nil
 }
 
 func (b launchdBackend) Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {

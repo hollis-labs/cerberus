@@ -165,8 +165,9 @@ func TestLaunchdBackendStartNoopsWhenLoadedAndCurrent(t *testing.T) {
 	runner.calls = nil
 	runner.out["launchctl print gui/501/com.fragments-engine.cerberus.demo.app"] = []byte("state = running")
 	delete(runner.err, "launchctl print gui/501/com.fragments-engine.cerberus.demo.app")
-	if err := backend.Start(context.Background(), res, spec); err != nil {
-		t.Fatalf("second Start failed: %v", err)
+	applyRes, err := backend.Apply(context.Background(), res, spec)
+	if err != nil {
+		t.Fatalf("Apply failed: %v", err)
 	}
 
 	if len(runner.calls) != 1 {
@@ -174,6 +175,9 @@ func TestLaunchdBackendStartNoopsWhenLoadedAndCurrent(t *testing.T) {
 	}
 	if got := runner.calls[0]; got.name != "launchctl" || strings.Join(got.args, " ") != "print gui/501/com.fragments-engine.cerberus.demo.app" {
 		t.Fatalf("unexpected call: %#v", got)
+	}
+	if applyRes.Action != ApplyActionNoop {
+		t.Fatalf("action = %q, want %q", applyRes.Action, ApplyActionNoop)
 	}
 }
 
@@ -215,8 +219,9 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 	runner.calls = nil
 	runner.out["launchctl print gui/501/com.fragments-engine.cerberus.demo.app"] = []byte("state = running")
 	delete(runner.err, "launchctl print gui/501/com.fragments-engine.cerberus.demo.app")
-	if err := backend.Start(context.Background(), res, spec); err != nil {
-		t.Fatalf("second Start failed: %v", err)
+	applyRes, err := backend.Apply(context.Background(), res, spec)
+	if err != nil {
+		t.Fatalf("Apply failed: %v", err)
 	}
 
 	if len(runner.calls) != 4 {
@@ -238,6 +243,12 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("call[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+	if applyRes.Action != ApplyActionReloaded {
+		t.Fatalf("action = %q, want %q", applyRes.Action, ApplyActionReloaded)
+	}
+	if !applyRes.ArtifactChanged {
+		t.Fatalf("expected artifactChanged=true")
 	}
 }
 

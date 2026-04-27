@@ -697,25 +697,7 @@ func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResu
 	}
 
 	spec, _ := localconn.SpecFromResourceConfig(res.Config)
-	dr := resourceDefToDomain(res)
-	syncMsg := ""
-	if spec.RunFrom == localconn.ProcessRunFromArtifact {
-		if _, syncRes, syncErr := localconn.SyncArtifactInstall(dr, spec); syncErr != nil {
-			return &OpResult{ //nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
-				Success:   false,
-				ServiceID: id,
-				Error:     syncErr.Error(),
-			}, nil
-		} else if syncRes.Performed {
-			if syncRes.Changed {
-				syncMsg = "artifact synced"
-			} else {
-				syncMsg = "artifact already current"
-			}
-		}
-	}
-
-	startErr := c.localConnector().Start(ctx, dr)
+	applyRes, startErr := c.localConnector().Apply(ctx, resourceDefToDomain(res))
 	if startErr != nil {
 		//nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
 		return &OpResult{
@@ -727,7 +709,7 @@ func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResu
 	return &OpResult{
 		Success:   true,
 		ServiceID: id,
-		Message:   applyResourceMessage(id, spec, syncMsg),
+		Message:   localconn.FormatApplyResultMessage(id, spec, applyRes),
 	}, nil
 }
 
@@ -811,19 +793,6 @@ func (c *InProcessClient) localConnector() *localconn.Connector {
 		return c.local
 	}
 	return localconn.New()
-}
-
-func applyResourceMessage(id string, spec localconn.ProcessSpec, syncMsg string) string {
-	if spec.Mode == localconn.ProcessModeOSService && spec.Supervisor == localconn.ProcessSupervisorLaunchd {
-		if syncMsg != "" {
-			return fmt.Sprintf("resource %q applied successfully (%s, launchd updated)", id, syncMsg)
-		}
-		return fmt.Sprintf("resource %q applied successfully (launchd updated)", id)
-	}
-	if syncMsg != "" {
-		return fmt.Sprintf("resource %q applied successfully (%s)", id, syncMsg)
-	}
-	return fmt.Sprintf("resource %q applied successfully", id)
 }
 
 // ListPipelines implements Client.
