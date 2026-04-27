@@ -6,7 +6,7 @@
 
 Cerberus evolves from a local process manager into a **universal infrastructure control plane**. It manages local dev services, cloud servers, DNS, containers, CI/CD, SSH, and deployments through a unified connector pattern. Agent-first (CLI + MCP), with a Wails desktop app as the eventual GUI.
 
-## Current Status (as of 2026-03-28)
+## Current Status (as of 2026-04-27)
 
 ### Completed
 
@@ -19,7 +19,7 @@ Cerberus evolves from a local process manager into a **universal infrastructure 
 - Config v2 (`internal/config/`) — v2 schema, v1-to-v2 auto-migration, `LoadUnified()`, 16 tests
 - App struct (`internal/app/`) — central dependency container
 - CLI split — `cmd/cerberus/main.go` split into 14+ per-command files
-- New CLI commands: `config migrate`, `project list/show`, `resource list/show`
+- New CLI commands: `config migrate`, `project list/show`, `resource list/show/apply/status`
 - MCP backward compat — all 8 original tools unchanged, wired through App
 
 **Phase 2 — External Connectors + Pipelines:**
@@ -42,6 +42,13 @@ Cerberus evolves from a local process manager into a **universal infrastructure 
 - MCP: 29 tools total (15 prior + 14 new)
 
 TUI refresh deferred to last.
+
+**Phase 4 — Local Runtime Backend Split (in progress):**
+- Typed local process spec (`internal/connector/local/spec.go`) for `mode`, `supervisor`, `run_from`, and install metadata
+- Dual local runtime seam: `dev_session` and `os_service`
+- macOS `launchd` backend for local `process` resources
+- User-area artifact install/sync layout under `~/.cerberus/apps/<project>/<resource>/...`
+- Daemon/socket API + MCP support for resource runtime status and apply
 
 ## Core Principles
 
@@ -176,9 +183,14 @@ internal/
 ├── connector/
 │   ├── registry.go      -- Registry (Register/Get/List/IDs) + tests
 │   ├── local/
-│   │   ├── connector.go -- LocalConnector wrapping service.ManagedService
+│   │   ├── connector.go -- Local connector dispatching by process runtime mode
 │   │   ├── mapper.go    -- ServiceDefToResource / ResourceToServiceDef
-│   │   └── mapper_test.go
+│   │   ├── spec.go      -- Typed local process config (`mode`, `supervisor`, `run_from`)
+│   │   ├── runtime.go   -- `dev_session` vs `os_service` runtime backends
+│   │   ├── launchd.go   -- macOS launchd apply/status backend
+│   │   ├── install_layout.go -- User-area artifact/install path derivation
+│   │   ├── artifact.go  -- Artifact sync + install manifest
+│   │   └── *_test.go
 │   ├── github/
 │   │   ├── types.go     -- RepoStatus, Release, WorkflowRun
 │   │   ├── backend.go   -- Backend interface
@@ -232,7 +244,7 @@ internal/
 │   ├── tools.go         -- cerberus_status tool
 │   ├── tools_lifecycle.go    -- start/stop/restart/rebuild tools
 │   ├── tools_observability.go -- logs/build/health tools
-│   ├── tools_resources.go    -- project_list/resource_list tools
+│   ├── tools_resources.go    -- project_list/resource_list/resource_status/resource_apply tools
 │   ├── tools_pipeline.go     -- pipeline_list/pipeline_run tools
 │   ├── tools_github.go       -- github_status/github_releases/github_runs tools
 │   ├── tools_ssh.go          -- ssh_exec/ssh_status tools
@@ -246,7 +258,7 @@ internal/
 └── tui/                 -- Bubble Tea views
 ```
 
-## MCP Tools (29 total)
+## MCP Tools (31 total)
 
 | Tool | Source File | Description |
 |------|-----------|-------------|
@@ -258,6 +270,10 @@ internal/
 | `cerberus_logs` | tools_observability.go | Tail service logs |
 | `cerberus_build` | tools_observability.go | Run build command |
 | `cerberus_health` | tools_observability.go | Health check results |
+| `cerberus_project_list` | tools_resources.go | Project list with resource counts |
+| `cerberus_resource_list` | tools_resources.go | Resource list with local runtime metadata |
+| `cerberus_resource_status` | tools_resources.go | Runtime status for a specific resource |
+| `cerberus_resource_apply` | tools_resources.go | Apply a specific resource through its runtime backend |
 | `cerberus_project_list` | tools_resources.go | List projects |
 | `cerberus_resource_list` | tools_resources.go | List resources with filters |
 | `cerberus_pipeline_list` | tools_pipeline.go | List pipelines |

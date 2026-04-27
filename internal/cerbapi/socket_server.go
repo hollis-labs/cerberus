@@ -197,6 +197,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 	// /project, /resource, /pipeline list + run.
 	mux.HandleFunc("/projects", s.handleProjects)
 	mux.HandleFunc("/resources", s.handleResources)
+	mux.HandleFunc("/resources/", s.handleResourcesID)
 	mux.HandleFunc("/pipelines", s.handlePipelines)
 	mux.HandleFunc("/pipelines/", s.handlePipelinesID)
 
@@ -422,6 +423,47 @@ func (s *SocketServer) handleResources(w http.ResponseWriter, r *http.Request) {
 		list = []ResourceInfo{}
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/resources/")
+	if rest == "" {
+		writeJSONError(w, http.StatusBadRequest, "resource id required")
+		return
+	}
+	parts := strings.SplitN(rest, "/", 2)
+	id := parts[0]
+	action := ""
+	if len(parts) == 2 {
+		action = parts[1]
+	}
+
+	switch action {
+	case "status":
+		if r.Method != http.MethodGet {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		st, err := s.client.GetResourceRuntime(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
+	case "apply":
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		res, err := s.client.ApplyResource(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	default:
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown resource action %q", action))
+	}
 }
 
 func (s *SocketServer) handlePipelines(w http.ResponseWriter, r *http.Request) {

@@ -599,15 +599,97 @@ func (c *InProcessClient) ListResources(_ context.Context, args ResourceListArgs
 			continue
 		}
 		out = append(out, ResourceInfo{
-			ID:        r.ID,
-			Name:      r.Name,
-			Type:      r.Type,
-			Project:   r.Project,
-			Connector: r.Connector,
-			Tags:      r.Tags,
+			ID:         r.ID,
+			Name:       r.Name,
+			Type:       r.Type,
+			Project:    r.Project,
+			Connector:  r.Connector,
+			Mode:       resourceMode(r),
+			Supervisor: resourceSupervisor(r),
+			RunFrom:    resourceRunFrom(r),
+			Tags:       r.Tags,
 		})
 	}
 	return out, nil
+}
+
+// GetResourceRuntime implements Client.
+func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error) {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
+		return nil, fmt.Errorf("no config available")
+	}
+	res := findResourceDef(cfg, id)
+	if res == nil {
+		return nil, fmt.Errorf("resource %q not found", id)
+	}
+	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+		return nil, fmt.Errorf("resource %q is %s/%s; runtime status currently supports local process resources only", res.ID, res.Type, res.Connector)
+	}
+
+	dr := resourceDefToDomain(res)
+	state, err := c.localConnector().Status(ctx, dr)
+	if err != nil {
+		return nil, err
+	}
+
+	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	status := &ResourceRuntimeStatus{
+		ID:           res.ID,
+		Name:         res.Name,
+		Type:         res.Type,
+		Project:      res.Project,
+		Connector:    res.Connector,
+		Mode:         resourceMode(*res),
+		Supervisor:   resourceSupervisor(*res),
+		RunFrom:      resourceRunFrom(*res),
+		Status:       string(state),
+		ServiceName:  spec.ServiceName,
+		ArtifactPath: spec.ArtifactPath,
+		InstallRoot:  spec.InstallRoot,
+	}
+	return status, nil
+}
+
+// ApplyResource implements Client.
+func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
+	cfg := c.snapshotConfig()
+	if cfg == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: "no config available"}, nil
+	}
+	res := findResourceDef(cfg, id)
+	if res == nil {
+		return &OpResult{Success: false, ServiceID: id, Error: fmt.Sprintf("resource %q not found", id)}, nil
+	}
+	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+		return &OpResult{
+			Success:   false,
+			ServiceID: id,
+			Error:     fmt.Sprintf("resource %q is %s/%s; apply currently supports local process resources only", res.ID, res.Type, res.Connector),
+		}, nil
+	}
+
+	startErr := c.localConnector().Start(ctx, resourceDefToDomain(res))
+	if startErr != nil {
+		//nolint:nilerr // OpResult carries operator-facing failure details; transport error remains nil
+		return &OpResult{
+			Success:   false,
+			ServiceID: id,
+			Error:     startErr.Error(),
+		}, nil
+	}
+	return &OpResult{
+		Success:   true,
+		ServiceID: id,
+		Message:   fmt.Sprintf("resource %q applied successfully", id),
+	}, nil
+}
+
+func (c *InProcessClient) localConnector() *localconn.Connector {
+	if c.local != nil {
+		return c.local
+	}
+	return localconn.New()
 }
 
 // ListPipelines implements Client.
@@ -753,4 +835,71 @@ func containsTagFold(tags []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func findResourceDef(cfg *config.ConfigV2, id string) *config.ResourceDef {
+	if cfg == nil {
+		return nil
+	}
+	for i := range cfg.Resources {
+		if cfg.Resources[i].ID == id {
+			return &cfg.Resources[i]
+		}
+	}
+	return nil
+}
+
+func resourceDefToDomain(r *config.ResourceDef) *domain.Resource {
+	return &domain.Resource{
+		ID:        r.ID,
+		Name:      r.Name,
+		Type:      domain.ResourceType(r.Type),
+		ProjectID: r.Project,
+		Connector: r.Connector,
+		Config:    r.Config,
+		Tags:      append([]string(nil), r.Tags...),
+		DependsOn: append([]string(nil), r.DependsOn...),
+	}
+}
+
+func resourceMode(r config.ResourceDef) string {
+	if r.Type != string(domain.ResourceProcess) || r.Connector != "local" {
+		return ""
+	}
+	spec, err := localconn.SpecFromResourceConfig(r.Config)
+	if err != nil {
+		return ""
+	}
+	if spec.Mode == "" {
+		return string(localconn.ProcessModeDevSession)
+	}
+	return string(spec.Mode)
+}
+
+func resourceSupervisor(r config.ResourceDef) string {
+	if r.Type != string(domain.ResourceProcess) || r.Connector != "local" {
+		return ""
+	}
+	spec, err := localconn.SpecFromResourceConfig(r.Config)
+	if err != nil {
+		return ""
+	}
+	if spec.Supervisor == "" {
+		return string(localconn.ProcessSupervisorAuto)
+	}
+	return string(spec.Supervisor)
+}
+
+func resourceRunFrom(r config.ResourceDef) string {
+	if r.Type != string(domain.ResourceProcess) || r.Connector != "local" {
+		return ""
+	}
+	spec, err := localconn.SpecFromResourceConfig(r.Config)
+	if err != nil {
+		return ""
+	}
+	if spec.RunFrom == "" {
+		return string(localconn.ProcessRunFromWorkspace)
+	}
+	return string(spec.RunFrom)
 }

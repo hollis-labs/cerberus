@@ -1,0 +1,247 @@
+package local
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"text/template"
+	"time"
+
+	"github.com/chrispian/cerberus/internal/domain"
+)
+
+const launchdProcessPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{.Label}}</string>
+    <key>ProgramArguments</key>
+    <array>
+{{- range .ProgramArguments }}
+        <string>{{ . }}</string>
+{{- end }}
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{.WorkingDirectory}}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{{.StandardOutPath}}</string>
+    <key>StandardErrorPath</key>
+    <string>{{.StandardErrorPath}}</string>
+{{- if .Environment }}
+    <key>EnvironmentVariables</key>
+    <dict>
+{{- range .EnvironmentEntries }}
+        <key>{{ .Key }}</key>
+        <string>{{ .Value }}</string>
+{{- end }}
+    </dict>
+{{- end }}
+</dict>
+</plist>
+`
+
+type commandRunner interface {
+	CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error)
+}
+
+type execCommandRunner struct{}
+
+func (execCommandRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput() //nolint:gosec
+}
+
+type launchdBackend struct {
+	runner  commandRunner
+	homeDir func() (string, error)
+	uid     func() int
+	install artifactInstaller
+}
+
+type plistTemplateData struct {
+	Label              string
+	ProgramArguments   []string
+	WorkingDirectory   string
+	StandardOutPath    string
+	StandardErrorPath  string
+	Environment        map[string]string
+	EnvironmentEntries []plistEnvEntry
+}
+
+type plistEnvEntry struct {
+	Key   string
+	Value string
+}
+
+func (b launchdBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
+	plistPath, label, err := b.writePlist(res, spec)
+	if err != nil {
+		return err
+	}
+
+	domainTarget := b.domainTarget()
+	serviceTarget := b.serviceTarget(label)
+
+	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
+	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath); err != nil {
+		return fmt.Errorf("launchctl bootstrap %s: %w", label, err)
+	}
+	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", serviceTarget); err != nil {
+		return fmt.Errorf("launchctl kickstart %s: %w", label, err)
+	}
+	return nil
+}
+
+func (b launchdBackend) Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec) error {
+	label, err := b.serviceName(res, spec)
+	if err != nil {
+		return err
+	}
+	target := b.serviceTarget(label)
+	out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootout", target)
+	if err != nil && !isLaunchdNotFound(string(out), err) {
+		return fmt.Errorf("launchctl bootout %s: %w", label, err)
+	}
+	return nil
+}
+
+func (b launchdBackend) Status(ctx context.Context, res *domain.Resource, spec ProcessSpec) (domain.State, error) {
+	label, err := b.serviceName(res, spec)
+	if err != nil {
+		return domain.StateUnknown, err
+	}
+	target := b.serviceTarget(label)
+	out, err := b.runner.CombinedOutput(ctx, "launchctl", "print", target)
+	if err != nil {
+		if isLaunchdNotFound(string(out), err) {
+			return domain.StateStopped, nil
+		}
+		return domain.StateUnknown, fmt.Errorf("launchctl print %s: %w", label, err)
+	}
+	text := string(out)
+	switch {
+	case strings.Contains(text, "state = running"):
+		return domain.StateRunning, nil
+	case strings.Contains(text, "state = waiting"):
+		return domain.StateStopped, nil
+	default:
+		return domain.StateUnknown, nil
+	}
+}
+
+func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (string, string, error) {
+	layout, err := b.artifactInstaller().EnsureInstalled(res, spec)
+	if err != nil {
+		return "", "", err
+	}
+	programArgs, err := launchdProgramArguments(layout, spec)
+	if err != nil {
+		return "", "", err
+	}
+
+	logDir := filepath.Join(layout.RootDir, "logs")
+	if mkErr := os.MkdirAll(logDir, 0755); mkErr != nil { //nolint:gosec
+		return "", "", fmt.Errorf("create log dir: %w", mkErr)
+	}
+	if mkErr := os.MkdirAll(filepath.Dir(layout.PlistPath), 0755); mkErr != nil { //nolint:gosec
+		return "", "", fmt.Errorf("create launch agents dir: %w", mkErr)
+	}
+
+	data := plistTemplateData{
+		Label:             layout.ServiceName,
+		ProgramArguments:  programArgs,
+		WorkingDirectory:  layout.WorkingDir,
+		StandardOutPath:   filepath.Join(logDir, "stdout.log"),
+		StandardErrorPath: filepath.Join(logDir, "stderr.log"),
+		Environment:       spec.Env,
+	}
+	for k, v := range spec.Env {
+		data.EnvironmentEntries = append(data.EnvironmentEntries, plistEnvEntry{Key: k, Value: v})
+	}
+
+	rendered, err := renderLaunchdPlist(data)
+	if err != nil {
+		return "", "", err
+	}
+	if err := os.WriteFile(layout.PlistPath, rendered, 0600); err != nil {
+		return "", "", fmt.Errorf("write plist: %w", err)
+	}
+
+	return layout.PlistPath, layout.ServiceName, nil
+}
+
+func (b launchdBackend) serviceName(res *domain.Resource, spec ProcessSpec) (string, error) {
+	layout, err := b.artifactInstaller().EnsureInstalled(res, spec)
+	if err != nil {
+		return "", err
+	}
+	return layout.ServiceName, nil
+}
+
+func (b launchdBackend) domainTarget() string {
+	return fmt.Sprintf("gui/%d", b.uid())
+}
+
+func (b launchdBackend) serviceTarget(label string) string {
+	return fmt.Sprintf("%s/%s", b.domainTarget(), label)
+}
+
+func renderLaunchdPlist(data plistTemplateData) ([]byte, error) {
+	tmpl, err := template.New("launchd-process-plist").Parse(launchdProcessPlistTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("parse launchd plist template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("render launchd plist template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func launchdProgramArguments(layout InstallLayout, spec ProcessSpec) ([]string, error) {
+	if len(spec.Command) == 0 && spec.RunFrom != ProcessRunFromArtifact {
+		return nil, errors.New("process command is required")
+	}
+	switch spec.RunFrom {
+	case "", ProcessRunFromWorkspace:
+		return append([]string(nil), spec.Command...), nil
+	case ProcessRunFromArtifact:
+		if len(spec.Command) == 0 {
+			return []string{layout.ArtifactPath}, nil
+		}
+		args := append([]string{layout.ArtifactPath}, spec.Command[1:]...)
+		return args, nil
+	default:
+		return nil, fmt.Errorf("unsupported run_from value %q", spec.RunFrom)
+	}
+}
+
+func isLaunchdNotFound(out string, err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(out + " " + err.Error())
+	return strings.Contains(text, "could not find service") ||
+		strings.Contains(text, "service is disabled") ||
+		strings.Contains(text, "no such process")
+}
+
+func (b launchdBackend) artifactInstaller() artifactInstaller {
+	out := b.install
+	if out.homeDir == nil {
+		out.homeDir = b.homeDir
+	}
+	if out.now == nil {
+		out.now = time.Now
+	}
+	return out
+}

@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/config"
+	localconn "github.com/chrispian/cerberus/internal/connector/local"
+	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -28,20 +34,38 @@ var resourceListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tTAGS")
-		fmt.Fprintln(w, "--\t----\t----\t-------\t---------\t----")
+		fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tTAGS")
+		fmt.Fprintln(w, "--\t----\t----\t-------\t---------\t----\t----------\t--------\t----")
 
 		count := 0
 		for _, r := range v2.Resources {
 			if resourceListProject != "" && r.Project != resourceListProject {
 				continue
 			}
+			mode, supervisor, runFrom := "-", "-", "-"
+			if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
+				spec, err := localconn.SpecFromResourceConfig(r.Config)
+				if err == nil {
+					mode = string(spec.Mode)
+					if mode == "" {
+						mode = string(localconn.ProcessModeDevSession)
+					}
+					supervisor = string(spec.Supervisor)
+					if supervisor == "" {
+						supervisor = string(localconn.ProcessSupervisorAuto)
+					}
+					runFrom = string(spec.RunFrom)
+					if runFrom == "" {
+						runFrom = string(localconn.ProcessRunFromWorkspace)
+					}
+				}
+			}
 			tags := "-"
 			if len(r.Tags) > 0 {
 				tags = strings.Join(r.Tags, ", ")
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.ID, r.Name, r.Type, r.Project, r.Connector, tags)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.ID, r.Name, r.Type, r.Project, r.Connector, mode, supervisor, runFrom, tags)
 			count++
 		}
 		w.Flush() //nolint:errcheck
@@ -67,6 +91,14 @@ var resourceShowCmd = &cobra.Command{
 		id := args[0]
 		for _, r := range v2.Resources {
 			if r.ID == id {
+				var spec *localconn.ProcessSpec
+				if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
+					decoded, err := localconn.SpecFromResourceConfig(r.Config)
+					if err == nil {
+						spec = &decoded
+					}
+				}
+
 				fmt.Printf("ID:        %s\n", r.ID)
 				fmt.Printf("Name:      %s\n", r.Name)
 				fmt.Printf("Type:      %s\n", r.Type)
@@ -78,9 +110,41 @@ var resourceShowCmd = &cobra.Command{
 				if len(r.DependsOn) > 0 {
 					fmt.Printf("Depends:   %s\n", strings.Join(r.DependsOn, ", "))
 				}
+				if spec != nil {
+					mode := spec.Mode
+					if mode == "" {
+						mode = localconn.ProcessModeDevSession
+					}
+					supervisor := spec.Supervisor
+					if supervisor == "" {
+						supervisor = localconn.ProcessSupervisorAuto
+					}
+					runFrom := spec.RunFrom
+					if runFrom == "" {
+						runFrom = localconn.ProcessRunFromWorkspace
+					}
+					fmt.Printf("Mode:      %s\n", mode)
+					fmt.Printf("Supervisor:%s\n", supervisor)
+					fmt.Printf("Run From:  %s\n", runFrom)
+					if spec.ServiceName != "" {
+						fmt.Printf("Service:   %s\n", spec.ServiceName)
+					}
+					if spec.ArtifactPath != "" {
+						fmt.Printf("Artifact:  %s\n", spec.ArtifactPath)
+					}
+					if spec.InstallRoot != "" {
+						fmt.Printf("Install:   %s\n", spec.InstallRoot)
+					}
+				}
 				if len(r.Config) > 0 {
 					fmt.Println("Config:")
-					for k, v := range r.Config {
+					keys := make([]string, 0, len(r.Config))
+					for k := range r.Config {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+					for _, k := range keys {
+						v := r.Config[k]
 						fmt.Printf("  %s: %v\n", k, v)
 					}
 				}
@@ -92,8 +156,119 @@ var resourceShowCmd = &cobra.Command{
 	},
 }
 
+var resourceApplyCmd = &cobra.Command{
+	Use:   "apply <resource-id>",
+	Short: "Apply a local process resource",
+	Long:  "Applies a local process resource using its configured runtime backend. For os_service resources on macOS, this syncs the installed artifact and updates the launch agent.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; apply currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if client, err := newResourceSocketClient(); err == nil {
+			out, err := client.ApplyResource(cmd.Context(), res.ID)
+			if err == nil {
+				if out.Message != "" {
+					fmt.Println(out.Message)
+				} else {
+					fmt.Printf("Applied resource %s\n", res.ID)
+				}
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(err, &dErr) {
+				return err
+			}
+		}
+
+		conn := localconn.New()
+		if err := conn.Start(cmd.Context(), toDomainResource(res)); err != nil {
+			return err
+		}
+		fmt.Printf("Applied resource %s\n", res.ID)
+		return nil
+	},
+}
+
+var resourceStatusCmd = &cobra.Command{
+	Use:   "status <resource-id>",
+	Short: "Show the runtime status of a local process resource",
+	Long:  "Resolves runtime status for a local process resource through its configured backend.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
+		}
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; status currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			st, statusErr := client.GetResourceRuntime(cmd.Context(), res.ID)
+			if statusErr == nil {
+				fmt.Printf("%s\n", st.Status)
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(statusErr, &dErr) {
+				return statusErr
+			}
+		}
+
+		conn := localconn.New()
+		state, err := conn.Status(context.Background(), toDomainResource(res))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s\n", state)
+		return nil
+	},
+}
+
+func loadResource(id string) (*config.ResourceDef, error) {
+	v2, err := config.LoadUnified(cfgPath)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	for i := range v2.Resources {
+		if v2.Resources[i].ID == id {
+			return &v2.Resources[i], nil
+		}
+	}
+	return nil, fmt.Errorf("resource %q not found", id)
+}
+
+func toDomainResource(r *config.ResourceDef) *domain.Resource {
+	return &domain.Resource{
+		ID:        r.ID,
+		Name:      r.Name,
+		Type:      domain.ResourceType(r.Type),
+		ProjectID: r.Project,
+		Connector: r.Connector,
+		Config:    r.Config,
+		Tags:      append([]string(nil), r.Tags...),
+		DependsOn: append([]string(nil), r.DependsOn...),
+	}
+}
+
+func newResourceSocketClient() (*cerbapi.SocketClient, error) {
+	path, err := cerbapi.SocketPath()
+	if err != nil {
+		return nil, err
+	}
+	return cerbapi.NewSocketClient(path), nil
+}
+
 func init() {
 	resourceListCmd.Flags().StringVar(&resourceListProject, "project", "", "filter by project ID")
 	resourceCmd.AddCommand(resourceListCmd)
 	resourceCmd.AddCommand(resourceShowCmd)
+	resourceCmd.AddCommand(resourceApplyCmd)
+	resourceCmd.AddCommand(resourceStatusCmd)
 }

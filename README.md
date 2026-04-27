@@ -1,6 +1,6 @@
 # Cerberus
 
-TUI service manager for the Project Tiamat family. Start, stop, and monitor all project daemons and dev servers from one screen.
+Agent-first local infrastructure manager evolving toward a broader control plane. Cerberus still supports the original TUI service-manager workflow, but the modern path is the v2 resource model used by the CLI, daemon, HTTP/socket API, and MCP surface.
 
 ## Install
 
@@ -17,6 +17,26 @@ cerberus              # launch TUI
 cerberus --init       # create default config and exit
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
+
+## Runtime Models
+
+Cerberus currently has two local runtime lanes:
+
+- `service` commands: legacy v1 service-manager workflow backed by `services:` config entries, PID files, and the daemon monitor.
+- `resource` commands: v2 resource workflow backed by `resources:` config entries. Local `process` resources can run as:
+  - `dev_session`: repo-local development processes
+  - `os_service`: native supervisor-managed background services
+
+For local v2 `process` resources, the key commands are:
+
+```bash
+cerberus resource list
+cerberus resource show <resource-id>
+cerberus resource status <resource-id>
+cerberus resource apply <resource-id>
+```
+
+On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied.
 
 ## Controls
 
@@ -75,6 +95,39 @@ services:
 ```
 
 **Never set `port: 0`** — omit the field entirely for services without a port. `lsof -ti :0` returns random system PIDs, causing false "running" status.
+
+## V2 Resource Example
+
+For the modern local-process path, define a v2 resource:
+
+```yaml
+version: 2
+
+projects:
+  - id: volon
+    name: Volon
+
+resources:
+  - id: volon-api
+    name: Volon API
+    type: process
+    project: volon
+    connector: local
+    config:
+      dir: ~/Projects-apps/volon
+      command: ["./volon-api", "serve"]
+      build: ["go", "build", "-o", "volon-api", "./cmd/volon-api"]
+      mode: os_service
+      supervisor: launchd
+      run_from: artifact
+```
+
+Notes:
+
+- `mode: dev_session` keeps the process in the repo-local development lane.
+- `mode: os_service` uses the native OS supervisor.
+- `run_from: artifact` installs a user-area runtime artifact before applying the service.
+- For artifact mode, `command[0]` must be a filesystem path, not a bare PATH lookup.
 
 ## Status Detection
 
