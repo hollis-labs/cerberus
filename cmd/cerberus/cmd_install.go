@@ -48,8 +48,8 @@ type launchdData struct {
 
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install cerberus as a system service",
-	Long:  "Installs a macOS launch agent so the cerberus daemon starts automatically on login and restarts if it exits.",
+	Short: "Install the cerberus daemon launch agent",
+	Long:  "Bootstraps or repairs the macOS launch agent for the Cerberus daemon label (`com.fragments-engine.cerberus`). The canonical ongoing management path is now the v2 `cerberus-daemon-service` resource; this command remains as a low-level bootstrap and recovery helper when the daemon is not yet available over the socket.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("install is currently supported on macOS only")
@@ -129,8 +129,8 @@ var installCmd = &cobra.Command{
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Remove cerberus system service",
-	Long:  "Unloads and removes the macOS launch agent for the cerberus daemon.",
+	Short: "Remove the cerberus daemon launch agent",
+	Long:  "Unloads and removes the macOS launch agent for the Cerberus daemon label (`com.fragments-engine.cerberus`). If `cerberus-daemon-service` is present in the v2 resource lane, prefer `cerberus resource remove cerberus-daemon-service` for normal lifecycle management.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("uninstall is currently supported on macOS only")

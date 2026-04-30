@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -77,19 +76,16 @@ func Load(path string) (*Config, error) {
 		cfg.Version = 1
 	}
 
-	home, _ := os.UserHomeDir()
 	for i := range cfg.Services {
 		svc := &cfg.Services[i]
 
-		// Expand ~ in dir paths
-		if strings.HasPrefix(svc.Dir, "~/") {
-			svc.Dir = filepath.Join(home, svc.Dir[2:])
-		}
-
-		// Expand ~ in log_file paths
-		if strings.HasPrefix(svc.LogFile, "~/") {
-			svc.LogFile = filepath.Join(home, svc.LogFile[2:])
-		}
+		svc.Dir = ExpandHomePath(svc.Dir)
+		svc.LogFile = ExpandHomePath(svc.LogFile)
+		svc.Env = expandHomeMapValues(svc.Env)
+		svc.Command = expandHomeSlice(svc.Command)
+		svc.Build = expandHomeSlice(svc.Build)
+		svc.EnvFile = ExpandHomePath(svc.EnvFile)
+		svc.HealthCheckCfg.Command = expandHomeSlice(svc.HealthCheckCfg.Command)
 
 		// Backward compat: map legacy Health field → HealthCheck.URL
 		if svc.Health != "" && svc.HealthCheckCfg.URL == "" && len(svc.HealthCheckCfg.Command) == 0 {
@@ -105,8 +101,7 @@ type versionProbe struct {
 	Version int `yaml:"version"`
 }
 
-// LoadUnified loads a config file and returns a ConfigV2 regardless of
-// the on-disk format. v0/v1 configs are automatically migrated to v2.
+// LoadUnified loads a v2 config file.
 func LoadUnified(path string) (*ConfigV2, error) {
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
@@ -119,23 +114,16 @@ func LoadUnified(path string) (*ConfigV2, error) {
 	}
 
 	switch probe.Version {
-	case 0, 1:
-		// Load as v1 and migrate.
-		v1, err := Load(path)
-		if err != nil {
-			return nil, fmt.Errorf("load v1 config: %w", err)
-		}
-		return MigrateV1ToV2(v1), nil
-
 	case 2:
 		var v2 ConfigV2
 		if err := yaml.Unmarshal(data, &v2); err != nil {
 			return nil, fmt.Errorf("parse v2 config: %w", err)
 		}
+		normalizeV2Config(&v2)
 		return &v2, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported config version: %d", probe.Version)
+		return nil, fmt.Errorf("unsupported config version: %d (Cerberus now requires version: 2)", probe.Version)
 	}
 }
 
@@ -153,22 +141,12 @@ func EnsureDefault() error {
 	return os.WriteFile(path, []byte(defaultConfig), 0644)
 }
 
-const defaultConfig = `# Cerberus — Fragments Engine Service Manager
+const defaultConfig = `# Cerberus — Fragments Engine Local Runtime
 # This is a SEED template. It is only written when ~/.cerberus/config.yaml
 # does not exist. The live config is ALWAYS ~/.cerberus/config.yaml.
 # Edit that file directly — changes here have NO effect on running systems.
-version: 1
+version: 2
 
-services:
-  # Add services here. See ~/.cerberus/config.yaml for the full configuration.
-  # Example:
-  #   - id: my-service
-  #     name: "My Service"
-  #     dir: ~/Projects-apps/my-project
-  #     command: ["my-binary", "serve"]
-  #     build: ["go", "install", "./cmd/my-binary"]
-  #     env_file: .env
-  #     port: 8080
-  #     health: http://127.0.0.1:8080/health
-  #     auto_restart: true
+projects: []
+resources: []
 `

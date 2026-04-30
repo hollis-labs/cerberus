@@ -5,33 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/chrispian/cerberus/internal/config"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/daemon"
 	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/pipeline"
-	"github.com/chrispian/cerberus/internal/procscan"
-	"github.com/chrispian/cerberus/internal/service"
 )
 
-// InProcessClient satisfies Client by driving a live ServiceRegistry
-// directly. Used by the daemon process itself (for daemon-embedded MCP
-// handlers) and by the socket server as its backend.
+// InProcessClient satisfies Client by driving the daemon's shared runtime
+// services directly. Used by the daemon process itself (for daemon-embedded
+// MCP handlers) and by the socket server as its backend.
 //
-// The client is a thin adapter — all Reload() semantics from CERB-1 are
-// preserved by routing through reg.Reload() at the top of each
-// lifecycle op, matching the pattern established in internal/mcp.
+// The client is a thin adapter around the active v2 resource runtime.
 type InProcessClient struct {
-	reg     *service.ServiceRegistry
-	monitor *daemon.Monitor
 	local   *localconn.Connector
 	logger  *slog.Logger
+	runtime *ResourceRuntimeService
 
 	// cfgPath is the on-disk path for the unified v2 config. When set,
 	// every project / resource / pipeline endpoint re-reads the file
@@ -49,29 +39,23 @@ type InProcessClient struct {
 	cfgMu sync.RWMutex
 	cfg   *config.ConfigV2
 
-	// opMu serializes registry reloads, service polling, and the
-	// lifecycle critical sections executed on this client's behalf.
-	//
-	// ManagedService.Poll / ServiceRegistry.Reload mutate service
-	// state without fine-grained locking at the ManagedService level
-	// (pre-existing concern in internal/service — a single daemon
-	// process historically only hit these paths serially). Once N
-	// MCP subprocesses fire concurrent RPCs through the socket, every
-	// inbound request triggers Reload + Poll — so without this mutex
-	// the race detector (correctly) flags writes to *ManagedService
-	// fields. Fixing that at the service-package level is out of
-	// scope for CERB-2; serializing at the Client layer is a
-	// targeted, correct workaround.
+	// opMu serializes pipeline resolution/execution against the shared
+	// local connector.
 	opMu sync.Mutex
 }
 
 // InProcessOption tunes construction of an InProcessClient.
 type InProcessOption func(*InProcessClient)
 
-// WithMonitor attaches a daemon monitor so Health/Status can surface
-// restart stats. Optional — callers without a monitor pass nothing.
-func WithMonitor(m *daemon.Monitor) InProcessOption {
-	return func(c *InProcessClient) { c.monitor = m }
+// WithResourceRuntimeService injects the shared resource runtime layer used
+// by resource-oriented client methods. Optional; when unset, the client
+// constructs one from its config/local options.
+func WithResourceRuntimeService(runtime *ResourceRuntimeService) InProcessOption {
+	return func(c *InProcessClient) {
+		if runtime != nil {
+			c.runtime = runtime
+		}
+	}
 }
 
 // WithConfigV2 seeds an in-memory v2 config snapshot. Intended for
@@ -89,8 +73,7 @@ func WithConfigV2(cfg *config.ConfigV2) InProcessOption {
 // WithConfigPath stashes the on-disk path for the unified v2 config.
 // When set, ListProjects / ListResources / ListPipelines / RunPipeline
 // call config.LoadUnified(path) on every invocation so edits to
-// config.yaml surface without a daemon restart — the v2-config analog
-// of ServiceRegistry.Reload() for the service tree.
+// config.yaml surface without a daemon restart.
 //
 // Production wiring: the daemon passes the same cfgPath that app.New
 // used to bootstrap its initial Config.
@@ -119,41 +102,21 @@ func WithInProcessLogger(l *slog.Logger) InProcessOption {
 	}
 }
 
-// NewInProcessClient constructs an InProcessClient. reg is required; all
-// other collaborators are optional (see WithMonitor, WithConfigV2,
-// WithConfigPath, WithLocalConnector, WithInProcessLogger).
-func NewInProcessClient(reg *service.ServiceRegistry, opts ...InProcessOption) *InProcessClient {
-	c := &InProcessClient{reg: reg, logger: slog.Default()}
+// NewInProcessClient constructs an InProcessClient.
+func NewInProcessClient(opts ...InProcessOption) *InProcessClient {
+	c := &InProcessClient{logger: slog.Default()}
 	for _, opt := range opts {
 		opt(c)
 	}
-	return c
-}
-
-// reloadLogged reloads the registry from disk, logging any failure.
-// The fallback behavior (continue with last-good registry state) is
-// intentional — a corrupt config file should not take the daemon
-// offline. But silent failure is the "looks fine but isn't" class of
-// bug CERB-2 exists to eliminate, so we always surface the error on
-// the logger.
-func (c *InProcessClient) reloadLogged() {
-	if err := c.reg.Reload(); err != nil {
-		c.logger.Warn("client.reload.failed", "error", err.Error())
+	if c.runtime == nil {
+		c.runtime = NewResourceRuntimeService(
+			WithResourceRuntimeLogger(c.logger),
+			WithResourceRuntimeLocalConnector(c.local),
+			WithResourceRuntimeConfigV2(c.cfg),
+			WithResourceRuntimeConfigPath(c.cfgPath),
+		)
 	}
-}
-
-// reloadAndFind refreshes the registry from disk before resolving. This
-// mirrors internal/mcp.reloadAndFind — the sole purpose of this method
-// is to ensure every lifecycle op sees the current on-disk config.
-//
-// Reload itself is protected by ServiceRegistry.mu, but the registry
-// mutates existing *ManagedService pointers in-place during Reload
-// (Def, Stale) so readers must not hold those pointers across Reload
-// calls from other goroutines. Holding opMu keeps callers in a safe
-// quiescent window.
-func (c *InProcessClient) reloadAndFind(id string) *service.ManagedService {
-	c.reloadLogged()
-	return c.reg.Find(id)
+	return c
 }
 
 // snapshotConfig returns the current v2 config snapshot used by the
@@ -190,373 +153,21 @@ func (c *InProcessClient) snapshotConfig() *config.ConfigV2 {
 	return fresh
 }
 
-// ListServices implements Client.
-func (c *InProcessClient) ListServices(_ context.Context) ([]ServiceStatus, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-
-	c.reloadLogged()
-	svcs := c.reg.Current()
-
-	var monStatus *daemon.MonitorStatus
-	if c.monitor != nil {
-		ms := c.monitor.GetStatus()
-		monStatus = &ms
-	}
-
-	out := make([]ServiceStatus, 0, len(svcs))
-	for _, svc := range svcs {
-		out = append(out, buildServiceStatus(svc, monStatus))
-	}
-	return out, nil
-}
-
-// GetService implements Client.
-func (c *InProcessClient) GetService(_ context.Context, id string) (*ServiceStatus, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-
-	svc := c.reloadAndFind(id)
-	if svc == nil {
-		return nil, fmt.Errorf("service %q not found", id)
-	}
-	var monStatus *daemon.MonitorStatus
-	if c.monitor != nil {
-		ms := c.monitor.GetStatus()
-		monStatus = &ms
-	}
-	status := buildServiceStatus(svc, monStatus)
-	return &status, nil
-}
-
-// StartService implements Client.
-func (c *InProcessClient) StartService(_ context.Context, id string) (*OpResult, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	svc := c.reloadAndFind(id)
-	if svc == nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", id),
-		}, nil
-	}
-	if err := svc.Start(); err != nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("failed to start service %q: %s", id, err.Error()),
-		}, nil
-	}
-	return &OpResult{
-		Success:   true,
-		ServiceID: id,
-		Message:   fmt.Sprintf("service %q started successfully", id),
-	}, nil
-}
-
-// StopService implements Client.
-func (c *InProcessClient) StopService(_ context.Context, id string, audit AuditContext) (*OpResult, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	svc := c.reloadAndFind(id)
-	if svc == nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", id),
-		}, nil
-	}
-	if svc.Def.Protected {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", id),
-		}, nil
-	}
-
-	service.LogAudit("stop", id, audit.Reason, audit.TaskID, audit.SessionID)
-
-	// Pause auto-restart so the monitor doesn't undo the stop. Matches
-	// the pattern in internal/mcp/tools_lifecycle.go — no defer-resume
-	// on stop: a deliberate stop stays stopped until the operator
-	// explicitly starts or resumes.
-	_ = pausectl.PauseService(id)
-
-	if err := svc.Stop(); err != nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("failed to stop service %q: %s", id, err.Error()),
-		}, nil
-	}
-	return &OpResult{
-		Success:   true,
-		ServiceID: id,
-		Message:   fmt.Sprintf("service %q stopped successfully (reason: %s)", id, audit.Reason),
-	}, nil
-}
-
-// RestartService implements Client.
-func (c *InProcessClient) RestartService(_ context.Context, id string, args RestartServiceArgs) (*OpResult, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	svc := c.reloadAndFind(id)
-	if svc == nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", id),
-		}, nil
-	}
-	if svc.Def.Protected {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", id),
-		}, nil
-	}
-
-	service.LogAudit("restart", id, args.Audit.Reason, args.Audit.TaskID, args.Audit.SessionID)
-
-	_ = pausectl.PauseService(id)
-	defer func() { _ = pausectl.ResumeService(id) }()
-
-	if err := svc.Stop(); err != nil {
-		if !args.Force {
-			return &OpResult{
-				Success:   false,
-				ServiceID: id,
-				Error:     fmt.Sprintf("failed to stop service %q during restart: %s (use force=true to proceed anyway)", id, err.Error()),
-			}, nil
-		}
-	}
-	if err := svc.Start(); err != nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q stopped but failed to start: %s", id, err.Error()),
-		}, nil
-	}
-	return &OpResult{
-		Success:   true,
-		ServiceID: id,
-		Message:   fmt.Sprintf("service %q restarted successfully (reason: %s)", id, args.Audit.Reason),
-	}, nil
-}
-
-// RebuildService implements Client.
-func (c *InProcessClient) RebuildService(_ context.Context, id string, args RebuildServiceArgs) (*OpResult, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	svc := c.reloadAndFind(id)
-	if svc == nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q not found; check service_id against cerberus_status output", id),
-		}, nil
-	}
-	if svc.Def.Protected {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q is protected and cannot be stopped/restarted via external tools. Only Cerberus daemon auto-recovery can manage this service.", id),
-		}, nil
-	}
-
-	service.LogAudit("rebuild", id, args.Audit.Reason, args.Audit.TaskID, args.Audit.SessionID)
-
-	_ = pausectl.PauseService(id)
-	defer func() { _ = pausectl.ResumeService(id) }()
-
-	// Capture the binary fingerprint BEFORE the build step so we can
-	// identify processes still running the pre-build inode after
-	// `go install` (or equivalent) replaces the file on disk. See
-	// internal/procscan for the full rationale (CERB-3).
-	fp := procscan.CaptureForService(svc.Def.Command, svc.Def.Dir, c.logger)
-
-	var buildOutput string
-	if len(svc.Def.Build) > 0 {
-		out, err := svc.BuildSync()
-		buildOutput = strings.TrimSpace(out)
-		if err != nil && !args.Force {
-			return &OpResult{
-				Success:     false,
-				ServiceID:   id,
-				BuildOutput: buildOutput,
-				Error:       fmt.Sprintf("build failed for %q: %s (use force=true to restart anyway)", id, err.Error()),
-			}, nil
-		}
-	}
-
-	// Cascade-kill foreign subprocesses still running the pre-build
-	// inode. Their parents will respawn against the freshly-installed
-	// binary on the next tool call. No-op when fp is zero (e.g. for
-	// services whose Command[0] is an interpreter like `go run`).
-	//
-	// TODO(CERB-followup): cascade-kill targets foreign PIDs and doesn't
-	// need opMu protection. Lift this out of the critical section so
-	// concurrent unrelated tool calls don't block for ~2.5s grace + kill.
-	_ = procscan.CascadeKillStaleSubprocesses(fp, c.logger)
-
-	_ = svc.Stop()
-	if err := svc.Start(); err != nil {
-		return &OpResult{
-			Success:     false,
-			ServiceID:   id,
-			BuildOutput: buildOutput,
-			Error:       fmt.Sprintf("build succeeded but failed to start %q: %s", id, err.Error()),
-		}, nil
-	}
-	return &OpResult{
-		Success:     true,
-		ServiceID:   id,
-		BuildOutput: buildOutput,
-		Message:     fmt.Sprintf("service %q rebuilt and restarted successfully (reason: %s)", id, args.Audit.Reason),
-	}, nil
-}
-
-// BuildService implements Client.
-func (c *InProcessClient) BuildService(_ context.Context, id string) (*OpResult, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	svc := c.reloadAndFind(id)
-	if svc == nil {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     fmt.Sprintf("service %q not found", id),
-		}, nil
-	}
-	if len(svc.Def.Build) == 0 {
-		return &OpResult{
-			Success:   false,
-			ServiceID: id,
-			Error:     "no build command configured for this service",
-		}, nil
-	}
-	output, err := svc.BuildSync()
-	if err != nil {
-		// Surface build failure as a structured OpResult (success=false,
-		// error=<msg>) rather than a transport-level error so the socket
-		// server returns 200 OK with the payload intact. This matches
-		// the MCP tool contract established in internal/mcp.
-		return &OpResult{ //nolint:nilerr // intentional — see comment
-			Success:     false,
-			ServiceID:   id,
-			BuildOutput: output,
-			Error:       err.Error(),
-		}, nil
-	}
-	return &OpResult{
-		Success:     true,
-		ServiceID:   id,
-		BuildOutput: output,
-	}, nil
-}
-
-// ServiceLogs implements Client.
-func (c *InProcessClient) ServiceLogs(_ context.Context, id string, lines int) (*LogLines, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	svc := c.reloadAndFind(id)
-	if svc == nil {
-		return nil, fmt.Errorf("unknown service: %s", id)
-	}
-	if lines <= 0 {
-		lines = 50
-	}
-	// svc.LogPath() returns the live tempdir path that was assigned on
-	// Start(). Before the first Start — or when the process was
-	// started in a prior daemon — logPath is unset and LogPath()
-	// falls back to the tempdir default. Prefer an explicit
-	// Def.LogFile when it's configured so operators can point at a
-	// persistent log (e.g. ~/.cerberus/logs/svc.log) and still see
-	// output via cerberus_logs before the service starts.
-	logPath := svc.Def.LogFile
-	if logPath == "" {
-		logPath = svc.LogPath()
-	}
-	if logPath == "" {
-		return &LogLines{ServiceID: id, Content: "No log path configured for this service."}, nil
-	}
-	content, err := readLastNLines(logPath, lines)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &LogLines{
-				ServiceID: id,
-				LogPath:   logPath,
-				Content:   fmt.Sprintf("Log file does not exist: %s", logPath),
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to read log file: %w", err)
-	}
-	if content == "" {
-		content = fmt.Sprintf("Log file is empty: %s", logPath)
-	}
-	return &LogLines{ServiceID: id, LogPath: logPath, Content: content}, nil
+// ResourceLogs implements Client.
+func (c *InProcessClient) ResourceLogs(_ context.Context, id string, lines int, stream string) (*LogLines, error) {
+	return c.runtime.ResourceLogs(context.Background(), id, lines, stream)
 }
 
 // Health implements Client.
 func (c *InProcessClient) Health(_ context.Context, id string) (*DaemonHealth, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	c.reloadLogged()
-	svcs := c.reg.Current()
-
-	var entries []ServiceHealth
-	for _, svc := range svcs {
-		if id != "" && svc.Def.ID != id {
-			continue
-		}
-		hasHealthCheck := svc.Def.HealthCheckCfg.URL != "" || len(svc.Def.HealthCheckCfg.Command) > 0
-		entry := ServiceHealth{
-			ServiceID:        svc.Def.ID,
-			HealthConfigured: hasHealthCheck,
-		}
-		if !hasHealthCheck {
-			entries = append(entries, entry)
-			continue
-		}
-		entry.Healthy = svc.HealthStatus.Healthy
-		entry.ConsecutiveFailures = svc.HealthStatus.ConsecutiveFailures
-		entry.LastError = svc.HealthStatus.LastError
-		if !svc.HealthStatus.LastCheck.IsZero() {
-			entry.LastCheck = svc.HealthStatus.LastCheck.Format(time.RFC3339)
-		}
-		entries = append(entries, entry)
+	resourceEntries, err := c.runtime.Health(context.Background(), id)
+	if err != nil {
+		return nil, err
 	}
-
-	if id != "" && len(entries) == 0 {
-		return nil, fmt.Errorf("unknown service: %s", id)
-	}
-
-	resp := &DaemonHealth{Services: entries}
-	if c.monitor != nil {
-		monStatus := c.monitor.GetStatus()
-		resp.DaemonRunning = monStatus.Running
-		resp.MonitorInterval = monStatus.CheckInterval.String()
-		protectedCount := 0
-		failedCount := 0
-		for _, svc := range svcs {
-			if svc.Def.Protected {
-				protectedCount++
-			}
-			if stats, hasStats := monStatus.ServiceStats[svc.Def.ID]; hasStats {
-				maxAttempts := 3
-				if svc.Def.MaxRestartAttempts > 0 {
-					maxAttempts = svc.Def.MaxRestartAttempts
-				}
-				if stats.FailureCount >= maxAttempts {
-					failedCount++
-				}
-			}
-		}
-		resp.ServicesProtected = protectedCount
-		resp.ServicesFailed = failedCount
-	}
-	return resp, nil
+	return &DaemonHealth{
+		Resources:     resourceEntries,
+		DaemonRunning: true,
+	}, nil
 }
 
 // ListProjects implements Client.
@@ -582,32 +193,55 @@ func (c *InProcessClient) ListProjects(_ context.Context) ([]ProjectInfo, error)
 }
 
 // ListResources implements Client.
-func (c *InProcessClient) ListResources(_ context.Context, args ResourceListArgs) ([]ResourceInfo, error) {
-	cfg := c.snapshotConfig()
-	if cfg == nil {
-		return nil, nil
+func (c *InProcessClient) ListResources(ctx context.Context, args ResourceListArgs) ([]ResourceInfo, error) {
+	return c.runtime.ListResources(ctx, args)
+}
+
+// GetResourceRuntime implements Client.
+func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error) {
+	return c.runtime.GetResourceRuntime(ctx, id)
+}
+
+// GetResourceInspect implements Client.
+func (c *InProcessClient) GetResourceInspect(ctx context.Context, id string) (*ResourceInspect, error) {
+	return c.runtime.GetResourceInspect(ctx, id)
+}
+
+// GetResourceDoctor implements Client.
+func (c *InProcessClient) GetResourceDoctor(ctx context.Context, id string) (*ResourceDoctor, error) {
+	return c.runtime.GetResourceDoctor(ctx, id)
+}
+
+// DeployResource implements Client.
+func (c *InProcessClient) DeployResource(ctx context.Context, id string) (*OpResult, error) {
+	return c.runtime.DeployResource(ctx, id)
+}
+
+func valueOrUnknown(v string) string {
+	if v == "" {
+		return "unknown"
 	}
-	var out []ResourceInfo
-	for _, r := range cfg.Resources {
-		if args.ProjectID != "" && r.Project != args.ProjectID {
-			continue
-		}
-		if args.Connector != "" && r.Connector != args.Connector {
-			continue
-		}
-		if args.Tag != "" && !containsTagFold(r.Tags, args.Tag) {
-			continue
-		}
-		out = append(out, ResourceInfo{
-			ID:        r.ID,
-			Name:      r.Name,
-			Type:      r.Type,
-			Project:   r.Project,
-			Connector: r.Connector,
-			Tags:      r.Tags,
-		})
-	}
-	return out, nil
+	return v
+}
+
+// ReloadResource implements Client.
+func (c *InProcessClient) ReloadResource(ctx context.Context, id string) (*OpResult, error) {
+	return c.runtime.ReloadResource(ctx, id)
+}
+
+// ApplyResource implements Client.
+func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
+	return c.runtime.ApplyResource(ctx, id)
+}
+
+// SyncResource implements Client.
+func (c *InProcessClient) SyncResource(_ context.Context, id string) (*OpResult, error) {
+	return c.runtime.SyncResource(context.Background(), id)
+}
+
+// RemoveResource implements Client.
+func (c *InProcessClient) RemoveResource(ctx context.Context, id string) (*OpResult, error) {
+	return c.runtime.RemoveResource(ctx, id)
 }
 
 // ListPipelines implements Client.
@@ -647,8 +281,7 @@ func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*Pipeline
 
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
-	c.reloadLogged()
-	p, err := pipeline.Resolve(*pdef, c.reg.Current(), c.local)
+	p, err := pipeline.Resolve(*pdef, c.pipelineResources(cfg), c.local)
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("resolve pipeline: %s", err.Error())}, nil
 	}
@@ -665,92 +298,9 @@ func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*Pipeline
 	return &PipelineRunResult{Success: true, Raw: raw}, nil
 }
 
-// buildServiceStatus renders a single ManagedService into the DTO used
-// by ListServices / GetService. Factored out so the socket server and
-// the in-process client produce bit-identical output.
-func buildServiceStatus(svc *service.ManagedService, monStatus *daemon.MonitorStatus) ServiceStatus {
-	svc.Poll()
-
-	var uptimeSeconds float64
-	if svc.Status != service.StatusStopped && !svc.Uptime.IsZero() {
-		uptimeSeconds = time.Since(svc.Uptime).Seconds()
+func (c *InProcessClient) pipelineResources(cfg *config.ConfigV2) []config.ResourceDef {
+	if cfg == nil {
+		return nil
 	}
-
-	health := ""
-	if svc.HealthStatus.LastCheck.IsZero() {
-		health = "unknown"
-	} else if svc.HealthStatus.Healthy {
-		health = "healthy"
-	} else {
-		health = "unhealthy"
-	}
-
-	entry := ServiceStatus{
-		ID:            svc.Def.ID,
-		Name:          svc.Def.Name,
-		Status:        svc.Status.String(),
-		PID:           svc.PID,
-		Port:          svc.Def.Port,
-		UptimeSeconds: uptimeSeconds,
-		Health:        health,
-		Error:         svc.Error,
-		Protected:     svc.Def.Protected,
-		AutoRestart:   svc.Def.AutoRestart,
-		Stale:         svc.Stale,
-		LogPath:       svc.LogPath(),
-		HasBuild:      len(svc.Def.Build) > 0,
-	}
-
-	if monStatus != nil {
-		if stats, ok := monStatus.ServiceStats[svc.Def.ID]; ok {
-			entry.RestartCount = stats.FailureCount
-			if stats.LastRestart != nil {
-				entry.LastRestartAt = stats.LastRestart.Format(time.RFC3339)
-			}
-		}
-		maxAttempts := 3
-		if svc.Def.MaxRestartAttempts > 0 {
-			maxAttempts = svc.Def.MaxRestartAttempts
-		}
-		entry.DaemonState = deriveDaemonState(svc, monStatus, maxAttempts)
-	}
-
-	return entry
-}
-
-// deriveDaemonState mirrors the internal/mcp helper of the same name.
-// Kept local so the cerbapi package doesn't cross-import internal/mcp.
-func deriveDaemonState(svc *service.ManagedService, monStatus *daemon.MonitorStatus, maxAttempts int) string {
-	if !svc.Def.AutoRestart && !svc.Def.Protected {
-		return "unmanaged"
-	}
-	stats, hasStats := monStatus.ServiceStats[svc.Def.ID]
-	switch svc.Status {
-	case service.StatusRunning, service.StatusHealthy:
-		return "healthy"
-	case service.StatusStopped:
-		if hasStats && stats.FailureCount >= maxAttempts {
-			return "failed"
-		}
-		return "stopped"
-	case service.StatusFailed:
-		if hasStats && stats.FailureCount >= maxAttempts {
-			return "failed"
-		}
-		if hasStats && stats.FailureCount > 0 {
-			return "restarting"
-		}
-		return "failed"
-	default:
-		return "unknown"
-	}
-}
-
-func containsTagFold(tags []string, target string) bool {
-	for _, t := range tags {
-		if strings.EqualFold(t, target) {
-			return true
-		}
-	}
-	return false
+	return append([]config.ResourceDef(nil), cfg.Resources...)
 }
