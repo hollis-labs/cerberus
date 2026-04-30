@@ -6,21 +6,20 @@
 
 Cerberus evolves from a local process manager into a **universal infrastructure control plane**. It manages local dev services, cloud servers, DNS, containers, CI/CD, SSH, and deployments through a unified connector pattern. Agent-first (CLI + MCP), with a Wails desktop app as the eventual GUI.
 
-## Current Status (as of 2026-03-28)
+## Current Status (as of 2026-04-29)
 
 ### Completed
 
 **Phase 1 — Foundation:**
 - Domain model (`internal/domain/`) — Resource, Project, State, Connector, Store, Action, SecretProvider
 - Connector registry (`internal/connector/`) with tests
-- Local connector (`internal/connector/local/`) wrapping existing service package, with mapper + round-trip tests
+- Local connector (`internal/connector/local/`) with typed process specs, native `dev_session` runtime state, and `launchd` support for `os_service`
 - SQLite store (`internal/store/sqlite/`) with migrations, CRUD, and tests
 - Secrets provider (`internal/secrets/`) — keychain + env fallback with tests
-- Config v2 (`internal/config/`) — v2 schema, v1-to-v2 auto-migration, `LoadUnified()`, 16 tests
+- Config v2 (`internal/config/`) — v2 schema and `LoadUnified()` loader
 - App struct (`internal/app/`) — central dependency container
 - CLI split — `cmd/cerberus/main.go` split into 14+ per-command files
-- New CLI commands: `config migrate`, `project list/show`, `resource list/show`
-- MCP backward compat — all 8 original tools unchanged, wired through App
+- New CLI commands: `project list/show`, `resource list/show/status/apply/sync/remove`
 
 **Phase 2 — External Connectors + Pipelines:**
 - Pipeline engine (`internal/pipeline/`) — fluent builder, DAG executor, parallel stages, rollback, 11 tests
@@ -41,7 +40,21 @@ Cerberus evolves from a local process manager into a **universal infrastructure 
 - CLI: `ssh exec/status`, `domain list/status`, `dns list`, `forge servers/server/sites`, `cloudflare zones/dns list/dns create`, `docker ps/logs/up/down`
 - MCP: 29 tools total (15 prior + 14 new)
 
-TUI refresh deferred to last.
+The legacy TUI and service-management lane have now been removed from the active runtime surface.
+
+**Phase 4 — Local Runtime Backend Split (in progress):**
+- Typed local process spec (`internal/connector/local/spec.go`) for `mode`, `supervisor`, `run_from`, and install metadata
+- Dual local runtime seam: `dev_session` and `os_service`
+- macOS `launchd` backend for local `process` resources
+- User-area artifact install/sync layout under `~/.cerberus/apps/<project>/<resource>/...`
+- Home-path expansion for v2 local process config before launchd/runtime use
+- Daemon/socket API + MCP support for resource runtime status, apply, sync, and remove
+- Shared resource runtime service (`internal/cerbapi/resource_runtime_service.go`) so CLI fallback, daemon/socket API, and MCP hit the same v2 execution layer
+- Resource-native daemon monitor for `dev_session` auto-restart (`internal/cerbapi/resource_monitor.go`)
+- Resource status now exposes artifact drift plus recommended operator actions
+- Resource list now surfaces compact runtime summary when the daemon is reachable
+- Legacy service transport and operator-facing legacy lifecycle surfaces have been removed from the active CLI/MCP/daemon runtime path
+- Cerberus self-daemon is now represented as `cerberus-daemon-service` in the v2 resource lane
 
 ## Core Principles
 
@@ -51,7 +64,8 @@ TUI refresh deferred to last.
 4. **Project as first-class concept** — a Project groups related Resources.
 5. **Pipeline pattern** — multi-step workflows use a fluent builder + DAG executor with parallel stages and rollback.
 6. **Store abstraction** — SQLite default, interface allows future DB adapters. Lazily opened.
-7. **Backward compatible** — v1 config works forever. Migration is in-memory only.
+7. **Single active model** — local workload management is v2-only. Config must be `version: 2`.
+8. **Agent-facing output matters** — CLI help, MCP descriptions, and runtime diagnostics should actively steer agents toward the correct verb and lane.
 
 ## Domain Model
 
@@ -125,24 +139,14 @@ See `internal/domain/store.go`, `pipeline.go`, `secrets.go`.
 
 ```
 cmd/cerberus/
-├── main.go              -- rootCmd, runTUI, loadServices, filterServices
-├── cmd_up.go            -- up command
-├── cmd_down.go          -- down command
-├── cmd_restart.go       -- restart command
-├── cmd_status.go        -- status command
-├── cmd_logs.go          -- logs command
-├── cmd_build.go         -- build command
-├── cmd_rebuild.go       -- rebuild command
+├── main.go              -- rootCmd + top-level command registration
 ├── cmd_validate.go      -- validate command
-├── cmd_doctor.go        -- doctor command
 ├── cmd_init.go          -- init command
 ├── cmd_daemon.go        -- daemon command (uses App struct)
-├── cmd_mcp.go           -- MCP server (uses App struct, registers all 15 tools)
-├── cmd_install.go       -- install/uninstall launchd agent
-├── cmd_pause.go         -- pause/resume
-├── cmd_config.go        -- config migrate
+├── cmd_mcp.go           -- MCP server (uses App struct, registers active resource + connector tools)
+├── cmd_install.go       -- bootstrap/recovery helper for the daemon launch agent
 ├── cmd_project.go       -- project list/show
-├── cmd_resource.go      -- resource list/show
+├── cmd_resource.go      -- resource list/show/status/apply/deploy/sync/remove/logs/inspect/doctor/reload
 ├── cmd_pipeline.go      -- pipeline list/show/run
 ├── cmd_github.go        -- github status/releases/runs
 ├── cmd_server.go        -- server list/show
@@ -162,12 +166,17 @@ internal/
 │   ├── pipeline.go      -- PipelineRun, Action, PipelineEnv
 │   └── secrets.go       -- SecretProvider interface
 ├── app/
-│   └── app.go           -- App struct (config, store, registry, secrets, services)
+│   └── app.go           -- App struct (config, store, registry, secrets, local connector, resource runtime service)
+├── cerbapi/
+│   ├── resource_runtime_service.go -- shared v2 resource execution layer
+│   ├── inprocess.go     -- daemon-backed client adapter
+│   ├── socket_server.go -- HTTP/socket transport
+│   ├── socket_client.go -- thin remote client
+│   └── *.go            -- DTOs, logs, tests
 ├── config/
-│   ├── config.go        -- v1 Config/ServiceDef, Load(), LoadUnified()
+│   ├── config.go        -- config loader + default config helpers
 │   ├── v2.go            -- ConfigV2, ProjectDef, ResourceDef, PipelineDef, StageDef, ActionDef
-│   ├── migrate.go       -- MigrateV1ToV2()
-│   └── *_test.go        -- 16 tests
+│   └── *_test.go        -- loader/watcher/spec tests
 ├── store/sqlite/
 │   ├── store.go         -- SQLiteStore implementing domain.Store
 │   ├── migrations.go    -- Embedded migration runner
@@ -176,9 +185,16 @@ internal/
 ├── connector/
 │   ├── registry.go      -- Registry (Register/Get/List/IDs) + tests
 │   ├── local/
-│   │   ├── connector.go -- LocalConnector wrapping service.ManagedService
+│   │   ├── connector.go -- Local connector dispatching by process runtime mode
 │   │   ├── mapper.go    -- ServiceDefToResource / ResourceToServiceDef
-│   │   └── mapper_test.go
+│   │   ├── spec.go      -- Typed local process config (`mode`, `supervisor`, `run_from`)
+│   │   ├── runtime.go   -- `dev_session` vs `os_service` runtime backends
+│   │   ├── launchd.go   -- macOS launchd apply/status/remove backend
+│   │   ├── install_layout.go -- User-area artifact/install path derivation
+│   │   ├── artifact.go  -- Artifact sync + install manifest
+│   │   ├── apply_result.go -- Operator-facing apply outcome formatting
+│   │   ├── status_advice.go -- Recommended action derivation for resource status
+│   │   └── *_test.go
 │   ├── github/
 │   │   ├── types.go     -- RepoStatus, Release, WorkflowRun
 │   │   ├── backend.go   -- Backend interface
@@ -221,7 +237,7 @@ internal/
 │   ├── executor_test.go -- 11 tests
 │   └── actions/
 │       ├── shell.go     -- ShellAction (sh -c)
-│       ├── build.go     -- BuildAction (wraps ManagedService.BuildSync)
+│       ├── build.go     -- BuildAction (runs local process build commands from v2 resource specs)
 │       ├── connector.go -- Start/Stop actions (wraps connector interface)
 │       └── health.go    -- HealthWaitAction (poll URL)
 ├── secrets/
@@ -229,10 +245,9 @@ internal/
 │   └── keychain_test.go
 ├── mcp/
 │   ├── server.go        -- JSON-RPC 2.0 MCP server over stdio
-│   ├── tools.go         -- cerberus_status tool
-│   ├── tools_lifecycle.go    -- start/stop/restart/rebuild tools
-│   ├── tools_observability.go -- logs/build/health tools
-│   ├── tools_resources.go    -- project_list/resource_list tools
+│   ├── tools_result.go       -- shared MCP JSON result helpers
+│   ├── tools_observability.go -- health tool
+│   ├── tools_resources.go    -- project/resource runtime tools
 │   ├── tools_pipeline.go     -- pipeline_list/pipeline_run tools
 │   ├── tools_github.go       -- github_status/github_releases/github_runs tools
 │   ├── tools_ssh.go          -- ssh_exec/ssh_status tools
@@ -240,26 +255,28 @@ internal/
 │   ├── tools_forge.go        -- forge_servers/forge_server/forge_sites tools
 │   ├── tools_cloudflare.go   -- cloudflare_zones/dns_list/dns_create tools
 │   └── tools_docker.go       -- docker_ps/docker_logs/docker_up/docker_down tools
-├── service/             -- Existing process lifecycle (unchanged)
-├── daemon/              -- Health monitor, auto-restart
+├── service/             -- Legacy process lifecycle package still present in-tree but no longer on the active operator path
+├── daemon/              -- Daemon restart helpers + remaining support code
 ├── pausectl/            -- File-flag pause/resume
-└── tui/                 -- Bubble Tea views
+└── tui/                 -- Legacy Bubble Tea UI code still present in-tree but no longer on the active operator path
 ```
 
-## MCP Tools (29 total)
+## MCP Tools (active runtime + connector set)
 
 | Tool | Source File | Description |
 |------|-----------|-------------|
-| `cerberus_status` | tools.go | Service status with daemon state |
-| `cerberus_start` | tools_lifecycle.go | Start a service |
-| `cerberus_stop` | tools_lifecycle.go | Stop a service (requires reason) |
-| `cerberus_restart` | tools_lifecycle.go | Restart a service (requires reason) |
-| `cerberus_rebuild` | tools_lifecycle.go | Build + restart (requires reason) |
-| `cerberus_logs` | tools_observability.go | Tail service logs |
-| `cerberus_build` | tools_observability.go | Run build command |
 | `cerberus_health` | tools_observability.go | Health check results |
-| `cerberus_project_list` | tools_resources.go | List projects |
-| `cerberus_resource_list` | tools_resources.go | List resources with filters |
+| `cerberus_project_list` | tools_resources.go | Project list with resource counts |
+| `cerberus_resource_list` | tools_resources.go | Resource list with local runtime metadata |
+| `cerberus_resource_status` | tools_resources.go | Runtime status for a specific resource |
+| `cerberus_resource_inspect` | tools_resources.go | Detailed runtime/install inspection for a specific resource |
+| `cerberus_resource_doctor` | tools_resources.go | Runtime/install checks plus operator guidance |
+| `cerberus_resource_logs` | tools_resources.go | Tail resource log output |
+| `cerberus_resource_reload` | tools_resources.go | Restart or kickstart the current installed resource |
+| `cerberus_resource_deploy` | tools_resources.go | Build then apply a resource |
+| `cerberus_resource_apply` | tools_resources.go | Apply a specific resource through its runtime backend |
+| `cerberus_resource_sync` | tools_resources.go | Sync installed artifacts for an artifact-backed resource |
+| `cerberus_resource_remove` | tools_resources.go | Remove a resource from its runtime backend |
 | `cerberus_pipeline_list` | tools_pipeline.go | List pipelines |
 | `cerberus_pipeline_run` | tools_pipeline.go | Execute a pipeline |
 | `cerberus_github_status` | tools_github.go | GitHub repo status |
@@ -369,10 +386,11 @@ resources:
 
 ## Key Design Decisions
 
-1. **Local connector wraps service.go as-is** — no refactoring to minimize regression risk
-2. **Config map for connector-specific fields** — `Resource.Config` is `map[string]any`, avoiding god struct
-3. **DAG reuse** — pipeline executor uses same topological sort pattern as `service/dag.go`
-4. **Store is optional** — lazily opened, no DB for local-only users
-5. **Fluent pipeline builder + YAML declaration** — pipelines in code (tests) or config (users)
-6. **Dual backend pattern** — connectors auto-select API vs CLI based on available credentials/tools
-7. **Forge is read-only** — transitional connector, will be removed after migration
+1. **V2 resource clients stay thin** — CLI fallback, socket API, and MCP should call the shared resource runtime service rather than implementing resource logic independently
+2. **Local connector still wraps parts of service.go for `dev_session`** — acceptable transition seam for now, but this is implementation debt behind the v2 runtime layer
+3. **Config map for connector-specific fields** — `Resource.Config` is `map[string]any`, avoiding god struct
+4. **DAG reuse** — pipeline executor uses same topological sort pattern as `service/dag.go`
+5. **Store is optional** — lazily opened, no DB for local-only users
+6. **Fluent pipeline builder + YAML declaration** — pipelines in code (tests) or config (users)
+7. **Dual backend pattern** — connectors auto-select API vs CLI based on available credentials/tools
+8. **Forge is read-only** — transitional connector, will be removed after migration

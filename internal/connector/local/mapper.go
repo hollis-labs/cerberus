@@ -10,75 +10,24 @@ import (
 // ServiceDefToResource converts a v1 ServiceDef into a domain Resource.
 // All process-specific fields are packed into the Config map.
 func ServiceDefToResource(def config.ServiceDef) *domain.Resource {
-	cfg := make(map[string]any)
-
-	// Required fields
-	if def.Dir != "" {
-		cfg["dir"] = def.Dir
-	}
-	if len(def.Command) > 0 {
-		cfg["command"] = def.Command
-	}
-
-	// Optional fields — only include non-zero values
-	if def.EnvFile != "" {
-		cfg["env_file"] = def.EnvFile
-	}
-	if len(def.Env) > 0 {
-		cfg["env"] = def.Env
-	}
-	if def.URL != "" {
-		cfg["url"] = def.URL
-	}
-	// CRITICAL: never include port 0 — see CLAUDE.md
-	if def.Port > 0 {
-		cfg["port"] = def.Port
-	}
-	if len(def.Build) > 0 {
-		cfg["build"] = def.Build
-	}
-	if def.Health != "" {
-		cfg["health"] = def.Health
-	}
-	if def.HealthCheckCfg.URL != "" || len(def.HealthCheckCfg.Command) > 0 {
-		hc := make(map[string]any)
-		if def.HealthCheckCfg.URL != "" {
-			hc["url"] = def.HealthCheckCfg.URL
-		}
-		if len(def.HealthCheckCfg.Command) > 0 {
-			hc["command"] = def.HealthCheckCfg.Command
-		}
-		if def.HealthCheckCfg.Interval != "" {
-			hc["interval"] = def.HealthCheckCfg.Interval
-		}
-		if def.HealthCheckCfg.Timeout != "" {
-			hc["timeout"] = def.HealthCheckCfg.Timeout
-		}
-		cfg["health_check"] = hc
-	}
-	if def.AutoStart {
-		cfg["auto_start"] = true
-	}
-	if def.AutoRestart {
-		cfg["auto_restart"] = true
-	}
-	if def.RestartDelay != "" {
-		cfg["restart_delay"] = def.RestartDelay
-	}
-	if def.MaxRestartAttempts > 0 {
-		cfg["max_restart_attempts"] = def.MaxRestartAttempts
-	}
-	if def.RestartCooldown != "" {
-		cfg["restart_cooldown"] = def.RestartCooldown
-	}
-	if def.LogFile != "" {
-		cfg["log_file"] = def.LogFile
-	}
-	if len(def.Profiles) > 0 {
-		cfg["profiles"] = def.Profiles
-	}
-	if def.Protected {
-		cfg["protected"] = true
+	spec := ProcessSpec{
+		Dir:                def.Dir,
+		Command:            append([]string(nil), def.Command...),
+		EnvFile:            def.EnvFile,
+		Env:                cloneStringMap(def.Env),
+		URL:                def.URL,
+		Port:               def.Port,
+		Build:              append([]string(nil), def.Build...),
+		Health:             def.Health,
+		HealthCheck:        def.HealthCheckCfg,
+		AutoStart:          def.AutoStart,
+		AutoRestart:        def.AutoRestart,
+		RestartDelay:       def.RestartDelay,
+		MaxRestartAttempts: def.MaxRestartAttempts,
+		RestartCooldown:    def.RestartCooldown,
+		LogFile:            def.LogFile,
+		Profiles:           append([]string(nil), def.Profiles...),
+		Protected:          def.Protected,
 	}
 
 	now := time.Now().UTC()
@@ -88,7 +37,7 @@ func ServiceDefToResource(def config.ServiceDef) *domain.Resource {
 		Type:      domain.ResourceProcess,
 		ProjectID: def.Project,
 		Connector: "local",
-		Config:    cfg,
+		Config:    spec.ToResourceConfig(),
 		Tags:      def.Tags,
 		DependsOn: def.DependsOn,
 		CreatedAt: now,
@@ -97,94 +46,37 @@ func ServiceDefToResource(def config.ServiceDef) *domain.Resource {
 }
 
 // ResourceToServiceDef converts a domain Resource back to a v1 ServiceDef.
-// This is used by the local connector to interface with the existing
-// service.ManagedService code.
+// This remains as a compatibility adapter for legacy service-oriented code.
 func ResourceToServiceDef(res *domain.Resource) config.ServiceDef {
+	spec, _ := SpecFromResourceConfig(res.Config)
+
 	def := config.ServiceDef{
 		ID:      res.ID,
 		Name:    res.Name,
 		Project: res.ProjectID,
+		Dir:     spec.Dir,
+		Command: append([]string(nil), spec.Command...),
+		EnvFile: spec.EnvFile,
+		Env:     cloneStringMap(spec.Env),
+		URL:     spec.URL,
+		Port:    spec.Port,
 		Tags:    res.Tags,
-	}
-
-	c := res.Config
-
-	if v, ok := c["dir"].(string); ok {
-		def.Dir = v
-	}
-	switch v := c["command"].(type) {
-	case []any:
-		def.Command = toStringSlice(v)
-	case []string:
-		def.Command = v
-	}
-	if v, ok := c["env_file"].(string); ok {
-		def.EnvFile = v
-	}
-	switch v := c["env"].(type) {
-	case map[string]any:
-		def.Env = toStringMap(v)
-	case map[string]string:
-		def.Env = v
-	}
-	if v, ok := c["url"].(string); ok {
-		def.URL = v
-	}
-	if v, ok := c["port"]; ok {
-		def.Port = toInt(v)
-	}
-	switch v := c["build"].(type) {
-	case []any:
-		def.Build = toStringSlice(v)
-	case []string:
-		def.Build = v
-	}
-	if v, ok := c["health"].(string); ok {
-		def.Health = v
-	}
-	if v, ok := c["health_check"].(map[string]any); ok {
-		if u, ok := v["url"].(string); ok {
-			def.HealthCheckCfg.URL = u
-		}
-		switch cmd := v["command"].(type) {
-		case []any:
-			def.HealthCheckCfg.Command = toStringSlice(cmd)
-		case []string:
-			def.HealthCheckCfg.Command = cmd
-		}
-		if i, ok := v["interval"].(string); ok {
-			def.HealthCheckCfg.Interval = i
-		}
-		if t, ok := v["timeout"].(string); ok {
-			def.HealthCheckCfg.Timeout = t
-		}
-	}
-	if v, ok := c["auto_start"].(bool); ok {
-		def.AutoStart = v
-	}
-	if v, ok := c["auto_restart"].(bool); ok {
-		def.AutoRestart = v
-	}
-	if v, ok := c["restart_delay"].(string); ok {
-		def.RestartDelay = v
-	}
-	if v, ok := c["max_restart_attempts"]; ok {
-		def.MaxRestartAttempts = toInt(v)
-	}
-	if v, ok := c["restart_cooldown"].(string); ok {
-		def.RestartCooldown = v
-	}
-	if v, ok := c["log_file"].(string); ok {
-		def.LogFile = v
-	}
-	switch v := c["profiles"].(type) {
-	case []any:
-		def.Profiles = toStringSlice(v)
-	case []string:
-		def.Profiles = v
-	}
-	if v, ok := c["protected"].(bool); ok {
-		def.Protected = v
+		Build:   append([]string(nil), spec.Build...),
+		Health:  spec.Health,
+		HealthCheckCfg: config.HealthCheck{
+			URL:      spec.HealthCheck.URL,
+			Command:  append([]string(nil), spec.HealthCheck.Command...),
+			Interval: spec.HealthCheck.Interval,
+			Timeout:  spec.HealthCheck.Timeout,
+		},
+		AutoStart:          spec.AutoStart,
+		AutoRestart:        spec.AutoRestart,
+		RestartDelay:       spec.RestartDelay,
+		MaxRestartAttempts: spec.MaxRestartAttempts,
+		RestartCooldown:    spec.RestartCooldown,
+		LogFile:            spec.LogFile,
+		Profiles:           append([]string(nil), spec.Profiles...),
+		Protected:          spec.Protected,
 	}
 
 	// Also handle DependsOn from the resource level
@@ -193,35 +85,13 @@ func ResourceToServiceDef(res *domain.Resource) config.ServiceDef {
 	return def
 }
 
-func toStringSlice(v []any) []string {
-	out := make([]string, 0, len(v))
-	for _, item := range v {
-		if s, ok := item.(string); ok {
-			out = append(out, s)
-		}
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
 	}
 	return out
-}
-
-func toStringMap(v map[string]any) map[string]string {
-	out := make(map[string]string, len(v))
-	for k, val := range v {
-		if s, ok := val.(string); ok {
-			out[k] = s
-		}
-	}
-	return out
-}
-
-func toInt(v any) int {
-	switch n := v.(type) {
-	case int:
-		return n
-	case float64:
-		return int(n)
-	case int64:
-		return int(n)
-	default:
-		return 0
-	}
 }

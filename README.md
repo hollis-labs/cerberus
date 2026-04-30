@@ -1,6 +1,6 @@
 # Cerberus
 
-TUI service manager for the Project suite family. Start, stop, and monitor all project daemons and dev servers from one screen.
+Agent-first local infrastructure manager evolving toward a broader control plane. Cerberus now uses the v2 resource model across the CLI, daemon, HTTP/socket API, and MCP surface.
 
 ## Install
 
@@ -8,31 +8,65 @@ TUI service manager for the Project suite family. Start, stop, and monitor all p
 go install ./cmd/cerberus/
 ```
 
-Binary goes to `~/go/bin/cerberus`. On first run, creates `~/.cerberus/config.yaml` with default service definitions.
+Binary goes to `~/go/bin/cerberus`. Use `cerberus init` to create `~/.cerberus/config.yaml` with an empty v2 config skeleton.
 
 ## Usage
 
 ```bash
-cerberus              # launch TUI
-cerberus --init       # create default config and exit
+cerberus              # show help
+cerberus init         # create default config and exit
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
 
-## Controls
+## Runtime Models
 
-| Key | Action |
-|-----|--------|
-| `j`/`k` or arrows | Navigate |
-| `s` | Start selected service |
-| `x` | Stop selected (SIGTERM, SIGKILL after 5s) |
-| `r` | Restart |
-| `b` | Build (run configured build command) |
-| `enter` / `l` | Open URL in browser |
-| `a` | Start all |
-| `X` | Stop all |
-| `tab` | Cycle sort (name / status / port) |
-| `/` | Filter by name or tag |
-| `q` | Quit |
+Cerberus now has one local runtime lane:
+
+- `resource` commands: v2 resource workflow backed by `resources:` config entries. Local `process` resources can run as:
+  - `dev_session`: repo-local development processes
+  - `os_service`: native supervisor-managed background services
+
+Use the `resource` lane for all active local process management across CLI, daemon, socket API, and MCP.
+
+Under the hood, v2 resource operations now route through a shared resource runtime service. CLI, daemon/socket API, and MCP are intended to stay thin wrappers over that one execution layer rather than each owning separate runtime logic.
+
+The daemon health surface reports v2 resource state, and the daemon monitor supervises `dev_session` resources that opt into `auto_restart`.
+
+## CLI Quick Reference
+
+For local v2 `process` resources, the key commands are:
+
+```bash
+cerberus resource list
+cerberus resource show <resource-id>
+cerberus resource status <resource-id>
+cerberus resource inspect <resource-id>
+cerberus resource doctor <resource-id>
+cerberus resource logs <resource-id>
+cerberus resource deploy <resource-id>
+cerberus resource apply <resource-id>
+cerberus resource reload <resource-id>
+cerberus resource sync <resource-id>
+cerberus resource remove <resource-id>
+```
+
+Mental model:
+
+- build source, sync the artifact, and activate it: `cerberus resource deploy <id>`
+- start or converge an already-built resource: `cerberus resource apply <id>`
+- inspect live runtime state: `cerberus resource status <id>`
+- inspect full runtime/install details: `cerberus resource inspect <id>`
+- diagnose a resource: `cerberus resource doctor <id>`
+- tail recent logs: `cerberus resource logs <id>`
+- restart without reinstalling: `cerberus resource reload <id>`
+- sync artifact only: `cerberus resource sync <id>`
+- stop or unload the resource: `cerberus resource remove <id>`
+
+On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied. `resource status` and `resource list` now surface artifact drift plus a recommended next action (`sync` or `apply`) for artifact-backed services.
+
+The Cerberus daemon itself now follows this same model as `cerberus-daemon-service`, a v2 local process resource using the canonical launchd label `com.fragments-engine.cerberus`.
+
+For the repo-side rules a project should satisfy before it is added to the v2 lane, see [docs/guides/setting-up-a-project-for-cerberus-v2.md](docs/guides/setting-up-a-project-for-cerberus-v2.md).
 
 ## Port Map
 
@@ -43,7 +77,7 @@ All ports are unique across the suite suite:
 | 1420 | app-h Frontend (Vite) |
 | 5173 | acme Conduit Frontend (Vite) |
 | 5174 | Carrier Frontend (Vite) |
-| 7765 | app-a API (embedded) |
+| 7765 | Nil Dev |
 | 8080 | acme Conduit API |
 | 8085 | app-h API |
 | 8095 | app-d Daemon |
@@ -53,34 +87,112 @@ All ports are unique across the suite suite:
 
 ## Configuration
 
-Config lives at `~/.cerberus/config.yaml`. Each service entry:
+Config lives at `~/.cerberus/config.yaml` and must use `version: 2`.
+
+## V2 Resource Example
+
+For the modern local-process path, define a v2 resource:
 
 ```yaml
-services:
-  - id: conduit-api
-    name: "acme Conduit API"
-    project: conduit
-    dir: ~/src/conduit
-    command: ["./contextd", "serve", "--addr", ":8080"]
-    build: ["go", "build", "-o", "contextd", "./cmd/contextd/"]  # optional build command
-    env:                          # optional env vars (~ expanded)
-      CONTEXTD_ROOT: ~/.conduit
-    env_file: .env                # optional dotenv file (relative to dir)
-    url: http://127.0.0.1:8080   # opened by enter/l key
-    port: 8080                    # used for status polling (lsof)
-    health: http://127.0.0.1:8080/v1/health/readiness
-    tags: [api, daemon, go]       # filterable with /
-    protected: true               # blocks external stop/restart via MCP
-    auto_restart: true            # daemon monitor restarts if crashed
+version: 2
+
+projects:
+  - id: app-h
+    name: app-h
+
+resources:
+  - id: app-h-api
+    name: app-h API
+    type: process
+    project: app-h
+    connector: local
+    config:
+      dir: ~/src/app-h
+      command: ["./app-h-api", "serve"]
+      build: ["go", "build", "-o", "app-h-api", "./cmd/app-h-api"]
+      mode: os_service
+      supervisor: launchd
+      run_from: artifact
 ```
 
-**Never set `port: 0`** — omit the field entirely for services without a port. `lsof -ti :0` returns random system PIDs, causing false "running" status.
+Notes:
 
-## Status Detection
+- `mode: dev_session` keeps the process in the repo-local development lane.
+- `mode: os_service` uses the native OS supervisor.
+- `run_from: artifact` installs a user-area runtime artifact before applying the service.
+- For artifact mode, `command[0]` must be a filesystem path, not a bare PATH lookup.
+- `~` is expanded by Cerberus for local-process resource paths and env values before launchd sees them.
+
+## V2 Resource Workflow
+
+Typical `os_service` flow on macOS:
+
+```bash
+cerberus resource list
+cerberus resource status app-h-api
+cerberus resource deploy app-h-api
+cerberus resource sync app-h-api
+cerberus resource apply app-h-api
+cerberus resource remove app-h-api
+```
+
+Guidance:
+
+- Use `resource deploy` when your goal is "make the running service match the current source tree".
+- Use `resource sync` when the installed artifact is stale and the service is stopped.
+- Use `resource apply` when the correct workspace artifact already exists and the service should be loaded, reloaded, or restarted through `launchd`.
+- Use `resource remove` to unload the launch agent and remove the installed artifact tree.
+
+## Cerberus Daemon
+
+Cerberus now has a canonical v2 daemon resource:
+
+```yaml
+  - id: cerberus-daemon-service
+    name: "Cerberus Daemon Service"
+    project: cerberus
+    type: process
+    connector: local
+    config:
+      dir: ~/src/cerberus
+      command: ["./cerberus", "daemon", "--foreground"]
+      build: ["go", "build", "-o", "cerberus", "./cmd/cerberus"]
+      mode: os_service
+      supervisor: launchd
+      run_from: artifact
+      service_name: com.fragments-engine.cerberus
+```
+
+For normal lifecycle management, use the resource lane:
+
+```bash
+cerberus resource status cerberus-daemon-service
+cerberus resource apply cerberus-daemon-service
+cerberus resource remove cerberus-daemon-service
+```
+
+`cerberus install` and `cerberus uninstall` remain as bootstrap and recovery helpers for the daemon launch agent when the socket-backed daemon is not available yet.
+
+## Architecture Direction
+
+The accepted direction is:
+
+- `resources:` is the only future local workload model
+- local workloads should be `type: process`
+- runtime policy should be `mode: dev_session | os_service`
+- `services:` and the TUI are frozen rather than evolved further
+- v2 runtime execution should live behind one shared service layer so CLI, API, MCP, and any future GUI are thin clients
+
+See:
+
+- [docs/adr/0001-local-runtime-backends.md](docs/adr/0001-local-runtime-backends.md)
+- [docs/adr/0002-resource-only-local-workload-model.md](docs/adr/0002-resource-only-local-workload-model.md)
+
+## Legacy Status Detection
 
 Uses PID file as primary detection (written on start, validated with signal 0). Falls back to `lsof -ti :<port>` only for services with a port configured. Polls every 2 seconds. Shows PID, uptime, and color-coded status (green=running, red=stopped, yellow=starting/building). If a process crashes on start, the last line of its log is shown as the error.
 
-## Logs
+## Legacy Logs
 
 Service stdout/stderr goes to `$TMPDIR/cerberus-<service-id>.log`.
 
