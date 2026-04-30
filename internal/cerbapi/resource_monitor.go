@@ -97,14 +97,18 @@ func (m *ResourceMonitor) Run(ctx context.Context) error {
 
 func (m *ResourceMonitor) Stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if !m.running {
+		m.mu.Unlock()
 		return
 	}
-	if m.cancel != nil {
-		m.cancel()
+	cancel := m.cancel
+	done := m.done
+	m.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
 	}
-	<-m.done
+	<-done
 }
 
 func (m *ResourceMonitor) checkAllResources(ctx context.Context) {

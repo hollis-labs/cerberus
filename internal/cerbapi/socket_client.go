@@ -20,8 +20,7 @@ import (
 //
 // The client is safe for concurrent use (http.Client is). It holds no
 // config or service state of its own — that's the entire point of the
-// CERB-2 redesign. The active runtime surface is the v2 resource lane;
-// legacy service methods remain for frozen compatibility only.
+// CERB-2 redesign. The active runtime surface is the v2 resource lane.
 type SocketClient struct {
 	http    *http.Client
 	baseURL string // dummy scheme+host, DialContext routes to the socket

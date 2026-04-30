@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +130,9 @@ projects:
 }
 
 func TestResourceStatusTool_ViaSocket_ReturnsRuntimeMetadata(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd-specific resource metadata test")
+	}
 	dir := t.TempDir()
 	workspace := filepath.Join(dir, "workspace")
 	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec

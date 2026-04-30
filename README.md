@@ -8,13 +8,13 @@ Agent-first local infrastructure manager evolving toward a broader control plane
 go install ./cmd/cerberus/
 ```
 
-Binary goes to `~/go/bin/cerberus`. On first run, creates `~/.cerberus/config.yaml` with an empty v2 config skeleton.
+Binary goes to `~/go/bin/cerberus`. Use `cerberus init` to create `~/.cerberus/config.yaml` with an empty v2 config skeleton.
 
 ## Usage
 
 ```bash
 cerberus              # show help
-cerberus --init       # create default config and exit
+cerberus init         # create default config and exit
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
 
