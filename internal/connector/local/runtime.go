@@ -8,15 +8,14 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/service"
 )
 
 type runtimeBackend interface {
-	Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) (ApplyResult, error)
-	Reload(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
-	Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
-	Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error
-	Status(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) (domain.State, error)
+	Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) (ApplyResult, error)
+	Reload(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) error
+	Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) error
+	Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) error
+	Status(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) (domain.State, error)
 }
 
 type ApplyAction string
@@ -36,50 +35,49 @@ type ApplyResult struct {
 
 type devSessionBackend struct{}
 
-func (b devSessionBackend) Apply(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) (ApplyResult, error) {
-	if svc == nil {
-		return ApplyResult{}, fmt.Errorf("dev_session backend requires a managed service")
+func (b devSessionBackend) Apply(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) (ApplyResult, error) {
+	if session == nil {
+		return ApplyResult{}, fmt.Errorf("dev_session backend requires a session")
 	}
-	return ApplyResult{Action: ApplyActionStarted}, svc.Start()
+	return ApplyResult{Action: ApplyActionStarted}, session.Start()
 }
 
-func (b devSessionBackend) Stop(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) error {
-	if svc == nil {
-		return fmt.Errorf("dev_session backend requires a managed service")
+func (b devSessionBackend) Stop(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) error {
+	if session == nil {
+		return fmt.Errorf("dev_session backend requires a session")
 	}
-	return svc.Stop()
+	return session.Stop()
 }
 
-func (b devSessionBackend) Reload(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) error {
-	if svc == nil {
-		return fmt.Errorf("dev_session backend requires a managed service")
+func (b devSessionBackend) Reload(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) error {
+	if session == nil {
+		return fmt.Errorf("dev_session backend requires a session")
 	}
-	_ = svc.Stop()
-	return svc.Start()
+	_ = session.Stop()
+	return session.Start()
 }
 
-func (b devSessionBackend) Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, svc *service.ManagedService) error {
-	return b.Stop(ctx, res, spec, svc)
+func (b devSessionBackend) Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) error {
+	return b.Stop(ctx, res, spec, session)
 }
 
-func (b devSessionBackend) Status(_ context.Context, _ *domain.Resource, _ ProcessSpec, svc *service.ManagedService) (domain.State, error) {
-	if svc == nil {
-		return domain.StateUnknown, fmt.Errorf("dev_session backend requires a managed service")
+func (b devSessionBackend) Status(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) (domain.State, error) {
+	if session == nil {
+		return domain.StateUnknown, fmt.Errorf("dev_session backend requires a session")
 	}
-	svc.Poll()
-	return mapStatus(svc.Status), nil
+	return session.Poll(), nil
 }
 
 type osServiceBackend struct {
 	launchd launchdBackend
 }
 
-func (b osServiceBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) error {
+func (b osServiceBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *devSession) error {
 	_, err := b.Apply(ctx, res, spec, nil)
 	return err
 }
 
-func (b osServiceBackend) Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) (ApplyResult, error) {
+func (b osServiceBackend) Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *devSession) (ApplyResult, error) {
 	supervisor, err := effectiveSupervisor(spec)
 	if err != nil {
 		return ApplyResult{}, err
@@ -92,7 +90,7 @@ func (b osServiceBackend) Apply(ctx context.Context, res *domain.Resource, spec 
 	}
 }
 
-func (b osServiceBackend) Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) error {
+func (b osServiceBackend) Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *devSession) error {
 	supervisor, err := effectiveSupervisor(spec)
 	if err != nil {
 		return err
@@ -105,7 +103,7 @@ func (b osServiceBackend) Stop(ctx context.Context, res *domain.Resource, spec P
 	}
 }
 
-func (b osServiceBackend) Reload(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) error {
+func (b osServiceBackend) Reload(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *devSession) error {
 	supervisor, err := effectiveSupervisor(spec)
 	if err != nil {
 		return err
@@ -118,7 +116,7 @@ func (b osServiceBackend) Reload(ctx context.Context, res *domain.Resource, spec
 	}
 }
 
-func (b osServiceBackend) Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) error {
+func (b osServiceBackend) Destroy(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *devSession) error {
 	supervisor, err := effectiveSupervisor(spec)
 	if err != nil {
 		return err
@@ -131,7 +129,7 @@ func (b osServiceBackend) Destroy(ctx context.Context, res *domain.Resource, spe
 	}
 }
 
-func (b osServiceBackend) Status(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *service.ManagedService) (domain.State, error) {
+func (b osServiceBackend) Status(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *devSession) (domain.State, error) {
 	supervisor, err := effectiveSupervisor(spec)
 	if err != nil {
 		return domain.StateUnknown, err

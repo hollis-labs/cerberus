@@ -13,7 +13,7 @@ var validateCmd = &cobra.Command{
 	Short: "Validate configuration",
 	Long:  "Loads and validates the config file, reporting any errors.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load(cfgPath)
+		cfg, err := config.LoadUnified(cfgPath)
 		if err != nil {
 			return fmt.Errorf("config error: %w", err)
 		}
@@ -21,32 +21,32 @@ var validateCmd = &cobra.Command{
 		// Check for common issues
 		errors := 0
 		ids := make(map[string]bool)
-		ports := make(map[int]string)
+		projectIDs := make(map[string]bool)
 
-		for _, svc := range cfg.Services {
-			if svc.ID == "" {
-				fmt.Fprintf(os.Stderr, "  error: service missing ID (name: %s)\n", svc.Name)
+		for _, project := range cfg.Projects {
+			if project.ID == "" {
+				fmt.Fprintf(os.Stderr, "  error: project missing ID (name: %s)\n", project.Name)
 				errors++
 			}
-			if ids[svc.ID] {
-				fmt.Fprintf(os.Stderr, "  error: duplicate service ID %q\n", svc.ID)
+			if projectIDs[project.ID] {
+				fmt.Fprintf(os.Stderr, "  error: duplicate project ID %q\n", project.ID)
 				errors++
 			}
-			ids[svc.ID] = true
+			projectIDs[project.ID] = true
+		}
 
-			if svc.Port > 0 {
-				if other, ok := ports[svc.Port]; ok {
-					fmt.Fprintf(os.Stderr, "  error: port %d used by both %q and %q\n", svc.Port, other, svc.ID)
-					errors++
-				}
-				ports[svc.Port] = svc.ID
+		for _, res := range cfg.Resources {
+			if res.ID == "" {
+				fmt.Fprintf(os.Stderr, "  error: resource missing ID (name: %s)\n", res.Name)
+				errors++
 			}
-
-			if len(svc.Command) == 0 {
-				fmt.Fprintf(os.Stderr, "  warning: %s has no command\n", svc.ID)
+			if ids[res.ID] {
+				fmt.Fprintf(os.Stderr, "  error: duplicate resource ID %q\n", res.ID)
+				errors++
 			}
-			if svc.Dir == "" {
-				fmt.Fprintf(os.Stderr, "  warning: %s has no dir\n", svc.ID)
+			ids[res.ID] = true
+			if res.Project != "" && !projectIDs[res.Project] {
+				fmt.Fprintf(os.Stderr, "  warning: resource %s references unknown project %q\n", res.ID, res.Project)
 			}
 		}
 
@@ -54,7 +54,7 @@ var validateCmd = &cobra.Command{
 			return fmt.Errorf("config has %d error(s)", errors)
 		}
 
-		fmt.Printf("Config OK: %d services defined\n", len(cfg.Services))
+		fmt.Printf("Config OK: %d projects, %d resources defined\n", len(cfg.Projects), len(cfg.Resources))
 		return nil
 	},
 }

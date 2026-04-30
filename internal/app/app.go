@@ -5,12 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/connector"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/secrets"
-	"github.com/chrispian/cerberus/internal/service"
 	"github.com/chrispian/cerberus/internal/store/sqlite"
 )
 
@@ -19,21 +19,11 @@ import (
 type App struct {
 	Config *config.ConfigV2
 
-	// Source is the live config source for long-running processes.
-	// Every lifecycle op should re-read through it (typically via
-	// ServiceRegistry.Reload()).
-	Source config.Source
-
 	Store    domain.Store
 	Registry *connector.Registry
 	Secrets  domain.SecretProvider
 	Local    *localconn.Connector
-
-	// ServiceRegistry owns the live []*ManagedService list inside the
-	// daemon / MCP process. It re-parses config via Source on every
-	// Reload() and on SIGHUP / file-watcher events. Callers that need the
-	// current service slice should use Registry.Current().
-	ServiceRegistry *service.ServiceRegistry
+	Runtime  *cerbapi.ResourceRuntimeService
 
 	storePath string
 }
@@ -45,51 +35,37 @@ type App struct {
 // The SQLite store is NOT opened here — call OpenStore() explicitly when
 // needed. This keeps the default path (local services via config) lightweight.
 func New(cfgPath string) (*App, error) {
-	service.InitLifecycleLog()
-
-	// Load unified v2 config.
+	// Load v2 config.
 	v2, err := config.LoadUnified(cfgPath)
 	if err != nil {
-		return nil, fmt.Errorf("load unified config: %w", err)
-	}
-
-	// Build the live config source and service registry. The registry
-	// owns the canonical []*ManagedService list; every reload flows
-	// through it so daemon + MCP handlers always see fresh-from-disk
-	// definitions.
-	src := config.NewFileSource(cfgPath)
-	sreg, err := service.NewServiceRegistry(src, service.GetLogger())
-	if err != nil {
-		return nil, fmt.Errorf("init service registry: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
 	// Set up connector registry with local connector.
 	registry := connector.NewRegistry()
 	local := localconn.New()
-
-	// Register all services with the local connector. The local
-	// connector holds its own Resource->ManagedService map; we seed it
-	// with the initial set from the registry.
-	for _, svc := range sreg.Current() {
-		local.Register(svc)
-	}
 	registry.Register(local)
 
 	// Secrets provider
 	sec := secrets.NewKeychainProvider()
+	runtime := cerbapi.NewResourceRuntimeService(
+		cerbapi.WithResourceRuntimeLogger(nil),
+		cerbapi.WithResourceRuntimeLocalConnector(local),
+		cerbapi.WithResourceRuntimeConfigV2(v2),
+		cerbapi.WithResourceRuntimeConfigPath(cfgPath),
+	)
 
 	home, _ := os.UserHomeDir()
 	storePath := filepath.Join(home, ".cerberus", "cerberus.db")
 
 	return &App{
-		Config:          v2,
-		Source:          src,
-		Store:           nil, // lazily opened
-		Registry:        registry,
-		Secrets:         sec,
-		Local:           local,
-		ServiceRegistry: sreg,
-		storePath:       storePath,
+		Config:    v2,
+		Store:     nil, // lazily opened
+		Registry:  registry,
+		Secrets:   sec,
+		Local:     local,
+		Runtime:   runtime,
+		storePath: storePath,
 	}, nil
 }
 

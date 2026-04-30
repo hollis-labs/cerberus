@@ -12,7 +12,6 @@ import (
 
 	"github.com/chrispian/cerberus/internal/app"
 	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/daemon"
 	"github.com/chrispian/cerberus/internal/mcp"
 	"github.com/chrispian/cerberus/internal/service"
@@ -50,8 +49,7 @@ Use --foreground to stay in foreground.
 Subcommands:
   cerberus daemon start    explicit start (same as bare 'daemon')
   cerberus daemon stop     stop the running daemon
-  cerberus daemon restart  atomic stop-then-start with single-daemon invariant
-  cerberus daemon reload   hot-reload config in the running daemon (SIGHUP)`,
+  cerberus daemon restart  atomic stop-then-start with single-daemon invariant`,
 	RunE: runDaemonStart,
 }
 
@@ -107,40 +105,6 @@ verifies it is healthy before returning. Enforces the single-daemon invariant.`,
 // ServiceRegistry.Reload() call, so any of the three entry points produces
 // identical behavior (add/remove/change diffing, last-good fallback on
 // parse errors, structured config.reloaded log event).
-var daemonReloadCmd = &cobra.Command{
-	Use:   "reload",
-	Short: "Reload ~/.cerberus/config.yaml in the running daemon",
-	Long: `Sends SIGHUP to the running Cerberus daemon to force a config reload.
-
-Use this after editing ~/.cerberus/config.yaml when you want the changes
-applied immediately rather than waiting for the file-watcher to notice.
-This is the same mechanism as SIGHUP — added config entries are registered,
-removed entries stop their processes, and changed entries are marked stale
-(existing process keeps running on the old definition until the next
-rebuild/restart).`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		pid, err := daemon.CheckDaemonRunning()
-		if err != nil {
-			return fmt.Errorf("check daemon: %w", err)
-		}
-		if pid <= 0 {
-			return fmt.Errorf("no running Cerberus daemon found (checked %s)", func() string {
-				p, _ := daemon.DaemonPIDPath()
-				return p
-			}())
-		}
-		proc, err := os.FindProcess(pid)
-		if err != nil {
-			return fmt.Errorf("find daemon process %d: %w", pid, err)
-		}
-		if err := proc.Signal(syscall.SIGHUP); err != nil {
-			return fmt.Errorf("send SIGHUP to %d: %w", pid, err)
-		}
-		fmt.Printf("Sent SIGHUP to daemon (PID %d) — check cerberus.log for config.reloaded event\n", pid)
-		return nil
-	},
-}
-
 // runDaemonStart is the entrypoint for the bare `cerberus daemon` command and
 // the explicit `cerberus daemon start` subcommand.
 //
@@ -225,8 +189,8 @@ func spawnDaemonChild(ctx context.Context) (int, error) {
 }
 
 // runDaemonBody is the actual daemon process body: acquire the lock, install
-// the SIGHUP handler, write the pidfile, start the monitor + MCP server +
-// config file-watcher, wait for shutdown.
+// the SIGHUP handler, write the pidfile, start the resource monitor + MCP
+// server, wait for shutdown.
 func runDaemonBody() error {
 	service.InitLifecycleLog()
 	logger := service.GetLogger()
@@ -269,55 +233,28 @@ func runDaemonBody() error {
 		return fmt.Errorf("init app: %w", err)
 	}
 	defer a.Close() //nolint:errcheck
-	reg := a.ServiceRegistry
-
-	// Clean stale PID files from prior runs.
-	if err := service.CleanStalePIDFiles(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to clean stale PID files: %v\n", err)
-	}
-
-	// Detect orphaned processes from prior Cerberus runs (log only, never kill).
-	orphans := service.DetectOrphans(reg.Current())
-	if len(orphans) > 0 {
-		logger.Warn("daemon.orphan_detection",
-			"count", len(orphans),
-			"message", fmt.Sprintf("Found %d potential orphan process(es) from prior runs", len(orphans)),
-		)
-		for _, o := range orphans {
-			logger.Warn("daemon.orphan_detected",
-				"service", o.ServiceID,
-				"pid", o.PID,
-				"port", o.Port,
-				"process", o.ProcessName,
-			)
-		}
-		fmt.Printf("Warning: detected %d orphaned process(es) from prior runs. See cerberus.log for details.\n", len(orphans))
-	}
-
 	// Signal handling:
 	//   SIGINT / SIGTERM -> shutdown (ctx cancellation).
-	//   SIGHUP            -> hot-reload config (routes through reg.Reload()).
+	//   SIGHUP            -> ignored; v2 config is re-read on demand.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Start health monitor.
-	monitorConfig := daemon.DefaultMonitorConfig()
-	monitor := daemon.NewMonitor(reg, monitorConfig)
+	// Start the active v2 resource monitor. Resource-native supervision
+	// lives on the shared runtime side.
+	resourceMonitor := cerbapi.NewResourceMonitor(a.Runtime, cerbapi.DefaultResourceMonitorConfig(), logger)
 
 	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := monitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			fmt.Fprintf(os.Stderr, "Monitor error: %v\n", err)
+		if err := resourceMonitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "Resource monitor error: %v\n", err)
 		}
 	}()
 
-	// SIGHUP handler — delegates to the same Reload() used by the
-	// file-watcher and the `cerberus daemon reload` subcommand so all three
-	// entry points exercise identical code. (hupCh was already registered
-	// above to avoid a startup race.)
+	// SIGHUP is ignored in the v2-only runtime. Config is re-read on
+	// demand by the shared runtime service and by the resource monitor.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -327,46 +264,21 @@ func runDaemonBody() error {
 				signal.Stop(hupCh)
 				return
 			case <-hupCh:
-				logger.Info("daemon.sighup.received",
-					"message", "reloading config from disk")
-				if err := reg.Reload(); err != nil {
-					// Registry already logged config.reload.failed;
-					// also print to stderr for foreground operators.
-					fmt.Fprintf(os.Stderr, "config reload failed: %v\n", err)
-				}
+				logger.Info("daemon.sighup.ignored",
+					"message", "config is re-read on demand in the v2 runtime")
 			}
 		}
 	}()
-
-	// File-watcher — best-effort observability. Reloads on any change to
-	// the config file (coalesced via debounce). Init failure is logged and
-	// ignored: we do not want a watcher hiccup to crash the daemon.
-	watcher, werr := config.NewWatcher(cfgPath, func() {
-		if err := reg.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "config reload (watcher) failed: %v\n", err)
-		}
-	}, logger)
-	if werr != nil {
-		logger.Warn("daemon.config_watcher.init_failed", "error", werr.Error())
-	} else {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := watcher.Run(ctx); err != nil {
-				logger.Warn("daemon.config_watcher.exited", "error", err.Error())
-			}
-		}()
-	}
 
 	// Build the canonical InProcessClient. All MCP tool handlers
 	// (daemon-embedded stdio MCP server AND external callers via the
 	// unix socket) are backed by this single client so state lives in
 	// one place.
-	inProc := cerbapi.NewInProcessClient(reg,
-		cerbapi.WithMonitor(monitor),
+	inProc := cerbapi.NewInProcessClient(
 		cerbapi.WithConfigV2(a.Config),
 		cerbapi.WithConfigPath(cfgPath),
 		cerbapi.WithLocalConnector(a.Local),
+		cerbapi.WithResourceRuntimeService(a.Runtime),
 		cerbapi.WithInProcessLogger(logger),
 	)
 
@@ -399,13 +311,6 @@ func runDaemonBody() error {
 	go func() {
 		defer wg.Done()
 		srv := mcp.NewServer("cerberus", "0.1.0")
-		srv.RegisterTool(mcp.NewCerberusStatusTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusStartTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusStopTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusRestartTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusRebuildTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusLogsTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusBuildTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusHealthTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusProjectListTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceListTool(inProc))
@@ -414,6 +319,7 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusResourceDoctorTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceLogsTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceReloadTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusResourceDeployTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceSyncTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceApplyTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(inProc))
@@ -460,7 +366,7 @@ func runDaemonBody() error {
 	<-ctx.Done()
 	fmt.Println("Shutting down...")
 
-	monitor.Stop()
+	resourceMonitor.Stop()
 	wg.Wait()
 
 	return nil
@@ -479,5 +385,4 @@ func init() {
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonRestartCmd)
-	daemonCmd.AddCommand(daemonReloadCmd)
 }

@@ -65,11 +65,13 @@ var pipelineRunCmd = &cobra.Command{
 				continue
 			}
 
-			// Resolve config def into executable pipeline.
-			// Re-read config first so the pipeline reflects any edits
-			// made since the app was initialized.
-			_ = a.ServiceRegistry.Reload()
-			p, err := pipeline.Resolve(pd, a.ServiceRegistry.Current(), a.Local)
+			// Resolve config def into executable pipeline against the
+			// current v2 resource definitions.
+			fresh, err := loadUnifiedForTools(cfgPath)
+			if err != nil {
+				return fmt.Errorf("reload config: %w", err)
+			}
+			p, err := pipeline.Resolve(pd, fresh.Resources, a.Local)
 			if err != nil {
 				return fmt.Errorf("resolve pipeline: %w", err)
 			}

@@ -7,14 +7,13 @@ import (
 	"testing"
 
 	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/service"
 )
 
 func TestDevSessionBackendRequiresService(t *testing.T) {
 	backend := devSessionBackend{}
 	_, err := backend.Status(context.Background(), &domain.Resource{ID: "svc"}, ProcessSpec{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "requires a managed service") {
-		t.Fatalf("expected managed-service error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "requires a session") {
+		t.Fatalf("expected session error, got %v", err)
 	}
 }
 
@@ -60,11 +59,8 @@ func TestConnectorBackendResolution(t *testing.T) {
 		t.Fatalf("backend type = %T, want devSessionBackend", backend)
 	}
 	if svc == nil {
-		t.Fatal("dev_session should create a managed service")
+		t.Fatal("dev_session should create a session")
 	}
-
-	svc = &service.ManagedService{}
-	_ = svc
 
 	osRes := &domain.Resource{
 		ID:        "svc",

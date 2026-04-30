@@ -18,7 +18,7 @@ import (
 
 var resourceCmd = &cobra.Command{
 	Use:   "resource",
-	Short: "Resource management",
+	Short: "V2 resource management",
 }
 
 var resourceListProject string
@@ -28,7 +28,7 @@ var resourceLogsStream string
 var resourceListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List resources",
-	Long:  "Lists all resources defined in the config. Use --project to filter by project.",
+	Long:  "Lists all resources defined in the v2 resource lane. Use --project to filter by project. For local process resources, the NEXT column is a compact action code; use status, inspect, or doctor for fuller next-step guidance.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if client, err := newResourceSocketClient(); err == nil {
 			list, listErr := client.ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: resourceListProject})
@@ -41,46 +41,9 @@ var resourceListCmd = &cobra.Command{
 				return listErr
 			}
 		}
-
-		v2, err := config.LoadUnified(cfgPath)
+		list, err := newResourceRuntimeService().ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: resourceListProject})
 		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-
-		var list []cerbapi.ResourceInfo
-		for _, r := range v2.Resources {
-			if resourceListProject != "" && r.Project != resourceListProject {
-				continue
-			}
-			mode, supervisor, runFrom := "-", "-", "-"
-			if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
-				spec, err := localconn.SpecFromResourceConfig(r.Config)
-				if err == nil {
-					mode = string(spec.Mode)
-					if mode == "" {
-						mode = string(localconn.ProcessModeDevSession)
-					}
-					supervisor = string(spec.Supervisor)
-					if supervisor == "" {
-						supervisor = string(localconn.ProcessSupervisorAuto)
-					}
-					runFrom = string(spec.RunFrom)
-					if runFrom == "" {
-						runFrom = string(localconn.ProcessRunFromWorkspace)
-					}
-				}
-			}
-			list = append(list, cerbapi.ResourceInfo{
-				ID:         r.ID,
-				Name:       r.Name,
-				Type:       r.Type,
-				Project:    r.Project,
-				Connector:  r.Connector,
-				Mode:       mode,
-				Supervisor: supervisor,
-				RunFrom:    runFrom,
-				Tags:       append([]string(nil), r.Tags...),
-			})
+			return err
 		}
 		printResourceList(list)
 		return nil
@@ -192,11 +155,7 @@ var resourceInspectCmd = &cobra.Command{
 			}
 		}
 
-		v2, err := config.LoadUnified(cfgPath)
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		out, err := cerbapi.NewInProcessClient(nil, cerbapi.WithConfigV2(v2)).GetResourceInspect(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().GetResourceInspect(cmd.Context(), res.ID)
 		if err != nil {
 			return err
 		}
@@ -231,11 +190,7 @@ var resourceDoctorCmd = &cobra.Command{
 			}
 		}
 
-		v2, err := config.LoadUnified(cfgPath)
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		out, err := cerbapi.NewInProcessClient(nil, cerbapi.WithConfigV2(v2)).GetResourceDoctor(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().GetResourceDoctor(cmd.Context(), res.ID)
 		if err != nil {
 			return err
 		}
@@ -272,11 +227,15 @@ var resourceReloadCmd = &cobra.Command{
 				return reloadErr
 			}
 		}
-		conn := localconn.New()
-		if err := conn.Reload(cmd.Context(), toDomainResource(res)); err != nil {
+		out, err := newResourceRuntimeService().ReloadResource(cmd.Context(), res.ID)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("Reloaded resource %s\n", res.ID)
+		if out.Message != "" {
+			fmt.Println(out.Message)
+		} else {
+			fmt.Printf("Reloaded resource %s\n", res.ID)
+		}
 		return nil
 	},
 }
@@ -284,7 +243,7 @@ var resourceReloadCmd = &cobra.Command{
 var resourceApplyCmd = &cobra.Command{
 	Use:   "apply <resource-id>",
 	Short: "Apply a local process resource",
-	Long:  "Applies a local process resource using its configured runtime backend. For os_service resources on macOS, this syncs the installed artifact and updates the launch agent.",
+	Long:  "Applies a local process resource using its configured runtime backend. For os_service resources on macOS, this syncs the currently-built artifact and updates the launch agent. It does not run the build command first; use `cerberus resource deploy` when source changes need to be built.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		res, err := loadResource(args[0])
@@ -311,16 +270,58 @@ var resourceApplyCmd = &cobra.Command{
 			}
 		}
 
-		conn := localconn.New()
-		spec, err := localconn.SpecFromResourceConfig(res.Config)
+		out, err := newResourceRuntimeService().ApplyResource(cmd.Context(), res.ID)
 		if err != nil {
 			return err
 		}
-		applyRes, err := conn.Apply(cmd.Context(), toDomainResource(res))
+		if out.Message != "" {
+			fmt.Println(out.Message)
+		} else {
+			fmt.Printf("Applied resource %s\n", res.ID)
+		}
+		return nil
+	},
+}
+
+var resourceDeployCmd = &cobra.Command{
+	Use:   "deploy <resource-id>",
+	Short: "Build then apply a local process resource",
+	Long:  "Runs the resource's declared build contract first, then applies it through the configured runtime backend. Use this when the intent is source-to-runtime deployment: make the running service match the current source tree. For already-built artifacts, use `cerberus resource apply`.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
 		if err != nil {
 			return err
 		}
-		fmt.Println(localconn.FormatApplyResultMessage(res.ID, spec, applyRes))
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; deploy currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+
+		if socketClient, socketErr := newResourceSocketClient(); socketErr == nil {
+			out, deployErr := socketClient.DeployResource(cmd.Context(), res.ID)
+			if deployErr == nil {
+				if out.Message != "" {
+					fmt.Println(out.Message)
+				} else {
+					fmt.Printf("Deployed resource %s\n", res.ID)
+				}
+				return nil
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(deployErr, &dErr) {
+				return deployErr
+			}
+		}
+
+		out, err := newResourceRuntimeService().DeployResource(cmd.Context(), res.ID)
+		if err != nil {
+			return err
+		}
+		if out.Message != "" {
+			fmt.Println(out.Message)
+		} else {
+			fmt.Printf("Deployed resource %s\n", res.ID)
+		}
 		return nil
 	},
 }
@@ -328,7 +329,7 @@ var resourceApplyCmd = &cobra.Command{
 var resourceStatusCmd = &cobra.Command{
 	Use:   "status <resource-id>",
 	Short: "Show the runtime status of a local process resource",
-	Long:  "Resolves runtime status for a local process resource through its configured backend.",
+	Long:  "Resolves runtime status for a local process resource through its configured backend. Status includes operator guidance such as artifact drift, compact action codes, and a prose next step.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		res, err := loadResource(args[0])
@@ -351,13 +352,11 @@ var resourceStatusCmd = &cobra.Command{
 			}
 		}
 
-		conn := localconn.New()
-		state, err := conn.Status(context.Background(), toDomainResource(res))
+		st, err := newResourceRuntimeService().GetResourceRuntime(context.Background(), res.ID)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Resource: %s\n", res.ID)
-		fmt.Printf("Status:   %s\n", state)
+		printResourceRuntimeStatus(st)
 		return nil
 	},
 }
@@ -391,11 +390,7 @@ var resourceLogsCmd = &cobra.Command{
 			}
 		}
 
-		v2, err := config.LoadUnified(cfgPath)
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		out, err := cerbapi.NewInProcessClient(nil, cerbapi.WithConfigV2(v2)).ResourceLogs(cmd.Context(), res.ID, resourceLogsLines, resourceLogsStream)
+		out, err := newResourceRuntimeService().ResourceLogs(cmd.Context(), res.ID, resourceLogsLines, resourceLogsStream)
 		if err != nil {
 			return err
 		}
@@ -437,22 +432,14 @@ var resourceSyncCmd = &cobra.Command{
 			}
 		}
 
-		spec, err := localconn.SpecFromResourceConfig(res.Config)
+		out, err := newResourceRuntimeService().SyncResource(cmd.Context(), res.ID)
 		if err != nil {
 			return err
 		}
-		if spec.RunFrom != localconn.ProcessRunFromArtifact {
-			fmt.Printf("Resource %s does not use artifact mode; nothing to sync\n", res.ID)
-			return nil
-		}
-		_, syncRes, err := localconn.SyncArtifactInstall(toDomainResource(res), spec)
-		if err != nil {
-			return err
-		}
-		if syncRes.Changed {
-			fmt.Printf("Resource %s artifact synced\n", res.ID)
+		if out.Message != "" {
+			fmt.Println(out.Message)
 		} else {
-			fmt.Printf("Resource %s artifact already current\n", res.ID)
+			fmt.Printf("Synced resource %s\n", res.ID)
 		}
 		return nil
 	},
@@ -488,11 +475,15 @@ var resourceRemoveCmd = &cobra.Command{
 			}
 		}
 
-		conn := localconn.New()
-		if err := conn.Destroy(cmd.Context(), toDomainResource(res)); err != nil {
+		out, err := newResourceRuntimeService().RemoveResource(cmd.Context(), res.ID)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("Removed resource %s\n", res.ID)
+		if out.Message != "" {
+			fmt.Println(out.Message)
+		} else {
+			fmt.Printf("Removed resource %s\n", res.ID)
+		}
 		return nil
 	},
 }
@@ -510,25 +501,16 @@ func loadResource(id string) (*config.ResourceDef, error) {
 	return nil, fmt.Errorf("resource %q not found", id)
 }
 
-func toDomainResource(r *config.ResourceDef) *domain.Resource {
-	return &domain.Resource{
-		ID:        r.ID,
-		Name:      r.Name,
-		Type:      domain.ResourceType(r.Type),
-		ProjectID: r.Project,
-		Connector: r.Connector,
-		Config:    r.Config,
-		Tags:      append([]string(nil), r.Tags...),
-		DependsOn: append([]string(nil), r.DependsOn...),
-	}
-}
-
 func newResourceSocketClient() (*cerbapi.SocketClient, error) {
 	path, err := cerbapi.SocketPath()
 	if err != nil {
 		return nil, err
 	}
 	return cerbapi.NewSocketClient(path), nil
+}
+
+func newResourceRuntimeService() *cerbapi.ResourceRuntimeService {
+	return cerbapi.NewResourceRuntimeService(cerbapi.WithResourceRuntimeConfigPath(cfgPath))
 }
 
 func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
@@ -572,7 +554,10 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 		fmt.Printf("Recommend:   %s\n", st.RecommendedAction)
 	}
 	if st.RecommendedReason != "" {
-		fmt.Printf("Why:         %s\n", st.RecommendedReason)
+		fmt.Printf("Context:     %s\n", st.RecommendedReason)
+	}
+	if st.RecommendedNextStep != "" {
+		fmt.Printf("Next Step:   %s\n", st.RecommendedNextStep)
 	}
 	if st.LaunchdLoaded {
 		fmt.Printf("Loaded:      true\n")
@@ -671,7 +656,10 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 		fmt.Printf("Recommend:   %s\n", st.RecommendedAction)
 	}
 	if st.RecommendedReason != "" {
-		fmt.Printf("Why:         %s\n", st.RecommendedReason)
+		fmt.Printf("Context:     %s\n", st.RecommendedReason)
+	}
+	if st.RecommendedNextStep != "" {
+		fmt.Printf("Next Step:   %s\n", st.RecommendedNextStep)
 	}
 	if st.LaunchdLoaded {
 		fmt.Printf("Loaded:      true\n")
@@ -716,7 +704,10 @@ func printResourceDoctor(out *cerbapi.ResourceDoctor) {
 		fmt.Printf("Recommend:   %s\n", out.RecommendedAction)
 	}
 	if out.RecommendedReason != "" {
-		fmt.Printf("Why:         %s\n", out.RecommendedReason)
+		fmt.Printf("Context:     %s\n", out.RecommendedReason)
+	}
+	if out.RecommendedNextStep != "" {
+		fmt.Printf("Next Step:   %s\n", out.RecommendedNextStep)
 	}
 	fmt.Println("Checks:")
 	for _, c := range out.Checks {
@@ -766,6 +757,7 @@ func init() {
 	resourceCmd.AddCommand(resourceShowCmd)
 	resourceCmd.AddCommand(resourceInspectCmd)
 	resourceCmd.AddCommand(resourceDoctorCmd)
+	resourceCmd.AddCommand(resourceDeployCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceReloadCmd)
 	resourceCmd.AddCommand(resourceStatusCmd)

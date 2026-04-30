@@ -1,6 +1,10 @@
 package local
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestSpecFromResourceConfigDefaults(t *testing.T) {
 	spec, err := SpecFromResourceConfig(map[string]any{
@@ -110,5 +114,50 @@ func TestProcessSpecRoundTripDaemonFields(t *testing.T) {
 	}
 	if restored.ArtifactPath != original.ArtifactPath {
 		t.Fatalf("ArtifactPath = %q, want %q", restored.ArtifactPath, original.ArtifactPath)
+	}
+}
+
+func TestSpecFromResourceConfigExpandsHomePaths(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir failed: %v", err)
+	}
+	spec, err := SpecFromResourceConfig(map[string]any{
+		"dir":              "~/Projects-apps/example",
+		"command":          []any{"~/bin/example", "serve", "--root", "~/.example"},
+		"build":            []any{"~/bin/build-example"},
+		"env_file":         "~/.env.example",
+		"log_file":         "~/.cerberus/logs/example.log",
+		"artifact_path":    "~/.cerberus/apps/example/bin/example",
+		"install_root":     "~/.cerberus/apps/example",
+		"install_work_dir": "~/.cerberus/apps/example/current",
+		"env": map[string]any{
+			"APP_ROOT": "~/.example",
+		},
+		"health_check": map[string]any{
+			"command": []any{"~/bin/healthcheck-example"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SpecFromResourceConfig failed: %v", err)
+	}
+
+	if got, want := spec.Dir, filepath.Join(home, "Projects-apps/example"); got != want {
+		t.Fatalf("Dir = %q, want %q", got, want)
+	}
+	if got, want := spec.Command[0], filepath.Join(home, "bin/example"); got != want {
+		t.Fatalf("Command[0] = %q, want %q", got, want)
+	}
+	if got, want := spec.Command[2], "--root"; got != want {
+		t.Fatalf("Command[2] = %q, want %q", got, want)
+	}
+	if got, want := spec.Command[3], filepath.Join(home, ".example"); got != want {
+		t.Fatalf("Command[3] = %q, want %q", got, want)
+	}
+	if got, want := spec.Env["APP_ROOT"], filepath.Join(home, ".example"); got != want {
+		t.Fatalf("Env[APP_ROOT] = %q, want %q", got, want)
+	}
+	if got, want := spec.HealthCheck.Command[0], filepath.Join(home, "bin/healthcheck-example"); got != want {
+		t.Fatalf("HealthCheck.Command[0] = %q, want %q", got, want)
 	}
 }

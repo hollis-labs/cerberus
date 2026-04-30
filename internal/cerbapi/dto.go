@@ -1,20 +1,26 @@
 // Package cerbapi defines the abstract Cerberus RPC interface used by
 // callers (CLI, MCP subprocess, daemon-internal MCP handlers) to drive
-// service lifecycle operations.
+// service lifecycle operations and the v2 resource runtime surface.
 //
 // Two implementations satisfy the Client interface:
 //
-//   - InProcessClient: runs ops against a live *service.ServiceRegistry
-//     (used by the daemon itself and by daemon-embedded MCP handlers).
+//   - InProcessClient: runs ops against the daemon's shared runtime
+//     services (used by the daemon itself and by daemon-embedded MCP
+//     handlers).
 //   - SocketClient: dials a unix-socket HTTP endpoint served by the
 //     daemon (used by the standalone `cerberus mcp` subprocess and,
 //     optionally, by short-lived CLI commands).
 //
-// The goal is a single source of truth for service state: the daemon's
-// in-memory ServiceRegistry. Spawned MCP subprocesses no longer cache
-// config, so they cannot serve stale definitions — every tool call
-// forwards to the daemon, which re-reads config via its Reload() path
-// (CERB-1) before executing the op.
+// The goal is a single source of truth per runtime lane:
+//
+//   - legacy v1 service state is still owned by the daemon's in-memory
+//     ServiceRegistry.
+//   - v2 resource runtime operations are owned by the shared
+//     ResourceRuntimeService.
+//
+// Spawned MCP subprocesses no longer cache config, so they cannot serve
+// stale definitions — every tool call forwards to the daemon, which
+// routes to the appropriate shared runtime layer before executing the op.
 package cerbapi
 
 import "time"
@@ -97,13 +103,29 @@ type ServiceHealth struct {
 	ConsecutiveFailures int    `json:"consecutive_failures"`
 }
 
+// ResourceHealth is the DTO for a single v2 resource runtime health snapshot.
+type ResourceHealth struct {
+	ResourceID          string `json:"resource_id"`
+	Status              string `json:"status"`
+	Healthy             bool   `json:"healthy"`
+	Mode                string `json:"mode,omitempty"`
+	Supervisor          string `json:"supervisor,omitempty"`
+	RunFrom             string `json:"run_from,omitempty"`
+	ArtifactInstalled   bool   `json:"artifact_installed,omitempty"`
+	ArtifactStale       bool   `json:"artifact_stale,omitempty"`
+	RecommendedAction   string `json:"recommended_action,omitempty"`
+	RecommendedReason   string `json:"recommended_reason,omitempty"`
+	RecommendedNextStep string `json:"recommended_next_step,omitempty"`
+}
+
 // DaemonHealth aggregates daemon + per-service health snapshots.
 type DaemonHealth struct {
-	Services          []ServiceHealth `json:"services"`
-	DaemonRunning     bool            `json:"daemon_running"`
-	MonitorInterval   string          `json:"monitor_interval,omitempty"`
-	ServicesProtected int             `json:"services_protected"`
-	ServicesFailed    int             `json:"services_failed"`
+	Services          []ServiceHealth  `json:"services"`
+	Resources         []ResourceHealth `json:"resources,omitempty"`
+	DaemonRunning     bool             `json:"daemon_running"`
+	MonitorInterval   string           `json:"monitor_interval,omitempty"`
+	ServicesProtected int              `json:"services_protected"`
+	ServicesFailed    int              `json:"services_failed"`
 }
 
 // LogLines is the DTO for tail-logs responses.
@@ -132,19 +154,20 @@ type ProjectInfo struct {
 
 // ResourceInfo is the DTO for resource-list responses.
 type ResourceInfo struct {
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Type              string   `json:"type"`
-	Project           string   `json:"project"`
-	Connector         string   `json:"connector"`
-	Mode              string   `json:"mode,omitempty"`
-	Supervisor        string   `json:"supervisor,omitempty"`
-	RunFrom           string   `json:"run_from,omitempty"`
-	Status            string   `json:"status,omitempty"`
-	ArtifactInstalled bool     `json:"artifact_installed,omitempty"`
-	ArtifactStale     bool     `json:"artifact_stale,omitempty"`
-	RecommendedAction string   `json:"recommended_action,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	Type                string   `json:"type"`
+	Project             string   `json:"project"`
+	Connector           string   `json:"connector"`
+	Mode                string   `json:"mode,omitempty"`
+	Supervisor          string   `json:"supervisor,omitempty"`
+	RunFrom             string   `json:"run_from,omitempty"`
+	Status              string   `json:"status,omitempty"`
+	ArtifactInstalled   bool     `json:"artifact_installed,omitempty"`
+	ArtifactStale       bool     `json:"artifact_stale,omitempty"`
+	RecommendedAction   string   `json:"recommended_action,omitempty"`
+	RecommendedNextStep string   `json:"recommended_next_step,omitempty"`
+	Tags                []string `json:"tags,omitempty"`
 }
 
 // ResourceListArgs filters the resource list response.
@@ -175,6 +198,7 @@ type ResourceRuntimeStatus struct {
 	ArtifactSyncedAt    string   `json:"artifact_synced_at,omitempty"`
 	RecommendedAction   string   `json:"recommended_action,omitempty"`
 	RecommendedReason   string   `json:"recommended_reason,omitempty"`
+	RecommendedNextStep string   `json:"recommended_next_step,omitempty"`
 	LaunchdLoaded       bool     `json:"launchd_loaded,omitempty"`
 	LaunchdState        string   `json:"launchd_state,omitempty"`
 	LaunchdPID          int      `json:"launchd_pid,omitempty"`
@@ -215,6 +239,7 @@ type ResourceInspect struct {
 	StderrLogPath       string   `json:"stderr_log_path,omitempty"`
 	RecommendedAction   string   `json:"recommended_action,omitempty"`
 	RecommendedReason   string   `json:"recommended_reason,omitempty"`
+	RecommendedNextStep string   `json:"recommended_next_step,omitempty"`
 	LaunchdLoaded       bool     `json:"launchd_loaded,omitempty"`
 	LaunchdState        string   `json:"launchd_state,omitempty"`
 	LaunchdPID          int      `json:"launchd_pid,omitempty"`
@@ -233,12 +258,13 @@ type ResourceDoctorCheck struct {
 }
 
 type ResourceDoctor struct {
-	ResourceID        string                `json:"resource_id"`
-	Status            string                `json:"status,omitempty"`
-	Summary           string                `json:"summary"`
-	RecommendedAction string                `json:"recommended_action,omitempty"`
-	RecommendedReason string                `json:"recommended_reason,omitempty"`
-	Checks            []ResourceDoctorCheck `json:"checks"`
+	ResourceID          string                `json:"resource_id"`
+	Status              string                `json:"status,omitempty"`
+	Summary             string                `json:"summary"`
+	RecommendedAction   string                `json:"recommended_action,omitempty"`
+	RecommendedReason   string                `json:"recommended_reason,omitempty"`
+	RecommendedNextStep string                `json:"recommended_next_step,omitempty"`
+	Checks              []ResourceDoctorCheck `json:"checks"`
 }
 
 // PipelineInfo is the DTO for pipeline-list responses.

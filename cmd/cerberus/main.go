@@ -3,12 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/service"
-	"github.com/chrispian/cerberus/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -26,45 +22,69 @@ func main() {
 	}
 }
 
-// rootCmd launches the TUI when no subcommand is given.
 var rootCmd = &cobra.Command{
 	Use:   "cerberus",
 	Short: "Agent-first local infrastructure manager",
 	Long: `Cerberus — agent-first local infrastructure manager for the Fragments Engine ecosystem.
 
-Cerberus currently exposes two local runtime lanes:
-- legacy v1 service management via the TUI and service-oriented CLI commands
-- modern v2 resource management via resource-oriented CLI, daemon, socket API, and MCP flows
+Cerberus is now v2-only for local workload management.
+Use the resource commands for active local process management, especially
+os_service and artifact-backed runtime management.
 
-Use the service commands for existing v1 services: workflows.
-Use the resource commands for modern local process resources, especially os_service and artifact-backed runtime management.
+For day-to-day operations, start with:
+- cerberus resource list
+- cerberus resource status <id>
+- cerberus resource deploy <id>   # build + apply when source changed
+- cerberus resource apply <id>    # apply only when the right artifact already exists
+- cerberus resource doctor <id>   # use when apply or deploy fails
+- cerberus resource logs <id>
+
+The Cerberus daemon itself now also fits this model as the v2 local process
+resource "cerberus-daemon-service" on macOS launchd.
 
 (c) HOLLIS LABS`,
 	Version: version,
-	RunE:    runTUI,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmd.Help()
+	},
 }
 
 func init() {
 	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (built %s)\n(c) HOLLIS LABS\n", version, buildDate))
 	rootCmd.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
 
-	rootCmd.AddCommand(upCmd)
-	rootCmd.AddCommand(downCmd)
-	rootCmd.AddCommand(restartCmd)
-	rootCmd.AddCommand(statusCmd)
-	rootCmd.AddCommand(logsCmd)
-	rootCmd.AddCommand(buildCmd)
-	rootCmd.AddCommand(rebuildCmd)
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "resources", Title: "V2 Resource Commands"},
+		&cobra.Group{ID: "runtime", Title: "Daemon And Runtime Commands"},
+		&cobra.Group{ID: "platform", Title: "Platform And Connector Commands"},
+	)
+
+	validateCmd.GroupID = "runtime"
+	initCmd.GroupID = "runtime"
+	daemonCmd.GroupID = "runtime"
+	mcpCmd.GroupID = "runtime"
+	installCmd.GroupID = "runtime"
+	uninstallCmd.GroupID = "runtime"
+
+	projectCmd.GroupID = "resources"
+	resourceCmd.GroupID = "resources"
+	pipelineCmd.GroupID = "resources"
+
+	githubCmd.GroupID = "platform"
+	serverCmd.GroupID = "platform"
+	sshCmd.GroupID = "platform"
+	domainCmd.GroupID = "platform"
+	dnsCmd.GroupID = "platform"
+	forgeCmd.GroupID = "platform"
+	cloudflareCmd.GroupID = "platform"
+	dockerCmd.GroupID = "platform"
+
 	rootCmd.AddCommand(validateCmd)
-	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
-	rootCmd.AddCommand(pauseCmd)
-	rootCmd.AddCommand(resumeCmd)
-	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(projectCmd)
 	rootCmd.AddCommand(resourceCmd)
 	rootCmd.AddCommand(pipelineCmd)
@@ -78,79 +98,10 @@ func init() {
 	rootCmd.AddCommand(dockerCmd)
 }
 
-// runTUI launches the interactive Bubble Tea TUI (default behavior).
-func runTUI(cmd *cobra.Command, args []string) error {
-	service.InitLifecycleLog()
-
-	// Auto-create config on first run
-	if _, err := os.Stat(cfgPath); os.IsNotExist(err) && cfgPath == config.DefaultPath() {
-		if err := config.EnsureDefault(); err != nil {
-			return fmt.Errorf("error creating config: %w", err)
-		}
-		fmt.Printf("Created default config at %s\n", config.DefaultPath())
-	}
-
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return fmt.Errorf("error loading config: %w", err)
-	}
-
-	services := service.NewFromConfig(cfg)
-	m := tui.NewModel(services, version, buildDate)
-
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("TUI error: %w", err)
-	}
-	return nil
-}
-
-// loadServices loads config and creates service objects.
-func loadServices() ([]*service.ManagedService, error) {
-	service.InitLifecycleLog()
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return nil, fmt.Errorf("error loading config: %w", err)
-	}
-	return service.NewFromConfig(cfg), nil
-}
-
 // loadUnifiedForTools is a thin wrapper around config.LoadUnified used
 // by the standalone `cerberus mcp` subprocess for the few remaining
 // connector-based tools (SSH) that read config locally. All
 // service-lifecycle tools route through the daemon socket instead.
 func loadUnifiedForTools(path string) (*config.ConfigV2, error) {
 	return config.LoadUnified(path)
-}
-
-// filterServices returns services matching the given IDs or tag.
-// If no IDs and no tag, returns all services.
-func filterServices(services []*service.ManagedService, ids []string, tag string) []*service.ManagedService {
-	if len(ids) == 0 && tag == "" {
-		return services
-	}
-
-	var result []*service.ManagedService
-	for _, svc := range services {
-		if matchesFilter(svc, ids, tag) {
-			result = append(result, svc)
-		}
-	}
-	return result
-}
-
-func matchesFilter(svc *service.ManagedService, ids []string, tag string) bool {
-	if tag != "" {
-		for _, t := range svc.Def.Tags {
-			if strings.EqualFold(t, tag) {
-				return true
-			}
-		}
-	}
-	for _, id := range ids {
-		if strings.EqualFold(svc.Def.ID, id) {
-			return true
-		}
-	}
-	return false
 }

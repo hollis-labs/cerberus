@@ -130,6 +130,64 @@ func TestLaunchdBackendStartWritesPlistAndRunsLaunchctl(t *testing.T) {
 	}
 }
 
+func TestLaunchdBackendStartIncludesEnvFileInPlist(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "contextd"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".env"), []byte("OPENAI_API_KEY=from-dotenv\nCONTEXTD_ROOT=from-dotenv\n"), 0600); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.vanta-conduit.conduit-api-service")
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+	}
+	res := &domain.Resource{ID: "conduit-api-service", ProjectID: "vanta-conduit"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./contextd", "serve", "--addr", ":8089"},
+		EnvFile:    ".env",
+		Env: map[string]string{
+			"CONTEXTD_ROOT": "/Users/chrispian/.conduit",
+		},
+	}
+
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.vanta-conduit.conduit-api-service.plist")
+	data, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
+	if err != nil {
+		t.Fatalf("read plist: %v", err)
+	}
+	text := string(data)
+	for _, needle := range []string{
+		"<key>OPENAI_API_KEY</key>",
+		"<string>from-dotenv</string>",
+		"<key>CONTEXTD_ROOT</key>",
+		"<string>/Users/chrispian/.conduit</string>",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("plist missing %q:\n%s", needle, text)
+		}
+	}
+	if strings.Contains(text, "<key>CONTEXTD_ROOT</key>\n        <string>from-dotenv</string>") {
+		t.Fatalf("expected explicit env to override env_file value:\n%s", text)
+	}
+}
+
 func TestLaunchdBackendStartNoopsWhenLoadedAndCurrent(t *testing.T) {
 	tmp := t.TempDir()
 	workspace := filepath.Join(tmp, "workspace")
@@ -249,6 +307,63 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 	}
 	if !applyRes.ArtifactChanged {
 		t.Fatalf("expected artifactChanged=true")
+	}
+}
+
+func TestLaunchdBackendApplyIncludesDiagnosticsOnBootstrapFailure(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	source := filepath.Join(workspace, "app")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	label := "com.fragments-engine.cerberus.demo.app"
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", label+".plist")
+	runner := &fakeCommandRunner{
+		out: map[string][]byte{
+			"launchctl print gui/501/" + label:         []byte("Could not find service"),
+			"launchctl bootstrap gui/501 " + plistPath: []byte("bootstrap failed"),
+		},
+		err: map[string]error{
+			"launchctl print gui/501/" + label:         errors.New("exit status 113"),
+			"launchctl bootstrap gui/501 " + plistPath: errors.New("exit status 5"),
+		},
+	}
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{homeDir: func() (string, error) { return tmp, nil }, now: time.Now},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./app", "serve"},
+	}
+
+	_, err := backend.Apply(context.Background(), res, spec)
+	if err == nil {
+		t.Fatal("expected bootstrap failure")
+	}
+	text := err.Error()
+	for _, needle := range []string{
+		"launchd output: bootstrap failed",
+		"stderr log:",
+		"stdout log:",
+		"plist:",
+		"install:",
+		"artifact:",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("error missing %q: %s", needle, text)
+		}
 	}
 }
 
