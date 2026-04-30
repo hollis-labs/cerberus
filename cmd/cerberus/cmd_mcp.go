@@ -21,7 +21,8 @@ var mcpCmd = &cobra.Command{
 The standalone subprocess holds NO config state of its own: it dials
 the running 'cerberus daemon' over ~/.cerberus/cerberus.sock and
 forwards every tool call to the daemon, which owns the single source
-of truth (live ServiceRegistry, hot-reloaded on every op).
+of truth for runtime execution:
+- v2 resource operations go through the shared resource runtime service
 
 If no daemon is running, tool calls return a structured error prompting
 the operator to start one with 'cerberus daemon'.`,
@@ -63,14 +64,7 @@ the operator to start one with 'cerberus daemon'.`,
 
 		// Lifecycle + resource tools route through the socket client.
 		// Every tool call forwards to the daemon, which owns the live
-		// registry + config. No per-subprocess cache → no staleness.
-		srv.RegisterTool(mcp.NewCerberusStatusTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusStartTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusStopTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusRestartTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusRebuildTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusLogsTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusBuildTool(socketClient))
+		// runtime layers. No per-subprocess cache -> no staleness.
 		srv.RegisterTool(mcp.NewCerberusHealthTool(socketClient))
 
 		// Project / resource / pipeline tools go through the socket too
@@ -82,6 +76,7 @@ the operator to start one with 'cerberus daemon'.`,
 		srv.RegisterTool(mcp.NewCerberusResourceDoctorTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceLogsTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceReloadTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusResourceDeployTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceSyncTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceApplyTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(socketClient))

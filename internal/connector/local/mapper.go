@@ -46,8 +46,7 @@ func ServiceDefToResource(def config.ServiceDef) *domain.Resource {
 }
 
 // ResourceToServiceDef converts a domain Resource back to a v1 ServiceDef.
-// This is used by the local connector to interface with the existing
-// service.ManagedService code.
+// This remains as a compatibility adapter for legacy service-oriented code.
 func ResourceToServiceDef(res *domain.Resource) config.ServiceDef {
 	spec, _ := SpecFromResourceConfig(res.Config)
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -103,7 +104,7 @@ func (b launchdBackend) Start(ctx context.Context, res *domain.Resource, spec Pr
 }
 
 func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec ProcessSpec) (ApplyResult, error) {
-	plistPath, label, artifactChanged, plistChanged, err := b.writePlist(res, spec)
+	layout, plistPath, label, artifactChanged, plistChanged, err := b.writePlist(res, spec)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -120,8 +121,8 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 		_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
 	}
 	if needsReload {
-		if _, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath); err != nil {
-			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s: %w", label, err)
+		if out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath); err != nil {
+			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
 		}
 	}
 	if !needsReload && (state == domain.StateRunning || state == domain.StateStarting) {
@@ -131,8 +132,8 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 			PlistChanged:    plistChanged,
 		}, nil
 	}
-	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", serviceTarget); err != nil {
-		return ApplyResult{}, fmt.Errorf("launchctl kickstart %s: %w", label, err)
+	if out, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", serviceTarget); err != nil {
+		return ApplyResult{}, fmt.Errorf("launchctl kickstart %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
 	}
 	action := ApplyActionRestarted
 	if !loaded {
@@ -238,23 +239,23 @@ func (b launchdBackend) Remove(ctx context.Context, res *domain.Resource, spec P
 	return nil
 }
 
-func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (string, string, bool, bool, error) {
+func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (InstallLayout, string, string, bool, bool, error) {
 	layout, syncRes, err := b.artifactInstaller().Sync(res, spec)
 	if err != nil {
-		return "", "", false, false, err
+		return InstallLayout{}, "", "", false, false, err
 	}
 	artifactChanged := syncRes.Performed && syncRes.Changed
 	programArgs, err := launchdProgramArguments(layout, spec)
 	if err != nil {
-		return "", "", false, false, err
+		return InstallLayout{}, "", "", false, false, err
 	}
 
 	logDir := filepath.Join(layout.RootDir, "logs")
 	if mkErr := os.MkdirAll(logDir, 0755); mkErr != nil { //nolint:gosec
-		return "", "", false, false, fmt.Errorf("create log dir: %w", mkErr)
+		return InstallLayout{}, "", "", false, false, fmt.Errorf("create log dir: %w", mkErr)
 	}
 	if mkErr := os.MkdirAll(filepath.Dir(layout.PlistPath), 0755); mkErr != nil { //nolint:gosec
-		return "", "", false, false, fmt.Errorf("create launch agents dir: %w", mkErr)
+		return InstallLayout{}, "", "", false, false, fmt.Errorf("create launch agents dir: %w", mkErr)
 	}
 
 	data := plistTemplateData{
@@ -263,22 +264,19 @@ func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (stri
 		WorkingDirectory:  layout.WorkingDir,
 		StandardOutPath:   filepath.Join(logDir, "stdout.log"),
 		StandardErrorPath: filepath.Join(logDir, "stderr.log"),
-		Environment:       spec.Env,
 	}
-	for k, v := range spec.Env {
-		data.EnvironmentEntries = append(data.EnvironmentEntries, plistEnvEntry{Key: k, Value: v})
-	}
+	data.Environment, data.EnvironmentEntries = launchdEnvironment(spec)
 
 	rendered, err := renderLaunchdPlist(data)
 	if err != nil {
-		return "", "", false, false, err
+		return InstallLayout{}, "", "", false, false, err
 	}
 	plistChanged, err := writeFileIfChanged(layout.PlistPath, rendered, 0600)
 	if err != nil {
-		return "", "", false, false, fmt.Errorf("write plist: %w", err)
+		return InstallLayout{}, "", "", false, false, fmt.Errorf("write plist: %w", err)
 	}
 
-	return layout.PlistPath, layout.ServiceName, artifactChanged, plistChanged, nil
+	return layout, layout.PlistPath, layout.ServiceName, artifactChanged, plistChanged, nil
 }
 
 func (b launchdBackend) loadedState(ctx context.Context, label string) (bool, domain.State, error) {
@@ -334,6 +332,56 @@ func renderLaunchdPlist(data plistTemplateData) ([]byte, error) {
 		return nil, fmt.Errorf("render launchd plist template: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+func formatLaunchdFailureDetails(out []byte, layout InstallLayout) string {
+	parts := make([]string, 0, 6)
+	if text := strings.TrimSpace(string(out)); text != "" {
+		parts = append(parts, "launchd output: "+text)
+	}
+	parts = append(parts,
+		"stderr log: "+filepath.Join(layout.RootDir, "logs", "stderr.log"),
+		"stdout log: "+filepath.Join(layout.RootDir, "logs", "stdout.log"),
+		"plist: "+layout.PlistPath,
+		"install: "+layout.RootDir,
+	)
+	if layout.ArtifactPath != "" {
+		parts = append(parts, "artifact: "+layout.ArtifactPath)
+	}
+	return "; " + strings.Join(parts, "; ")
+}
+
+func launchdEnvironment(spec ProcessSpec) (map[string]string, []plistEnvEntry) {
+	env := make(map[string]string)
+	if spec.EnvFile != "" {
+		envPath := spec.EnvFile
+		if !filepath.IsAbs(envPath) {
+			envPath = filepath.Join(spec.Dir, envPath)
+		}
+		for _, entry := range loadEnvFile(envPath) {
+			key, value, ok := strings.Cut(entry, "=")
+			if !ok || key == "" {
+				continue
+			}
+			env[key] = value
+		}
+	}
+	for key, value := range spec.Env {
+		env[key] = value
+	}
+	if len(env) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	entries := make([]plistEnvEntry, 0, len(keys))
+	for _, key := range keys {
+		entries = append(entries, plistEnvEntry{Key: key, Value: env[key]})
+	}
+	return env, entries
 }
 
 func launchdProgramArguments(layout InstallLayout, spec ProcessSpec) ([]string, error) {

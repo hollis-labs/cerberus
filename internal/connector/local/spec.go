@@ -114,6 +114,16 @@ func SpecFromResourceConfig(cfg map[string]any) (ProcessSpec, error) {
 	spec.ArtifactPath, _ = stringField(cfg, "artifact_path")
 	spec.InstallRoot, _ = stringField(cfg, "install_root")
 	spec.InstallWorkDir, _ = stringField(cfg, "install_work_dir")
+	spec.Dir = config.ExpandHomePath(spec.Dir)
+	spec.Command = expandHomeSlice(spec.Command)
+	spec.EnvFile = config.ExpandHomePath(spec.EnvFile)
+	spec.Env = expandHomeMapValues(spec.Env)
+	spec.Build = expandHomeSlice(spec.Build)
+	spec.LogFile = config.ExpandHomePath(spec.LogFile)
+	spec.ArtifactPath = config.ExpandHomePath(spec.ArtifactPath)
+	spec.InstallRoot = config.ExpandHomePath(spec.InstallRoot)
+	spec.InstallWorkDir = config.ExpandHomePath(spec.InstallWorkDir)
+	spec.HealthCheck.Command = expandHomeSlice(spec.HealthCheck.Command)
 
 	return spec, nil
 }
@@ -272,6 +282,28 @@ func stringMapField(cfg map[string]any, key string) map[string]string {
 	default:
 		return nil
 	}
+}
+
+func expandHomeSlice(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = config.ExpandHomePath(value)
+	}
+	return out
+}
+
+func expandHomeMapValues(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return values
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = config.ExpandHomePath(value)
+	}
+	return out
 }
 
 func intField(cfg map[string]any, key string) int {

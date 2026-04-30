@@ -38,6 +38,8 @@ Locked in:
 - durable services should prefer installed artifacts in a Cerberus-owned user area
 - new daemon-management features land in v2 config, not v1
 - PID files remain dev-session-only, not the durable-service truth source
+- `resources:` is the long-term local workload model; `services:` is compatibility only
+- frontends, APIs, daemons, schedulers, and similar local workloads should converge on `process` resources with runtime policy (`dev_session` vs `os_service`)
 
 Still to confirm as implementation details:
 
@@ -92,6 +94,7 @@ The immediate slice in progress is:
 ## Risks to watch
 
 - growing v2 config by accretion instead of introducing a clean typed process spec
+- spending meaningful energy on preserving `services:` as a parallel first-class model
 - keeping PID files as a hidden dependency for service-mode resources
 - allowing service-mode resources to continue running from workspace binaries
 - mixing dev-server ergonomics with durable-service guarantees

@@ -355,11 +355,19 @@ func ExecutableSpawner(args []string, extraEnv []string) SpawnFunc {
 		if err != nil {
 			return 0, fmt.Errorf("resolve executable: %w", err)
 		}
+		devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0) //nolint:gosec // fixed OS-managed sink
+		if err != nil {
+			return 0, fmt.Errorf("open %s: %w", os.DevNull, err)
+		}
+		defer func() { _ = devNull.Close() }()
 		cmd := exec.CommandContext(ctx, exe, args...) //nolint:gosec // exe is from os.Executable
 		cmd.Env = append(os.Environ(), extraEnv...)
-		cmd.Stdin = nil
-		cmd.Stdout = nil
-		cmd.Stderr = nil
+		cmd.Stdin = devNull
+		cmd.Stdout = devNull
+		cmd.Stderr = devNull
+		// Break terminal/process-group inheritance so the daemon child survives
+		// after the parent CLI process exits.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		if err := cmd.Start(); err != nil {
 			return 0, fmt.Errorf("start: %w", err)
 		}

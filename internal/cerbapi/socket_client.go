@@ -20,7 +20,8 @@ import (
 //
 // The client is safe for concurrent use (http.Client is). It holds no
 // config or service state of its own — that's the entire point of the
-// CERB-2 redesign.
+// CERB-2 redesign. The active runtime surface is the v2 resource lane;
+// legacy service methods remain for frozen compatibility only.
 type SocketClient struct {
 	http    *http.Client
 	baseURL string // dummy scheme+host, DialContext routes to the socket
@@ -111,110 +112,6 @@ func (c *SocketClient) DialPath() string {
 	return c.dialPath
 }
 
-// ---- Client impl ----
-
-func (c *SocketClient) ListServices(ctx context.Context) ([]ServiceStatus, error) {
-	var out []ServiceStatus
-	if err := c.doJSON(ctx, http.MethodGet, "/services", nil, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *SocketClient) GetService(ctx context.Context, id string) (*ServiceStatus, error) {
-	if id == "" {
-		return nil, errors.New("service id required")
-	}
-	var out ServiceStatus
-	if err := c.doJSON(ctx, http.MethodGet, "/services/"+url.PathEscape(id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *SocketClient) StartService(ctx context.Context, id string) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("service id required")
-	}
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/services/"+url.PathEscape(id)+"/start", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *SocketClient) StopService(ctx context.Context, id string, audit AuditContext) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("service id required")
-	}
-	body := stopBody(audit)
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/services/"+url.PathEscape(id)+"/stop", body, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *SocketClient) RestartService(ctx context.Context, id string, args RestartServiceArgs) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("service id required")
-	}
-	body := restartBody{
-		stopBody: stopBody(args.Audit),
-		Force:    args.Force,
-	}
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/services/"+url.PathEscape(id)+"/restart", body, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *SocketClient) RebuildService(ctx context.Context, id string, args RebuildServiceArgs) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("service id required")
-	}
-	body := rebuildBody{
-		stopBody: stopBody(args.Audit),
-		Force:    args.Force,
-	}
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/services/"+url.PathEscape(id)+"/rebuild", body, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *SocketClient) BuildService(ctx context.Context, id string) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("service id required")
-	}
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/services/"+url.PathEscape(id)+"/build", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *SocketClient) ServiceLogs(ctx context.Context, id string, lines int) (*LogLines, error) {
-	if id == "" {
-		return nil, errors.New("service id required")
-	}
-	q := url.Values{}
-	if lines > 0 {
-		q.Set("lines", strconv.Itoa(lines))
-	}
-	path := "/services/" + url.PathEscape(id) + "/logs"
-	if encoded := q.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	var out LogLines
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 func (c *SocketClient) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
 	if id == "" {
 		return nil, errors.New("resource id required")
@@ -240,7 +137,7 @@ func (c *SocketClient) ResourceLogs(ctx context.Context, id string, lines int, s
 func (c *SocketClient) Health(ctx context.Context, id string) (*DaemonHealth, error) {
 	path := "/health"
 	if id != "" {
-		path += "?service_id=" + url.QueryEscape(id)
+		path += "?resource_id=" + url.QueryEscape(id)
 	}
 	var out DaemonHealth
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
@@ -307,6 +204,17 @@ func (c *SocketClient) GetResourceDoctor(ctx context.Context, id string) (*Resou
 	}
 	var out ResourceDoctor
 	if err := c.doJSON(ctx, http.MethodGet, "/resources/"+url.PathEscape(id)+"/doctor", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *SocketClient) DeployResource(ctx context.Context, id string) (*OpResult, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	var out OpResult
+	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/deploy", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

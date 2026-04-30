@@ -45,6 +45,12 @@ The `os_service` backend maps to the native supervisor per platform:
 
 Cerberus will continue to own desired state, install state, and project orchestration, but it will stop treating PID files as the authoritative observed state for durable services. PID files remain a dev-session concern only.
 
+V2 is the architectural end state. `resources:` is the real configuration
+model going forward; `services:` remains only as a compatibility lane during
+migration. In the target shape, local frontends, APIs, daemons, schedulers,
+and similar workloads are all represented as `process` resources with different
+runtime policies rather than as different top-level config systems.
+
 ## Implications
 
 ### Config model
@@ -81,6 +87,9 @@ Cerberus metadata and SQLite remain important for desired state, install manifes
 Existing v1 service definitions continue to map to the current dev-session behavior through migration and compatibility paths.
 
 New daemon-management features land in v2 process resource config.
+
+The intended long-term outcome is to retire `services:` rather than keep two
+first-class local workload models indefinitely.
 
 ## Consequences
 
