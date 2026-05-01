@@ -222,9 +222,15 @@ func (s *devSession) Poll() domain.State {
 		return s.status
 	}
 	if pid > 0 {
-		s.status = domain.StateStopped
-		s.pid = 0
-		_ = service.RemovePIDFile(s.id)
+		s.pid = pid
+		_ = service.WritePIDFile(s.id, pid)
+		if s.status != domain.StateRunning && s.status != domain.StateHealthy && s.status != domain.StateUnhealthy {
+			s.status = domain.StateRunning
+			if s.uptime.IsZero() {
+				s.uptime = time.Now()
+			}
+		}
+		s.errMsg = ""
 		return s.status
 	}
 

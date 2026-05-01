@@ -96,4 +96,12 @@ Let the v2-only surface settle under real use, then delete dead legacy packages 
 
 ## Current Session Endpoint
 
-The last completed slice finished the active v2 cut-over: deploy/apply/resource-native guidance is in place, legacy operator surfaces were removed, config is strict v2, and Vanta memory/knowledge was updated with the new operating rule.
+The active v2 cut-over is complete: deploy/apply/resource-native guidance is in place, legacy operator surfaces were removed, config is strict v2, and Vanta memory/knowledge was updated with the new operating rule.
+
+Current local-runtime policy is now:
+
+- `dev` flows should use `dev_session` on repo-local ports
+- `uat` flows should use `os_service` plus `run_from: artifact`
+- `release` flows should stay on `os_service`, using promoted user-owned or system-owned artifacts rather than ad hoc dev servers
+
+Artifact-backed resources with a declared `build:` command now also carry a repo-state freshness signal, so status can recommend `resource deploy` when Git commit or worktree drift makes the installed artifact older than the current source tree.

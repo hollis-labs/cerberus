@@ -254,9 +254,9 @@ var resourceApplyCmd = &cobra.Command{
 			return fmt.Errorf("resource %q is %s/%s; apply currently supports local process resources only", res.ID, res.Type, res.Connector)
 		}
 
-		if client, err := newResourceSocketClient(); err == nil {
-			out, err := client.ApplyResource(cmd.Context(), res.ID)
-			if err == nil {
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, applyErr := client.ApplyResource(cmd.Context(), res.ID)
+			if applyErr == nil {
 				if out.Message != "" {
 					fmt.Println(out.Message)
 				} else {
@@ -265,8 +265,8 @@ var resourceApplyCmd = &cobra.Command{
 				return nil
 			}
 			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(err, &dErr) {
-				return err
+			if !errors.As(applyErr, &dErr) {
+				return applyErr
 			}
 		}
 
