@@ -62,7 +62,15 @@ Mental model:
 - sync artifact only: `cerberus resource sync <id>`
 - stop or unload the resource: `cerberus resource remove <id>`
 
-On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied. `resource status` and `resource list` now surface artifact drift plus a recommended next action (`sync` or `apply`) for artifact-backed services.
+On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied. `resource status` and `resource list` now surface artifact drift plus a recommended next action (`deploy`, `sync`, or `apply`) for artifact-backed services.
+
+Recommended project pattern:
+
+- `dev`: repo-local iteration paths like Vite, `go run`, and watcher-driven backends should stay on `dev_session` with dev-only ports.
+- `uat`: the shared background service you want agents and operators to test against should be `os_service` plus `run_from: artifact`.
+- `release`: promoted binaries can use the same `os_service` lane but install from a user-owned or system-owned release location instead of a dev server process.
+
+For artifact-backed services with a declared `build:` contract, Cerberus now records repo state at sync time and can warn when the installed release/UAT artifact is older than the current Git commit or worktree, even if the workspace binary itself was never rebuilt.
 
 The Cerberus daemon itself now follows this same model as `cerberus-daemon-service`, a v2 local process resource using the canonical launchd label `com.fragments-engine.cerberus`.
 
@@ -141,6 +149,7 @@ Guidance:
 - Use `resource deploy` when your goal is "make the running service match the current source tree".
 - Use `resource sync` when the installed artifact is stale and the service is stopped.
 - Use `resource apply` when the correct workspace artifact already exists and the service should be loaded, reloaded, or restarted through `launchd`.
+- If status says the repo state changed since the artifact was last synced, prefer `resource deploy` over `apply` or `sync`.
 - Use `resource remove` to unload the launch agent and remove the installed artifact tree.
 
 ## Cerberus Daemon

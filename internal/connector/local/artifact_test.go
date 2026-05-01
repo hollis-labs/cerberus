@@ -2,6 +2,7 @@ package local
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,8 +46,9 @@ func TestEnsureInstalledCopiesArtifactAndWritesManifest(t *testing.T) {
 	}
 
 	installer := artifactInstaller{
-		homeDir: func() (string, error) { return tmp, nil },
-		now:     func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		homeDir:          func() (string, error) { return tmp, nil },
+		now:              func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		inspectRepoState: inspectArtifactRepoState,
 	}
 	layout, err := installer.EnsureInstalled(&domain.Resource{
 		ID:        "app",
@@ -90,8 +92,9 @@ func TestEnsureInstalledSkipsUnchangedArtifact(t *testing.T) {
 	}
 
 	installer := artifactInstaller{
-		homeDir: func() (string, error) { return tmp, nil },
-		now:     func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		homeDir:          func() (string, error) { return tmp, nil },
+		now:              func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		inspectRepoState: inspectArtifactRepoState,
 	}
 	res := &domain.Resource{ID: "app", ProjectID: "demo"}
 	spec := ProcessSpec{
@@ -136,8 +139,9 @@ func TestInspectArtifactInstallDetectsChangedSource(t *testing.T) {
 	}
 
 	installer := artifactInstaller{
-		homeDir: func() (string, error) { return tmp, nil },
-		now:     func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		homeDir:          func() (string, error) { return tmp, nil },
+		now:              func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		inspectRepoState: inspectArtifactRepoState,
 	}
 	res := &domain.Resource{ID: "app", ProjectID: "demo"}
 	spec := ProcessSpec{
@@ -179,8 +183,9 @@ func TestInspectArtifactInstallDetectsMissingSource(t *testing.T) {
 	}
 
 	installer := artifactInstaller{
-		homeDir: func() (string, error) { return tmp, nil },
-		now:     func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		homeDir:          func() (string, error) { return tmp, nil },
+		now:              func() time.Time { return time.Date(2026, 4, 27, 6, 30, 0, 0, time.UTC) },
+		inspectRepoState: inspectArtifactRepoState,
 	}
 	res := &domain.Resource{ID: "app", ProjectID: "demo"}
 	spec := ProcessSpec{
@@ -207,5 +212,134 @@ func TestInspectArtifactInstallDetectsMissingSource(t *testing.T) {
 	}
 	if status.StaleReason != "source_missing" {
 		t.Fatalf("stale reason = %q, want %q", status.StaleReason, "source_missing")
+	}
+}
+
+func TestInspectArtifactInstallDetectsChangedRepoStateWithoutBinaryRebuild(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+
+	tmp := t.TempDir()
+	sourceDir := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil { //nolint:gosec
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	runGit(t, sourceDir, "init")
+	runGit(t, sourceDir, "config", "user.email", "test@example.com")
+	runGit(t, sourceDir, "config", "user.name", "Test User")
+
+	sourcePath := filepath.Join(sourceDir, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatalf("write source artifact: %v", err)
+	}
+	sourceFile := filepath.Join(sourceDir, "main.go")
+	if err := os.WriteFile(sourceFile, []byte("package main\n"), 0644); err != nil { //nolint:gosec
+		t.Fatalf("write source file: %v", err)
+	}
+	runGit(t, sourceDir, "add", "app", "main.go")
+	runGit(t, sourceDir, "commit", "-m", "initial")
+
+	installer := artifactInstaller{
+		homeDir:          func() (string, error) { return tmp, nil },
+		now:              func() time.Time { return time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC) },
+		inspectRepoState: inspectArtifactRepoState,
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		RunFrom: ProcessRunFromArtifact,
+		Dir:     sourceDir,
+		Command: []string{"./app", "serve"},
+		Build:   []string{"go", "build", "-o", "app", "./cmd/app"},
+	}
+	if _, err := installer.EnsureInstalled(res, spec); err != nil {
+		t.Fatalf("EnsureInstalled failed: %v", err)
+	}
+
+	if err := os.WriteFile(sourceFile, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil { //nolint:gosec
+		t.Fatalf("rewrite source file: %v", err)
+	}
+
+	_, status, err := installer.Status(res, spec)
+	if err != nil {
+		t.Fatalf("Status failed: %v", err)
+	}
+	if !status.Stale {
+		t.Fatalf("expected stale=true")
+	}
+	if status.StaleReason != "repo_worktree_changed" {
+		t.Fatalf("stale reason = %q, want %q", status.StaleReason, "repo_worktree_changed")
+	}
+}
+
+func TestSyncRefreshesRepoStateWhenBinaryBytesAreUnchanged(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+
+	tmp := t.TempDir()
+	sourceDir := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil { //nolint:gosec
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	runGit(t, sourceDir, "init")
+	runGit(t, sourceDir, "config", "user.email", "test@example.com")
+	runGit(t, sourceDir, "config", "user.name", "Test User")
+
+	sourcePath := filepath.Join(sourceDir, "app")
+	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
+		t.Fatalf("write source artifact: %v", err)
+	}
+	sourceFile := filepath.Join(sourceDir, "main.go")
+	if err := os.WriteFile(sourceFile, []byte("package main\n"), 0644); err != nil { //nolint:gosec
+		t.Fatalf("write source file: %v", err)
+	}
+	runGit(t, sourceDir, "add", "app", "main.go")
+	runGit(t, sourceDir, "commit", "-m", "initial")
+
+	installer := artifactInstaller{
+		homeDir:          func() (string, error) { return tmp, nil },
+		now:              func() time.Time { return time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC) },
+		inspectRepoState: inspectArtifactRepoState,
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		RunFrom: ProcessRunFromArtifact,
+		Dir:     sourceDir,
+		Command: []string{"./app", "serve"},
+		Build:   []string{"go", "build", "-o", "app", "./cmd/app"},
+	}
+	if _, err := installer.EnsureInstalled(res, spec); err != nil {
+		t.Fatalf("EnsureInstalled failed: %v", err)
+	}
+
+	if err := os.WriteFile(sourceFile, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil { //nolint:gosec
+		t.Fatalf("rewrite source file: %v", err)
+	}
+
+	_, syncRes, err := installer.Sync(res, spec)
+	if err != nil {
+		t.Fatalf("Sync failed: %v", err)
+	}
+	if !syncRes.Changed {
+		t.Fatalf("expected Changed=true when repo state is refreshed")
+	}
+
+	_, status, err := installer.Status(res, spec)
+	if err != nil {
+		t.Fatalf("Status failed: %v", err)
+	}
+	if status.Stale {
+		t.Fatalf("expected stale=false after sync, got %q", status.StaleReason)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...) //nolint:gosec // test helper executes fixed git subcommands against a temp repo
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 }

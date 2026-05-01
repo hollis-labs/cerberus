@@ -6,6 +6,7 @@ The short version:
 
 - durable APIs and daemons should use `resource` entries, not legacy `service` entries
 - frontends, Vite servers, Wails dev flows, and other interactive dev loops should usually stay on `dev_session`
+- every project should separate `dev`, `uat`, and `release` ownership clearly
 - `os_service` resources must have a deterministic repo-local runtime story
 - Cerberus should not have to guess which binary on `PATH` is the real one
 
@@ -27,14 +28,31 @@ Use `os_service` when the process is meant to be a durable background service:
 - daemon
 - long-running worker
 
+## Separate Dev, UAT, And Release Ownership
+
+Do not let one port or one process pretend to serve every audience.
+
+The preferred pattern is:
+
+- `dev`: repo-local iteration flows on `dev_session`
+- `uat`: the shared background runtime agents and operators test against on `os_service`
+- `release`: the promoted binary installed into a user-owned or system-owned location, also on `os_service`
+
+Practical consequences:
+
+- dev frontends should point at dev backends by default, not the UAT port
+- UAT ports should have one active Cerberus-managed owner
+- release installs should not depend on whichever dev server happened to be left running
+
 ## Separate Backend Services From Frontend Dev Servers
 
 Do not force a project’s frontend dev workflow into the durable service lane.
 
 A common good split is:
 
-- backend API or daemon: `os_service`
-- frontend dev server: `dev_session` or legacy until migrated
+- backend API or daemon for iteration: `dev_session`
+- backend API or daemon for shared testing: `os_service`
+- frontend dev server: `dev_session`
 
 This keeps Cerberus from conflating production-like background services with interactive local development.
 
@@ -86,6 +104,8 @@ This is acceptable for:
 - projects where the durable runtime is still workspace-native
 
 It is a compromise, not the ideal end state. Prefer artifact-backed services when the repo can support them cleanly.
+
+For promoted release installs, artifact mode is still the preferred shape; the only difference is where the artifact originates. The release binary may come from a user-owned bin directory or a system-installed location rather than a workspace dev build, but Cerberus should still treat it as an explicit artifact, not a guessed PATH lookup.
 
 ## Preferred Build Contract
 
@@ -263,6 +283,9 @@ The correct pattern is:
 - repo-local build output
 - explicit runtime mode
 - explicit run source
+- explicit `dev` vs `uat` vs `release` ownership
 - Cerberus-owned home expansion instead of trusting launchd or the shell
 - one active owner per port
 - supervisor-managed status for durable services
+
+For artifact-backed resources with a `build:` command, Cerberus now also records Git repo state when the artifact is synced. That lets status warn when the current repo commit or worktree no longer matches the installed UAT or release artifact, even if nobody rebuilt the binary yet.
