@@ -105,3 +105,14 @@ Current local-runtime policy is now:
 - `release` flows should stay on `os_service`, using promoted user-owned or system-owned artifacts rather than ad hoc dev servers
 
 Artifact-backed resources with a declared `build:` command now also carry a repo-state freshness signal, so status can recommend `resource deploy` when Git commit or worktree drift makes the installed artifact older than the current source tree.
+
+The next distribution-focused slice is defined but not yet implemented:
+
+- pilot one app, likely `nanite`, through a full `dev` vs `release` split
+- keep `dev` repo-backed with alternate ports and data roots
+- add a canonical user-facing installed artifact path outside the repo for `release`
+- script a macOS-first install/update flow so end users do not need the repo or local builds
+
+Beta-release planning now lives in:
+
+- [docs/plans/beta-release-plan.md](/Users/chrispian/Projects-apps/cerberus/docs/plans/beta-release-plan.md)

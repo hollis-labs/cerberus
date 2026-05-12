@@ -90,6 +90,9 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 			Mode:       resourceMode(r),
 			Supervisor: resourceSupervisor(r),
 			RunFrom:    resourceRunFrom(r),
+			URL:        configString(r.Config, "url"),
+			Port:       configInt(r.Config, "port"),
+			HasBuild:   len(configStringSlice(r.Config, "build")) > 0,
 			Tags:       append([]string(nil), r.Tags...),
 		}
 		if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
@@ -182,6 +185,9 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 		Mode:                resourceMode(*res),
 		Supervisor:          resourceSupervisor(*res),
 		RunFrom:             resourceRunFrom(*res),
+		URL:                 spec.URL,
+		Port:                spec.Port,
+		HasBuild:            len(spec.Build) > 0,
 		Status:              string(state),
 		ServiceName:         serviceName,
 		ArtifactPath:        artifactPath,
@@ -237,6 +243,8 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 		Mode:         resourceMode(*res),
 		Supervisor:   resourceSupervisor(*res),
 		RunFrom:      resourceRunFrom(*res),
+		URL:          spec.URL,
+		Port:         spec.Port,
 		Status:       string(state),
 		WorkspaceDir: spec.Dir,
 		Command:      append([]string(nil), spec.Command...),
@@ -875,6 +883,56 @@ func resourceRunFrom(r config.ResourceDef) string {
 		return string(localconn.ProcessRunFromWorkspace)
 	}
 	return string(spec.RunFrom)
+}
+
+func configString(cfg map[string]any, key string) string {
+	if cfg == nil {
+		return ""
+	}
+	if v, ok := cfg[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func configInt(cfg map[string]any, key string) int {
+	if cfg == nil {
+		return 0
+	}
+	switch v := cfg[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+func configStringSlice(cfg map[string]any, key string) []string {
+	if cfg == nil {
+		return nil
+	}
+	raw, ok := cfg[key]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func resourceStateHealthy(state domain.State) bool {
