@@ -229,6 +229,11 @@ func (c *InProcessClient) ReloadResource(ctx context.Context, id string) (*OpRes
 	return c.runtime.ReloadResource(ctx, id)
 }
 
+// StopResource implements Client.
+func (c *InProcessClient) StopResource(ctx context.Context, id string) (*OpResult, error) {
+	return c.runtime.StopResource(ctx, id)
+}
+
 // ApplyResource implements Client.
 func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
 	return c.runtime.ApplyResource(ctx, id)

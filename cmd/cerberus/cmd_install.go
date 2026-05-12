@@ -39,11 +39,38 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 const launchdPlistName = "com.fragments-engine.cerberus.plist"
+const releaseBinaryRelativePath = ".cerberus/bin/cerberus"
 
 type launchdData struct {
 	BinaryPath string
 	WorkingDir string
 	HomeDir    string
+}
+
+func resolveDaemonBinaryPath(home string, executable func() (string, error), stat func(string) error, getenv func(string) string) (string, error) {
+	candidates := []string{filepath.Join(home, releaseBinaryRelativePath)}
+	if gobin := getenv("GOBIN"); gobin != "" {
+		candidates = append(candidates, filepath.Join(gobin, "cerberus"))
+	} else if gopath := getenv("GOPATH"); gopath != "" {
+		candidates = append(candidates, filepath.Join(gopath, "bin", "cerberus"))
+	} else {
+		candidates = append(candidates, filepath.Join(home, "go", "bin", "cerberus"))
+	}
+
+	for _, candidate := range candidates {
+		if stat(candidate) == nil {
+			return candidate, nil
+		}
+	}
+
+	exePath, err := executable()
+	if err != nil {
+		return "", fmt.Errorf("could not determine binary path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
+		return resolved, nil
+	}
+	return exePath, nil
 }
 
 var installCmd = &cobra.Command{
@@ -60,25 +87,20 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("could not determine home directory: %w", err)
 		}
 
-		// Prefer GOBIN / GOPATH/bin so launchd always uses the go-installed
-		// binary. This avoids stale-binary issues when agents build locally
-		// (go build -o ./cerberus) but the PATH resolves to ~/go/bin.
-		binPath := filepath.Join(home, "go", "bin", "cerberus")
-		if gobin := os.Getenv("GOBIN"); gobin != "" {
-			binPath = filepath.Join(gobin, "cerberus")
-		} else if gopath := os.Getenv("GOPATH"); gopath != "" {
-			binPath = filepath.Join(gopath, "bin", "cerberus")
-		}
-		if _, statErr := os.Stat(binPath); statErr != nil {
-			// Fallback: use whichever binary is running right now
-			exePath, exeErr := os.Executable()
-			if exeErr != nil {
-				return fmt.Errorf("could not determine binary path: %w", exeErr)
-			}
-			binPath, _ = filepath.EvalSymlinks(exePath)
+		binPath, err := resolveDaemonBinaryPath(home, os.Executable, func(path string) error {
+			_, statErr := os.Stat(path)
+			return statErr
+		}, os.Getenv)
+		if err != nil {
+			return err
 		}
 
 		workDir := home
+
+		launchAgentsDir := filepath.Join(home, "Library", "LaunchAgents")
+		if err := os.MkdirAll(launchAgentsDir, 0755); err != nil { //nolint:gosec,govet
+			return fmt.Errorf("creating launch agents directory: %w", err)
+		}
 
 		// Ensure logs directory exists
 		logsDir := filepath.Join(home, ".cerberus", "logs")
@@ -92,7 +114,7 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("parsing plist template: %w", err)
 		}
 
-		plistPath := filepath.Join(home, "Library", "LaunchAgents", launchdPlistName)
+		plistPath := filepath.Join(launchAgentsDir, launchdPlistName)
 
 		// Unload existing agent if present
 		if _, err := os.Stat(plistPath); err == nil { //nolint:govet

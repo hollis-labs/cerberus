@@ -101,6 +101,7 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 			if state, err := s.localConnector().Status(ctx, dr); err == nil {
 				info.Status = string(state)
 			}
+			info.OperatorStopped = pausectl.IsServicePaused(r.ID)
 			if _, art, err := localconn.InspectArtifactInstall(dr, spec); err == nil {
 				info.ArtifactInstalled = art.Installed
 				info.ArtifactStale = art.Stale
@@ -189,6 +190,7 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 		Port:                spec.Port,
 		HasBuild:            len(spec.Build) > 0,
 		Status:              string(state),
+		OperatorStopped:     pausectl.IsServicePaused(res.ID),
 		ServiceName:         serviceName,
 		ArtifactPath:        artifactPath,
 		InstallRoot:         installRoot,
@@ -235,21 +237,22 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 	spec, _ := localconn.SpecFromResourceConfig(res.Config)
 
 	out := &ResourceInspect{
-		ID:           res.ID,
-		Name:         res.Name,
-		Type:         res.Type,
-		Project:      res.Project,
-		Connector:    res.Connector,
-		Mode:         resourceMode(*res),
-		Supervisor:   resourceSupervisor(*res),
-		RunFrom:      resourceRunFrom(*res),
-		URL:          spec.URL,
-		Port:         spec.Port,
-		Status:       string(state),
-		WorkspaceDir: spec.Dir,
-		Command:      append([]string(nil), spec.Command...),
-		Build:        append([]string(nil), spec.Build...),
-		WorkingDir:   spec.Dir,
+		ID:              res.ID,
+		Name:            res.Name,
+		Type:            res.Type,
+		Project:         res.Project,
+		Connector:       res.Connector,
+		Mode:            resourceMode(*res),
+		Supervisor:      resourceSupervisor(*res),
+		RunFrom:         resourceRunFrom(*res),
+		URL:             spec.URL,
+		Port:            spec.Port,
+		Status:          string(state),
+		OperatorStopped: pausectl.IsServicePaused(res.ID),
+		WorkspaceDir:    spec.Dir,
+		Command:         append([]string(nil), spec.Command...),
+		Build:           append([]string(nil), spec.Build...),
+		WorkingDir:      spec.Dir,
 	}
 
 	if spec.Mode == localconn.ProcessModeOSService {
@@ -332,6 +335,9 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 		add("runtime_status", "warn", "runtime state is unknown")
 	} else {
 		add("runtime_status", "pass", fmt.Sprintf("runtime state is %s", inspect.Status))
+	}
+	if inspect.OperatorStopped {
+		add("operator_stop", "pass", "operator stop is active; apply, deploy, or reload will resume auto-restart for dev_session resources")
 	}
 
 	if inspect.Mode == string(localconn.ProcessModeOSService) {
@@ -454,6 +460,7 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 	return &ResourceDoctor{
 		ResourceID:          inspect.ID,
 		Status:              inspect.Status,
+		OperatorStopped:     inspect.OperatorStopped,
 		Summary:             summary,
 		RecommendedAction:   inspect.RecommendedAction,
 		RecommendedReason:   inspect.RecommendedReason,
@@ -481,6 +488,35 @@ func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string) 
 		Success:   true,
 		ServiceID: id,
 		Message:   fmt.Sprintf("resource %q reloaded successfully", id),
+	}, nil
+}
+
+func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string) (*OpResult, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+
+	res, err := s.requireLocalProcessResource(id)
+	if err != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
+	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	paused := false
+	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
+		if err := pausectl.PauseService(id); err != nil {
+			return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+		}
+		paused = true
+	}
+	if err := s.localConnector().Stop(ctx, resourceDefToDomain(res)); err != nil {
+		if paused {
+			_ = pausectl.ResumeService(id)
+		}
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
+	return &OpResult{
+		Success:   true,
+		ServiceID: id,
+		Message:   fmt.Sprintf("resource %q stopped successfully; install state preserved", id),
 	}, nil
 }
 
@@ -709,12 +745,13 @@ func (s *ResourceRuntimeService) Health(ctx context.Context, id string) ([]Resou
 			continue
 		}
 		health := ResourceHealth{
-			ResourceID: r.ID,
-			Status:     string(state),
-			Healthy:    resourceStateHealthy(state),
-			Mode:       resourceMode(r),
-			Supervisor: resourceSupervisor(r),
-			RunFrom:    resourceRunFrom(r),
+			ResourceID:      r.ID,
+			Status:          string(state),
+			Healthy:         resourceStateHealthy(state),
+			OperatorStopped: pausectl.IsServicePaused(r.ID),
+			Mode:            resourceMode(r),
+			Supervisor:      resourceSupervisor(r),
+			RunFrom:         resourceRunFrom(r),
 		}
 		if _, art, inspectErr := localconn.InspectArtifactInstall(dr, spec); inspectErr == nil {
 			health.ArtifactInstalled = art.Installed

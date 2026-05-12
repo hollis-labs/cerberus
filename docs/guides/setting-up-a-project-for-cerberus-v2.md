@@ -44,6 +44,16 @@ Practical consequences:
 - UAT ports should have one active Cerberus-managed owner
 - release installs should not depend on whichever dev server happened to be left running
 
+Recommended naming:
+
+- resource IDs should encode audience: `my-api-dev`, `my-api-uat`, `my-api-release`
+- tags should include the audience: `dev`, `uat`, or `release`
+- durable services should also tag runtime shape: `launchd`, `artifact`, `workspace`, `api`, `daemon`, or `mcp`
+- ports should be unique per audience; do not reuse the dev port for UAT
+- data roots should be audience-specific, such as `~/.my-project/dev`, `~/.my-project/uat`, and `~/.my-project/release`
+
+This keeps operator intent clear in `resource list`, MCP filters, logs, and future automation.
+
 ## Separate Backend Services From Frontend Dev Servers
 
 Do not force a project’s frontend dev workflow into the durable service lane.
@@ -192,6 +202,16 @@ and env values before launchd sees them. Even so, absolute paths are still the
 preferred config shape for durable services because they are easier to inspect
 and less surprising to operators.
 
+Keep data roots separate by audience:
+
+```yaml
+env:
+  MY_API_ENV: uat
+  MY_API_DATA_DIR: ~/.my-api/uat
+```
+
+Do not point `dev`, `uat`, and release-style resources at the same mutable data directory unless that sharing is the explicit test scenario.
+
 ## Health Endpoints Matter
 
 Durable backend services should expose a stable health signal when practical.
@@ -211,12 +231,12 @@ Example artifact-backed API:
 
 ```yaml
 resources:
-  - id: my-api-service
-    name: "My API Service"
+  - id: my-api-uat
+    name: "My API UAT"
     project: my-project
     type: process
     connector: local
-    tags: [api, go, launchd, v2]
+    tags: [uat, api, go, launchd, artifact]
     config:
       dir: /absolute/path/to/repo
       command: ["./bin/myd", "serve", "--port", "8080"]
@@ -226,6 +246,9 @@ resources:
       mode: os_service
       supervisor: launchd
       run_from: artifact
+      env:
+        MYD_ENV: uat
+        MYD_DATA_DIR: ~/.myd/uat
 ```
 
 Example workspace-backed Python service:
@@ -237,7 +260,7 @@ resources:
     project: my-project
     type: process
     connector: local
-    tags: [api, python, launchd, v2]
+    tags: [uat, api, python, launchd, workspace]
     config:
       dir: /absolute/path/to/repo
       command: ["./bin/my-service", "serve", "--port", "8096"]
@@ -250,6 +273,37 @@ resources:
         PYTHONUNBUFFERED: "1"
 ```
 
+Example frontend dev session:
+
+```yaml
+resources:
+  - id: my-web-dev
+    name: "My Web Dev"
+    project: my-project
+    type: process
+    connector: local
+    tags: [dev, frontend]
+    config:
+      dir: /absolute/path/to/repo/web
+      command: ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5177"]
+      url: http://127.0.0.1:5177
+      port: 5177
+      mode: dev_session
+```
+
+## Operator Lifecycle Expectations
+
+Choose lifecycle verbs by intent:
+
+- `deploy`: build from the current source tree, sync the artifact, and activate it.
+- `apply`: activate from an already-built artifact or workspace command; it does not build.
+- `reload`: restart/kickstart the current installed service without syncing or rewriting service definitions.
+- `sync`: update installed artifacts without applying the runtime backend.
+- `stop`: stop runtime execution without deleting installed artifact or service state.
+- `remove`: uninstall runtime state; for launchd-backed artifact services, this unloads the launch agent and removes the installed artifact tree.
+
+Use `stop` for non-destructive stop/pause intent and keep `remove` uninstall-oriented.
+
 ## Migration Checklist
 
 Before migrating a project from legacy `services:` to v2 `resources:`:
@@ -258,15 +312,17 @@ Before migrating a project from legacy `services:` to v2 `resources:`:
 2. Ensure the repo has a deterministic production build path.
 3. Ensure the runtime command uses a real filesystem path, not a PATH-only binary.
 4. Build locally from the repo root.
-5. If artifact-backed, verify the artifact exists in the repo after build.
-6. Add the v2 `resource` entry.
-7. Run `cerberus resource sync <id>` if artifact-backed.
-8. Run `cerberus resource apply <id>`.
-9. Verify with:
+5. Assign unique dev/UAT/release ports and data roots.
+6. Add audience tags so operators and agents can filter resources safely.
+7. If artifact-backed, verify the artifact exists in the repo after build.
+8. Add the v2 `resource` entry.
+9. Run `cerberus resource sync <id>` if artifact-backed.
+10. Run `cerberus resource apply <id>`.
+11. Verify with:
    - `cerberus resource status <id>`
    - `cerberus resource inspect <id>`
    - `cerberus resource doctor <id>`
-10. Only then remove the legacy `service` entry.
+12. Only then remove the legacy `service` entry.
 
 ## What We Learned From Early Migrations
 

@@ -19,6 +19,7 @@ import (
 var resourceCmd = &cobra.Command{
 	Use:   "resource",
 	Short: "V2 resource management",
+	Long:  "Manages v2 resources. For local process resources, use deploy for build+activate, apply for already-built activation, reload for restart-only, sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state.",
 }
 
 var resourceListProject string
@@ -215,12 +216,7 @@ var resourceReloadCmd = &cobra.Command{
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			out, reloadErr := client.ReloadResource(cmd.Context(), res.ID)
 			if reloadErr == nil {
-				if out.Message != "" {
-					fmt.Println(out.Message)
-				} else {
-					fmt.Printf("Reloaded resource %s\n", res.ID)
-				}
-				return nil
+				return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(reloadErr, &dErr) {
@@ -231,18 +227,44 @@ var resourceReloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if out.Message != "" {
-			fmt.Println(out.Message)
-		} else {
-			fmt.Printf("Reloaded resource %s\n", res.ID)
+		return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
+	},
+}
+
+var resourceStopCmd = &cobra.Command{
+	Use:   "stop <resource-id>",
+	Short: "Stop a local process resource without removing install state",
+	Long:  "Stops a local process resource through its configured runtime backend without deleting installed artifacts or plist state. For dev_session resources, this also suppresses auto-restart until the resource is explicitly applied, deployed, or reloaded.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := loadResource(args[0])
+		if err != nil {
+			return err
 		}
-		return nil
+		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
+			return fmt.Errorf("resource %q is %s/%s; stop currently supports local process resources only", res.ID, res.Type, res.Connector)
+		}
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			out, stopErr := client.StopResource(cmd.Context(), res.ID)
+			if stopErr == nil {
+				return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(stopErr, &dErr) {
+				return stopErr
+			}
+		}
+		out, err := newResourceRuntimeService().StopResource(cmd.Context(), res.ID)
+		if err != nil {
+			return err
+		}
+		return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
 	},
 }
 
 var resourceApplyCmd = &cobra.Command{
 	Use:   "apply <resource-id>",
-	Short: "Apply a local process resource",
+	Short: "Apply an already-built local process resource",
 	Long:  "Applies a local process resource using its configured runtime backend. For os_service resources on macOS, this syncs the currently-built artifact and updates the launch agent. It does not run the build command first; use `cerberus resource deploy` when source changes need to be built.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -257,12 +279,7 @@ var resourceApplyCmd = &cobra.Command{
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			out, applyErr := client.ApplyResource(cmd.Context(), res.ID)
 			if applyErr == nil {
-				if out.Message != "" {
-					fmt.Println(out.Message)
-				} else {
-					fmt.Printf("Applied resource %s\n", res.ID)
-				}
-				return nil
+				return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(applyErr, &dErr) {
@@ -274,12 +291,7 @@ var resourceApplyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if out.Message != "" {
-			fmt.Println(out.Message)
-		} else {
-			fmt.Printf("Applied resource %s\n", res.ID)
-		}
-		return nil
+		return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
 	},
 }
 
@@ -300,12 +312,7 @@ var resourceDeployCmd = &cobra.Command{
 		if socketClient, socketErr := newResourceSocketClient(); socketErr == nil {
 			out, deployErr := socketClient.DeployResource(cmd.Context(), res.ID)
 			if deployErr == nil {
-				if out.Message != "" {
-					fmt.Println(out.Message)
-				} else {
-					fmt.Printf("Deployed resource %s\n", res.ID)
-				}
-				return nil
+				return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(deployErr, &dErr) {
@@ -317,12 +324,7 @@ var resourceDeployCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if out.Message != "" {
-			fmt.Println(out.Message)
-		} else {
-			fmt.Printf("Deployed resource %s\n", res.ID)
-		}
-		return nil
+		return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
 	},
 }
 
@@ -405,7 +407,7 @@ var resourceLogsCmd = &cobra.Command{
 var resourceSyncCmd = &cobra.Command{
 	Use:   "sync <resource-id>",
 	Short: "Sync installed runtime artifacts for a local process resource",
-	Long:  "Syncs installed runtime artifacts without applying the runtime backend. This is primarily useful for os_service resources using run_from=artifact.",
+	Long:  "Syncs installed runtime artifacts without applying the runtime backend. This is primarily useful for os_service resources using run_from=artifact when you want to copy the artifact now and activate it later.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		res, err := loadResource(args[0])
@@ -419,12 +421,7 @@ var resourceSyncCmd = &cobra.Command{
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			out, syncErr := client.SyncResource(cmd.Context(), res.ID)
 			if syncErr == nil {
-				if out.Message != "" {
-					fmt.Println(out.Message)
-				} else {
-					fmt.Printf("Synced resource %s\n", res.ID)
-				}
-				return nil
+				return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(syncErr, &dErr) {
@@ -436,19 +433,14 @@ var resourceSyncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if out.Message != "" {
-			fmt.Println(out.Message)
-		} else {
-			fmt.Printf("Synced resource %s\n", res.ID)
-		}
-		return nil
+		return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
 	},
 }
 
 var resourceRemoveCmd = &cobra.Command{
 	Use:   "remove <resource-id>",
-	Short: "Remove a local process resource from its runtime backend",
-	Long:  "Removes a local process resource from its configured runtime backend. For os_service resources on macOS, this unloads the launch agent and removes the installed artifact tree.",
+	Short: "Uninstall a local process resource from its runtime backend",
+	Long:  "Removes a local process resource from its configured runtime backend. For os_service resources on macOS, this unloads the launch agent and removes the installed artifact tree. Use stop, not remove, for non-destructive stop/pause intent.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		res, err := loadResource(args[0])
@@ -462,12 +454,7 @@ var resourceRemoveCmd = &cobra.Command{
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			out, removeErr := client.RemoveResource(cmd.Context(), res.ID)
 			if removeErr == nil {
-				if out.Message != "" {
-					fmt.Println(out.Message)
-				} else {
-					fmt.Printf("Removed resource %s\n", res.ID)
-				}
-				return nil
+				return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(removeErr, &dErr) {
@@ -479,12 +466,7 @@ var resourceRemoveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if out.Message != "" {
-			fmt.Println(out.Message)
-		} else {
-			fmt.Printf("Removed resource %s\n", res.ID)
-		}
-		return nil
+		return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
 	},
 }
 
@@ -511,6 +493,25 @@ func newResourceSocketClient() (*cerbapi.SocketClient, error) {
 
 func newResourceRuntimeService() *cerbapi.ResourceRuntimeService {
 	return cerbapi.NewResourceRuntimeService(cerbapi.WithResourceRuntimeConfigPath(cfgPath))
+}
+
+func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {
+	if out == nil {
+		fmt.Println(fallback)
+		return nil
+	}
+	if !out.Success {
+		if out.Error != "" {
+			return errors.New(out.Error)
+		}
+		return fmt.Errorf("%s failed", fallback)
+	}
+	if out.Message != "" {
+		fmt.Println(out.Message)
+	} else {
+		fmt.Println(fallback)
+	}
+	return nil
 }
 
 func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
@@ -558,6 +559,9 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	}
 	if st.RecommendedNextStep != "" {
 		fmt.Printf("Next Step:   %s\n", st.RecommendedNextStep)
+	}
+	if st.OperatorStopped {
+		fmt.Printf("Stopped By:  operator stop (apply, deploy, or reload resumes dev_session auto-restart)\n")
 	}
 	if st.LaunchdLoaded {
 		fmt.Printf("Loaded:      true\n")
@@ -661,6 +665,9 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 	if st.RecommendedNextStep != "" {
 		fmt.Printf("Next Step:   %s\n", st.RecommendedNextStep)
 	}
+	if st.OperatorStopped {
+		fmt.Printf("Stopped By:  operator stop (apply, deploy, or reload resumes dev_session auto-restart)\n")
+	}
 	if st.LaunchdLoaded {
 		fmt.Printf("Loaded:      true\n")
 	}
@@ -708,6 +715,9 @@ func printResourceDoctor(out *cerbapi.ResourceDoctor) {
 	}
 	if out.RecommendedNextStep != "" {
 		fmt.Printf("Next Step:   %s\n", out.RecommendedNextStep)
+	}
+	if out.OperatorStopped {
+		fmt.Printf("Stopped By:  operator stop\n")
 	}
 	fmt.Println("Checks:")
 	for _, c := range out.Checks {
@@ -760,6 +770,7 @@ func init() {
 	resourceCmd.AddCommand(resourceDeployCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceReloadCmd)
+	resourceCmd.AddCommand(resourceStopCmd)
 	resourceCmd.AddCommand(resourceStatusCmd)
 	resourceLogsCmd.Flags().IntVarP(&resourceLogsLines, "lines", "n", 50, "number of log lines to return")
 	resourceLogsCmd.Flags().StringVar(&resourceLogsStream, "stream", "stdout", "log stream to read: stdout or stderr")
