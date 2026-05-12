@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,10 +18,11 @@ import (
 const artifactManifestName = "install-manifest.json"
 
 type artifactManifest struct {
-	SourcePath   string    `json:"source_path"`
-	SourceHash   string    `json:"source_hash"`
-	ArtifactPath string    `json:"artifact_path"`
-	SyncedAt     time.Time `json:"synced_at"`
+	SourcePath   string             `json:"source_path"`
+	SourceHash   string             `json:"source_hash"`
+	ArtifactPath string             `json:"artifact_path"`
+	SyncedAt     time.Time          `json:"synced_at"`
+	RepoState    *artifactRepoState `json:"repo_state,omitempty"`
 }
 
 type artifactStatus struct {
@@ -47,14 +49,17 @@ type artifactSyncResult struct {
 type ArtifactSyncResult = artifactSyncResult
 
 type artifactInstaller struct {
-	homeDir func() (string, error)
-	now     func() time.Time
+	homeDir              func() (string, error)
+	now                  func() time.Time
+	inspectRepoState     func(ProcessSpec) (*artifactRepoState, error)
+	skipCurrentRepoState bool
 }
 
 func newArtifactInstaller() artifactInstaller {
 	return artifactInstaller{
-		homeDir: os.UserHomeDir,
-		now:     time.Now,
+		homeDir:          os.UserHomeDir,
+		now:              time.Now,
+		inspectRepoState: inspectArtifactRepoState,
 	}
 }
 
@@ -84,10 +89,15 @@ func (i artifactInstaller) Sync(res *domain.Resource, spec ProcessSpec) (Install
 	if err != nil {
 		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("hash source artifact: %w", err)
 	}
+	var repoState *artifactRepoState
+	if i.inspectRepoState != nil {
+		repoState, _ = i.inspectRepoState(spec)
+	}
 
 	manifestPath := filepath.Join(layout.RootDir, artifactManifestName)
 	if manifest, err := readArtifactManifest(manifestPath); err == nil {
-		if manifest.SourcePath == sourcePath && manifest.SourceHash == sourceHash {
+		repoStateCurrent := repoStateEqual(manifest.RepoState, repoState)
+		if manifest.SourcePath == sourcePath && manifest.SourceHash == sourceHash && repoStateCurrent {
 			if _, statErr := os.Stat(layout.ArtifactPath); statErr == nil {
 				return layout, artifactSyncResult{
 					Performed:    true,
@@ -115,6 +125,7 @@ func (i artifactInstaller) Sync(res *domain.Resource, spec ProcessSpec) (Install
 		SourceHash:   sourceHash,
 		ArtifactPath: layout.ArtifactPath,
 		SyncedAt:     i.now().UTC(),
+		RepoState:    repoState,
 	}
 	if err := writeArtifactManifest(manifestPath, manifest); err != nil {
 		return InstallLayout{}, artifactSyncResult{}, fmt.Errorf("write artifact manifest: %w", err)
@@ -156,7 +167,7 @@ func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (Insta
 		}
 		return InstallLayout{}, artifactStatus{}, statErr
 	}
-	stale, staleReason := inspectArtifactDrift(spec, manifest)
+	stale, staleReason := i.inspectArtifactDrift(spec, manifest)
 	return layout, artifactStatus{
 		Installed:    true,
 		SourcePath:   manifest.SourcePath,
@@ -167,7 +178,7 @@ func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (Insta
 	}, nil
 }
 
-func inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, string) {
+func (i artifactInstaller) inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, string) {
 	sourcePath, err := resolveArtifactSource(spec)
 	if err != nil {
 		return true, "source_unresolvable"
@@ -184,6 +195,14 @@ func inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, st
 	}
 	if sourceHash != manifest.SourceHash {
 		return true, "source_changed"
+	}
+	if !i.skipCurrentRepoState && manifest.RepoState != nil {
+		currentRepoState, repoErr := inspectArtifactRepoState(spec)
+		if repoErr == nil {
+			if stale, reason := manifest.RepoState.diff(currentRepoState); stale {
+				return true, reason
+			}
+		}
 	}
 	return false, ""
 }
@@ -207,6 +226,14 @@ func (i artifactInstaller) Remove(res *domain.Resource, spec ProcessSpec) (Insta
 // resource without mutating it.
 func InspectArtifactInstall(res *domain.Resource, spec ProcessSpec) (InstallLayout, ArtifactStatus, error) {
 	return newArtifactInstaller().Status(res, spec)
+}
+
+// InspectArtifactInstallBasic reports artifact install state without running
+// live repository drift probes. Use this for high-fanout polling surfaces.
+func InspectArtifactInstallBasic(res *domain.Resource, spec ProcessSpec) (InstallLayout, ArtifactStatus, error) {
+	installer := newArtifactInstaller()
+	installer.skipCurrentRepoState = true
+	return installer.Status(res, spec)
 }
 
 // SyncArtifactInstall performs an artifact sync without starting the runtime.
@@ -288,4 +315,83 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+type artifactRepoState struct {
+	RepoRoot    string `json:"repo_root,omitempty"`
+	GitHead     string `json:"git_head,omitempty"`
+	GitDirty    bool   `json:"git_dirty,omitempty"`
+	GitTreeHash string `json:"git_tree_hash,omitempty"`
+}
+
+func (s artifactRepoState) diff(other *artifactRepoState) (bool, string) {
+	if other == nil {
+		return false, ""
+	}
+	if s.RepoRoot != "" && other.RepoRoot != "" && s.RepoRoot != other.RepoRoot {
+		return true, "repo_root_changed"
+	}
+	if s.GitHead != "" && other.GitHead != "" && s.GitHead != other.GitHead {
+		return true, "repo_head_changed"
+	}
+	if s.GitDirty != other.GitDirty {
+		return true, "repo_worktree_changed"
+	}
+	if s.GitTreeHash != "" && other.GitTreeHash != "" && s.GitTreeHash != other.GitTreeHash {
+		return true, "repo_worktree_changed"
+	}
+	return false, ""
+}
+
+func repoStateEqual(left, right *artifactRepoState) bool {
+	switch {
+	case left == nil && right == nil:
+		return true
+	case left == nil || right == nil:
+		return false
+	default:
+		return left.RepoRoot == right.RepoRoot &&
+			left.GitHead == right.GitHead &&
+			left.GitDirty == right.GitDirty &&
+			left.GitTreeHash == right.GitTreeHash
+	}
+}
+
+func inspectArtifactRepoState(spec ProcessSpec) (*artifactRepoState, error) {
+	if spec.Dir == "" || len(spec.Build) == 0 {
+		return nil, nil
+	}
+	root, err := gitOutput(spec.Dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, err
+	}
+	head, err := gitOutput(spec.Dir, "rev-parse", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	status, err := gitOutput(spec.Dir, "status", "--porcelain=v1", "--untracked-files=all")
+	if err != nil {
+		return nil, err
+	}
+	return &artifactRepoState{
+		RepoRoot:    root,
+		GitHead:     head,
+		GitDirty:    status != "",
+		GitTreeHash: hashString(status),
+	}, nil
+}
+
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...) //nolint:gosec // arguments are fixed internal git queries, not user shell input
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func hashString(v string) string {
+	sum := sha256.Sum256([]byte(v))
+	return hex.EncodeToString(sum[:])
 }

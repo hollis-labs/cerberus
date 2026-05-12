@@ -50,15 +50,15 @@ The agreed model is:
 
 ## Important Files
 
-- [internal/cerbapi/resource_runtime_service.go](/Users/chrispian/Projects-apps/cerberus/internal/cerbapi/resource_runtime_service.go)
-- [internal/cerbapi/resource_monitor.go](/Users/chrispian/Projects-apps/cerberus/internal/cerbapi/resource_monitor.go)
-- [internal/connector/local/dev_session.go](/Users/chrispian/Projects-apps/cerberus/internal/connector/local/dev_session.go)
-- [internal/pipeline/resolve.go](/Users/chrispian/Projects-apps/cerberus/internal/pipeline/resolve.go)
-- [internal/app/app.go](/Users/chrispian/Projects-apps/cerberus/internal/app/app.go)
-- [cmd/cerberus/main.go](/Users/chrispian/Projects-apps/cerberus/cmd/cerberus/main.go)
-- [docs/adr/0001-local-runtime-backends.md](/Users/chrispian/Projects-apps/cerberus/docs/adr/0001-local-runtime-backends.md)
-- [docs/adr/0002-resource-only-local-workload-model.md](/Users/chrispian/Projects-apps/cerberus/docs/adr/0002-resource-only-local-workload-model.md)
-- [docs/plans/daemon-management-v2.md](/Users/chrispian/Projects-apps/cerberus/docs/plans/daemon-management-v2.md)
+- [internal/cerbapi/resource_runtime_service.go](../../internal/cerbapi/resource_runtime_service.go)
+- [internal/cerbapi/resource_monitor.go](../../internal/cerbapi/resource_monitor.go)
+- [internal/connector/local/dev_session.go](../../internal/connector/local/dev_session.go)
+- [internal/pipeline/resolve.go](../../internal/pipeline/resolve.go)
+- [internal/app/app.go](../../internal/app/app.go)
+- [cmd/cerberus/main.go](../../cmd/cerberus/main.go)
+- [docs/adr/0001-local-runtime-backends.md](../adr/0001-local-runtime-backends.md)
+- [docs/adr/0002-resource-only-local-workload-model.md](../adr/0002-resource-only-local-workload-model.md)
+- [docs/plans/daemon-management-v2.md](../plans/daemon-management-v2.md)
 
 ## Verified Before Pause
 
@@ -96,4 +96,23 @@ Let the v2-only surface settle under real use, then delete dead legacy packages 
 
 ## Current Session Endpoint
 
-The last completed slice finished the active v2 cut-over: deploy/apply/resource-native guidance is in place, legacy operator surfaces were removed, config is strict v2, and Vanta memory/knowledge was updated with the new operating rule.
+The active v2 cut-over is complete: deploy/apply/resource-native guidance is in place, legacy operator surfaces were removed, config is strict v2, and Vanta memory/knowledge was updated with the new operating rule.
+
+Current local-runtime policy is now:
+
+- `dev` flows should use `dev_session` on repo-local ports
+- `uat` flows should use `os_service` plus `run_from: artifact`
+- `release` flows should stay on `os_service`, using promoted user-owned or system-owned artifacts rather than ad hoc dev servers
+
+Artifact-backed resources with a declared `build:` command now also carry a repo-state freshness signal, so status can recommend `resource deploy` when Git commit or worktree drift makes the installed artifact older than the current source tree.
+
+The next distribution-focused slice is defined but not yet implemented:
+
+- pilot one app, likely `nanite`, through a full `dev` vs `release` split
+- keep `dev` repo-backed with alternate ports and data roots
+- add a canonical user-facing installed artifact path outside the repo for `release`
+- script a macOS-first install/update flow so end users do not need the repo or local builds
+
+Beta-release planning now lives in:
+
+- [../plans/beta-release-plan.md](../plans/beta-release-plan.md)

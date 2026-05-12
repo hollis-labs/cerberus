@@ -241,6 +241,17 @@ func (c *SocketClient) ReloadResource(ctx context.Context, id string) (*OpResult
 	return &out, nil
 }
 
+func (c *SocketClient) StopResource(ctx context.Context, id string) (*OpResult, error) {
+	if id == "" {
+		return nil, errors.New("resource id required")
+	}
+	var out OpResult
+	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/stop", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *SocketClient) SyncResource(ctx context.Context, id string) (*OpResult, error) {
 	if id == "" {
 		return nil, errors.New("resource id required")

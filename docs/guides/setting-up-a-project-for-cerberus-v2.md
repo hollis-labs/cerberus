@@ -6,6 +6,7 @@ The short version:
 
 - durable APIs and daemons should use `resource` entries, not legacy `service` entries
 - frontends, Vite servers, Wails dev flows, and other interactive dev loops should usually stay on `dev_session`
+- every project should separate `dev`, `uat`, and `release` ownership clearly
 - `os_service` resources must have a deterministic repo-local runtime story
 - Cerberus should not have to guess which binary on `PATH` is the real one
 
@@ -27,14 +28,41 @@ Use `os_service` when the process is meant to be a durable background service:
 - daemon
 - long-running worker
 
+## Separate Dev, UAT, And Release Ownership
+
+Do not let one port or one process pretend to serve every audience.
+
+The preferred pattern is:
+
+- `dev`: repo-local iteration flows on `dev_session`
+- `uat`: the shared background runtime agents and operators test against on `os_service`
+- `release`: the promoted binary installed into a user-owned or system-owned location, also on `os_service`
+
+Practical consequences:
+
+- dev frontends should point at dev backends by default, not the UAT port
+- UAT ports should have one active Cerberus-managed owner
+- release installs should not depend on whichever dev server happened to be left running
+
+Recommended naming:
+
+- resource IDs should encode audience: `my-api-dev`, `my-api-uat`, `my-api-release`
+- tags should include the audience: `dev`, `uat`, or `release`
+- durable services should also tag runtime shape: `launchd`, `artifact`, `workspace`, `api`, `daemon`, or `mcp`
+- ports should be unique per audience; do not reuse the dev port for UAT
+- data roots should be audience-specific, such as `~/.my-project/dev`, `~/.my-project/uat`, and `~/.my-project/release`
+
+This keeps operator intent clear in `resource list`, MCP filters, logs, and future automation.
+
 ## Separate Backend Services From Frontend Dev Servers
 
 Do not force a project’s frontend dev workflow into the durable service lane.
 
 A common good split is:
 
-- backend API or daemon: `os_service`
-- frontend dev server: `dev_session` or legacy until migrated
+- backend API or daemon for iteration: `dev_session`
+- backend API or daemon for shared testing: `os_service`
+- frontend dev server: `dev_session`
 
 This keeps Cerberus from conflating production-like background services with interactive local development.
 
@@ -86,6 +114,8 @@ This is acceptable for:
 - projects where the durable runtime is still workspace-native
 
 It is a compromise, not the ideal end state. Prefer artifact-backed services when the repo can support them cleanly.
+
+For promoted release installs, artifact mode is still the preferred shape; the only difference is where the artifact originates. The release binary may come from a user-owned bin directory or a system-installed location rather than a workspace dev build, but Cerberus should still treat it as an explicit artifact, not a guessed PATH lookup.
 
 ## Preferred Build Contract
 
@@ -172,6 +202,16 @@ and env values before launchd sees them. Even so, absolute paths are still the
 preferred config shape for durable services because they are easier to inspect
 and less surprising to operators.
 
+Keep data roots separate by audience:
+
+```yaml
+env:
+  MY_API_ENV: uat
+  MY_API_DATA_DIR: ~/.my-api/uat
+```
+
+Do not point `dev`, `uat`, and release-style resources at the same mutable data directory unless that sharing is the explicit test scenario.
+
 ## Health Endpoints Matter
 
 Durable backend services should expose a stable health signal when practical.
@@ -191,12 +231,12 @@ Example artifact-backed API:
 
 ```yaml
 resources:
-  - id: my-api-service
-    name: "My API Service"
+  - id: my-api-uat
+    name: "My API UAT"
     project: my-project
     type: process
     connector: local
-    tags: [api, go, launchd, v2]
+    tags: [uat, api, go, launchd, artifact]
     config:
       dir: /absolute/path/to/repo
       command: ["./bin/myd", "serve", "--port", "8080"]
@@ -206,6 +246,9 @@ resources:
       mode: os_service
       supervisor: launchd
       run_from: artifact
+      env:
+        MYD_ENV: uat
+        MYD_DATA_DIR: ~/.myd/uat
 ```
 
 Example workspace-backed Python service:
@@ -217,7 +260,7 @@ resources:
     project: my-project
     type: process
     connector: local
-    tags: [api, python, launchd, v2]
+    tags: [uat, api, python, launchd, workspace]
     config:
       dir: /absolute/path/to/repo
       command: ["./bin/my-service", "serve", "--port", "8096"]
@@ -230,6 +273,37 @@ resources:
         PYTHONUNBUFFERED: "1"
 ```
 
+Example frontend dev session:
+
+```yaml
+resources:
+  - id: my-web-dev
+    name: "My Web Dev"
+    project: my-project
+    type: process
+    connector: local
+    tags: [dev, frontend]
+    config:
+      dir: /absolute/path/to/repo/web
+      command: ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5177"]
+      url: http://127.0.0.1:5177
+      port: 5177
+      mode: dev_session
+```
+
+## Operator Lifecycle Expectations
+
+Choose lifecycle verbs by intent:
+
+- `deploy`: build from the current source tree, sync the artifact, and activate it.
+- `apply`: activate from an already-built artifact or workspace command; it does not build.
+- `reload`: restart/kickstart the current installed service without syncing or rewriting service definitions.
+- `sync`: update installed artifacts without applying the runtime backend.
+- `stop`: stop runtime execution without deleting installed artifact or service state.
+- `remove`: uninstall runtime state; for launchd-backed artifact services, this unloads the launch agent and removes the installed artifact tree.
+
+Use `stop` for non-destructive stop/pause intent and keep `remove` uninstall-oriented.
+
 ## Migration Checklist
 
 Before migrating a project from legacy `services:` to v2 `resources:`:
@@ -238,15 +312,17 @@ Before migrating a project from legacy `services:` to v2 `resources:`:
 2. Ensure the repo has a deterministic production build path.
 3. Ensure the runtime command uses a real filesystem path, not a PATH-only binary.
 4. Build locally from the repo root.
-5. If artifact-backed, verify the artifact exists in the repo after build.
-6. Add the v2 `resource` entry.
-7. Run `cerberus resource sync <id>` if artifact-backed.
-8. Run `cerberus resource apply <id>`.
-9. Verify with:
+5. Assign unique dev/UAT/release ports and data roots.
+6. Add audience tags so operators and agents can filter resources safely.
+7. If artifact-backed, verify the artifact exists in the repo after build.
+8. Add the v2 `resource` entry.
+9. Run `cerberus resource sync <id>` if artifact-backed.
+10. Run `cerberus resource apply <id>`.
+11. Verify with:
    - `cerberus resource status <id>`
    - `cerberus resource inspect <id>`
    - `cerberus resource doctor <id>`
-10. Only then remove the legacy `service` entry.
+12. Only then remove the legacy `service` entry.
 
 ## What We Learned From Early Migrations
 
@@ -263,6 +339,9 @@ The correct pattern is:
 - repo-local build output
 - explicit runtime mode
 - explicit run source
+- explicit `dev` vs `uat` vs `release` ownership
 - Cerberus-owned home expansion instead of trusting launchd or the shell
 - one active owner per port
 - supervisor-managed status for durable services
+
+For artifact-backed resources with a `build:` command, Cerberus now also records Git repo state when the artifact is synced. That lets status warn when the current repo commit or worktree no longer matches the installed UAT or release artifact, even if nobody rebuilt the binary yet.

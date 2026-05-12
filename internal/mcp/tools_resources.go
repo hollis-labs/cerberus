@@ -84,7 +84,7 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_status",
-		Description: "Returns runtime status for a specific v2 resource. Currently supports local process resources and reports backend state plus operator guidance such as artifact drift, recommended action codes, and a prose next step.",
+		Description: "Returns runtime status for a specific v2 resource. Currently supports local process resources and reports backend state plus operator guidance such as artifact drift, recommended action codes, and a prose next step. Use this before choosing deploy, apply, reload, sync, stop, or remove.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -241,7 +241,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_reload",
-		Description: "V2 resource lane only. Requests a runtime restart or kickstart for a local process resource without rebuilding, syncing artifacts, or rewriting service definitions.",
+		Description: "V2 resource lane only. Restart/kickstart a local process resource that is already installed. Does not rebuild, sync artifacts, or rewrite service definitions.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -273,11 +273,47 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 	}
 }
 
+// NewCerberusResourceStopTool creates the cerberus_resource_stop tool.
+func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_stop",
+		Description: "V2 resource lane only. Stops a local process resource without removing install state. For dev_session resources, this suppresses auto-restart until an explicit apply, deploy, or reload. Use remove only for uninstall intent.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"resource_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The resource ID to stop.",
+				},
+			},
+			"required": []string{"resource_id"},
+		},
+		Handler: func(args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			res, err := client.StopResource(context.Background(), resourceID)
+			if err != nil {
+				return "", err
+			}
+			return marshalResult(lifecycleResult{
+				Success: res.Success,
+				Message: res.Message,
+				Error:   res.Error,
+			}), nil
+		},
+	}
+}
+
 // NewCerberusResourceDeployTool creates the cerberus_resource_deploy tool.
 func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_deploy",
-		Description: "V2 resource lane only. Runs the resource's declared build contract first, then applies it through the configured runtime backend. Use this for source-to-runtime deploy flows.",
+		Description: "V2 resource lane only. Runs the resource's declared build contract first, then syncs/applies it through the configured runtime backend. Use this when the operator intent is source-to-runtime: make the running service match the current source tree.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -313,7 +349,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_apply",
-		Description: "V2 resource lane only. Applies a specific resource through its configured runtime backend. For local os_service resources on macOS, this syncs the currently-built installed artifact and updates the launch agent. It does not run the build command first.",
+		Description: "V2 resource lane only. Applies a specific resource through its configured runtime backend. For local os_service resources on macOS, this syncs the currently-built artifact and updates the launch agent. It does not run the build command first.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -349,7 +385,7 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_sync",
-		Description: "V2 resource lane only. Syncs a specific resource's installed runtime artifacts without applying the runtime backend. Intended for local process resources using run_from=artifact.",
+		Description: "V2 resource lane only. Syncs a specific resource's installed runtime artifacts without applying the runtime backend. Intended for local process resources using run_from=artifact when the artifact should be copied now and activated later.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -385,7 +421,7 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_remove",
-		Description: "Removes a specific resource from its configured runtime backend. For local os_service resources on macOS, this unloads the launch agent and removes installed artifacts.",
+		Description: "Destructively removes a specific resource from its configured runtime backend. For local os_service resources on macOS, this unloads the launch agent and removes installed artifacts. Use cerberus_resource_stop when you only need to stop the process.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
