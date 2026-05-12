@@ -162,6 +162,9 @@ type ResourceInfo struct {
 	Mode                string   `json:"mode,omitempty"`
 	Supervisor          string   `json:"supervisor,omitempty"`
 	RunFrom             string   `json:"run_from,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	Port                int      `json:"port,omitempty"`
+	HasBuild            bool     `json:"has_build,omitempty"`
 	Status              string   `json:"status,omitempty"`
 	ArtifactInstalled   bool     `json:"artifact_installed,omitempty"`
 	ArtifactStale       bool     `json:"artifact_stale,omitempty"`
@@ -187,6 +190,9 @@ type ResourceRuntimeStatus struct {
 	Mode                string   `json:"mode,omitempty"`
 	Supervisor          string   `json:"supervisor,omitempty"`
 	RunFrom             string   `json:"run_from,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	Port                int      `json:"port,omitempty"`
+	HasBuild            bool     `json:"has_build,omitempty"`
 	Status              string   `json:"status"`
 	ServiceName         string   `json:"service_name,omitempty"`
 	ArtifactPath        string   `json:"artifact_path,omitempty"`
@@ -219,6 +225,8 @@ type ResourceInspect struct {
 	Mode                string   `json:"mode,omitempty"`
 	Supervisor          string   `json:"supervisor,omitempty"`
 	RunFrom             string   `json:"run_from,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	Port                int      `json:"port,omitempty"`
 	Status              string   `json:"status,omitempty"`
 	WorkspaceDir        string   `json:"workspace_dir,omitempty"`
 	WorkingDir          string   `json:"working_dir,omitempty"`

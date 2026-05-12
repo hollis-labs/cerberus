@@ -38,6 +38,7 @@ For day-to-day operations, start with:
 - cerberus resource apply <id>    # apply only when the right artifact already exists
 - cerberus resource doctor <id>   # use when apply or deploy fails
 - cerberus resource logs <id>
+- cerberus web                    # compact local web console
 
 The Cerberus daemon itself now also fits this model as the v2 local process
 resource "cerberus-daemon-service" on macOS launchd.
@@ -62,6 +63,7 @@ func init() {
 	validateCmd.GroupID = "runtime"
 	initCmd.GroupID = "runtime"
 	daemonCmd.GroupID = "runtime"
+	webCmd.GroupID = "runtime"
 	mcpCmd.GroupID = "runtime"
 	installCmd.GroupID = "runtime"
 	uninstallCmd.GroupID = "runtime"
@@ -82,6 +84,7 @@ func init() {
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(daemonCmd)
+	rootCmd.AddCommand(webCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
