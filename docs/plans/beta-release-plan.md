@@ -14,7 +14,7 @@ Define the minimum product, engineering, and release work required to ship a **C
 
 Execution detail now lives in:
 
-- [docs/plans/beta-release-execution.md](/Users/chrispian/Projects-apps/cerberus/docs/plans/beta-release-execution.md)
+- [beta-release-execution.md](./beta-release-execution.md)
 
 For beta, Cerberus should be credible as:
 

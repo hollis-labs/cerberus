@@ -6,7 +6,7 @@ Turn the beta release plan into concrete sprint slices that can be executed by o
 
 This document is the execution companion to:
 
-- [docs/plans/beta-release-plan.md](/Users/chrispian/Projects-apps/cerberus/docs/plans/beta-release-plan.md)
+- [beta-release-plan.md](./beta-release-plan.md)
 
 ## Sprint 1: Runtime Core Stabilization
 

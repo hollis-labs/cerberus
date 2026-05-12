@@ -102,7 +102,7 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 				info.Status = string(state)
 			}
 			info.OperatorStopped = pausectl.IsServicePaused(r.ID)
-			if _, art, err := localconn.InspectArtifactInstall(dr, spec); err == nil {
+			if _, art, err := localconn.InspectArtifactInstallBasic(dr, spec); err == nil {
 				info.ArtifactInstalled = art.Installed
 				info.ArtifactStale = art.Stale
 				if info.Status != "" {
@@ -753,7 +753,7 @@ func (s *ResourceRuntimeService) Health(ctx context.Context, id string) ([]Resou
 			Supervisor:      resourceSupervisor(r),
 			RunFrom:         resourceRunFrom(r),
 		}
-		if _, art, inspectErr := localconn.InspectArtifactInstall(dr, spec); inspectErr == nil {
+		if _, art, inspectErr := localconn.InspectArtifactInstallBasic(dr, spec); inspectErr == nil {
 			health.ArtifactInstalled = art.Installed
 			health.ArtifactStale = art.Stale
 			health.RecommendedAction, health.RecommendedReason = localconn.RecommendedStatusAction(spec, state, art)

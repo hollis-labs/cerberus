@@ -49,9 +49,10 @@ type artifactSyncResult struct {
 type ArtifactSyncResult = artifactSyncResult
 
 type artifactInstaller struct {
-	homeDir          func() (string, error)
-	now              func() time.Time
-	inspectRepoState func(ProcessSpec) (*artifactRepoState, error)
+	homeDir              func() (string, error)
+	now                  func() time.Time
+	inspectRepoState     func(ProcessSpec) (*artifactRepoState, error)
+	skipCurrentRepoState bool
 }
 
 func newArtifactInstaller() artifactInstaller {
@@ -166,7 +167,7 @@ func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (Insta
 		}
 		return InstallLayout{}, artifactStatus{}, statErr
 	}
-	stale, staleReason := inspectArtifactDrift(spec, manifest)
+	stale, staleReason := i.inspectArtifactDrift(spec, manifest)
 	return layout, artifactStatus{
 		Installed:    true,
 		SourcePath:   manifest.SourcePath,
@@ -177,7 +178,7 @@ func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (Insta
 	}, nil
 }
 
-func inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, string) {
+func (i artifactInstaller) inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, string) {
 	sourcePath, err := resolveArtifactSource(spec)
 	if err != nil {
 		return true, "source_unresolvable"
@@ -195,7 +196,7 @@ func inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, st
 	if sourceHash != manifest.SourceHash {
 		return true, "source_changed"
 	}
-	if manifest.RepoState != nil {
+	if !i.skipCurrentRepoState && manifest.RepoState != nil {
 		currentRepoState, repoErr := inspectArtifactRepoState(spec)
 		if repoErr == nil {
 			if stale, reason := manifest.RepoState.diff(currentRepoState); stale {
@@ -225,6 +226,14 @@ func (i artifactInstaller) Remove(res *domain.Resource, spec ProcessSpec) (Insta
 // resource without mutating it.
 func InspectArtifactInstall(res *domain.Resource, spec ProcessSpec) (InstallLayout, ArtifactStatus, error) {
 	return newArtifactInstaller().Status(res, spec)
+}
+
+// InspectArtifactInstallBasic reports artifact install state without running
+// live repository drift probes. Use this for high-fanout polling surfaces.
+func InspectArtifactInstallBasic(res *domain.Resource, spec ProcessSpec) (InstallLayout, ArtifactStatus, error) {
+	installer := newArtifactInstaller()
+	installer.skipCurrentRepoState = true
+	return installer.Status(res, spec)
 }
 
 // SyncArtifactInstall performs an artifact sync without starting the runtime.

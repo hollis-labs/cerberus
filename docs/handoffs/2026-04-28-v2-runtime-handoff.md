@@ -50,15 +50,15 @@ The agreed model is:
 
 ## Important Files
 
-- [internal/cerbapi/resource_runtime_service.go](/Users/chrispian/Projects-apps/cerberus/internal/cerbapi/resource_runtime_service.go)
-- [internal/cerbapi/resource_monitor.go](/Users/chrispian/Projects-apps/cerberus/internal/cerbapi/resource_monitor.go)
-- [internal/connector/local/dev_session.go](/Users/chrispian/Projects-apps/cerberus/internal/connector/local/dev_session.go)
-- [internal/pipeline/resolve.go](/Users/chrispian/Projects-apps/cerberus/internal/pipeline/resolve.go)
-- [internal/app/app.go](/Users/chrispian/Projects-apps/cerberus/internal/app/app.go)
-- [cmd/cerberus/main.go](/Users/chrispian/Projects-apps/cerberus/cmd/cerberus/main.go)
-- [docs/adr/0001-local-runtime-backends.md](/Users/chrispian/Projects-apps/cerberus/docs/adr/0001-local-runtime-backends.md)
-- [docs/adr/0002-resource-only-local-workload-model.md](/Users/chrispian/Projects-apps/cerberus/docs/adr/0002-resource-only-local-workload-model.md)
-- [docs/plans/daemon-management-v2.md](/Users/chrispian/Projects-apps/cerberus/docs/plans/daemon-management-v2.md)
+- [internal/cerbapi/resource_runtime_service.go](../../internal/cerbapi/resource_runtime_service.go)
+- [internal/cerbapi/resource_monitor.go](../../internal/cerbapi/resource_monitor.go)
+- [internal/connector/local/dev_session.go](../../internal/connector/local/dev_session.go)
+- [internal/pipeline/resolve.go](../../internal/pipeline/resolve.go)
+- [internal/app/app.go](../../internal/app/app.go)
+- [cmd/cerberus/main.go](../../cmd/cerberus/main.go)
+- [docs/adr/0001-local-runtime-backends.md](../adr/0001-local-runtime-backends.md)
+- [docs/adr/0002-resource-only-local-workload-model.md](../adr/0002-resource-only-local-workload-model.md)
+- [docs/plans/daemon-management-v2.md](../plans/daemon-management-v2.md)
 
 ## Verified Before Pause
 
@@ -115,4 +115,4 @@ The next distribution-focused slice is defined but not yet implemented:
 
 Beta-release planning now lives in:
 
-- [docs/plans/beta-release-plan.md](/Users/chrispian/Projects-apps/cerberus/docs/plans/beta-release-plan.md)
+- [../plans/beta-release-plan.md](../plans/beta-release-plan.md)
