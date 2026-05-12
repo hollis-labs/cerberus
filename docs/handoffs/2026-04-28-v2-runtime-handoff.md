@@ -50,15 +50,15 @@ The agreed model is:
 
 ## Important Files
 
-- [internal/cerbapi/resource_runtime_service.go](/Users/me/src/cerberus/internal/cerbapi/resource_runtime_service.go)
-- [internal/cerbapi/resource_monitor.go](/Users/me/src/cerberus/internal/cerbapi/resource_monitor.go)
-- [internal/connector/local/dev_session.go](/Users/me/src/cerberus/internal/connector/local/dev_session.go)
-- [internal/pipeline/resolve.go](/Users/me/src/cerberus/internal/pipeline/resolve.go)
-- [internal/app/app.go](/Users/me/src/cerberus/internal/app/app.go)
-- [cmd/cerberus/main.go](/Users/me/src/cerberus/cmd/cerberus/main.go)
-- [docs/adr/0001-local-runtime-backends.md](/Users/me/src/cerberus/docs/adr/0001-local-runtime-backends.md)
-- [docs/adr/0002-resource-only-local-workload-model.md](/Users/me/src/cerberus/docs/adr/0002-resource-only-local-workload-model.md)
-- [docs/plans/daemon-management-v2.md](/Users/me/src/cerberus/docs/plans/daemon-management-v2.md)
+- [internal/cerbapi/resource_runtime_service.go](../../internal/cerbapi/resource_runtime_service.go)
+- [internal/cerbapi/resource_monitor.go](../../internal/cerbapi/resource_monitor.go)
+- [internal/connector/local/dev_session.go](../../internal/connector/local/dev_session.go)
+- [internal/pipeline/resolve.go](../../internal/pipeline/resolve.go)
+- [internal/app/app.go](../../internal/app/app.go)
+- [cmd/cerberus/main.go](../../cmd/cerberus/main.go)
+- [docs/adr/0001-local-runtime-backends.md](../adr/0001-local-runtime-backends.md)
+- [docs/adr/0002-resource-only-local-workload-model.md](../adr/0002-resource-only-local-workload-model.md)
+- [docs/plans/daemon-management-v2.md](../plans/daemon-management-v2.md)
 
 ## Verified Before Pause
 
@@ -115,4 +115,4 @@ The next distribution-focused slice is defined but not yet implemented:
 
 Beta-release planning now lives in:
 
-- [docs/plans/beta-release-plan.md](/Users/me/src/cerberus/docs/plans/beta-release-plan.md)
+- [../plans/beta-release-plan.md](../plans/beta-release-plan.md)

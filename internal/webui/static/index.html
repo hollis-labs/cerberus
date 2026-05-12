@@ -318,6 +318,7 @@
       selectedDetail: null,
       pollHandle: null,
       busy: false,
+      actionToken: "",
     };
 
     const els = {
@@ -353,15 +354,24 @@
     }
 
     async function fetchJSON(path, options = {}) {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      if (options.method && options.method !== "GET" && state.actionToken) {
+        headers["X-Cerberus-Web-Token"] = state.actionToken;
+      }
       const response = await fetch(path, {
-        headers: { "Content-Type": "application/json" },
         ...options,
+        headers,
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.error || `request failed: ${response.status}`);
       }
       return data;
+    }
+
+    async function loadSession() {
+      const session = await fetchJSON("/api/session");
+      state.actionToken = session.action_token || "";
     }
 
     function resourceActionLabel(resource) {
@@ -623,7 +633,9 @@
 
     bindEvents();
     configurePolling();
-    loadResources();
+    loadSession()
+      .then(loadResources)
+      .catch((error) => setSummaryNotice(`session failed: ${error.message}`, true));
   </script>
 </body>
 </html>
