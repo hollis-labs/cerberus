@@ -215,7 +215,7 @@ func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec 
 		Reason:       extractLaunchdValue(text, "reason ="),
 		Diagnosis:    diagnosis,
 		Highlights:   highlights,
-		Raw:          text,
+		Raw:          redactLaunchdRecordSecrets(text),
 	}, nil
 }
 
@@ -482,10 +482,45 @@ func diagnoseLaunchdRecord(text string) (string, []string) {
 	case strings.Contains(lower, "state = running"):
 		return "service is loaded and running", highlights
 	case strings.Contains(lower, "state = waiting"):
-		return "service is loaded but currently idle", highlights
+		return "service is loaded but not running (launchd waiting state)", highlights
 	default:
 		return "", highlights
 	}
+}
+
+func redactLaunchdRecordSecrets(text string) string {
+	lines := strings.SplitAfter(text, "\n")
+	for i, line := range lines {
+		key, value, ok := strings.Cut(line, "=>")
+		if !ok || !isSensitiveLaunchdEnvKey(key) {
+			continue
+		}
+		lineEnd := ""
+		if strings.HasSuffix(value, "\n") {
+			lineEnd = "\n"
+		}
+		lines[i] = key + "=> [REDACTED]" + lineEnd
+	}
+	return strings.Join(lines, "")
+}
+
+func isSensitiveLaunchdEnvKey(key string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(key))
+	for _, marker := range []string{
+		"API_KEY",
+		"ACCESS_KEY",
+		"SECRET",
+		"TOKEN",
+		"PASSWORD",
+		"PASSCODE",
+		"PRIVATE_KEY",
+		"CREDENTIAL",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasNonZeroLaunchdExit(text string) bool {

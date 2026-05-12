@@ -4,17 +4,35 @@ Agent-first local infrastructure manager evolving toward a broader control plane
 
 ## Install
 
+For macOS beta releases, install the released binary into the canonical
+user-owned Cerberus path:
+
 ```bash
-go install ./cmd/cerberus/
+mkdir -p ~/.cerberus/bin
+tar -xzf cerberus_<version>_darwin_<arch>.tar.gz
+install -m 0755 cerberus ~/.cerberus/bin/cerberus
+export PATH="$HOME/.cerberus/bin:$PATH"
+cerberus init
+cerberus install
 ```
 
-Binary goes to `~/go/bin/cerberus`. Use `cerberus init` to create `~/.cerberus/config.yaml` with an empty v2 config skeleton.
+Released macOS binaries are expected at `~/.cerberus/bin/cerberus`.
+`cerberus install` writes the `com.fragments-engine.cerberus` launch agent
+against that path when it exists. Repo-local development can still use
+`go install ./cmd/cerberus/`, but released beta installs should not depend on
+`~/go/bin`.
+
+Release packaging and verification steps live in
+[docs/release/beta-release-process.md](docs/release/beta-release-process.md).
+For first-time beta operation, start with
+[docs/guides/macos-beta-quickstart.md](docs/guides/macos-beta-quickstart.md).
 
 ## Usage
 
 ```bash
 cerberus              # show help
 cerberus init         # create default config and exit
+cerberus install      # bootstrap the macOS launch agent for the daemon
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
 
@@ -47,6 +65,7 @@ cerberus resource deploy <resource-id>
 cerberus resource apply <resource-id>
 cerberus resource reload <resource-id>
 cerberus resource sync <resource-id>
+cerberus resource stop <resource-id>
 cerberus resource remove <resource-id>
 ```
 
@@ -54,13 +73,18 @@ Mental model:
 
 - build source, sync the artifact, and activate it: `cerberus resource deploy <id>`
 - start or converge an already-built resource: `cerberus resource apply <id>`
+- restart the current installed service without building or syncing: `cerberus resource reload <id>`
 - inspect live runtime state: `cerberus resource status <id>`
 - inspect full runtime/install details: `cerberus resource inspect <id>`
 - diagnose a resource: `cerberus resource doctor <id>`
 - tail recent logs: `cerberus resource logs <id>`
-- restart without reinstalling: `cerberus resource reload <id>`
 - sync artifact only: `cerberus resource sync <id>`
-- stop or unload the resource: `cerberus resource remove <id>`
+- stop without deleting install state: `cerberus resource stop <id>`
+- uninstall runtime state: `cerberus resource remove <id>`
+
+`stop` is the non-destructive pause/stop path. `remove` is destructive for
+local `os_service` resources: it unloads the launch agent and removes the
+installed artifact tree.
 
 On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied. `resource status` and `resource list` now surface artifact drift plus a recommended next action (`deploy`, `sync`, or `apply`) for artifact-backed services.
 
@@ -74,7 +98,7 @@ For artifact-backed services with a declared `build:` contract, Cerberus now rec
 
 The Cerberus daemon itself now follows this same model as `cerberus-daemon-service`, a v2 local process resource using the canonical launchd label `com.fragments-engine.cerberus`.
 
-For the repo-side rules a project should satisfy before it is added to the v2 lane, see [docs/guides/setting-up-a-project-for-cerberus-v2.md](docs/guides/setting-up-a-project-for-cerberus-v2.md).
+For the repo-side rules a project should satisfy before it is added to the v2 lane, see [docs/guides/setting-up-a-project-for-cerberus-v2.md](docs/guides/setting-up-a-project-for-cerberus-v2.md). For recovery help, see [docs/guides/local-runtime-troubleshooting.md](docs/guides/local-runtime-troubleshooting.md).
 
 ## Port Map
 
@@ -139,18 +163,21 @@ Typical `os_service` flow on macOS:
 cerberus resource list
 cerberus resource status volon-api
 cerberus resource deploy volon-api
-cerberus resource sync volon-api
-cerberus resource apply volon-api
+cerberus resource logs volon-api --stream stderr --lines 100
+cerberus resource reload volon-api
+cerberus resource stop volon-api
 cerberus resource remove volon-api
 ```
 
 Guidance:
 
 - Use `resource deploy` when your goal is "make the running service match the current source tree".
-- Use `resource sync` when the installed artifact is stale and the service is stopped.
+- Use `resource sync` when the installed artifact is stale and you intentionally do not want to touch the running service yet.
 - Use `resource apply` when the correct workspace artifact already exists and the service should be loaded, reloaded, or restarted through `launchd`.
+- Use `resource reload` when the installed service definition and artifact are already correct and you only need launchd to restart/kickstart the process.
+- Use `resource stop` when you want to stop or pause runtime execution without deleting installed artifact state.
 - If status says the repo state changed since the artifact was last synced, prefer `resource deploy` over `apply` or `sync`.
-- Use `resource remove` to unload the launch agent and remove the installed artifact tree.
+- Use `resource remove` only when you mean "uninstall this runtime instance": unload the launch agent and remove the installed artifact tree.
 
 ## Cerberus Daemon
 
@@ -177,6 +204,7 @@ For normal lifecycle management, use the resource lane:
 ```bash
 cerberus resource status cerberus-daemon-service
 cerberus resource apply cerberus-daemon-service
+cerberus resource reload cerberus-daemon-service
 cerberus resource remove cerberus-daemon-service
 ```
 

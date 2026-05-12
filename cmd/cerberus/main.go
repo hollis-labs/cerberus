@@ -36,8 +36,12 @@ For day-to-day operations, start with:
 - cerberus resource status <id>
 - cerberus resource deploy <id>   # build + apply when source changed
 - cerberus resource apply <id>    # apply only when the right artifact already exists
+- cerberus resource reload <id>   # restart the installed service only
+- cerberus resource sync <id>     # copy artifact without touching runtime backend
+- cerberus resource stop <id>     # stop without deleting install state
 - cerberus resource doctor <id>   # use when apply or deploy fails
 - cerberus resource logs <id>
+- cerberus resource remove <id>   # uninstall runtime state; not a casual stop
 - cerberus web                    # compact local web console
 
 The Cerberus daemon itself now also fits this model as the v2 local process

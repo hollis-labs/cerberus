@@ -419,6 +419,52 @@ func TestLaunchdBackendStopIgnoresMissingService(t *testing.T) {
 	}
 }
 
+func TestLaunchdBackendStopPreservesInstallRootAndPlist(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "app"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{
+			homeDir: func() (string, error) { return tmp, nil },
+			now:     time.Now,
+		},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./app", "serve"},
+	}
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	layout, err := defaultInstallLayoutFromBackend(backend, res, spec)
+	if err != nil {
+		t.Fatalf("defaultInstallLayoutFromBackend failed: %v", err)
+	}
+	if err := backend.Stop(context.Background(), res, spec); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+	if _, err := os.Stat(layout.PlistPath); err != nil {
+		t.Fatalf("expected plist preserved, got err=%v", err)
+	}
+	if _, err := os.Stat(layout.RootDir); err != nil {
+		t.Fatalf("expected install root preserved, got err=%v", err)
+	}
+}
+
 func TestParseLaunchdState(t *testing.T) {
 	tests := []struct {
 		name string
@@ -443,7 +489,7 @@ func TestParseLaunchdState(t *testing.T) {
 func TestLaunchdBackendInspectParsesLiveRecord(t *testing.T) {
 	runner := &fakeCommandRunner{
 		out: map[string][]byte{
-			"launchctl print gui/501/com.example.app": []byte("state = throttled\npid = 123\nlast exit code = 78\nreason = crashed\n"),
+			"launchctl print gui/501/com.example.app": []byte("state = throttled\npid = 123\nlast exit code = 78\nreason = crashed\nenvironment = {\n\tOPENAI_API_KEY => sk-test\n\tPATH => /usr/bin\n}\n"),
 		},
 		err: map[string]error{},
 	}
@@ -463,6 +509,15 @@ func TestLaunchdBackendInspectParsesLiveRecord(t *testing.T) {
 	}
 	if rec.Diagnosis == "" || len(rec.Highlights) == 0 {
 		t.Fatalf("expected diagnosis/highlights, got %+v", rec)
+	}
+	if strings.Contains(rec.Raw, "sk-test") {
+		t.Fatalf("raw launchd record leaked secret: %s", rec.Raw)
+	}
+	if !strings.Contains(rec.Raw, "OPENAI_API_KEY => [REDACTED]") {
+		t.Fatalf("raw launchd record did not redact secret: %s", rec.Raw)
+	}
+	if !strings.Contains(rec.Raw, "PATH => /usr/bin") {
+		t.Fatalf("raw launchd record should preserve non-sensitive values: %s", rec.Raw)
 	}
 }
 
