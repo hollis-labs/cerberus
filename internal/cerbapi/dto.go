@@ -108,6 +108,7 @@ type ResourceHealth struct {
 	ResourceID          string `json:"resource_id"`
 	Status              string `json:"status"`
 	Healthy             bool   `json:"healthy"`
+	OperatorStopped     bool   `json:"operator_stopped,omitempty"`
 	Mode                string `json:"mode,omitempty"`
 	Supervisor          string `json:"supervisor,omitempty"`
 	RunFrom             string `json:"run_from,omitempty"`
@@ -162,7 +163,11 @@ type ResourceInfo struct {
 	Mode                string   `json:"mode,omitempty"`
 	Supervisor          string   `json:"supervisor,omitempty"`
 	RunFrom             string   `json:"run_from,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	Port                int      `json:"port,omitempty"`
+	HasBuild            bool     `json:"has_build,omitempty"`
 	Status              string   `json:"status,omitempty"`
+	OperatorStopped     bool     `json:"operator_stopped,omitempty"`
 	ArtifactInstalled   bool     `json:"artifact_installed,omitempty"`
 	ArtifactStale       bool     `json:"artifact_stale,omitempty"`
 	RecommendedAction   string   `json:"recommended_action,omitempty"`
@@ -187,7 +192,11 @@ type ResourceRuntimeStatus struct {
 	Mode                string   `json:"mode,omitempty"`
 	Supervisor          string   `json:"supervisor,omitempty"`
 	RunFrom             string   `json:"run_from,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	Port                int      `json:"port,omitempty"`
+	HasBuild            bool     `json:"has_build,omitempty"`
 	Status              string   `json:"status"`
+	OperatorStopped     bool     `json:"operator_stopped,omitempty"`
 	ServiceName         string   `json:"service_name,omitempty"`
 	ArtifactPath        string   `json:"artifact_path,omitempty"`
 	InstallRoot         string   `json:"install_root,omitempty"`
@@ -219,7 +228,10 @@ type ResourceInspect struct {
 	Mode                string   `json:"mode,omitempty"`
 	Supervisor          string   `json:"supervisor,omitempty"`
 	RunFrom             string   `json:"run_from,omitempty"`
+	URL                 string   `json:"url,omitempty"`
+	Port                int      `json:"port,omitempty"`
 	Status              string   `json:"status,omitempty"`
+	OperatorStopped     bool     `json:"operator_stopped,omitempty"`
 	WorkspaceDir        string   `json:"workspace_dir,omitempty"`
 	WorkingDir          string   `json:"working_dir,omitempty"`
 	Command             []string `json:"command,omitempty"`
@@ -260,6 +272,7 @@ type ResourceDoctorCheck struct {
 type ResourceDoctor struct {
 	ResourceID          string                `json:"resource_id"`
 	Status              string                `json:"status,omitempty"`
+	OperatorStopped     bool                  `json:"operator_stopped,omitempty"`
 	Summary             string                `json:"summary"`
 	RecommendedAction   string                `json:"recommended_action,omitempty"`
 	RecommendedReason   string                `json:"recommended_reason,omitempty"`

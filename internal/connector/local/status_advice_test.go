@@ -40,6 +40,13 @@ func TestRecommendedStatusAction(t *testing.T) {
 			reason: "installed artifact is stale",
 		},
 		{
+			name:   "repo drift recommends deploy",
+			state:  domain.StateRunning,
+			art:    ArtifactStatus{Installed: true, Stale: true, StaleReason: "repo_worktree_changed"},
+			action: "deploy",
+			reason: "repo state changed since the installed artifact was last synced",
+		},
+		{
 			name:   "current artifact no recommendation",
 			state:  domain.StateRunning,
 			art:    ArtifactStatus{Installed: true, Stale: false},
@@ -54,5 +61,13 @@ func TestRecommendedStatusAction(t *testing.T) {
 				t.Fatalf("got (%q, %q), want (%q, %q)", action, reason, tc.action, tc.reason)
 			}
 		})
+	}
+}
+
+func TestRecommendedNextStepDeploy(t *testing.T) {
+	got := RecommendedNextStep("deploy", "repo state changed since the installed artifact was last synced")
+	want := "Run `cerberus resource deploy <resource-id>` to rebuild from the current repo state, sync the artifact, and activate it."
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

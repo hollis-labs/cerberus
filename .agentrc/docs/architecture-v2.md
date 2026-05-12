@@ -51,10 +51,15 @@ The legacy TUI and service-management lane have now been removed from the active
 - Daemon/socket API + MCP support for resource runtime status, apply, sync, and remove
 - Shared resource runtime service (`internal/cerbapi/resource_runtime_service.go`) so CLI fallback, daemon/socket API, and MCP hit the same v2 execution layer
 - Resource-native daemon monitor for `dev_session` auto-restart (`internal/cerbapi/resource_monitor.go`)
-- Resource status now exposes artifact drift plus recommended operator actions
+- Resource status now exposes artifact drift plus recommended operator actions, including repo-state drift for build-backed artifact services
 - Resource list now surfaces compact runtime summary when the daemon is reachable
 - Legacy service transport and operator-facing legacy lifecycle surfaces have been removed from the active CLI/MCP/daemon runtime path
 - Cerberus self-daemon is now represented as `cerberus-daemon-service` in the v2 resource lane
+
+Operational runtime pattern:
+- `dev` resources use `dev_session` on repo-local ports for fast iteration
+- `uat` resources use `os_service` plus `run_from: artifact` as the shared validation target
+- `release` resources stay on `os_service`, but may point at a promoted user-owned or system-owned artifact instead of a dev build
 
 ## Core Principles
 

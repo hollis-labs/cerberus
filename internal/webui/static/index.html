@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cerberus</title>
+  <style>
+    :root {
+      --bg: #0a0d10;
+      --panel: #10161c;
+      --panel-2: #0d1217;
+      --line: #1d2833;
+      --text: #d5dde5;
+      --muted: #8292a1;
+      --accent: #78ffa6;
+      --warn: #ffca6a;
+      --danger: #ff7d7d;
+      --blue: #78c6ff;
+      --shadow: 0 0 0 1px rgba(120, 255, 166, 0.08), 0 18px 50px rgba(0, 0, 0, 0.35);
+      --font: "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+    }
+    * { box-sizing: border-box; scrollbar-width: none; }
+    *::-webkit-scrollbar { display: none; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(120, 255, 166, 0.08), transparent 32%),
+        radial-gradient(circle at top right, rgba(120, 198, 255, 0.08), transparent 28%),
+        linear-gradient(180deg, #07090c, #0a0d10 25%, #090c10);
+      color: var(--text);
+      font: 12px/1.4 var(--font);
+      min-height: 100vh;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(720px, 1.4fr) minmax(360px, 0.8fr);
+      gap: 12px;
+      padding: 12px;
+      min-height: 100vh;
+    }
+    .panel {
+      background: linear-gradient(180deg, rgba(16, 22, 28, 0.96), rgba(13, 18, 23, 0.98));
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      min-height: 0;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.015);
+    }
+    .title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .title h1, .title h2 {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .title span {
+      color: var(--muted);
+    }
+    .toolbar, .filters {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button, select, input {
+      font: inherit;
+      color: var(--text);
+      background: #0b1015;
+      border: 1px solid #263240;
+      border-radius: 6px;
+      padding: 7px 9px;
+    }
+    button {
+      cursor: pointer;
+      transition: transform 100ms ease, border-color 100ms ease, background 100ms ease;
+    }
+    button:hover { border-color: var(--accent); transform: translateY(-1px); }
+    button.primary { color: #07110b; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+    button.blue { color: #071018; background: var(--blue); border-color: var(--blue); font-weight: 700; }
+    button.warn { color: #161006; background: var(--warn); border-color: var(--warn); font-weight: 700; }
+    button.subtle { background: transparent; }
+    button.icon {
+      min-width: 31px;
+      padding: 6px 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      line-height: 1;
+    }
+    button.icon.primary { color: #07110b; }
+    button.icon.blue { color: #071018; }
+    button.icon.warn { color: #161006; }
+    button:disabled { opacity: 0.45; cursor: default; transform: none; }
+    .grid {
+      overflow: auto;
+      max-height: calc(100vh - 96px);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      vertical-align: top;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #0d1318;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    tr {
+      cursor: pointer;
+    }
+    tr:hover td {
+      background: rgba(120, 255, 166, 0.04);
+    }
+    tr.selected td {
+      background: rgba(120, 198, 255, 0.08);
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid #2a3440;
+      color: var(--muted);
+    }
+    .status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #54616d;
+    }
+    .status.running { color: var(--accent); border-color: rgba(120,255,166,0.28); }
+    .status.running::before, .status.healthy::before { background: var(--accent); }
+    .status.stopped::before, .status.failed::before { background: var(--danger); }
+    .status.starting::before { background: var(--warn); }
+    .mono { font-family: var(--font); }
+    .muted { color: var(--muted); }
+    .next {
+      max-width: 340px;
+      white-space: normal;
+      color: var(--muted);
+    }
+    .actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .detail {
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px 10px;
+    }
+    .meta dt { color: var(--muted); }
+    .meta dd { margin: 0; word-break: break-word; }
+    .logbox, .output {
+      background: #091015;
+      border: 1px solid #1a242d;
+      border-radius: 8px;
+      padding: 10px;
+      white-space: pre-wrap;
+      overflow: auto;
+      min-height: 180px;
+      max-height: 360px;
+      color: #c8d4de;
+    }
+    .output { min-height: 72px; max-height: 160px; }
+    .badge-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-flex;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid #22303c;
+      color: var(--muted);
+      background: rgba(255,255,255,0.02);
+    }
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+    @media (max-width: 1180px) {
+      .shell { grid-template-columns: 1fr; }
+      .grid { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="panel">
+      <div class="panel-header">
+        <div class="title">
+          <h1>Cerberus Runtime Console</h1>
+          <span>Dense local control surface for v2 resources</span>
+        </div>
+        <div class="toolbar">
+          <button id="refreshButton" class="subtle">Refresh</button>
+          <label class="muted">Poll
+            <select id="pollSelect">
+              <option value="0">Off</option>
+              <option value="3000">3s</option>
+              <option value="5000" selected>5s</option>
+              <option value="10000">10s</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="panel-header">
+        <div class="filters">
+          <input id="searchInput" type="search" placeholder="filter id, name, project, tag">
+          <select id="projectFilter">
+            <option value="">All projects</option>
+          </select>
+          <select id="statusFilter">
+            <option value="">All states</option>
+            <option value="running">running</option>
+            <option value="stopped">stopped</option>
+            <option value="starting">starting</option>
+            <option value="failed">failed</option>
+          </select>
+          <button id="resetFiltersButton" class="subtle">Reset</button>
+        </div>
+        <div class="muted" id="summaryText">loading...</div>
+      </div>
+      <div class="grid">
+        <table>
+          <thead>
+            <tr>
+              <th>Resource</th>
+              <th>Project</th>
+              <th>Status</th>
+              <th>Mode</th>
+              <th>Endpoint</th>
+              <th>Next</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="resourceRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="panel-header">
+        <div class="title">
+          <h2 id="detailTitle">Resource Detail</h2>
+          <span id="detailSubtitle">select a resource</span>
+        </div>
+        <div class="actions">
+          <button id="detailOpen" class="blue" disabled>Open</button>
+          <button id="detailLaunch" class="primary" disabled>Launch</button>
+          <button id="detailDeploy" class="warn" disabled>Build / Restart</button>
+          <button id="detailReload" class="subtle" disabled>Restart</button>
+        </div>
+      </div>
+      <div class="detail">
+        <div class="badge-row" id="detailBadges"></div>
+        <dl class="meta" id="detailMeta"></dl>
+        <section>
+          <div class="panel-header" style="padding-left:0;padding-right:0;border-bottom:0;background:transparent;">
+            <div class="title"><h2>Last Action</h2></div>
+          </div>
+          <div class="output" id="actionOutput">No action run yet.</div>
+        </section>
+        <section>
+          <div class="panel-header" style="padding-left:0;padding-right:0;border-bottom:0;background:transparent;">
+            <div class="title"><h2>Recent Logs</h2></div>
+            <div class="toolbar">
+              <button id="logRefresh" class="subtle" disabled>Refresh Logs</button>
+            </div>
+          </div>
+          <div class="logbox" id="logOutput">Select a resource to load logs.</div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const state = {
+      resources: [],
+      filtered: [],
+      selectedId: "",
+      selectedDetail: null,
+      pollHandle: null,
+      busy: false,
+      actionToken: "",
+    };
+
+    const els = {
+      rows: document.getElementById("resourceRows"),
+      summary: document.getElementById("summaryText"),
+      detailTitle: document.getElementById("detailTitle"),
+      detailSubtitle: document.getElementById("detailSubtitle"),
+      detailBadges: document.getElementById("detailBadges"),
+      detailMeta: document.getElementById("detailMeta"),
+      actionOutput: document.getElementById("actionOutput"),
+      logOutput: document.getElementById("logOutput"),
+      refreshButton: document.getElementById("refreshButton"),
+      resetFiltersButton: document.getElementById("resetFiltersButton"),
+      searchInput: document.getElementById("searchInput"),
+      projectFilter: document.getElementById("projectFilter"),
+      statusFilter: document.getElementById("statusFilter"),
+      pollSelect: document.getElementById("pollSelect"),
+      detailOpen: document.getElementById("detailOpen"),
+      detailLaunch: document.getElementById("detailLaunch"),
+      detailDeploy: document.getElementById("detailDeploy"),
+      detailReload: document.getElementById("detailReload"),
+      logRefresh: document.getElementById("logRefresh"),
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;",
+      }[char]));
+    }
+
+    async function fetchJSON(path, options = {}) {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      if (options.method && options.method !== "GET" && state.actionToken) {
+        headers["X-Cerberus-Web-Token"] = state.actionToken;
+      }
+      const response = await fetch(path, {
+        ...options,
+        headers,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || `request failed: ${response.status}`);
+      }
+      return data;
+    }
+
+    async function loadSession() {
+      const session = await fetchJSON("/api/session");
+      state.actionToken = session.action_token || "";
+    }
+
+    function resourceActionLabel(resource) {
+      if (resource.has_build) return "deploy";
+      return "apply";
+    }
+
+    function endpointLabel(resource) {
+      if (resource.url) return resource.url;
+      if (resource.port) return `:${resource.port}`;
+      return "-";
+    }
+
+    function openResource(resource) {
+      if (!resource || !resource.url) return;
+      const link = document.createElement("a");
+      link.href = resource.url;
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    function setSummaryNotice(message, isError = false) {
+      const running = state.filtered.filter((item) => item.status === "running" || item.status === "healthy").length;
+      const prefix = `${state.filtered.length} shown / ${state.resources.length} total | ${running} running`;
+      els.summary.textContent = message ? `${prefix} | ${message}` : prefix;
+      els.summary.style.color = isError ? "var(--danger)" : "var(--muted)";
+    }
+
+    function renderProjects(resources) {
+      const projects = Array.from(new Set(resources.map((item) => item.project).filter(Boolean))).sort();
+      const current = els.projectFilter.value;
+      els.projectFilter.innerHTML = '<option value="">All projects</option>' + projects.map((project) =>
+        `<option value="${escapeHtml(project)}">${escapeHtml(project)}</option>`
+      ).join("");
+      els.projectFilter.value = projects.includes(current) ? current : "";
+    }
+
+    function applyFilters() {
+      const search = els.searchInput.value.trim().toLowerCase();
+      const project = els.projectFilter.value;
+      const status = els.statusFilter.value;
+      state.filtered = state.resources.filter((resource) => {
+        if (project && resource.project !== project) return false;
+        if (status && resource.status !== status) return false;
+        if (!search) return true;
+        const haystack = [
+          resource.id,
+          resource.name,
+          resource.project,
+          resource.status,
+          resource.mode,
+          resource.run_from,
+          ...(resource.tags || []),
+        ].join(" ").toLowerCase();
+        return haystack.includes(search);
+      });
+      renderRows();
+    }
+
+    function renderRows() {
+      setSummaryNotice("");
+      els.rows.innerHTML = state.filtered.map((resource) => {
+        const selected = resource.id === state.selectedId ? "selected" : "";
+        const statusClass = escapeHtml(resource.status || "unknown");
+        const next = escapeHtml(resource.recommended_action || "-");
+        const nextStep = escapeHtml(resource.recommended_next_step || "");
+        const tags = escapeHtml((resource.tags || []).join(", "));
+        const openButton = resource.url ? `<button class="icon blue row-open" title="Open" aria-label="Open" data-id="${escapeHtml(resource.id)}">↗</button>` : "";
+        const launchLabel = resourceActionLabel(resource) === "deploy" ? "deploy" : "apply";
+        const deployButton = resource.has_build ? `<button class="icon warn row-deploy" title="Build / Restart" aria-label="Build / Restart" data-id="${escapeHtml(resource.id)}">⇡</button>` : "";
+        return `
+          <tr class="${selected}" data-id="${escapeHtml(resource.id)}">
+            <td>
+              <div>${escapeHtml(resource.name || resource.id)}</div>
+              <div class="muted mono">${escapeHtml(resource.id)}</div>
+              <div class="muted">${tags}</div>
+            </td>
+            <td>${escapeHtml(resource.project || "-")}</td>
+            <td><span class="status ${statusClass}">${escapeHtml(resource.status || "unknown")}</span></td>
+            <td>
+              <div>${escapeHtml(resource.mode || "-")}</div>
+              <div class="muted">${escapeHtml(resource.run_from || "-")}</div>
+            </td>
+            <td class="mono">${resource.url ? `<a href="${escapeHtml(resource.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(endpointLabel(resource))}</a>` : escapeHtml(endpointLabel(resource))}</td>
+            <td class="next">
+              <div>${next}</div>
+              <div>${nextStep}</div>
+            </td>
+            <td>
+              <div class="actions">
+                ${openButton}
+                <button class="icon primary row-apply" title="Launch" aria-label="Launch" data-id="${escapeHtml(resource.id)}">🚀</button>
+                ${deployButton}
+                <button class="icon subtle row-reload" title="Restart" aria-label="Restart" data-id="${escapeHtml(resource.id)}">↻</button>
+              </div>
+            </td>
+          </tr>`;
+      }).join("");
+    }
+
+    function setActionOutput(message, isError = false) {
+      els.actionOutput.textContent = message;
+      els.actionOutput.style.color = isError ? "var(--danger)" : "var(--text)";
+    }
+
+    async function loadResources() {
+      try {
+        const resources = await fetchJSON("/api/resources");
+        state.resources = resources;
+        renderProjects(resources);
+        applyFilters();
+        if (!state.selectedId && state.filtered.length > 0) {
+          state.selectedId = state.filtered[0].id;
+        }
+        if (state.selectedId) {
+          await loadDetail(state.selectedId, false);
+        }
+      } catch (error) {
+        setSummaryNotice(`refresh failed: ${error.message}`, true);
+      }
+    }
+
+    async function loadDetail(id, refreshLogs = true) {
+      state.selectedId = id;
+      renderRows();
+      try {
+        const detail = await fetchJSON(`/api/resources/${encodeURIComponent(id)}`);
+        state.selectedDetail = detail;
+        renderDetail(detail);
+        if (refreshLogs) {
+          await loadLogs(id);
+        }
+      } catch (error) {
+        setSummaryNotice(`detail failed: ${error.message}`, true);
+      }
+    }
+
+    function renderDetail(detail) {
+      els.detailTitle.textContent = detail.name || detail.id;
+      els.detailSubtitle.textContent = detail.id;
+      const badges = [
+        detail.project,
+        detail.mode,
+        detail.run_from,
+        detail.supervisor,
+        detail.status,
+        detail.recommended_action ? `next:${detail.recommended_action}` : "",
+      ].filter(Boolean);
+      els.detailBadges.innerHTML = badges.map((badge) => `<span class="badge">${escapeHtml(badge)}</span>`).join("");
+
+      const meta = [
+        ["Project", detail.project || "-"],
+        ["Status", detail.status || "-"],
+        ["Mode", detail.mode || "-"],
+        ["Run From", detail.run_from || "-"],
+        ["Supervisor", detail.supervisor || "-"],
+        ["URL", detail.url || "-"],
+        ["Port", detail.port || "-"],
+        ["Build", detail.has_build ? "configured" : "none"],
+        ["Artifact", detail.artifact_stale ? `stale (${detail.artifact_stale_reason || "drift"})` : (detail.artifact_installed ? "installed" : "-")],
+        ["Synced", detail.artifact_synced_at || "-"],
+        ["Launchd PID", detail.launchd_pid || "-"],
+        ["Next Step", detail.recommended_next_step || "-"],
+      ];
+      els.detailMeta.innerHTML = meta.map(([key, value]) => `
+        <dt>${escapeHtml(key)}</dt>
+        <dd class="${typeof value === "string" && value.startsWith("http") ? "" : "mono"}">${typeof value === "string" && value.startsWith("http") ? `<a href="${escapeHtml(value)}" target="_blank" rel="noreferrer">${escapeHtml(value)}</a>` : escapeHtml(value)}</dd>
+      `).join("");
+
+      els.detailOpen.disabled = !detail.url;
+      els.detailLaunch.disabled = false;
+      els.detailDeploy.disabled = !detail.has_build;
+      els.detailReload.disabled = false;
+      els.logRefresh.disabled = false;
+    }
+
+    async function loadLogs(id) {
+      try {
+        const logs = await fetchJSON(`/api/resources/${encodeURIComponent(id)}/logs?lines=120`);
+        els.logOutput.textContent = logs.content || "No log output.";
+      } catch (error) {
+        els.logOutput.textContent = `log load failed: ${error.message}`;
+      }
+    }
+
+    async function runAction(id, action) {
+      if (state.busy) return;
+      state.busy = true;
+      setActionOutput(`${action} ${id}...`);
+      try {
+        const result = await fetchJSON(`/api/resources/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+        const message = [result.message, result.build_output].filter(Boolean).join("\n\n");
+        setActionOutput(message || `${action} completed`);
+        await loadResources();
+      } catch (error) {
+        setActionOutput(`${action} failed: ${error.message}`, true);
+      } finally {
+        state.busy = false;
+      }
+    }
+
+    function bindEvents() {
+      els.refreshButton.addEventListener("click", () => loadResources());
+      els.resetFiltersButton.addEventListener("click", () => {
+        els.searchInput.value = "";
+        els.projectFilter.value = "";
+        els.statusFilter.value = "";
+        applyFilters();
+      });
+      els.searchInput.addEventListener("input", applyFilters);
+      els.projectFilter.addEventListener("change", applyFilters);
+      els.statusFilter.addEventListener("change", applyFilters);
+      els.pollSelect.addEventListener("change", configurePolling);
+      els.logRefresh.addEventListener("click", () => state.selectedId && loadLogs(state.selectedId));
+
+      els.rows.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (button) {
+          const id = button.dataset.id;
+          if (!id) return;
+          if (button.classList.contains("row-open")) {
+            const resource = state.resources.find((item) => item.id === id);
+            openResource(resource);
+            return;
+          }
+          if (button.classList.contains("row-apply")) return runAction(id, "apply");
+          if (button.classList.contains("row-deploy")) return runAction(id, "deploy");
+          if (button.classList.contains("row-reload")) return runAction(id, "reload");
+        }
+        const row = event.target.closest("tr[data-id]");
+        if (row) loadDetail(row.dataset.id);
+      });
+
+      els.detailOpen.addEventListener("click", () => {
+        if (state.selectedDetail && state.selectedDetail.url) {
+          openResource(state.selectedDetail);
+        }
+      });
+      els.detailLaunch.addEventListener("click", () => state.selectedId && runAction(state.selectedId, "apply"));
+      els.detailDeploy.addEventListener("click", () => state.selectedId && runAction(state.selectedId, "deploy"));
+      els.detailReload.addEventListener("click", () => state.selectedId && runAction(state.selectedId, "reload"));
+    }
+
+    function configurePolling() {
+      if (state.pollHandle) {
+        clearInterval(state.pollHandle);
+        state.pollHandle = null;
+      }
+      const interval = Number(els.pollSelect.value);
+      if (interval > 0) {
+        state.pollHandle = setInterval(() => {
+          if (!state.busy) loadResources();
+        }, interval);
+      }
+    }
+
+    bindEvents();
+    configurePolling();
+    loadSession()
+      .then(loadResources)
+      .catch((error) => setSummaryNotice(`session failed: ${error.message}`, true));
+  </script>
+</body>
+</html>

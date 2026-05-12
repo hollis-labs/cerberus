@@ -36,6 +36,8 @@ type Client interface {
 	ApplyResource(ctx context.Context, id string) (*OpResult, error)
 	// ReloadResource asks the runtime backend to restart or kickstart the current installed resource without reinstalling it.
 	ReloadResource(ctx context.Context, id string) (*OpResult, error)
+	// StopResource stops a resource without removing install state.
+	StopResource(ctx context.Context, id string) (*OpResult, error)
 	// SyncResource syncs installed runtime artifacts without applying the backend.
 	SyncResource(ctx context.Context, id string) (*OpResult, error)
 	// RemoveResource removes a specific resource from its runtime backend.
