@@ -19,6 +19,11 @@ type fakeCommandRunner struct {
 	err   map[string]error
 }
 
+type sequencedCommandError struct {
+	values []error
+	idx    int
+}
+
 type fakeCall struct {
 	name string
 	args []string
@@ -33,7 +38,30 @@ func setLaunchdPrintNotFound(runner *fakeCommandRunner, label string) {
 func (f *fakeCommandRunner) CombinedOutput(_ context.Context, name string, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, fakeCall{name: name, args: append([]string(nil), args...)})
 	key := name + " " + strings.Join(args, " ")
-	return f.out[key], f.err[key]
+	err := f.err[key]
+	if seq, ok := err.(*sequencedCommandError); ok {
+		return f.out[key], seq.next()
+	}
+	return f.out[key], err
+}
+
+func (s *sequencedCommandError) next() error {
+	if len(s.values) == 0 {
+		return nil
+	}
+	if s.idx >= len(s.values) {
+		return s.values[len(s.values)-1]
+	}
+	out := s.values[s.idx]
+	s.idx++
+	return out
+}
+
+func (s *sequencedCommandError) Error() string {
+	if len(s.values) == 0 || s.values[0] == nil {
+		return ""
+	}
+	return s.values[0].Error()
 }
 
 func TestLaunchdProgramArgumentsArtifact(t *testing.T) {
@@ -363,6 +391,73 @@ func TestLaunchdBackendApplyIncludesDiagnosticsOnBootstrapFailure(t *testing.T) 
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("error missing %q: %s", needle, text)
+		}
+	}
+}
+
+func TestLaunchdBackendApplyRetriesBootstrapAfterConflict(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	source := filepath.Join(workspace, "app")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	label := "com.fragments-engine.cerberus.demo.app"
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", label+".plist")
+	runner := &fakeCommandRunner{
+		out: map[string][]byte{
+			"launchctl print gui/501/" + label:         []byte("Could not find service"),
+			"launchctl bootstrap gui/501 " + plistPath: []byte("Bootstrap failed: 5: Input/output error"),
+			"launchctl bootout gui/501/" + label:       []byte("Could not find service"),
+			"launchctl bootout gui/501 " + plistPath:   []byte("Could not find service"),
+		},
+		err: map[string]error{
+			"launchctl print gui/501/" + label:         errors.New("exit status 113"),
+			"launchctl bootstrap gui/501 " + plistPath: &sequencedCommandError{values: []error{errors.New("exit status 5"), nil}},
+			"launchctl bootout gui/501/" + label:       errors.New("exit status 113"),
+			"launchctl bootout gui/501 " + plistPath:   errors.New("exit status 113"),
+		},
+	}
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{homeDir: func() (string, error) { return tmp, nil }, now: time.Now},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./app", "serve"},
+	}
+
+	if _, err := backend.Apply(context.Background(), res, spec); err != nil {
+		t.Fatalf("Apply failed: %v", err)
+	}
+
+	got := []string{
+		runner.calls[0].name + " " + strings.Join(runner.calls[0].args, " "),
+		runner.calls[1].name + " " + strings.Join(runner.calls[1].args, " "),
+		runner.calls[2].name + " " + strings.Join(runner.calls[2].args, " "),
+		runner.calls[3].name + " " + strings.Join(runner.calls[3].args, " "),
+		runner.calls[4].name + " " + strings.Join(runner.calls[4].args, " "),
+	}
+	want := []string{
+		"launchctl print gui/501/" + label,
+		"launchctl bootstrap gui/501 " + plistPath,
+		"launchctl bootout gui/501/" + label,
+		"launchctl bootout gui/501 " + plistPath,
+		"launchctl bootstrap gui/501 " + plistPath,
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("call[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
 }

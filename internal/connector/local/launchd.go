@@ -121,7 +121,7 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 		_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
 	}
 	if needsReload {
-		if out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath); err != nil {
+		if out, err := b.bootstrapService(ctx, domainTarget, serviceTarget, plistPath); err != nil {
 			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
 		}
 	}
@@ -306,6 +306,19 @@ func writeFileIfChanged(path string, data []byte, mode os.FileMode) (bool, error
 	return true, nil
 }
 
+func (b launchdBackend) bootstrapService(ctx context.Context, domainTarget, serviceTarget, plistPath string) ([]byte, error) {
+	out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath)
+	if err == nil {
+		return out, nil
+	}
+	if !isLaunchdBootstrapConflict(string(out), err) {
+		return out, err
+	}
+	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
+	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", domainTarget, plistPath)
+	return b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath)
+}
+
 func (b launchdBackend) serviceName(res *domain.Resource, spec ProcessSpec) (string, error) {
 	layout, err := defaultInstallLayoutFromBackend(b, res, spec)
 	if err != nil {
@@ -410,6 +423,15 @@ func isLaunchdNotFound(out string, err error) bool {
 	return strings.Contains(text, "could not find service") ||
 		strings.Contains(text, "service is disabled") ||
 		strings.Contains(text, "no such process")
+}
+
+func isLaunchdBootstrapConflict(out string, err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(out + " " + err.Error())
+	return strings.Contains(text, "input/output error") ||
+		strings.Contains(text, "bootstrap failed: 5")
 }
 
 func parseLaunchdState(text string) domain.State {

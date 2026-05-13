@@ -286,13 +286,7 @@ func RestartWithVerify(ctx context.Context, opts RestartOptions) error {
 	logger := opts.Logger
 
 	// 1. Read prior PID.
-	var priorPID int
-	var pidErr error
-	if opts.PIDFileBase != "" {
-		priorPID, pidErr = ReadDaemonPIDAt(opts.PIDFileBase)
-	} else {
-		priorPID, pidErr = ReadDaemonPID()
-	}
+	priorPID, pidErr := restartPriorPID(ctx, opts)
 	if pidErr != nil && !os.IsNotExist(pidErr) {
 		logger.Warn("daemon.restart.pidfile_read_failed", "error", pidErr.Error())
 	}
@@ -340,6 +334,42 @@ func RestartWithVerify(ctx context.Context, opts RestartOptions) error {
 		"wait_ms", time.Since(healthStart).Milliseconds())
 
 	return nil
+}
+
+func restartPriorPID(ctx context.Context, opts RestartOptions) (int, error) {
+	var (
+		pid int
+		err error
+	)
+	if opts.PIDFileBase != "" {
+		pid, err = ReadDaemonPIDAt(opts.PIDFileBase)
+	} else {
+		pid, err = ReadDaemonPID()
+	}
+	if err == nil && pid > 0 {
+		return pid, nil
+	}
+
+	var (
+		holderPID int
+		lockErr   error
+	)
+	if opts.PIDFileBase != "" {
+		holderPID, _, lockErr = DaemonLockHolderAt(opts.PIDFileBase)
+	} else {
+		holderPID, _, lockErr = DaemonLockHolder()
+	}
+	if lockErr != nil || holderPID <= 0 {
+		return 0, err
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ok, probeErr := opts.StopOptions.Identifier.IsCerberusDaemon(probeCtx, holderPID)
+	if probeErr != nil || !ok {
+		return 0, err
+	}
+	return holderPID, nil
 }
 
 // ExecutableSpawner returns a SpawnFunc that re-execs the current binary with
