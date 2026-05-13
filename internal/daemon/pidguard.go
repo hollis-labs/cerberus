@@ -1,12 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // daemonDir returns the path to ~/.cerberus/, creating it if needed.
@@ -144,21 +146,39 @@ func daemonProcessAlive(pid int) bool {
 	return proc.Signal(syscall.Signal(0)) == nil
 }
 
+var (
+	daemonPIDIdentifier ProcIdentifier = PSIdentifier{}
+	readDaemonPIDFile                  = ReadDaemonPID
+	removeDaemonPIDFile                = RemoveDaemonPID
+	daemonPIDAlive                     = daemonProcessAlive
+)
+
 // CheckDaemonRunning checks if another daemon is already running.
 // Returns the PID if alive, 0 if not running or stale.
 // Cleans up stale PID files automatically.
 func CheckDaemonRunning() (int, error) {
-	pid, err := ReadDaemonPID()
+	pid, err := readDaemonPIDFile()
 	if err != nil {
 		// No PID file or corrupt — not running.
 		return 0, nil //nolint:nilerr // stale/missing pidfile is not an error at this layer
 	}
 
-	if daemonProcessAlive(pid) {
+	if daemonPIDAlive(pid) {
+		probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ok, probeErr := daemonPIDIdentifier.IsCerberusDaemon(probeCtx, pid)
+		cancel()
+		if probeErr == nil && ok {
+			return pid, nil
+		}
+		if probeErr == nil && !ok {
+			removeDaemonPIDFile()
+			return 0, nil
+		}
+		// On probe failure, preserve the previous conservative behavior.
 		return pid, nil
 	}
 
 	// Stale PID file — process is dead, clean up.
-	RemoveDaemonPID()
+	removeDaemonPIDFile()
 	return 0, nil
 }

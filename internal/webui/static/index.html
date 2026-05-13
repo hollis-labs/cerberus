@@ -92,6 +92,7 @@
     button.primary { color: #07110b; background: var(--accent); border-color: var(--accent); font-weight: 700; }
     button.blue { color: #071018; background: var(--blue); border-color: var(--blue); font-weight: 700; }
     button.warn { color: #161006; background: var(--warn); border-color: var(--warn); font-weight: 700; }
+    button.danger { color: #1a0909; background: var(--danger); border-color: var(--danger); font-weight: 700; }
     button.subtle { background: transparent; }
     button.icon {
       min-width: 31px;
@@ -105,6 +106,7 @@
     button.icon.primary { color: #07110b; }
     button.icon.blue { color: #071018; }
     button.icon.warn { color: #161006; }
+    button.icon.danger { color: #1a0909; }
     button:disabled { opacity: 0.45; cursor: default; transform: none; }
     .grid {
       overflow: auto;
@@ -162,6 +164,29 @@
     .status.starting::before { background: var(--warn); }
     .mono { font-family: var(--font); }
     .muted { color: var(--muted); }
+    .banner {
+      display: none;
+      margin: 12px 12px 0;
+      padding: 10px 12px;
+      border: 1px solid #5b2b2b;
+      border-radius: 6px;
+      background: rgba(122, 38, 38, 0.18);
+      color: #ffd6d6;
+    }
+    .banner.visible { display: block; }
+    .banner .subline {
+      margin-top: 4px;
+      color: #e8b8b8;
+      font-size: 11px;
+    }
+    .banner.recovered {
+      border-color: rgba(120, 255, 166, 0.35);
+      background: rgba(24, 86, 52, 0.18);
+      color: #c9f7d7;
+    }
+    .banner.recovered .subline {
+      color: #9fd8b4;
+    }
     .next {
       max-width: 340px;
       white-space: normal;
@@ -209,6 +234,41 @@
       color: var(--muted);
       background: rgba(255,255,255,0.02);
     }
+    .incident-list {
+      display: grid;
+      gap: 8px;
+    }
+    .incident-item {
+      display: grid;
+      gap: 3px;
+      padding: 8px 10px;
+      border: 1px solid #1a242d;
+      border-radius: 8px;
+      background: #091015;
+    }
+    .incident-item.recovered {
+      border-color: rgba(120, 255, 166, 0.2);
+    }
+    .incident-item.degraded {
+      border-color: rgba(255, 125, 125, 0.2);
+    }
+    .incident-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .incident-kind {
+      color: var(--text);
+    }
+    .incident-time {
+      color: var(--muted);
+    }
+    .incident-message {
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     a {
       color: var(--blue);
       text-decoration: none;
@@ -223,6 +283,10 @@
 <body>
   <div class="shell">
     <section class="panel">
+      <div class="banner" id="degradedBanner">
+        <div id="degradedBannerMessage">Cerberus daemon unavailable.</div>
+        <div class="subline" id="degradedBannerMeta"></div>
+      </div>
       <div class="panel-header">
         <div class="title">
           <h1>Cerberus Runtime Console</h1>
@@ -286,6 +350,7 @@
           <button id="detailLaunch" class="primary" disabled>Launch</button>
           <button id="detailDeploy" class="warn" disabled>Build / Restart</button>
           <button id="detailReload" class="subtle" disabled>Restart</button>
+          <button id="detailStop" class="danger" disabled>Stop / Pause</button>
         </div>
       </div>
       <div class="detail">
@@ -296,6 +361,14 @@
             <div class="title"><h2>Last Action</h2></div>
           </div>
           <div class="output" id="actionOutput">No action run yet.</div>
+        </section>
+        <section>
+          <div class="panel-header" style="padding-left:0;padding-right:0;border-bottom:0;background:transparent;">
+            <div class="title"><h2>Daemon Events</h2></div>
+          </div>
+          <div class="incident-list" id="incidentList">
+            <div class="muted">No daemon incidents in this session.</div>
+          </div>
         </section>
         <section>
           <div class="panel-header" style="padding-left:0;padding-right:0;border-bottom:0;background:transparent;">
@@ -319,16 +392,24 @@
       pollHandle: null,
       busy: false,
       actionToken: "",
+      degradedMessage: "",
+      degradedSince: 0,
+      lastRecoveredAt: 0,
+      incidents: [],
     };
 
     const els = {
       rows: document.getElementById("resourceRows"),
       summary: document.getElementById("summaryText"),
+      degradedBanner: document.getElementById("degradedBanner"),
+      degradedBannerMessage: document.getElementById("degradedBannerMessage"),
+      degradedBannerMeta: document.getElementById("degradedBannerMeta"),
       detailTitle: document.getElementById("detailTitle"),
       detailSubtitle: document.getElementById("detailSubtitle"),
       detailBadges: document.getElementById("detailBadges"),
       detailMeta: document.getElementById("detailMeta"),
       actionOutput: document.getElementById("actionOutput"),
+      incidentList: document.getElementById("incidentList"),
       logOutput: document.getElementById("logOutput"),
       refreshButton: document.getElementById("refreshButton"),
       resetFiltersButton: document.getElementById("resetFiltersButton"),
@@ -340,6 +421,7 @@
       detailLaunch: document.getElementById("detailLaunch"),
       detailDeploy: document.getElementById("detailDeploy"),
       detailReload: document.getElementById("detailReload"),
+      detailStop: document.getElementById("detailStop"),
       logRefresh: document.getElementById("logRefresh"),
     };
 
@@ -364,7 +446,9 @@
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.error || `request failed: ${response.status}`);
+        const error = new Error(data.error || `request failed: ${response.status}`);
+        error.status = response.status;
+        throw error;
       }
       return data;
     }
@@ -401,6 +485,83 @@
       const prefix = `${state.filtered.length} shown / ${state.resources.length} total | ${running} running`;
       els.summary.textContent = message ? `${prefix} | ${message}` : prefix;
       els.summary.style.color = isError ? "var(--danger)" : "var(--muted)";
+    }
+
+    function formatTime(ts) {
+      if (!ts) return "";
+      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function recordIncident(kind, message, meta = "") {
+      const last = state.incidents[0];
+      if (last && last.kind === kind && last.message === message && last.meta === meta) {
+        return;
+      }
+      state.incidents.unshift({
+        kind,
+        message,
+        meta,
+        at: Date.now(),
+      });
+      state.incidents = state.incidents.slice(0, 6);
+      renderIncidents();
+    }
+
+    function renderIncidents() {
+      if (state.incidents.length === 0) {
+        els.incidentList.innerHTML = '<div class="muted">No daemon incidents in this session.</div>';
+        return;
+      }
+      els.incidentList.innerHTML = state.incidents.map((incident) => `
+        <div class="incident-item ${escapeHtml(incident.kind)}">
+          <div class="incident-head">
+            <div class="incident-kind">${incident.kind === "degraded" ? "Connection degraded" : "Connection recovered"}</div>
+            <div class="incident-time">${escapeHtml(formatTime(incident.at))}</div>
+          </div>
+          <div class="incident-message">${escapeHtml(incident.message)}</div>
+          ${incident.meta ? `<div class="incident-time">${escapeHtml(incident.meta)}</div>` : ""}
+        </div>
+      `).join("");
+    }
+
+    function syncActionAvailability() {
+      const degraded = Boolean(state.degradedMessage);
+      els.degradedBanner.classList.toggle("visible", degraded);
+      els.degradedBanner.classList.toggle("recovered", !degraded && Boolean(state.lastRecoveredAt));
+      els.degradedBannerMessage.textContent = degraded
+        ? state.degradedMessage
+        : (state.lastRecoveredAt ? "Cerberus daemon connection recovered." : "Cerberus daemon unavailable.");
+      if (degraded) {
+        const pollMs = Number(els.pollSelect.value);
+        const retryText = pollMs > 0 ? `Retrying every ${Math.round(pollMs / 1000)}s.` : "Auto-retry disabled. Use Refresh or enable polling.";
+        const sinceText = state.degradedSince ? `Degraded since ${formatTime(state.degradedSince)}.` : "";
+        els.degradedBannerMeta.textContent = [retryText, sinceText].filter(Boolean).join(" ");
+      } else if (state.lastRecoveredAt) {
+        els.degradedBannerMeta.textContent = `Recovered at ${formatTime(state.lastRecoveredAt)}.`;
+      } else {
+        els.degradedBannerMeta.textContent = "";
+      }
+      els.detailOpen.disabled = !state.selectedDetail || !state.selectedDetail.url;
+      els.detailLaunch.disabled = degraded || state.busy || !state.selectedId;
+      els.detailDeploy.disabled = degraded || state.busy || !state.selectedDetail || !state.selectedDetail.has_build;
+      els.detailReload.disabled = degraded || state.busy || !state.selectedId;
+      els.detailStop.disabled = degraded || state.busy || !state.selectedId;
+      els.logRefresh.disabled = degraded || state.busy || !state.selectedId;
+    }
+
+    function setDegradedMessage(message = "") {
+      if (message) {
+        if (!state.degradedMessage) {
+          state.degradedSince = Date.now();
+          recordIncident("degraded", message);
+        }
+      } else if (state.degradedMessage) {
+        state.lastRecoveredAt = Date.now();
+        recordIncident("recovered", "Cerberus daemon connection recovered.", `Recovered at ${formatTime(state.lastRecoveredAt)}.`);
+        state.degradedSince = 0;
+      }
+      state.degradedMessage = message;
+      syncActionAvailability();
     }
 
     function renderProjects(resources) {
@@ -443,8 +604,8 @@
         const nextStep = escapeHtml(resource.recommended_next_step || "");
         const tags = escapeHtml((resource.tags || []).join(", "));
         const openButton = resource.url ? `<button class="icon blue row-open" title="Open" aria-label="Open" data-id="${escapeHtml(resource.id)}">↗</button>` : "";
-        const launchLabel = resourceActionLabel(resource) === "deploy" ? "deploy" : "apply";
         const deployButton = resource.has_build ? `<button class="icon warn row-deploy" title="Build / Restart" aria-label="Build / Restart" data-id="${escapeHtml(resource.id)}">⇡</button>` : "";
+        const stopButton = `<button class="icon danger row-stop" title="Stop / Pause" aria-label="Stop / Pause" data-id="${escapeHtml(resource.id)}">■</button>`;
         return `
           <tr class="${selected}" data-id="${escapeHtml(resource.id)}">
             <td>
@@ -469,10 +630,12 @@
                 <button class="icon primary row-apply" title="Launch" aria-label="Launch" data-id="${escapeHtml(resource.id)}">🚀</button>
                 ${deployButton}
                 <button class="icon subtle row-reload" title="Restart" aria-label="Restart" data-id="${escapeHtml(resource.id)}">↻</button>
+                ${stopButton}
               </div>
             </td>
           </tr>`;
       }).join("");
+      syncActionAvailability();
     }
 
     function setActionOutput(message, isError = false) {
@@ -483,6 +646,7 @@
     async function loadResources() {
       try {
         const resources = await fetchJSON("/api/resources");
+        setDegradedMessage("");
         state.resources = resources;
         renderProjects(resources);
         applyFilters();
@@ -493,6 +657,9 @@
           await loadDetail(state.selectedId, false);
         }
       } catch (error) {
+        if (error.status === 503) {
+          setDegradedMessage(error.message);
+        }
         setSummaryNotice(`refresh failed: ${error.message}`, true);
       }
     }
@@ -502,12 +669,16 @@
       renderRows();
       try {
         const detail = await fetchJSON(`/api/resources/${encodeURIComponent(id)}`);
+        setDegradedMessage("");
         state.selectedDetail = detail;
         renderDetail(detail);
         if (refreshLogs) {
           await loadLogs(id);
         }
       } catch (error) {
+        if (error.status === 503) {
+          setDegradedMessage(error.message);
+        }
         setSummaryNotice(`detail failed: ${error.message}`, true);
       }
     }
@@ -543,19 +714,18 @@
         <dt>${escapeHtml(key)}</dt>
         <dd class="${typeof value === "string" && value.startsWith("http") ? "" : "mono"}">${typeof value === "string" && value.startsWith("http") ? `<a href="${escapeHtml(value)}" target="_blank" rel="noreferrer">${escapeHtml(value)}</a>` : escapeHtml(value)}</dd>
       `).join("");
-
-      els.detailOpen.disabled = !detail.url;
-      els.detailLaunch.disabled = false;
-      els.detailDeploy.disabled = !detail.has_build;
-      els.detailReload.disabled = false;
-      els.logRefresh.disabled = false;
+      syncActionAvailability();
     }
 
     async function loadLogs(id) {
       try {
         const logs = await fetchJSON(`/api/resources/${encodeURIComponent(id)}/logs?lines=120`);
+        setDegradedMessage("");
         els.logOutput.textContent = logs.content || "No log output.";
       } catch (error) {
+        if (error.status === 503) {
+          setDegradedMessage(error.message);
+        }
         els.logOutput.textContent = `log load failed: ${error.message}`;
       }
     }
@@ -563,16 +733,22 @@
     async function runAction(id, action) {
       if (state.busy) return;
       state.busy = true;
+      syncActionAvailability();
       setActionOutput(`${action} ${id}...`);
       try {
         const result = await fetchJSON(`/api/resources/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+        setDegradedMessage("");
         const message = [result.message, result.build_output].filter(Boolean).join("\n\n");
         setActionOutput(message || `${action} completed`);
         await loadResources();
       } catch (error) {
+        if (error.status === 503) {
+          setDegradedMessage(error.message);
+        }
         setActionOutput(`${action} failed: ${error.message}`, true);
       } finally {
         state.busy = false;
+        syncActionAvailability();
       }
     }
 
@@ -603,6 +779,7 @@
           if (button.classList.contains("row-apply")) return runAction(id, "apply");
           if (button.classList.contains("row-deploy")) return runAction(id, "deploy");
           if (button.classList.contains("row-reload")) return runAction(id, "reload");
+          if (button.classList.contains("row-stop")) return runAction(id, "stop");
         }
         const row = event.target.closest("tr[data-id]");
         if (row) loadDetail(row.dataset.id);
@@ -616,6 +793,7 @@
       els.detailLaunch.addEventListener("click", () => state.selectedId && runAction(state.selectedId, "apply"));
       els.detailDeploy.addEventListener("click", () => state.selectedId && runAction(state.selectedId, "deploy"));
       els.detailReload.addEventListener("click", () => state.selectedId && runAction(state.selectedId, "reload"));
+      els.detailStop.addEventListener("click", () => state.selectedId && runAction(state.selectedId, "stop"));
     }
 
     function configurePolling() {
@@ -623,6 +801,7 @@
         clearInterval(state.pollHandle);
         state.pollHandle = null;
       }
+      syncActionAvailability();
       const interval = Number(els.pollSelect.value);
       if (interval > 0) {
         state.pollHandle = setInterval(() => {
@@ -633,9 +812,16 @@
 
     bindEvents();
     configurePolling();
+    renderIncidents();
+    syncActionAvailability();
     loadSession()
       .then(loadResources)
-      .catch((error) => setSummaryNotice(`session failed: ${error.message}`, true));
+      .catch((error) => {
+        if (error.status === 503) {
+          setDegradedMessage(error.message);
+        }
+        setSummaryNotice(`session failed: ${error.message}`, true);
+      });
   </script>
 </body>
 </html>

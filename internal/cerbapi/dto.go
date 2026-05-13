@@ -129,6 +129,15 @@ type DaemonHealth struct {
 	ServicesFailed    int              `json:"services_failed"`
 }
 
+// DaemonStatus is a lightweight daemon/socket liveness snapshot used by
+// operator-facing status checks. It intentionally avoids runtime-wide health
+// work so "daemon reachable" is distinct from "all resources healthy".
+type DaemonStatus struct {
+	DaemonRunning bool   `json:"daemon_running"`
+	SocketPath    string `json:"socket_path,omitempty"`
+	SocketReady   bool   `json:"socket_ready"`
+}
+
 // LogLines is the DTO for tail-logs responses.
 type LogLines struct {
 	ServiceID  string `json:"service_id,omitempty"`

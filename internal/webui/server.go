@@ -6,9 +6,11 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -75,7 +77,7 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 		Tag:       r.URL.Query().Get("tag"),
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeClientError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
@@ -101,7 +103,7 @@ func (s *Server) handleResourceByID(w http.ResponseWriter, r *http.Request) {
 		}
 		out, err := s.client.GetResourceRuntime(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeClientError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -119,11 +121,11 @@ func (s *Server) handleResourceByID(w http.ResponseWriter, r *http.Request) {
 		stream := r.URL.Query().Get("stream")
 		out, err := s.client.ResourceLogs(r.Context(), id, lines, stream)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeClientError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
-	case "apply", "deploy", "reload":
+	case "apply", "deploy", "reload", "stop":
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -134,7 +136,7 @@ func (s *Server) handleResourceByID(w http.ResponseWriter, r *http.Request) {
 		}
 		out, err := s.performAction(r.Context(), id, action)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeClientError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -165,6 +167,8 @@ func (s *Server) performAction(ctx context.Context, id, action string) (*cerbapi
 		return s.client.DeployResource(ctx, id)
 	case "reload":
 		return s.client.ReloadResource(ctx, id)
+	case "stop":
+		return s.client.StopResource(ctx, id)
 	default:
 		return nil, fmt.Errorf("unsupported action %q", action)
 	}
@@ -189,4 +193,31 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 		"success": false,
 		"error":   msg,
 	})
+}
+
+func writeClientError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	msg := err.Error()
+	switch {
+	case isDaemonUnavailable(err):
+		status = http.StatusServiceUnavailable
+		msg = "cerberus daemon unavailable or not responding; check 'cerberus daemon status'"
+	case isTimeoutError(err):
+		status = http.StatusServiceUnavailable
+		msg = "cerberus daemon timed out while gathering resource state; check 'cerberus daemon status'"
+	}
+	writeError(w, status, msg)
+}
+
+func isDaemonUnavailable(err error) bool {
+	var unreachable *cerbapi.DaemonUnreachableError
+	return errors.As(err, &unreachable)
+}
+
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
