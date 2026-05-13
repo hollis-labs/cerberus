@@ -205,6 +205,49 @@ func (c *Client) ListDNSRecords(ctx context.Context, sld, tld string) ([]DNSReco
 	return records, nil
 }
 
+// SetDNSRecords replaces the full DNS host record set for a domain.
+func (c *Client) SetDNSRecords(ctx context.Context, sld, tld string, records []DNSRecord) error {
+	params := map[string]string{
+		"SLD": sld,
+		"TLD": tld,
+	}
+	for i, record := range records {
+		n := strconv.Itoa(i + 1)
+		params["HostName"+n] = record.Host
+		params["RecordType"+n] = record.Type
+		params["Address"+n] = record.Value
+		if record.TTL > 0 {
+			params["TTL"+n] = strconv.Itoa(record.TTL)
+		}
+		if record.MXPref > 0 {
+			params["MXPref"+n] = strconv.Itoa(record.MXPref)
+		}
+	}
+
+	body, err := c.doRequest(ctx, "namecheap.domains.dns.setHosts", params)
+	if err != nil {
+		return fmt.Errorf("namecheap set dns: %w", err)
+	}
+
+	var resp struct {
+		XMLName xml.Name `xml:"ApiResponse"`
+		Status  string   `xml:"Status,attr"`
+		Errors  struct {
+			Error []struct {
+				Number  string `xml:"Number,attr"`
+				Message string `xml:",chardata"`
+			} `xml:"Error"`
+		} `xml:"Errors"`
+	}
+	if err := xml.Unmarshal(body, &resp); err != nil {
+		return fmt.Errorf("namecheap set dns: parse xml: %w", err)
+	}
+	if resp.Status != "OK" {
+		return fmt.Errorf("namecheap set dns: %s", extractError(resp.Errors.Error))
+	}
+	return nil
+}
+
 // --- internal helpers ---
 
 func (c *Client) doRequest(ctx context.Context, command string, extra map[string]string) ([]byte, error) {

@@ -84,6 +84,7 @@ func init() {
 	forgeCmd.GroupID = "platform"
 	cloudflareCmd.GroupID = "platform"
 	dockerCmd.GroupID = "platform"
+	connectorsCmd.GroupID = "platform"
 
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(initCmd)
@@ -103,6 +104,7 @@ func init() {
 	rootCmd.AddCommand(forgeCmd)
 	rootCmd.AddCommand(cloudflareCmd)
 	rootCmd.AddCommand(dockerCmd)
+	rootCmd.AddCommand(connectorsCmd)
 }
 
 // loadUnifiedForTools is a thin wrapper around config.LoadUnified used

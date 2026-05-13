@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,6 +31,8 @@ type ResourceRuntimeService struct {
 
 	opMu sync.Mutex
 }
+
+const resourceStatusProbeTimeout = 750 * time.Millisecond
 
 type ResourceRuntimeOption func(*ResourceRuntimeService)
 
@@ -62,15 +65,18 @@ func NewResourceRuntimeService(opts ...ResourceRuntimeOption) *ResourceRuntimeSe
 }
 
 func (s *ResourceRuntimeService) ListResources(ctx context.Context, args ResourceListArgs) ([]ResourceInfo, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
-
 	cfg := s.snapshotConfig()
 	if cfg == nil {
 		return nil, nil
 	}
 
-	var out []ResourceInfo
+	type resourceRow struct {
+		info ResourceInfo
+		res  config.ResourceDef
+		spec localconn.ProcessSpec
+	}
+
+	var rows []resourceRow
 	for _, r := range cfg.Resources {
 		if args.ProjectID != "" && r.Project != args.ProjectID {
 			continue
@@ -81,6 +87,7 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 		if args.Tag != "" && !containsTagFold(r.Tags, args.Tag) {
 			continue
 		}
+		row := resourceRow{res: r}
 		info := ResourceInfo{
 			ID:         r.ID,
 			Name:       r.Name,
@@ -96,25 +103,43 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 			Tags:       append([]string(nil), r.Tags...),
 		}
 		if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
-			spec, _ := localconn.SpecFromResourceConfig(r.Config)
-			dr := resourceDefToDomain(&r)
-			if state, err := s.localConnector().Status(ctx, dr); err == nil {
-				info.Status = string(state)
-			}
+			row.spec, _ = localconn.SpecFromResourceConfig(r.Config)
 			info.OperatorStopped = pausectl.IsServicePaused(r.ID)
-			if _, art, err := localconn.InspectArtifactInstallBasic(dr, spec); err == nil {
-				info.ArtifactInstalled = art.Installed
-				info.ArtifactStale = art.Stale
-				if info.Status != "" {
-					if action, _ := localconn.RecommendedStatusAction(spec, domain.State(info.Status), art); action != "" {
-						info.RecommendedAction = action
-						info.RecommendedNextStep = localconn.RecommendedNextStep(action, "")
+		}
+		row.info = info
+		rows = append(rows, row)
+	}
+
+	out := make([]ResourceInfo, len(rows))
+	var wg sync.WaitGroup
+	for i := range rows {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			info := rows[i].info
+			res := rows[i].res
+			spec := rows[i].spec
+			if res.Type == string(domain.ResourceProcess) && res.Connector == "local" {
+				dr := resourceDefToDomain(&res)
+				if state, err := s.statusWithTimeout(ctx, dr); err == nil {
+					info.Status = string(state)
+				}
+				if _, art, err := localconn.InspectArtifactInstallBasic(dr, spec); err == nil {
+					info.ArtifactInstalled = art.Installed
+					info.ArtifactStale = art.Stale
+					if info.Status != "" {
+						if action, _ := localconn.RecommendedStatusAction(spec, domain.State(info.Status), art); action != "" {
+							info.RecommendedAction = action
+							info.RecommendedNextStep = localconn.RecommendedNextStep(action, "")
+						}
 					}
 				}
 			}
-		}
-		out = append(out, info)
+			out[i] = info
+		}()
 	}
+	wg.Wait()
 	return out, nil
 }
 
@@ -701,15 +726,12 @@ func (s *ResourceRuntimeService) ResourceLogs(_ context.Context, id string, line
 }
 
 func (s *ResourceRuntimeService) Health(ctx context.Context, id string) ([]ResourceHealth, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
-
 	cfg := s.snapshotConfig()
 	if cfg == nil {
 		return nil, nil
 	}
 
-	var out []ResourceHealth
+	var selected []config.ResourceDef
 	for _, r := range cfg.Resources {
 		if id != "" && r.ID != id {
 			continue
@@ -717,54 +739,81 @@ func (s *ResourceRuntimeService) Health(ctx context.Context, id string) ([]Resou
 		if r.Type != string(domain.ResourceProcess) || r.Connector != "local" {
 			continue
 		}
-		spec, err := localconn.SpecFromResourceConfig(r.Config)
-		if err != nil {
-			out = append(out, ResourceHealth{
-				ResourceID:        r.ID,
-				Status:            string(domain.StateUnknown),
-				Healthy:           false,
-				Mode:              resourceMode(r),
-				Supervisor:        resourceSupervisor(r),
-				RunFrom:           resourceRunFrom(r),
-				RecommendedReason: fmt.Sprintf("decode process spec: %v", err),
-			})
-			continue
-		}
-		dr := resourceDefToDomain(&r)
-		state, err := s.localConnector().Status(ctx, dr)
-		if err != nil {
-			out = append(out, ResourceHealth{
-				ResourceID:        r.ID,
-				Status:            string(domain.StateUnknown),
-				Healthy:           false,
-				Mode:              resourceMode(r),
-				Supervisor:        resourceSupervisor(r),
-				RunFrom:           resourceRunFrom(r),
-				RecommendedReason: err.Error(),
-			})
-			continue
-		}
-		health := ResourceHealth{
-			ResourceID:      r.ID,
-			Status:          string(state),
-			Healthy:         resourceStateHealthy(state),
-			OperatorStopped: pausectl.IsServicePaused(r.ID),
-			Mode:            resourceMode(r),
-			Supervisor:      resourceSupervisor(r),
-			RunFrom:         resourceRunFrom(r),
-		}
-		if _, art, inspectErr := localconn.InspectArtifactInstallBasic(dr, spec); inspectErr == nil {
-			health.ArtifactInstalled = art.Installed
-			health.ArtifactStale = art.Stale
-			health.RecommendedAction, health.RecommendedReason = localconn.RecommendedStatusAction(spec, state, art)
-			health.RecommendedNextStep = localconn.RecommendedNextStep(health.RecommendedAction, health.RecommendedReason)
-			if health.Healthy && art.Stale && health.RecommendedAction != "" {
-				health.Healthy = false
-			}
-		}
-		out = append(out, health)
+		selected = append(selected, r)
 	}
+
+	out := make([]ResourceHealth, len(selected))
+	var wg sync.WaitGroup
+	for i := range selected {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := selected[i]
+			spec, err := localconn.SpecFromResourceConfig(r.Config)
+			if err != nil {
+				out[i] = ResourceHealth{
+					ResourceID:        r.ID,
+					Status:            string(domain.StateUnknown),
+					Healthy:           false,
+					Mode:              resourceMode(r),
+					Supervisor:        resourceSupervisor(r),
+					RunFrom:           resourceRunFrom(r),
+					RecommendedReason: fmt.Sprintf("decode process spec: %v", err),
+				}
+				return
+			}
+			dr := resourceDefToDomain(&r)
+			state, err := s.statusWithTimeout(ctx, dr)
+			if err != nil {
+				out[i] = ResourceHealth{
+					ResourceID:        r.ID,
+					Status:            string(domain.StateUnknown),
+					Healthy:           false,
+					Mode:              resourceMode(r),
+					Supervisor:        resourceSupervisor(r),
+					RunFrom:           resourceRunFrom(r),
+					RecommendedReason: err.Error(),
+				}
+				return
+			}
+			health := ResourceHealth{
+				ResourceID:      r.ID,
+				Status:          string(state),
+				Healthy:         resourceStateHealthy(state),
+				OperatorStopped: pausectl.IsServicePaused(r.ID),
+				Mode:            resourceMode(r),
+				Supervisor:      resourceSupervisor(r),
+				RunFrom:         resourceRunFrom(r),
+			}
+			if _, art, inspectErr := localconn.InspectArtifactInstallBasic(dr, spec); inspectErr == nil {
+				health.ArtifactInstalled = art.Installed
+				health.ArtifactStale = art.Stale
+				health.RecommendedAction, health.RecommendedReason = localconn.RecommendedStatusAction(spec, state, art)
+				health.RecommendedNextStep = localconn.RecommendedNextStep(health.RecommendedAction, health.RecommendedReason)
+				if health.Healthy && art.Stale && health.RecommendedAction != "" {
+					health.Healthy = false
+				}
+			}
+			out[i] = health
+		}()
+	}
+	wg.Wait()
 	return out, nil
+}
+
+func (s *ResourceRuntimeService) statusWithTimeout(ctx context.Context, dr *domain.Resource) (domain.State, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, resourceStatusProbeTimeout)
+	defer cancel()
+
+	state, err := s.localConnector().Status(probeCtx, dr)
+	if err == nil {
+		return state, nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+		return domain.StateUnknown, fmt.Errorf("status probe timed out after %s", resourceStatusProbeTimeout)
+	}
+	return domain.StateUnknown, err
 }
 
 func (s *ResourceRuntimeService) requireLocalProcessResource(id string) (*config.ResourceDef, error) {

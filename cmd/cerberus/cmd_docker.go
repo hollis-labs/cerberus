@@ -1,12 +1,12 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
 
+	"github.com/chrispian/cerberus/internal/app"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
 	"github.com/spf13/cobra"
 )
@@ -20,14 +20,22 @@ var dockerPSCmd = &cobra.Command{
 	Use:   "ps",
 	Short: "List running containers",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dc, err := dockerconn.New()
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		containers, err := dc.ListContainers(context.Background())
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "docker",
+			Operation: "list_containers",
+		})
 		if err != nil {
 			return err
+		}
+		containers, ok := result.Data.([]dockerconn.Container)
+		if !ok {
+			return fmt.Errorf("docker ps: unexpected result type %T", result.Data)
 		}
 
 		if len(containers) == 0 {
@@ -60,14 +68,26 @@ var dockerLogsCmd = &cobra.Command{
 	Short: "Show container logs",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dc, err := dockerconn.New()
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		logs, err := dc.Logs(context.Background(), args[0], dockerLogsLines)
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "docker",
+			Operation: "logs",
+			Config: map[string]any{
+				"container": args[0],
+				"lines":     dockerLogsLines,
+			},
+		})
 		if err != nil {
 			return err
+		}
+		logs, ok := result.Data.(string)
+		if !ok {
+			return fmt.Errorf("docker logs: unexpected result type %T", result.Data)
 		}
 
 		fmt.Print(logs)
@@ -80,37 +100,28 @@ var dockerUpCmd = &cobra.Command{
 	Short: "Start container or compose stack",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dc, err := dockerconn.New()
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
 		resourceID := args[0]
-		ctx := context.Background()
-
-		// Check if a compose file was specified
 		composeFile, _ := cmd.Flags().GetString("file")
+		cfg := dockerResourceConfig(resourceID, composeFile)
+
+		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "docker",
+			Operation: "start",
+			Config:    cfg,
+		}); err != nil {
+			return err
+		}
+
 		if composeFile != "" {
-			if composeErr := dc.ComposeUp(ctx, composeFile); composeErr != nil {
-				return composeErr
-			}
 			fmt.Printf("Compose stack started: %s\n", composeFile)
 			return nil
 		}
-
-		// Default: treat resource-id as container name
-		if startErr := dc.StartContainer(ctx, resourceID); startErr != nil {
-			return startErr
-		}
-
-		// Show status after start
-		status, err := dc.ContainerStatus(ctx, resourceID)
-		if err == nil {
-			data, _ := json.MarshalIndent(status, "", "  ")
-			fmt.Println(string(data))
-			return nil
-		}
-
 		fmt.Printf("Container started: %s\n", resourceID)
 		return nil
 	},
@@ -121,31 +132,48 @@ var dockerDownCmd = &cobra.Command{
 	Short: "Stop container or compose stack",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dc, err := dockerconn.New()
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
 		resourceID := args[0]
-		ctx := context.Background()
-
-		// Check if a compose file was specified
 		composeFile, _ := cmd.Flags().GetString("file")
+		cfg := dockerResourceConfig(resourceID, composeFile)
+
+		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "docker",
+			Operation: "stop",
+			Config:    cfg,
+		}); err != nil {
+			return err
+		}
+
 		if composeFile != "" {
-			if err := dc.ComposeDown(ctx, composeFile); err != nil {
-				return err
-			}
 			fmt.Printf("Compose stack stopped: %s\n", composeFile)
 			return nil
 		}
 
-		// Default: treat resource-id as container name
-		if err := dc.StopContainer(ctx, resourceID); err != nil {
-			return err
-		}
 		fmt.Printf("Container stopped: %s\n", resourceID)
 		return nil
 	},
+}
+
+func newExternalConnectorService() (*cerbapi.ExternalConnectorService, func(), error) {
+	return app.NewExternalConnectorService(), func() {}, nil
+}
+
+func dockerResourceConfig(resourceID, composeFile string) map[string]any {
+	cfg := map[string]any{
+		"id":        resourceID,
+		"name":      resourceID,
+		"container": resourceID,
+	}
+	if composeFile != "" {
+		cfg["compose_file"] = composeFile
+	}
+	return cfg
 }
 
 func init() {

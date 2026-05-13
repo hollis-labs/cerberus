@@ -7,17 +7,32 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/chrispian/cerberus/pkg/resource"
+	"github.com/chrispian/cerberus/pkg/secret"
 )
+
+var _ contract.Connector = (*Connector)(nil)
+var _ contract.Describer = (*Connector)(nil)
+
+type Backend interface {
+	ListDomains(ctx context.Context) ([]Domain, error)
+	GetDomainStatus(ctx context.Context, domain string) (*DomainStatus, error)
+	ListDNSRecords(ctx context.Context, sld, tld string) ([]DNSRecord, error)
+	SetDNSRecords(ctx context.Context, sld, tld string, records []DNSRecord) error
+}
 
 // Connector manages Namecheap domain resources via the Namecheap XML API.
 type Connector struct {
-	client *Client
+	backend Backend
 }
 
 // New creates a Namecheap connector using credentials from the secret provider.
-func New(secrets domain.SecretProvider) (*Connector, error) {
+func New(secrets secret.Provider) (*Connector, error) {
 	ctx := context.Background()
+	if secrets == nil {
+		return nil, fmt.Errorf("namecheap: secret provider is not configured")
+	}
 
 	apiUser, err := secrets.Get(ctx, "namecheap", "api_user")
 	if err != nil {
@@ -48,19 +63,24 @@ func New(secrets domain.SecretProvider) (*Connector, error) {
 		clientIP = "127.0.0.1"
 	}
 
-	return &Connector{client: NewClient(apiUser, apiKey, username, clientIP)}, nil
+	return &Connector{backend: NewClient(apiUser, apiKey, username, clientIP)}, nil
 }
 
 // NewWithClient creates a connector with an explicit client (for testing).
 func NewWithClient(client *Client) *Connector {
-	return &Connector{client: client}
+	return &Connector{backend: client}
+}
+
+// NewWithBackend creates a connector with an explicit backend (for testing).
+func NewWithBackend(backend Backend) *Connector {
+	return &Connector{backend: backend}
 }
 
 func (c *Connector) ID() string              { return "namecheap" }
-func (c *Connector) ResourceTypes() []string { return []string{"domain"} }
+func (c *Connector) ResourceTypes() []string { return []string{string(resource.Domain)} }
 
-func (c *Connector) Capabilities() domain.ConnectorCapabilities {
-	return domain.ConnectorCapabilities{
+func (c *Connector) Capabilities() contract.Capabilities {
+	return contract.Capabilities{
 		CanCreate:  false,
 		CanDestroy: false,
 		CanBuild:   false,
@@ -69,48 +89,149 @@ func (c *Connector) Capabilities() domain.ConnectorCapabilities {
 	}
 }
 
-func (c *Connector) Create(_ context.Context, _ *domain.Resource) error {
+func Definition() contract.Definition {
+	return contract.Definition{
+		ID:            "namecheap",
+		Version:       "builtin",
+		ResourceTypes: []string{string(resource.Domain)},
+		Capabilities: contract.Capabilities{
+			CanCreate:  false,
+			CanDestroy: false,
+			CanBuild:   false,
+			CanLogs:    false,
+			CanHealth:  true,
+		},
+		Config: contract.ConfigSchema{
+			Fields: []contract.ConfigField{
+				{
+					Name:        "domain",
+					Type:        "string",
+					Description: "Domain name in sld.tld form.",
+				},
+			},
+			Secrets: []contract.SecretRequirement{
+				{
+					Name:        "api_user",
+					Description: "Namecheap API user.",
+					Env:         "CERBERUS_NAMECHEAP_API_USER",
+					Required:    true,
+				},
+				{
+					Name:        "api_key",
+					Description: "Namecheap API key.",
+					Env:         "CERBERUS_NAMECHEAP_API_KEY",
+					Required:    true,
+				},
+				{
+					Name:        "username",
+					Description: "Namecheap username.",
+					Env:         "CERBERUS_NAMECHEAP_USERNAME",
+					Required:    true,
+				},
+			},
+		},
+		Operations: []contract.Operation{
+			{
+				Name:        "list_domains",
+				Description: "List domains in the Namecheap account.",
+				InputSchema: contract.ObjectSchema(map[string]any{}),
+			},
+			{
+				Name:        "get_domain_status",
+				Description: "Read detailed status for a Namecheap domain.",
+				InputSchema: contract.ObjectSchema(map[string]any{
+					"domain": contract.StringSchema("Domain name in sld.tld form."),
+				}, "domain"),
+			},
+			{
+				Name:        "list_dns_records",
+				Description: "List DNS records for a Namecheap domain.",
+				InputSchema: contract.ObjectSchema(map[string]any{
+					"domain": contract.StringSchema("Domain name in sld.tld form."),
+				}, "domain"),
+			},
+			{
+				Name:        "create_dns_record",
+				Description: "Create a DNS record for a Namecheap domain.",
+				Examples: []string{
+					"cerberus domain dns create example.com --type A --host api --value 203.0.113.10 --ttl 300 --dry-run",
+					"cerberus domain dns create example.com --type TXT --host @ --value verification-token --ack",
+				},
+				InputSchema: contract.ObjectSchema(map[string]any{
+					"domain":  contract.StringSchema("Domain name in sld.tld form."),
+					"type":    contract.StringSchema("DNS record type."),
+					"host":    contract.StringSchema("Host name such as @, www, or api."),
+					"value":   contract.StringSchema("Record value."),
+					"ttl":     contract.IntegerSchema("TTL in seconds."),
+					"mx_pref": contract.IntegerSchema("MX preference when type is MX."),
+				}, "domain", "type", "host", "value"),
+				Destructive: true,
+				SupportsDry: true,
+			},
+			{
+				Name:        "delete_dns_record",
+				Description: "Delete a DNS record for a Namecheap domain by record ID.",
+				Examples: []string{
+					"cerberus domain dns delete example.com 42 --dry-run",
+					"cerberus domain dns delete example.com 42 --ack",
+				},
+				InputSchema: contract.ObjectSchema(map[string]any{
+					"domain":    contract.StringSchema("Domain name in sld.tld form."),
+					"record_id": contract.IntegerSchema("Namecheap DNS host record ID."),
+				}, "domain", "record_id"),
+				Destructive: true,
+				SupportsDry: true,
+			},
+		},
+	}
+}
+
+func (c *Connector) Definition() contract.Definition {
+	return Definition()
+}
+
+func (c *Connector) Create(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("namecheap connector does not support Create")
 }
 
-func (c *Connector) Start(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Start(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("namecheap connector does not support Start")
 }
 
-func (c *Connector) Stop(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Stop(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("namecheap connector does not support Stop")
 }
 
-func (c *Connector) Destroy(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Destroy(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("namecheap connector does not support Destroy")
 }
 
 // Status checks if the domain is registered and not expired.
-func (c *Connector) Status(ctx context.Context, res *domain.Resource) (domain.State, error) {
+func (c *Connector) Status(ctx context.Context, res *resource.Resource) (resource.State, error) {
 	domainName, _ := res.Config["domain"].(string)
 	if domainName == "" {
-		return domain.StateUnknown, fmt.Errorf("namecheap resource %q missing domain in config", res.ID)
+		return resource.StateUnknown, fmt.Errorf("namecheap resource %q missing domain in config", res.ID)
 	}
 
-	status, err := c.client.GetDomainStatus(ctx, domainName)
+	status, err := c.backend.GetDomainStatus(ctx, domainName)
 	if err != nil {
-		return domain.StateUnknown, fmt.Errorf("namecheap status: %w", err)
+		return resource.StateUnknown, fmt.Errorf("namecheap status: %w", err)
 	}
 
 	if !status.Registered {
-		return domain.StateStopped, nil
+		return resource.StateStopped, nil
 	}
-	return domain.StateRunning, nil
+	return resource.StateRunning, nil
 }
 
 // ListDomains returns all domains in the account.
 func (c *Connector) ListDomains(ctx context.Context) ([]Domain, error) {
-	return c.client.ListDomains(ctx)
+	return c.backend.ListDomains(ctx)
 }
 
 // GetDomainStatus returns detailed status for a domain.
 func (c *Connector) GetDomainStatus(ctx context.Context, domainName string) (*DomainStatus, error) {
-	return c.client.GetDomainStatus(ctx, domainName)
+	return c.backend.GetDomainStatus(ctx, domainName)
 }
 
 // ListDNSRecords returns DNS records for a domain. The domain is split into SLD+TLD.
@@ -119,12 +240,52 @@ func (c *Connector) ListDNSRecords(ctx context.Context, domainName string) ([]DN
 	if err != nil {
 		return nil, err
 	}
-	return c.client.ListDNSRecords(ctx, sld, tld)
+	return c.backend.ListDNSRecords(ctx, sld, tld)
+}
+
+func (c *Connector) SetDNSRecords(ctx context.Context, domainName string, records []DNSRecord) error {
+	sld, tld, err := SplitDomain(domainName)
+	if err != nil {
+		return err
+	}
+	return c.backend.SetDNSRecords(ctx, sld, tld, records)
+}
+
+func (c *Connector) CreateDNSRecord(ctx context.Context, domainName string, record DNSRecord) (*DNSRecord, error) {
+	records, err := c.ListDNSRecords(ctx, domainName)
+	if err != nil {
+		return nil, err
+	}
+	records = append(records, record)
+	if err := c.SetDNSRecords(ctx, domainName, records); err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
+func (c *Connector) DeleteDNSRecord(ctx context.Context, domainName string, recordID int) error {
+	records, err := c.ListDNSRecords(ctx, domainName)
+	if err != nil {
+		return err
+	}
+	filtered := make([]DNSRecord, 0, len(records))
+	found := false
+	for _, record := range records {
+		if record.ID == recordID {
+			found = true
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+	if !found {
+		return fmt.Errorf("namecheap dns record %d not found for %s", recordID, domainName)
+	}
+	return c.SetDNSRecords(ctx, domainName, filtered)
 }
 
 // DomainsJSON returns the domain list as a JSON string (used by MCP tools).
 func (c *Connector) DomainsJSON(ctx context.Context) (string, error) {
-	domains, err := c.client.ListDomains(ctx)
+	domains, err := c.backend.ListDomains(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -137,7 +298,7 @@ func (c *Connector) DomainsJSON(ctx context.Context) (string, error) {
 
 // DomainStatusJSON returns domain status as a JSON string (used by MCP tools).
 func (c *Connector) DomainStatusJSON(ctx context.Context, domainName string) (string, error) {
-	status, err := c.client.GetDomainStatus(ctx, domainName)
+	status, err := c.backend.GetDomainStatus(ctx, domainName)
 	if err != nil {
 		return "", err
 	}

@@ -1,14 +1,13 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/app"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	ghconn "github.com/chrispian/cerberus/internal/connector/github"
 	"github.com/spf13/cobra"
 )
@@ -28,20 +27,23 @@ var githubStatusCmd = &cobra.Command{
 			return err
 		}
 
-		a, err := app.New(cfgPath)
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		gh, err := ghconn.New(a.Secrets)
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		status, err := gh.RepoStatus(context.Background(), owner, repo)
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "github",
+			Operation: "status",
+			Config:    githubRepoConfig(owner, repo, 0),
+		})
 		if err != nil {
 			return err
+		}
+		status, ok := result.Data.(*ghconn.RepoStatus)
+		if !ok {
+			return fmt.Errorf("github status: unexpected result type %T", result.Data)
 		}
 
 		data, _ := json.MarshalIndent(status, "", "  ")
@@ -62,20 +64,23 @@ var githubReleasesCmd = &cobra.Command{
 			return err
 		}
 
-		a, err := app.New(cfgPath)
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		gh, err := ghconn.New(a.Secrets)
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		releases, err := gh.ListReleases(context.Background(), owner, repo, githubReleasesLimit)
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "github",
+			Operation: "list_releases",
+			Config:    githubRepoConfig(owner, repo, githubReleasesLimit),
+		})
 		if err != nil {
 			return err
+		}
+		releases, ok := result.Data.([]ghconn.Release)
+		if !ok {
+			return fmt.Errorf("github releases: unexpected result type %T", result.Data)
 		}
 
 		if len(releases) == 0 {
@@ -107,20 +112,23 @@ var githubRunsCmd = &cobra.Command{
 			return err
 		}
 
-		a, err := app.New(cfgPath)
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		gh, err := ghconn.New(a.Secrets)
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		runs, err := gh.ListWorkflowRuns(context.Background(), owner, repo, githubRunsLimit)
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "github",
+			Operation: "list_workflow_runs",
+			Config:    githubRepoConfig(owner, repo, githubRunsLimit),
+		})
 		if err != nil {
 			return err
+		}
+		runs, ok := result.Data.([]ghconn.WorkflowRun)
+		if !ok {
+			return fmt.Errorf("github runs: unexpected result type %T", result.Data)
 		}
 
 		if len(runs) == 0 {
@@ -145,6 +153,17 @@ func splitOwnerRepo(s string) (string, string, error) {
 		return "", "", fmt.Errorf("expected owner/repo format, got %q", s)
 	}
 	return parts[0], parts[1], nil
+}
+
+func githubRepoConfig(owner, repo string, limit int) map[string]any {
+	cfg := map[string]any{
+		"owner": owner,
+		"repo":  repo,
+	}
+	if limit > 0 {
+		cfg["limit"] = limit
+	}
+	return cfg
 }
 
 func init() {

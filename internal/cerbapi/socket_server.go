@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
 // SocketServer exposes a Client over a unix-socket HTTP endpoint. The
@@ -189,6 +191,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 
 	// /health — daemon + v2 resource health.
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/ping", s.handlePing)
 
 	// /project, /resource, /pipeline list + run — active v2 surface.
 	mux.HandleFunc("/projects", s.handleProjects)
@@ -196,6 +199,12 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/resources/", s.handleResourcesID)
 	mux.HandleFunc("/pipelines", s.handlePipelines)
 	mux.HandleFunc("/pipelines/", s.handlePipelinesID)
+	mux.HandleFunc("/connectors", s.handleConnectors)
+	mux.HandleFunc("/connectors/", s.handleConnectorsID)
+	mux.HandleFunc("/plugins/connectors", s.handleManagedPluginConnectors)
+	mux.HandleFunc("/plugins/connectors/", s.handleManagedPluginConnectorsID)
+	mux.HandleFunc("/plugins/connectors/health", s.handlePluginConnectorsHealth)
+	mux.HandleFunc("/plugins/connectors/operations/", s.handlePluginConnectorsOperations)
 
 	return mux
 }
@@ -214,6 +223,14 @@ func (s *SocketServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, h)
+}
+
+func (s *SocketServer) handlePing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, DaemonStatus{DaemonRunning: true, SocketReady: true})
 }
 
 func (s *SocketServer) handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -427,6 +444,210 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *SocketServer) handleConnectors(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	list, err := s.client.ListConnectors(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []contract.Definition{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	rest := strings.TrimPrefix(r.URL.Path, "/connectors/")
+	parts := strings.Split(rest, "/")
+	if len(parts) != 3 || parts[0] == "" || parts[1] != "operations" || parts[2] == "" {
+		writeJSONError(w, http.StatusNotFound, "expected /connectors/{id}/operations/{operation}")
+		return
+	}
+
+	var args ExternalConnectorOperationArgs
+	if err := decodeJSONBody(r, &args); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	args.Connector = parts[0]
+	args.Operation = parts[2]
+	if args.Config == nil {
+		args.Config = map[string]any{}
+	}
+
+	out, err := s.client.ExecuteConnectorOperation(r.Context(), args)
+	if err != nil {
+		status := http.StatusInternalServerError
+		var connErr *ExternalConnectorError
+		if errors.As(err, &connErr) {
+			switch connErr.Code {
+			case ExternalConnectorInvalidArgs:
+				status = http.StatusBadRequest
+			case ExternalConnectorUnavailable, ExternalConnectorCredentialMissing:
+				status = http.StatusServiceUnavailable
+			case ExternalConnectorUnsupported:
+				status = http.StatusNotFound
+			}
+		}
+		writeJSONError(w, status, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *SocketServer) handlePluginConnectorsHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var args PluginConnectorHealthArgs
+	if err := decodeJSONBody(r, &args); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out, err := s.client.PluginHealth(r.Context(), args)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *SocketServer) handlePluginConnectorsOperations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	operation := strings.TrimPrefix(r.URL.Path, "/plugins/connectors/operations/")
+	if operation == "" || operation == r.URL.Path {
+		writeJSONError(w, http.StatusNotFound, "expected /plugins/connectors/operations/{operation}")
+		return
+	}
+	var args PluginConnectorExecArgs
+	if err := decodeJSONBody(r, &args); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	args.Operation = operation
+	out, err := s.client.ExecutePluginConnector(r.Context(), args)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *SocketServer) handleManagedPluginConnectors(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		out, err := s.client.ListManagedPlugins(r.Context())
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/plugins/connectors/")
+	if rest == "" || rest == r.URL.Path {
+		writeJSONError(w, http.StatusNotFound, "expected /plugins/connectors/{id}/...")
+		return
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) == 1 && parts[0] == "install" {
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var args PluginConnectorHealthArgs
+		if err := decodeJSONBody(r, &args); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		out, err := s.client.InstallManagedPlugin(r.Context(), args)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	if len(parts) < 2 {
+		writeJSONError(w, http.StatusNotFound, "expected /plugins/connectors/{id}/...")
+		return
+	}
+	id := parts[0]
+	action := parts[1]
+
+	switch action {
+	case "load":
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.LoadManagedPlugin(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "unload":
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.UnloadManagedPlugin(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "health":
+		if r.Method != http.MethodGet {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.ManagedPluginHealth(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "operations":
+		if r.Method != http.MethodPost || len(parts) < 3 {
+			writeJSONError(w, http.StatusNotFound, "expected /plugins/connectors/{id}/operations/{operation}")
+			return
+		}
+		var args PluginConnectorExecArgs
+		if err := decodeJSONBody(r, &args); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		args.Operation = parts[2]
+		out, err := s.client.ExecuteManagedPlugin(r.Context(), id, args)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	default:
+		writeJSONError(w, http.StatusNotFound, "unknown managed plugin action")
+	}
 }
 
 // ---- helpers ----

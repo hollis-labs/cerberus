@@ -2,9 +2,11 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
 // stubConnector is a minimal Connector for testing the registry.
@@ -24,6 +26,17 @@ func (s *stubConnector) Status(_ context.Context, _ *domain.Resource) (domain.St
 }
 func (s *stubConnector) Capabilities() domain.ConnectorCapabilities {
 	return domain.ConnectorCapabilities{}
+}
+
+type describingStubConnector struct {
+	stubConnector
+}
+
+func (s *describingStubConnector) Definition() contract.Definition {
+	return contract.Definition{
+		ID:            s.ID(),
+		ResourceTypes: s.ResourceTypes(),
+	}
 }
 
 func TestRegistryRegisterAndGet(t *testing.T) {
@@ -81,5 +94,48 @@ func TestRegistryIDs(t *testing.T) {
 	ids := r.IDs()
 	if len(ids) != 2 {
 		t.Fatalf("got %d IDs, want 2", len(ids))
+	}
+}
+
+func TestRegistryDefinitionsReturnsDescribingConnectorsSorted(t *testing.T) {
+	r := NewRegistry()
+	r.Register(&describingStubConnector{stubConnector: stubConnector{id: "github", types: []string{"repository"}}})
+	r.Register(&stubConnector{id: "local", types: []string{"process"}})
+	r.Register(&describingStubConnector{stubConnector: stubConnector{id: "docker", types: []string{"container"}}})
+
+	defs := r.Definitions()
+	if len(defs) != 2 {
+		t.Fatalf("got %d definitions, want 2", len(defs))
+	}
+	if defs[0].ID != "docker" || defs[1].ID != "github" {
+		t.Fatalf("definition order = [%s %s], want [docker github]", defs[0].ID, defs[1].ID)
+	}
+}
+
+func TestRegistryDefinitionsIncludeStaticDefinitions(t *testing.T) {
+	r := NewRegistry()
+	r.RegisterDefinition(contract.Definition{ID: "github", ResourceTypes: []string{"repository"}})
+	r.Register(&describingStubConnector{stubConnector: stubConnector{id: "docker", types: []string{"container"}}})
+
+	defs := r.Definitions()
+	if len(defs) != 2 {
+		t.Fatalf("got %d definitions, want 2", len(defs))
+	}
+	if defs[0].ID != "docker" || defs[1].ID != "github" {
+		t.Fatalf("definition order = [%s %s], want [docker github]", defs[0].ID, defs[1].ID)
+	}
+}
+
+func TestRegistryUnavailableErrorClearsOnRegister(t *testing.T) {
+	r := NewRegistry()
+	unavailable := errors.New("missing token")
+	r.RegisterUnavailable("github", unavailable)
+	if got := r.UnavailableError("github"); !errors.Is(got, unavailable) {
+		t.Fatalf("UnavailableError = %v, want %v", got, unavailable)
+	}
+
+	r.Register(&stubConnector{id: "github"})
+	if got := r.UnavailableError("github"); got != nil {
+		t.Fatalf("UnavailableError after Register = %v, want nil", got)
 	}
 }

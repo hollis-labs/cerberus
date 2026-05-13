@@ -7,24 +7,39 @@ import (
 	"os"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/chrispian/cerberus/pkg/resource"
+	"github.com/chrispian/cerberus/pkg/secret"
 )
+
+var _ contract.Connector = (*Connector)(nil)
+var _ contract.Describer = (*Connector)(nil)
+
+type BackendFactory func() Backend
 
 // Connector manages remote servers via SSH.
 type Connector struct {
-	secrets domain.SecretProvider
+	secrets    secret.Provider
+	newBackend BackendFactory
 }
 
 // New creates an SSH connector.
-func New(secrets domain.SecretProvider) *Connector {
-	return &Connector{secrets: secrets}
+func New(secrets secret.Provider) *Connector {
+	return &Connector{secrets: secrets, newBackend: func() Backend { return NewAPIBackend() }}
+}
+
+func NewWithBackendFactory(secrets secret.Provider, factory BackendFactory) *Connector {
+	if factory == nil {
+		factory = func() Backend { return NewAPIBackend() }
+	}
+	return &Connector{secrets: secrets, newBackend: factory}
 }
 
 func (c *Connector) ID() string              { return "ssh" }
-func (c *Connector) ResourceTypes() []string { return []string{"server"} }
+func (c *Connector) ResourceTypes() []string { return []string{string(resource.Server)} }
 
-func (c *Connector) Capabilities() domain.ConnectorCapabilities {
-	return domain.ConnectorCapabilities{
+func (c *Connector) Capabilities() contract.Capabilities {
+	return contract.Capabilities{
 		CanCreate:  false,
 		CanDestroy: false,
 		CanBuild:   false,
@@ -33,15 +48,68 @@ func (c *Connector) Capabilities() domain.ConnectorCapabilities {
 	}
 }
 
-func (c *Connector) Create(_ context.Context, _ *domain.Resource) error {
+func Definition() contract.Definition {
+	return contract.Definition{
+		ID:            "ssh",
+		Version:       "builtin",
+		ResourceTypes: []string{string(resource.Server)},
+		Capabilities: contract.Capabilities{
+			CanCreate:  false,
+			CanDestroy: false,
+			CanBuild:   false,
+			CanLogs:    false,
+			CanHealth:  true,
+		},
+		Config: contract.ConfigSchema{
+			Fields: []contract.ConfigField{
+				{Name: "host", Type: "string", Description: "Remote host name or IP address.", Required: true},
+				{Name: "port", Type: "integer", Description: "SSH port.", Default: 22},
+				{Name: "user", Type: "string", Description: "SSH username.", Default: "root"},
+				{Name: "key_file", Type: "string", Description: "Private key path."},
+				{Name: "command", Type: "string", Description: "Command to execute over SSH."},
+			},
+			Secrets: []contract.SecretRequirement{{
+				Name:        "key",
+				Description: "SSH private key path resolved from ssh/<resource-id>/key when key_file is omitted.",
+				Env:         "CERBERUS_SSH_KEY_FILE",
+			}},
+		},
+		Operations: []contract.Operation{
+			{Name: "status", Description: "Check SSH reachability and basic host status.", InputSchema: sshInputSchema()},
+			{Name: "exec", Description: "Execute a command over SSH.", Examples: []string{"cerberus ssh exec prod-api -- 'systemctl status nginx' --dry-run", "cerberus ssh exec prod-api -- 'systemctl restart php-fpm' --ack"}, InputSchema: contract.ObjectSchema(map[string]any{
+				"host":     contract.StringSchema("Remote host name or IP address."),
+				"port":     contract.IntegerSchema("SSH port."),
+				"user":     contract.StringSchema("SSH username."),
+				"key_file": contract.StringSchema("Private key path."),
+				"command":  contract.StringSchema("Command to execute."),
+			}, "host", "command"), Destructive: true, SupportsDry: true},
+			{Name: "stop", Description: "Shut down the remote host via SSH.", Examples: []string{"cerberus ssh stop prod-api --dry-run", "cerberus ssh stop prod-api --ack"}, InputSchema: sshInputSchema(), Destructive: true, SupportsDry: true},
+		},
+	}
+}
+
+func (c *Connector) Definition() contract.Definition { return Definition() }
+
+func sshInputSchema() map[string]any {
+	return contract.ObjectSchema(map[string]any{
+		"host":     contract.StringSchema("Remote host name or IP address."),
+		"port":     contract.IntegerSchema("SSH port."),
+		"user":     contract.StringSchema("SSH username."),
+		"key_file": contract.StringSchema("Private key path."),
+		"id":       contract.StringSchema("Resource ID used to resolve keychain secrets."),
+		"name":     contract.StringSchema("Resource name."),
+	}, "host")
+}
+
+func (c *Connector) Create(_ context.Context, _ *resource.Resource) error {
 	return nil // no-op
 }
 
-func (c *Connector) Start(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Start(_ context.Context, _ *resource.Resource) error {
 	return nil // no-op — can't start a remote server via SSH
 }
 
-func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {
+func (c *Connector) Stop(ctx context.Context, res *resource.Resource) error {
 	backend, err := c.connect(ctx, res)
 	if err != nil {
 		return fmt.Errorf("ssh stop: %w", err)
@@ -58,26 +126,26 @@ func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {
 	return nil
 }
 
-func (c *Connector) Destroy(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Destroy(_ context.Context, _ *resource.Resource) error {
 	return nil // no-op
 }
 
-func (c *Connector) Status(ctx context.Context, res *domain.Resource) (domain.State, error) {
+func (c *Connector) Status(ctx context.Context, res *resource.Resource) (resource.State, error) {
 	backend, err := c.connect(ctx, res)
 	if err != nil {
-		return domain.StateStopped, nil //nolint:nilerr // unreachable means stopped
+		return resource.StateStopped, nil //nolint:nilerr // unreachable means stopped
 	}
 	defer backend.Close() //nolint:errcheck
 
 	if err := backend.Ping(ctx); err != nil {
-		return domain.StateStopped, nil //nolint:nilerr // ping failure means stopped
+		return resource.StateStopped, nil //nolint:nilerr // ping failure means stopped
 	}
 
-	return domain.StateRunning, nil
+	return resource.StateRunning, nil
 }
 
 // Exec runs an arbitrary command on the remote host described by the resource.
-func (c *Connector) Exec(ctx context.Context, res *domain.Resource, command string) (*ExecResult, error) {
+func (c *Connector) Exec(ctx context.Context, res *resource.Resource, command string) (*ExecResult, error) {
 	backend, err := c.connect(ctx, res)
 	if err != nil {
 		return nil, fmt.Errorf("ssh exec: %w", err)
@@ -88,7 +156,7 @@ func (c *Connector) Exec(ctx context.Context, res *domain.Resource, command stri
 }
 
 // HostStatusJSON returns the connectivity status of a remote host as JSON.
-func (c *Connector) HostStatusJSON(ctx context.Context, res *domain.Resource) (string, error) {
+func (c *Connector) HostStatusJSON(ctx context.Context, res *resource.Resource) (string, error) {
 	status := HostStatus{}
 
 	start := time.Now()
@@ -122,7 +190,7 @@ func (c *Connector) HostStatusJSON(ctx context.Context, res *domain.Resource) (s
 }
 
 // ExecJSON runs a command and returns the result as JSON.
-func (c *Connector) ExecJSON(ctx context.Context, res *domain.Resource, command string) (string, error) {
+func (c *Connector) ExecJSON(ctx context.Context, res *resource.Resource, command string) (string, error) {
 	result, err := c.Exec(ctx, res, command)
 	if err != nil {
 		return "", err
@@ -135,7 +203,7 @@ func (c *Connector) ExecJSON(ctx context.Context, res *domain.Resource, command 
 }
 
 // connect creates and connects a backend for the given resource.
-func (c *Connector) connect(ctx context.Context, res *domain.Resource) (Backend, error) {
+func (c *Connector) connect(ctx context.Context, res *resource.Resource) (Backend, error) {
 	host, _ := res.Config["host"].(string)
 	if host == "" {
 		return nil, fmt.Errorf("ssh resource %q missing host in config", res.ID)
@@ -168,7 +236,7 @@ func (c *Connector) connect(ctx context.Context, res *domain.Resource) (Backend,
 		return nil, fmt.Errorf("ssh resource %q: no key_file in config, keychain, or CERBERUS_SSH_KEY_FILE env", res.ID)
 	}
 
-	backend := NewAPIBackend()
+	backend := c.newBackend()
 	if err := backend.Connect(ctx, host, port, user, keyFile); err != nil {
 		return nil, err
 	}

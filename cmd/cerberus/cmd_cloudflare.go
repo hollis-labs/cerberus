@@ -1,13 +1,11 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/app"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	cfconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
 	"github.com/spf13/cobra"
 )
@@ -22,20 +20,22 @@ var cloudflareZonesCmd = &cobra.Command{
 	Short: "List all zones",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.New(cfgPath)
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		cf, err := cfconn.New(a.Secrets)
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		zones, err := cf.ListZones(context.Background())
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "cloudflare",
+			Operation: "list_zones",
+		})
 		if err != nil {
 			return err
+		}
+		zones, ok := result.Data.([]cfconn.Zone)
+		if !ok {
+			return fmt.Errorf("cloudflare zones: unexpected result type %T", result.Data)
 		}
 
 		if len(zones) == 0 {
@@ -64,20 +64,25 @@ var cloudflareDNSListCmd = &cobra.Command{
 	Short: "List DNS records for a zone",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.New(cfgPath)
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		cf, err := cfconn.New(a.Secrets)
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		records, err := cf.ListDNSRecords(context.Background(), args[0])
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "cloudflare",
+			Operation: "list_dns_records",
+			Config: map[string]any{
+				"zone_id": args[0],
+			},
+		})
 		if err != nil {
 			return err
+		}
+		records, ok := result.Data.([]cfconn.DNSRecord)
+		if !ok {
+			return fmt.Errorf("cloudflare dns list: unexpected result type %T", result.Data)
 		}
 
 		if len(records) == 0 {
@@ -97,11 +102,13 @@ var cloudflareDNSListCmd = &cobra.Command{
 }
 
 var (
-	dnsCreateType    string
-	dnsCreateName    string
-	dnsCreateContent string
-	dnsCreateTTL     int
-	dnsCreateProxied bool
+	dnsCreateType         string
+	dnsCreateName         string
+	dnsCreateContent      string
+	dnsCreateTTL          int
+	dnsCreateProxied      bool
+	cloudflareDryRun      bool
+	cloudflareAcknowledge bool
 )
 
 var cloudflareDNSCreateCmd = &cobra.Command{
@@ -109,32 +116,67 @@ var cloudflareDNSCreateCmd = &cobra.Command{
 	Short: "Create a DNS record",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.New(cfgPath)
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		cf, err := cfconn.New(a.Secrets)
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
 
-		rec := cfconn.DNSRecord{
-			Type:    dnsCreateType,
-			Name:    dnsCreateName,
-			Content: dnsCreateContent,
-			TTL:     dnsCreateTTL,
-			Proxied: dnsCreateProxied,
-		}
-
-		created, err := cf.CreateDNSRecord(context.Background(), args[0], rec)
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "cloudflare",
+			Operation: "create_dns_record",
+			Config: map[string]any{
+				"zone_id": args[0],
+				"type":    dnsCreateType,
+				"name":    dnsCreateName,
+				"content": dnsCreateContent,
+				"ttl":     dnsCreateTTL,
+				"proxied": dnsCreateProxied,
+			},
+			DryRun:       cloudflareDryRun,
+			Acknowledged: cloudflareAcknowledge,
+		})
 		if err != nil {
 			return err
 		}
+		if cloudflareDryRun {
+			return writeJSON(cmd.OutOrStdout(), result.Data)
+		}
+		created, ok := result.Data.(*cfconn.DNSRecord)
+		if !ok {
+			return fmt.Errorf("cloudflare dns create: unexpected result type %T", result.Data)
+		}
 
-		data, _ := json.MarshalIndent(created, "", "  ")
-		fmt.Println(string(data))
+		return writeJSON(cmd.OutOrStdout(), created)
+	},
+}
+
+var cloudflareDNSDeleteCmd = &cobra.Command{
+	Use:   "delete <zone-id> <record-id>",
+	Short: "Delete a DNS record",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc, closeFn, err := newExternalConnectorService()
+		if err != nil {
+			return err
+		}
+		defer closeFn()
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "cloudflare",
+			Operation: "delete_dns_record",
+			Config: map[string]any{
+				"zone_id":   args[0],
+				"record_id": args[1],
+			},
+			DryRun:       cloudflareDryRun,
+			Acknowledged: cloudflareAcknowledge,
+		})
+		if err != nil {
+			return err
+		}
+		if cloudflareDryRun {
+			return writeJSON(cmd.OutOrStdout(), result.Data)
+		}
 		return nil
 	},
 }
@@ -145,9 +187,14 @@ func init() {
 	cloudflareDNSCreateCmd.Flags().StringVar(&dnsCreateContent, "content", "", "DNS record content")
 	cloudflareDNSCreateCmd.Flags().IntVar(&dnsCreateTTL, "ttl", 1, "TTL in seconds (1 = automatic)")
 	cloudflareDNSCreateCmd.Flags().BoolVar(&dnsCreateProxied, "proxied", false, "proxy through Cloudflare")
+	cloudflareDNSCreateCmd.Flags().BoolVar(&cloudflareDryRun, "dry-run", false, "preview the DNS change without sending it to Cloudflare")
+	cloudflareDNSCreateCmd.Flags().BoolVar(&cloudflareAcknowledge, "ack", false, "acknowledge destructive DNS change")
+	cloudflareDNSDeleteCmd.Flags().BoolVar(&cloudflareDryRun, "dry-run", false, "preview the DNS change without sending it to Cloudflare")
+	cloudflareDNSDeleteCmd.Flags().BoolVar(&cloudflareAcknowledge, "ack", false, "acknowledge destructive DNS change")
 
 	cloudflareDNSCmd.AddCommand(cloudflareDNSListCmd)
 	cloudflareDNSCmd.AddCommand(cloudflareDNSCreateCmd)
+	cloudflareDNSCmd.AddCommand(cloudflareDNSDeleteCmd)
 	cloudflareCmd.AddCommand(cloudflareZonesCmd)
 	cloudflareCmd.AddCommand(cloudflareDNSCmd)
 }
