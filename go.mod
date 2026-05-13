@@ -9,6 +9,7 @@ require (
 	github.com/digitalocean/godo v1.180.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/go-github/v72 v72.0.0
+	github.com/hollis-labs/plugin-sdk v0.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.49.0
@@ -33,7 +34,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
-	github.com/hollis-labs/plugin-sdk v0.3.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

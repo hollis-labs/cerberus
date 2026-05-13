@@ -67,7 +67,16 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
 			}
-			return marshalConnectorData(result.Data)
+			logs, _ := result.Data.(string)
+			return marshalConnectorData(struct {
+				Container string `json:"container"`
+				Lines     int    `json:"lines"`
+				Output    string `json:"output"`
+			}{
+				Container: container,
+				Lines:     lines,
+				Output:    logs,
+			})
 		},
 	}
 }
