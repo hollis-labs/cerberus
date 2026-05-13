@@ -9,6 +9,7 @@ import (
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/connector"
 	cloudflareconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
+	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
 	forgeconn "github.com/chrispian/cerberus/internal/connector/forge"
 	githubconn "github.com/chrispian/cerberus/internal/connector/github"
@@ -89,6 +90,7 @@ func newConnectorRegistry() (*connector.Registry, domain.SecretProvider) {
 
 func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretProvider) {
 	registry.RegisterDefinition(cloudflareconn.Definition())
+	registry.RegisterDefinition(doconn.Definition())
 	registry.RegisterDefinition(dockerconn.Definition())
 	registry.RegisterDefinition(forgeconn.Definition())
 	registry.RegisterDefinition(githubconn.Definition())
@@ -99,6 +101,11 @@ func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretPr
 		registry.Register(cloudflare)
 	} else {
 		registry.RegisterUnavailable("cloudflare", err)
+	}
+	if digitalocean, err := doconn.New(sec); err == nil {
+		registry.Register(digitalocean)
+	} else {
+		registry.RegisterUnavailable("digitalocean", err)
 	}
 
 	if docker, err := dockerconn.New(); err == nil {

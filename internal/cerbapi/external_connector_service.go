@@ -9,6 +9,7 @@ import (
 
 	"github.com/chrispian/cerberus/internal/connector"
 	cfconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
+	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
 	forgeconn "github.com/chrispian/cerberus/internal/connector/forge"
 	ghconn "github.com/chrispian/cerberus/internal/connector/github"
@@ -163,6 +164,8 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	switch args.Connector {
 	case "cloudflare":
 		return s.executeCloudflare(ctx, c, args)
+	case "digitalocean":
+		return s.executeDigitalOcean(ctx, c, args)
 	case "docker":
 		return s.executeDocker(ctx, c, args)
 	case "forge":
@@ -313,6 +316,47 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 			}, map[string]any{
 				"command": command,
 			}), true, nil
+		}
+	case "digitalocean":
+		switch args.Operation {
+		case "create_droplet":
+			name, err := requiredString(args.Config, "name")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			region, err := requiredString(args.Config, "region")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			size, err := requiredString(args.Config, "size")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			image, err := requiredString(args.Config, "image")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			return dryRunPreview(args, "Would create a DigitalOcean droplet.", map[string]any{
+				"name":   name,
+				"region": region,
+				"size":   size,
+				"image":  image,
+			}, map[string]any{
+				"ssh_keys":  args.Config["ssh_keys"],
+				"user_data": stringFromConfig(args.Config, "user_data", ""),
+			}), true, nil
+		case "stop", "destroy":
+			dropletID, err := requiredInt(args.Config, "droplet_id")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			summary := "Would power off a DigitalOcean droplet."
+			if args.Operation == "destroy" {
+				summary = "Would destroy a DigitalOcean droplet."
+			}
+			return dryRunPreview(args, summary, map[string]any{
+				"droplet_id": dropletID,
+			}, nil), true, nil
 		}
 	case "ssh":
 		switch args.Operation {
@@ -465,6 +509,59 @@ func (s *ExternalConnectorService) executeCloudflare(ctx context.Context, c cont
 		}
 		err = cloudflare.DeleteDNSRecord(ctx, zoneID, recordID)
 		return externalConnectorResult(args, nil), err
+	default:
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
+	}
+}
+
+func (s *ExternalConnectorService) executeDigitalOcean(ctx context.Context, c contract.Connector, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
+	digitalocean, ok := c.(*doconn.Connector)
+	if !ok {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("registered connector has type %T", c))
+	}
+
+	switch args.Operation {
+	case "list_droplets":
+		droplets, err := digitalocean.ListDroplets(ctx)
+		return externalConnectorResult(args, droplets), err
+	case "get_droplet":
+		dropletID, err := requiredInt(args.Config, "droplet_id")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		droplet, err := digitalocean.GetDroplet(ctx, dropletID)
+		return externalConnectorResult(args, droplet), err
+	case "create_droplet":
+		res := externalResource(args)
+		err := digitalocean.Create(ctx, &res)
+		if err != nil {
+			return externalConnectorResult(args, nil), err
+		}
+		dropletID, err := dropletIDFromConfig(res.Config)
+		if err != nil {
+			return externalConnectorResult(args, map[string]any{"droplet_id": res.Config["droplet_id"]}), nil
+		}
+		droplet, err := digitalocean.GetDroplet(ctx, dropletID)
+		if err != nil {
+			return externalConnectorResult(args, map[string]any{"droplet_id": dropletID}), nil
+		}
+		return externalConnectorResult(args, droplet), nil
+	case "start":
+		res := externalResource(args)
+		err := digitalocean.Start(ctx, &res)
+		return externalConnectorResult(args, nil), err
+	case "stop":
+		res := externalResource(args)
+		err := digitalocean.Stop(ctx, &res)
+		return externalConnectorResult(args, nil), err
+	case "destroy":
+		res := externalResource(args)
+		err := digitalocean.Destroy(ctx, &res)
+		return externalConnectorResult(args, nil), err
+	case "status":
+		res := externalResource(args)
+		state, err := digitalocean.Status(ctx, &res)
+		return externalConnectorResult(args, state), err
 	default:
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
@@ -754,6 +851,10 @@ func requiredInt(cfg map[string]any, key string) (int, error) {
 		return 0, fmt.Errorf("missing %q", key)
 	}
 	return value, nil
+}
+
+func dropletIDFromConfig(cfg map[string]any) (int, error) {
+	return requiredInt(cfg, "droplet_id")
 }
 
 func intPointerFromConfig(cfg map[string]any, key string) *int {

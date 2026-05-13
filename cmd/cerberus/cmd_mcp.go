@@ -125,6 +125,13 @@ the operator to start one with 'cerberus daemon'.`,
 		srv.RegisterTool(mcp.NewCerberusDockerUpTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusDockerDownTool(socketClient))
 
+		srv.RegisterTool(mcp.NewCerberusServerListTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerShowTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerCreateTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerStartTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerStopTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerDestroyTool(socketClient))
+
 		// CERB-4: self-heal on binary replacement. If `cerberus rebuild`,
 		// `go install`, a package manager, or anything else swaps this
 		// binary on disk while we're running, exit cleanly so the parent

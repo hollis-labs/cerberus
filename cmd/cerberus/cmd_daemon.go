@@ -478,6 +478,13 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusDockerUpTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDockerDownTool(inProc))
 
+		srv.RegisterTool(mcp.NewCerberusServerListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerShowTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerCreateTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerStartTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerStopTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerDestroyTool(inProc))
+
 		if err := srv.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		}
