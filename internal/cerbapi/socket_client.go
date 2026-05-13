@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
 // SocketClient satisfies Client by forwarding each call over a unix
@@ -100,7 +102,8 @@ func NewSocketClient(socketPath string, opts ...SocketClientOption) *SocketClien
 // to fail fast with a clear error rather than deferring the problem to
 // the first tool call.
 func (c *SocketClient) Ping(ctx context.Context) error {
-	_, err := c.Health(ctx, "")
+	var out DaemonStatus
+	err := c.doJSON(ctx, http.MethodGet, "/ping", nil, &out)
 	return err
 }
 
@@ -291,6 +294,101 @@ func (c *SocketClient) RunPipeline(ctx context.Context, id string) (*PipelineRun
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *SocketClient) ListConnectors(ctx context.Context) ([]contract.Definition, error) {
+	var out []contract.Definition
+	if err := c.doJSON(ctx, http.MethodGet, "/connectors", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
+	if args.Connector == "" {
+		return ExternalConnectorOperationResult{}, errors.New("connector id required")
+	}
+	if args.Operation == "" {
+		return ExternalConnectorOperationResult{}, errors.New("connector operation required")
+	}
+	path := "/connectors/" + url.PathEscape(args.Connector) + "/operations/" + url.PathEscape(args.Operation)
+	var out ExternalConnectorOperationResult
+	if err := c.doJSON(ctx, http.MethodPost, path, args, &out); err != nil {
+		return ExternalConnectorOperationResult{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) PluginHealth(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {
+	var out PluginConnectorHealth
+	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/health", args, &out); err != nil {
+		return PluginConnectorHealth{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) ExecutePluginConnector(ctx context.Context, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	if args.Operation == "" {
+		return ExternalConnectorOperationResult{}, errors.New("plugin operation required")
+	}
+	path := "/plugins/connectors/operations/" + url.PathEscape(args.Operation)
+	var out ExternalConnectorOperationResult
+	if err := c.doJSON(ctx, http.MethodPost, path, args, &out); err != nil {
+		return ExternalConnectorOperationResult{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {
+	var out ManagedPluginConnectorState
+	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/install", args, &out); err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	var out ManagedPluginConnectorState
+	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/load", nil, &out); err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) UnloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	var out ManagedPluginConnectorState
+	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/unload", nil, &out); err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error) {
+	var out []ManagedPluginConnectorState
+	if err := c.doJSON(ctx, http.MethodGet, "/plugins/connectors", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) ManagedPluginHealth(ctx context.Context, id string) (PluginConnectorHealth, error) {
+	var out PluginConnectorHealth
+	if err := c.doJSON(ctx, http.MethodGet, "/plugins/connectors/"+url.PathEscape(id)+"/health", nil, &out); err != nil {
+		return PluginConnectorHealth{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) ExecuteManagedPlugin(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	if args.Operation == "" {
+		return ExternalConnectorOperationResult{}, errors.New("managed plugin operation required")
+	}
+	path := "/plugins/connectors/" + url.PathEscape(id) + "/operations/" + url.PathEscape(args.Operation)
+	var out ExternalConnectorOperationResult
+	if err := c.doJSON(ctx, http.MethodPost, path, args, &out); err != nil {
+		return ExternalConnectorOperationResult{}, err
+	}
+	return out, nil
 }
 
 // ---- transport ----

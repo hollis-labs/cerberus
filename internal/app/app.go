@@ -8,7 +8,14 @@ import (
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/connector"
+	cloudflareconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
+	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
+	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
+	forgeconn "github.com/chrispian/cerberus/internal/connector/forge"
+	githubconn "github.com/chrispian/cerberus/internal/connector/github"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
+	namecheapconn "github.com/chrispian/cerberus/internal/connector/namecheap"
+	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/secrets"
 	"github.com/chrispian/cerberus/internal/store/sqlite"
@@ -24,6 +31,7 @@ type App struct {
 	Secrets  domain.SecretProvider
 	Local    *localconn.Connector
 	Runtime  *cerbapi.ResourceRuntimeService
+	External *cerbapi.ExternalConnectorService
 
 	storePath string
 }
@@ -41,19 +49,17 @@ func New(cfgPath string) (*App, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	// Set up connector registry with local connector.
-	registry := connector.NewRegistry()
+	registry, sec := newConnectorRegistry()
 	local := localconn.New()
 	registry.Register(local)
 
-	// Secrets provider
-	sec := secrets.NewKeychainProvider()
 	runtime := cerbapi.NewResourceRuntimeService(
 		cerbapi.WithResourceRuntimeLogger(nil),
 		cerbapi.WithResourceRuntimeLocalConnector(local),
 		cerbapi.WithResourceRuntimeConfigV2(v2),
 		cerbapi.WithResourceRuntimeConfigPath(cfgPath),
 	)
+	external := cerbapi.NewExternalConnectorService(registry)
 
 	home, _ := os.UserHomeDir()
 	storePath := filepath.Join(home, ".cerberus", "cerberus.db")
@@ -65,8 +71,64 @@ func New(cfgPath string) (*App, error) {
 		Secrets:   sec,
 		Local:     local,
 		Runtime:   runtime,
+		External:  external,
 		storePath: storePath,
 	}, nil
+}
+
+func NewExternalConnectorService() *cerbapi.ExternalConnectorService {
+	registry, _ := newConnectorRegistry()
+	return cerbapi.NewExternalConnectorService(registry)
+}
+
+func newConnectorRegistry() (*connector.Registry, domain.SecretProvider) {
+	sec := secrets.NewKeychainProvider()
+	registry := connector.NewRegistry()
+	registerBuiltInConnectors(registry, sec)
+	return registry, sec
+}
+
+func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretProvider) {
+	registry.RegisterDefinition(cloudflareconn.Definition())
+	registry.RegisterDefinition(doconn.Definition())
+	registry.RegisterDefinition(dockerconn.Definition())
+	registry.RegisterDefinition(forgeconn.Definition())
+	registry.RegisterDefinition(githubconn.Definition())
+	registry.RegisterDefinition(namecheapconn.Definition())
+	registry.RegisterDefinition(sshconn.Definition())
+
+	if cloudflare, err := cloudflareconn.New(sec); err == nil {
+		registry.Register(cloudflare)
+	} else {
+		registry.RegisterUnavailable("cloudflare", err)
+	}
+	if digitalocean, err := doconn.New(sec); err == nil {
+		registry.Register(digitalocean)
+	} else {
+		registry.RegisterUnavailable("digitalocean", err)
+	}
+
+	if docker, err := dockerconn.New(); err == nil {
+		registry.Register(docker)
+	} else {
+		registry.RegisterUnavailable("docker", err)
+	}
+	if forge, err := forgeconn.New(sec); err == nil {
+		registry.Register(forge)
+	} else {
+		registry.RegisterUnavailable("forge", err)
+	}
+	if github, err := githubconn.New(sec); err == nil {
+		registry.Register(github)
+	} else {
+		registry.RegisterUnavailable("github", err)
+	}
+	if namecheap, err := namecheapconn.New(sec); err == nil {
+		registry.Register(namecheap)
+	} else {
+		registry.RegisterUnavailable("namecheap", err)
+	}
+	registry.Register(sshconn.New(sec))
 }
 
 // OpenStore opens the SQLite store, creating it if necessary.

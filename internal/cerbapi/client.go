@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+
+	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
 // Client is the abstract interface every caller uses to drive Cerberus
@@ -46,6 +48,26 @@ type Client interface {
 	ListPipelines(ctx context.Context) ([]PipelineInfo, error)
 	// RunPipeline executes a pipeline and returns the raw result JSON.
 	RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error)
+	// ListConnectors returns connector discovery metadata.
+	ListConnectors(ctx context.Context) ([]contract.Definition, error)
+	// ExecuteConnectorOperation runs a connector operation through the external connector service.
+	ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error)
+	// PluginHealth runs plugin install/load/health for a local plugin directory.
+	PluginHealth(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error)
+	// ExecutePluginConnector runs a connector operation through a local plugin directory.
+	ExecutePluginConnector(ctx context.Context, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error)
+	// InstallManagedPlugin validates and registers a plugin directory with the daemon manager.
+	InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error)
+	// LoadManagedPlugin starts a previously installed plugin by id.
+	LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
+	// UnloadManagedPlugin stops a loaded plugin by id.
+	UnloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
+	// ListManagedPlugins returns currently installed daemon-managed plugins.
+	ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error)
+	// ManagedPluginHealth returns health for a daemon-managed plugin by id.
+	ManagedPluginHealth(ctx context.Context, id string) (PluginConnectorHealth, error)
+	// ExecuteManagedPlugin runs an operation through an already loaded daemon-managed plugin.
+	ExecuteManagedPlugin(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error)
 }
 
 // SocketPath returns the default cerberus socket path

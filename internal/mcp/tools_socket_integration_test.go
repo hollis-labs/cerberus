@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/chrispian/cerberus/internal/connector"
+	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
 )
 
 // shortSocketPath returns a short unix-socket path (macOS sun_path
@@ -41,6 +43,44 @@ func startDaemonSocketWithPath(t *testing.T, cfgPath string) *cerbapi.SocketClie
 	sockPath := shortSocketPath(t)
 
 	inProc := cerbapi.NewInProcessClient(cerbapi.WithConfigPath(cfgPath))
+	srv := cerbapi.NewSocketServer(inProc, sockPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := srv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			t.Logf("socket server: %v", err)
+		}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatalf("socket %s never appeared", sockPath)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cerbapi.NewSocketClient(sockPath)
+}
+
+func startDaemonSocketWithConnectors(t *testing.T) *cerbapi.SocketClient {
+	t.Helper()
+	sockPath := shortSocketPath(t)
+
+	registry := connector.NewRegistry()
+	registry.RegisterDefinition(dockerconn.Definition())
+	inProc := cerbapi.NewInProcessClient(
+		cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(registry)),
+	)
 	srv := cerbapi.NewSocketServer(inProc, sockPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -175,5 +215,37 @@ resources:
 	}
 	if !strings.Contains(out, `"supervisor": "launchd"`) {
 		t.Fatalf("missing supervisor: %s", out)
+	}
+}
+
+func TestConnectorListToolViaSocket(t *testing.T) {
+	socketClient := startDaemonSocketWithConnectors(t)
+	tool := NewCerberusConnectorListTool(socketClient)
+
+	out, err := tool.Handler(map[string]interface{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"id": "docker"`) {
+		t.Fatalf("missing docker connector definition: %s", out)
+	}
+	if !strings.Contains(out, `"resource_types"`) {
+		t.Fatalf("missing resource types: %s", out)
+	}
+}
+
+func TestConnectorDescribeToolViaSocket(t *testing.T) {
+	socketClient := startDaemonSocketWithConnectors(t)
+	tool := NewCerberusConnectorDescribeTool(socketClient)
+
+	out, err := tool.Handler(map[string]interface{}{"id": "docker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"id": "docker"`) {
+		t.Fatalf("missing docker connector definition: %s", out)
+	}
+	if !strings.Contains(out, `"operations"`) {
+		t.Fatalf("missing operations: %s", out)
 	}
 }

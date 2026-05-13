@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/chrispian/cerberus/internal/app"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/spf13/cobra"
@@ -15,6 +15,9 @@ var sshCmd = &cobra.Command{
 	Use:   "ssh",
 	Short: "SSH operations on remote hosts",
 }
+
+var sshAcknowledge bool
+var sshDryRun bool
 
 var sshExecCmd = &cobra.Command{
 	Use:   "exec <resource-id> -- <command...>",
@@ -47,20 +50,37 @@ var sshExecCmd = &cobra.Command{
 			return err
 		}
 
-		conn := sshconn.New(a.Secrets)
-		result, err := conn.Exec(context.Background(), res, command)
+		svc, closeFn, err := newExternalConnectorService()
 		if err != nil {
 			return err
 		}
+		defer closeFn()
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector:    "ssh",
+			Operation:    "exec",
+			Config:       sshConfig(res, command),
+			DryRun:       sshDryRun,
+			Acknowledged: sshAcknowledge,
+		})
+		if err != nil {
+			return err
+		}
+		if sshDryRun {
+			return writeJSON(cmd.OutOrStdout(), result.Data)
+		}
+		execResult, ok := result.Data.(*sshconn.ExecResult)
+		if !ok {
+			return fmt.Errorf("ssh exec: unexpected result type %T", result.Data)
+		}
 
-		if result.Stdout != "" {
-			fmt.Println(result.Stdout)
+		if execResult.Stdout != "" {
+			fmt.Println(execResult.Stdout)
 		}
-		if result.Stderr != "" {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", result.Stderr)
+		if execResult.Stderr != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", execResult.Stderr)
 		}
-		if result.ExitCode != 0 {
-			return fmt.Errorf("remote command exited with code %d", result.ExitCode)
+		if execResult.ExitCode != 0 {
+			return fmt.Errorf("remote command exited with code %d", execResult.ExitCode)
 		}
 		return nil
 	},
@@ -84,13 +104,60 @@ var sshStatusCmd = &cobra.Command{
 			return err
 		}
 
-		conn := sshconn.New(a.Secrets)
-		statusJSON, err := conn.HostStatusJSON(context.Background(), res)
+		svc, closeFn, err := newExternalConnectorService()
+		if err != nil {
+			return err
+		}
+		defer closeFn()
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "ssh",
+			Operation: "status",
+			Config:    sshConfig(res, ""),
+		})
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(statusJSON)
+		if statusJSON, ok := result.Data.(string); ok {
+			fmt.Println(statusJSON)
+			return nil
+		}
+		return fmt.Errorf("ssh status: unexpected result type %T", result.Data)
+	},
+}
+
+var sshStopCmd = &cobra.Command{
+	Use:   "stop <resource-id>",
+	Short: "Shut down a remote host over SSH",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		a, err := app.New(cfgPath)
+		if err != nil {
+			return fmt.Errorf("init app: %w", err)
+		}
+		defer a.Close() //nolint:errcheck
+		res, err := findResource(a, args[0])
+		if err != nil {
+			return err
+		}
+		svc, closeFn, err := newExternalConnectorService()
+		if err != nil {
+			return err
+		}
+		defer closeFn()
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector:    "ssh",
+			Operation:    "stop",
+			Config:       sshConfig(res, ""),
+			DryRun:       sshDryRun,
+			Acknowledged: sshAcknowledge,
+		})
+		if err != nil {
+			return err
+		}
+		if sshDryRun {
+			return writeJSON(cmd.OutOrStdout(), result.Data)
+		}
 		return nil
 	},
 }
@@ -113,7 +180,25 @@ func findResource(a *app.App, id string) (*domain.Resource, error) {
 	return nil, fmt.Errorf("resource %q not found", id)
 }
 
+func sshConfig(res *domain.Resource, command string) map[string]any {
+	cfg := make(map[string]any, len(res.Config)+3)
+	for key, value := range res.Config {
+		cfg[key] = value
+	}
+	cfg["id"] = res.ID
+	cfg["name"] = res.Name
+	if command != "" {
+		cfg["command"] = command
+	}
+	return cfg
+}
+
 func init() {
+	sshExecCmd.Flags().BoolVar(&sshDryRun, "dry-run", false, "preview the remote command without executing it")
+	sshExecCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge destructive remote execution")
+	sshStopCmd.Flags().BoolVar(&sshDryRun, "dry-run", false, "preview the remote shutdown without executing it")
+	sshStopCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge destructive remote execution")
 	sshCmd.AddCommand(sshExecCmd)
 	sshCmd.AddCommand(sshStatusCmd)
+	sshCmd.AddCommand(sshStopCmd)
 }

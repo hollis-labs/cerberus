@@ -34,3 +34,14 @@ type Deployment struct {
 	CommitAuthor  string `json:"commit_author"`
 	CommitMessage string `json:"commit_message"`
 }
+
+// SiteCommand represents a command execution record for a Forge site.
+type SiteCommand struct {
+	ID        int    `json:"id"`
+	ServerID  int    `json:"server_id"`
+	SiteID    int    `json:"site_id"`
+	Command   string `json:"command"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}

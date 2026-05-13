@@ -67,11 +67,12 @@ the better runtime plugin boundary.
 
 ### 1. Public Connector Contract
 
-Create a public package or module for the connector contract, for example:
+Create a public package or module for the connector contract:
 
 ```text
-pkg/cerbkit/connector
-pkg/cerbkit/resource
+pkg/connector
+pkg/resource
+pkg/secret
 ```
 
 The public contract should include:
@@ -210,11 +211,28 @@ included at build time.
 
 Tasks:
 
-- Create public connector/resource packages.
-- Move stable connector types out of `internal/domain`.
-- Add config schema and secret requirement declarations.
-- Add operation metadata for CLI/MCP/API descriptions.
+- Create public connector/resource packages. *(Done: `pkg/connector`,
+  `pkg/resource`, and `pkg/secret` now hold the importable connector,
+  capability, resource, state, and secret provider contracts.)*
+- Move stable connector types out of `internal/domain`. *(Done:
+  `internal/domain` now aliases the public types so existing code keeps working
+  while new code can import the public packages.)*
+- Add config schema and secret requirement declarations. *(Done for PB-1:
+  `pkg/connector.ConfigSchema` declares config fields and secrets; GitHub now
+  declares repository fields and token secret metadata.)*
+- Add operation metadata for CLI/MCP/API descriptions. *(Done for PB-1:
+  `pkg/connector.Operation` defines shared operation metadata; Docker and
+  GitHub now expose built-in connector definitions; the connector registry can
+  now return sorted definitions for discovery adapters, including static
+  definitions for connectors that are not available as live instances; the
+  `connectors` CLI command lists this metadata.)*
 - Convert Docker and GitHub to use the public contract while still built in.
+  *(Done: Docker now satisfies the public connector lifecycle contract for
+  container and compose resources while retaining its existing CLI methods;
+  GitHub now explicitly satisfies the same public contract; app startup now
+  registers their discovery metadata and live connectors when available;
+  Docker and GitHub lifecycle signatures now use public resource, connector,
+  and secret contracts rather than `internal/domain`.)*
 
 ### Sprint PB-2: External Connector Operation Service
 
@@ -223,11 +241,24 @@ and MCP behavior.
 
 Tasks:
 
-- Add daemon service for external connector operations.
+- Add daemon service for external connector operations. *(Done for PB-2:
+  `internal/cerbapi.ExternalConnectorService` now executes Docker and GitHub
+  operations through the connector registry without using the local-process
+  runtime service; the daemon socket exposes
+  `POST /connectors/{id}/operations/{operation}`.)*
 - Route existing Docker, GitHub, Cloudflare, Forge, Namecheap, and SSH tools
-  through the service where practical.
-- Add structured stale/unavailable/credential-missing errors.
-- Expose capability discovery through API and MCP.
+  through the service where practical. *(Done for Docker/GitHub: CLI and MCP
+  tools now route through `ExternalConnectorService`; the service can be
+  constructed without requiring a Cerberus config file. Cloudflare, Forge,
+  Namecheap, and SSH remain direct adapters until PB-3/PB-4 safety and
+  connector-definition policy is in place.)*
+- Add structured stale/unavailable/credential-missing errors. *(Done for PB-2:
+  unavailable, credential-missing, unsupported-operation, and invalid-args
+  errors now use structured error codes; constructor errors are retained for
+  unavailable connectors.)*
+- Expose capability discovery through API and MCP. *(Done: the daemon socket
+  now exposes `GET /connectors`, `cerbapi.Client` has `ListConnectors`, and MCP
+  registers `cerberus_connector_list` against the same daemon-backed client.)*
 
 ### Sprint PB-3: Plugin-SDK Host Adapter
 
@@ -235,11 +266,90 @@ Outcome: Cerberus can install and run a subprocess connector plugin.
 
 Tasks:
 
-- Add plugin install/load/unload/config lifecycle.
+- Add plugin install/load/unload/config lifecycle. *(Started:
+  `internal/pluginhost.Host` defines the install/load/unload/health/execute
+  boundary without binding the rest of Cerberus to plugin-sdk types.
+  `internal/pluginhost.DirectoryInstaller` now installs from a local plugin
+  directory or `plugin.yaml` path, reads and validates `plugin.yaml`, applies
+  trust-policy checks, and returns an `InstalledPlugin` record carrying the
+  validated manifest, spec, and trust decision. `cerberus connectors plugin
+  health <dir>` and `cerberus connectors plugin exec <dir> <operation>` now
+  drive that lifecycle through `pluginhost.Manager` for local plugin
+  directories with explicit trust inputs. The daemon `InProcessClient` and
+  socket API now expose the same plugin health/exec path through
+  `cerbapi.PluginConnectorService`. A daemon-scoped
+  `cerbapi.ManagedPluginConnectorService` now also supports in-memory
+  install/load/unload/list/health/exec for plugins that should stay loaded
+  across requests. `cerberus connectors plugin managed ...` now exposes that
+  daemon-managed lifecycle over the socket for operators. Managed plugin
+  install/load state is now persisted under `~/.cerberus/plugin-connectors.json`
+  and restored on daemon startup. Loaded managed plugins now also participate
+  in normal connector discovery and `ExecuteConnectorOperation` routing, so
+  plugin connectors can behave like first-class external connectors instead of
+  living only behind plugin-specific commands. The operator-facing
+  `cerberus connectors` command now prefers the daemon connector inventory,
+  which makes managed plugin connectors visible from the normal CLI when the
+  daemon is running, while still falling back to local built-in discovery when
+  the daemon is unavailable. Catalog/archive installation and richer plugin
+  inventory metadata still remain out of scope for this slice.)*
+- Add a subprocess manager for plugin lifecycle and supervision. *(Started:
+  `internal/pluginhost.Manager` now owns installed-plugin registration,
+  process launch, init/load/unload sequencing, health checks, operation
+  execution, and trust-tier enforcement for loaded plugins. Health polling,
+  graceful shutdown semantics, and the concrete plugin-sdk RPC transport
+  remain to be added. `internal/pluginhost.SubprocessLauncher` now resolves
+  validated relative entrypoints into executable paths inside the plugin
+  directory, rejects non-executable targets, and launches subprocess commands
+  with an explicit environment allowlist instead of inherited ambient env.)*
 - Map plugin-sdk health and MCP calls to Cerberus connector operations.
-- Add connector manifest metadata.
-- Add trust/developer-mode policy.
-- Build a Docker connector plugin prototype.
+  *(Started: `internal/pluginhost.StdioTransportFactory` now speaks the
+  plugin-sdk JSON-RPC stdio protocol for `plugin/init`, `plugin/load`,
+  `plugin/unload`, `plugin/health`, and `mcp/call_tool`. The transport is
+  exercised end-to-end against a test helper process running the real
+  `plugin-sdk/subprocess.Serve` server. Full daemon wiring and a production
+  plugin process supervisor still remain.)*
+- Add connector manifest metadata. *(Done for PB-3 foundation:
+  `pkg/connector.Manifest` is generated from connector definitions and validates
+  resource types, config, secrets, operations, and destructive-operation
+  acknowledgments. `internal/pluginhost.PluginYAML` embeds that manifest under a
+  Cerberus-specific section.)*
+- Add trust/developer-mode policy. *(Done for PB-3 foundation:
+  `internal/pluginhost.TrustPolicy` requires signed catalog + archive signatures
+  and SHA-256 by default, only allows unsigned local plugins in `devmode` builds,
+  fails hard when requested sandboxes are not enforced, and blocks destructive
+  agent-auto execution for dev plugins.)*
+- Tighten plugin entrypoint and environment handling. *(Done for PB-3
+  foundation: plugin metadata uses structured `entrypoint.command` +
+  `entrypoint.args`; commands must be relative paths inside the plugin
+  directory; shell-string parsing and PATH lookup are rejected by default.
+  Plugin manifests declare logical secrets and config, while Cerberus resolves
+  secrets itself instead of honoring arbitrary manifest-selected env vars.)*
+- Build a Docker connector plugin prototype. *(Started:
+  `internal/plugins/dockerplugin` now wraps the existing Docker connector as a
+  `plugin-sdk/subprocess` plugin with health checks and MCP tool handlers for
+  `list_containers`, `logs`, `start`, `stop`, `destroy`, and `status`.
+  `cmd/cerberus-docker-plugin` serves that plugin as a standalone subprocess
+  binary. `internal/plugins/dockerplugin.WritePrototype` now generates a
+  prototype plugin directory with a manifest-derived `plugin.yaml`, and
+  `cerberus connectors write-plugin-prototype docker <dir>` exposes that path
+  from the CLI. `--build-binary` now stages a built
+  `bin/cerberus-docker-plugin` executable into that prototype directory.
+  Daemon installation wiring still remains.)*
+
+PB-3 trust notes from Nanite / plugin-sdk / Agent Mux / Clockwork review:
+
+- `plugin-sdk` is host-neutral protocol/lifecycle infrastructure; Cerberus owns
+  the `plugin.yaml` schema and connector manifest section.
+- Production installs should enforce SHA-256, catalog signature, and archive
+  signature. Unsigned local plugins should require a dev build plus explicit
+  allow-list roots.
+- Plugin entrypoints should be structured as command + args, stay inside the
+  plugin directory, and avoid shell-string parsing or PATH lookup by default.
+- Secrets should be resolved through Cerberus declared secret names, not by
+  allowing arbitrary manifest environment-variable reads.
+- Sandbox profiles should fail closed when requested but unavailable.
+- Docker plugin access is privileged because Docker socket access is effectively
+  host-level control; require signed trust or explicit dev-mode operator intent.
 
 ### Sprint PB-4: Deployment Connectors
 
@@ -250,7 +360,53 @@ Tasks:
 - Add Docker deployment workflows on the connector contract.
 - Add GitHub release/workflow operations.
 - Add Cloudflare deployment/DNS operations behind explicit safety metadata.
+- Add Namecheap domain/DNS operations on the same contract. *(Started:
+  Cloudflare and Namecheap now expose public connector definitions and are
+  registered as built-in discovery metadata even when unavailable. The
+  daemon-owned `ExternalConnectorService` now supports Cloudflare DNS
+  operations (`list_zones`, `list_dns_records`, `create_dns_record`,
+  `delete_dns_record`) and Namecheap domain/DNS operations (`list_domains`,
+  `get_domain_status`, `list_dns_records`, `create_dns_record`,
+  `delete_dns_record`). Existing CLI commands for those flows now route
+  through the same shared connector operation service instead of constructing
+  connectors directly.)*
+- Add Forge and SSH read/write/exec operations on the same contract. *(Started:
+  Forge and SSH now expose public connector definitions and are registered as
+  built-in discovery metadata. `ExternalConnectorService` now supports
+  Cloudflare write operations (`create_dns_record`, `delete_dns_record`),
+  Namecheap DNS write operations (`create_dns_record`, `delete_dns_record`),
+  Forge read/write/exec operations (`list_servers`, `get_server`,
+  `list_sites`, `get_deployment_script`, `update_deployment_script`,
+  `deploy_site`, `exec_site_command`), and SSH operations (`status`, `exec`,
+  `stop`). Existing CLI commands for Cloudflare, Namecheap, Forge, and SSH now
+  route through the shared connector service for those operations. Standalone
+  MCP now also exposes the new Cloudflare delete, Namecheap create/delete, and
+  Forge deploy/exec tool surfaces. Those external MCP tools now route through
+  the daemon-owned connector client instead of constructing local connector
+  instances, and SSH MCP now resolves resource config locally but executes the
+  actual SSH/status operations through the same daemon connector boundary.)*
+- Enforce destructive-operation acknowledgment across CLI, API, MCP, and
+  plugin execution. *(Started: `ExternalConnectorService` and pluginhost
+  execution now reject destructive operations unless `acknowledged=true` is
+  provided. Cloudflare/Namecheap destructive CLI flows expose `--ack`, Forge
+  deploy/exec and SSH exec/stop expose `--ack`, managed/local plugin exec
+  commands expose `--ack`, and the MCP tool schemas for destructive external
+  operations now accept an `acknowledged` boolean that flows through the same
+  daemon-owned execution boundary.)*
 - Add agent-facing examples and dry-run output for destructive operations.
+  *(Started: destructive Cloudflare, Namecheap, Forge, and SSH connector
+  definitions now carry operation examples and `supports_dry` metadata.
+  `ExternalConnectorService` now returns structured dry-run previews for those
+  destructive built-in operations without contacting provider backends, so
+  agents can inspect intended targets, inputs, and warnings before
+  acknowledging a change. The corresponding CLI commands now expose
+  `--dry-run`, and MCP tool schemas now accept `dry_run` for those
+  destructive operations.)*
+- Make connector safety metadata directly inspectable by operators and agents.
+  *(Started: `cerberus connectors describe <id>` now returns full discovery
+  metadata, including operation examples, destructive flags, and dry-run
+  support. MCP now exposes `cerberus_connector_describe` on the same daemon
+  discovery path.)*
 
 ## Non-Goals For Beta
 

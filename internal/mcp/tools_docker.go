@@ -2,12 +2,13 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 )
 
 // NewCerberusDockerPSTool creates the cerberus_docker_ps tool.
-func NewCerberusDockerPSTool() Tool {
+func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_ps",
 		Description: "Lists running Docker containers with their status, image, and ports.",
@@ -16,18 +17,21 @@ func NewCerberusDockerPSTool() Tool {
 			"properties": map[string]interface{}{},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
-			dc, err := dockerconn.New()
+			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+				Connector: "docker",
+				Operation: "list_containers",
+			})
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
 			}
 
-			return dc.ContainersJSON(context.Background())
+			return marshalConnectorData(result.Data)
 		},
 	}
 }
 
 // NewCerberusDockerLogsTool creates the cerberus_docker_logs tool.
-func NewCerberusDockerLogsTool() Tool {
+func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_logs",
 		Description: "Returns the last N lines of logs from a Docker container.",
@@ -52,18 +56,33 @@ func NewCerberusDockerLogsTool() Tool {
 				lines = int(l)
 			}
 
-			dc, err := dockerconn.New()
+			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+				Connector: "docker",
+				Operation: "logs",
+				Config: map[string]any{
+					"container": container,
+					"lines":     lines,
+				},
+			})
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
 			}
-
-			return dc.LogsJSON(context.Background(), container, lines)
+			logs, _ := result.Data.(string)
+			return marshalConnectorData(struct {
+				Container string `json:"container"`
+				Lines     int    `json:"lines"`
+				Output    string `json:"output"`
+			}{
+				Container: container,
+				Lines:     lines,
+				Output:    logs,
+			})
 		},
 	}
 }
 
 // NewCerberusDockerUpTool creates the cerberus_docker_up tool.
-func NewCerberusDockerUpTool() Tool {
+func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_up",
 		Description: "Starts a Docker container or Compose stack.",
@@ -81,36 +100,38 @@ func NewCerberusDockerUpTool() Tool {
 			},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
-			dc, err := dockerconn.New()
-			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
-			}
-
-			ctx := context.Background()
-
-			// Compose file mode
+			cfg := map[string]any{}
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
-				if err := dc.ComposeUp(ctx, composeFile); err != nil {
-					return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
-				}
-				return marshalResult(lifecycleResult{Success: true, Message: "compose stack started"}), nil
+				cfg["compose_file"] = composeFile
+			}
+			if name, ok := args["container_name"].(string); ok && name != "" {
+				cfg["container"] = name
+				cfg["id"] = name
+				cfg["name"] = name
 			}
 
-			// Container name mode
-			name, _ := args["container_name"].(string)
-			if name == "" {
+			if cfg["container"] == nil && cfg["compose_file"] == nil {
 				return marshalResult(lifecycleResult{Success: false, Error: "one of container_name or compose_file is required"}), nil
 			}
-			if err := dc.StartContainer(ctx, name); err != nil {
+
+			if _, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+				Connector: "docker",
+				Operation: "start",
+				Config:    cfg,
+			}); err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
 			}
+			if cfg["compose_file"] != nil {
+				return marshalResult(lifecycleResult{Success: true, Message: "compose stack started"}), nil
+			}
+			name, _ := cfg["container"].(string)
 			return marshalResult(lifecycleResult{Success: true, ServiceID: name, Message: "container started"}), nil
 		},
 	}
 }
 
 // NewCerberusDockerDownTool creates the cerberus_docker_down tool.
-func NewCerberusDockerDownTool() Tool {
+func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_down",
 		Description: "Stops a Docker container or Compose stack.",
@@ -128,30 +149,46 @@ func NewCerberusDockerDownTool() Tool {
 			},
 		},
 		Handler: func(args map[string]interface{}) (string, error) {
-			dc, err := dockerconn.New()
-			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
-			}
-
-			ctx := context.Background()
-
-			// Compose file mode
+			cfg := map[string]any{}
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
-				if err := dc.ComposeDown(ctx, composeFile); err != nil {
-					return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
-				}
-				return marshalResult(lifecycleResult{Success: true, Message: "compose stack stopped"}), nil
+				cfg["compose_file"] = composeFile
+			}
+			if name, ok := args["container_name"].(string); ok && name != "" {
+				cfg["container"] = name
+				cfg["id"] = name
+				cfg["name"] = name
 			}
 
-			// Container name mode
-			name, _ := args["container_name"].(string)
-			if name == "" {
+			if cfg["container"] == nil && cfg["compose_file"] == nil {
 				return marshalResult(lifecycleResult{Success: false, Error: "one of container_name or compose_file is required"}), nil
 			}
-			if err := dc.StopContainer(ctx, name); err != nil {
+
+			if _, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+				Connector: "docker",
+				Operation: "stop",
+				Config:    cfg,
+			}); err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
 			}
+			if cfg["compose_file"] != nil {
+				return marshalResult(lifecycleResult{Success: true, Message: "compose stack stopped"}), nil
+			}
+			name, _ := cfg["container"].(string)
 			return marshalResult(lifecycleResult{Success: true, ServiceID: name, Message: "container stopped"}), nil
 		},
 	}
+}
+
+func marshalConnectorData(data any) (string, error) {
+	if text, ok := data.(string); ok {
+		return text, nil
+	}
+	if data == nil {
+		return marshalResult(lifecycleResult{Success: true}), nil
+	}
+	out, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }

@@ -3,12 +3,14 @@ package webui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
+	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
 func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
@@ -57,8 +59,77 @@ func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 	}
 }
 
+func TestStateChangingResourceStopRequiresSessionToken(t *testing.T) {
+	client := &fakeClient{}
+	handler := New(client, nil).Handler()
+
+	sessionReq := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	sessionRec := httptest.NewRecorder()
+	handler.ServeHTTP(sessionRec, sessionReq)
+	if sessionRec.Code != http.StatusOK {
+		t.Fatalf("session status = %d, want %d", sessionRec.Code, http.StatusOK)
+	}
+	var session struct {
+		ActionToken string `json:"action_token"`
+	}
+	if err := json.NewDecoder(sessionRec.Body).Decode(&session); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/resources/app/stop", strings.NewReader("{}"))
+	req.Host = "127.0.0.1:9090"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://127.0.0.1:9090")
+	req.Header.Set("X-Cerberus-Web-Token", session.ActionToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST stop with token status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if client.stopCalls != 1 {
+		t.Fatalf("stop calls = %d, want 1", client.stopCalls)
+	}
+}
+
+func TestHandleResourcesReturnsServiceUnavailableForDaemonDialFailure(t *testing.T) {
+	client := &fakeClient{
+		listResourcesErr: &cerbapi.DaemonUnreachableError{
+			Path: "/tmp/cerberus.sock",
+			Err:  errors.New("dial unix /tmp/cerberus.sock: connect: no such file or directory"),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+	rec := httptest.NewRecorder()
+
+	New(client, nil).Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "cerberus daemon unavailable or not responding") {
+		t.Fatalf("body = %q, want daemon unavailable message", rec.Body.String())
+	}
+}
+
+func TestHandleResourcesReturnsServiceUnavailableForTimeout(t *testing.T) {
+	client := &fakeClient{listResourcesErr: context.DeadlineExceeded}
+	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+	rec := httptest.NewRecorder()
+
+	New(client, nil).Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "timed out while gathering resource state") {
+		t.Fatalf("body = %q, want timeout message", rec.Body.String())
+	}
+}
+
 type fakeClient struct {
-	applyCalls int
+	applyCalls       int
+	stopCalls        int
+	listResourcesErr error
 }
 
 func (f *fakeClient) ResourceLogs(context.Context, string, int, string) (*cerbapi.LogLines, error) {
@@ -74,6 +145,9 @@ func (f *fakeClient) ListProjects(context.Context) ([]cerbapi.ProjectInfo, error
 }
 
 func (f *fakeClient) ListResources(context.Context, cerbapi.ResourceListArgs) ([]cerbapi.ResourceInfo, error) {
+	if f.listResourcesErr != nil {
+		return nil, f.listResourcesErr
+	}
 	return nil, nil
 }
 
@@ -103,6 +177,7 @@ func (f *fakeClient) ReloadResource(context.Context, string) (*cerbapi.OpResult,
 }
 
 func (f *fakeClient) StopResource(context.Context, string) (*cerbapi.OpResult, error) {
+	f.stopCalls++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
@@ -120,4 +195,44 @@ func (f *fakeClient) ListPipelines(context.Context) ([]cerbapi.PipelineInfo, err
 
 func (f *fakeClient) RunPipeline(context.Context, string) (*cerbapi.PipelineRunResult, error) {
 	return &cerbapi.PipelineRunResult{}, nil
+}
+
+func (f *fakeClient) ListConnectors(context.Context) ([]contract.Definition, error) {
+	return nil, nil
+}
+
+func (f *fakeClient) ExecuteConnectorOperation(context.Context, cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	return cerbapi.ExternalConnectorOperationResult{}, nil
+}
+
+func (f *fakeClient) PluginHealth(context.Context, cerbapi.PluginConnectorHealthArgs) (cerbapi.PluginConnectorHealth, error) {
+	return cerbapi.PluginConnectorHealth{}, nil
+}
+
+func (f *fakeClient) ExecutePluginConnector(context.Context, cerbapi.PluginConnectorExecArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	return cerbapi.ExternalConnectorOperationResult{}, nil
+}
+
+func (f *fakeClient) InstallManagedPlugin(context.Context, cerbapi.PluginConnectorHealthArgs) (cerbapi.ManagedPluginConnectorState, error) {
+	return cerbapi.ManagedPluginConnectorState{}, nil
+}
+
+func (f *fakeClient) LoadManagedPlugin(context.Context, string) (cerbapi.ManagedPluginConnectorState, error) {
+	return cerbapi.ManagedPluginConnectorState{}, nil
+}
+
+func (f *fakeClient) UnloadManagedPlugin(context.Context, string) (cerbapi.ManagedPluginConnectorState, error) {
+	return cerbapi.ManagedPluginConnectorState{}, nil
+}
+
+func (f *fakeClient) ListManagedPlugins(context.Context) ([]cerbapi.ManagedPluginConnectorState, error) {
+	return nil, nil
+}
+
+func (f *fakeClient) ManagedPluginHealth(context.Context, string) (cerbapi.PluginConnectorHealth, error) {
+	return cerbapi.PluginConnectorHealth{}, nil
+}
+
+func (f *fakeClient) ExecuteManagedPlugin(context.Context, string, cerbapi.PluginConnectorExecArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	return cerbapi.ExternalConnectorOperationResult{}, nil
 }

@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/chrispian/cerberus/pkg/resource"
+	"github.com/chrispian/cerberus/pkg/secret"
 )
+
+var _ contract.Connector = (*Connector)(nil)
+var _ contract.Describer = (*Connector)(nil)
 
 // Connector manages GitHub resources (repositories, releases) via either
 // the go-github API SDK or the gh CLI, selected automatically or by config.
@@ -16,7 +21,7 @@ type Connector struct {
 
 // New creates a GitHub connector. It tries the API backend first (if a token
 // is available via secrets), then falls back to the gh CLI.
-func New(secrets domain.SecretProvider) (*Connector, error) {
+func New(secrets secret.Provider) (*Connector, error) {
 	// Try API backend first
 	if secrets != nil {
 		token, _ := secrets.Get(context.Background(), "github", "token")
@@ -39,10 +44,10 @@ func NewWithBackend(b Backend) *Connector {
 }
 
 func (c *Connector) ID() string              { return "github" }
-func (c *Connector) ResourceTypes() []string { return []string{"repository"} }
+func (c *Connector) ResourceTypes() []string { return []string{string(resource.Repo)} }
 
-func (c *Connector) Capabilities() domain.ConnectorCapabilities {
-	return domain.ConnectorCapabilities{
+func (c *Connector) Capabilities() contract.Capabilities {
+	return contract.Capabilities{
 		CanCreate:  false, // read-only for now
 		CanDestroy: false,
 		CanBuild:   false,
@@ -51,35 +56,94 @@ func (c *Connector) Capabilities() domain.ConnectorCapabilities {
 	}
 }
 
-func (c *Connector) Create(_ context.Context, _ *domain.Resource) error {
+func Definition() contract.Definition {
+	return contract.Definition{
+		ID:            "github",
+		Version:       "builtin",
+		ResourceTypes: []string{string(resource.Repo)},
+		Capabilities: contract.Capabilities{
+			CanCreate:  false,
+			CanDestroy: false,
+			CanBuild:   false,
+			CanLogs:    false,
+			CanHealth:  true,
+		},
+		Config: contract.ConfigSchema{
+			Fields: []contract.ConfigField{
+				{
+					Name:        "owner",
+					Type:        "string",
+					Description: "GitHub repository owner or organization.",
+					Required:    true,
+				},
+				{
+					Name:        "repo",
+					Type:        "string",
+					Description: "GitHub repository name.",
+					Required:    true,
+				},
+			},
+			Secrets: []contract.SecretRequirement{
+				{
+					Name:        "token",
+					Description: "GitHub API token used when the API backend is available.",
+					Env:         "CERBERUS_GITHUB_TOKEN",
+				},
+			},
+		},
+		Operations: []contract.Operation{
+			{
+				Name:        "status",
+				Description: "Read repository status.",
+				InputSchema: githubRepoInputSchema(),
+			},
+			{
+				Name:        "list_releases",
+				Description: "List recent repository releases.",
+				InputSchema: githubRepoLimitInputSchema(),
+			},
+			{
+				Name:        "list_workflow_runs",
+				Description: "List recent GitHub Actions workflow runs.",
+				InputSchema: githubRepoLimitInputSchema(),
+			},
+		},
+	}
+}
+
+func (c *Connector) Definition() contract.Definition {
+	return Definition()
+}
+
+func (c *Connector) Create(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("github connector does not support Create")
 }
 
-func (c *Connector) Start(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Start(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("github connector does not support Start")
 }
 
-func (c *Connector) Stop(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Stop(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("github connector does not support Stop")
 }
 
-func (c *Connector) Destroy(_ context.Context, _ *domain.Resource) error {
+func (c *Connector) Destroy(_ context.Context, _ *resource.Resource) error {
 	return fmt.Errorf("github connector does not support Destroy")
 }
 
 // Status returns the repository's current state by querying GitHub.
-func (c *Connector) Status(ctx context.Context, res *domain.Resource) (domain.State, error) {
+func (c *Connector) Status(ctx context.Context, res *resource.Resource) (resource.State, error) {
 	owner, repo, err := parseOwnerRepo(res)
 	if err != nil {
-		return domain.StateUnknown, err
+		return resource.StateUnknown, err
 	}
 
 	_, err = c.backend.RepoStatus(ctx, owner, repo)
 	if err != nil {
-		return domain.StateUnknown, fmt.Errorf("github status: %w", err)
+		return resource.StateUnknown, fmt.Errorf("github status: %w", err)
 	}
 
-	return domain.StateRunning, nil
+	return resource.StateRunning, nil
 }
 
 // RepoStatus returns detailed repository status.
@@ -130,11 +194,26 @@ func (c *Connector) ReleasesJSON(ctx context.Context, owner, repo string, limit 
 }
 
 // parseOwnerRepo extracts owner and repo from a resource's config.
-func parseOwnerRepo(res *domain.Resource) (string, string, error) {
+func parseOwnerRepo(res *resource.Resource) (string, string, error) {
 	owner, _ := res.Config["owner"].(string)
 	repo, _ := res.Config["repo"].(string)
 	if owner == "" || repo == "" {
 		return "", "", fmt.Errorf("github resource %q missing owner or repo in config", res.ID)
 	}
 	return owner, repo, nil
+}
+
+func githubRepoInputSchema() map[string]any {
+	return contract.ObjectSchema(map[string]any{
+		"owner": contract.StringSchema("GitHub repository owner or organization."),
+		"repo":  contract.StringSchema("GitHub repository name."),
+	}, "owner", "repo")
+}
+
+func githubRepoLimitInputSchema() map[string]any {
+	return contract.ObjectSchema(map[string]any{
+		"owner": contract.StringSchema("GitHub repository owner or organization."),
+		"repo":  contract.StringSchema("GitHub repository name."),
+		"limit": contract.IntegerSchema("Maximum number of records to return."),
+	}, "owner", "repo")
 }

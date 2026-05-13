@@ -1,6 +1,6 @@
 module github.com/chrispian/cerberus
 
-go 1.25.3
+go 1.26.1
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -9,6 +9,7 @@ require (
 	github.com/digitalocean/godo v1.180.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/go-github/v72 v72.0.0
+	github.com/hollis-labs/plugin-sdk v0.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.49.0

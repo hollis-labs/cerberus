@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/pipeline"
+	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
 // InProcessClient satisfies Client by driving the daemon's shared runtime
@@ -19,9 +21,12 @@ import (
 //
 // The client is a thin adapter around the active v2 resource runtime.
 type InProcessClient struct {
-	local   *localconn.Connector
-	logger  *slog.Logger
-	runtime *ResourceRuntimeService
+	local          *localconn.Connector
+	logger         *slog.Logger
+	runtime        *ResourceRuntimeService
+	external       *ExternalConnectorService
+	plugins        *PluginConnectorService
+	managedPlugins *ManagedPluginConnectorService
 
 	// cfgPath is the on-disk path for the unified v2 config. When set,
 	// every project / resource / pipeline endpoint re-reads the file
@@ -54,6 +59,32 @@ func WithResourceRuntimeService(runtime *ResourceRuntimeService) InProcessOption
 	return func(c *InProcessClient) {
 		if runtime != nil {
 			c.runtime = runtime
+		}
+	}
+}
+
+// WithExternalConnectorService injects the external connector operation layer.
+func WithExternalConnectorService(external *ExternalConnectorService) InProcessOption {
+	return func(c *InProcessClient) {
+		if external != nil {
+			c.external = external
+		}
+	}
+}
+
+// WithPluginConnectorService injects the plugin-host-backed connector layer.
+func WithPluginConnectorService(plugins *PluginConnectorService) InProcessOption {
+	return func(c *InProcessClient) {
+		if plugins != nil {
+			c.plugins = plugins
+		}
+	}
+}
+
+func WithManagedPluginConnectorService(plugins *ManagedPluginConnectorService) InProcessOption {
+	return func(c *InProcessClient) {
+		if plugins != nil {
+			c.managedPlugins = plugins
 		}
 	}
 }
@@ -119,6 +150,80 @@ func NewInProcessClient(opts ...InProcessOption) *InProcessClient {
 	return c
 }
 
+// ListConnectors implements Client.
+func (c *InProcessClient) ListConnectors(_ context.Context) ([]contract.Definition, error) {
+	if c.external == nil {
+		return nil, nil
+	}
+	return c.external.Definitions(), nil
+}
+
+// ExecuteConnectorOperation implements Client.
+func (c *InProcessClient) ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
+	if c.external == nil {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("external connector service is not configured"))
+	}
+	return c.external.Execute(ctx, args)
+}
+
+// PluginHealth implements Client.
+func (c *InProcessClient) PluginHealth(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {
+	if c.plugins == nil {
+		return PluginConnectorHealth{}, errors.New("plugin connector service is not configured")
+	}
+	return c.plugins.Health(ctx, args)
+}
+
+// ExecutePluginConnector implements Client.
+func (c *InProcessClient) ExecutePluginConnector(ctx context.Context, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	if c.plugins == nil {
+		return ExternalConnectorOperationResult{}, errors.New("plugin connector service is not configured")
+	}
+	return c.plugins.Execute(ctx, args)
+}
+
+func (c *InProcessClient) InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {
+	if c.managedPlugins == nil {
+		return ManagedPluginConnectorState{}, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.Install(ctx, args)
+}
+
+func (c *InProcessClient) LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	if c.managedPlugins == nil {
+		return ManagedPluginConnectorState{}, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.Load(ctx, id)
+}
+
+func (c *InProcessClient) UnloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	if c.managedPlugins == nil {
+		return ManagedPluginConnectorState{}, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.Unload(ctx, id)
+}
+
+func (c *InProcessClient) ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error) {
+	if c.managedPlugins == nil {
+		return nil, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.List(ctx)
+}
+
+func (c *InProcessClient) ManagedPluginHealth(ctx context.Context, id string) (PluginConnectorHealth, error) {
+	if c.managedPlugins == nil {
+		return PluginConnectorHealth{}, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.Health(ctx, id)
+}
+
+func (c *InProcessClient) ExecuteManagedPlugin(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	if c.managedPlugins == nil {
+		return ExternalConnectorOperationResult{}, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.Execute(ctx, id, args)
+}
+
 // snapshotConfig returns the current v2 config snapshot used by the
 // project/resource/pipeline endpoints. When cfgPath is set it re-reads
 // the file on every call (closing the staleness bug for v2 config).
@@ -159,8 +264,8 @@ func (c *InProcessClient) ResourceLogs(_ context.Context, id string, lines int, 
 }
 
 // Health implements Client.
-func (c *InProcessClient) Health(_ context.Context, id string) (*DaemonHealth, error) {
-	resourceEntries, err := c.runtime.Health(context.Background(), id)
+func (c *InProcessClient) Health(ctx context.Context, id string) (*DaemonHealth, error) {
+	resourceEntries, err := c.runtime.Health(ctx, id)
 	if err != nil {
 		return nil, err
 	}

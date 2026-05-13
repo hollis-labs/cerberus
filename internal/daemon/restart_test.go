@@ -371,6 +371,62 @@ func TestRestartWithVerify_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRestartWithVerify_UsesLockHolderWhenPIDFileMissing(t *testing.T) {
+	base := t.TempDir()
+	holderPID := os.Getpid()
+
+	lock, err := AcquireDaemonLockAt(base, stubIdent{daemonSet: map[int]bool{holderPID: true}})
+	if err != nil {
+		t.Fatalf("AcquireDaemonLockAt: %v", err)
+	}
+	defer lock.Release()
+
+	alive := newFakeAlive(holderPID)
+	sig := &fakeSignaler{alive: alive, onTerm: func(pid int) {
+		go func() { time.Sleep(2 * time.Millisecond); alive.setDead(pid) }()
+	}}
+	ident := &fakeIdent{daemonPIDs: map[int]bool{holderPID: true}, strays: []int{holderPID}}
+
+	newPID := 6001
+	spawn := func(_ context.Context) (int, error) {
+		alive.setAlive(newPID)
+		if err := WriteDaemonPIDAt(base, newPID); err != nil {
+			return 0, err
+		}
+		return newPID, nil
+	}
+	health := func(ctx context.Context, pid int) error {
+		for {
+			if alive.Alive(pid) {
+				p, err := ReadDaemonPIDAt(base)
+				if err == nil && p == pid {
+					return nil
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}
+
+	opts := RestartOptions{
+		StopOptions:   stopOptsWith(sig, alive, ident),
+		Spawn:         spawn,
+		Health:        health,
+		HealthTimeout: 1 * time.Second,
+		PIDFileBase:   base,
+		SweepStrays:   false,
+	}
+	if err := RestartWithVerify(testCtx(t), opts); err != nil {
+		t.Fatalf("RestartWithVerify: %v", err)
+	}
+	if alive.Alive(holderPID) {
+		t.Fatal("lock-holder daemon still alive")
+	}
+}
+
 func TestRestartWithVerify_NoPriorDaemon(t *testing.T) {
 	base := t.TempDir() // no pidfile
 	alive := newFakeAlive()

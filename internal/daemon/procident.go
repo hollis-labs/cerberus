@@ -34,10 +34,11 @@ type ProcIdentifier interface {
 type PSIdentifier struct{}
 
 // daemonCmdRegex matches a cerberus daemon command line. The binary basename
-// must be "cerberus" (optionally with a path prefix) and the first arg must
-// be "daemon". This is intentionally strict to avoid matching
-// `cerberus status` or `cerberus mcp` or similar.
-var daemonCmdRegex = regexp.MustCompile(`(?:^|/)cerberus\s+daemon(?:\s|$)`)
+// must be either the developer binary ("cerberus") or the installed launchd
+// artifact name ("cerberus-daemon-service"), and the first arg must be
+// "daemon". This is intentionally strict to avoid matching `cerberus status`,
+// `cerberus mcp`, the web service binary, or similarly named processes.
+var daemonCmdRegex = regexp.MustCompile(`(?:^|/)(?:cerberus|cerberus-daemon-service)\s+daemon(?:\s|$)`)
 
 // IsCerberusDaemon returns true if the PID's command identifies it as a
 // cerberus daemon. Uses `ps -p <pid> -o command=` — the `=` suppresses the

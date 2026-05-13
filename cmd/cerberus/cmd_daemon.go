@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -69,7 +70,7 @@ var daemonStopCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
 		defer cancel()
 
-		pid, err := daemon.ReadDaemonPID()
+		pid, err := daemonPIDForControl(ctx)
 		if err != nil || pid == 0 {
 			fmt.Println("No cerberus daemon is running.")
 			return nil
@@ -95,6 +96,18 @@ verifies it is healthy before returning. Enforces the single-daemon invariant.`,
 		ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 		defer cancel()
 		return runDaemonRestart(ctx)
+	},
+}
+
+var daemonStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show daemon process and socket status",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		status, err := currentDaemonStatus(cmd.Context())
+		if err != nil {
+			return err
+		}
+		return writeJSON(cmd.OutOrStdout(), status)
 	},
 }
 
@@ -168,6 +181,97 @@ func runDaemonRestart(ctx context.Context) error {
 	pid, _ := daemon.ReadDaemonPID()
 	fmt.Printf("Cerberus daemon restarted (PID %d)\n", pid)
 	return nil
+}
+
+func daemonPIDForControl(ctx context.Context) (int, error) {
+	pid, err := daemon.ReadDaemonPID()
+	if err == nil && pid > 0 {
+		return pid, nil
+	}
+
+	holderPID, _, lockErr := daemon.DaemonLockHolder()
+	if lockErr != nil || holderPID <= 0 {
+		if err != nil {
+			return 0, err
+		}
+		return 0, lockErr
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ok, probeErr := (daemon.PSIdentifier{}).IsCerberusDaemon(probeCtx, holderPID)
+	if probeErr != nil || !ok {
+		if err != nil {
+			return 0, err
+		}
+		if probeErr != nil {
+			return 0, probeErr
+		}
+		return 0, nil
+	}
+	return holderPID, nil
+}
+
+type daemonStatusView struct {
+	Running       bool   `json:"running"`
+	PID           int    `json:"pid,omitempty"`
+	PIDSource     string `json:"pid_source,omitempty"`
+	SocketPath    string `json:"socket_path,omitempty"`
+	SocketPresent bool   `json:"socket_present"`
+	SocketReady   bool   `json:"socket_ready"`
+	LockHolderPID int    `json:"lock_holder_pid,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+func currentDaemonStatus(ctx context.Context) (daemonStatusView, error) {
+	out := daemonStatusView{}
+
+	pid, err := daemon.ReadDaemonPID()
+	if err == nil && pid > 0 {
+		out.PID = pid
+		out.PIDSource = "pidfile"
+		out.Running = true
+	} else {
+		holderPID, _, lockErr := daemon.DaemonLockHolder()
+		if lockErr == nil && holderPID > 0 {
+			out.LockHolderPID = holderPID
+			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			ok, probeErr := (daemon.PSIdentifier{}).IsCerberusDaemon(probeCtx, holderPID)
+			cancel()
+			if probeErr == nil && ok {
+				out.PID = holderPID
+				out.PIDSource = "lock"
+				out.Running = true
+			}
+		}
+	}
+
+	socketPath, sockErr := cerbapi.SocketPath()
+	if sockErr != nil {
+		out.Error = sockErr.Error()
+		return out, nil
+	}
+	out.SocketPath = socketPath
+	if _, err := os.Stat(socketPath); err == nil {
+		out.SocketPresent = true
+	}
+
+	client := cerbapi.NewSocketClient(socketPath)
+	pingCtx, cancel := context.WithTimeout(ctx, cerbapi.DialTimeout)
+	defer cancel()
+	if err := client.Ping(pingCtx); err == nil {
+		out.SocketReady = true
+		if !out.Running {
+			out.Running = true
+		}
+	} else if out.Error == "" {
+		out.Error = err.Error()
+	}
+
+	if !out.SocketPresent && out.SocketPath != "" {
+		out.Error = fmt.Sprintf("socket missing at %s", filepath.Clean(out.SocketPath))
+	}
+	return out, nil
 }
 
 // spawnDaemonChild re-execs this binary with --foreground + CERBERUS_DAEMON_CHILD=1
@@ -274,11 +378,23 @@ func runDaemonBody() error {
 	// (daemon-embedded stdio MCP server AND external callers via the
 	// unix socket) are backed by this single client so state lives in
 	// one place.
+	statePath, stateErr := cerbapi.PluginConnectorStatePath()
+	if stateErr != nil {
+		return fmt.Errorf("resolve plugin connector state path: %w", stateErr)
+	}
+	managedPlugins, managedErr := cerbapi.NewManagedPluginConnectorService(version, os.Stderr, statePath)
+	if managedErr != nil {
+		return fmt.Errorf("initialize managed plugin connectors: %w", managedErr)
+	}
+	external := cerbapi.NewExternalConnectorService(a.Registry, managedPlugins)
 	inProc := cerbapi.NewInProcessClient(
 		cerbapi.WithConfigV2(a.Config),
 		cerbapi.WithConfigPath(cfgPath),
 		cerbapi.WithLocalConnector(a.Local),
 		cerbapi.WithResourceRuntimeService(a.Runtime),
+		cerbapi.WithExternalConnectorService(external),
+		cerbapi.WithPluginConnectorService(cerbapi.NewPluginConnectorService(version, os.Stderr)),
+		cerbapi.WithManagedPluginConnectorService(managedPlugins),
 		cerbapi.WithInProcessLogger(logger),
 	)
 
@@ -326,34 +442,48 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusPipelineListTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(a.Secrets))
+		srv.RegisterTool(mcp.NewCerberusConnectorListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusConnectorDescribeTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(inProc))
 
 		// SSH tools
-		srv.RegisterTool(mcp.NewCerberusSSHExecTool(a.Config, a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(a.Config, a.Secrets))
+		srv.RegisterTool(mcp.NewCerberusSSHExecTool(a.Config, inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(a.Config, inProc))
 
 		// Namecheap tools
-		srv.RegisterTool(mcp.NewCerberusDomainListTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusDNSListTool(a.Secrets))
+		srv.RegisterTool(mcp.NewCerberusDomainListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDNSListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDNSCreateTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(inProc))
 
 		// Forge tools
-		srv.RegisterTool(mcp.NewCerberusForgeServersTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusForgeServerTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusForgeSitesTool(a.Secrets))
+		srv.RegisterTool(mcp.NewCerberusForgeServersTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusForgeServerTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusForgeSitesTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusForgeDeployTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusForgeExecTool(inProc))
 
 		// Cloudflare tools
-		srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(a.Secrets))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(a.Secrets))
+		srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusCloudflareDNSDeleteTool(inProc))
 
 		// Docker tools
-		srv.RegisterTool(mcp.NewCerberusDockerPSTool())
-		srv.RegisterTool(mcp.NewCerberusDockerLogsTool())
-		srv.RegisterTool(mcp.NewCerberusDockerUpTool())
-		srv.RegisterTool(mcp.NewCerberusDockerDownTool())
+		srv.RegisterTool(mcp.NewCerberusDockerPSTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDockerLogsTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDockerUpTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDockerDownTool(inProc))
+
+		srv.RegisterTool(mcp.NewCerberusServerListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerShowTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerCreateTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerStartTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerStopTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusServerDestroyTool(inProc))
 
 		if err := srv.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
@@ -386,4 +516,5 @@ func init() {
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonRestartCmd)
+	daemonCmd.AddCommand(daemonStatusCmd)
 }

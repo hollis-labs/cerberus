@@ -1,0 +1,172 @@
+package pluginhost
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	contract "github.com/chrispian/cerberus/pkg/connector"
+)
+
+type TrustMode string
+
+const (
+	TrustModeCatalogSigned TrustMode = "catalog_signed"
+	TrustModeDeveloper     TrustMode = "developer"
+)
+
+type TrustTier string
+
+const (
+	TrustTierBuiltin     TrustTier = "builtin"
+	TrustTierSigned      TrustTier = "signed"
+	TrustTierLocalDev    TrustTier = "local_dev"
+	TrustTierUnsignedDev TrustTier = "unsigned_dev"
+	TrustTierUntrusted   TrustTier = "untrusted"
+)
+
+type SandboxProfile string
+
+const (
+	SandboxProfileDefault    SandboxProfile = "default"
+	SandboxProfileDockerHost SandboxProfile = "docker_host"
+)
+
+// TrustPolicy controls which connector plugins may be installed or loaded.
+// Runtime sandboxes can narrow access, but they do not replace manifest trust.
+type TrustPolicy struct {
+	Mode                  TrustMode `json:"mode" yaml:"mode"`
+	RequireSignature      bool      `json:"require_signature" yaml:"require_signature"`
+	RequireArchiveHash    bool      `json:"require_archive_hash" yaml:"require_archive_hash"`
+	RequireArchiveSig     bool      `json:"require_archive_signature" yaml:"require_archive_signature"`
+	AllowUnsignedLocal    bool      `json:"allow_unsigned_local,omitempty" yaml:"allow_unsigned_local,omitempty"`
+	AllowedDeveloperRoots []string  `json:"allowed_developer_roots,omitempty" yaml:"allowed_developer_roots,omitempty"`
+}
+
+func DefaultTrustPolicy() TrustPolicy {
+	return TrustPolicy{
+		Mode:               TrustModeCatalogSigned,
+		RequireSignature:   true,
+		RequireArchiveHash: true,
+		RequireArchiveSig:  true,
+	}
+}
+
+func DeveloperTrustPolicy(roots ...string) TrustPolicy {
+	return TrustPolicy{
+		Mode:                  TrustModeDeveloper,
+		RequireSignature:      false,
+		RequireArchiveHash:    true,
+		RequireArchiveSig:     false,
+		AllowUnsignedLocal:    true,
+		AllowedDeveloperRoots: roots,
+	}
+}
+
+type TrustCheck struct {
+	SourcePath      string
+	CatalogSigned   bool
+	ArchiveSHA256   string
+	ArchiveSigned   bool
+	LocalPath       bool
+	RequestedTier   TrustTier
+	SandboxProfile  SandboxProfile
+	SandboxEnforced bool
+	Manifest        contract.Manifest
+}
+
+type TrustDecision struct {
+	Tier TrustTier
+}
+
+func (p TrustPolicy) ValidateInstall(check TrustCheck) (TrustDecision, error) {
+	if err := check.Manifest.Validate(); err != nil {
+		return TrustDecision{Tier: TrustTierUntrusted}, err
+	}
+	if check.RequestedTier == TrustTierUntrusted {
+		return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q is marked untrusted", check.Manifest.ID)
+	}
+	if p.RequireArchiveHash && check.ArchiveSHA256 == "" {
+		return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q requires archive sha256", check.Manifest.ID)
+	}
+	if check.SandboxProfile != "" && !check.SandboxEnforced {
+		return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q requested sandbox profile %q but sandbox is not enforced", check.Manifest.ID, check.SandboxProfile)
+	}
+	switch p.Mode {
+	case "", TrustModeCatalogSigned:
+		if p.RequireSignature && !check.CatalogSigned {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q requires a trusted catalog signature", check.Manifest.ID)
+		}
+		if p.RequireArchiveSig && !check.ArchiveSigned {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q requires a trusted archive signature", check.Manifest.ID)
+		}
+		return TrustDecision{Tier: TrustTierSigned}, nil
+	case TrustModeDeveloper:
+		if !DevModeEnabled {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("developer trust mode requires a devmode build")
+		}
+		if check.CatalogSigned && check.ArchiveSigned {
+			return TrustDecision{Tier: TrustTierSigned}, nil
+		}
+		if !p.AllowUnsignedLocal {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("developer mode for plugin %q does not allow unsigned local plugins", check.Manifest.ID)
+		}
+		if len(p.AllowedDeveloperRoots) == 0 {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("developer mode for plugin %q requires allowed developer roots", check.Manifest.ID)
+		}
+		if !check.LocalPath {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("developer mode for plugin %q only allows local plugin paths", check.Manifest.ID)
+		}
+		if !pathAllowed(check.SourcePath, p.AllowedDeveloperRoots) {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q source path %q is outside allowed developer roots", check.Manifest.ID, check.SourcePath)
+		}
+		if check.ArchiveSigned {
+			return TrustDecision{Tier: TrustTierLocalDev}, nil
+		}
+		return TrustDecision{Tier: TrustTierUnsignedDev}, nil
+	default:
+		return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("unsupported trust mode %q", p.Mode)
+	}
+}
+
+func OperationAllowed(tier TrustTier, op contract.ManifestOperation, acknowledged bool) error {
+	switch tier {
+	case TrustTierBuiltin, TrustTierSigned:
+	case TrustTierLocalDev, TrustTierUnsignedDev:
+		if op.Destructive {
+			return fmt.Errorf("destructive operation %q is not agent-auto executable for %s plugins", op.Name, tier)
+		}
+	case TrustTierUntrusted, "":
+		return fmt.Errorf("operation %q is not allowed for untrusted plugin", op.Name)
+	default:
+		return fmt.Errorf("operation %q has unsupported trust tier %q", op.Name, tier)
+	}
+	if op.Destructive && op.RequiresAck && !acknowledged {
+		return fmt.Errorf("destructive operation %q requires operator acknowledgment", op.Name)
+	}
+	return nil
+}
+
+func pathAllowed(path string, roots []string) bool {
+	if path == "" {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	for _, root := range roots {
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absRoot, absPath)
+		if err != nil {
+			continue
+		}
+		if rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)) {
+			return true
+		}
+	}
+	return false
+}

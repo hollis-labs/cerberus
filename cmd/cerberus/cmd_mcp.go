@@ -7,7 +7,6 @@ import (
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/mcp"
-	"github.com/chrispian/cerberus/internal/secrets"
 	"github.com/chrispian/cerberus/internal/selfexec"
 	"github.com/chrispian/cerberus/internal/service"
 	"github.com/spf13/cobra"
@@ -53,13 +52,6 @@ the operator to start one with 'cerberus daemon'.`,
 		}
 		cancel()
 
-		// Secrets provider is still needed for connector-based tools
-		// (SSH, Forge, Cloudflare, etc.) that do NOT route through the
-		// daemon. These are read-only external-service adapters with
-		// no config-staleness risk — the daemon doesn't need to own
-		// them to fix CERB-2. Keep them local for now.
-		sec := secrets.NewKeychainProvider()
-
 		srv := mcp.NewServer("cerberus", "0.1.0")
 
 		// Lifecycle + resource tools route through the socket client.
@@ -83,13 +75,15 @@ the operator to start one with 'cerberus daemon'.`,
 		srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusPipelineListTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusConnectorListTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusConnectorDescribeTool(socketClient))
 
 		// Connector-based tools (external integrations). Out of scope
 		// for CERB-2 — they read secrets from keychain and hit remote
 		// APIs; they don't touch service config.
-		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(sec))
-		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(sec))
-		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(sec))
+		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(socketClient))
 
 		// SSH tools (need Config for host resolution). We still load
 		// config here because SSH targets live in v2 config, not in
@@ -104,27 +98,39 @@ the operator to start one with 'cerberus daemon'.`,
 				"error", cfgErr.Error(),
 				"message", "SSH tools will be unavailable; daemon-routed tools still work")
 		} else {
-			srv.RegisterTool(mcp.NewCerberusSSHExecTool(cfg, sec))
-			srv.RegisterTool(mcp.NewCerberusSSHStatusTool(cfg, sec))
+			srv.RegisterTool(mcp.NewCerberusSSHExecTool(cfg, socketClient))
+			srv.RegisterTool(mcp.NewCerberusSSHStatusTool(cfg, socketClient))
 		}
 
-		// Namecheap, Forge, Cloudflare, Docker — external adapters.
-		srv.RegisterTool(mcp.NewCerberusDomainListTool(sec))
-		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(sec))
-		srv.RegisterTool(mcp.NewCerberusDNSListTool(sec))
+		// External connectors route through the daemon-owned connector boundary.
+		srv.RegisterTool(mcp.NewCerberusDomainListTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusDNSListTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusDNSCreateTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(socketClient))
 
-		srv.RegisterTool(mcp.NewCerberusForgeServersTool(sec))
-		srv.RegisterTool(mcp.NewCerberusForgeServerTool(sec))
-		srv.RegisterTool(mcp.NewCerberusForgeSitesTool(sec))
+		srv.RegisterTool(mcp.NewCerberusForgeServersTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusForgeServerTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusForgeSitesTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusForgeDeployTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusForgeExecTool(socketClient))
 
-		srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(sec))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(sec))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(sec))
+		srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusCloudflareDNSDeleteTool(socketClient))
 
-		srv.RegisterTool(mcp.NewCerberusDockerPSTool())
-		srv.RegisterTool(mcp.NewCerberusDockerLogsTool())
-		srv.RegisterTool(mcp.NewCerberusDockerUpTool())
-		srv.RegisterTool(mcp.NewCerberusDockerDownTool())
+		srv.RegisterTool(mcp.NewCerberusDockerPSTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusDockerLogsTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusDockerUpTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusDockerDownTool(socketClient))
+
+		srv.RegisterTool(mcp.NewCerberusServerListTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerShowTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerCreateTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerStartTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerStopTool(socketClient))
+		srv.RegisterTool(mcp.NewCerberusServerDestroyTool(socketClient))
 
 		// CERB-4: self-heal on binary replacement. If `cerberus rebuild`,
 		// `go install`, a package manager, or anything else swaps this
