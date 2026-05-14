@@ -318,8 +318,8 @@ func (c *InProcessClient) GetResourceDoctor(ctx context.Context, id string) (*Re
 }
 
 // DeployResource implements Client.
-func (c *InProcessClient) DeployResource(ctx context.Context, id string) (*OpResult, error) {
-	return c.runtime.DeployResource(ctx, id)
+func (c *InProcessClient) DeployResource(ctx context.Context, id string, opts ...DeployResourceOption) (*OpResult, error) {
+	return c.runtime.DeployResource(ctx, id, opts...)
 }
 
 func valueOrUnknown(v string) string {
