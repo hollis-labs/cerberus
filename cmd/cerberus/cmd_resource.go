@@ -339,6 +339,13 @@ var resourceDeployCmd = &cobra.Command{
 // flag pair into a slice of cerbapi DeployResource options. The flags are
 // mutually exclusive; setting both is a user error rather than a precedence
 // puzzle, so we reject it up front instead of silently picking a winner.
+//
+// --install-after-build is value-bearing: --install-after-build (bare),
+// --install-after-build=true, and --install-after-build=false each pass
+// the actual bound bool through as the override.
+//
+// --no-install-after-build is a presence-only "hard false" shortcut: any
+// explicit set forces the override to false regardless of any parsed value.
 func resolveDeployFlags(cmd *cobra.Command) ([]cerbapi.DeployResourceOption, error) {
 	yesSet := cmd.Flags().Changed("install-after-build")
 	noSet := cmd.Flags().Changed("no-install-after-build")
@@ -347,7 +354,11 @@ func resolveDeployFlags(cmd *cobra.Command) ([]cerbapi.DeployResourceOption, err
 	}
 	switch {
 	case yesSet:
-		return []cerbapi.DeployResourceOption{cerbapi.WithInstallAfterBuildOverride(true)}, nil
+		val, err := cmd.Flags().GetBool("install-after-build")
+		if err != nil {
+			return nil, fmt.Errorf("read --install-after-build: %w", err)
+		}
+		return []cerbapi.DeployResourceOption{cerbapi.WithInstallAfterBuildOverride(val)}, nil
 	case noSet:
 		return []cerbapi.DeployResourceOption{cerbapi.WithInstallAfterBuildOverride(false)}, nil
 	default:

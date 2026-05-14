@@ -24,6 +24,53 @@ func TestSpecFromResourceConfigDefaults(t *testing.T) {
 	if spec.RunFrom != ProcessRunFromWorkspace {
 		t.Fatalf("RunFrom = %q, want %q", spec.RunFrom, ProcessRunFromWorkspace)
 	}
+	if !spec.InstallAfterBuild {
+		t.Fatalf("InstallAfterBuild = false, want true (documented default when key absent)")
+	}
+}
+
+func TestSpecInstallAfterBuildRoundTripPreservesAbsence(t *testing.T) {
+	// Absent install_after_build in YAML → parsed as true (default) →
+	// ToResourceConfig must NOT re-emit the key, so a subsequent re-parse
+	// still sees absence and the resolver still falls through to the
+	// global default. This is the round-trip flip that previously caused
+	// implicit-default resources to ossify as explicit opt-outs.
+	spec, err := SpecFromResourceConfig(map[string]any{
+		"dir":     "/tmp/app",
+		"command": []string{"./app"},
+	})
+	if err != nil {
+		t.Fatalf("SpecFromResourceConfig failed: %v", err)
+	}
+	cfg := spec.ToResourceConfig()
+	if _, present := cfg["install_after_build"]; present {
+		t.Fatalf("ToResourceConfig should omit install_after_build for default-on spec; got cfg[%q]=%v", "install_after_build", cfg["install_after_build"])
+	}
+}
+
+func TestSpecInstallAfterBuildExplicitFalseRoundTrips(t *testing.T) {
+	// Explicit false in YAML round-trips: parsed as false → ToResourceConfig
+	// emits false → re-parse sees false. This is the explicit-opt-out path
+	// that must survive serialization unchanged.
+	spec, err := SpecFromResourceConfig(map[string]any{
+		"dir":                 "/tmp/app",
+		"command":             []string{"./app"},
+		"install_after_build": false,
+	})
+	if err != nil {
+		t.Fatalf("SpecFromResourceConfig failed: %v", err)
+	}
+	if spec.InstallAfterBuild {
+		t.Fatalf("InstallAfterBuild = true after parsing explicit false")
+	}
+	cfg := spec.ToResourceConfig()
+	emitted, present := cfg["install_after_build"]
+	if !present {
+		t.Fatalf("ToResourceConfig should emit explicit install_after_build:false; got missing")
+	}
+	if b, ok := emitted.(bool); !ok || b {
+		t.Fatalf("ToResourceConfig emitted install_after_build=%v (type %T), want bool(false)", emitted, emitted)
+	}
 }
 
 func TestSpecFromResourceConfigDecodesDaemonFields(t *testing.T) {

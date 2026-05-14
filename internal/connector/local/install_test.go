@@ -79,3 +79,20 @@ func TestRunInstall_RequiresWorkingDir(t *testing.T) {
 		t.Fatalf("RunInstall should error when spec.Dir is empty")
 	}
 }
+
+func TestRunInstall_SkipsWhenNoMakefile(t *testing.T) {
+	// A resource with no Makefile at all (e.g. a Go-only project that uses
+	// `go build` directly) is feature-absent for install_after_build, not
+	// an error. RunInstall must short-circuit before invoking `make`,
+	// which would otherwise fail loudly with "no makefile found".
+	requireMake(t)
+	dir := t.TempDir()
+
+	skipped, out, err := RunInstall(ProcessSpec{Dir: dir})
+	if err != nil {
+		t.Fatalf("RunInstall errored on Makefile-less dir: %v (out=%q)", err, out)
+	}
+	if !skipped {
+		t.Fatalf("RunInstall should have skipped when no Makefile present; skipped=%v out=%q", skipped, out)
+	}
+}

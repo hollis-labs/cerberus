@@ -63,12 +63,13 @@ type ProcessSpec struct {
 	InstallRoot        string
 	InstallWorkDir     string
 	// InstallAfterBuild reflects the resource-level value parsed from the
-	// `install_after_build` config key. The field is plain bool: callers
-	// that need to distinguish "absent" from "explicit false" should probe
-	// presence on the raw config map and resolve precedence themselves
-	// (see cerbapi.ResourceRuntimeService.DeployResource). When absent
-	// in YAML the field stays zero; the deploy path layers the global
-	// default on top.
+	// `install_after_build` config key. The field is plain bool and defaults
+	// to true when the YAML key is absent — that matches the documented
+	// default-on behavior and keeps ToResourceConfig round-trips clean
+	// (an implicit-default resource doesn't get re-emitted as an explicit
+	// opt-out). Callers that need to distinguish "absent" from "explicit
+	// false" should still probe presence on the raw config map and route
+	// through cerbapi.ResolveInstallAfterBuild.
 	InstallAfterBuild bool
 }
 
@@ -91,7 +92,7 @@ func SpecFromResourceConfig(cfg map[string]any) (ProcessSpec, error) {
 	spec.URL, _ = stringField(cfg, "url")
 	spec.Port = intField(cfg, "port")
 	spec.Build = stringSliceField(cfg, "build")
-	spec.InstallAfterBuild = boolField(cfg, "install_after_build")
+	spec.InstallAfterBuild = boolFieldDefault(cfg, "install_after_build", true)
 	spec.Health, _ = stringField(cfg, "health")
 	spec.AutoStart = boolField(cfg, "auto_start")
 	spec.AutoRestart = boolField(cfg, "auto_restart")
@@ -344,6 +345,21 @@ func boolField(cfg map[string]any, key string) bool {
 	}
 	b, ok := v.(bool)
 	return ok && b
+}
+
+// boolFieldDefault is like boolField but returns the caller-supplied default
+// when the key is absent. Use this when the documented default for the field
+// is true (or otherwise non-zero), so absent-in-YAML doesn't collapse to false.
+func boolFieldDefault(cfg map[string]any, key string, defaultValue bool) bool {
+	v, ok := cfg[key]
+	if !ok {
+		return defaultValue
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return defaultValue
+	}
+	return b
 }
 
 func healthCheckFromAny(v any) (config.HealthCheck, error) {
