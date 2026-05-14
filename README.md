@@ -107,13 +107,13 @@ All ports are unique across the Tiamat suite:
 | Port | Service |
 |------|---------|
 | 1420 | Volon Frontend (Vite) |
-| 5173 | Vanta Conduit Frontend (Vite) |
-| 5174 | Carrier Frontend (Vite) |
+| 5173 | Tesseract Frontend (Vite) |
+| 5174 | Ion Frontend (Vite) |
 | 7765 | Nil Dev |
-| 8080 | Vanta Conduit API |
 | 8085 | Volon API |
+| 8089 | Tesseract API |
 | 8095 | Hadron Daemon |
-| 8096 | Carrier API |
+| 8096 | Ion API |
 | 9085 | Volon gRPC (auto, started by Volon API) |
 | 34116 | Hadron GUI (Wails desktop) |
 
@@ -139,7 +139,7 @@ resources:
     project: volon
     connector: local
     config:
-      dir: ~/Projects-apps/volon
+      dir: ~/dev/hollis-labs/apps/volon
       command: ["./volon-api", "serve"]
       build: ["go", "build", "-o", "volon-api", "./cmd/volon-api"]
       mode: os_service
@@ -190,7 +190,7 @@ Cerberus now has a canonical v2 daemon resource:
     type: process
     connector: local
     config:
-      dir: ~/Projects-apps/cerberus
+      dir: ~/dev/hollis-labs/apps/cerberus
       command: ["./cerberus", "daemon", "--foreground"]
       build: ["go", "build", "-o", "cerberus", "./cmd/cerberus"]
       mode: os_service
