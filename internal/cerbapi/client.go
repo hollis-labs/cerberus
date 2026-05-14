@@ -33,7 +33,8 @@ type Client interface {
 	// GetResourceDoctor returns explicit runtime/install checks for a specific resource.
 	GetResourceDoctor(ctx context.Context, id string) (*ResourceDoctor, error)
 	// DeployResource runs the declared build contract for a resource, then applies it.
-	DeployResource(ctx context.Context, id string) (*OpResult, error)
+	// Variadic options carry per-invocation overrides (e.g. install_after_build).
+	DeployResource(ctx context.Context, id string, opts ...DeployResourceOption) (*OpResult, error)
 	// ApplyResource applies a specific resource through its runtime backend.
 	ApplyResource(ctx context.Context, id string) (*OpResult, error)
 	// ReloadResource asks the runtime backend to restart or kickstart the current installed resource without reinstalling it.

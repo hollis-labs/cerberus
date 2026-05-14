@@ -98,3 +98,94 @@ func TestResourceRuntimeStopDoesNotPauseOSService(t *testing.T) {
 		t.Fatal("did not expect os_service stop to set dev-session pause flag")
 	}
 }
+
+func TestResolveInstallAfterBuild(t *testing.T) {
+	t.Parallel()
+
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name          string
+		rawCfg        map[string]any
+		resourceVal   bool
+		globalDefault bool
+		override      *bool
+		want          bool
+	}{
+		{
+			name:          "empty resource config + default-true global = true",
+			rawCfg:        map[string]any{},
+			resourceVal:   false,
+			globalDefault: true,
+			override:      nil,
+			want:          true,
+		},
+		{
+			name:          "empty resource config + default-false global = false",
+			rawCfg:        map[string]any{},
+			resourceVal:   false,
+			globalDefault: false,
+			override:      nil,
+			want:          false,
+		},
+		{
+			name:          "resource explicit false overrides default-true global",
+			rawCfg:        map[string]any{"install_after_build": false},
+			resourceVal:   false,
+			globalDefault: true,
+			override:      nil,
+			want:          false,
+		},
+		{
+			name:          "resource explicit true overrides default-false global",
+			rawCfg:        map[string]any{"install_after_build": true},
+			resourceVal:   true,
+			globalDefault: false,
+			override:      nil,
+			want:          true,
+		},
+		{
+			name:          "CLI override true beats resource false",
+			rawCfg:        map[string]any{"install_after_build": false},
+			resourceVal:   false,
+			globalDefault: true,
+			override:      boolPtr(true),
+			want:          true,
+		},
+		{
+			name:          "CLI override false beats resource true",
+			rawCfg:        map[string]any{"install_after_build": true},
+			resourceVal:   true,
+			globalDefault: true,
+			override:      boolPtr(false),
+			want:          false,
+		},
+		{
+			name:          "CLI override false beats default-true global when resource absent",
+			rawCfg:        map[string]any{},
+			resourceVal:   false,
+			globalDefault: true,
+			override:      boolPtr(false),
+			want:          false,
+		},
+		{
+			name:          "nil rawCfg falls through to global default",
+			rawCfg:        nil,
+			resourceVal:   false,
+			globalDefault: true,
+			override:      nil,
+			want:          true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := ResolveInstallAfterBuild(tc.rawCfg, tc.resourceVal, tc.globalDefault, tc.override)
+			if got != tc.want {
+				t.Fatalf("ResolveInstallAfterBuild() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

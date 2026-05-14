@@ -340,7 +340,12 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		res, err := s.client.DeployResource(r.Context(), id)
+		deployOpts, decodeErr := decodeDeployOptions(r.Body)
+		if decodeErr != nil {
+			writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
+			return
+		}
+		res, err := s.client.DeployResource(r.Context(), id, deployOpts...)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -682,4 +687,29 @@ func writeJSON(w http.ResponseWriter, status int, body interface{}) {
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, ErrorResponse{Success: false, Error: msg})
+}
+
+// decodeDeployOptions parses a DeployResource request body into a slice of
+// functional options. Empty body is valid and yields no overrides — that
+// matches the historical contract older clients depend on.
+func decodeDeployOptions(body io.Reader) ([]DeployResourceOption, error) {
+	if body == nil {
+		return nil, nil
+	}
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("read deploy body: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var opts DeployResourceOpts
+	if err := json.Unmarshal(data, &opts); err != nil {
+		return nil, fmt.Errorf("decode deploy body: %w", err)
+	}
+	var options []DeployResourceOption
+	if opts.InstallAfterBuildOverride != nil {
+		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))
+	}
+	return options, nil
 }

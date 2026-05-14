@@ -49,6 +49,13 @@ func normalizeV2Config(cfg *ConfigV2) {
 	if cfg == nil {
 		return
 	}
+	if cfg.Build == nil {
+		cfg.Build = &BuildConfig{}
+	}
+	if cfg.Build.InstallAfterBuild == nil {
+		t := true
+		cfg.Build.InstallAfterBuild = &t
+	}
 	for i := range cfg.Resources {
 		res := &cfg.Resources[i]
 		if res.Connector != "local" || res.Type != "process" || res.Config == nil {

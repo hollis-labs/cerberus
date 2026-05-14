@@ -72,11 +72,48 @@ type AuditContext struct {
 
 // OpResult is the DTO for a lifecycle-operation response.
 type OpResult struct {
-	Success     bool   `json:"success"`
-	ServiceID   string `json:"service_id"`
-	Message     string `json:"message,omitempty"`
-	BuildOutput string `json:"build_output,omitempty"`
-	Error       string `json:"error,omitempty"`
+	Success        bool   `json:"success"`
+	ServiceID      string `json:"service_id"`
+	Message        string `json:"message,omitempty"`
+	BuildOutput    string `json:"build_output,omitempty"`
+	InstallOutput  string `json:"install_output,omitempty"`
+	InstallSkipped bool   `json:"install_skipped,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+// DeployResourceOpts carries per-invocation overrides for DeployResource.
+// Construct with functional options (WithInstallAfterBuildOverride, etc.) and
+// pass through Client.DeployResource. Socket transport serializes these to the
+// /resources/{id}/deploy request body so daemon-routed CLIs see the same
+// precedence layering as in-process callers.
+type DeployResourceOpts struct {
+	// InstallAfterBuildOverride forces install_after_build behavior for this
+	// invocation when non-nil. Highest-precedence layer; corresponds to the
+	// --install-after-build / --no-install-after-build CLI flags.
+	InstallAfterBuildOverride *bool `json:"install_after_build_override,omitempty"`
+}
+
+// DeployResourceOption is a functional option for DeployResource.
+type DeployResourceOption func(*DeployResourceOpts)
+
+// WithInstallAfterBuildOverride sets the per-invocation install_after_build
+// override. The value travels at the highest precedence in the resolver,
+// beating both the resource-level setting and the global default.
+func WithInstallAfterBuildOverride(v bool) DeployResourceOption {
+	return func(o *DeployResourceOpts) { o.InstallAfterBuildOverride = &v }
+}
+
+// ApplyDeployResourceOptions folds a slice of options into a value-typed opts
+// struct. Useful for callers that need to forward options over the socket
+// boundary where functional options can't survive.
+func ApplyDeployResourceOptions(options []DeployResourceOption) DeployResourceOpts {
+	var opts DeployResourceOpts
+	for _, o := range options {
+		if o != nil {
+			o(&opts)
+		}
+	}
+	return opts
 }
 
 // RestartServiceArgs wraps RestartService + RebuildService optional

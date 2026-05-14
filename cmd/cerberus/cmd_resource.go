@@ -25,6 +25,8 @@ var resourceCmd = &cobra.Command{
 var resourceListProject string
 var resourceLogsLines int
 var resourceLogsStream string
+var resourceDeployInstallAfterBuild bool
+var resourceDeployNoInstallAfterBuild bool
 
 var resourceListCmd = &cobra.Command{
 	Use:   "list",
@@ -298,7 +300,7 @@ var resourceApplyCmd = &cobra.Command{
 var resourceDeployCmd = &cobra.Command{
 	Use:   "deploy <resource-id>",
 	Short: "Build then apply a local process resource",
-	Long:  "Runs the resource's declared build contract first, then applies it through the configured runtime backend. Use this when the intent is source-to-runtime deployment: make the running service match the current source tree. For already-built artifacts, use `cerberus resource apply`.",
+	Long:  "Runs the resource's declared build contract first, then applies it through the configured runtime backend. Use this when the intent is source-to-runtime deployment: make the running service match the current source tree. For already-built artifacts, use `cerberus resource apply`. Pass --no-install-after-build to skip the post-build install step for this invocation (useful when bisecting build vs install failures).",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		res, err := loadResource(args[0])
@@ -309,8 +311,13 @@ var resourceDeployCmd = &cobra.Command{
 			return fmt.Errorf("resource %q is %s/%s; deploy currently supports local process resources only", res.ID, res.Type, res.Connector)
 		}
 
+		deployOpts, err := resolveDeployFlags(cmd)
+		if err != nil {
+			return err
+		}
+
 		if socketClient, socketErr := newResourceSocketClient(); socketErr == nil {
-			out, deployErr := socketClient.DeployResource(cmd.Context(), res.ID)
+			out, deployErr := socketClient.DeployResource(cmd.Context(), res.ID, deployOpts...)
 			if deployErr == nil {
 				return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
 			}
@@ -320,12 +327,43 @@ var resourceDeployCmd = &cobra.Command{
 			}
 		}
 
-		out, err := newResourceRuntimeService().DeployResource(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().DeployResource(cmd.Context(), res.ID, deployOpts...)
 		if err != nil {
 			return err
 		}
 		return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
 	},
+}
+
+// resolveDeployFlags collapses the --install-after-build / --no-install-after-build
+// flag pair into a slice of cerbapi DeployResource options. The flags are
+// mutually exclusive; setting both is a user error rather than a precedence
+// puzzle, so we reject it up front instead of silently picking a winner.
+//
+// --install-after-build is value-bearing: --install-after-build (bare),
+// --install-after-build=true, and --install-after-build=false each pass
+// the actual bound bool through as the override.
+//
+// --no-install-after-build is a presence-only "hard false" shortcut: any
+// explicit set forces the override to false regardless of any parsed value.
+func resolveDeployFlags(cmd *cobra.Command) ([]cerbapi.DeployResourceOption, error) {
+	yesSet := cmd.Flags().Changed("install-after-build")
+	noSet := cmd.Flags().Changed("no-install-after-build")
+	if yesSet && noSet {
+		return nil, errors.New("--install-after-build and --no-install-after-build are mutually exclusive")
+	}
+	switch {
+	case yesSet:
+		val, err := cmd.Flags().GetBool("install-after-build")
+		if err != nil {
+			return nil, fmt.Errorf("read --install-after-build: %w", err)
+		}
+		return []cerbapi.DeployResourceOption{cerbapi.WithInstallAfterBuildOverride(val)}, nil
+	case noSet:
+		return []cerbapi.DeployResourceOption{cerbapi.WithInstallAfterBuildOverride(false)}, nil
+	default:
+		return nil, nil
+	}
 }
 
 var resourceStatusCmd = &cobra.Command{
@@ -767,6 +805,8 @@ func init() {
 	resourceCmd.AddCommand(resourceShowCmd)
 	resourceCmd.AddCommand(resourceInspectCmd)
 	resourceCmd.AddCommand(resourceDoctorCmd)
+	resourceDeployCmd.Flags().BoolVar(&resourceDeployInstallAfterBuild, "install-after-build", true, "force-run `make install` after `make build` (overrides resource + global config)")
+	resourceDeployCmd.Flags().BoolVar(&resourceDeployNoInstallAfterBuild, "no-install-after-build", false, "skip `make install` after `make build` for this invocation only")
 	resourceCmd.AddCommand(resourceDeployCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceReloadCmd)
