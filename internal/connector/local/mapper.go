@@ -28,6 +28,10 @@ func ServiceDefToResource(def config.ServiceDef) *domain.Resource {
 		LogFile:            def.LogFile,
 		Profiles:           append([]string(nil), def.Profiles...),
 		Protected:          def.Protected,
+		// v1 service defs predate install_after_build; carry the default-on
+		// value explicitly so the spec read matches what v2-parsing produces
+		// for the same absence (true), regardless of the field's Go zero value.
+		InstallAfterBuild: true,
 	}
 
 	now := time.Now().UTC()
