@@ -545,16 +545,21 @@ func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string) (*
 	}, nil
 }
 
-func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string) (*OpResult, error) {
+func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, options ...DeployResourceOption) (*OpResult, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+
+	opts := ApplyDeployResourceOptions(options)
 
 	res, err := s.requireLocalProcessResource(id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
 	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	installAfterBuild := s.resolveInstallAfterBuild(res.Config, spec, opts)
 	buildOutput := ""
+	installOutput := ""
+	installSkipped := false
 	if len(spec.Build) > 0 {
 		out, buildErr := localconn.BuildProcess(spec)
 		buildOutput = strings.TrimSpace(out)
@@ -566,6 +571,27 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string) 
 				Error:       fmt.Sprintf("build failed for resource %q: %s", id, buildErr.Error()),
 			}, nil
 		}
+		if installAfterBuild {
+			skipped, instOut, installErr := localconn.RunInstall(spec)
+			installOutput = strings.TrimSpace(instOut)
+			installSkipped = skipped
+			if installErr != nil {
+				return &OpResult{
+					Success:        false,
+					ServiceID:      id,
+					BuildOutput:    buildOutput,
+					InstallOutput:  installOutput,
+					InstallSkipped: false,
+					Error:          fmt.Sprintf("install failed for resource %q: %s", id, installErr.Error()),
+				}, nil
+			}
+			if skipped {
+				s.logger.Info("resource_runtime.install.skipped",
+					"resource", id,
+					"reason", "no_install_target_in_makefile",
+				)
+			}
+		}
 	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
@@ -573,10 +599,12 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string) 
 	applyRes, applyErr := s.localConnector().Apply(ctx, resourceDefToDomain(res))
 	if applyErr != nil {
 		return &OpResult{
-			Success:     false,
-			ServiceID:   id,
-			BuildOutput: buildOutput,
-			Error:       s.formatApplyError(id, res, spec, applyErr),
+			Success:        false,
+			ServiceID:      id,
+			BuildOutput:    buildOutput,
+			InstallOutput:  installOutput,
+			InstallSkipped: installSkipped,
+			Error:          s.formatApplyError(id, res, spec, applyErr),
 		}, nil
 	}
 	msg := localconn.FormatApplyResultMessage(id, spec, applyRes)
@@ -584,11 +612,42 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string) 
 		msg = fmt.Sprintf("resource %q deployed successfully (%s)", id, strings.TrimPrefix(msg, fmt.Sprintf("resource %q ", id)))
 	}
 	return &OpResult{
-		Success:     true,
-		ServiceID:   id,
-		BuildOutput: buildOutput,
-		Message:     msg,
+		Success:        true,
+		ServiceID:      id,
+		BuildOutput:    buildOutput,
+		InstallOutput:  installOutput,
+		InstallSkipped: installSkipped,
+		Message:        msg,
 	}, nil
+}
+
+// resolveInstallAfterBuild is the method-shaped entry point used by
+// DeployResource. It snapshots the live config and delegates to the pure
+// resolver so the precedence logic stays testable in isolation.
+func (s *ResourceRuntimeService) resolveInstallAfterBuild(rawCfg map[string]any, spec localconn.ProcessSpec, opts DeployResourceOpts) bool {
+	return ResolveInstallAfterBuild(rawCfg, spec.InstallAfterBuild, s.snapshotConfig().InstallAfterBuildDefault(), opts.InstallAfterBuildOverride)
+}
+
+// ResolveInstallAfterBuild collapses the three-layer precedence (CLI override >
+// resource-level > global default) into the bool that BuildProcess + RunInstall
+// act on. Resource-level presence is detected via the raw config map, not the
+// parsed spec, because plain-bool ProcessSpec.InstallAfterBuild can't
+// distinguish "absent" from "explicit false" on its own.
+//
+// Inputs:
+//   - rawCfg: the resource's raw config map (presence check key).
+//   - resourceVal: the parsed spec.InstallAfterBuild value (used only when
+//     the raw map has the key).
+//   - globalDefault: the layer-3 default from ConfigV2.InstallAfterBuildDefault().
+//   - override: layer-1 CLI override; nil = no override.
+func ResolveInstallAfterBuild(rawCfg map[string]any, resourceVal bool, globalDefault bool, override *bool) bool {
+	if override != nil {
+		return *override
+	}
+	if _, present := rawCfg["install_after_build"]; present {
+		return resourceVal
+	}
+	return globalDefault
 }
 
 func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (*OpResult, error) {

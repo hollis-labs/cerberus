@@ -163,7 +163,7 @@ func (f *fakeClient) GetResourceDoctor(context.Context, string) (*cerbapi.Resour
 	return &cerbapi.ResourceDoctor{}, nil
 }
 
-func (f *fakeClient) DeployResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (f *fakeClient) DeployResource(context.Context, string, ...cerbapi.DeployResourceOption) (*cerbapi.OpResult, error) {
 	return &cerbapi.OpResult{Success: true}, nil
 }
 

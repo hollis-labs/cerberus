@@ -62,6 +62,14 @@ type ProcessSpec struct {
 	ArtifactPath       string
 	InstallRoot        string
 	InstallWorkDir     string
+	// InstallAfterBuild reflects the resource-level value parsed from the
+	// `install_after_build` config key. The field is plain bool: callers
+	// that need to distinguish "absent" from "explicit false" should probe
+	// presence on the raw config map and resolve precedence themselves
+	// (see cerbapi.ResourceRuntimeService.DeployResource). When absent
+	// in YAML the field stays zero; the deploy path layers the global
+	// default on top.
+	InstallAfterBuild bool
 }
 
 // SpecFromResourceConfig decodes a local process config map into a typed spec.
@@ -83,6 +91,7 @@ func SpecFromResourceConfig(cfg map[string]any) (ProcessSpec, error) {
 	spec.URL, _ = stringField(cfg, "url")
 	spec.Port = intField(cfg, "port")
 	spec.Build = stringSliceField(cfg, "build")
+	spec.InstallAfterBuild = boolField(cfg, "install_after_build")
 	spec.Health, _ = stringField(cfg, "health")
 	spec.AutoStart = boolField(cfg, "auto_start")
 	spec.AutoRestart = boolField(cfg, "auto_restart")
@@ -157,6 +166,11 @@ func (s ProcessSpec) ToResourceConfig() map[string]any {
 	}
 	if len(s.Build) > 0 {
 		cfg["build"] = append([]string(nil), s.Build...)
+	}
+	if !s.InstallAfterBuild {
+		// Only emit the explicit opt-out; the default is true, so emitting
+		// `true` would just churn YAML files for no semantic gain.
+		cfg["install_after_build"] = false
 	}
 	if s.Health != "" {
 		cfg["health"] = s.Health

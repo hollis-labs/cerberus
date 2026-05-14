@@ -211,12 +211,23 @@ func (c *SocketClient) GetResourceDoctor(ctx context.Context, id string) (*Resou
 	return &out, nil
 }
 
-func (c *SocketClient) DeployResource(ctx context.Context, id string) (*OpResult, error) {
+func (c *SocketClient) DeployResource(ctx context.Context, id string, options ...DeployResourceOption) (*OpResult, error) {
 	if id == "" {
 		return nil, errors.New("resource id required")
 	}
+	var body any
+	if len(options) > 0 {
+		// Materialize functional options into the value-typed opts so JSON
+		// serialization on the socket transport preserves overrides. Empty
+		// body stays nil to match the historical contract for the no-opts
+		// case (older daemons accept the unchanged shape).
+		opts := ApplyDeployResourceOptions(options)
+		if opts.InstallAfterBuildOverride != nil {
+			body = opts
+		}
+	}
 	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/deploy", nil, &out); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/deploy", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

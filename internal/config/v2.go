@@ -5,9 +5,33 @@ package config
 // enabling multi-connector support (local, cloud, container, etc.).
 type ConfigV2 struct {
 	Version   int           `yaml:"version"`
+	Build     *BuildConfig  `yaml:"build,omitempty"`
 	Projects  []ProjectDef  `yaml:"projects,omitempty"`
 	Resources []ResourceDef `yaml:"resources,omitempty"`
 	Pipelines []PipelineDef `yaml:"pipelines,omitempty"`
+}
+
+// BuildConfig carries global defaults for build-time behavior. Fields use
+// pointer types so absence in YAML is distinguishable from explicit zero,
+// letting normalize-time defaulting fill in load-bearing values without
+// clobbering an operator's explicit override.
+type BuildConfig struct {
+	// InstallAfterBuild controls whether `cerberus resource deploy` chains
+	// a `make install` after a successful `make build`. Default true when
+	// absent; resources may override per-resource, and the CLI may override
+	// per-invocation. Precedence: CLI > resource > global > built-in true.
+	InstallAfterBuild *bool `yaml:"install_after_build,omitempty"`
+}
+
+// InstallAfterBuildDefault returns the resolved global default for the
+// install-after-build switch, falling back to true when the config has not
+// set it explicitly. Callers should treat this as the layer-3 default in
+// the precedence chain.
+func (c *ConfigV2) InstallAfterBuildDefault() bool {
+	if c == nil || c.Build == nil || c.Build.InstallAfterBuild == nil {
+		return true
+	}
+	return *c.Build.InstallAfterBuild
 }
 
 // ProjectDef groups related resources under a logical project.

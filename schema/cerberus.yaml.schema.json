@@ -1,120 +1,257 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/chrispian/cerberus/schema/cerberus.yaml.schema.json",
-  "title": "Cerberus Config",
-  "description": "Configuration file for Cerberus, the Tiamat ecosystem service manager.",
+  "title": "Cerberus Config (v2)",
+  "description": "Configuration file for Cerberus, the Tiamat ecosystem service manager. This schema describes the v2 lane: projects + resources + pipelines as first-class concepts, with per-connector resource config.",
   "type": "object",
   "properties": {
     "version": {
       "type": "integer",
-      "description": "Config schema version. Currently 1.",
-      "default": 1,
-      "enum": [1]
+      "description": "Config schema version. Cerberus requires version 2.",
+      "const": 2
     },
-    "services": {
+    "build": {
+      "$ref": "#/$defs/BuildConfig"
+    },
+    "projects": {
       "type": "array",
-      "description": "List of services managed by Cerberus.",
-      "items": {
-        "$ref": "#/$defs/ServiceDef"
-      }
+      "description": "Logical project groupings for resources and pipelines.",
+      "items": { "$ref": "#/$defs/ProjectDef" }
+    },
+    "resources": {
+      "type": "array",
+      "description": "Managed resources (local processes, cloud servers, containers, etc.).",
+      "items": { "$ref": "#/$defs/ResourceDef" }
+    },
+    "pipelines": {
+      "type": "array",
+      "description": "Multi-step orchestration workflows.",
+      "items": { "$ref": "#/$defs/PipelineDef" }
     }
   },
-  "required": ["services"],
+  "required": ["version"],
   "additionalProperties": false,
   "$defs": {
-    "ServiceDef": {
+    "BuildConfig": {
       "type": "object",
-      "description": "Definition of a managed service.",
+      "description": "Global defaults for build-time behavior. Per-resource and CLI-level overrides take precedence over these defaults.",
+      "properties": {
+        "install_after_build": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, `cerberus resource deploy` runs `make install` after a successful `make build`. Resources can override per-resource via the same key in their config block; CLI flags `--install-after-build` / `--no-install-after-build` override both."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProjectDef": {
+      "type": "object",
+      "description": "A logical grouping that owns one or more resources.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the service."
+          "description": "Stable project identifier."
         },
         "name": {
           "type": "string",
-          "description": "Human-readable display name."
+          "description": "Human-readable project name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional free-form description."
+        }
+      },
+      "required": ["id", "name"],
+      "additionalProperties": false
+    },
+    "ResourceDef": {
+      "type": "object",
+      "description": "A managed resource. The `config` block's shape is connector-specific; see LocalProcessConfig for the local/process variant.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable resource identifier."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable resource name."
+        },
+        "type": {
+          "type": "string",
+          "description": "Resource kind (process, server, container, etc.). 'process' is the only kind with a published config schema today.",
+          "examples": ["process", "server", "container"]
         },
         "project": {
           "type": "string",
-          "description": "Parent project this service belongs to."
+          "description": "Parent project ID."
         },
-        "dir": {
+        "connector": {
           "type": "string",
-          "description": "Working directory for the service. Supports ~ for home directory."
+          "description": "Connector that owns this resource at runtime.",
+          "examples": ["local", "digitalocean", "github"]
         },
-        "command": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Command and arguments to start the service."
-        },
-        "build": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Optional build command to run before starting."
-        },
-        "env_file": {
-          "type": "string",
-          "description": "Path to an env file to load (relative to dir)."
-        },
-        "env": {
+        "config": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
-          "description": "Environment variables to set."
-        },
-        "url": {
-          "type": "string",
-          "format": "uri",
-          "description": "URL where the service is accessible."
-        },
-        "port": {
-          "type": "integer",
-          "description": "Port the service listens on."
+          "description": "Connector-specific configuration. For connector='local' + type='process', see LocalProcessConfig.",
+          "additionalProperties": true
         },
         "tags": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Tags for filtering and grouping services."
-        },
-        "health": {
-          "type": "string",
-          "format": "uri",
-          "description": "Legacy health check URL. Prefer health_check instead."
-        },
-        "health_check": {
-          "$ref": "#/$defs/HealthCheck"
+          "description": "Tags for filtering and grouping."
         },
         "depends_on": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "IDs of services this service depends on."
+          "description": "Resource IDs this resource depends on."
+        }
+      },
+      "required": ["id", "name", "type", "project", "connector"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "connector": { "const": "local" },
+              "type": { "const": "process" }
+            },
+            "required": ["connector", "type"]
+          },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/$defs/LocalProcessConfig" }
+            }
+          }
+        }
+      ]
+    },
+    "LocalProcessConfig": {
+      "type": "object",
+      "description": "Connector-specific config for connector='local' + type='process'. Fields are decoded into internal/connector/local.ProcessSpec.",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Working directory. Supports ~ for home."
         },
+        "command": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Command + arguments to start the process."
+        },
+        "build": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Build command + arguments invoked by `cerberus resource deploy` before apply."
+        },
+        "install_after_build": {
+          "type": "boolean",
+          "description": "Per-resource override of the global build.install_after_build default. Absent = inherit global; true/false = explicit override. CLI --install-after-build / --no-install-after-build beats this."
+        },
+        "env_file": {
+          "type": "string",
+          "description": "Path to env file (relative to dir or absolute, ~ expanded)."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Environment variables."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Service URL (when applicable)."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "TCP port. NEVER set to 0 — omit instead (lsof status detection breaks on port 0)."
+        },
+        "health": {
+          "type": "string",
+          "format": "uri",
+          "description": "Legacy health check URL. Prefer health_check."
+        },
+        "health_check": { "$ref": "#/$defs/HealthCheck" },
         "auto_start": {
           "type": "boolean",
           "default": false,
-          "description": "Start this service automatically when Cerberus launches."
+          "description": "Start automatically on Cerberus launch."
         },
         "auto_restart": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically restart the service if it exits."
+          "description": "Restart automatically on exit."
         },
         "restart_delay": {
           "type": "string",
-          "description": "Delay before restarting (Go duration, e.g. '5s').",
-          "examples": ["5s", "30s", "1m"]
+          "description": "Delay before restart (Go duration).",
+          "examples": ["5s", "30s"]
+        },
+        "max_restart_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cap on consecutive restart attempts. 0 = unbounded."
+        },
+        "restart_cooldown": {
+          "type": "string",
+          "description": "Cooldown after max_restart_attempts trips (Go duration).",
+          "examples": ["1m", "5m"]
+        },
+        "log_file": {
+          "type": "string",
+          "description": "Override path for the resource's log file."
         },
         "profiles": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Profiles this service belongs to for selective startup."
+          "description": "Profiles this resource belongs to for selective startup."
+        },
+        "protected": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mark as protected — required for destructive operations to succeed."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["dev_session", "os_service"],
+          "default": "dev_session",
+          "description": "Runtime strategy. dev_session = supervised in-process; os_service = native supervisor."
+        },
+        "supervisor": {
+          "type": "string",
+          "enum": ["auto", "launchd", "systemd_user", "windows_service"],
+          "default": "auto",
+          "description": "Native supervisor for os_service mode."
+        },
+        "run_from": {
+          "type": "string",
+          "enum": ["workspace", "artifact"],
+          "default": "workspace",
+          "description": "Whether the process runs from the workspace or from an installed artifact path."
+        },
+        "service_name": {
+          "type": "string",
+          "description": "Reverse-DNS service name (e.g. com.example.cerberus.app)."
+        },
+        "artifact_path": {
+          "type": "string",
+          "description": "Override path for the installed artifact binary."
+        },
+        "install_root": {
+          "type": "string",
+          "description": "Override install root for the resource."
+        },
+        "install_work_dir": {
+          "type": "string",
+          "description": "Override per-deploy working tree under install_root."
         }
       },
-      "required": ["id", "name", "project", "dir", "command", "port"],
       "additionalProperties": false
     },
     "HealthCheck": {
       "type": "object",
-      "description": "Health check configuration for a service.",
+      "description": "Health check configuration for a resource.",
       "properties": {
         "url": {
           "type": "string",
@@ -137,6 +274,67 @@
           "examples": ["3s", "5s"]
         }
       },
+      "additionalProperties": false
+    },
+    "PipelineDef": {
+      "type": "object",
+      "description": "A multi-step workflow defined in config.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "stages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/StageDef" }
+        }
+      },
+      "required": ["id", "name", "stages"],
+      "additionalProperties": false
+    },
+    "StageDef": {
+      "type": "object",
+      "description": "A single stage within a pipeline.",
+      "properties": {
+        "name": { "type": "string" },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ActionDef" }
+        }
+      },
+      "required": ["name", "actions"],
+      "additionalProperties": false
+    },
+    "ActionDef": {
+      "type": "object",
+      "description": "A single action within a stage.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["build", "start", "stop", "health_wait", "shell"],
+          "description": "Action kind."
+        },
+        "resource": {
+          "type": "string",
+          "description": "Resource ID (for build/start/stop/health_wait)."
+        },
+        "command": {
+          "type": "string",
+          "description": "Shell command (for type=shell)."
+        },
+        "dir": {
+          "type": "string",
+          "description": "Working directory (for type=shell)."
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Timeout (Go duration). Used by health_wait."
+        }
+      },
+      "required": ["type"],
       "additionalProperties": false
     }
   }
