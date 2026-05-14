@@ -107,13 +107,13 @@ All ports are unique across the suite suite:
 | Port | Service |
 |------|---------|
 | 1420 | app-h Frontend (Vite) |
-| 5173 | acme Conduit Frontend (Vite) |
-| 5174 | Carrier Frontend (Vite) |
+| 5173 | app-c Frontend (Vite) |
+| 5174 | Ion Frontend (Vite) |
 | 7765 | Nil Dev |
-| 8080 | acme Conduit API |
 | 8085 | app-h API |
+| 8089 | app-c API |
 | 8095 | app-d Daemon |
-| 8096 | Carrier API |
+| 8096 | Ion API |
 | 9085 | app-h gRPC (auto, started by app-h API) |
 | 34116 | app-d GUI (Wails desktop) |
 
@@ -139,7 +139,7 @@ resources:
     project: app-h
     connector: local
     config:
-      dir: ~/src/app-h
+      dir: ~/dev/hollis-labs/apps/app-h
       command: ["./app-h-api", "serve"]
       build: ["go", "build", "-o", "app-h-api", "./cmd/app-h-api"]
       mode: os_service
@@ -190,7 +190,7 @@ Cerberus now has a canonical v2 daemon resource:
     type: process
     connector: local
     config:
-      dir: ~/src/cerberus
+      dir: ~/dev/hollis-labs/apps/cerberus
       command: ["./cerberus", "daemon", "--foreground"]
       build: ["go", "build", "-o", "cerberus", "./cmd/cerberus"]
       mode: os_service
