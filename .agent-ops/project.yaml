@@ -1,0 +1,54 @@
+project:
+  id: cerberus
+  display_name: Cerberus
+  status: active
+  purpose: |
+    Agent-first, single-binary Go control plane for managing local OS
+    processes, evolving toward unified cloud infrastructure orchestration.
+    Operationally v2-only: declarative `resources:` (type: process, mode
+    dev_session | os_service) are the active model across CLI, daemon,
+    HTTP/socket API, and MCP. Cerberus is the build/deploy authority for other
+    local portfolio projects. The main architectural blocker is the missing
+    reconciler loop (desired/observed state convergence via work queue).
+catalog:
+  torque_project_id: null            # not found in catalog
+  cerberus_project_id: cerberus
+  tether_catalog_project: cerberus   # ~/.tether/catalog/projects/cerberus.yaml
+locations:
+  repo: ~/dev/hollis-labs/apps/cerberus
+  agent_os_tracking: ~/dev/agent-os/workspaces/execution/cerberus
+  state_dir: ~/.cerberus
+  catalog: null                      # no ~/.cerberus/catalog dir present
+  artifacts: ~/.cerberus/apps        # per-project: ~/.cerberus/apps/<project>/<resource>
+build:
+  authority: local
+  resource: cerberus-daemon-service  # the daemon runs as a self-managed v2 resource
+  command: make build                # go build -o cerberus ./cmd/cerberus
+deployment:
+  type: launchd
+  service_name: com.fragments-engine.cerberus
+  binary: ~/.cerberus/bin/cerberus   # canonical released-binary path
+docs:
+  readme: README.md
+  architecture: null                 # no docs/architecture.md; see docs/adr/
+  adrs: docs/adr/
+  roadmap: docs/plans/beta-release-plan.md
+roadmap:
+  current_phase: 'Cerberus beta release (v2-only local runtime)'
+  pointer: null
+usage_examples:
+  - intent: Build a project and restart its running service to match source
+    command: cerberus resource deploy <resource-id>
+    note: deploy = build + sync artifact + activate; preferred when repo state changed
+  - intent: Inspect live runtime state of a managed resource
+    command: cerberus resource status <resource-id>
+    note: PID-file primary detection; lsof fallback only when a port is configured
+  - intent: Restart an installed service without rebuilding or syncing
+    command: cerberus resource reload <resource-id>
+    note: use when install definition and artifact are already correct
+  - intent: Tail recent logs for a resource
+    command: cerberus resource logs <resource-id> --stream stderr --lines 100
+    note: legacy lane writes logs to $TMPDIR/cerberus-<service-id>.log
+scopes:
+  - cerberus.backend.main
+related_projects: [hadron, stack-explorer, tesseract, sigil]
