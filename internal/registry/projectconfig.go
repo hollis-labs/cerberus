@@ -1,0 +1,122 @@
+// Package registry implements Cerberus's opt-in resource registry.
+//
+// Apps own a project-config file in their own repo (conventionally
+// `<name>.cerberus.yaml`) and register it with Cerberus, which keeps
+// only a pointer index at ~/.cerberus/registry.yaml. Resolution is
+// local-first: config bodies are always read fresh from the owning
+// app's file and are never copied into the index. The index records a
+// path handle, not content.
+//
+// There are two file kinds:
+//
+//   - ProjectConfig (cerberus-project/v1) — the unit: one project plus
+//     its resources, owned by one app. This is what gets registered.
+//   - Bundle (cerberus-bundle/v1) — a manifest listing paths to several
+//     project configs, so a multi-app repo can register them in one
+//     command. Discovery sugar only; it holds no definitions itself.
+//
+// This package owns both kind contracts and their validators.
+package registry
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+
+	"github.com/chrispian/cerberus/internal/config"
+	"gopkg.in/yaml.v3"
+)
+
+const (
+	// ProjectConfigKind is the kind contract for an app-owned project
+	// config. The "/v1" suffix is the schema version; bumping it is a
+	// breaking change to the app-owned format.
+	ProjectConfigKind = "cerberus-project/v1"
+
+	// DefaultNamespace is assigned to configs that omit `namespace`.
+	// The field is reserved from day one for future multi-tenant trust
+	// boundaries — every kind carries owner + namespace even though v1
+	// only ever resolves the local namespace.
+	DefaultNamespace = "local"
+
+	// FileSuffix is the conventional suffix for every Cerberus config
+	// file. The basename is free (e.g. torque.cerberus.yaml) so apps can
+	// name a config after the project it describes.
+	FileSuffix = ".cerberus.yaml"
+)
+
+// ProjectConfig is the app-owned config unit and the thing that gets
+// registered: exactly one project and its 1..n resources, owned by one
+// app. Apps commit this file to their own repo; Cerberus stores only a
+// path pointer to it, keyed by Owner.
+//
+// The body reuses config.ProjectDef / ResourceDef / PipelineDef so the
+// resolver can merge configs into a *config.ConfigV2 without a parallel
+// type hierarchy.
+type ProjectConfig struct {
+	// Kind must equal ProjectConfigKind.
+	Kind string `yaml:"kind"`
+
+	// Owner identifies the registering app. It is the registry key:
+	// unique across all registered configs and stable across the app's
+	// lifetime. Lowercase kebab-case.
+	Owner string `yaml:"owner"`
+
+	// Namespace is reserved for multi-tenant trust isolation. Defaults
+	// to DefaultNamespace when omitted.
+	Namespace string `yaml:"namespace,omitempty"`
+
+	// Project is the single project this config contributes. Multi-
+	// project repos register multiple project configs (optionally via a
+	// Bundle manifest) rather than packing several into one file.
+	Project config.ProjectDef `yaml:"project"`
+
+	// Resources and Pipelines carry the definitions, identical in shape
+	// to the v2 monolithic config.
+	Resources []config.ResourceDef `yaml:"resources,omitempty"`
+	Pipelines []config.PipelineDef `yaml:"pipelines,omitempty"`
+}
+
+// LoadProjectConfig reads and parses an app-owned project config.
+// Unknown top-level fields are rejected (KnownFields) so a typo'd field
+// surfaces as an error rather than silently dropping config — the drift
+// guard the validator depends on. Connector-specific resource Config
+// maps stay open by design.
+//
+// LoadProjectConfig does not validate semantics; call
+// ValidateProjectConfig for that.
+func LoadProjectConfig(path string) (*ProjectConfig, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
+	if err != nil {
+		return nil, fmt.Errorf("read project config %s: %w", path, err)
+	}
+
+	var pc ProjectConfig
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&pc); err != nil {
+		return nil, fmt.Errorf("parse project config %s: %w", path, err)
+	}
+
+	if pc.Namespace == "" {
+		pc.Namespace = DefaultNamespace
+	}
+	return &pc, nil
+}
+
+// PeekKind reads only the `kind` field of a Cerberus config file so the
+// register command can dispatch project-config vs bundle-manifest
+// without a full, kind-specific parse.
+func PeekKind(path string) (string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	var probe struct {
+		Kind string `yaml:"kind"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return "", fmt.Errorf("parse kind of %s: %w", path, err)
+	}
+	return probe.Kind, nil
+}

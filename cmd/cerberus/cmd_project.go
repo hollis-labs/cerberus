@@ -5,7 +5,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +19,7 @@ var projectListCmd = &cobra.Command{
 	Short: "List projects",
 	Long:  "Lists all projects defined in the config.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		v2, err := config.LoadUnified(cfgPath)
+		v2, err := registry.ResolveConfig(cfgPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
@@ -45,7 +45,7 @@ var projectShowCmd = &cobra.Command{
 	Long:  "Shows a project and its resources.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		v2, err := config.LoadUnified(cfgPath)
+		v2, err := registry.ResolveConfig(cfgPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}

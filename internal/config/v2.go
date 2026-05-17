@@ -34,6 +34,15 @@ func (c *ConfigV2) InstallAfterBuildDefault() bool {
 	return *c.Build.InstallAfterBuild
 }
 
+// NormalizeV2 applies home-path expansion and default-filling to a
+// ConfigV2. LoadUnified runs this over a single-file config; the
+// registry resolver runs it over a ConfigV2 assembled from many
+// app-owned project configs. Safe to call more than once — path
+// expansion and default-filling are both idempotent.
+func NormalizeV2(cfg *ConfigV2) {
+	normalizeV2Config(cfg)
+}
+
 // ProjectDef groups related resources under a logical project.
 type ProjectDef struct {
 	ID          string `yaml:"id"`
