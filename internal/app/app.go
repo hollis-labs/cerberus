@@ -17,6 +17,7 @@ import (
 	namecheapconn "github.com/chrispian/cerberus/internal/connector/namecheap"
 	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/chrispian/cerberus/internal/secrets"
 	"github.com/chrispian/cerberus/internal/store/sqlite"
 )
@@ -43,8 +44,9 @@ type App struct {
 // The SQLite store is NOT opened here — call OpenStore() explicitly when
 // needed. This keeps the default path (local services via config) lightweight.
 func New(cfgPath string) (*App, error) {
-	// Load v2 config.
-	v2, err := config.LoadUnified(cfgPath)
+	// Assemble the effective v2 config: every registered project config
+	// merged over the optional global config.yaml at cfgPath.
+	v2, err := registry.ResolveConfig(cfgPath)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}

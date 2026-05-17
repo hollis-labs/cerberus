@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -87,6 +88,10 @@ func init() {
 	connectorsCmd.GroupID = "platform"
 
 	rootCmd.AddCommand(validateCmd)
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(registerCmd)
+	rootCmd.AddCommand(deregisterCmd)
+	rootCmd.AddCommand(registryCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(webCmd)
@@ -107,10 +112,11 @@ func init() {
 	rootCmd.AddCommand(connectorsCmd)
 }
 
-// loadUnifiedForTools is a thin wrapper around config.LoadUnified used
-// by the standalone `cerberus mcp` subprocess for the few remaining
-// connector-based tools (SSH) that read config locally. All
-// service-lifecycle tools route through the daemon socket instead.
+// loadUnifiedForTools resolves the effective config for the standalone
+// `cerberus mcp` subprocess's few remaining connector-based tools (SSH)
+// that read config locally. It resolves the registry the same way the
+// daemon does, so the MCP subprocess sees registered project configs.
+// All service-lifecycle tools route through the daemon socket instead.
 func loadUnifiedForTools(path string) (*config.ConfigV2, error) {
-	return config.LoadUnified(path)
+	return registry.ResolveConfig(path)
 }

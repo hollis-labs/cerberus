@@ -15,6 +15,7 @@ import (
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/pausectl"
+	"github.com/chrispian/cerberus/internal/registry"
 )
 
 // ResourceRuntimeService owns resource-native local runtime operations.
@@ -908,7 +909,7 @@ func (s *ResourceRuntimeService) snapshotConfig() *config.ConfigV2 {
 		defer s.cfgMu.RUnlock()
 		return s.cfg
 	}
-	fresh, err := config.LoadUnified(s.cfgPath)
+	fresh, err := registry.ResolveConfig(s.cfgPath)
 	if err != nil {
 		s.logger.Warn("resource_runtime.config_reload.failed",
 			"path", s.cfgPath,

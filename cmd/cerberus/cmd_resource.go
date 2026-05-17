@@ -13,6 +13,7 @@ import (
 	"github.com/chrispian/cerberus/internal/config"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -59,7 +60,7 @@ var resourceShowCmd = &cobra.Command{
 	Long:  "Shows detailed information about a specific resource.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		v2, err := config.LoadUnified(cfgPath)
+		v2, err := registry.ResolveConfig(cfgPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
@@ -509,7 +510,7 @@ var resourceRemoveCmd = &cobra.Command{
 }
 
 func loadResource(id string) (*config.ResourceDef, error) {
-	v2, err := config.LoadUnified(cfgPath)
+	v2, err := registry.ResolveConfig(cfgPath)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
