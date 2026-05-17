@@ -12,6 +12,7 @@ import (
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
+	"github.com/hollis-labs/cerberus/internal/registry"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -242,7 +243,7 @@ func (c *InProcessClient) snapshotConfig() *config.ConfigV2 {
 		defer c.cfgMu.RUnlock()
 		return c.cfg
 	}
-	fresh, err := config.LoadUnified(c.cfgPath)
+	fresh, err := registry.ResolveConfig(c.cfgPath)
 	if err != nil {
 		c.logger.Warn("client.config_reload.failed",
 			"path", c.cfgPath,
