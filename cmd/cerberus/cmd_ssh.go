@@ -39,7 +39,7 @@ var sshExecCmd = &cobra.Command{
 			return fmt.Errorf("no command specified — use: cerberus ssh exec <resource-id> -- <command>")
 		}
 
-		a, err := app.New(cfgPath)
+		a, err := app.NewWithOptions(appOptions())
 		if err != nil {
 			return fmt.Errorf("init app: %w", err)
 		}
@@ -93,7 +93,7 @@ var sshStatusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resourceID := args[0]
 
-		a, err := app.New(cfgPath)
+		a, err := app.NewWithOptions(appOptions())
 		if err != nil {
 			return fmt.Errorf("init app: %w", err)
 		}
@@ -131,7 +131,7 @@ var sshStopCmd = &cobra.Command{
 	Short: "Shut down a remote host over SSH",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.New(cfgPath)
+		a, err := app.NewWithOptions(appOptions())
 		if err != nil {
 			return fmt.Errorf("init app: %w", err)
 		}
