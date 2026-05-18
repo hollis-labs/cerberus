@@ -568,6 +568,9 @@ func TestParseLaunchdState(t *testing.T) {
 	}{
 		{name: "running", in: "state = running", want: domain.StateRunning},
 		{name: "spawn scheduled", in: "state = spawn scheduled", want: domain.StateStarting},
+		{name: "spawn scheduled clean exit", in: "state = spawn scheduled\nlast exit code = 0", want: domain.StateStarting},
+		{name: "spawn scheduled crash loop", in: "state = spawn scheduled\nlast exit code = 1", want: domain.StateFailed},
+		{name: "spawning crash loop", in: "state = spawning\nlast exit code = 1", want: domain.StateFailed},
 		{name: "throttled", in: "state = throttled", want: domain.StateFailed},
 		{name: "waiting clean", in: "state = waiting\nlast exit code = 0", want: domain.StateStopped},
 		{name: "waiting failed", in: "state = waiting\nlast exit code = 78", want: domain.StateFailed},
@@ -578,6 +581,23 @@ func TestParseLaunchdState(t *testing.T) {
 				t.Fatalf("state = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDiagnoseLaunchdRecordCrashLoop(t *testing.T) {
+	text := "state = spawn scheduled\npid = 0\nlast exit code = 1\nruns = 496\n"
+	diagnosis, highlights := diagnoseLaunchdRecord(text)
+	if !strings.Contains(diagnosis, "crash-looping") {
+		t.Fatalf("diagnosis = %q, want crash-loop message", diagnosis)
+	}
+	var sawRuns bool
+	for _, h := range highlights {
+		if strings.HasPrefix(h, "runs =") {
+			sawRuns = true
+		}
+	}
+	if !sawRuns {
+		t.Fatalf("highlights = %v, want a runs entry", highlights)
 	}
 }
 
