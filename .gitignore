@@ -1,2 +1,7 @@
 /cerberus
 *.log
+
+# Web UI: source deps and generated bundle are not tracked.
+web/node_modules/
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep

@@ -1,0 +1,7 @@
+@import 'tailwindcss';
+@import '@hollis-labs/sysop-ui/theme.css';
+
+@source '../node_modules/@hollis-labs/sysop-ui/dist';
+
+/* The document-shell lock (html/body/#root height + overflow) now ships in
+   the kit's theme.css as of @hollis-labs/sysop-ui v0.2.0. */

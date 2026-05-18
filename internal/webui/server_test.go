@@ -126,6 +126,83 @@ func TestHandleResourcesReturnsServiceUnavailableForTimeout(t *testing.T) {
 	}
 }
 
+func sessionToken(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/session", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("session status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var session struct {
+		ActionToken string `json:"action_token"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&session); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+	return session.ActionToken
+}
+
+func TestDomainReadEndpointsReachable(t *testing.T) {
+	handler := New(&fakeClient{}, nil).Handler()
+	paths := []string{
+		"/api/health",
+		"/api/health?resource=app",
+		"/api/projects",
+		"/api/pipelines",
+		"/api/connectors",
+		"/api/plugins/connectors",
+		"/api/resources/app/inspect",
+		"/api/resources/app/doctor",
+		"/api/plugins/connectors/pl/health",
+	}
+	for _, p := range paths {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d, want %d; body=%s", p, rec.Code, http.StatusOK, rec.Body.String())
+		}
+	}
+}
+
+func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
+	handler := New(&fakeClient{}, nil).Handler()
+	token := sessionToken(t, handler)
+	paths := []string{
+		"/api/resources/app/sync",
+		"/api/resources/app/remove",
+		"/api/pipelines/p1/run",
+		"/api/connectors/c1/operations/list",
+		"/api/plugins/connectors/health",
+		"/api/plugins/connectors/operations/list",
+		"/api/plugins/connectors/install",
+		"/api/plugins/connectors/pl/load",
+		"/api/plugins/connectors/pl/unload",
+		"/api/plugins/connectors/pl/operations/list",
+	}
+	for _, p := range paths {
+		// Without token: rejected.
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, p, strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("POST %s without token status = %d, want %d", p, rec.Code, http.StatusForbidden)
+		}
+
+		// With token: allowed through to the client.
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodPost, p, strings.NewReader("{}"))
+		req.Host = "127.0.0.1:9090"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", "http://127.0.0.1:9090")
+		req.Header.Set("X-Cerberus-Web-Token", token)
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("POST %s with token status = %d, want %d; body=%s", p, rec.Code, http.StatusOK, rec.Body.String())
+		}
+	}
+}
+
 type fakeClient struct {
 	applyCalls       int
 	stopCalls        int

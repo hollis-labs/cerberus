@@ -10,6 +10,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/go-github/v72 v72.0.0
 	github.com/hollis-labs/go-apppaths v0.1.0
+	github.com/hollis-labs/go-webui v0.1.0
 	github.com/hollis-labs/plugin-sdk v0.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
