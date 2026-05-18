@@ -8,7 +8,6 @@ import {
   DetailSection,
   EmptyState,
   FilterBar,
-  StatusBadge,
   SummaryCards,
   Textarea,
   cn,
@@ -25,6 +24,14 @@ const ACTIONS: { key: ResourceAction; label: string; icon: ReactNode; variant: '
   { key: 'reload', label: 'Reload', icon: <RotateCw className="h-3.5 w-3.5" />, variant: 'outline' },
   { key: 'stop', label: 'Stop', icon: <Square className="h-3.5 w-3.5" />, variant: 'destructive' },
 ]
+
+// DIALOG_WIDTH sizes the resource console modal to 80% of the viewport. The
+// kit's DialogContent hardcodes `sm:max-w-sm` in its base classes; because
+// tailwind-merge treats variant-prefixed classes as a separate scope, an
+// unprefixed `max-w-*` can never override it on screens >= 640px. The
+// `sm:`-prefixed entry is what actually takes effect — drop it and the modal
+// collapses back to ~24rem.
+const DIALOG_WIDTH = 'max-w-[80vw] sm:max-w-[80vw]'
 
 export function ResourcesPage() {
   const resources = usePoll<ResourceInfo[]>((signal) => apiClient.listResources(signal), 5000)
@@ -48,7 +55,7 @@ export function ResourcesPage() {
   const projects = useMemo(() => Array.from(new Set(items.map((item) => item.project).filter(Boolean))).sort(), [items])
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return items.filter((item) => {
+    const matched = items.filter((item) => {
       const status = (item.status || '').toLowerCase()
       const matchesQuery =
         q.length === 0 ||
@@ -63,6 +70,11 @@ export function ResourcesPage() {
       const matchesProject = !projectFilter || item.project === projectFilter
       return matchesQuery && matchesStatus && matchesProject
     })
+    // Alphabetical by display name (falls back to id) so the table order is
+    // stable across polls regardless of the API's response ordering.
+    return matched.sort((a, b) =>
+      (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: 'base' }),
+    )
   }, [items, projectFilter, query, statusFilter])
 
   const summaryCards = useMemo(() => {
@@ -129,7 +141,15 @@ export function ResourcesPage() {
             />
           </div>
         ) : (
-          <ResourceTable items={filtered} onOpen={setSelectedID} />
+          <ResourceTable
+            items={filtered}
+            token={sessionToken}
+            onOpen={setSelectedID}
+            onActionDone={() => {
+              void resources.refetch()
+              refreshPolledData()
+            }}
+          />
         )}
       </div>
       <ResourceDetailDialog
@@ -145,24 +165,72 @@ export function ResourcesPage() {
   )
 }
 
-function ResourceTable({ items, onOpen }: { items: ResourceInfo[]; onOpen: (id: string) => void }) {
-  const [nextResource, setNextResource] = useState<ResourceInfo | null>(null)
+function ResourceTable({
+  items,
+  token,
+  onOpen,
+  onActionDone,
+}: {
+  items: ResourceInfo[]
+  token: string
+  onOpen: (id: string) => void
+  onActionDone: () => void
+}) {
+  // busy holds the single in-flight quick action (one at a time, across all
+  // rows) so every action button can disable while one is running.
+  const [busy, setBusy] = useState<{ id: string; action: ResourceAction } | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  async function runQuickAction(item: ResourceInfo, action: ResourceAction) {
+    if (!token || busy) return
+    setBusy({ id: item.id, action })
+    setActionError(null)
+    try {
+      const result = await apiClient.runResourceAction(item.id, action, token)
+      if (!result.success) {
+        setActionError(result.error || `${action} failed for ${item.name || item.id}`)
+      }
+      onActionDone()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <>
+      {actionError && (
+        <div className="m-3 flex items-start justify-between gap-3 border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <span className="whitespace-pre-wrap break-words">{actionError}</span>
+          <button
+            type="button"
+            className="shrink-0 uppercase tracking-wider opacity-70 hover:opacity-100"
+            onClick={() => setActionError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="w-full overflow-x-auto">
         <table className="w-full min-w-full">
           <thead className="text-[10px] uppercase tracking-[.28em] text-text-subtle">
             <tr className="border-b border-border-strong">
               <th className="px-3 py-1.5 text-left font-medium">Resource</th>
               <th className="w-px whitespace-nowrap px-1.5 py-1.5 text-left font-medium">Status</th>
-              <th className="w-px whitespace-nowrap px-1.5 py-1.5 text-left font-medium">Project</th>
-              <th className="w-px whitespace-nowrap px-3 py-1.5 text-center font-medium">Next</th>
+              <th className="w-px whitespace-nowrap px-3 py-1.5">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border-soft text-[13px] leading-4">
             {items.map((item) => {
-              const hasNext = Boolean(item.recommended_next_step || item.recommended_action)
+              // A resource is "running" only when live and not operator-paused;
+              // the start/stop control toggles on this.
+              const running =
+                !item.operator_stopped && ['running', 'healthy'].includes((item.status || '').toLowerCase())
+              const rowBusy = busy?.id === item.id
+              const anyBusy = busy !== null
               return (
                 <tr
                   key={item.id}
@@ -185,50 +253,60 @@ function ResourceTable({ items, onOpen }: { items: ResourceInfo[]; onOpen: (id: 
                         <span className="truncate tracking-[.02em] text-text" title={item.name || item.id}>
                           {item.name || item.id}
                         </span>
+                        <DriftChip item={item} />
                         <RuntimeChips item={item} />
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        {item.project && (
+                          <span className="font-mono text-[10px] uppercase tracking-[.12em] text-text-subtle/80">
+                            project: <span className="text-text-soft">{item.project}</span>
+                          </span>
+                        )}
                         <span className="font-mono text-[10px] text-text-subtle/80">id:</span>
                         <CopyableId id={item.id} label={shortID(item.id)} />
                         {item.url && (
                           <>
                             <span className="font-mono text-[10px] text-text-subtle/80">url:</span>
-                            <span className="truncate font-mono text-[10px] text-text-soft" title={item.url}>
+                            <a
+                              href={item.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(event) => event.stopPropagation()}
+                              className="truncate font-mono text-[10px] text-text-soft underline-offset-2 hover:text-text hover:underline"
+                              title={`Open ${item.url} in a new tab`}
+                            >
                               {item.url}
-                            </span>
+                            </a>
                           </>
                         )}
                       </div>
                     </div>
                   </td>
                   <td className="w-px whitespace-nowrap px-1.5 py-1.5 align-top">
-                    <div className="flex flex-col items-start gap-1">
-                      <StatusBadge status={item.operator_stopped ? 'paused' : item.status || 'unknown'} />
-                      <DriftChip item={item} />
+                    <ResourceStatusBadge status={item.operator_stopped ? 'paused' : item.status || 'unknown'} />
+                  </td>
+                  <td className="w-px whitespace-nowrap px-3 py-1.5 align-top">
+                    <div className="flex items-center justify-end gap-1">
+                      <IconAction
+                        icon={running ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                        label={running ? `Stop ${item.name || item.id}` : `Start ${item.name || item.id}`}
+                        disabled={!token || anyBusy}
+                        busy={rowBusy && (busy?.action === 'stop' || busy?.action === 'apply')}
+                        onClick={() => void runQuickAction(item, running ? 'stop' : 'apply')}
+                      />
+                      <IconAction
+                        icon={<RotateCw className="h-3.5 w-3.5" />}
+                        label={`Restart ${item.name || item.id}`}
+                        disabled={!token || anyBusy}
+                        busy={rowBusy && busy?.action === 'reload'}
+                        onClick={() => void runQuickAction(item, 'reload')}
+                      />
+                      <IconAction
+                        icon={<Info className="h-3.5 w-3.5" />}
+                        label={`Open console for ${item.name || item.id}`}
+                        onClick={() => onOpen(item.id)}
+                      />
                     </div>
-                  </td>
-                  <td className="w-px whitespace-nowrap px-1.5 py-1.5 align-top">
-                    <span className="text-[11px] uppercase tracking-[.12em] text-text-soft">
-                      {item.project || '-'}
-                    </span>
-                  </td>
-                  <td className="w-px whitespace-nowrap px-3 py-1.5 text-center align-top">
-                    <button
-                      type="button"
-                      disabled={!hasNext}
-                      title={hasNext ? 'View recommended next step' : 'No recommendation'}
-                      aria-label={hasNext ? `View recommended next step for ${item.name || item.id}` : `No recommendation for ${item.name || item.id}`}
-                      className={cn(
-                        'inline-flex h-6 w-6 items-center justify-center border border-border bg-panel-2/50 text-text-soft transition-colors',
-                        hasNext ? 'hover:border-border-strong hover:bg-panel-hover hover:text-text' : 'cursor-default opacity-35',
-                      )}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        if (hasNext) setNextResource(item)
-                      }}
-                    >
-                      <Info className="h-3.5 w-3.5" />
-                    </button>
                   </td>
                 </tr>
               )
@@ -236,41 +314,95 @@ function ResourceTable({ items, onOpen }: { items: ResourceInfo[]; onOpen: (id: 
           </tbody>
         </table>
       </div>
-      <NextStepDialog resource={nextResource} onClose={() => setNextResource(null)} />
     </>
   )
 }
 
-function NextStepDialog({ resource, onClose }: { resource: ResourceInfo | null; onClose: () => void }) {
+// IconAction is a compact square icon button shared by the resource row's
+// quick-action cluster (start/stop, restart, open console). While busy it
+// swaps its glyph for a spinner and disables itself.
+function IconAction({
+  icon,
+  label,
+  onClick,
+  disabled = false,
+  busy = false,
+}: {
+  icon: ReactNode
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  busy?: boolean
+}) {
+  const inactive = disabled || busy
   return (
-    <DetailDialog
-      open={Boolean(resource)}
-      onClose={onClose}
-      title={resource?.name || resource?.id || 'Recommendation'}
-      badge={resource ? <StatusBadge status={resource.operator_stopped ? 'paused' : resource.status || 'unknown'} /> : undefined}
-      meta={resource ? <CopyableId id={resource.id} /> : undefined}
-      widthClassName="max-w-xl"
-    >
-      {resource && (
-        <div className="grid gap-4">
-          <DetailSection title="Recommended action">
-            <p className="whitespace-pre-wrap text-sm leading-6 text-text">
-              {resource.recommended_action || 'No action reported.'}
-            </p>
-          </DetailSection>
-          <DetailSection title="Next step">
-            <p className="whitespace-pre-wrap text-sm leading-6 text-text-soft">
-              {resource.recommended_next_step || 'No next step reported.'}
-            </p>
-          </DetailSection>
-        </div>
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      disabled={inactive}
+      className={cn(
+        'inline-flex h-6 w-6 items-center justify-center border border-border bg-panel-2/50 text-text-soft transition-colors',
+        inactive ? 'cursor-default opacity-35' : 'hover:border-border-strong hover:bg-panel-hover hover:text-text',
       )}
-    </DetailDialog>
+      onClick={(event) => {
+        event.stopPropagation()
+        if (!inactive) onClick()
+      }}
+    >
+      {busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : icon}
+    </button>
   )
 }
 
 function shortID(id: string) {
   return id.length > 14 ? `${id.slice(0, 14)}...` : id
+}
+
+// resourceStatusColor maps a resource runtime status to a semantic theme
+// color: green for healthy/running, red for failed states, amber for
+// transient or paused states, and a muted gray for off/unknown. The kit's
+// StatusBadge only knows task-board status keys, so resources need their
+// own good/bad classification.
+function resourceStatusColor(status: string): string {
+  switch (status.toLowerCase()) {
+    case 'running':
+    case 'healthy':
+      return 'var(--color-status-done)'
+    case 'failed':
+    case 'error':
+    case 'unhealthy':
+    case 'degraded':
+      return 'var(--color-status-blocked)'
+    case 'starting':
+    case 'building':
+      return 'var(--color-warning)'
+    case 'paused':
+      return 'var(--color-status-paused)'
+    default:
+      // stopped, unknown, and anything unrecognized — neutral.
+      return 'var(--color-text-subtle)'
+  }
+}
+
+// ResourceStatusBadge mirrors the kit StatusBadge layout (bordered pill with
+// a leading dot) but tints itself by resource-runtime semantics.
+function ResourceStatusBadge({ status }: { status: string }) {
+  const label = status || 'unknown'
+  const color = resourceStatusColor(label)
+  return (
+    <span
+      className="inline-flex items-center gap-2 rounded border px-2 py-1 text-[11px] uppercase tracking-[0.14em]"
+      style={{
+        borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+        backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
+        color,
+      }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+      <span>{label}</span>
+    </span>
+  )
 }
 
 // DriftChip flags a resource that is up but needs operator attention — most
@@ -439,9 +571,9 @@ function ResourceDetailDialog({
       open={Boolean(resourceID)}
       onClose={onClose}
       title={detail?.name || resourceID || 'Resource'}
-      badge={detail ? <StatusBadge status={detail.operator_stopped ? 'paused' : detail.status} /> : undefined}
+      badge={detail ? <ResourceStatusBadge status={detail.operator_stopped ? 'paused' : detail.status} /> : undefined}
       meta={detail ? <CopyableId id={detail.id} /> : undefined}
-      widthClassName="max-w-5xl"
+      widthClassName={DIALOG_WIDTH}
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs text-muted">{detail?.recommended_next_step || detail?.recommended_reason || detail?.recommended_action}</div>
