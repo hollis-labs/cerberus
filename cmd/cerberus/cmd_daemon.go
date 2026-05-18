@@ -332,7 +332,7 @@ func runDaemonBody() error {
 	}
 	defer daemon.RemoveDaemonPID()
 
-	a, err := app.New(cfgPath)
+	a, err := app.NewWithOptions(appOptions())
 	if err != nil {
 		return fmt.Errorf("init app: %w", err)
 	}

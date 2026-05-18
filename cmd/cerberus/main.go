@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/chrispian/cerberus/internal/app"
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
@@ -11,11 +12,23 @@ import (
 
 var (
 	cfgPath string
+	// dbPath is the value of the persistent --db flag. Empty means the main
+	// database path is resolved via go-apppaths (XDG mode), which still
+	// honors CERBERUS_DB_PATH / CERBERUS_WORKSPACE natively. A non-empty
+	// value overrides that resolution.
+	dbPath string
 
 	// Set via -ldflags at build time
 	version   = "0.3.0"
 	buildDate = "unknown"
 )
+
+// appOptions builds the app.Options the cobra command tree resolves from the
+// persistent --config / --db flags. Call sites use app.NewWithOptions so the
+// --db override threads through to go-apppaths.
+func appOptions() app.Options {
+	return app.Options{ConfigPath: cfgPath, DBPath: dbPath}
+}
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
@@ -58,6 +71,7 @@ resource "cerberus-daemon-service" on macOS launchd.
 func init() {
 	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (built %s)\n(c) HOLLIS LABS\n", version, buildDate))
 	rootCmd.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "override the main database path (default: go-apppaths XDG resolution; CERBERUS_DB_PATH is also honored)")
 
 	rootCmd.AddGroup(
 		&cobra.Group{ID: "resources", Title: "V2 Resource Commands"},
@@ -72,6 +86,7 @@ func init() {
 	mcpCmd.GroupID = "runtime"
 	installCmd.GroupID = "runtime"
 	uninstallCmd.GroupID = "runtime"
+	pathCommand.GroupID = "runtime"
 
 	projectCmd.GroupID = "resources"
 	resourceCmd.GroupID = "resources"
@@ -98,6 +113,7 @@ func init() {
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
+	rootCmd.AddCommand(pathCommand)
 	rootCmd.AddCommand(projectCmd)
 	rootCmd.AddCommand(resourceCmd)
 	rootCmd.AddCommand(pipelineCmd)

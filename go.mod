@@ -9,6 +9,7 @@ require (
 	github.com/digitalocean/godo v1.180.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/go-github/v72 v72.0.0
+	github.com/hollis-labs/go-apppaths v0.1.0
 	github.com/hollis-labs/go-webui v0.1.0
 	github.com/hollis-labs/plugin-sdk v0.3.1
 	github.com/spf13/cobra v1.10.2
@@ -20,6 +21,7 @@ require (
 )
 
 require (
+	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
 	github.com/charmbracelet/x/ansi v0.11.6 // indirect
