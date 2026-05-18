@@ -440,6 +440,13 @@ func parseLaunchdState(text string) domain.State {
 		return domain.StateRunning
 	case strings.Contains(text, "state = spawn scheduled"),
 		strings.Contains(text, "state = spawning"):
+		// A scheduled/spawning service that has already exited non-zero is
+		// crash-looping: launchd keeps rescheduling a process that fails on
+		// launch. Reporting "starting" here makes a permanently broken
+		// service look transient — surface it as failed instead.
+		if hasNonZeroLaunchdExit(text) {
+			return domain.StateFailed
+		}
 		return domain.StateStarting
 	case strings.Contains(text, "state = throttled"):
 		return domain.StateFailed
@@ -482,8 +489,8 @@ func extractLaunchdOptionalInt(text, prefix string) *int {
 }
 
 func diagnoseLaunchdRecord(text string) (string, []string) {
-	highlights := make([]string, 0, 4)
-	for _, prefix := range []string{"state =", "pid =", "last exit code =", "reason ="} {
+	highlights := make([]string, 0, 5)
+	for _, prefix := range []string{"state =", "pid =", "last exit code =", "runs =", "reason ="} {
 		if v := extractLaunchdValue(text, prefix); v != "" {
 			highlights = append(highlights, strings.TrimSpace(prefix)+" "+v)
 		}
@@ -497,6 +504,9 @@ func diagnoseLaunchdRecord(text string) (string, []string) {
 		return "process crashed after launch", highlights
 	case strings.Contains(lower, "state = waiting") && hasNonZeroLaunchdExit(text):
 		return "process exited with a non-zero status", highlights
+	case (strings.Contains(lower, "state = spawn scheduled") ||
+		strings.Contains(lower, "state = spawning")) && hasNonZeroLaunchdExit(text):
+		return "process is crash-looping: it exits non-zero on launch and launchd keeps rescheduling it", highlights
 	case strings.Contains(lower, "state = spawn scheduled"):
 		return "launchd is waiting to spawn the process", highlights
 	case strings.Contains(lower, "state = spawning"):
