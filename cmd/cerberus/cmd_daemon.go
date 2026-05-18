@@ -347,6 +347,12 @@ func runDaemonBody() error {
 	// lives on the shared runtime side.
 	resourceMonitor := cerbapi.NewResourceMonitor(a.Runtime, cerbapi.DefaultResourceMonitorConfig(), logger)
 
+	// Start the background artifact-drift scan and wire it into the
+	// runtime so the high-fanout list path surfaces repo-drift staleness
+	// without a live git probe per poll.
+	driftCache := cerbapi.NewDriftCache(a.Runtime, logger)
+	a.Runtime.AttachDriftCache(driftCache)
+
 	var wg sync.WaitGroup
 
 	wg.Add(1)
@@ -354,6 +360,14 @@ func runDaemonBody() error {
 		defer wg.Done()
 		if err := resourceMonitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintf(os.Stderr, "Resource monitor error: %v\n", err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := driftCache.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "Drift cache error: %v\n", err)
 		}
 	}()
 

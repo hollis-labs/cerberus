@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chrispian/cerberus/internal/config"
@@ -30,7 +31,29 @@ type ResourceRuntimeService struct {
 	cfgMu sync.RWMutex
 	cfg   *config.ConfigV2
 
+	// drift holds the optional background artifact-drift cache. When set
+	// (daemon mode), ListResources reads repo-drift staleness from it
+	// instead of running a live git probe per poll.
+	drift atomic.Pointer[DriftCache]
+
 	opMu sync.Mutex
+}
+
+// AttachDriftCache wires a background drift cache into the runtime so the
+// list path can surface repo-drift staleness. Call once during daemon
+// startup, before the runtime begins serving requests.
+func (s *ResourceRuntimeService) AttachDriftCache(d *DriftCache) {
+	s.drift.Store(d)
+}
+
+// lookupDrift returns cached artifact drift for a resource when a drift
+// cache is attached and holds a fresh entry.
+func (s *ResourceRuntimeService) lookupDrift(id string) (localconn.ArtifactStatus, bool) {
+	d := s.drift.Load()
+	if d == nil {
+		return localconn.ArtifactStatus{}, false
+	}
+	return d.Lookup(id)
 }
 
 const resourceStatusProbeTimeout = 750 * time.Millisecond
@@ -126,13 +149,23 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 				if state, err := s.statusWithTimeout(ctx, dr); err == nil {
 					info.Status = string(state)
 				}
-				if _, art, err := localconn.InspectArtifactInstallBasic(dr, spec); err == nil {
+				// Prefer the background drift cache: it runs the full
+				// repo-aware probe so the table can surface repo-drift
+				// staleness. Fall back to the basic probe before the
+				// first scan completes (or when no cache is attached).
+				art, haveArt := s.lookupDrift(res.ID)
+				if !haveArt {
+					if _, basic, err := localconn.InspectArtifactInstallBasic(dr, spec); err == nil {
+						art, haveArt = basic, true
+					}
+				}
+				if haveArt {
 					info.ArtifactInstalled = art.Installed
 					info.ArtifactStale = art.Stale
 					if info.Status != "" {
-						if action, _ := localconn.RecommendedStatusAction(spec, domain.State(info.Status), art); action != "" {
+						if action, reason := localconn.RecommendedStatusAction(spec, domain.State(info.Status), art); action != "" {
 							info.RecommendedAction = action
-							info.RecommendedNextStep = localconn.RecommendedNextStep(action, "")
+							info.RecommendedNextStep = localconn.RecommendedNextStep(action, reason)
 						}
 					}
 				}

@@ -1,4 +1,12 @@
-.PHONY: build install test lint
+.PHONY: all build install test lint ui-build ui-dev clean
+
+all: ui-build build
+
+ui-build:
+	cd web && npm install && npm run build
+
+ui-dev:
+	cd web && npm install && npm run dev
 
 build:
 	go build -o cerberus ./cmd/cerberus
@@ -11,3 +19,8 @@ test:
 
 lint:
 	go vet ./...
+
+clean:
+	rm -f cerberus
+	rm -rf web/node_modules
+	find internal/webui/dist -mindepth 1 ! -name .gitkeep -delete
