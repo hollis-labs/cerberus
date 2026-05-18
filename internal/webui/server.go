@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -16,10 +17,12 @@ import (
 	"strings"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
+	contract "github.com/chrispian/cerberus/pkg/connector"
+	gowebui "github.com/hollis-labs/go-webui"
 )
 
-//go:embed static/*
-var staticFS embed.FS
+//go:embed all:dist
+var embeddedUI embed.FS
 
 type Server struct {
 	client      cerbapi.Client
@@ -40,12 +43,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/resources", s.handleResources)
 	mux.HandleFunc("/api/resources/", s.handleResourceByID)
 
-	staticSub, err := fs.Sub(staticFS, "static")
+	// Full cerbapi.Client domain (CW-20260517-0039). Handlers stay thin
+	// over the client; mutating routes reuse the actionToken guard.
+	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/projects", s.handleProjects)
+	mux.HandleFunc("/api/pipelines", s.handlePipelines)
+	mux.HandleFunc("/api/pipelines/", s.handlePipelineByID)
+	mux.HandleFunc("/api/connectors", s.handleConnectors)
+	mux.HandleFunc("/api/connectors/", s.handleConnectorByID)
+	mux.HandleFunc("/api/plugins/connectors", s.handleManagedPlugins)
+	mux.HandleFunc("/api/plugins/connectors/health", s.handlePluginHealth)
+	mux.HandleFunc("/api/plugins/connectors/operations/", s.handlePluginOperations)
+	mux.HandleFunc("/api/plugins/connectors/", s.handleManagedPluginByID)
+
+	dist, err := fs.Sub(embeddedUI, "dist")
 	if err != nil {
 		panic(err)
 	}
-	fileServer := http.FileServer(http.FS(staticSub))
-	mux.Handle("/", fileServer)
+	mux.Handle("/", gowebui.Handler(gowebui.Config{FS: dist, BasePath: "/"}))
 	return s.withLogging(mux)
 }
 
@@ -125,7 +140,29 @@ func (s *Server) handleResourceByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
-	case "apply", "deploy", "reload", "stop":
+	case "inspect":
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.GetResourceInspect(r.Context(), id)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "doctor":
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.GetResourceDoctor(r.Context(), id)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "apply", "deploy", "reload", "stop", "sync", "remove":
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -169,6 +206,10 @@ func (s *Server) performAction(ctx context.Context, id, action string) (*cerbapi
 		return s.client.ReloadResource(ctx, id)
 	case "stop":
 		return s.client.StopResource(ctx, id)
+	case "sync":
+		return s.client.SyncResource(ctx, id)
+	case "remove":
+		return s.client.RemoveResource(ctx, id)
 	default:
 		return nil, fmt.Errorf("unsupported action %q", action)
 	}
@@ -198,6 +239,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 func writeClientError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	msg := err.Error()
+	var connErr *cerbapi.ExternalConnectorError
 	switch {
 	case isDaemonUnavailable(err):
 		status = http.StatusServiceUnavailable
@@ -205,6 +247,15 @@ func writeClientError(w http.ResponseWriter, err error) {
 	case isTimeoutError(err):
 		status = http.StatusServiceUnavailable
 		msg = "cerberus daemon timed out while gathering resource state; check 'cerberus daemon status'"
+	case errors.As(err, &connErr):
+		switch connErr.Code {
+		case cerbapi.ExternalConnectorInvalidArgs:
+			status = http.StatusBadRequest
+		case cerbapi.ExternalConnectorUnavailable, cerbapi.ExternalConnectorCredentialMissing:
+			status = http.StatusServiceUnavailable
+		case cerbapi.ExternalConnectorUnsupported:
+			status = http.StatusNotFound
+		}
 	}
 	writeError(w, status, msg)
 }
@@ -220,4 +271,341 @@ func isTimeoutError(err error) bool {
 	}
 	var netErr net.Error
 	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// decodeJSONBody decodes a request JSON body into dst. An empty body is
+// treated as a zero value, matching the socket server's contract.
+func decodeJSONBody(r *http.Request, dst any) error {
+	if r.Body == nil {
+		return nil
+	}
+	defer r.Body.Close()                                   //nolint:errcheck
+	data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB cap
+	if err != nil {
+		return fmt.Errorf("read body: %w", err)
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(data, dst); err != nil {
+		return fmt.Errorf("decode body: %w", err)
+	}
+	return nil
+}
+
+// ---- domain handlers (CW-20260517-0039) ----
+//
+// Route map exposed to the Sysop UI (CW-20260515-0139):
+//
+//	GET  /api/health                              ?resource=<id> optional
+//	GET  /api/projects
+//	GET  /api/resources/{id}/inspect
+//	GET  /api/resources/{id}/doctor
+//	POST /api/resources/{id}/sync                  guarded
+//	POST /api/resources/{id}/remove                guarded
+//	GET  /api/pipelines
+//	POST /api/pipelines/{id}/run                   guarded
+//	GET  /api/connectors
+//	POST /api/connectors/{id}/operations/{op}      guarded
+//	GET  /api/plugins/connectors
+//	POST /api/plugins/connectors/health            guarded
+//	POST /api/plugins/connectors/operations/{op}   guarded
+//	POST /api/plugins/connectors/install           guarded
+//	POST /api/plugins/connectors/{id}/load         guarded
+//	POST /api/plugins/connectors/{id}/unload       guarded
+//	GET  /api/plugins/connectors/{id}/health
+//	POST /api/plugins/connectors/{id}/operations/{op}  guarded
+//
+// "guarded" routes require the actionToken via allowStateChangingRequest.
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	out, err := s.client.Health(r.Context(), r.URL.Query().Get("resource"))
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	list, err := s.client.ListProjects(r.Context())
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	if list == nil {
+		list = []cerbapi.ProjectInfo{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handlePipelines(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	list, err := s.client.ListPipelines(r.Context())
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	if list == nil {
+		list = []cerbapi.PipelineInfo{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/pipelines/")
+	parts := strings.SplitN(rest, "/", 2)
+	id := parts[0]
+	action := ""
+	if len(parts) == 2 {
+		action = parts[1]
+	}
+	if id == "" || action != "run" {
+		writeError(w, http.StatusNotFound, "expected POST /api/pipelines/{id}/run")
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return
+	}
+	out, err := s.client.RunPipeline(r.Context(), id)
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	list, err := s.client.ListConnectors(r.Context())
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	if list == nil {
+		list = []contract.Definition{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleConnectorByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/connectors/")
+	parts := strings.Split(rest, "/")
+	if len(parts) != 3 || parts[0] == "" || parts[1] != "operations" || parts[2] == "" {
+		writeError(w, http.StatusNotFound, "expected POST /api/connectors/{id}/operations/{operation}")
+		return
+	}
+	if !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return
+	}
+	var args cerbapi.ExternalConnectorOperationArgs
+	if err := decodeJSONBody(r, &args); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	args.Connector = parts[0]
+	args.Operation = parts[2]
+	if args.Config == nil {
+		args.Config = map[string]any{}
+	}
+	out, err := s.client.ExecuteConnectorOperation(r.Context(), args)
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleManagedPlugins(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	list, err := s.client.ListManagedPlugins(r.Context())
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	if list == nil {
+		list = []cerbapi.ManagedPluginConnectorState{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handlePluginHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return
+	}
+	var args cerbapi.PluginConnectorHealthArgs
+	if err := decodeJSONBody(r, &args); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out, err := s.client.PluginHealth(r.Context(), args)
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handlePluginOperations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	operation := strings.TrimPrefix(r.URL.Path, "/api/plugins/connectors/operations/")
+	if operation == "" || strings.Contains(operation, "/") {
+		writeError(w, http.StatusNotFound, "expected POST /api/plugins/connectors/operations/{operation}")
+		return
+	}
+	if !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return
+	}
+	var args cerbapi.PluginConnectorExecArgs
+	if err := decodeJSONBody(r, &args); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	args.Operation = operation
+	out, err := s.client.ExecutePluginConnector(r.Context(), args)
+	if err != nil {
+		writeClientError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleManagedPluginByID(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/plugins/connectors/")
+	if rest == "" {
+		writeError(w, http.StatusNotFound, "expected /api/plugins/connectors/{id}/{action}")
+		return
+	}
+	parts := strings.Split(rest, "/")
+
+	// install: POST /api/plugins/connectors/install (no resource id).
+	if len(parts) == 1 && parts[0] == "install" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.allowStateChangingRequest(r) {
+			writeError(w, http.StatusForbidden, "state-changing request rejected")
+			return
+		}
+		var args cerbapi.PluginConnectorHealthArgs
+		if err := decodeJSONBody(r, &args); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		out, err := s.client.InstallManagedPlugin(r.Context(), args)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+
+	if len(parts) < 2 || parts[0] == "" {
+		writeError(w, http.StatusNotFound, "expected /api/plugins/connectors/{id}/{action}")
+		return
+	}
+	id := parts[0]
+	action := parts[1]
+
+	switch action {
+	case "health":
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.ManagedPluginHealth(r.Context(), id)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "load", "unload":
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.allowStateChangingRequest(r) {
+			writeError(w, http.StatusForbidden, "state-changing request rejected")
+			return
+		}
+		var (
+			out cerbapi.ManagedPluginConnectorState
+			err error
+		)
+		if action == "load" {
+			out, err = s.client.LoadManagedPlugin(r.Context(), id)
+		} else {
+			out, err = s.client.UnloadManagedPlugin(r.Context(), id)
+		}
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "operations":
+		if len(parts) < 3 || parts[2] == "" {
+			writeError(w, http.StatusNotFound, "expected POST /api/plugins/connectors/{id}/operations/{operation}")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.allowStateChangingRequest(r) {
+			writeError(w, http.StatusForbidden, "state-changing request rejected")
+			return
+		}
+		var args cerbapi.PluginConnectorExecArgs
+		if err := decodeJSONBody(r, &args); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		args.Operation = parts[2]
+		out, err := s.client.ExecuteManagedPlugin(r.Context(), id, args)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	default:
+		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown managed plugin action %q", action))
+	}
 }
