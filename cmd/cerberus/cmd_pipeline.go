@@ -24,7 +24,7 @@ var pipelineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available pipelines",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.New(cfgPath)
+		a, err := app.NewWithOptions(appOptions())
 		if err != nil {
 			return fmt.Errorf("init app: %w", err)
 		}
@@ -51,7 +51,7 @@ var pipelineRunCmd = &cobra.Command{
 	Long:  "Executes a pipeline defined in the config. Stages run in dependency order with parallel execution where possible.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.New(cfgPath)
+		a, err := app.NewWithOptions(appOptions())
 		if err != nil {
 			return fmt.Errorf("init app: %w", err)
 		}
@@ -126,7 +126,7 @@ var pipelineShowCmd = &cobra.Command{
 	Short: "Show pipeline details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.New(cfgPath)
+		a, err := app.NewWithOptions(appOptions())
 		if err != nil {
 			return fmt.Errorf("init app: %w", err)
 		}

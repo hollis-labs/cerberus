@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/hollis-labs/go-apppaths/paths"
+
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/config"
 	"github.com/chrispian/cerberus/internal/connector"
@@ -37,16 +39,37 @@ type App struct {
 	storePath string
 }
 
+// Options configures App construction. ConfigPath is the v2 config file path
+// (the legacy ~/.cerberus/config.yaml dotdir location, unchanged). DBPath, when
+// non-empty, overrides the go-apppaths-resolved main database path — it is the
+// value of the `--db` flag. An empty DBPath uses the XDG-resolved default
+// (CERBERUS_DB_PATH is still honored natively by go-apppaths in that case).
+type Options struct {
+	ConfigPath string
+	DBPath     string
+}
+
 // New creates an App from a config file path. It loads the unified v2 config,
 // creates the connector registry with the local connector, and initializes
 // the service registry backed by a file-based config Source.
 //
 // The SQLite store is NOT opened here — call OpenStore() explicitly when
 // needed. This keeps the default path (local services via config) lightweight.
+//
+// New is a thin convenience wrapper over NewWithOptions for the common case
+// of no DB override.
 func New(cfgPath string) (*App, error) {
+	return NewWithOptions(Options{ConfigPath: cfgPath})
+}
+
+// NewWithOptions creates an App with explicit Options. The main database path
+// is resolved via go-apppaths (XDG mode); opts.DBPath, when set, overrides it
+// through paths.WithDBOverride. go-apppaths additionally honors CERBERUS_DB_PATH
+// / CERBERUS_WORKSPACE natively, so an unset --db still respects those env vars.
+func NewWithOptions(opts Options) (*App, error) {
 	// Assemble the effective v2 config: every registered project config
-	// merged over the optional global config.yaml at cfgPath.
-	v2, err := registry.ResolveConfig(cfgPath)
+	// merged over the optional global config.yaml at ConfigPath.
+	v2, err := registry.ResolveConfig(opts.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
@@ -59,12 +82,21 @@ func New(cfgPath string) (*App, error) {
 		cerbapi.WithResourceRuntimeLogger(nil),
 		cerbapi.WithResourceRuntimeLocalConnector(local),
 		cerbapi.WithResourceRuntimeConfigV2(v2),
-		cerbapi.WithResourceRuntimeConfigPath(cfgPath),
+		cerbapi.WithResourceRuntimeConfigPath(opts.ConfigPath),
 	)
 	external := cerbapi.NewExternalConnectorService(registry)
 
-	home, _ := os.UserHomeDir()
-	storePath := filepath.Join(home, ".cerberus", "cerberus.db")
+	// Resolve the main database path via go-apppaths. Only cerberus.db moves
+	// onto the XDG layout (CW-20260517-0065); the rest of ~/.cerberus/ stays.
+	var layoutOpts []paths.Option
+	if opts.DBPath != "" {
+		layoutOpts = append(layoutOpts, paths.WithDBOverride(opts.DBPath))
+	}
+	layout, err := config.ResolveLayout(layoutOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("resolve store path: %w", err)
+	}
+	storePath := layout.MainDB()
 
 	return &App{
 		Config:    v2,
