@@ -7,7 +7,6 @@ import (
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/mcp"
-	"github.com/chrispian/cerberus/internal/selfexec"
 	"github.com/chrispian/cerberus/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -132,17 +131,16 @@ the operator to start one with 'cerberus daemon'.`,
 		srv.RegisterTool(mcp.NewCerberusServerStopTool(socketClient))
 		srv.RegisterTool(mcp.NewCerberusServerDestroyTool(socketClient))
 
-		// CERB-4: self-heal on binary replacement. If `cerberus rebuild`,
-		// `go install`, a package manager, or anything else swaps this
-		// binary on disk while we're running, exit cleanly so the parent
-		// MCP host (Claude Code, Nanite, etc.) respawns us against the
-		// new binary on the next tool call. Default 30s polling cadence.
-		// Thread the lifecycle logger so selfexec events land in
-		// ~/.cerberus/cerberus.log alongside every other daemon event.
-		selfexecOpts := selfexec.DefaultOptions()
-		selfexecOpts.Logger = logger
-		go selfexec.WatchAndExit(cmd.Context(), selfexecOpts)
-
+		// CW-20260519-0053: selfexec.WatchAndExit removed. CERB-4 added it
+		// so a binary swap triggered respawn-on-next-tool-call, assuming the
+		// parent MCP host respawns dead children. That holds for Claude Code
+		// but not for `mux mcp --proxy`, which leaves dead children dead.
+		// `cerberus resource deploy cerberus-daemon-service` rebuilds the
+		// binary on disk, so every selfexec watcher in every running
+		// `cerberus mcp` child fires within 30s and exits — wiping out MCP
+		// access fleet-wide. Each tool call already re-dials the daemon
+		// socket, so the in-memory subprocess survives daemon restarts on
+		// its own; the parent host can recycle children at its own cadence.
 		return srv.Run()
 	},
 }
