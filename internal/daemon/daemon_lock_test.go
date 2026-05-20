@@ -172,6 +172,46 @@ func TestAcquireDaemonLock_LiveButNotCerberus(t *testing.T) {
 	defer lock.Release()
 }
 
+func TestAcquireDaemonLock_StampsManualOriginByDefault(t *testing.T) {
+	t.Setenv("XPC_SERVICE_NAME", "")
+	base := t.TempDir()
+	ident := stubIdent{daemonSet: map[int]bool{os.Getpid(): true}}
+
+	lock, err := AcquireDaemonLockAt(base, ident)
+	if err != nil {
+		t.Fatalf("AcquireDaemonLockAt: %v", err)
+	}
+	defer lock.Release()
+
+	info, err := ReadDaemonLockInfoAt(base)
+	if err != nil {
+		t.Fatalf("ReadDaemonLockInfoAt: %v", err)
+	}
+	if info.Origin != "manual" {
+		t.Errorf("origin = %q, want %q (no XPC_SERVICE_NAME means manual)", info.Origin, "manual")
+	}
+}
+
+func TestAcquireDaemonLock_StampsLaunchdOriginUnderLaunchd(t *testing.T) {
+	t.Setenv("XPC_SERVICE_NAME", CanonicalDaemonServiceLabel)
+	base := t.TempDir()
+	ident := stubIdent{daemonSet: map[int]bool{os.Getpid(): true}}
+
+	lock, err := AcquireDaemonLockAt(base, ident)
+	if err != nil {
+		t.Fatalf("AcquireDaemonLockAt: %v", err)
+	}
+	defer lock.Release()
+
+	info, err := ReadDaemonLockInfoAt(base)
+	if err != nil {
+		t.Fatalf("ReadDaemonLockInfoAt: %v", err)
+	}
+	if info.Origin != "launchd" {
+		t.Errorf("origin = %q, want %q (XPC_SERVICE_NAME matches canonical label)", info.Origin, "launchd")
+	}
+}
+
 func TestReleaseRemovesFile(t *testing.T) {
 	base := t.TempDir()
 	ident := stubIdent{}

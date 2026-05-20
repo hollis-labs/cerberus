@@ -14,6 +14,7 @@ import (
 
 	"github.com/chrispian/cerberus/internal/config"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
+	"github.com/chrispian/cerberus/internal/daemon"
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/registry"
@@ -487,6 +488,20 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 				status = "pass"
 			}
 			add("launchd_diagnosis", status, inspect.LaunchdDiagnosis)
+		}
+
+		// CW-20260519-0054: surface a rogue manual daemon squatting the
+		// launchd-supervised cerberus daemon lock. The doctor only runs
+		// against the canonical daemon resource — for other launchd
+		// services the daemon-lock check is meaningless.
+		if inspect.ID == daemon.CanonicalDaemonResourceID {
+			if info, err := daemon.ReadDaemonLockInfo(); err == nil && info.Origin == "manual" && info.PID > 0 {
+				add("daemon_lock_origin", "fail", fmt.Sprintf(
+					"daemon lock is held by a manual cerberus daemon (PID %d). "+
+						"This squats the launchd-managed service and causes the launchd job to crash-loop with exit 1. "+
+						"Kill the manual PID, then `cerberus resource reload %s`.",
+					info.PID, daemon.CanonicalDaemonResourceID))
+			}
 		}
 	}
 
