@@ -12,10 +12,21 @@ import (
 )
 
 // daemonLockInfo is written into the daemon lock file so other processes
-// can diagnose who holds it.
+// can diagnose who holds it. Origin distinguishes launchd-spawned holders
+// from manual ones so `daemon status` and the resource doctor can flag a
+// rogue/squatter manual daemon when launchd is the intended supervisor.
 type daemonLockInfo struct {
 	PID        int       `json:"pid"`
 	AcquiredAt time.Time `json:"acquired_at"`
+	Origin     string    `json:"origin,omitempty"`
+}
+
+// DaemonLockInfo is the exported lock-holder snapshot returned by
+// ReadDaemonLockInfo.
+type DaemonLockInfo struct {
+	PID        int
+	AcquiredAt time.Time
+	Origin     string
 }
 
 // DaemonLock represents an acquired exclusive flock on the daemon lock file.
@@ -97,7 +108,8 @@ func acquireDaemonLockAt(path string, ident ProcIdentifier) (*DaemonLock, error)
 	if lockErr := flockExclusive(f); lockErr != nil {
 		// Lock is held by another process. Determine whether the holder is a
 		// live cerberus daemon (real contention) or a stale/unrelated holder.
-		holderPID, _, readErr := readDaemonLockInfo(path)
+		info, readErr := readDaemonLockInfo(path)
+		holderPID := info.PID
 		_ = f.Close()
 
 		if readErr == nil && holderPID > 0 && daemonProcessAlive(holderPID) {
@@ -132,7 +144,7 @@ func acquireDaemonLockAt(path string, ident ProcIdentifier) (*DaemonLock, error)
 	}
 
 	// Write holder info under the lock.
-	info := daemonLockInfo{PID: os.Getpid(), AcquiredAt: time.Now()}
+	info := daemonLockInfo{PID: os.Getpid(), AcquiredAt: time.Now(), Origin: DaemonOrigin()}
 	_ = f.Truncate(0)
 	_, _ = f.Seek(0, 0)
 	data, _ := json.Marshal(info)
@@ -182,7 +194,11 @@ func DaemonLockHolder() (pid int, since time.Time, err error) {
 	if err != nil {
 		return 0, time.Time{}, err
 	}
-	return readDaemonLockInfo(path)
+	info, err := readDaemonLockInfo(path)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	return info.PID, info.AcquiredAt, nil
 }
 
 // DaemonLockHolderAt inspects lock holder info in a custom base.
@@ -191,20 +207,52 @@ func DaemonLockHolderAt(base string) (pid int, since time.Time, err error) {
 	if err != nil {
 		return 0, time.Time{}, err
 	}
-	return readDaemonLockInfo(path)
+	info, err := readDaemonLockInfo(path)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	return info.PID, info.AcquiredAt, nil
 }
 
-func readDaemonLockInfo(path string) (int, time.Time, error) {
+// ReadDaemonLockInfo returns the full lock-holder snapshot including
+// origin ("launchd"|"manual"). Use this when distinguishing between a
+// launchd-spawned and a manual squatter daemon matters.
+func ReadDaemonLockInfo() (DaemonLockInfo, error) {
+	path, err := daemonLockPath()
+	if err != nil {
+		return DaemonLockInfo{}, err
+	}
+	info, err := readDaemonLockInfo(path)
+	if err != nil {
+		return DaemonLockInfo{}, err
+	}
+	return DaemonLockInfo{PID: info.PID, AcquiredAt: info.AcquiredAt, Origin: info.Origin}, nil
+}
+
+// ReadDaemonLockInfoAt is the custom-base variant of ReadDaemonLockInfo.
+func ReadDaemonLockInfoAt(base string) (DaemonLockInfo, error) {
+	path, err := daemonLockPathAt(base)
+	if err != nil {
+		return DaemonLockInfo{}, err
+	}
+	info, err := readDaemonLockInfo(path)
+	if err != nil {
+		return DaemonLockInfo{}, err
+	}
+	return DaemonLockInfo{PID: info.PID, AcquiredAt: info.AcquiredAt, Origin: info.Origin}, nil
+}
+
+func readDaemonLockInfo(path string) (daemonLockInfo, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is constrained to ~/.cerberus/daemon.lock
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("read daemon lock file: %w", err)
+		return daemonLockInfo{}, fmt.Errorf("read daemon lock file: %w", err)
 	}
 	if len(data) == 0 {
-		return 0, time.Time{}, errors.New("empty daemon lock file")
+		return daemonLockInfo{}, errors.New("empty daemon lock file")
 	}
 	var info daemonLockInfo
 	if err := json.Unmarshal(data, &info); err != nil {
-		return 0, time.Time{}, fmt.Errorf("parse daemon lock file: %w", err)
+		return daemonLockInfo{}, fmt.Errorf("parse daemon lock file: %w", err)
 	}
-	return info.PID, info.AcquiredAt, nil
+	return info, nil
 }
