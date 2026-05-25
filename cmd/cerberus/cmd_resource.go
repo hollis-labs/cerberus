@@ -612,6 +612,17 @@ func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {
 		return nil
 	}
 	if !out.Success {
+		// Surface captured build/install output and the log path so a failed
+		// deploy is diagnosable inline instead of a bare "exit status 2".
+		if out.BuildOutput != "" {
+			fmt.Fprintf(os.Stderr, "--- build output ---\n%s\n--------------------\n", out.BuildOutput)
+		}
+		if out.InstallOutput != "" {
+			fmt.Fprintf(os.Stderr, "--- install output ---\n%s\n----------------------\n", out.InstallOutput)
+		}
+		if out.BuildLogPath != "" {
+			fmt.Fprintf(os.Stderr, "build log: %s\n", out.BuildLogPath)
+		}
 		if out.Error != "" {
 			return errors.New(out.Error)
 		}
@@ -894,4 +905,11 @@ func init() {
 	resourceCmd.AddCommand(resourceLogsCmd)
 	resourceCmd.AddCommand(resourceSyncCmd)
 	resourceCmd.AddCommand(resourceRemoveCmd)
+
+	// A runtime (RunE) failure on a resource subcommand is an operational
+	// error, not misuse — printing the cobra usage block is just noise. Cobra
+	// still prints the error itself (SilenceErrors stays false).
+	for _, c := range resourceCmd.Commands() {
+		c.SilenceUsage = true
+	}
 }
