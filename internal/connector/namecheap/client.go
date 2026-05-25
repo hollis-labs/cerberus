@@ -100,6 +100,23 @@ type dnsGetHostsResponse struct {
 	} `xml:"CommandResponse"`
 }
 
+type dnsSetCustomResponse struct {
+	XMLName xml.Name `xml:"ApiResponse"`
+	Status  string   `xml:"Status,attr"`
+	Errors  struct {
+		Error []struct {
+			Number  string `xml:"Number,attr"`
+			Message string `xml:",chardata"`
+		} `xml:"Error"`
+	} `xml:"Errors"`
+	CommandResponse struct {
+		DomainDNSSetCustomResult struct {
+			Domain  string `xml:"Domain,attr"`
+			Updated string `xml:"Updated,attr"`
+		} `xml:"DomainDNSSetCustomResult"`
+	} `xml:"CommandResponse"`
+}
+
 type xmlHost struct {
 	HostID  string `xml:"HostId,attr"`
 	Name    string `xml:"Name,attr"`
@@ -246,6 +263,48 @@ func (c *Client) SetDNSRecords(ctx context.Context, sld, tld string, records []D
 		return fmt.Errorf("namecheap set dns: %s", extractError(resp.Errors.Error))
 	}
 	return nil
+}
+
+// SetCustomNameservers switches a domain to the provided nameserver set.
+func (c *Client) SetCustomNameservers(ctx context.Context, domain string, nameservers []string) (*DomainNameserverUpdate, error) {
+	sld, tld, err := SplitDomain(domain)
+	if err != nil {
+		return nil, err
+	}
+	clean := make([]string, 0, len(nameservers))
+	for _, ns := range nameservers {
+		ns = strings.TrimSpace(ns)
+		if ns == "" {
+			continue
+		}
+		clean = append(clean, ns)
+	}
+	if len(clean) < 2 {
+		return nil, fmt.Errorf("namecheap set custom nameservers: at least two nameservers are required")
+	}
+
+	body, err := c.doRequest(ctx, "namecheap.domains.dns.setCustom", map[string]string{
+		"SLD":         sld,
+		"TLD":         tld,
+		"NameServers": strings.Join(clean, ","),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("namecheap set custom nameservers: %w", err)
+	}
+
+	var resp dnsSetCustomResponse
+	if err := xml.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("namecheap set custom nameservers: parse xml: %w", err)
+	}
+	if resp.Status != "OK" {
+		return nil, fmt.Errorf("namecheap set custom nameservers: %s", extractError(resp.Errors.Error))
+	}
+
+	return &DomainNameserverUpdate{
+		Domain:      resp.CommandResponse.DomainDNSSetCustomResult.Domain,
+		Updated:     parseBool(resp.CommandResponse.DomainDNSSetCustomResult.Updated),
+		NameServers: clean,
+	}, nil
 }
 
 // --- internal helpers ---

@@ -20,6 +20,7 @@ type Backend interface {
 	GetDomainStatus(ctx context.Context, domain string) (*DomainStatus, error)
 	ListDNSRecords(ctx context.Context, sld, tld string) ([]DNSRecord, error)
 	SetDNSRecords(ctx context.Context, sld, tld string, records []DNSRecord) error
+	SetCustomNameservers(ctx context.Context, domain string, nameservers []string) (*DomainNameserverUpdate, error)
 }
 
 // Connector manages Namecheap domain resources via the Namecheap XML API.
@@ -182,6 +183,25 @@ func Definition() contract.Definition {
 				Destructive: true,
 				SupportsDry: true,
 			},
+			{
+				Name:        "set_custom_nameservers",
+				Description: "Switch a Namecheap domain to a custom nameserver set.",
+				Examples: []string{
+					"cerberus domain nameservers set example.com ns1.example.net ns2.example.net --dry-run",
+					"cerberus domain nameservers set example.com ns1.example.net ns2.example.net --ack",
+				},
+				InputSchema: contract.ObjectSchema(map[string]any{
+					"domain": contract.StringSchema("Domain name in sld.tld form."),
+					"nameservers": map[string]any{
+						"type":        "array",
+						"description": "List of nameservers to assign to the domain.",
+						"items":       map[string]any{"type": "string"},
+						"minItems":    2,
+					},
+				}, "domain", "nameservers"),
+				Destructive: true,
+				SupportsDry: true,
+			},
 		},
 	}
 }
@@ -281,6 +301,10 @@ func (c *Connector) DeleteDNSRecord(ctx context.Context, domainName string, reco
 		return fmt.Errorf("namecheap dns record %d not found for %s", recordID, domainName)
 	}
 	return c.SetDNSRecords(ctx, domainName, filtered)
+}
+
+func (c *Connector) SetCustomNameservers(ctx context.Context, domainName string, nameservers []string) (*DomainNameserverUpdate, error) {
+	return c.backend.SetCustomNameservers(ctx, domainName, nameservers)
 }
 
 // DomainsJSON returns the domain list as a JSON string (used by MCP tools).

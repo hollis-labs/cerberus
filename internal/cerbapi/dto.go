@@ -23,7 +23,12 @@
 // routes to the appropriate shared runtime layer before executing the op.
 package cerbapi
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	gmcp "github.com/hollis-labs/go-mcp/server"
+)
 
 // APIHeaderName is the protocol-version header sent by clients and
 // validated by the server. Bumping this is a breaking change; there is
@@ -32,6 +37,8 @@ const APIHeaderName = "X-Cerberus-Api"
 
 // APIVersion is the single supported protocol version.
 const APIVersion = "v1"
+
+const ProgressHeaderName = "X-Cerberus-Progress"
 
 // ServiceStatus is the DTO for a single service's runtime state. Mirrors
 // the JSON shape of the existing cerberus_status tool so MCP output is
@@ -191,6 +198,13 @@ type ErrorResponse struct {
 	Error   string `json:"error"`
 }
 
+type StreamEnvelope struct {
+	Type         string             `json:"type"`
+	Notification *gmcp.Notification `json:"notification,omitempty"`
+	Result       json.RawMessage    `json:"result,omitempty"`
+	Error        string             `json:"error,omitempty"`
+}
+
 // ProjectInfo is the DTO for project-list responses.
 type ProjectInfo struct {
 	ID          string `json:"id"`
@@ -281,7 +295,7 @@ type ResourceInspect struct {
 	WorkspaceDir        string   `json:"workspace_dir,omitempty"`
 	WorkingDir          string   `json:"working_dir,omitempty"`
 	Command             []string `json:"command,omitempty"`
-	Build               []string `json:"build,omitempty"`
+	BuildStrategy       string   `json:"build_strategy,omitempty"`
 	ServiceName         string   `json:"service_name,omitempty"`
 	PlistPath           string   `json:"plist_path,omitempty"`
 	InstallRoot         string   `json:"install_root,omitempty"`

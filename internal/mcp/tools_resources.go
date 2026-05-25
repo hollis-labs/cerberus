@@ -11,13 +11,10 @@ import (
 func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_project_list",
-		Description: "Lists all projects defined in the v2 Cerberus config with their resource counts.",
-		InputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
-			list, err := client.ListProjects(context.Background())
+		Description: "List projects and resource counts.",
+		InputSchema: emptyObjectSchema(),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			list, err := client.ListProjects(ctx)
 			if err != nil {
 				return "", err
 			}
@@ -37,30 +34,27 @@ func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_list",
-		Description: "Lists all resources defined in the Cerberus v2 resource lane. Optionally filter by project_id, connector, or tag. Local process resources include runtime metadata such as mode, supervisor, run_from, and current backend state.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"project_id": map[string]interface{}{
-					"type":        "string",
-					"description": "Filter resources by project ID.",
-				},
-				"connector": map[string]interface{}{
-					"type":        "string",
-					"description": "Filter resources by connector type (e.g. 'local', 'digitalocean').",
-				},
-				"tag": map[string]interface{}{
-					"type":        "string",
-					"description": "Filter resources by tag.",
-				},
+		Description: "List resources. Optional filters: project_id, connector, tag.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"project_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Project ID filter.",
 			},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+			"connector": map[string]interface{}{
+				"type":        "string",
+				"description": "Connector ID filter, such as local or ssh.",
+			},
+			"tag": map[string]interface{}{
+				"type":        "string",
+				"description": "Tag filter.",
+			},
+		}),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			projectID, _ := args["project_id"].(string)
 			connectorFilter, _ := args["connector"].(string)
 			tagFilter, _ := args["tag"].(string)
 
-			list, err := client.ListResources(context.Background(), cerbapi.ResourceListArgs{
+			list, err := client.ListResources(ctx, cerbapi.ResourceListArgs{
 				ProjectID: projectID,
 				Connector: connectorFilter,
 				Tag:       tagFilter,
@@ -84,18 +78,14 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_status",
-		Description: "Returns runtime status for a specific v2 resource. Currently supports local process resources and reports backend state plus operator guidance such as artifact drift, recommended action codes, and a prose next step. Use this before choosing deploy, apply, reload, sync, stop, or remove.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to inspect.",
-				},
+		Description: "Get runtime status for one resource. Use before deploy, apply, reload, or remove.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -103,7 +93,7 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			st, err := client.GetResourceRuntime(context.Background(), resourceID)
+			st, err := client.GetResourceRuntime(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -120,18 +110,14 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_inspect",
-		Description: "Returns detailed runtime, install, and log-path inspection data for a v2 local process resource. Use this when apply or deploy fails and you need log paths, plist/install locations, or launchd details.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to inspect.",
-				},
+		Description: "Get runtime details, install paths, and log paths for one resource.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -139,7 +125,7 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			st, err := client.GetResourceInspect(context.Background(), resourceID)
+			st, err := client.GetResourceInspect(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -156,18 +142,14 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_doctor",
-		Description: "Runs explicit runtime and install checks for a v2 local process resource and returns pass/warn/fail results plus operator guidance about the best next step.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to diagnose.",
-				},
+		Description: "Run checks for one resource and return pass, warn, or fail guidance.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -175,7 +157,7 @@ func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			st, err := client.GetResourceDoctor(context.Background(), resourceID)
+			st, err := client.GetResourceDoctor(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -192,26 +174,23 @@ func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_logs",
-		Description: "Returns the last N lines from a v2 local process resource log stream. For os_service resources on macOS, stream may be stdout or stderr.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to inspect.",
-				},
-				"lines": map[string]interface{}{
-					"type":        "integer",
-					"description": "How many lines to return. Defaults to 50.",
-				},
-				"stream": map[string]interface{}{
-					"type":        "string",
-					"description": "Log stream to read. Supported values are stdout and stderr.",
-				},
+		Description: "Get recent logs for one resource.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+			"lines": map[string]interface{}{
+				"type":        "integer",
+				"description": "Number of lines to return. Default 50.",
+			},
+			"stream": map[string]interface{}{
+				"type":        "string",
+				"description": "Log stream.",
+				"enum":        []string{"stdout", "stderr"},
+			},
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -224,7 +203,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 				lines = int(raw)
 			}
 			stream, _ := args["stream"].(string)
-			out, err := client.ResourceLogs(context.Background(), resourceID, lines, stream)
+			out, err := client.ResourceLogs(ctx, resourceID, lines, stream)
 			if err != nil {
 				return "", err
 			}
@@ -241,18 +220,14 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_reload",
-		Description: "V2 resource lane only. Restart/kickstart a local process resource that is already installed. Does not rebuild, sync artifacts, or rewrite service definitions.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to reload.",
-				},
+		Description: "Restart an installed resource without rebuilding or syncing.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -260,7 +235,7 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			res, err := client.ReloadResource(context.Background(), resourceID)
+			res, err := client.ReloadResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -277,18 +252,14 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_stop",
-		Description: "V2 resource lane only. Stops a local process resource without removing install state. For dev_session resources, this suppresses auto-restart until an explicit apply, deploy, or reload. Use remove only for uninstall intent.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to stop.",
-				},
+		Description: "Stop a resource without uninstalling it. Use remove for uninstall.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -296,7 +267,7 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			res, err := client.StopResource(context.Background(), resourceID)
+			res, err := client.StopResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -313,18 +284,14 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_deploy",
-		Description: "V2 resource lane only. Runs the resource's declared build contract first, then syncs/applies it through the configured runtime backend. Use this when the operator intent is source-to-runtime: make the running service match the current source tree.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to deploy.",
-				},
+		Description: "Build, sync, and apply a resource from the current source tree.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -332,7 +299,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			res, err := client.DeployResource(context.Background(), resourceID)
+			res, err := client.DeployResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -349,18 +316,14 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_apply",
-		Description: "V2 resource lane only. Applies a specific resource through its configured runtime backend. For local os_service resources on macOS, this syncs the currently-built artifact and updates the launch agent. It does not run the build command first.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to apply.",
-				},
+		Description: "Apply a resource without running its build step.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -368,7 +331,7 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			res, err := client.ApplyResource(context.Background(), resourceID)
+			res, err := client.ApplyResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -385,18 +348,14 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_sync",
-		Description: "V2 resource lane only. Syncs a specific resource's installed runtime artifacts without applying the runtime backend. Intended for local process resources using run_from=artifact when the artifact should be copied now and activated later.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to sync.",
-				},
+		Description: "Sync installed artifacts without applying the runtime backend.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -404,7 +363,7 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			res, err := client.SyncResource(context.Background(), resourceID)
+			res, err := client.SyncResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
@@ -421,18 +380,14 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_remove",
-		Description: "Destructively removes a specific resource from its configured runtime backend. For local os_service resources on macOS, this unloads the launch agent and removes installed artifacts. Use cerberus_resource_stop when you only need to stop the process.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The resource ID to remove.",
-				},
+		Description: "Uninstall a resource and remove installed artifacts. Use stop to pause only.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
 			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
 				return marshalResult(lifecycleResult{
@@ -440,7 +395,7 @@ func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				}), nil
 			}
-			res, err := client.RemoveResource(context.Background(), resourceID)
+			res, err := client.RemoveResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}

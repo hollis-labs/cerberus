@@ -250,7 +250,13 @@ func TestInspectArtifactInstallDetectsChangedRepoStateWithoutBinaryRebuild(t *te
 		RunFrom: ProcessRunFromArtifact,
 		Dir:     sourceDir,
 		Command: []string{"./app", "serve"},
-		Build:   []string{"go", "build", "-o", "app", "./cmd/app"},
+		BuildStrategy: &BuildStrategyConfig{
+			Kind: "go_standard",
+			Rules: map[string]any{
+				"output": "app",
+				"target": "./cmd/app",
+			},
+		},
 	}
 	if _, err := installer.EnsureInstalled(res, spec); err != nil {
 		t.Fatalf("EnsureInstalled failed: %v", err)
@@ -307,7 +313,13 @@ func TestSyncRefreshesRepoStateWhenBinaryBytesAreUnchanged(t *testing.T) {
 		RunFrom: ProcessRunFromArtifact,
 		Dir:     sourceDir,
 		Command: []string{"./app", "serve"},
-		Build:   []string{"go", "build", "-o", "app", "./cmd/app"},
+		BuildStrategy: &BuildStrategyConfig{
+			Kind: "go_standard",
+			Rules: map[string]any{
+				"output": "app",
+				"target": "./cmd/app",
+			},
+		},
 	}
 	if _, err := installer.EnsureInstalled(res, spec); err != nil {
 		t.Fatalf("EnsureInstalled failed: %v", err)

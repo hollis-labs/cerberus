@@ -261,18 +261,6 @@ func (s *devSession) BuildSync() (string, error) {
 	return BuildProcess(s.spec)
 }
 
-func BuildProcess(spec ProcessSpec) (string, error) {
-	if len(spec.Build) == 0 {
-		return "", fmt.Errorf("no build command configured")
-	}
-	// Run the declared build contract from the resource spec.
-	cmd := exec.Command(spec.Build[0], spec.Build[1:]...) //nolint:gosec // command comes from trusted local Cerberus config
-	cmd.Dir = spec.Dir
-	cmd.Env = sessionEnv(spec)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
 func (s *devSession) LogPath() string {
 	return DevSessionLogPath(s.id, s.spec)
 }
@@ -331,7 +319,6 @@ func sessionConfigHash(id string, spec ProcessSpec) string {
 		Env:     cloneStringMap(spec.Env),
 		URL:     spec.URL,
 		Port:    spec.Port,
-		Build:   append([]string(nil), spec.Build...),
 		Health:  spec.Health,
 		HealthCheckCfg: config.HealthCheck{
 			URL:      spec.HealthCheck.URL,

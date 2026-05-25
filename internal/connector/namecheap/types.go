@@ -27,3 +27,10 @@ type DomainStatus struct {
 	Expires     string   `json:"expires"`
 	NameServers []string `json:"name_servers"`
 }
+
+// DomainNameserverUpdate reports the result of a nameserver change.
+type DomainNameserverUpdate struct {
+	Domain      string   `json:"domain"`
+	Updated     bool     `json:"updated"`
+	NameServers []string `json:"name_servers"`
+}

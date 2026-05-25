@@ -8,6 +8,9 @@ type Backend interface {
 	// ListZones returns all zones in the account.
 	ListZones(ctx context.Context) ([]Zone, error)
 
+	// CreateZone creates a new zone in the given account.
+	CreateZone(ctx context.Context, accountID, name, zoneType string) (*Zone, error)
+
 	// ListDNSRecords returns DNS records for a zone.
 	ListDNSRecords(ctx context.Context, zoneID string) ([]DNSRecord, error)
 

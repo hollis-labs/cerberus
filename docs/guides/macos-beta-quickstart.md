@@ -4,6 +4,10 @@ This guide gets a macOS operator from a fresh Cerberus install to one managed lo
 
 Cerberus beta is macOS-first. The active local workload surface is the v2 `resources:` model and the `cerberus resource ...` CLI/MCP lane.
 
+Cerberus is published publicly as **Cerberus by Hollis Labs** and released
+under the MIT license. The install flow below assumes an unsigned macOS beta
+binary.
+
 ## 1. Install The CLI
 
 For released beta builds, install the binary to the canonical user-owned path:
@@ -104,7 +108,12 @@ resources:
     config:
       dir: /absolute/path/to/my-project
       command: ["./bin/my-api", "serve", "--port", "8088"]
-      build: ["make", "build"]
+      build_strategy:
+        kind: make_standard
+        source:
+          root: .
+        rules:
+          target: build
       url: http://127.0.0.1:8088
       port: 8088
       mode: os_service

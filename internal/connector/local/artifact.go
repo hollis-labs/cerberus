@@ -358,7 +358,7 @@ func repoStateEqual(left, right *artifactRepoState) bool {
 }
 
 func inspectArtifactRepoState(spec ProcessSpec) (*artifactRepoState, error) {
-	if spec.Dir == "" || len(spec.Build) == 0 {
+	if spec.Dir == "" || !HasBuildStrategy(spec) {
 		return nil, nil
 	}
 	root, err := gitOutput(spec.Dir, "rev-parse", "--show-toplevel")

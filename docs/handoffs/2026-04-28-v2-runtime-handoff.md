@@ -104,7 +104,7 @@ Current local-runtime policy is now:
 - `uat` flows should use `os_service` plus `run_from: artifact`
 - `release` flows should stay on `os_service`, using promoted user-owned or system-owned artifacts rather than ad hoc dev servers
 
-Artifact-backed resources with a declared `build:` command now also carry a repo-state freshness signal, so status can recommend `resource deploy` when Git commit or worktree drift makes the installed artifact older than the current source tree.
+Artifact-backed resources with a declared `build_strategy:` now also carry a repo-state freshness signal, so status can recommend `resource deploy` when Git commit or worktree drift makes the installed artifact older than the current source tree.
 
 The next distribution-focused slice is defined but not yet implemented:
 

@@ -11,13 +11,10 @@ import (
 func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_ps",
-		Description: "Lists running Docker containers with their status, image, and ports.",
-		InputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+		Description: "List running Docker containers.",
+		InputSchema: emptyObjectSchema(),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
 				Operation: "list_containers",
 			})
@@ -34,29 +31,25 @@ func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_logs",
-		Description: "Returns the last N lines of logs from a Docker container.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"container": map[string]interface{}{
-					"type":        "string",
-					"description": "Container name or ID.",
-				},
-				"lines": map[string]interface{}{
-					"type":        "integer",
-					"description": "Number of log lines to return (default 50).",
-				},
+		Description: "Get recent logs for a Docker container.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"container": map[string]interface{}{
+				"type":        "string",
+				"description": "Container name or ID.",
 			},
-			"required": []string{"container"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+			"lines": map[string]interface{}{
+				"type":        "integer",
+				"description": "Number of log lines to return. Default 50.",
+			},
+		}, "container"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			container, _ := args["container"].(string)
 			lines := 50
 			if l, ok := args["lines"].(float64); ok && l > 0 {
 				lines = int(l)
 			}
 
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
 				Operation: "logs",
 				Config: map[string]any{
@@ -85,9 +78,10 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_up",
-		Description: "Starts a Docker container or Compose stack.",
+		Description: "Start a Docker container or Compose stack.",
 		InputSchema: map[string]interface{}{
-			"type": "object",
+			"type":                 "object",
+			"additionalProperties": false,
 			"properties": map[string]interface{}{
 				"container_name": map[string]interface{}{
 					"type":        "string",
@@ -95,11 +89,15 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 				},
 				"compose_file": map[string]interface{}{
 					"type":        "string",
-					"description": "Compose file path to bring up (runs docker compose up -d).",
+					"description": "Compose file path to run with docker compose up -d.",
 				},
 			},
+			"oneOf": []map[string]interface{}{
+				{"required": []string{"container_name"}},
+				{"required": []string{"compose_file"}},
+			},
 		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			cfg := map[string]any{}
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
 				cfg["compose_file"] = composeFile
@@ -114,7 +112,7 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 				return marshalResult(lifecycleResult{Success: false, Error: "one of container_name or compose_file is required"}), nil
 			}
 
-			if _, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			if _, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
 				Operation: "start",
 				Config:    cfg,
@@ -134,9 +132,10 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_down",
-		Description: "Stops a Docker container or Compose stack.",
+		Description: "Stop a Docker container or Compose stack.",
 		InputSchema: map[string]interface{}{
-			"type": "object",
+			"type":                 "object",
+			"additionalProperties": false,
 			"properties": map[string]interface{}{
 				"container_name": map[string]interface{}{
 					"type":        "string",
@@ -144,11 +143,15 @@ func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 				},
 				"compose_file": map[string]interface{}{
 					"type":        "string",
-					"description": "Compose file path to bring down (runs docker compose down).",
+					"description": "Compose file path to run with docker compose down.",
 				},
 			},
+			"oneOf": []map[string]interface{}{
+				{"required": []string{"container_name"}},
+				{"required": []string{"compose_file"}},
+			},
 		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			cfg := map[string]any{}
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
 				cfg["compose_file"] = composeFile
@@ -163,7 +166,7 @@ func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 				return marshalResult(lifecycleResult{Success: false, Error: "one of container_name or compose_file is required"}), nil
 			}
 
-			if _, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			if _, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
 				Operation: "stop",
 				Config:    cfg,

@@ -44,6 +44,31 @@ func (a *APIBackend) ListZones(ctx context.Context) ([]Zone, error) {
 	return out, nil
 }
 
+func (a *APIBackend) CreateZone(ctx context.Context, accountID, name, zoneType string) (*Zone, error) {
+	params := zones.ZoneNewParams{
+		Account: cf.F(zones.ZoneNewParamsAccount{
+			ID: cf.F(accountID),
+		}),
+		Name: cf.F(name),
+	}
+	if zoneType != "" {
+		params.Type = cf.F(zones.Type(zoneType))
+	}
+
+	z, err := a.client.Zones.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("create zone %s in account %s: %w", name, accountID, err)
+	}
+	return &Zone{
+		ID:          z.ID,
+		Name:        z.Name,
+		Status:      string(z.Status),
+		Paused:      z.Paused,
+		NameServers: z.NameServers,
+		Plan:        z.Plan.Name, //nolint:staticcheck
+	}, nil
+}
+
 func (a *APIBackend) ListDNSRecords(ctx context.Context, zoneID string) ([]DNSRecord, error) {
 	pager := a.client.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{
 		ZoneID: cf.F(zoneID),

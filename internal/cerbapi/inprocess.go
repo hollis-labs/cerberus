@@ -260,8 +260,8 @@ func (c *InProcessClient) snapshotConfig() *config.ConfigV2 {
 }
 
 // ResourceLogs implements Client.
-func (c *InProcessClient) ResourceLogs(_ context.Context, id string, lines int, stream string) (*LogLines, error) {
-	return c.runtime.ResourceLogs(context.Background(), id, lines, stream)
+func (c *InProcessClient) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
+	return c.runtime.ResourceLogs(ctx, id, lines, stream)
 }
 
 // Health implements Client.
@@ -346,8 +346,8 @@ func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResu
 }
 
 // SyncResource implements Client.
-func (c *InProcessClient) SyncResource(_ context.Context, id string) (*OpResult, error) {
-	return c.runtime.SyncResource(context.Background(), id)
+func (c *InProcessClient) SyncResource(ctx context.Context, id string) (*OpResult, error) {
+	return c.runtime.SyncResource(ctx, id)
 }
 
 // RemoveResource implements Client.
