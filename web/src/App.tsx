@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Boxes, Cable, Gauge, LayoutDashboard, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
-import { NavRail, PageHeader, ThemeSwitcher, type NavRailItem } from '@hollis-labs/sysop-ui'
+import { NavRail, PageHeader, ThemeSwitcher, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
 import { OverviewPage } from './pages/overview'

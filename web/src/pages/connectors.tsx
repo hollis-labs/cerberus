@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, SummaryCards, Textarea, usePoll } from '@hollis-labs/sysop-ui'
+import {
+  Button,
+  EmptyState,
+  Input,
+  Pill,
+  SettingsField,
+  SettingsGrid,
+  SettingsPanel,
+  SummaryCards,
+  Textarea,
+} from '@hollis-labs/sysop-ui/ui'
+import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type ConnectorDefinition } from '../api/client'
 
 export function ConnectorsPage() {
@@ -38,7 +49,7 @@ export function ConnectorsPage() {
   const cards = [
     { label: 'Connectors', value: items.length, accentColor: 'var(--color-text)' },
     { label: 'Operations', value: items.reduce((sum, item) => sum + item.operations.length, 0), accentColor: 'var(--color-status-done)' },
-    { label: 'Secret Requirements', value: items.reduce((sum, item) => sum + (item.config.secrets?.length ?? 0), 0), accentColor: 'var(--color-warning)' },
+    { label: 'Secret requirements', value: items.reduce((sum, item) => sum + (item.config.secrets?.length ?? 0), 0), accentColor: 'var(--color-warning)' },
   ]
 
   async function runOperation(connector: ConnectorDefinition, operation: string) {
@@ -49,11 +60,16 @@ export function ConnectorsPage() {
     try {
       const raw = configByOp[key]?.trim()
       const config = raw ? parseJSONConfig(raw) : undefined
-      const result = await apiClient.runConnectorOperation(connector.id, operation, {
-        config,
-        dry_run: !!dryRunByOp[key],
-        acknowledged: !!ackByOp[key],
-      }, sessionToken)
+      const result = await apiClient.runConnectorOperation(
+        connector.id,
+        operation,
+        {
+          config,
+          dry_run: !!dryRunByOp[key],
+          acknowledged: !!ackByOp[key],
+        },
+        sessionToken,
+      )
       setResultByOp((current) => ({
         ...current,
         [key]: JSON.stringify(result.data, null, 2),
@@ -68,116 +84,140 @@ export function ConnectorsPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
-      <div className="space-y-4 p-4">
-        {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      <div className="space-y-4">
+        {error ? <div className="mx-4 border border-status-blocked/30 bg-status-blocked/10 px-3 py-2 text-sm text-status-blocked">{error}</div> : null}
         {connectors.isLoading && items.length === 0 ? (
-          <div className="text-sm text-text-soft">Loading connectors...</div>
+          <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading connectors...</div>
         ) : items.length === 0 ? (
-          <EmptyState variant="no-results" title="No connectors discovered." description="The daemon did not report any connector definitions." />
+          <div className="px-4 py-4">
+            <EmptyState variant="no-results" title="No connectors discovered." description="The daemon did not report any connector definitions." />
+          </div>
         ) : (
-          items.map((connector) => (
-            <section key={connector.id} className="border border-border bg-panel p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm text-text">{connector.id}</div>
-                  <div className="mt-1 text-xs text-text-soft">v{connector.version} · {connector.resource_types.join(', ') || 'no resource types'}</div>
-                </div>
-                <div className="flex flex-wrap gap-2 text-xs text-text-soft">
-                  {capabilityLabels(connector).map((label) => (
-                    <span key={label} className="rounded-full border border-border-soft bg-panel-2/40 px-2 py-1">{label}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-4 xl:grid-cols-[.9fr_1.1fr]">
-                <section className="space-y-3">
-                  <div>
-                    <div className="mb-2 text-xs uppercase tracking-wide text-muted">Config Fields</div>
-                    {(connector.config.fields?.length ?? 0) === 0 ? (
-                      <div className="text-sm text-text-soft">No explicit config fields.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {connector.config.fields?.map((field) => (
-                          <div key={field.name} className="border border-border-soft bg-panel-2/40 p-3">
-                            <div className="text-sm text-text">{field.name} <span className="text-text-soft">({field.type})</span></div>
-                            <div className="mt-1 text-xs text-text-soft">{field.description || 'No description.'}</div>
-                          </div>
-                        ))}
+          items.map((connector, index) => (
+            <div key={connector.id} className={index > 0 ? 'border-t border-border-strong' : undefined}>
+              <SettingsPanel title={connector.id} className={index === items.length - 1 ? 'border-b-0' : undefined}>
+                <div className="space-y-4 px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm text-text">{connector.id}</div>
+                      <div className="mt-1 text-xs text-text-soft">
+                        v{connector.version} · {connector.resource_types.join(', ') || 'no resource types'}
                       </div>
-                    )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {capabilityLabels(connector).map((label) => (
+                        <Pill key={label} tone="neutral">{label}</Pill>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <div className="mb-2 text-xs uppercase tracking-wide text-muted">Secret Requirements</div>
-                    {(connector.config.secrets?.length ?? 0) === 0 ? (
-                      <div className="text-sm text-text-soft">No declared secrets.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {connector.config.secrets?.map((secret) => (
-                          <div key={secret.name} className="border border-border-soft bg-panel-2/40 p-3">
-                            <div className="text-sm text-text">{secret.name}</div>
-                            <div className="mt-1 text-xs text-text-soft">{secret.description || secret.env || 'No description.'}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </section>
 
-                <section className="space-y-3">
-                  <div className="text-xs uppercase tracking-wide text-muted">Operations</div>
-                  {connector.operations.map((operation) => {
-                    const key = `${connector.id}:${operation.name}`
-                    return (
-                      <div key={key} className="border border-border-soft bg-panel-2/40 p-3">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm text-text">{operation.name}</div>
-                            <div className="mt-1 text-xs text-text-soft">{operation.description || 'No description.'}</div>
-                          </div>
-                          <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null} onClick={() => void runOperation(connector, operation.name)}>
-                            {busy === key ? 'Running...' : 'Run'}
-                          </Button>
+                  <SettingsGrid>
+                    <Field label="Operations" value={String(connector.operations.length)} />
+                    <Field label="Fields" value={String(connector.config.fields?.length ?? 0)} />
+                    <Field label="Secrets" value={String(connector.config.secrets?.length ?? 0)} />
+                    <Field label="Resource types" value={connector.resource_types.join(', ') || 'none'} />
+                  </SettingsGrid>
+
+                  <div className="grid gap-4 xl:grid-cols-[.78fr_1.22fr]">
+                    <div className="space-y-4">
+                      <SettingsPanel title="Config fields">
+                        <div className="space-y-0">
+                          {(connector.config.fields?.length ?? 0) === 0 ? (
+                            <div className="px-4 py-3 text-sm text-text-soft">No explicit config fields.</div>
+                          ) : (
+                            connector.config.fields?.map((field, fieldIndex) => (
+                              <div key={field.name} className={fieldIndex > 0 ? 'border-t border-border-soft px-4 py-3' : 'px-4 py-3'}>
+                                <div className="text-sm text-text">
+                                  {field.name} <span className="text-text-soft">({field.type})</span>
+                                </div>
+                                <div className="mt-1 text-xs text-text-soft">{field.description || 'No description.'}</div>
+                              </div>
+                            ))
+                          )}
                         </div>
-                        <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-                          <Textarea
-                            value={configByOp[key] ?? ''}
-                            onChange={(event) => setConfigByOp((current) => ({ ...current, [key]: event.target.value }))}
-                            placeholder='{"example":"value"}'
-                            className="min-h-28 resize-y font-mono text-xs"
-                          />
-                          <label className="flex items-center gap-2 text-xs text-text-soft">
-                            <input
-                              type="checkbox"
-                              checked={!!dryRunByOp[key]}
-                              onChange={(event) => setDryRunByOp((current) => ({ ...current, [key]: event.target.checked }))}
-                              disabled={!operation.supports_dry}
-                            />
-                            Dry run
-                          </label>
-                          <label className="flex items-center gap-2 text-xs text-text-soft">
-                            <input
-                              type="checkbox"
-                              checked={!!ackByOp[key]}
-                              onChange={(event) => setAckByOp((current) => ({ ...current, [key]: event.target.checked }))}
-                              disabled={!operation.destructive}
-                            />
-                            Acknowledge
-                          </label>
+                      </SettingsPanel>
+
+                      <SettingsPanel title="Secret requirements" className="border-b-0">
+                        <div className="space-y-0">
+                          {(connector.config.secrets?.length ?? 0) === 0 ? (
+                            <div className="px-4 py-3 text-sm text-text-soft">No declared secrets.</div>
+                          ) : (
+                            connector.config.secrets?.map((secret, secretIndex) => (
+                              <div key={secret.name} className={secretIndex > 0 ? 'border-t border-border-soft px-4 py-3' : 'px-4 py-3'}>
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-sm text-text">{secret.name}</div>
+                                  <Pill tone="warning">secret</Pill>
+                                </div>
+                                <div className="mt-1 text-xs text-text-soft">{secret.description || secret.env || 'No description.'}</div>
+                              </div>
+                            ))
+                          )}
                         </div>
-                        {resultByOp[key] && (
-                          <Textarea readOnly value={resultByOp[key]} className="mt-3 min-h-28 resize-y font-mono text-xs" />
-                        )}
+                      </SettingsPanel>
+                    </div>
+
+                    <SettingsPanel title="Operations" className="border-b-0">
+                      <div className="space-y-0">
+                        {connector.operations.map((operation, operationIndex) => {
+                          const key = `${connector.id}:${operation.name}`
+                          return (
+                            <div key={key} className={operationIndex > 0 ? 'border-t border-border-soft px-4 py-3' : 'px-4 py-3'}>
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm text-text">{operation.name}</div>
+                                  <div className="mt-1 max-w-2xl text-xs text-text-soft">{operation.description || 'No description.'}</div>
+                                </div>
+                                <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null} onClick={() => void runOperation(connector, operation.name)}>
+                                  {busy === key ? 'Running...' : 'Run'}
+                                </Button>
+                              </div>
+                              <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto]">
+                                <Textarea
+                                  value={configByOp[key] ?? ''}
+                                  onChange={(event) => setConfigByOp((current) => ({ ...current, [key]: event.target.value }))}
+                                  placeholder='{"example":"value"}'
+                                  className="min-h-28 resize-y font-mono text-xs"
+                                />
+                                <label className="flex items-center gap-2 text-xs text-text-soft">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!dryRunByOp[key]}
+                                    onChange={(event) => setDryRunByOp((current) => ({ ...current, [key]: event.target.checked }))}
+                                    disabled={!operation.supports_dry}
+                                  />
+                                  Dry run
+                                </label>
+                                <label className="flex items-center gap-2 text-xs text-text-soft">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!ackByOp[key]}
+                                    onChange={(event) => setAckByOp((current) => ({ ...current, [key]: event.target.checked }))}
+                                    disabled={!operation.destructive}
+                                  />
+                                  Acknowledge
+                                </label>
+                              </div>
+                              {resultByOp[key] ? (
+                                <Textarea readOnly value={resultByOp[key]} className="mt-3 min-h-28 resize-y font-mono text-xs" />
+                              ) : null}
+                            </div>
+                          )
+                        })}
                       </div>
-                    )
-                  })}
-                </section>
-              </div>
-            </section>
+                    </SettingsPanel>
+                  </div>
+                </div>
+              </SettingsPanel>
+            </div>
           ))
         )}
       </div>
     </div>
   )
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return <SettingsField label={label}>{value}</SettingsField>
 }
 
 function parseJSONConfig(raw: string): Record<string, unknown> {
