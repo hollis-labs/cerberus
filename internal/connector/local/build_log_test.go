@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,33 @@ import (
 
 	"github.com/chrispian/cerberus/internal/domain"
 )
+
+func TestBuildProcessResultContextNilOnUnknownKind(t *testing.T) {
+	// An unknown build_strategy kind returns (nil, err) — the contract the
+	// DeployResource nil-guard relies on, so this must stay true.
+	spec := ProcessSpec{BuildStrategy: &BuildStrategyConfig{Kind: "does-not-exist"}}
+	res, err := BuildProcessResultContext(context.Background(), spec)
+	if err == nil {
+		t.Fatal("expected error for unknown build_strategy kind")
+	}
+	if res != nil {
+		t.Fatalf("expected nil result for unknown kind, got %+v", res)
+	}
+}
+
+func TestWriteBuildLogNilResultDoesNotPanic(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	res := &domain.Resource{ID: "x", ProjectID: "p"}
+	path, err := WriteBuildLog(res, ProcessSpec{}, nil, fmt.Errorf("boom"))
+	if err != nil {
+		t.Fatalf("WriteBuildLog(nil result): %v", err)
+	}
+	data, _ := os.ReadFile(path) //nolint:gosec // test-controlled path
+	if !strings.Contains(string(data), "FAILED — boom") {
+		t.Fatalf("expected failure marker for nil result, got:\n%s", data)
+	}
+}
 
 func TestWriteBuildLogCapturesCommandAndOutcome(t *testing.T) {
 	home := t.TempDir()

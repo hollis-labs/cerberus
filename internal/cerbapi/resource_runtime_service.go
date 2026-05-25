@@ -645,6 +645,12 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Building resource %s", id))
 		gmcp.NotifyProgress(ctx, progressToken, 1, 4, "Building")
 		result, buildErr := localconn.BuildProcessResultContext(ctx, spec)
+		if result == nil {
+			// BuildProcessResultContext returns a nil result on an unknown
+			// build_strategy kind; keep a non-nil value so the deploy fails
+			// gracefully with buildErr + diagnostics instead of panicking.
+			result = &localconn.BuildResult{}
+		}
 		buildOutput = strings.TrimSpace(result.Output)
 		// Always-on build-log capture: persist the command, dir, and output to
 		// ~/.cerberus/apps/<project>/<resource>/logs/build.log so a build is
