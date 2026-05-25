@@ -164,14 +164,42 @@ func TestProcessSpecRoundTripDaemonFields(t *testing.T) {
 	}
 }
 
-func TestSpecFromResourceConfigRejectsLegacyBuild(t *testing.T) {
-	_, err := SpecFromResourceConfig(map[string]any{
+func TestSpecFromResourceConfigTranslatesLegacyBuild(t *testing.T) {
+	spec, err := SpecFromResourceConfig(map[string]any{
 		"dir":     "/tmp/app",
 		"command": []string{"./app"},
-		"build":   []string{"go", "build", "."},
+		"build":   []any{"make", "build"},
+	})
+	if err != nil {
+		t.Fatalf("SpecFromResourceConfig should translate legacy build: %v", err)
+	}
+	if spec.BuildStrategy == nil || spec.BuildStrategy.Kind != LegacyCommandKind {
+		t.Fatalf("legacy build not translated to %q strategy: %+v", LegacyCommandKind, spec.BuildStrategy)
+	}
+	got := stringSliceRule(spec.BuildStrategy.Rules, "command")
+	if len(got) != 2 || got[0] != "make" || got[1] != "build" {
+		t.Fatalf("translated command = %v, want [make build]", got)
+	}
+	// The translated spec must re-encode as build_strategy, never as the
+	// legacy build key.
+	cfg := spec.ToResourceConfig()
+	if _, present := cfg["build"]; present {
+		t.Fatalf("ToResourceConfig re-emitted legacy build key")
+	}
+	if _, present := cfg["build_strategy"]; !present {
+		t.Fatalf("ToResourceConfig omitted build_strategy after translation")
+	}
+}
+
+func TestSpecFromResourceConfigRejectsBuildAndStrategyTogether(t *testing.T) {
+	_, err := SpecFromResourceConfig(map[string]any{
+		"dir":            "/tmp/app",
+		"command":        []string{"./app"},
+		"build":          []any{"make", "build"},
+		"build_strategy": map[string]any{"kind": "make_standard"},
 	})
 	if err == nil {
-		t.Fatalf("SpecFromResourceConfig should reject legacy build")
+		t.Fatalf("SpecFromResourceConfig should reject both build and build_strategy")
 	}
 }
 

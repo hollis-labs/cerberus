@@ -239,11 +239,15 @@ func checkEntry(entry IndexEntry) HealthReport {
 		report.Detail = err.Error()
 		return report
 	}
-	if result := ValidateProjectConfig(pc); result.HasErrors() {
+	result := ValidateProjectConfig(pc)
+	if result.HasErrors() {
 		report.Status = HealthInvalid
 		report.Detail = result.Errors()[0].String()
 		return report
 	}
 	report.Status = HealthOK
+	if warnings := result.Warnings(); len(warnings) > 0 {
+		report.Detail = fmt.Sprintf("%d warning(s): %s", len(warnings), warnings[0].Message)
+	}
 	return report
 }
