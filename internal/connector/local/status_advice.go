@@ -2,8 +2,12 @@ package local
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/service"
 )
 
 // RecommendedStatusAction returns a concise operator action for the current
@@ -47,6 +51,72 @@ func RecommendedNextStep(action, reason string) string {
 		return ""
 	default:
 		return fmt.Sprintf("Run `cerberus resource %s <resource-id>`.", action)
+	}
+}
+
+// RecommendedDevSessionAction surfaces staleness for dev_session resources,
+// which have no installed artifact and so are invisible to
+// RecommendedStatusAction. It targets the most common dev drift — "I rebuilt
+// but the dev session is still running the old binary" — using a cheap,
+// false-positive-resistant signal: the run binary on disk is newer than the
+// running process's start time (recorded in the PID meta file at launch).
+//
+// It deliberately stays silent for dev sessions WITHOUT a build_strategy
+// (e.g. `npm run dev`, `go run`), which hot-reload source and have no built
+// binary to compare — flagging those would be noise.
+func RecommendedDevSessionAction(id string, spec ProcessSpec, state domain.State) (string, string) {
+	if spec.Mode != "" && spec.Mode != ProcessModeDevSession {
+		return "", ""
+	}
+	if !HasBuildStrategy(spec) || !isActiveState(state) {
+		return "", ""
+	}
+	bin, ok := devSessionRunBinary(spec)
+	if !ok {
+		return "", ""
+	}
+	fi, err := os.Stat(bin)
+	if err != nil {
+		return "", ""
+	}
+	meta, err := service.ReadMetaFile(id)
+	if err != nil || meta.StartedAt.IsZero() {
+		return "", ""
+	}
+	if fi.ModTime().After(meta.StartedAt) {
+		return "deploy", "a newer build exists on disk than the running dev session; rebuild and restart"
+	}
+	return "", ""
+}
+
+// devSessionRunBinary resolves the built binary a dev session runs, preferring
+// the build_strategy declared output, then command[0] when it is a filesystem
+// path. It returns ok=false when the command is a launcher (npm, go, bash,
+// ...) rather than a built binary, so no staleness signal is produced.
+func devSessionRunBinary(spec ProcessSpec) (string, bool) {
+	if p, ok := buildStrategyOutputPath(spec); ok {
+		return p, true
+	}
+	if len(spec.Command) == 0 {
+		return "", false
+	}
+	c0 := spec.Command[0]
+	switch {
+	case filepath.IsAbs(c0):
+		return c0, true
+	case strings.ContainsRune(c0, filepath.Separator) && spec.Dir != "":
+		return filepath.Join(spec.Dir, c0), true
+	default:
+		return "", false
+	}
+}
+
+func isActiveState(s domain.State) bool {
+	switch s {
+	case domain.StateRunning, domain.StateStarting, domain.StateHealthy, domain.StateUnhealthy:
+		return true
+	default:
+		return false
 	}
 }
 
