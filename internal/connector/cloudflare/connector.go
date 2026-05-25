@@ -79,6 +79,11 @@ func Definition() contract.Definition {
 					Type:        "string",
 					Description: "Cloudflare zone ID.",
 				},
+				{
+					Name:        "account_id",
+					Type:        "string",
+					Description: "Cloudflare account ID used for zone creation.",
+				},
 			},
 			Secrets: []contract.SecretRequirement{
 				{
@@ -93,6 +98,21 @@ func Definition() contract.Definition {
 				Name:        "list_zones",
 				Description: "List Cloudflare zones.",
 				InputSchema: contract.ObjectSchema(map[string]any{}),
+			},
+			{
+				Name:        "create_zone",
+				Description: "Create a Cloudflare zone in an account.",
+				Examples: []string{
+					"cerberus cloudflare zones create <account-id> chrispian.dev --type full --dry-run",
+					"cerberus cloudflare zones create <account-id> chrispian.dev --type full --ack",
+				},
+				InputSchema: contract.ObjectSchema(map[string]any{
+					"account_id": contract.StringSchema("Cloudflare account ID."),
+					"name":       contract.StringSchema("Zone name such as example.com."),
+					"type":       contract.StringSchema("Zone type: full or partial."),
+				}, "account_id", "name"),
+				Destructive: true,
+				SupportsDry: true,
 			},
 			{
 				Name:        "list_dns_records",
@@ -220,6 +240,14 @@ func (c *Connector) Destroy(ctx context.Context, res *resource.Resource) error {
 // ListZones returns all zones.
 func (c *Connector) ListZones(ctx context.Context) ([]Zone, error) {
 	return c.backend.ListZones(ctx)
+}
+
+// CreateZone creates a zone in the given account.
+func (c *Connector) CreateZone(ctx context.Context, accountID, name, zoneType string) (*Zone, error) {
+	if zoneType == "" {
+		zoneType = ZoneTypeFull
+	}
+	return c.backend.CreateZone(ctx, accountID, name, zoneType)
 }
 
 // ListDNSRecords returns DNS records for a zone.

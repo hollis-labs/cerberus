@@ -66,6 +66,17 @@ func TestLoadProjectConfigRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestLoadProjectConfigAcceptsRegistryURN(t *testing.T) {
+	pc, err := LoadProjectConfig(writeFile(t, "clockwork.cerberus.yaml",
+		validProjectConfigYAML+"registry_urn: msg://project/agent-mux/prj_clockwork\n"))
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if pc.RegistryURN != "msg://project/agent-mux/prj_clockwork" {
+		t.Fatalf("registry_urn = %q, want shared URN", pc.RegistryURN)
+	}
+}
+
 func TestLoadProjectConfigMissingFile(t *testing.T) {
 	if _, err := LoadProjectConfig(filepath.Join(t.TempDir(), "nope.yaml")); err == nil {
 		t.Fatal("expected error for missing file")

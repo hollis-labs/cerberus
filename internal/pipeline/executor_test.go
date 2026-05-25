@@ -3,11 +3,13 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 // mockAction records execution and optionally fails.
@@ -317,4 +319,69 @@ func TestRunResultIncludesAllStages(t *testing.T) {
 	}
 
 	_ = time.Now() // suppress unused import
+}
+
+func TestExecutorEmitsMCPNotifications(t *testing.T) {
+	a1 := &mockAction{name: "build"}
+	a2 := &mockAction{name: "deploy"}
+
+	p, err := New("release").
+		Stage("build").Action(a1).Done().
+		Stage("deploy").Action(a2).DependsOn("build").Done().
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var notifications []gmcp.Notification
+	ctx := gmcp.WithNotifier(context.Background(), func(n gmcp.Notification) {
+		notifications = append(notifications, n)
+	})
+
+	exec := NewExecutor(nil)
+	result, err := exec.Run(ctx, p, &domain.PipelineEnv{Values: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != domain.StateHealthy {
+		t.Fatalf("status = %q, want %q", result.Status, domain.StateHealthy)
+	}
+	if len(notifications) == 0 {
+		t.Fatal("expected notifications")
+	}
+
+	var sawStartMessage bool
+	var sawStageStart bool
+	var sawFinalProgress bool
+	for _, n := range notifications {
+		switch n.Method {
+		case "notifications/message":
+			params, _ := n.Params.(map[string]interface{})
+			msg, _ := params["message"].(string)
+			if strings.Contains(msg, "Starting pipeline release") {
+				sawStartMessage = true
+			}
+			if strings.Contains(msg, "Stage build started") {
+				sawStageStart = true
+			}
+		case "notifications/progress":
+			params, _ := n.Params.(map[string]interface{})
+			progress, _ := params["progress"].(float64)
+			total, _ := params["total"].(float64)
+			msg, _ := params["message"].(string)
+			if progress == 2 && total == 2 && strings.Contains(msg, "healthy") {
+				sawFinalProgress = true
+			}
+		}
+	}
+
+	if !sawStartMessage {
+		t.Fatal("missing pipeline start notification")
+	}
+	if !sawStageStart {
+		t.Fatal("missing stage start notification")
+	}
+	if !sawFinalProgress {
+		t.Fatal("missing final progress notification")
+	}
 }

@@ -66,6 +66,12 @@ type ProjectConfig struct {
 	// to DefaultNamespace when omitted.
 	Namespace string `yaml:"namespace,omitempty"`
 
+	// RegistryURN is the optional shared-directory identity written back
+	// by Tether's cross-substrate registry bootstrap. Cerberus treats it
+	// as metadata only: local runtime ownership remains with the app-owned
+	// config and Cerberus's local pointer registry.
+	RegistryURN string `yaml:"registry_urn,omitempty"`
+
 	// Project is the single project this config contributes. Multi-
 	// project repos register multiple project configs (optionally via a
 	// Bundle manifest) rather than packing several into one file.

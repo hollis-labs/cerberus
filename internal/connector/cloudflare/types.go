@@ -10,6 +10,11 @@ type Zone struct {
 	Plan        string   `json:"plan"`
 }
 
+const (
+	ZoneTypeFull    = "full"
+	ZoneTypePartial = "partial"
+)
+
 // DNSRecord is the normalized view of a Cloudflare DNS record.
 type DNSRecord struct {
 	ID       string `json:"id"`

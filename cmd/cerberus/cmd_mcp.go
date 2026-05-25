@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
@@ -51,85 +52,7 @@ the operator to start one with 'cerberus daemon'.`,
 		}
 		cancel()
 
-		srv := mcp.NewServer("cerberus", "0.1.0")
-
-		// Lifecycle + resource tools route through the socket client.
-		// Every tool call forwards to the daemon, which owns the live
-		// runtime layers. No per-subprocess cache -> no staleness.
-		srv.RegisterTool(mcp.NewCerberusHealthTool(socketClient))
-
-		// Project / resource / pipeline tools go through the socket too
-		// so their data is consistent with what the daemon sees.
-		srv.RegisterTool(mcp.NewCerberusProjectListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceStatusTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceInspectTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceDoctorTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceLogsTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceReloadTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceStopTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceDeployTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceSyncTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceApplyTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusPipelineListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusConnectorListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusConnectorDescribeTool(socketClient))
-
-		// Connector-based tools (external integrations). Out of scope
-		// for CERB-2 — they read secrets from keychain and hit remote
-		// APIs; they don't touch service config.
-		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(socketClient))
-
-		// SSH tools (need Config for host resolution). We still load
-		// config here because SSH targets live in v2 config, not in
-		// the service registry — the daemon doesn't know about them.
-		// This is a narrow, read-only surface; it does NOT manage
-		// service lifecycle state and therefore is not part of the
-		// CERB-2 staleness problem.
-		cfg, cfgErr := loadUnifiedForTools(cfgPath)
-		if cfgErr != nil {
-			logger.Warn("client.mcp.config_load_failed",
-				"path", cfgPath,
-				"error", cfgErr.Error(),
-				"message", "SSH tools will be unavailable; daemon-routed tools still work")
-		} else {
-			srv.RegisterTool(mcp.NewCerberusSSHExecTool(cfg, socketClient))
-			srv.RegisterTool(mcp.NewCerberusSSHStatusTool(cfg, socketClient))
-		}
-
-		// External connectors route through the daemon-owned connector boundary.
-		srv.RegisterTool(mcp.NewCerberusDomainListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusDNSListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusDNSCreateTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(socketClient))
-
-		srv.RegisterTool(mcp.NewCerberusForgeServersTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusForgeServerTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusForgeSitesTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusForgeDeployTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusForgeExecTool(socketClient))
-
-		srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSDeleteTool(socketClient))
-
-		srv.RegisterTool(mcp.NewCerberusDockerPSTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusDockerLogsTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusDockerUpTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusDockerDownTool(socketClient))
-
-		srv.RegisterTool(mcp.NewCerberusServerListTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusServerShowTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusServerCreateTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusServerStartTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusServerStopTool(socketClient))
-		srv.RegisterTool(mcp.NewCerberusServerDestroyTool(socketClient))
+		srv := buildCerberusMCPServer(socketClient, logger)
 
 		// CW-20260519-0053: selfexec.WatchAndExit removed. CERB-4 added it
 		// so a binary swap triggered respawn-on-next-tool-call, assuming the
@@ -143,4 +66,74 @@ the operator to start one with 'cerberus daemon'.`,
 		// its own; the parent host can recycle children at its own cadence.
 		return srv.Run()
 	},
+}
+
+func buildCerberusMCPServer(socketClient cerbapi.Client, logger *slog.Logger) *mcp.Server {
+	srv := mcp.NewServer("cerberus", "0.1.0")
+
+	srv.RegisterTool(mcp.NewCerberusHealthTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusProjectListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceStatusTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceInspectTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceDoctorTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceLogsTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceReloadTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceStopTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceDeployTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceSyncTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceApplyTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusPipelineListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusPipelineRunTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusConnectorListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusConnectorDescribeTool(socketClient))
+
+	srv.RegisterTool(mcp.NewCerberusGithubStatusTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusGithubRunsTool(socketClient))
+
+	cfg, cfgErr := loadUnifiedForTools(cfgPath)
+	if cfgErr != nil {
+		logger.Warn("client.mcp.config_load_failed",
+			"path", cfgPath,
+			"error", cfgErr.Error(),
+			"message", "SSH tools will be unavailable; daemon-routed tools still work")
+	} else {
+		srv.RegisterTool(mcp.NewCerberusSSHExecTool(cfg, socketClient))
+		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(cfg, socketClient))
+	}
+
+	srv.RegisterTool(mcp.NewCerberusDomainListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDomainStatusTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusNameserversSetTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDNSListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDNSCreateTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(socketClient))
+
+	srv.RegisterTool(mcp.NewCerberusForgeServersTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusForgeServerTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusForgeSitesTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusForgeDeployTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusForgeExecTool(socketClient))
+
+	srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusCloudflareZoneCreateTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusCloudflareDNSDeleteTool(socketClient))
+
+	srv.RegisterTool(mcp.NewCerberusDockerPSTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDockerLogsTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDockerUpTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDockerDownTool(socketClient))
+
+	srv.RegisterTool(mcp.NewCerberusDropletListTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDropletGetTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDropletCreateTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDropletStartTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDropletStopTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusDropletDestroyTool(socketClient))
+
+	return srv
 }

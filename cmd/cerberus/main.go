@@ -39,7 +39,7 @@ func main() {
 var rootCmd = &cobra.Command{
 	Use:   "cerberus",
 	Short: "Agent-first local infrastructure manager",
-	Long: `Cerberus — agent-first local infrastructure manager for the Fragments Engine ecosystem.
+	Long: `Cerberus by Hollis Labs — agent-first local infrastructure manager.
 
 Cerberus is now v2-only for local workload management.
 Use the resource commands for active local process management, especially
@@ -61,7 +61,7 @@ For day-to-day operations, start with:
 The Cerberus daemon itself now also fits this model as the v2 local process
 resource "cerberus-daemon-service" on macOS launchd.
 
-(c) HOLLIS LABS`,
+MIT licensed. Published by Hollis Labs.`,
 	Version: version,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
@@ -69,7 +69,7 @@ resource "cerberus-daemon-service" on macOS launchd.
 }
 
 func init() {
-	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (built %s)\n(c) HOLLIS LABS\n", version, buildDate))
+	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (built %s)\nCerberus by Hollis Labs\nMIT licensed\n", version, buildDate))
 	rootCmd.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "override the main database path (default: go-apppaths XDG resolution; CERBERUS_DB_PATH is also honored)")
 
@@ -111,6 +111,7 @@ func init() {
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(webCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(mcpHTTPCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(pathCommand)

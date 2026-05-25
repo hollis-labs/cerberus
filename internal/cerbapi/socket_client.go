@@ -1,6 +1,7 @@
 package cerbapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	contract "github.com/chrispian/cerberus/pkg/connector"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 // SocketClient satisfies Client by forwarding each call over a unix
@@ -227,7 +229,7 @@ func (c *SocketClient) DeployResource(ctx context.Context, id string, options ..
 		}
 	}
 	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/deploy", body, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/deploy", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -238,7 +240,7 @@ func (c *SocketClient) ApplyResource(ctx context.Context, id string) (*OpResult,
 		return nil, errors.New("resource id required")
 	}
 	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/apply", nil, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/apply", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -271,7 +273,7 @@ func (c *SocketClient) SyncResource(ctx context.Context, id string) (*OpResult, 
 		return nil, errors.New("resource id required")
 	}
 	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/sync", nil, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/sync", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -301,7 +303,7 @@ func (c *SocketClient) RunPipeline(ctx context.Context, id string) (*PipelineRun
 		return nil, errors.New("pipeline id required")
 	}
 	var out PipelineRunResult
-	if err := c.doJSON(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/run", nil, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/run", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -324,7 +326,7 @@ func (c *SocketClient) ExecuteConnectorOperation(ctx context.Context, args Exter
 	}
 	path := "/connectors/" + url.PathEscape(args.Connector) + "/operations/" + url.PathEscape(args.Operation)
 	var out ExternalConnectorOperationResult
-	if err := c.doJSON(ctx, http.MethodPost, path, args, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, path, args, &out); err != nil {
 		return ExternalConnectorOperationResult{}, err
 	}
 	return out, nil
@@ -332,7 +334,7 @@ func (c *SocketClient) ExecuteConnectorOperation(ctx context.Context, args Exter
 
 func (c *SocketClient) PluginHealth(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {
 	var out PluginConnectorHealth
-	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/health", args, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/health", args, &out); err != nil {
 		return PluginConnectorHealth{}, err
 	}
 	return out, nil
@@ -344,7 +346,7 @@ func (c *SocketClient) ExecutePluginConnector(ctx context.Context, args PluginCo
 	}
 	path := "/plugins/connectors/operations/" + url.PathEscape(args.Operation)
 	var out ExternalConnectorOperationResult
-	if err := c.doJSON(ctx, http.MethodPost, path, args, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, path, args, &out); err != nil {
 		return ExternalConnectorOperationResult{}, err
 	}
 	return out, nil
@@ -352,7 +354,7 @@ func (c *SocketClient) ExecutePluginConnector(ctx context.Context, args PluginCo
 
 func (c *SocketClient) InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {
 	var out ManagedPluginConnectorState
-	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/install", args, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/install", args, &out); err != nil {
 		return ManagedPluginConnectorState{}, err
 	}
 	return out, nil
@@ -360,7 +362,7 @@ func (c *SocketClient) InstallManagedPlugin(ctx context.Context, args PluginConn
 
 func (c *SocketClient) LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
 	var out ManagedPluginConnectorState
-	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/load", nil, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/load", nil, &out); err != nil {
 		return ManagedPluginConnectorState{}, err
 	}
 	return out, nil
@@ -368,7 +370,7 @@ func (c *SocketClient) LoadManagedPlugin(ctx context.Context, id string) (Manage
 
 func (c *SocketClient) UnloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
 	var out ManagedPluginConnectorState
-	if err := c.doJSON(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/unload", nil, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/unload", nil, &out); err != nil {
 		return ManagedPluginConnectorState{}, err
 	}
 	return out, nil
@@ -396,7 +398,7 @@ func (c *SocketClient) ExecuteManagedPlugin(ctx context.Context, id string, args
 	}
 	path := "/plugins/connectors/" + url.PathEscape(id) + "/operations/" + url.PathEscape(args.Operation)
 	var out ExternalConnectorOperationResult
-	if err := c.doJSON(ctx, http.MethodPost, path, args, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, path, args, &out); err != nil {
 		return ExternalConnectorOperationResult{}, err
 	}
 	return out, nil
@@ -461,6 +463,82 @@ func (c *SocketClient) doJSON(ctx context.Context, method, path string, body int
 	}
 	if jerr := json.Unmarshal(data, out); jerr != nil {
 		return fmt.Errorf("decode response: %w", jerr)
+	}
+	return nil
+}
+
+func (c *SocketClient) doJSONStream(ctx context.Context, method, path string, body interface{}, out interface{}) error {
+	var reader io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal request: %w", err)
+		}
+		reader = bytes.NewReader(buf)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader) //nolint:gosec // unix-socket transport, not a real HTTP destination
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set(APIHeaderName, APIVersion)
+	req.Header.Set(ProgressHeaderName, "1")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.http.Do(req) //nolint:gosec // see NewRequestWithContext note
+	if err != nil {
+		c.logger.Warn("client.socket.dial_failed", "path", c.dialPath, "error", err.Error())
+		return &DaemonUnreachableError{Path: c.dialPath, Err: err}
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+		if readErr != nil {
+			return fmt.Errorf("read response: %w", readErr)
+		}
+		var errResp ErrorResponse
+		if jerr := json.Unmarshal(data, &errResp); jerr == nil && errResp.Error != "" {
+			return fmt.Errorf("daemon: %s", errResp.Error)
+		}
+		return fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, string(data))
+	}
+
+	scanner := bufio.NewScanner(io.LimitReader(resp.Body, 10<<20))
+	scanner.Buffer(make([]byte, 0, 64*1024), 10<<20)
+	var gotResult bool
+	for scanner.Scan() {
+		var env StreamEnvelope
+		if err := json.Unmarshal(scanner.Bytes(), &env); err != nil {
+			return fmt.Errorf("decode stream envelope: %w", err)
+		}
+		switch env.Type {
+		case "notification":
+			if env.Notification != nil {
+				gmcp.Notify(ctx, *env.Notification)
+			}
+		case "result":
+			gotResult = true
+			if out != nil && len(env.Result) > 0 {
+				if err := json.Unmarshal(env.Result, out); err != nil {
+					return fmt.Errorf("decode stream result: %w", err)
+				}
+			}
+		case "error":
+			if env.Error == "" {
+				env.Error = "unknown daemon error"
+			}
+			return fmt.Errorf("daemon: %s", env.Error)
+		default:
+			return fmt.Errorf("daemon: unknown stream envelope %q", env.Type)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read response stream: %w", err)
+	}
+	if !gotResult {
+		return fmt.Errorf("daemon: stream ended without result")
 	}
 	return nil
 }

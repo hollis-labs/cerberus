@@ -5,7 +5,7 @@ import "context"
 // Backend defines how the SSH connector communicates with remote hosts.
 type Backend interface {
 	// Connect establishes an SSH connection to the given host.
-	Connect(ctx context.Context, host string, port int, user string, keyFile string) error
+	Connect(ctx context.Context, host string, port int, user string, keyFile string, hostKey HostKeyConfig) error
 
 	// Exec runs a command on the connected remote host.
 	Exec(ctx context.Context, command string) (*ExecResult, error)

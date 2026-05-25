@@ -1,4 +1,4 @@
-.PHONY: all build install test lint ui-build ui-dev clean
+.PHONY: all build install test lint ui-build ui-dev release-beta clean
 
 all: ui-build build
 
@@ -10,6 +10,9 @@ ui-dev:
 
 build:
 	go build -o cerberus ./cmd/cerberus
+
+release-beta:
+	./scripts/release-beta.sh
 
 install:
 	go install ./cmd/cerberus

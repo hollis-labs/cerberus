@@ -15,6 +15,8 @@ Define the minimum product, engineering, and release work required to ship a **C
 Execution detail now lives in:
 
 - [beta-release-execution.md](./beta-release-execution.md)
+- [gui-roadmap.md](./gui-roadmap.md) for the post-beta web operator surface and
+  registry follow-up work
 
 For beta, Cerberus should be credible as:
 

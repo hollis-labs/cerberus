@@ -11,13 +11,10 @@ import (
 func NewCerberusConnectorListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_connector_list",
-		Description: "Lists external connector discovery metadata, including resource types, capabilities, config fields, secrets, and operations.",
-		InputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
-			defs, err := client.ListConnectors(context.Background())
+		Description: "List available connectors. Use cerberus_connector_describe for full schema and operations.",
+		InputSchema: emptyObjectSchema(),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			defs, err := client.ListConnectors(ctx)
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
 			}
@@ -34,20 +31,16 @@ func NewCerberusConnectorListTool(client cerbapi.Client) Tool {
 func NewCerberusConnectorDescribeTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_connector_describe",
-		Description: "Returns full discovery metadata for a specific external connector, including operation examples, destructive flags, and dry-run support.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"id": map[string]interface{}{"type": "string", "description": "Connector ID, such as docker, github, cloudflare, or ssh."},
-			},
-			"required": []string{"id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		Description: "Get full schema and operations for one connector.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"id": map[string]interface{}{"type": "string", "description": "Connector ID, such as docker, github, cloudflare, or ssh."},
+		}, "id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			id, _ := args["id"].(string)
 			if id == "" {
 				return marshalResult(lifecycleResult{Success: false, Error: `missing "id"`}), nil
 			}
-			defs, err := client.ListConnectors(context.Background())
+			defs, err := client.ListConnectors(ctx)
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
 			}

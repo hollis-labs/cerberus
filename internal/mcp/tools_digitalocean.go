@@ -6,16 +6,13 @@ import (
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
 
-func NewCerberusServerListTool(client cerbapi.Client) Tool {
+func NewCerberusDropletListTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_server_list",
-		Description: "List DigitalOcean droplets with status and addressing details.",
-		InputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+		Name:        "cerberus_droplet_list",
+		Description: "List DigitalOcean droplets.",
+		InputSchema: emptyObjectSchema(),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "digitalocean",
 				Operation: "list_droplets",
 			})
@@ -27,26 +24,22 @@ func NewCerberusServerListTool(client cerbapi.Client) Tool {
 	}
 }
 
-func NewCerberusServerShowTool(client cerbapi.Client) Tool {
+func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_server_show",
-		Description: "Show DigitalOcean droplet details.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"droplet_id": map[string]interface{}{
-					"type":        "integer",
-					"description": "DigitalOcean droplet ID.",
-				},
+		Name:        "cerberus_droplet_get",
+		Description: "Get details for one DigitalOcean droplet.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"droplet_id": map[string]interface{}{
+				"type":        "integer",
+				"description": "DigitalOcean droplet ID.",
 			},
-			"required": []string{"droplet_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "droplet_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			dropletID, ok := args["droplet_id"].(float64)
 			if !ok || dropletID <= 0 {
 				return marshalResult(lifecycleResult{Success: false, Error: "droplet_id is required"}), nil
 			}
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "digitalocean",
 				Operation: "get_droplet",
 				Config:    map[string]any{"droplet_id": int(dropletID)},
@@ -59,24 +52,20 @@ func NewCerberusServerShowTool(client cerbapi.Client) Tool {
 	}
 }
 
-func NewCerberusServerCreateTool(client cerbapi.Client) Tool {
+func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_server_create",
+		Name:        "cerberus_droplet_create",
 		Description: "Create a DigitalOcean droplet.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"name":      map[string]interface{}{"type": "string", "description": "Droplet name."},
-				"region":    map[string]interface{}{"type": "string", "description": "Region slug."},
-				"size":      map[string]interface{}{"type": "string", "description": "Size slug."},
-				"image":     map[string]interface{}{"type": "string", "description": "Image slug."},
-				"ssh_keys":  map[string]interface{}{"type": "array", "description": "SSH key fingerprints.", "items": map[string]interface{}{"type": "string"}},
-				"user_data": map[string]interface{}{"type": "string", "description": "Cloud-init user-data."},
-				"dry_run":   map[string]interface{}{"type": "boolean", "description": "Preview only."},
-			},
-			"required": []string{"name", "region", "size", "image"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		InputSchema: objectSchema(map[string]interface{}{
+			"name":      map[string]interface{}{"type": "string", "description": "Droplet name."},
+			"region":    map[string]interface{}{"type": "string", "description": "Region slug."},
+			"size":      map[string]interface{}{"type": "string", "description": "Size slug."},
+			"image":     map[string]interface{}{"type": "string", "description": "Image slug."},
+			"ssh_keys":  map[string]interface{}{"type": "array", "description": "SSH key fingerprints.", "items": map[string]interface{}{"type": "string"}},
+			"user_data": map[string]interface{}{"type": "string", "description": "Cloud-init user-data."},
+			"dry_run":   map[string]interface{}{"type": "boolean", "description": "Preview only."},
+		}, "name", "region", "size", "image"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			cfg := map[string]any{
 				"name":      stringArg(args, "name"),
 				"region":    stringArg(args, "region"),
@@ -93,7 +82,7 @@ func NewCerberusServerCreateTool(client cerbapi.Client) Tool {
 				}
 				cfg["ssh_keys"] = out
 			}
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "digitalocean",
 				Operation: "create_droplet",
 				Config:    cfg,
@@ -107,37 +96,33 @@ func NewCerberusServerCreateTool(client cerbapi.Client) Tool {
 	}
 }
 
-func NewCerberusServerStartTool(client cerbapi.Client) Tool {
-	return newServerLifecycleTool(client, "cerberus_server_start", "start", "Power on a DigitalOcean droplet.")
+func NewCerberusDropletStartTool(client cerbapi.Client) Tool {
+	return newDropletLifecycleTool(client, "cerberus_droplet_start", "start", "Start a DigitalOcean droplet.")
 }
 
-func NewCerberusServerStopTool(client cerbapi.Client) Tool {
-	return newServerLifecycleTool(client, "cerberus_server_stop", "stop", "Power off a DigitalOcean droplet.")
+func NewCerberusDropletStopTool(client cerbapi.Client) Tool {
+	return newDropletLifecycleTool(client, "cerberus_droplet_stop", "stop", "Stop a DigitalOcean droplet.")
 }
 
-func NewCerberusServerDestroyTool(client cerbapi.Client) Tool {
-	return newServerLifecycleTool(client, "cerberus_server_destroy", "destroy", "Destroy a DigitalOcean droplet.")
+func NewCerberusDropletDestroyTool(client cerbapi.Client) Tool {
+	return newDropletLifecycleTool(client, "cerberus_droplet_destroy", "destroy", "Destroy a DigitalOcean droplet.")
 }
 
-func newServerLifecycleTool(client cerbapi.Client, name, operation, description string) Tool {
+func newDropletLifecycleTool(client cerbapi.Client, name, operation, description string) Tool {
 	return Tool{
 		Name:        name,
 		Description: description,
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"droplet_id":   map[string]interface{}{"type": "integer", "description": "DigitalOcean droplet ID."},
-				"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
-				"acknowledged": map[string]interface{}{"type": "boolean", "description": "Required for destructive destroy operations."},
-			},
-			"required": []string{"droplet_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		InputSchema: objectSchema(map[string]interface{}{
+			"droplet_id":   map[string]interface{}{"type": "integer", "description": "DigitalOcean droplet ID."},
+			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge destructive destroy operations."},
+		}, "droplet_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			dropletID, ok := args["droplet_id"].(float64)
 			if !ok || dropletID <= 0 {
 				return marshalResult(lifecycleResult{Success: false, Error: "droplet_id is required"}), nil
 			}
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector:    "digitalocean",
 				Operation:    operation,
 				Config:       map[string]any{"droplet_id": int(dropletID)},

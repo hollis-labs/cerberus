@@ -12,13 +12,10 @@ import (
 func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_pipeline_list",
-		Description: "Lists all pipelines defined in the Cerberus config.",
-		InputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
-			list, err := client.ListPipelines(context.Background())
+		Description: "List pipelines.",
+		InputSchema: emptyObjectSchema(),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			list, err := client.ListPipelines(ctx)
 			if err != nil {
 				return "", err
 			}
@@ -43,18 +40,14 @@ func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_pipeline_run",
-		Description: "Executes a pipeline by ID. Stages run in dependency order with parallel execution where possible. Returns the full result with per-stage status and duration.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"pipeline_id": map[string]interface{}{
-					"type":        "string",
-					"description": "The pipeline ID to run.",
-				},
+		Description: "Run a pipeline and return per-stage results.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"pipeline_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Pipeline ID.",
 			},
-			"required": []string{"pipeline_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		}, "pipeline_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			pipelineID, _ := args["pipeline_id"].(string)
 			if pipelineID == "" {
 				return marshalResult(lifecycleResult{
@@ -62,7 +55,7 @@ func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 					Error:   "pipeline_id is required",
 				}), nil
 			}
-			res, err := client.RunPipeline(context.Background(), pipelineID)
+			res, err := client.RunPipeline(ctx, pipelineID)
 			if err != nil {
 				return "", err
 			}

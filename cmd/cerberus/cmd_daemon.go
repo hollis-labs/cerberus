@@ -562,6 +562,7 @@ func runDaemonBody() error {
 		// Namecheap tools
 		srv.RegisterTool(mcp.NewCerberusDomainListTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusNameserversSetTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDNSListTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDNSCreateTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(inProc))
@@ -575,6 +576,7 @@ func runDaemonBody() error {
 
 		// Cloudflare tools
 		srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusCloudflareZoneCreateTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusCloudflareDNSDeleteTool(inProc))
@@ -585,12 +587,12 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusDockerUpTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDockerDownTool(inProc))
 
-		srv.RegisterTool(mcp.NewCerberusServerListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusServerShowTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusServerCreateTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusServerStartTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusServerStopTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusServerDestroyTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDropletListTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDropletGetTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDropletCreateTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDropletStartTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDropletStopTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusDropletDestroyTool(inProc))
 
 		if err := srv.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)

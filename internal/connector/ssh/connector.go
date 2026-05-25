@@ -66,6 +66,8 @@ func Definition() contract.Definition {
 				{Name: "port", Type: "integer", Description: "SSH port.", Default: 22},
 				{Name: "user", Type: "string", Description: "SSH username.", Default: "root"},
 				{Name: "key_file", Type: "string", Description: "Private key path."},
+				{Name: "known_hosts_file", Type: "string", Description: "OpenSSH known_hosts file for host key verification. Defaults to ~/.ssh/known_hosts."},
+				{Name: "allow_insecure_host_key", Type: "boolean", Description: "Disable host key verification. Not recommended except for controlled local testing."},
 				{Name: "command", Type: "string", Description: "Command to execute over SSH."},
 			},
 			Secrets: []contract.SecretRequirement{{
@@ -237,7 +239,8 @@ func (c *Connector) connect(ctx context.Context, res *resource.Resource) (Backen
 	}
 
 	backend := c.newBackend()
-	if err := backend.Connect(ctx, host, port, user, keyFile); err != nil {
+	hostKey := hostKeyConfigFromResourceConfig(res.Config)
+	if err := backend.Connect(ctx, host, port, user, keyFile, hostKey); err != nil {
 		return nil, err
 	}
 	return backend, nil

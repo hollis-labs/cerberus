@@ -3,6 +3,7 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -145,6 +146,66 @@ func TestResolveConfigDerivesSiblingIndex(t *testing.T) {
 	}
 	if len(cfg.Resources) != 1 || cfg.Resources[0].ID != "clockwork-api" {
 		t.Fatalf("resources = %+v, want clockwork-api from sibling index", cfg.Resources)
+	}
+}
+
+func TestResolveRegisteredOutOfRepoConfigWithRegistryURN(t *testing.T) {
+	// Tether's bootstrap/write-back flow operates against app-owned project
+	// configs that may live outside ~/.cerberus and may add shared-directory
+	// identity metadata (`registry_urn`). Cerberus must keep resolving the
+	// local runtime config from the pointed-to file without copying bodies
+	// into the index or rejecting the metadata field.
+	stateDir := t.TempDir()
+	globalPath := filepath.Join(stateDir, "config.yaml")
+	if err := os.WriteFile(globalPath, []byte("version: 2\nprojects: []\nresources: []\n"), 0o600); err != nil {
+		t.Fatalf("write global: %v", err)
+	}
+
+	repoDir := t.TempDir()
+	projectPath := writeProjectConfig(t, repoDir, "clockwork")
+	data, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatalf("read project config: %v", err)
+	}
+	withURN := strings.Replace(string(data), "project:\n", "registry_urn: msg://project/agent-mux/prj_clockwork\nproject:\n", 1)
+	if err := os.WriteFile(projectPath, []byte(withURN), 0o600); err != nil {
+		t.Fatalf("rewrite project config with registry_urn: %v", err)
+	}
+
+	reg, err := ForConfig(globalPath)
+	if err != nil {
+		t.Fatalf("ForConfig: %v", err)
+	}
+	mustRegister(t, reg, projectPath)
+
+	entries, err := reg.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	if entries[0].Path != projectPath {
+		t.Fatalf("entry path = %q, want %q", entries[0].Path, projectPath)
+	}
+
+	pc, err := LoadProjectConfig(projectPath)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig: %v", err)
+	}
+	if pc.RegistryURN != "msg://project/agent-mux/prj_clockwork" {
+		t.Fatalf("registry_urn = %q, want shared URN", pc.RegistryURN)
+	}
+
+	cfg, err := ResolveConfig(globalPath)
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	if len(cfg.Projects) != 1 || cfg.Projects[0].ID != "clockwork" {
+		t.Fatalf("projects = %+v, want clockwork from out-of-repo config", cfg.Projects)
+	}
+	if len(cfg.Resources) != 1 || cfg.Resources[0].ID != "clockwork-api" {
+		t.Fatalf("resources = %+v, want clockwork-api from out-of-repo config", cfg.Resources)
 	}
 }
 

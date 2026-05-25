@@ -1,22 +1,41 @@
 import { useState } from 'react'
-import { Boxes, Cable, LayoutDashboard, Plug, Route, Server } from 'lucide-react'
+import { Boxes, Cable, Gauge, LayoutDashboard, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, type NavRailItem } from '@hollis-labs/sysop-ui'
+import { ConnectorsPage } from './pages/connectors'
+import { DeploymentsPage } from './pages/deployments'
+import { OverviewPage } from './pages/overview'
+import { PipelinesPage } from './pages/pipelines'
+import { PluginsPage } from './pages/plugins'
+import { ProjectsPage } from './pages/projects'
+import { RegistryPage } from './pages/registry'
 import { ResourcesPage } from './pages/resources'
+import { SettingsPage } from './pages/settings'
 
-type RouteKey = 'resources' | 'projects' | 'pipelines' | 'connectors' | 'plugins'
+type RouteKey = 'overview' | 'resources' | 'projects' | 'pipelines' | 'registry' | 'deployments' | 'connectors' | 'plugins' | 'settings'
 
 const TITLES: Record<RouteKey, string> = {
+  overview: 'Overview',
   resources: 'Resources',
   projects: 'Projects',
   pipelines: 'Pipelines',
+  registry: 'Registry',
+  deployments: 'Deployments',
   connectors: 'Connectors',
   plugins: 'Plugins',
+  settings: 'Settings',
 }
 
 export function App() {
-  const [route, setRoute] = useState<RouteKey>('resources')
+  const [route, setRoute] = useState<RouteKey>('overview')
 
   const nav: NavRailItem[] = [
+    {
+      key: 'overview',
+      label: 'Overview',
+      icon: <Gauge className="h-4 w-4" />,
+      active: route === 'overview',
+      onSelect: () => setRoute('overview'),
+    },
     {
       key: 'resources',
       label: 'Resources',
@@ -39,6 +58,20 @@ export function App() {
       onSelect: () => setRoute('pipelines'),
     },
     {
+      key: 'registry',
+      label: 'Registry',
+      icon: <Waypoints className="h-4 w-4" />,
+      active: route === 'registry',
+      onSelect: () => setRoute('registry'),
+    },
+    {
+      key: 'deployments',
+      label: 'Deployments',
+      icon: <Rocket className="h-4 w-4" />,
+      active: route === 'deployments',
+      onSelect: () => setRoute('deployments'),
+    },
+    {
       key: 'connectors',
       label: 'Connectors',
       icon: <Cable className="h-4 w-4" />,
@@ -52,6 +85,13 @@ export function App() {
       active: route === 'plugins',
       onSelect: () => setRoute('plugins'),
     },
+    {
+      key: 'settings',
+      label: 'Settings',
+      icon: <Settings2 className="h-4 w-4" />,
+      active: route === 'settings',
+      onSelect: () => setRoute('settings'),
+    },
   ]
 
   return (
@@ -62,11 +102,36 @@ export function App() {
           <ThemeSwitcher />
         </PageHeader>
         <main className="min-h-0 flex-1 overflow-hidden">
-          {route === 'resources' ? <ResourcesPage /> : <PendingPage title={TITLES[route]} />}
+          <RouteView route={route} />
         </main>
       </div>
     </div>
   )
+}
+
+function RouteView({ route }: { route: RouteKey }) {
+  switch (route) {
+    case 'overview':
+      return <OverviewPage />
+    case 'resources':
+      return <ResourcesPage />
+    case 'projects':
+      return <ProjectsPage />
+    case 'pipelines':
+      return <PipelinesPage />
+    case 'registry':
+      return <RegistryPage />
+    case 'deployments':
+      return <DeploymentsPage />
+    case 'connectors':
+      return <ConnectorsPage />
+    case 'plugins':
+      return <PluginsPage />
+    case 'settings':
+      return <SettingsPage />
+    default:
+      return <PendingPage title={TITLES[route]} />
+  }
 }
 
 function PendingPage({ title }: { title: string }) {

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, FileText, Hammer, Info, Pause, Play, RefreshCw, RotateCw, Server, Square } from 'lucide-react'
+import { Activity, AlertTriangle, FileText, Hammer, Info, Play, RefreshCw, RotateCw, Server, Square, Trash2, Upload } from 'lucide-react'
 import {
   Button,
   CopyableId,
@@ -21,8 +21,10 @@ type StatusFilter = 'all' | 'running' | 'attention' | 'stopped'
 const ACTIONS: { key: ResourceAction; label: string; icon: ReactNode; variant: 'default' | 'secondary' | 'outline' | 'destructive' }[] = [
   { key: 'apply', label: 'Apply', icon: <Play className="h-3.5 w-3.5" />, variant: 'default' },
   { key: 'deploy', label: 'Deploy', icon: <Hammer className="h-3.5 w-3.5" />, variant: 'secondary' },
+  { key: 'sync', label: 'Sync', icon: <Upload className="h-3.5 w-3.5" />, variant: 'outline' },
   { key: 'reload', label: 'Reload', icon: <RotateCw className="h-3.5 w-3.5" />, variant: 'outline' },
   { key: 'stop', label: 'Stop', icon: <Square className="h-3.5 w-3.5" />, variant: 'destructive' },
+  { key: 'remove', label: 'Remove', icon: <Trash2 className="h-3.5 w-3.5" />, variant: 'destructive' },
 ]
 
 // DIALOG_WIDTH sizes the resource console modal to 80% of the viewport. The
@@ -586,7 +588,7 @@ function ResourceDetailDialog({
                 disabled={!actionToken || runningAction !== null}
                 onClick={() => void run(action.key)}
               >
-                {runningAction === action.key ? <Pause className="h-3.5 w-3.5" /> : action.icon}
+                {runningAction === action.key ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : action.icon}
                 {action.label}
               </Button>
             ))}

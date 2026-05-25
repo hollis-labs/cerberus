@@ -2,10 +2,12 @@ package cerbapi
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/chrispian/cerberus/internal/pluginhost"
 	contract "github.com/chrispian/cerberus/pkg/connector"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 type ManagedPluginConnectorState struct {
@@ -45,38 +47,65 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 }
 
 func (s *ManagedPluginConnectorService) Install(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {
+	progressToken := fmt.Sprintf("managed-plugin-install:%s", args.PluginDir)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Installing managed plugin from %s", args.PluginDir))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Installing managed plugin")
 	installed, err := s.install(args.PluginDir, args.Trust)
 	if err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", args.PluginDir, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin install failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	state := managedState(installed, false)
 	if err := s.persist(); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", installed.ID, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin install failed")
 		return ManagedPluginConnectorState{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin installed: %s", installed.ID))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin installed")
 	return state, nil
 }
 
 func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	progressToken := fmt.Sprintf("managed-plugin-load:%s", id)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Loading managed plugin %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Loading managed plugin")
 	if err := s.manager.Load(context.Background(), id); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin load failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	installed, _ := s.manager.Installed(id)
 	state := managedState(installed, true)
 	if err := s.persist(); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin load failed")
 		return ManagedPluginConnectorState{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin loaded: %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin loaded")
 	return state, nil
 }
 
 func (s *ManagedPluginConnectorService) Unload(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	progressToken := fmt.Sprintf("managed-plugin-unload:%s", id)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Unloading managed plugin %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Unloading managed plugin")
 	if err := s.manager.Unload(ctx, id); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin unload failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin unload failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	installed, _ := s.manager.Installed(id)
 	state := managedState(installed, false)
 	if err := s.persist(); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin unload failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin unload failed")
 		return ManagedPluginConnectorState{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin unloaded: %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin unloaded")
 	return state, nil
 }
 
@@ -132,6 +161,9 @@ func (s *ManagedPluginConnectorService) Health(ctx context.Context, id string) (
 }
 
 func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	progressToken := fmt.Sprintf("managed-plugin-exec:%s:%s", id, args.Operation)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing managed plugin operation %s on %s", args.Operation, id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Executing managed plugin operation")
 	result, err := s.manager.ExecuteOperation(ctx, pluginhost.OperationArgs{
 		Connector:    id,
 		Operation:    args.Operation,
@@ -140,8 +172,12 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 		Acknowledged: args.Acknowledged,
 	})
 	if err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin operation %s failed on %s: %s", args.Operation, id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin operation failed")
 		return ExternalConnectorOperationResult{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin operation %s completed on %s", args.Operation, id))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin operation completed")
 	return ExternalConnectorOperationResult{
 		Connector: result.Connector,
 		Operation: result.Operation,

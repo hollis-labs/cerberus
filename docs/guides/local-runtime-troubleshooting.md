@@ -70,7 +70,7 @@ Symptoms:
 
 Recovery:
 
-- If source changed and the resource has `build:`, run `cerberus resource deploy <resource-id>`.
+- If source changed and the resource has `build_strategy:`, run `cerberus resource deploy <resource-id>`.
 - If the workspace artifact is already correct and you only need to refresh the install layout, run `cerberus resource sync <resource-id>`, then `cerberus resource apply <resource-id>` when ready to activate it.
 - If the service should restart with the already-installed artifact, run `cerberus resource reload <resource-id>`.
 - Avoid PATH-only commands for artifact-backed services. `command[0]` should be a filesystem path such as `./bin/my-api`, not `my-api`.
@@ -88,14 +88,14 @@ Checks:
 ```bash
 cerberus resource inspect <resource-id>
 cd /absolute/path/from/inspect
-<build command from inspect>
+<run the configured build_strategy>
 ls -l <artifact path from inspect>
 ```
 
 Recovery:
 
 - Make the repo build contract deterministic from the repo root.
-- Ensure `build:` produces the same path used by `command[0]`.
+- Ensure `build_strategy:` produces the same path used by `command[0]`.
 - Prefer repo-local outputs such as `./bin/my-api` over `~/go/bin/my-api`.
 - If a wrapper script is required, keep it repo-owned and make it point at a deterministic artifact.
 

@@ -1,11 +1,15 @@
-# Cerberus
+# Cerberus by Hollis Labs
 
 Agent-first local infrastructure manager evolving toward a broader control plane. Cerberus now uses the v2 resource model across the CLI, daemon, HTTP/socket API, and MCP surface.
 
+Cerberus is released as permissive open source under the MIT license. The
+public product identity is **Cerberus by Hollis Labs**. The repo, CLI, binary,
+and day-to-day docs primarily refer to it simply as **Cerberus**.
+
 ## Install
 
-For macOS beta releases, install the released binary into the canonical
-user-owned Cerberus path:
+Cerberus is currently a macOS-first unsigned beta. For released beta builds,
+install the binary into the canonical user-owned Cerberus path:
 
 ```bash
 mkdir -p ~/.cerberus/bin
@@ -26,6 +30,12 @@ Release packaging and verification steps live in
 [docs/release/beta-release-process.md](docs/release/beta-release-process.md).
 For first-time beta operation, start with
 [docs/guides/macos-beta-quickstart.md](docs/guides/macos-beta-quickstart.md).
+For Cerberus releasing Cerberus, see
+[docs/release/self-release-via-pipeline.md](docs/release/self-release-via-pipeline.md).
+
+## License
+
+Cerberus is available under the [MIT License](./LICENSE).
 
 ## Usage
 
@@ -33,6 +43,8 @@ For first-time beta operation, start with
 cerberus              # show help
 cerberus init         # create default config and exit
 cerberus install      # bootstrap the macOS launch agent for the daemon
+cerberus mcp          # stdio MCP server for local agent clients
+cerberus mcp-http     # HTTP MCP endpoint at http://127.0.0.1:4785/mcp by default
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
 
@@ -69,6 +81,20 @@ cerberus resource stop <resource-id>
 cerberus resource remove <resource-id>
 ```
 
+For external infra/domain operations, the current Namecheap and Cloudflare
+surfaces include:
+
+```bash
+cerberus cloudflare zones
+cerberus cloudflare zones create <account-id> <domain> --type full --ack
+cerberus cloudflare dns list <zone-id>
+cerberus cloudflare dns create <zone-id> --type CNAME --name www --content example.vercel-dns.com --ack
+cerberus domain list
+cerberus domain status <domain>
+cerberus domain nameservers set <domain> <ns1> <ns2> --ack
+cerberus dns list <domain>
+```
+
 Mental model:
 
 - build source, sync the artifact, and activate it: `cerberus resource deploy <id>`
@@ -94,7 +120,7 @@ Recommended project pattern:
 - `uat`: the shared background service you want agents and operators to test against should be `os_service` plus `run_from: artifact`.
 - `release`: promoted binaries can use the same `os_service` lane but install from a user-owned or system-owned release location instead of a dev server process.
 
-For artifact-backed services with a declared `build:` contract, Cerberus now records repo state at sync time and can warn when the installed release/UAT artifact is older than the current Git commit or worktree, even if the workspace binary itself was never rebuilt.
+For artifact-backed services with a declared `build_strategy:` contract, Cerberus now records repo state at sync time and can warn when the installed release/UAT artifact is older than the current Git commit or worktree, even if the workspace binary itself was never rebuilt.
 
 The Cerberus daemon itself now follows this same model as `cerberus-daemon-service`, a v2 local process resource using the canonical launchd label `com.fragments-engine.cerberus`.
 
@@ -141,7 +167,13 @@ resources:
     config:
       dir: ~/dev/hollis-labs/apps/volon
       command: ["./volon-api", "serve"]
-      build: ["go", "build", "-o", "volon-api", "./cmd/volon-api"]
+      build_strategy:
+        kind: go_standard
+        source:
+          root: .
+        rules:
+          output: volon-api
+          target: ./cmd/volon-api
       mode: os_service
       supervisor: launchd
       run_from: artifact
@@ -179,6 +211,15 @@ Guidance:
 - If status says the repo state changed since the artifact was last synced, prefer `resource deploy` over `apply` or `sync`.
 - Use `resource remove` only when you mean "uninstall this runtime instance": unload the launch agent and remove the installed artifact tree.
 
+For registrar and DNS operations:
+
+- `cerberus cloudflare zones create` creates the Cloudflare zone that will own
+  DNS for a domain.
+- `cerberus domain nameservers set` switches a Namecheap domain to a custom
+  nameserver set such as Cloudflare's assigned nameservers.
+- `cerberus dns list` inspects the current Namecheap-hosted host records for a
+  domain before or after a delegation cutover.
+
 ## Cerberus Daemon
 
 Cerberus now has a canonical v2 daemon resource:
@@ -192,7 +233,13 @@ Cerberus now has a canonical v2 daemon resource:
     config:
       dir: ~/dev/hollis-labs/apps/cerberus
       command: ["./cerberus", "daemon", "--foreground"]
-      build: ["go", "build", "-o", "cerberus", "./cmd/cerberus"]
+      build_strategy:
+        kind: go_standard
+        source:
+          root: .
+        rules:
+          output: cerberus
+          target: ./cmd/cerberus
       mode: os_service
       supervisor: launchd
       run_from: artifact

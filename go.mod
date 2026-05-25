@@ -1,6 +1,6 @@
 module github.com/chrispian/cerberus
 
-go 1.26.1
+go 1.26.3
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -10,12 +10,13 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/go-github/v72 v72.0.0
 	github.com/hollis-labs/go-apppaths v0.1.0
+	github.com/hollis-labs/go-mcp v0.0.0
 	github.com/hollis-labs/go-webui v0.1.0
 	github.com/hollis-labs/plugin-sdk v0.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/crypto v0.49.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/sys v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.48.0
 )
@@ -56,9 +57,11 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/hollis-labs/go-mcp => ../../libs/go-mcp

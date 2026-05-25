@@ -113,11 +113,21 @@ func (b *fakeDigitalOceanBackend) ListDroplets(_ context.Context) ([]godo.Drople
 }
 
 type fakeCloudflareBackend struct {
-	zoneID string
+	zoneID    string
+	accountID string
+	zoneName  string
+	zoneType  string
 }
 
 func (b *fakeCloudflareBackend) ListZones(_ context.Context) ([]cfconn.Zone, error) {
 	return []cfconn.Zone{{ID: "zone-1", Name: "example.com", Status: "active"}}, nil
+}
+
+func (b *fakeCloudflareBackend) CreateZone(_ context.Context, accountID, name, zoneType string) (*cfconn.Zone, error) {
+	b.accountID = accountID
+	b.zoneName = name
+	b.zoneType = zoneType
+	return &cfconn.Zone{ID: "zone-2", Name: name, Status: "pending", NameServers: []string{"ns1.cloudflare.com", "ns2.cloudflare.com"}}, nil
 }
 
 func (b *fakeCloudflareBackend) ListDNSRecords(_ context.Context, zoneID string) ([]cfconn.DNSRecord, error) {
@@ -138,7 +148,8 @@ func (b *fakeCloudflareBackend) ListTunnels(_ context.Context, _ string) ([]cfco
 }
 
 type fakeNamecheapBackend struct {
-	domain string
+	domain      string
+	nameservers []string
 }
 
 func (b *fakeNamecheapBackend) ListDomains(_ context.Context) ([]ncconn.Domain, error) {
@@ -158,6 +169,12 @@ func (b *fakeNamecheapBackend) ListDNSRecords(_ context.Context, sld, tld string
 func (b *fakeNamecheapBackend) SetDNSRecords(_ context.Context, sld, tld string, _ []ncconn.DNSRecord) error {
 	b.domain = sld + "." + tld
 	return nil
+}
+
+func (b *fakeNamecheapBackend) SetCustomNameservers(_ context.Context, domain string, nameservers []string) (*ncconn.DomainNameserverUpdate, error) {
+	b.domain = domain
+	b.nameservers = append([]string(nil), nameservers...)
+	return &ncconn.DomainNameserverUpdate{Domain: domain, Updated: true, NameServers: nameservers}, nil
 }
 
 type fakeForgeBackend struct {
@@ -209,7 +226,7 @@ type fakeSSHBackend struct {
 	command string
 }
 
-func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _ string) error {
+func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _ string, _ sshconn.HostKeyConfig) error {
 	return nil
 }
 
@@ -334,6 +351,34 @@ func TestExternalConnectorServiceExecutesCloudflareOperation(t *testing.T) {
 	}
 }
 
+func TestExternalConnectorServiceExecutesCloudflareZoneCreate(t *testing.T) {
+	backend := &fakeCloudflareBackend{}
+	registry := connector.NewRegistry()
+	registry.Register(cfconn.NewWithBackend(backend))
+	svc := NewExternalConnectorService(registry)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector:    "cloudflare",
+		Operation:    "create_zone",
+		Acknowledged: true,
+		Config: map[string]any{
+			"account_id": "acct-1",
+			"name":       "chrispian.dev",
+			"type":       cfconn.ZoneTypeFull,
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	zone, ok := result.Data.(*cfconn.Zone)
+	if !ok || zone.ID != "zone-2" || zone.Name != "chrispian.dev" {
+		t.Fatalf("Data = %#v, want created cloudflare zone", result.Data)
+	}
+	if backend.accountID != "acct-1" || backend.zoneName != "chrispian.dev" || backend.zoneType != cfconn.ZoneTypeFull {
+		t.Fatalf("backend = %+v", backend)
+	}
+}
+
 func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t *testing.T) {
 	backend := &fakeCloudflareBackend{}
 	registry := connector.NewRegistry()
@@ -356,6 +401,34 @@ func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t
 	}
 	if connErr.Code != ExternalConnectorAckRequired {
 		t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorAckRequired)
+	}
+}
+
+func TestExternalConnectorServiceCloudflareZoneCreateDryRun(t *testing.T) {
+	registry := connector.NewRegistry()
+	svc := NewExternalConnectorService(registry)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "cloudflare",
+		Operation: "create_zone",
+		DryRun:    true,
+		Config: map[string]any{
+			"account_id": "acct-1",
+			"name":       "chrispian.dev",
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	preview, ok := result.Data.(ExternalConnectorDryRunPreview)
+	if !ok {
+		t.Fatalf("Data = %T, want ExternalConnectorDryRunPreview", result.Data)
+	}
+	if !preview.DryRun || preview.Target["account_id"] != "acct-1" || preview.Target["name"] != "chrispian.dev" {
+		t.Fatalf("preview = %#v", preview)
+	}
+	if preview.Input["type"] != cfconn.ZoneTypeFull {
+		t.Fatalf("preview input = %#v, want full zone type", preview.Input)
 	}
 }
 
@@ -432,6 +505,33 @@ func TestExternalConnectorServiceExecutesNamecheapOperation(t *testing.T) {
 	}
 	if backend.domain != "example.com" {
 		t.Fatalf("domain = %q, want example.com", backend.domain)
+	}
+}
+
+func TestExternalConnectorServiceExecutesNamecheapNameserverChange(t *testing.T) {
+	backend := &fakeNamecheapBackend{}
+	registry := connector.NewRegistry()
+	registry.Register(ncconn.NewWithBackend(backend))
+	svc := NewExternalConnectorService(registry)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector:    "namecheap",
+		Operation:    "set_custom_nameservers",
+		Acknowledged: true,
+		Config: map[string]any{
+			"domain":      "chrispian.dev",
+			"nameservers": []string{"aldo.ns.cloudflare.com", "betty.ns.cloudflare.com"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	update, ok := result.Data.(*ncconn.DomainNameserverUpdate)
+	if !ok || !update.Updated || update.Domain != "chrispian.dev" {
+		t.Fatalf("Data = %#v, want nameserver update", result.Data)
+	}
+	if backend.domain != "chrispian.dev" || len(backend.nameservers) != 2 {
+		t.Fatalf("backend = %+v", backend)
 	}
 }
 

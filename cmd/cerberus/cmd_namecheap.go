@@ -17,6 +17,11 @@ var domainCmd = &cobra.Command{
 	Short: "Domain operations (Namecheap)",
 }
 
+var domainNameserversCmd = &cobra.Command{
+	Use:   "nameservers",
+	Short: "Nameserver operations for a domain",
+}
+
 var domainListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all domains",
@@ -101,6 +106,41 @@ var (
 	namecheapDryRun          bool
 	namecheapAcknowledge     bool
 )
+
+var domainNameserversSetCmd = &cobra.Command{
+	Use:   "set <domain> <nameserver-1> <nameserver-2> [nameserver-N...]",
+	Short: "Switch a domain to custom nameservers",
+	Args:  cobra.MinimumNArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc, closeFn, err := newExternalConnectorService()
+		if err != nil {
+			return err
+		}
+		defer closeFn()
+
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "namecheap",
+			Operation: "set_custom_nameservers",
+			Config: map[string]any{
+				"domain":      args[0],
+				"nameservers": args[1:],
+			},
+			DryRun:       namecheapDryRun,
+			Acknowledged: namecheapAcknowledge,
+		})
+		if err != nil {
+			return err
+		}
+		if namecheapDryRun {
+			return writeJSON(cmd.OutOrStdout(), result.Data)
+		}
+		update, ok := result.Data.(*ncconn.DomainNameserverUpdate)
+		if !ok {
+			return fmt.Errorf("nameserver set: unexpected result type %T", result.Data)
+		}
+		return writeJSON(cmd.OutOrStdout(), update)
+	},
+}
 
 var dnsListCmd = &cobra.Command{
 	Use:   "list <domain>",
@@ -219,6 +259,10 @@ var dnsDeleteCmd = &cobra.Command{
 func init() {
 	domainCmd.AddCommand(domainListCmd)
 	domainCmd.AddCommand(domainStatusCmd)
+	domainNameserversSetCmd.Flags().BoolVar(&namecheapDryRun, "dry-run", false, "preview the nameserver change without sending it to Namecheap")
+	domainNameserversSetCmd.Flags().BoolVar(&namecheapAcknowledge, "ack", false, "acknowledge destructive nameserver change")
+	domainNameserversCmd.AddCommand(domainNameserversSetCmd)
+	domainCmd.AddCommand(domainNameserversCmd)
 	dnsCreateCmd.Flags().StringVar(&namecheapDNSCreateType, "type", "A", "DNS record type")
 	dnsCreateCmd.Flags().StringVar(&namecheapDNSCreateHost, "host", "", "host name such as @, www, or api")
 	dnsCreateCmd.Flags().StringVar(&namecheapDNSCreateValue, "value", "", "record value")

@@ -35,7 +35,7 @@ docs:
   roadmap: docs/plans/beta-release-plan.md
 roadmap:
   current_phase: 'Cerberus beta release (v2-only local runtime)'
-  pointer: null
+  pointer: docs/plans/gui-roadmap.md
 usage_examples:
   - intent: Build a project and restart its running service to match source
     command: cerberus resource deploy <resource-id>

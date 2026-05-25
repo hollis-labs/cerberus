@@ -1,0 +1,102 @@
+kind: cerberus-project/v1
+owner: cerberus
+namespace: local
+project:
+  id: cerberus
+  name: Cerberus
+resources:
+  - id: cerberus-daemon-service
+    name: Cerberus Daemon Service
+    type: process
+    project: cerberus
+    connector: local
+    tags:
+      - daemon
+      - launchd
+      - artifact
+      - uat
+      - v2
+    config:
+      dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+      build_strategy:
+        kind: go_standard
+        source:
+          root: .
+        rules:
+          output: cerberus
+          target: ./cmd/cerberus
+      command: ["./cerberus", "daemon", "--foreground"]
+      mode: os_service
+      supervisor: launchd
+      run_from: artifact
+      service_name: com.fragments-engine.cerberus
+  - id: cerberus-release-artifacts
+    name: Cerberus Release Artifacts
+    type: process
+    project: cerberus
+    connector: local
+    tags:
+      - release
+      - artifact
+      - self-hosted
+    config:
+      dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+      build_strategy:
+        kind: go_standard
+        source:
+          root: .
+        rules:
+          target: ./cmd/cerberus
+          flags: ["-trimpath"]
+          ldflags:
+            - "-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}"
+          matrix:
+            os: [darwin]
+            arch: [arm64, amd64]
+          artifacts:
+            name: "cerberus_${VERSION}_${os}_${arch}"
+            archive: true
+            checksum: true
+pipelines:
+  - id: cerberus-daemon-deploy
+    name: Cerberus Daemon Deploy
+    description: Build Cerberus through its build strategy and activate the launchd daemon.
+    stages:
+      - name: verify
+        actions:
+          - type: shell
+            dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+            command: |
+              go test ./cmd/cerberus
+      - name: deploy
+        depends_on: [verify]
+        actions:
+          - type: deploy_app
+            resource: cerberus-daemon-service
+  - id: cerberus-release-beta
+    name: Cerberus Release Beta
+    description: Build unsigned macOS beta archives for Cerberus itself.
+    stages:
+      - name: verify
+        actions:
+          - type: shell
+            dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+            command: |
+              git status --short
+              go test ./cmd/cerberus
+      - name: package
+        depends_on: [verify]
+        actions:
+          - type: build_app
+            resource: cerberus-release-artifacts
+      - name: inspect
+        depends_on: [package]
+        actions:
+          - type: shell
+            dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+            command: |
+              : "${VERSION:?set VERSION, for example VERSION=0.3.0-beta.1}"
+              ls -la dist
+              test -f dist/checksums.txt
+              tar -tzf "dist/cerberus_${VERSION}_darwin_arm64.tar.gz"
+              tar -tzf "dist/cerberus_${VERSION}_darwin_amd64.tar.gz"

@@ -78,7 +78,7 @@ func normalizeLocalProcessResourceConfig(cfg map[string]any) {
 			cfg[key] = ExpandHomePath(raw)
 		}
 	}
-	for _, key := range []string{"command", "build"} {
+	for _, key := range []string{"command"} {
 		switch values := cfg[key].(type) {
 		case []string:
 			cfg[key] = expandHomeSlice(values)
@@ -94,6 +94,7 @@ func normalizeLocalProcessResourceConfig(cfg map[string]any) {
 			cfg[key] = out
 		}
 	}
+	normalizeBuildStrategyConfig(cfg)
 	switch values := cfg["env"].(type) {
 	case map[string]string:
 		cfg["env"] = expandHomeMapValues(values)
@@ -124,5 +125,36 @@ func normalizeLocalProcessResourceConfig(cfg map[string]any) {
 			raw["command"] = out
 		}
 		cfg["health_check"] = raw
+	}
+}
+
+func normalizeBuildStrategyConfig(cfg map[string]any) {
+	raw, ok := cfg["build_strategy"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, section := range []string{"source", "rules"} {
+		m, ok := raw[section].(map[string]any)
+		if !ok {
+			continue
+		}
+		for key, value := range m {
+			switch typed := value.(type) {
+			case string:
+				m[key] = ExpandHomePath(typed)
+			case []string:
+				m[key] = expandHomeSlice(typed)
+			case []any:
+				out := make([]any, 0, len(typed))
+				for _, item := range typed {
+					if str, ok := item.(string); ok {
+						out = append(out, ExpandHomePath(str))
+					} else {
+						out = append(out, item)
+					}
+				}
+				m[key] = out
+			}
+		}
 	}
 }

@@ -21,13 +21,25 @@ func NewBuild(resourceID string, spec localconn.ProcessSpec) *Build {
 
 func (a *Build) Name() string { return fmt.Sprintf("build(%s)", a.resourceID) }
 
-func (a *Build) Execute(_ context.Context, _ *domain.PipelineEnv) error {
-	if len(a.spec.Build) == 0 {
+func (a *Build) Execute(ctx context.Context, env *domain.PipelineEnv) error {
+	if !localconn.HasBuildStrategy(a.spec) {
 		return nil // no build command configured — skip
 	}
-	out, err := localconn.BuildProcess(a.spec)
+	result, err := localconn.BuildProcessResultContext(ctx, a.spec)
+	if result == nil {
+		result = &localconn.BuildResult{}
+	}
 	if err != nil {
-		return fmt.Errorf("build %s: %w\n%s", a.resourceID, err, out)
+		return fmt.Errorf("build %s: %w\n%s", a.resourceID, err, result.Output)
+	}
+	if len(result.Artifacts) > 0 {
+		if env != nil {
+			if env.Values == nil {
+				env.Values = make(map[string]any)
+			}
+			env.Values[fmt.Sprintf("build.%s.artifacts", a.resourceID)] = result.Artifacts
+			env.Values["build.latest.artifacts"] = result.Artifacts
+		}
 	}
 	return nil
 }

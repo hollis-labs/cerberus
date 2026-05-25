@@ -44,7 +44,7 @@ type ProcessSpec struct {
 	Env                map[string]string
 	URL                string
 	Port               int
-	Build              []string
+	BuildStrategy      *BuildStrategyConfig
 	Health             string
 	HealthCheck        config.HealthCheck
 	AutoStart          bool
@@ -91,7 +91,16 @@ func SpecFromResourceConfig(cfg map[string]any) (ProcessSpec, error) {
 	spec.Env = stringMapField(cfg, "env")
 	spec.URL, _ = stringField(cfg, "url")
 	spec.Port = intField(cfg, "port")
-	spec.Build = stringSliceField(cfg, "build")
+	if _, present := cfg["build"]; present {
+		return ProcessSpec{}, fmt.Errorf("build is no longer supported; use build_strategy")
+	}
+	if raw, exists := cfg["build_strategy"]; exists {
+		strategy, err := buildStrategyConfigFromAny(raw)
+		if err != nil {
+			return ProcessSpec{}, fmt.Errorf("decode build_strategy: %w", err)
+		}
+		spec.BuildStrategy = strategy
+	}
 	spec.InstallAfterBuild = boolFieldDefault(cfg, "install_after_build", true)
 	spec.Health, _ = stringField(cfg, "health")
 	spec.AutoStart = boolField(cfg, "auto_start")
@@ -128,7 +137,9 @@ func SpecFromResourceConfig(cfg map[string]any) (ProcessSpec, error) {
 	spec.Command = expandHomeSlice(spec.Command)
 	spec.EnvFile = config.ExpandHomePath(spec.EnvFile)
 	spec.Env = expandHomeMapValues(spec.Env)
-	spec.Build = expandHomeSlice(spec.Build)
+	if spec.BuildStrategy != nil {
+		spec.BuildStrategy.expandHome()
+	}
 	spec.LogFile = config.ExpandHomePath(spec.LogFile)
 	spec.ArtifactPath = config.ExpandHomePath(spec.ArtifactPath)
 	spec.InstallRoot = config.ExpandHomePath(spec.InstallRoot)
@@ -165,8 +176,8 @@ func (s ProcessSpec) ToResourceConfig() map[string]any {
 	if s.Port > 0 {
 		cfg["port"] = s.Port
 	}
-	if len(s.Build) > 0 {
-		cfg["build"] = append([]string(nil), s.Build...)
+	if s.BuildStrategy != nil && s.BuildStrategy.Kind != "" {
+		cfg["build_strategy"] = s.BuildStrategy.toConfigMap()
 	}
 	if !s.InstallAfterBuild {
 		// Only emit the explicit opt-out; the default is true, so emitting

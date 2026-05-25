@@ -13,25 +13,21 @@ import (
 func NewCerberusSSHExecTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_exec",
-		Description: "Executes a command on a remote host via SSH. Returns stdout, stderr, and exit code.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id":  map[string]interface{}{"type": "string", "description": "ID of the SSH resource to connect to."},
-				"command":      map[string]interface{}{"type": "string", "description": "Command to execute on the remote host."},
-				"dry_run":      map[string]interface{}{"type": "boolean", "description": "Set true to preview the remote command without executing it."},
-				"acknowledged": map[string]interface{}{"type": "boolean", "description": "Set true to acknowledge this destructive remote execution."},
-			},
-			"required": []string{"resource_id", "command"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		Description: "Run a command on an SSH resource.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+			"command":      map[string]interface{}{"type": "string", "description": "Command to run on the remote host."},
+			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
+		}, "resource_id", "command"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID := stringArg(args, "resource_id")
 			command := stringArg(args, "command")
 			res, err := findSSHResource(cfg, resourceID)
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
 			}
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector:    "ssh",
 				Operation:    "exec",
 				Config:       sshToolConfig(res, command),
@@ -50,21 +46,17 @@ func NewCerberusSSHExecTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 func NewCerberusSSHStatusTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_status",
-		Description: "Checks connectivity and OS info for a remote host via SSH.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"resource_id": map[string]interface{}{"type": "string", "description": "ID of the SSH resource to check."},
-			},
-			"required": []string{"resource_id"},
-		},
-		Handler: func(args map[string]interface{}) (string, error) {
+		Description: "Check connectivity and host info for an SSH resource.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			resourceID := stringArg(args, "resource_id")
 			res, err := findSSHResource(cfg, resourceID)
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
 			}
-			result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "ssh",
 				Operation: "status",
 				Config:    sshToolConfig(res, ""),

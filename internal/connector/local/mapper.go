@@ -17,7 +17,6 @@ func ServiceDefToResource(def config.ServiceDef) *domain.Resource {
 		Env:                cloneStringMap(def.Env),
 		URL:                def.URL,
 		Port:               def.Port,
-		Build:              append([]string(nil), def.Build...),
 		Health:             def.Health,
 		HealthCheck:        def.HealthCheckCfg,
 		AutoStart:          def.AutoStart,
@@ -65,7 +64,6 @@ func ResourceToServiceDef(res *domain.Resource) config.ServiceDef {
 		URL:     spec.URL,
 		Port:    spec.Port,
 		Tags:    res.Tags,
-		Build:   append([]string(nil), spec.Build...),
 		Health:  spec.Health,
 		HealthCheckCfg: config.HealthCheck{
 			URL:      spec.HealthCheck.URL,

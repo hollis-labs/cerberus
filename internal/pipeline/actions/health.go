@@ -30,24 +30,47 @@ func NewHealthWait(resourceID, url string, timeout time.Duration) *HealthWait {
 func (a *HealthWait) Name() string { return fmt.Sprintf("health_wait(%s)", a.resourceID) }
 
 func (a *HealthWait) Execute(ctx context.Context, _ *domain.PipelineEnv) error {
-	deadline := time.After(a.timeout)
+	deadline := time.Now().Add(a.timeout)
+
+	ticker := time.NewTicker(a.interval)
+	defer ticker.Stop()
+
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("health check timed out after %s for %s (%s)", a.timeout, a.resourceID, a.url)
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-deadline:
-			return fmt.Errorf("health check timed out after %s for %s (%s)", a.timeout, a.resourceID, a.url)
-		default:
-			resp, err := client.Get(a.url)
-			if err == nil {
-				_ = resp.Body.Close()
-				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-					return nil
-				}
+		}
+
+		attemptTimeout := 5 * time.Second
+		if remaining < attemptTimeout {
+			attemptTimeout = remaining
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		req, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, a.url, nil)
+		if err != nil {
+			cancel()
+			return fmt.Errorf("build health check request for %s (%s): %w", a.resourceID, a.url, err)
+		}
+		resp, err := client.Do(req)
+		cancel()
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return nil
 			}
-			time.Sleep(a.interval)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
 		}
 	}
 }

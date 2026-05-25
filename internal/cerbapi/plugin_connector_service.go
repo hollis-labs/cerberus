@@ -2,11 +2,13 @@ package cerbapi
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/chrispian/cerberus/internal/pluginhost"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 type PluginConnectorTrustOptions struct {
@@ -50,15 +52,26 @@ func NewPluginConnectorService(hostVersion string, stderr io.Writer) *PluginConn
 }
 
 func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {
+	progressToken := fmt.Sprintf("plugin-health:%s", args.PluginDir)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting plugin health check for %s", args.PluginDir))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
 	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.Trust)
 	if err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin health check failed for %s: %s", args.PluginDir, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin health failed")
 		return PluginConnectorHealth{}, err
 	}
 	defer func() { _ = manager.Unload(context.Background(), installed.ID) }()
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Checking plugin health for %s", installed.ID))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 3, "Checking plugin health")
 	health, err := manager.Health(ctx, installed.ID)
 	if err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin health check failed for %s: %s", installed.ID, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin health failed")
 		return PluginConnectorHealth{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Plugin health check completed for %s", installed.ID))
+	gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin health completed")
 	return PluginConnectorHealth{
 		ID:      health.ID,
 		Loaded:  health.Loaded,
@@ -68,11 +81,18 @@ func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnecto
 }
 
 func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	progressToken := fmt.Sprintf("plugin-exec:%s:%s", args.PluginDir, args.Operation)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting plugin operation %s for %s", args.Operation, args.PluginDir))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
 	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.Trust)
 	if err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed for %s: %s", args.Operation, args.PluginDir, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation failed")
 		return ExternalConnectorOperationResult{}, err
 	}
 	defer func() { _ = manager.Unload(context.Background(), installed.ID) }()
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing plugin operation %s on %s", args.Operation, installed.ID))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 3, "Executing plugin operation")
 	result, err := manager.ExecuteOperation(ctx, pluginhost.OperationArgs{
 		Connector:    installed.ID,
 		Operation:    args.Operation,
@@ -81,8 +101,12 @@ func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnect
 		Acknowledged: args.Acknowledged,
 	})
 	if err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed on %s: %s", args.Operation, installed.ID, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation failed")
 		return ExternalConnectorOperationResult{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Plugin operation %s completed on %s", args.Operation, installed.ID))
+	gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation completed")
 	return ExternalConnectorOperationResult{
 		Connector: result.Connector,
 		Operation: result.Operation,
@@ -113,9 +137,11 @@ func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir s
 	if err != nil {
 		return nil, pluginhost.InstalledPlugin{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Loaded plugin manifest for %s", installed.ID))
 	if err := manager.Load(ctx, installed.ID); err != nil {
 		return nil, pluginhost.InstalledPlugin{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Plugin %s loaded", installed.ID))
 	return manager, installed, nil
 }
 

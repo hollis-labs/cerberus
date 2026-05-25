@@ -653,8 +653,8 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 	if len(st.Command) > 0 {
 		fmt.Printf("Command:     %s\n", strings.Join(st.Command, " "))
 	}
-	if len(st.Build) > 0 {
-		fmt.Printf("Build:       %s\n", strings.Join(st.Build, " "))
+	if st.BuildStrategy != "" {
+		fmt.Printf("Build:       %s\n", st.BuildStrategy)
 	}
 	if st.ServiceName != "" {
 		fmt.Printf("Service:     %s\n", st.ServiceName)

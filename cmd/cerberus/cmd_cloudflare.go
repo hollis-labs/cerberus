@@ -54,6 +54,46 @@ var cloudflareZonesCmd = &cobra.Command{
 	},
 }
 
+var (
+	cloudflareZoneType string
+)
+
+var cloudflareZonesCreateCmd = &cobra.Command{
+	Use:   "create <account-id> <name>",
+	Short: "Create a Cloudflare zone",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc, closeFn, err := newExternalConnectorService()
+		if err != nil {
+			return err
+		}
+		defer closeFn()
+
+		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector: "cloudflare",
+			Operation: "create_zone",
+			Config: map[string]any{
+				"account_id": args[0],
+				"name":       args[1],
+				"type":       cloudflareZoneType,
+			},
+			DryRun:       cloudflareDryRun,
+			Acknowledged: cloudflareAcknowledge,
+		})
+		if err != nil {
+			return err
+		}
+		if cloudflareDryRun {
+			return writeJSON(cmd.OutOrStdout(), result.Data)
+		}
+		zone, ok := result.Data.(*cfconn.Zone)
+		if !ok {
+			return fmt.Errorf("cloudflare zone create: unexpected result type %T", result.Data)
+		}
+		return writeJSON(cmd.OutOrStdout(), zone)
+	},
+}
+
 var cloudflareDNSCmd = &cobra.Command{
 	Use:   "dns",
 	Short: "DNS record operations",
@@ -182,6 +222,9 @@ var cloudflareDNSDeleteCmd = &cobra.Command{
 }
 
 func init() {
+	cloudflareZonesCreateCmd.Flags().StringVar(&cloudflareZoneType, "type", cfconn.ZoneTypeFull, "zone type (full or partial)")
+	cloudflareZonesCreateCmd.Flags().BoolVar(&cloudflareDryRun, "dry-run", false, "preview the zone creation without sending it to Cloudflare")
+	cloudflareZonesCreateCmd.Flags().BoolVar(&cloudflareAcknowledge, "ack", false, "acknowledge destructive zone creation")
 	cloudflareDNSCreateCmd.Flags().StringVar(&dnsCreateType, "type", "A", "DNS record type (A, AAAA, CNAME, MX, TXT)")
 	cloudflareDNSCreateCmd.Flags().StringVar(&dnsCreateName, "name", "", "DNS record name")
 	cloudflareDNSCreateCmd.Flags().StringVar(&dnsCreateContent, "content", "", "DNS record content")
@@ -195,6 +238,7 @@ func init() {
 	cloudflareDNSCmd.AddCommand(cloudflareDNSListCmd)
 	cloudflareDNSCmd.AddCommand(cloudflareDNSCreateCmd)
 	cloudflareDNSCmd.AddCommand(cloudflareDNSDeleteCmd)
+	cloudflareZonesCmd.AddCommand(cloudflareZonesCreateCmd)
 	cloudflareCmd.AddCommand(cloudflareZonesCmd)
 	cloudflareCmd.AddCommand(cloudflareDNSCmd)
 }

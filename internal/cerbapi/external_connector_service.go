@@ -17,6 +17,7 @@ import (
 	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
 	contract "github.com/chrispian/cerberus/pkg/connector"
 	"github.com/chrispian/cerberus/pkg/resource"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 type ExternalConnectorErrorCode string
@@ -126,18 +127,30 @@ func (s *ExternalConnectorService) LiveDefinitions() []contract.Definition {
 }
 
 func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
+	progressToken := fmt.Sprintf("connector:%s:%s", args.Connector, args.Operation)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting connector operation %s.%s", args.Connector, args.Operation))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Validating connector operation")
+
 	if s == nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: connector registry is not configured", args.Connector, args.Operation))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector registry unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
 	if args.DryRun {
 		if preview, ok, err := s.dryRunPreview(args); ok || err != nil {
 			if err != nil {
+				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+				gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Dry run failed")
 				return ExternalConnectorOperationResult{}, err
 			}
+			gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Connector dry run completed for %s.%s", args.Connector, args.Operation))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Dry run completed")
 			return externalConnectorResult(args, preview), nil
 		}
 	}
 	if s.managedPlugins != nil && s.managedPlugins.Loaded(args.Connector) {
+		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing managed plugin connector %s.%s", args.Connector, args.Operation))
+		gmcp.NotifyProgress(ctx, progressToken, 1, 2, "Executing managed plugin connector")
 		return s.managedPlugins.Execute(ctx, args.Connector, PluginConnectorExecArgs{
 			Operation:    args.Operation,
 			Config:       args.Config,
@@ -146,39 +159,61 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		})
 	}
 	if s.managedPlugins != nil && s.managedPlugins.Installed(args.Connector) && !s.managedPlugins.Loaded(args.Connector) {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: plugin connector is installed but not loaded", args.Connector, args.Operation))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("plugin connector %q is installed but not loaded", args.Connector))
 	}
 	if s.registry == nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: connector registry is not configured", args.Connector, args.Operation))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector registry unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
 
 	c, ok := s.registry.Get(args.Connector)
 	if !ok {
 		err := s.registry.UnavailableError(args.Connector)
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, unavailableCode(err), err)
 	}
 	if err := s.requireAcknowledgment(args); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Acknowledgment required")
 		return ExternalConnectorOperationResult{}, err
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing connector operation %s.%s", args.Connector, args.Operation))
+	gmcp.NotifyProgress(ctx, progressToken, 1, 2, "Executing connector operation")
 
+	var (
+		result ExternalConnectorOperationResult
+		err    error
+	)
 	switch args.Connector {
 	case "cloudflare":
-		return s.executeCloudflare(ctx, c, args)
+		result, err = s.executeCloudflare(ctx, c, args)
 	case "digitalocean":
-		return s.executeDigitalOcean(ctx, c, args)
+		result, err = s.executeDigitalOcean(ctx, c, args)
 	case "docker":
-		return s.executeDocker(ctx, c, args)
+		result, err = s.executeDocker(ctx, c, args)
 	case "forge":
-		return s.executeForge(ctx, c, args)
+		result, err = s.executeForge(ctx, c, args)
 	case "github":
-		return s.executeGitHub(ctx, c, args)
+		result, err = s.executeGitHub(ctx, c, args)
 	case "namecheap":
-		return s.executeNamecheap(ctx, c, args)
+		result, err = s.executeNamecheap(ctx, c, args)
 	case "ssh":
-		return s.executeSSH(ctx, c, args)
+		result, err = s.executeSSH(ctx, c, args)
 	default:
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
+		err = externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
+	if err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector operation failed")
+		return ExternalConnectorOperationResult{}, err
+	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Connector operation %s.%s completed", args.Connector, args.Operation))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector operation completed")
+	return result, nil
 }
 
 func (s *ExternalConnectorService) requireAcknowledgment(args ExternalConnectorOperationArgs) error {
@@ -207,6 +242,22 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 	switch args.Connector {
 	case "cloudflare":
 		switch args.Operation {
+		case "create_zone":
+			accountID, err := requiredString(args.Config, "account_id")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			name, err := requiredString(args.Config, "name")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			zoneType := stringFromConfig(args.Config, "type", cfconn.ZoneTypeFull)
+			return dryRunPreview(args, "Would create a Cloudflare zone.", map[string]any{
+				"account_id": accountID,
+				"name":       name,
+			}, map[string]any{
+				"type": zoneType,
+			}), true, nil
 		case "create_dns_record":
 			zoneID, err := requiredString(args.Config, "zone_id")
 			if err != nil {
@@ -289,6 +340,20 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 				"domain":    domain,
 				"record_id": recordID,
 			}, nil, "Namecheap DNS writes replace the full host-record set for the domain; concurrent edits can race."), true, nil
+		case "set_custom_nameservers":
+			domain, err := requiredString(args.Config, "domain")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			nameservers, err := requiredStringSlice(args.Config, "nameservers")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			return dryRunPreview(args, "Would switch a Namecheap domain to custom nameservers.", map[string]any{
+				"domain": domain,
+			}, map[string]any{
+				"nameservers": nameservers,
+			}, "Changing registrar nameservers moves DNS authority away from Namecheap's default nameservers for this domain."), true, nil
 		}
 	case "forge":
 		switch args.Operation {
@@ -474,6 +539,20 @@ func (s *ExternalConnectorService) executeCloudflare(ctx context.Context, c cont
 	case "list_zones":
 		zones, err := cloudflare.ListZones(ctx)
 		return externalConnectorResult(args, zones), err
+	case "create_zone":
+		accountID, err := requiredString(args.Config, "account_id")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		name, err := requiredString(args.Config, "name")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		zone, err := cloudflare.CreateZone(ctx, accountID, name, stringFromConfig(args.Config, "type", cfconn.ZoneTypeFull))
+		if err != nil {
+			return externalConnectorResult(args, nil), err
+		}
+		return externalConnectorResult(args, zone), nil
 	case "list_dns_records":
 		zoneID, err := requiredString(args.Config, "zone_id")
 		if err != nil {
@@ -681,6 +760,17 @@ func (s *ExternalConnectorService) executeNamecheap(ctx context.Context, c contr
 		}
 		err = namecheap.DeleteDNSRecord(ctx, domainName, recordID)
 		return externalConnectorResult(args, nil), err
+	case "set_custom_nameservers":
+		domainName, err := requiredString(args.Config, "domain")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		nameservers, err := requiredStringSlice(args.Config, "nameservers")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		result, err := namecheap.SetCustomNameservers(ctx, domainName, nameservers)
+		return externalConnectorResult(args, result), err
 	default:
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
@@ -851,6 +941,45 @@ func requiredInt(cfg map[string]any, key string) (int, error) {
 		return 0, fmt.Errorf("missing %q", key)
 	}
 	return value, nil
+}
+
+func requiredStringSlice(cfg map[string]any, key string) ([]string, error) {
+	raw, ok := cfg[key]
+	if !ok {
+		return nil, fmt.Errorf("%s is required", key)
+	}
+	switch values := raw.(type) {
+	case []string:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				out = append(out, value)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("%s must not be empty", key)
+		}
+		return out, nil
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, item := range values {
+			value, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s entries must be strings", key)
+			}
+			value = strings.TrimSpace(value)
+			if value != "" {
+				out = append(out, value)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fmt.Errorf("%s must not be empty", key)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("%s must be a string array", key)
+	}
 }
 
 func dropletIDFromConfig(cfg map[string]any) (int, error) {

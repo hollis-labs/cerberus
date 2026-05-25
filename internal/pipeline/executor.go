@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 // StageResult captures the outcome of a single stage execution.
@@ -61,6 +62,12 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 		PipelineID: p.ID,
 		Status:     domain.StateRunning,
 	}
+	totalStages := countStages(levels)
+	completedStages := 0
+	progressToken := fmt.Sprintf("pipeline:%s", p.ID)
+
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting pipeline %s (%d stage(s))", p.ID, totalStages))
+	gmcp.NotifyProgress(ctx, progressToken, 0, float64(totalStages), "Pipeline queued")
 
 	// Track completed stages for rollback
 	var completed []*Stage
@@ -89,11 +96,22 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 
 		for i, sr := range stageResults {
 			result.Stages = append(result.Stages, sr)
+			completedStages++
+			statusLabel := "completed"
+			switch sr.Status {
+			case domain.StateFailed:
+				statusLabel = "failed"
+			case domain.StateStopped:
+				statusLabel = "skipped"
+			}
+			gmcp.NotifyProgress(ctx, progressToken, float64(completedStages), float64(totalStages), fmt.Sprintf("Stage %s %s", sr.Name, statusLabel))
 			if sr.Status == domain.StateFailed {
+				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Stage %s failed: %s", sr.Name, sr.Error))
 				if firstErr == nil {
 					firstErr = fmt.Errorf("stage %q failed: %s", sr.Name, sr.Error)
 				}
 			} else {
+				gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Stage %s %s", sr.Name, statusLabel))
 				completed = append(completed, level[i])
 			}
 		}
@@ -104,11 +122,14 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 		e.rollback(ctx, completed, env)
 		result.Status = domain.StateFailed
 		result.Error = firstErr.Error()
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Pipeline %s failed: %s", p.ID, firstErr.Error()))
 	} else {
 		result.Status = domain.StateHealthy
+		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Pipeline %s completed", p.ID))
 	}
 
 	result.Duration = time.Since(start)
+	gmcp.NotifyProgress(ctx, progressToken, float64(completedStages), float64(totalStages), fmt.Sprintf("Pipeline %s %s", p.ID, result.Status))
 	return result, nil
 }
 
@@ -133,6 +154,7 @@ func (e *Executor) runLevel(ctx context.Context, stages []*Stage, env *domain.Pi
 func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineEnv) StageResult {
 	start := time.Now()
 	e.logger.Info("pipeline.stage.start", "stage", s.Name)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Stage %s started", s.Name))
 
 	for _, action := range s.Actions {
 		if ctx.Err() != nil {
@@ -167,6 +189,14 @@ func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineE
 		Status:   domain.StateHealthy,
 		Duration: duration,
 	}
+}
+
+func countStages(levels [][]*Stage) int {
+	total := 0
+	for _, level := range levels {
+		total += len(level)
+	}
+	return total
 }
 
 // rollback calls Rollback on completed stages in reverse order.

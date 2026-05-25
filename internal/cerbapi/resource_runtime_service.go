@@ -18,6 +18,7 @@ import (
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/registry"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 // ResourceRuntimeService owns resource-native local runtime operations.
@@ -124,7 +125,7 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 			RunFrom:    resourceRunFrom(r),
 			URL:        configString(r.Config, "url"),
 			Port:       configInt(r.Config, "port"),
-			HasBuild:   len(configStringSlice(r.Config, "build")) > 0,
+			HasBuild:   hasBuildStrategyConfig(r.Config),
 			Tags:       append([]string(nil), r.Tags...),
 		}
 		if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
@@ -200,7 +201,10 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 		return nil, err
 	}
 
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return nil, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
+	}
 	installRoot := spec.InstallRoot
 	serviceName := spec.ServiceName
 	artifactPath := spec.ArtifactPath
@@ -248,7 +252,7 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 		RunFrom:             resourceRunFrom(*res),
 		URL:                 spec.URL,
 		Port:                spec.Port,
-		HasBuild:            len(spec.Build) > 0,
+		HasBuild:            localconn.HasBuildStrategy(spec),
 		Status:              string(state),
 		OperatorStopped:     pausectl.IsServicePaused(res.ID),
 		ServiceName:         serviceName,
@@ -294,7 +298,10 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 	if err != nil {
 		return nil, err
 	}
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return nil, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
+	}
 
 	out := &ResourceInspect{
 		ID:              res.ID,
@@ -311,7 +318,7 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 		OperatorStopped: pausectl.IsServicePaused(res.ID),
 		WorkspaceDir:    spec.Dir,
 		Command:         append([]string(nil), spec.Command...),
-		Build:           append([]string(nil), spec.Build...),
+		BuildStrategy:   buildStrategyKind(spec),
 		WorkingDir:      spec.Dir,
 	}
 
@@ -551,7 +558,10 @@ func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string) 
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
 	}
@@ -573,7 +583,10 @@ func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string) (*
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
 	paused := false
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		if err := pausectl.PauseService(id); err != nil {
@@ -599,20 +612,30 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	defer s.opMu.Unlock()
 
 	opts := ApplyDeployResourceOptions(options)
+	progressToken := fmt.Sprintf("resource:%s:deploy", id)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting deploy for resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 4, "Resolving resource")
 
 	res, err := s.requireLocalProcessResource(id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
 	installAfterBuild := s.resolveInstallAfterBuild(res.Config, spec, opts)
 	buildOutput := ""
 	installOutput := ""
 	installSkipped := false
-	if len(spec.Build) > 0 {
-		out, buildErr := localconn.BuildProcess(spec)
+	if localconn.HasBuildStrategy(spec) {
+		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Building resource %s", id))
+		gmcp.NotifyProgress(ctx, progressToken, 1, 4, "Building")
+		out, buildErr := localconn.BuildProcessContext(ctx, spec)
 		buildOutput = strings.TrimSpace(out)
 		if buildErr != nil {
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Build failed for resource %s: %s", id, buildErr.Error()))
+			gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Build failed")
 			return &OpResult{
 				Success:     false,
 				ServiceID:   id,
@@ -621,10 +644,14 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 			}, nil
 		}
 		if installAfterBuild {
+			gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Installing build output for resource %s", id))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 4, "Installing")
 			skipped, instOut, installErr := localconn.RunInstall(spec)
 			installOutput = strings.TrimSpace(instOut)
 			installSkipped = skipped
 			if installErr != nil {
+				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Install failed for resource %s: %s", id, installErr.Error()))
+				gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Install failed")
 				return &OpResult{
 					Success:        false,
 					ServiceID:      id,
@@ -639,14 +666,19 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 					"resource", id,
 					"reason", "no_install_target_in_makefile",
 				)
+				gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Install skipped for resource %s", id))
 			}
 		}
 	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Applying resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 3, 4, "Applying")
 	applyRes, applyErr := s.localConnector().Apply(ctx, resourceDefToDomain(res))
 	if applyErr != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Apply failed for resource %s: %s", id, applyErr.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Apply failed")
 		return &OpResult{
 			Success:        false,
 			ServiceID:      id,
@@ -657,9 +689,11 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 		}, nil
 	}
 	msg := localconn.FormatApplyResultMessage(id, spec, applyRes)
-	if len(spec.Build) > 0 {
+	if localconn.HasBuildStrategy(spec) {
 		msg = fmt.Sprintf("resource %q deployed successfully (%s)", id, strings.TrimPrefix(msg, fmt.Sprintf("resource %q ", id)))
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Deploy completed for resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Deploy completed")
 	return &OpResult{
 		Success:        true,
 		ServiceID:      id,
@@ -699,22 +733,50 @@ func ResolveInstallAfterBuild(rawCfg map[string]any, resourceVal bool, globalDef
 	return globalDefault
 }
 
+func buildStrategyKind(spec localconn.ProcessSpec) string {
+	if spec.BuildStrategy == nil {
+		return ""
+	}
+	return spec.BuildStrategy.Kind
+}
+
+func hasBuildStrategyConfig(cfg map[string]any) bool {
+	raw, ok := cfg["build_strategy"].(map[string]any)
+	if !ok {
+		return false
+	}
+	kind, _ := raw["kind"].(string)
+	return kind != ""
+}
+
 func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+	progressToken := fmt.Sprintf("resource:%s:apply", id)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting apply for resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Resolving resource")
 
 	res, err := s.requireLocalProcessResource(id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Applying resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 1, 2, "Applying")
 	applyRes, applyErr := s.localConnector().Apply(ctx, resourceDefToDomain(res))
 	if applyErr != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Apply failed for resource %s: %s", id, applyErr.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Apply failed")
 		return &OpResult{Success: false, ServiceID: id, Error: s.formatApplyError(id, res, spec, applyErr)}, nil
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Apply completed for resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Apply completed")
 	return &OpResult{
 		Success:   true,
 		ServiceID: id,
@@ -745,30 +807,51 @@ func (s *ResourceRuntimeService) formatApplyError(id string, res *config.Resourc
 	return fmt.Sprintf("%s; %s", msg, inspectHint)
 }
 
-func (s *ResourceRuntimeService) SyncResource(_ context.Context, id string) (*OpResult, error) {
+func (s *ResourceRuntimeService) SyncResource(ctx context.Context, id string) (*OpResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+	progressToken := fmt.Sprintf("resource:%s:sync", id)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting sync for resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Resolving resource")
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	res, err := s.requireLocalProcessResource(id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
 	if spec.RunFrom != localconn.ProcessRunFromArtifact {
+		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Sync skipped for resource %s: artifact mode not enabled", id))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Nothing to sync")
 		return &OpResult{
 			Success:   true,
 			ServiceID: id,
 			Message:   fmt.Sprintf("resource %q does not use artifact mode; nothing to sync", id),
 		}, nil
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Syncing resource %s artifact", id))
+	gmcp.NotifyProgress(ctx, progressToken, 1, 2, "Syncing")
 	_, syncRes, syncErr := localconn.SyncArtifactInstall(resourceDefToDomain(res), spec)
 	if syncErr != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Sync failed for resource %s: %s", id, syncErr.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Sync failed")
 		return &OpResult{Success: false, ServiceID: id, Error: syncErr.Error()}, nil
 	}
 	msg := fmt.Sprintf("resource %q artifact already current", id)
 	if syncRes.Changed {
 		msg = fmt.Sprintf("resource %q artifact synced", id)
 	}
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Sync completed for resource %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Sync completed")
 	return &OpResult{
 		Success:   true,
 		ServiceID: id,
@@ -784,7 +867,10 @@ func (s *ResourceRuntimeService) RemoveResource(ctx context.Context, id string) 
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	spec, _ := localconn.SpecFromResourceConfig(res.Config)
+	spec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.PauseService(id)
 	}
@@ -798,9 +884,16 @@ func (s *ResourceRuntimeService) RemoveResource(ctx context.Context, id string) 
 	}, nil
 }
 
-func (s *ResourceRuntimeService) ResourceLogs(_ context.Context, id string, lines int, stream string) (*LogLines, error) {
+func (s *ResourceRuntimeService) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	res, spec, err := s.requireLocalProcessSpec(id)
 	if err != nil {
@@ -811,6 +904,9 @@ func (s *ResourceRuntimeService) ResourceLogs(_ context.Context, id string, line
 	}
 	logPath, err := s.resourceLogPath(resourceDefToDomain(res), spec, stream)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	content, err := readLastNLines(logPath, lines)

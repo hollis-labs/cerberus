@@ -1,6 +1,7 @@
 package cerbapi
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	contract "github.com/chrispian/cerberus/pkg/connector"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
 // SocketServer exposes a Client over a unix-socket HTTP endpoint. The
@@ -345,6 +347,11 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 			writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
 			return
 		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.DeployResource(ctx, id, deployOpts...)
+		}) {
+			return
+		}
 		res, err := s.client.DeployResource(r.Context(), id, deployOpts...)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -354,6 +361,11 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 	case "apply":
 		if r.Method != http.MethodPost {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.ApplyResource(ctx, id)
+		}) {
 			return
 		}
 		res, err := s.client.ApplyResource(r.Context(), id)
@@ -387,6 +399,11 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 	case "sync":
 		if r.Method != http.MethodPost {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.SyncResource(ctx, id)
+		}) {
 			return
 		}
 		res, err := s.client.SyncResource(r.Context(), id)
@@ -443,6 +460,11 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+		return s.client.RunPipeline(ctx, id)
+	}) {
+		return
+	}
 	res, err := s.client.RunPipeline(r.Context(), id)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -491,6 +513,11 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 		args.Config = map[string]any{}
 	}
 
+	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+		return s.client.ExecuteConnectorOperation(ctx, args)
+	}) {
+		return
+	}
 	out, err := s.client.ExecuteConnectorOperation(r.Context(), args)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -521,6 +548,11 @@ func (s *SocketServer) handlePluginConnectorsHealth(w http.ResponseWriter, r *ht
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+		return s.client.PluginHealth(ctx, args)
+	}) {
+		return
+	}
 	out, err := s.client.PluginHealth(r.Context(), args)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -545,6 +577,11 @@ func (s *SocketServer) handlePluginConnectorsOperations(w http.ResponseWriter, r
 		return
 	}
 	args.Operation = operation
+	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+		return s.client.ExecutePluginConnector(ctx, args)
+	}) {
+		return
+	}
 	out, err := s.client.ExecutePluginConnector(r.Context(), args)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -584,6 +621,11 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.InstallManagedPlugin(ctx, args)
+		}) {
+			return
+		}
 		out, err := s.client.InstallManagedPlugin(r.Context(), args)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -605,6 +647,11 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.LoadManagedPlugin(ctx, id)
+		}) {
+			return
+		}
 		out, err := s.client.LoadManagedPlugin(r.Context(), id)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -614,6 +661,11 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 	case "unload":
 		if r.Method != http.MethodPost {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.UnloadManagedPlugin(ctx, id)
+		}) {
 			return
 		}
 		out, err := s.client.UnloadManagedPlugin(r.Context(), id)
@@ -644,6 +696,11 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 			return
 		}
 		args.Operation = parts[2]
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.ExecuteManagedPlugin(ctx, id, args)
+		}) {
+			return
+		}
 		out, err := s.client.ExecuteManagedPlugin(r.Context(), id, args)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -683,6 +740,55 @@ func writeJSON(w http.ResponseWriter, status int, body interface{}) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(body)
+}
+
+func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn func(context.Context) (interface{}, error)) bool {
+	if !wantsProgressStream(r) {
+		return false
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSONError(w, http.StatusInternalServerError, "streaming not supported")
+		return true
+	}
+
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	bw := bufio.NewWriter(w)
+	writeEnvelope := func(env StreamEnvelope) {
+		data, err := json.Marshal(env)
+		if err != nil {
+			return
+		}
+		data = append(data, '\n')
+		if _, err := bw.Write(data); err != nil {
+			return
+		}
+		_ = bw.Flush()
+		flusher.Flush()
+	}
+
+	ctx := gmcp.WithNotifier(r.Context(), func(n gmcp.Notification) {
+		writeEnvelope(StreamEnvelope{Type: "notification", Notification: &n})
+	})
+	result, err := fn(ctx)
+	if err != nil {
+		writeEnvelope(StreamEnvelope{Type: "error", Error: err.Error()})
+		return true
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		writeEnvelope(StreamEnvelope{Type: "error", Error: fmt.Sprintf("marshal result: %v", err)})
+		return true
+	}
+	writeEnvelope(StreamEnvelope{Type: "result", Result: data})
+	return true
+}
+
+func wantsProgressStream(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get(ProgressHeaderName)), "1")
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {

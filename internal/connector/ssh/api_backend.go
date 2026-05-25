@@ -23,7 +23,7 @@ func NewAPIBackend() *APIBackend {
 	return &APIBackend{}
 }
 
-func (a *APIBackend) Connect(ctx context.Context, host string, port int, user string, keyFile string) error {
+func (a *APIBackend) Connect(ctx context.Context, host string, port int, user string, keyFile string, hostKey HostKeyConfig) error {
 	keyData, err := os.ReadFile(keyFile) //nolint:gosec // keyFile is from user config, not external input
 	if err != nil {
 		return fmt.Errorf("reading SSH key %s: %w", keyFile, err)
@@ -34,33 +34,48 @@ func (a *APIBackend) Connect(ctx context.Context, host string, port int, user st
 		return fmt.Errorf("parsing SSH key %s: %w", keyFile, err)
 	}
 
+	hostKeyCallback, err := hostKey.callback(host, port)
+	if err != nil {
+		return fmt.Errorf("configure SSH host key verification for %s:%d: %w", host, port, err)
+	}
+
 	config := &ssh.ClientConfig{
 		User: user,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // user-managed hosts
-		Timeout:         10 * time.Second,
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
-	// Use a goroutine to respect context cancellation during dial.
-	type dialResult struct {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("ssh connect to %s: %w", addr, err)
+	}
+
+	type handshakeResult struct {
 		client *ssh.Client
 		err    error
 	}
-	ch := make(chan dialResult, 1)
+	ch := make(chan handshakeResult, 1)
 	go func() {
-		c, err := ssh.Dial("tcp", addr, config)
-		ch <- dialResult{client: c, err: err}
+		clientConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+		if err != nil {
+			ch <- handshakeResult{err: err}
+			return
+		}
+		ch <- handshakeResult{client: ssh.NewClient(clientConn, chans, reqs)}
 	}()
 
 	select {
 	case <-ctx.Done():
+		_ = conn.Close()
 		return fmt.Errorf("ssh connect to %s: %w", addr, ctx.Err())
 	case res := <-ch:
 		if res.err != nil {
+			_ = conn.Close()
 			return fmt.Errorf("ssh connect to %s: %w", addr, res.err)
 		}
 		a.client = res.client

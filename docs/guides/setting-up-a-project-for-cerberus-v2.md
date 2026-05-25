@@ -240,7 +240,12 @@ resources:
     config:
       dir: /absolute/path/to/repo
       command: ["./bin/myd", "serve", "--port", "8080"]
-      build: ["make", "build"]
+      build_strategy:
+        kind: make_standard
+        source:
+          root: .
+        rules:
+          target: build
       url: http://127.0.0.1:8080
       port: 8080
       mode: os_service

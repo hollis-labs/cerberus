@@ -18,6 +18,7 @@ import (
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	contract "github.com/chrispian/cerberus/pkg/connector"
+	secretpkg "github.com/chrispian/cerberus/pkg/secret"
 	gowebui "github.com/hollis-labs/go-webui"
 )
 
@@ -26,15 +27,17 @@ var embeddedUI embed.FS
 
 type Server struct {
 	client      cerbapi.Client
+	configPath  string
+	secrets     secretpkg.Provider
 	logger      *slog.Logger
 	actionToken string
 }
 
-func New(client cerbapi.Client, logger *slog.Logger) *Server {
+func New(client cerbapi.Client, configPath string, secrets secretpkg.Provider, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{client: client, logger: logger, actionToken: randomActionToken()}
+	return &Server{client: client, configPath: configPath, secrets: secrets, logger: logger, actionToken: randomActionToken()}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -45,12 +48,29 @@ func (s *Server) Handler() http.Handler {
 
 	// Full cerbapi.Client domain (CW-20260517-0039). Handlers stay thin
 	// over the client; mutating routes reuse the actionToken guard.
+	mux.HandleFunc("/api/overview", s.handleOverview)
+	mux.HandleFunc("/api/settings", s.handleSettings)
+	mux.HandleFunc("/api/system", s.handleSystem)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/projects", s.handleProjects)
 	mux.HandleFunc("/api/pipelines", s.handlePipelines)
 	mux.HandleFunc("/api/pipelines/", s.handlePipelineByID)
+	mux.HandleFunc("/api/registry", s.handleRegistry)
+	mux.HandleFunc("/api/registry/health", s.handleRegistryHealth)
+	mux.HandleFunc("/api/registry/register", s.handleRegistryRegister)
+	mux.HandleFunc("/api/registry/deregister", s.handleRegistryDeregister)
+	mux.HandleFunc("/api/config/validate", s.handleConfigValidate)
+	mux.HandleFunc("/api/config/resolve", s.handleConfigResolve)
+	mux.HandleFunc("/api/config/migrate", s.handleConfigMigrate)
+	mux.HandleFunc("/api/config/migrate/preview", s.handleConfigMigratePreview)
+	mux.HandleFunc("/api/config/backups", s.handleConfigBackups)
+	mux.HandleFunc("/api/config/backups/restore", s.handleConfigRestoreBackup)
 	mux.HandleFunc("/api/connectors", s.handleConnectors)
 	mux.HandleFunc("/api/connectors/", s.handleConnectorByID)
+	mux.HandleFunc("/api/infra", s.handleInfra)
+	mux.HandleFunc("/api/infra/providers/", s.handleInfraProviderByID)
+	mux.HandleFunc("/api/deployments", s.handleDeployments)
+	mux.HandleFunc("/api/deployments/", s.handleDeploymentByID)
 	mux.HandleFunc("/api/plugins/connectors", s.handleManagedPlugins)
 	mux.HandleFunc("/api/plugins/connectors/health", s.handlePluginHealth)
 	mux.HandleFunc("/api/plugins/connectors/operations/", s.handlePluginOperations)

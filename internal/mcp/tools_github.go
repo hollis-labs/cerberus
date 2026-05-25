@@ -11,12 +11,12 @@ import (
 func NewCerberusGithubStatusTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_github_status",
-		Description: "Returns the current status of a GitHub repository including stars, open issues, and last update time.",
+		Description: "Get a GitHub repository summary.",
 		InputSchema: githubRepoSchema(false),
-		Handler: func(args map[string]interface{}) (string, error) {
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			owner, _ := args["owner"].(string)
 			repo, _ := args["repo"].(string)
-			return executeGitHubMCP(client, "status", owner, repo, 0)
+			return executeGitHubMCP(ctx, client, "status", owner, repo, 0)
 		},
 	}
 }
@@ -25,12 +25,12 @@ func NewCerberusGithubStatusTool(client cerbapi.Client) Tool {
 func NewCerberusGithubReleasesTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_github_releases",
-		Description: "Lists recent releases for a GitHub repository.",
+		Description: "List recent releases for a GitHub repo.",
 		InputSchema: githubRepoSchema(true),
-		Handler: func(args map[string]interface{}) (string, error) {
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			owner, _ := args["owner"].(string)
 			repo, _ := args["repo"].(string)
-			return executeGitHubMCP(client, "list_releases", owner, repo, intArg(args, "limit", 10))
+			return executeGitHubMCP(ctx, client, "list_releases", owner, repo, intArg(args, "limit", 10))
 		},
 	}
 }
@@ -39,17 +39,17 @@ func NewCerberusGithubReleasesTool(client cerbapi.Client) Tool {
 func NewCerberusGithubRunsTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_github_runs",
-		Description: "Lists recent GitHub Actions workflow runs for a repository.",
+		Description: "List recent GitHub Actions runs for a repo.",
 		InputSchema: githubRepoSchema(true),
-		Handler: func(args map[string]interface{}) (string, error) {
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			owner, _ := args["owner"].(string)
 			repo, _ := args["repo"].(string)
-			return executeGitHubMCP(client, "list_workflow_runs", owner, repo, intArg(args, "limit", 10))
+			return executeGitHubMCP(ctx, client, "list_workflow_runs", owner, repo, intArg(args, "limit", 10))
 		},
 	}
 }
 
-func executeGitHubMCP(client cerbapi.Client, operation, owner, repo string, limit int) (string, error) {
+func executeGitHubMCP(ctx context.Context, client cerbapi.Client, operation, owner, repo string, limit int) (string, error) {
 	cfg := map[string]any{
 		"owner": owner,
 		"repo":  repo,
@@ -57,7 +57,7 @@ func executeGitHubMCP(client cerbapi.Client, operation, owner, repo string, limi
 	if limit > 0 {
 		cfg["limit"] = limit
 	}
-	result, err := client.ExecuteConnectorOperation(context.Background(), cerbapi.ExternalConnectorOperationArgs{
+	result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 		Connector: "github",
 		Operation: operation,
 		Config:    cfg,
@@ -91,9 +91,10 @@ func githubRepoSchema(withLimit bool) map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
-		"type":       "object",
-		"properties": properties,
-		"required":   []string{"owner", "repo"},
+		"type":                 "object",
+		"properties":           properties,
+		"required":             []string{"owner", "repo"},
+		"additionalProperties": false,
 	}
 }
 

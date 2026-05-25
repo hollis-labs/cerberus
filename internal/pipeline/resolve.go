@@ -36,7 +36,7 @@ func Resolve(def config.PipelineDef, resources []config.ResourceDef, local *loca
 
 func resolveAction(ad config.ActionDef, resources []config.ResourceDef, local *localconn.Connector) (domain.Action, error) {
 	switch ad.Type {
-	case "build":
+	case "build", "build_app":
 		res := findResource(resources, ad.Resource)
 		if res == nil {
 			return nil, fmt.Errorf("build action: resource %q not found", ad.Resource)
@@ -46,6 +46,17 @@ func resolveAction(ad config.ActionDef, resources []config.ResourceDef, local *l
 			return nil, fmt.Errorf("build action: %w", err)
 		}
 		return actions.NewBuild(ad.Resource, spec), nil
+
+	case "deploy", "deploy_app":
+		res := findResource(resources, ad.Resource)
+		if res == nil {
+			return nil, fmt.Errorf("deploy action: resource %q not found", ad.Resource)
+		}
+		spec, err := requireLocalProcessSpec(*res)
+		if err != nil {
+			return nil, fmt.Errorf("deploy action: %w", err)
+		}
+		return actions.NewDeploy(ad.Resource, resourceDefToDomain(*res), spec, local), nil
 
 	case "start":
 		res := findResource(resources, ad.Resource)

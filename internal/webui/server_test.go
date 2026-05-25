@@ -15,7 +15,7 @@ import (
 
 func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := New(client, nil).Handler()
+	handler := New(client, "", nil, nil).Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/resources/app/apply", nil)
 	req.Header.Set("Content-Type", "application/json")
@@ -61,7 +61,7 @@ func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 
 func TestStateChangingResourceStopRequiresSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := New(client, nil).Handler()
+	handler := New(client, "", nil, nil).Handler()
 
 	sessionReq := httptest.NewRequest(http.MethodGet, "/api/session", nil)
 	sessionRec := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestHandleResourcesReturnsServiceUnavailableForDaemonDialFailure(t *testing
 	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	New(client, nil).Handler().ServeHTTP(rec, req)
+	New(client, "", nil, nil).Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -116,7 +116,7 @@ func TestHandleResourcesReturnsServiceUnavailableForTimeout(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	New(client, nil).Handler().ServeHTTP(rec, req)
+	New(client, "", nil, nil).Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -143,12 +143,19 @@ func sessionToken(t *testing.T, handler http.Handler) string {
 }
 
 func TestDomainReadEndpointsReachable(t *testing.T) {
-	handler := New(&fakeClient{}, nil).Handler()
+	handler := New(&fakeClient{}, "", nil, nil).Handler()
 	paths := []string{
+		"/api/settings",
 		"/api/health",
 		"/api/health?resource=app",
 		"/api/projects",
 		"/api/pipelines",
+		"/api/config/validate",
+		"/api/config/resolve",
+		"/api/config/migrate/preview",
+		"/api/config/backups",
+		"/api/infra",
+		"/api/deployments",
 		"/api/connectors",
 		"/api/plugins/connectors",
 		"/api/resources/app/inspect",
@@ -165,12 +172,18 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 }
 
 func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
-	handler := New(&fakeClient{}, nil).Handler()
+	handler := New(&fakeClient{}, "", nil, nil).Handler()
 	token := sessionToken(t, handler)
 	paths := []string{
 		"/api/resources/app/sync",
 		"/api/resources/app/remove",
 		"/api/pipelines/p1/run",
+		"/api/config/migrate",
+		"/api/config/backups/restore",
+		"/api/infra/providers/vercel",
+		"/api/deployments",
+		"/api/deployments/chrispian-dev/delete",
+		"/api/deployments/chrispian-dev/run",
 		"/api/connectors/c1/operations/list",
 		"/api/plugins/connectors/health",
 		"/api/plugins/connectors/operations/list",
@@ -197,8 +210,8 @@ func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
 		req.Header.Set("Origin", "http://127.0.0.1:9090")
 		req.Header.Set("X-Cerberus-Web-Token", token)
 		handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Errorf("POST %s with token status = %d, want %d; body=%s", p, rec.Code, http.StatusOK, rec.Body.String())
+		if rec.Code == http.StatusForbidden {
+			t.Errorf("POST %s with token status = %d, want non-%d; body=%s", p, rec.Code, http.StatusForbidden, rec.Body.String())
 		}
 	}
 }

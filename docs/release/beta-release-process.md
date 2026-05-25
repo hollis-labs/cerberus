@@ -1,10 +1,13 @@
-# Cerberus Beta Release Process
+# Cerberus by Hollis Labs Beta Release Process
 
 ## Scope
 
 This process is macOS-first and covers Cerberus itself: the CLI, daemon, launch
 agent bootstrap, and local resource runtime checks. It does not define
 distribution for portfolio applications managed by Cerberus.
+
+Cerberus is released as permissive open source under the MIT license. The beta
+process below assumes an unsigned macOS beta artifact.
 
 ## Versioning And Artifact Names
 
@@ -71,7 +74,15 @@ contributors, but release docs and release-candidate validation should treat
    go test ./...
    ```
 
-3. Build macOS archives for both supported beta architectures:
+3. Build macOS archives for both supported beta architectures.
+
+   Preferred path:
+
+   ```bash
+   VERSION=0.3.0-beta.1 ./scripts/release-beta.sh
+   ```
+
+   Equivalent manual form:
 
    ```bash
    VERSION=0.3.0-beta.1
@@ -216,3 +227,6 @@ Before announcing a beta:
 - The launch agent is user-scoped and macOS-only.
 - `go install` remains a contributor fallback but is not the release install
   path.
+
+For the first Cerberus-on-Cerberus release flow, see
+[self-release-via-pipeline.md](./self-release-via-pipeline.md).

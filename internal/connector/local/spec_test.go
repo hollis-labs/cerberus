@@ -164,15 +164,70 @@ func TestProcessSpecRoundTripDaemonFields(t *testing.T) {
 	}
 }
 
+func TestSpecFromResourceConfigRejectsLegacyBuild(t *testing.T) {
+	_, err := SpecFromResourceConfig(map[string]any{
+		"dir":     "/tmp/app",
+		"command": []string{"./app"},
+		"build":   []string{"go", "build", "."},
+	})
+	if err == nil {
+		t.Fatalf("SpecFromResourceConfig should reject legacy build")
+	}
+}
+
+func TestProcessSpecBuildStrategyRoundTrip(t *testing.T) {
+	original := ProcessSpec{
+		Dir:     "/tmp/app",
+		Command: []string{"./app", "serve"},
+		BuildStrategy: &BuildStrategyConfig{
+			Kind: "go_standard",
+			Source: map[string]any{
+				"root": ".",
+			},
+			Rules: map[string]any{
+				"output": "app",
+				"target": "./cmd/app",
+			},
+		},
+	}
+
+	cfg := original.ToResourceConfig()
+	if _, present := cfg["build"]; present {
+		t.Fatalf("ToResourceConfig emitted legacy build key")
+	}
+	if _, present := cfg["build_strategy"]; !present {
+		t.Fatalf("ToResourceConfig omitted build_strategy")
+	}
+	restored, err := SpecFromResourceConfig(cfg)
+	if err != nil {
+		t.Fatalf("SpecFromResourceConfig failed: %v", err)
+	}
+	if restored.BuildStrategy == nil || restored.BuildStrategy.Kind != "go_standard" {
+		t.Fatalf("BuildStrategy = %#v, want go_standard", restored.BuildStrategy)
+	}
+	if got, want := restored.BuildStrategy.Rules["target"], "./cmd/app"; got != want {
+		t.Fatalf("BuildStrategy.Rules[target] = %q, want %q", got, want)
+	}
+}
+
 func TestSpecFromResourceConfigExpandsHomePaths(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("UserHomeDir failed: %v", err)
 	}
 	spec, err := SpecFromResourceConfig(map[string]any{
-		"dir":              "~/Projects-apps/example",
-		"command":          []any{"~/bin/example", "serve", "--root", "~/.example"},
-		"build":            []any{"~/bin/build-example"},
+		"dir":     "~/Projects-apps/example",
+		"command": []any{"~/bin/example", "serve", "--root", "~/.example"},
+		"build_strategy": map[string]any{
+			"kind": "go_standard",
+			"source": map[string]any{
+				"root": "~/Projects-apps/example",
+			},
+			"rules": map[string]any{
+				"output": "~/bin/example",
+				"target": "./cmd/example",
+			},
+		},
 		"env_file":         "~/.env.example",
 		"log_file":         "~/.cerberus/logs/example.log",
 		"artifact_path":    "~/.cerberus/apps/example/bin/example",
@@ -206,5 +261,11 @@ func TestSpecFromResourceConfigExpandsHomePaths(t *testing.T) {
 	}
 	if got, want := spec.HealthCheck.Command[0], filepath.Join(home, "bin/healthcheck-example"); got != want {
 		t.Fatalf("HealthCheck.Command[0] = %q, want %q", got, want)
+	}
+	if got, want := spec.BuildStrategy.Source["root"], filepath.Join(home, "Projects-apps/example"); got != want {
+		t.Fatalf("BuildStrategy.Source[root] = %q, want %q", got, want)
+	}
+	if got, want := spec.BuildStrategy.Rules["output"], filepath.Join(home, "bin/example"); got != want {
+		t.Fatalf("BuildStrategy.Rules[output] = %q, want %q", got, want)
 	}
 }

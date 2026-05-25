@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chrispian/cerberus/internal/secrets"
 	"github.com/chrispian/cerberus/internal/webui"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +40,7 @@ var webCmd = &cobra.Command{
 		url := "http://" + webListenAddr
 		srv := &http.Server{
 			Addr:              webListenAddr,
-			Handler:           webui.New(client, nil).Handler(),
+			Handler:           webui.New(client, cfgPath, secrets.NewKeychainProvider(), nil).Handler(),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 

@@ -39,6 +39,10 @@ func (c *CLIBackend) ListZones(_ context.Context) ([]Zone, error) {
 	return nil, fmt.Errorf("wrangler CLI does not support listing zones — use API backend (set CERBERUS_CLOUDFLARE_API_TOKEN)")
 }
 
+func (c *CLIBackend) CreateZone(_ context.Context, _, _, _ string) (*Zone, error) {
+	return nil, fmt.Errorf("wrangler CLI does not support creating zones — use API backend (set CERBERUS_CLOUDFLARE_API_TOKEN)")
+}
+
 // --- intermediate JSON structs for wrangler DNS output ---
 
 type wranglerDNSRecord struct {
