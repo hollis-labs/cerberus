@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, SummaryCards, Textarea, usePoll } from '@hollis-labs/sysop-ui'
+import { Button, EmptyState, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient } from '../api/client'
 
 export function PipelinesPage() {
@@ -58,15 +59,20 @@ export function PipelinesPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
-      <div className="space-y-4 p-4">
-        {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      <div className="space-y-4">
+        {error && <div className="mx-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {pipelines.isLoading && items.length === 0 ? (
-          <div className="text-sm text-text-soft">Loading pipelines...</div>
+          <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading pipelines...</div>
         ) : items.length === 0 ? (
-          <EmptyState variant="no-results" title="No pipelines declared." description="The active config does not expose any pipelines." />
+          <div className="px-4 py-4">
+            <EmptyState variant="no-results" title="No pipelines declared." description="The active config does not expose any pipelines." />
+          </div>
         ) : (
-          items.map((item) => (
-            <section key={item.id} className="border border-border bg-panel p-4">
+          items.map((item, index) => (
+            <section
+              key={item.id}
+              className={index === 0 ? 'bg-panel px-4 py-4' : 'border-t border-border-strong bg-panel px-4 py-4'}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-sm text-text">{item.name || item.id}</div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, SummaryCards, Textarea, usePoll } from '@hollis-labs/sysop-ui'
+import { Button, EmptyState, SettingsField, SettingsGrid, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type PluginHealth, type PluginTrustOptions } from '../api/client'
 
 export function PluginsPage() {
@@ -127,12 +128,11 @@ export function PluginsPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
-      <div className="space-y-4 p-4">
-        {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      <div className="space-y-4">
+        {error && <div className="mx-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
 
-        <section className="grid gap-4 xl:grid-cols-2">
-          <div className="border border-border bg-panel p-4">
-            <div className="mb-3 text-sm text-text">Install managed plugin</div>
+        <section className="grid gap-4 px-4 xl:grid-cols-2">
+          <SettingsPanel title="Install managed plugin">
             <div className="space-y-3">
               <input
                 value={installPath}
@@ -148,10 +148,9 @@ export function PluginsPage() {
                 {busy === 'install' ? 'Installing...' : 'Install'}
               </Button>
             </div>
-          </div>
+          </SettingsPanel>
 
-          <div className="border border-border bg-panel p-4">
-            <div className="mb-3 text-sm text-text">Check plugin directory</div>
+          <SettingsPanel title="Check plugin directory" className="border-b-0">
             <div className="space-y-3">
               <input
                 value={inspectPath}
@@ -170,18 +169,23 @@ export function PluginsPage() {
                 />
               )}
             </div>
-          </div>
+          </SettingsPanel>
         </section>
 
         {plugins.isLoading && items.length === 0 ? (
-          <div className="text-sm text-text-soft">Loading plugins...</div>
+          <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading plugins...</div>
         ) : items.length === 0 ? (
-          <EmptyState variant="no-results" title="No managed plugins installed." description="Install a connector plugin directory to manage it from the daemon." />
+          <div className="px-4 py-4">
+            <EmptyState variant="no-results" title="No managed plugins installed." description="Install a connector plugin directory to manage it from the daemon." />
+          </div>
         ) : (
-          items.map((plugin) => {
+          items.map((plugin, index) => {
             const health = healthByPlugin[plugin.id]
             return (
-              <section key={plugin.id} className="border border-border bg-panel p-4">
+              <section
+                key={plugin.id}
+                className={index === 0 ? 'bg-panel px-4 py-4' : 'border-t border-border-strong bg-panel px-4 py-4'}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm text-text">{plugin.id}</div>
@@ -197,10 +201,12 @@ export function PluginsPage() {
                     </Button>
                   </div>
                 </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-3 text-sm">
-                  <Metric label="Loaded" value={plugin.loaded ? 'yes' : 'no'} />
-                  <Metric label="Healthy" value={health ? (health.healthy ? 'yes' : 'no') : 'unknown'} />
-                  <Metric label="Message" value={health?.message || '-'} />
+                <div className="mt-3">
+                  <SettingsGrid className="grid-cols-1 md:grid-cols-3 px-0 py-0">
+                    <Metric label="Loaded" value={plugin.loaded ? 'yes' : 'no'} />
+                    <Metric label="Healthy" value={health ? (health.healthy ? 'yes' : 'no') : 'unknown'} />
+                    <Metric label="Message" value={health?.message || '-'} />
+                  </SettingsGrid>
                 </div>
               </section>
             )
@@ -217,9 +223,6 @@ function trust(devMode: boolean): PluginTrustOptions {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-muted">{label}</div>
-      <div className="mt-1 text-text">{value}</div>
-    </div>
+    <SettingsField label={label}>{value}</SettingsField>
   )
 }

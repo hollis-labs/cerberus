@@ -1,4 +1,4 @@
-import { createApiClient, type JsonObject } from '@hollis-labs/sysop-ui'
+import { createApiClient, type JsonObject } from '@hollis-labs/sysop-ui/api'
 
 const http = createApiClient({ baseUrl: '' })
 

@@ -1,5 +1,38 @@
-import { EmptyState, SummaryCards, usePoll } from '@hollis-labs/sysop-ui'
-import { apiClient } from '../api/client'
+import { EmptyState, SummaryCards } from '@hollis-labs/sysop-ui/ui'
+import { DataTable, type ColumnDef } from '@hollis-labs/sysop-ui/data'
+import { usePoll } from '@hollis-labs/sysop-ui/api'
+import { apiClient, type ProjectInfo } from '../api/client'
+
+const columns: ColumnDef<ProjectInfo>[] = [
+  {
+    key: 'project',
+    header: 'Project',
+    width: 'fill',
+    cell: (item) => (
+      <div className="min-w-0">
+        <div className="truncate text-[12px] text-text">{item.name || item.id}</div>
+        <div className="truncate font-mono text-[11px] text-text-subtle">{item.id}</div>
+      </div>
+    ),
+    sortValue: (item) => item.name || item.id,
+  },
+  {
+    key: 'resources',
+    header: 'Resources',
+    align: 'right',
+    cell: (item) => item.resource_count,
+    sortValue: (item) => item.resource_count,
+  },
+  {
+    key: 'description',
+    header: 'Description',
+    width: 'fill',
+    cell: (item) => (
+      <span className="block truncate text-[11px] text-text-soft">{item.description || '—'}</span>
+    ),
+    sortValue: (item) => item.description || '',
+  },
+]
 
 export function ProjectsPage() {
   const projects = usePoll((signal) => apiClient.listProjects(signal), 5000)
@@ -25,34 +58,19 @@ export function ProjectsPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
-      <div className="p-4">
+      <div>
         {projects.isLoading && items.length === 0 ? (
-          <div className="text-sm text-text-soft">Loading projects...</div>
+          <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading projects...</div>
         ) : items.length === 0 ? (
-          <EmptyState variant="no-results" title="No projects declared." description="The daemon did not resolve any projects from the active config." />
-        ) : (
-          <div className="overflow-x-auto border border-border bg-panel">
-            <table className="w-full min-w-full">
-              <thead className="text-[10px] uppercase tracking-[.28em] text-text-subtle">
-                <tr className="border-b border-border-strong">
-                  <th className="px-3 py-2 text-left font-medium">Project</th>
-                  <th className="px-3 py-2 text-left font-medium">ID</th>
-                  <th className="px-3 py-2 text-left font-medium">Resources</th>
-                  <th className="px-3 py-2 text-left font-medium">Description</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-soft text-sm">
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-3 py-2 text-text">{item.name || item.id}</td>
-                    <td className="px-3 py-2 font-mono text-text-soft">{item.id}</td>
-                    <td className="px-3 py-2 text-text-soft">{item.resource_count}</td>
-                    <td className="px-3 py-2 text-text-soft">{item.description || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="px-4 py-4">
+            <EmptyState variant="no-results" title="No projects declared." description="The daemon did not resolve any projects from the active config." />
           </div>
+        ) : (
+          <DataTable
+            items={items}
+            columns={columns}
+            getRowId={(item) => item.id}
+          />
         )}
       </div>
     </div>

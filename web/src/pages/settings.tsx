@@ -1,6 +1,80 @@
+import { Database, FolderTree, RefreshCw, Settings2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, SummaryCards, usePoll } from '@hollis-labs/sysop-ui'
-import { apiClient } from '../api/client'
+import {
+  Button,
+  EmptyState,
+  SettingsField,
+  SettingsGrid,
+  SettingsNotice,
+  SettingsPanel,
+  SummaryCards,
+} from '@hollis-labs/sysop-ui/ui'
+import { DataTable, type ColumnDef } from '@hollis-labs/sysop-ui/data'
+import { usePoll } from '@hollis-labs/sysop-ui/api'
+import { apiClient, type ConfigBackupInfo, type ConfigMigrateEntry } from '../api/client'
+
+const previewColumns: ColumnDef<ConfigMigrateEntry>[] = [
+  {
+    key: 'owner',
+    header: 'Owner',
+    cell: (entry) => entry.owner,
+    sortValue: (entry) => entry.owner,
+  },
+  {
+    key: 'project',
+    header: 'Project',
+    cell: (entry) => entry.project_name || entry.project_id || '—',
+    sortValue: (entry) => entry.project_name || entry.project_id || '',
+  },
+  {
+    key: 'counts',
+    header: 'Counts',
+    width: 'fill',
+    cell: (entry) => (
+      <span className="text-[11px] text-text-soft">
+        {entry.resource_count} resources, {entry.pipeline_count} pipelines
+      </span>
+    ),
+    sortValue: (entry) => `${entry.resource_count}:${entry.pipeline_count}`,
+  },
+  {
+    key: 'destination',
+    header: 'Destination',
+    width: 'fill',
+    cell: (entry) => (
+      <span className="block truncate font-mono text-[11px] text-text-subtle">{entry.destination}</span>
+    ),
+    sortValue: (entry) => entry.destination,
+  },
+]
+
+const backupColumns: ColumnDef<ConfigBackupInfo>[] = [
+  {
+    key: 'name',
+    header: 'Backup',
+    width: 'fill',
+    cell: (backup) => (
+      <div className="min-w-0">
+        <div className="truncate text-[12px] text-text">{backup.name}</div>
+        <div className="truncate font-mono text-[11px] text-text-subtle">{backup.path}</div>
+      </div>
+    ),
+    sortValue: (backup) => backup.name,
+  },
+  {
+    key: 'modified',
+    header: 'Modified',
+    cell: (backup) => new Date(backup.modified).toLocaleString(),
+    sortValue: (backup) => backup.modified,
+  },
+  {
+    key: 'size',
+    header: 'Size',
+    align: 'right',
+    cell: (backup) => formatBytes(backup.size),
+    sortValue: (backup) => backup.size,
+  },
+]
 
 export function SettingsPage() {
   const settings = usePoll((signal) => apiClient.getSettings(signal), 5000)
@@ -29,11 +103,14 @@ export function SettingsPage() {
         eyebrow="Cerberus settings"
         title="Could not load configuration surfaces"
         description={requestError instanceof Error ? requestError.message : String(requestError)}
-        action={{ label: 'Retry', onClick: () => {
-          void settings.refetch()
-          void migratePreview.refetch()
-          void backups.refetch()
-        } }}
+        action={{
+          label: 'Retry',
+          onClick: () => {
+            void settings.refetch()
+            void migratePreview.refetch()
+            void backups.refetch()
+          },
+        }}
       />
     )
   }
@@ -58,11 +135,15 @@ export function SettingsPage() {
       if (!response.success) {
         setError(response.error || 'Migration failed.')
       } else {
-        setResult([
-          `Wrote ${response.written_paths?.length ?? 0} project config(s).`,
-          response.backup_path ? `Backup: ${response.backup_path}` : '',
-          response.projects_dir ? `Projects dir: ${response.projects_dir}` : '',
-        ].filter(Boolean).join('\n'))
+        setResult(
+          [
+            `Wrote ${response.written_paths?.length ?? 0} project config(s).`,
+            response.backup_path ? `Backup: ${response.backup_path}` : '',
+            response.projects_dir ? `Projects dir: ${response.projects_dir}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
       }
       await Promise.all([settings.refetch(), migratePreview.refetch(), backups.refetch()])
     } catch (err) {
@@ -81,11 +162,15 @@ export function SettingsPage() {
       if (!response.success) {
         setError(response.error || 'Restore failed.')
       } else {
-        setResult([
-          response.restored_to ? `Restored to: ${response.restored_to}` : '',
-          response.backup_path ? `Source backup: ${response.backup_path}` : '',
-          response.pre_restore_path ? `Pre-restore snapshot: ${response.pre_restore_path}` : '',
-        ].filter(Boolean).join('\n'))
+        setResult(
+          [
+            response.restored_to ? `Restored to: ${response.restored_to}` : '',
+            response.backup_path ? `Source backup: ${response.backup_path}` : '',
+            response.pre_restore_path ? `Pre-restore snapshot: ${response.pre_restore_path}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
       }
       await Promise.all([settings.refetch(), migratePreview.refetch(), backups.refetch()])
     } catch (err) {
@@ -98,128 +183,109 @@ export function SettingsPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
-      <div className="space-y-4 p-4">
-        {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
-        {result && <div className="border border-border bg-panel-2/40 px-3 py-2 text-sm text-text-soft whitespace-pre-wrap">{result}</div>}
+      <div className="space-y-4">
+        {error ? <div className="px-4 pt-4"><SettingsNotice tone="danger" title="Operation failed" description={error} /></div> : null}
+        {result ? <div className="px-4"><SettingsNotice tone="info" title="Last result" description={result} className="whitespace-pre-wrap" /></div> : null}
 
-        <div className="grid gap-4 xl:grid-cols-[.85fr_1.15fr]">
-          <section className="border border-border bg-panel p-4">
-            <div className="mb-3 text-sm text-text">Current settings</div>
+        <div className="space-y-0">
+          <SettingsPanel title="Current settings" icon={<Settings2 className="h-4 w-4" />}>
             {snapshot ? (
-              <dl className="grid grid-cols-2 gap-3 text-sm">
-                <Metric label="Config path" value={snapshot.config_path || '-'} mono />
-                <Metric label="Registry path" value={snapshot.registry_path || '-'} mono />
-                <Metric label="Config exists" value={snapshot.config_exists ? 'yes' : 'no'} />
-                <Metric label="Registry exists" value={snapshot.registry_exists ? 'yes' : 'no'} />
-                <Metric label="Version" value={String(snapshot.version || 0)} />
-                <Metric label="Install after build" value={snapshot.install_after_build_default ? 'true' : 'false'} />
-                <Metric label="Global build config" value={snapshot.has_global_build_config ? 'present' : 'defaulted'} />
-                <Metric label="Resolved projects" value={String(snapshot.resolved_projects)} />
-              </dl>
+              <SettingsGrid>
+                <Field label="Config path" value={snapshot.config_path || '-'} mono />
+                <Field label="Registry path" value={snapshot.registry_path || '-'} mono />
+                <Field label="Config exists" value={snapshot.config_exists ? 'yes' : 'no'} />
+                <Field label="Registry exists" value={snapshot.registry_exists ? 'yes' : 'no'} />
+                <Field label="Version" value={String(snapshot.version || 0)} />
+                <Field label="Install after build" value={snapshot.install_after_build_default ? 'true' : 'false'} />
+                <Field label="Global build config" value={snapshot.has_global_build_config ? 'present' : 'defaulted'} />
+                <Field label="Resolved projects" value={String(snapshot.resolved_projects)} />
+              </SettingsGrid>
             ) : (
-              <div className="text-sm text-text-soft">Loading settings...</div>
+              <div className="px-4 py-3 text-sm text-text-soft">Loading settings...</div>
             )}
-          </section>
+          </SettingsPanel>
 
-          <section className="border border-border bg-panel p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-sm text-text">Migration preview</div>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={!sessionToken || busy !== null || !preview || !!preview.error || (preview.validation_errors?.length ?? 0) > 0}
-                onClick={() => void runMigration()}
-              >
-                {busy === 'migrate' ? 'Migrating...' : 'Run migration'}
-              </Button>
-            </div>
+          <SettingsPanel title="Migration preview" icon={<FolderTree className="h-4 w-4" />}>
             {!preview ? (
-              <div className="text-sm text-text-soft">Loading migration preview...</div>
+              <div className="px-4 py-3 text-sm text-text-soft">Loading migration preview...</div>
             ) : preview.error ? (
-              <div className="text-sm text-text-soft">{preview.error}</div>
+              <div className="px-4 py-3 text-sm text-text-soft">{preview.error}</div>
             ) : (
-              <div className="space-y-3">
-                <dl className="grid grid-cols-2 gap-3 text-sm">
-                  <Metric label="Projects dir" value={preview.projects_dir || '-'} mono />
-                  <Metric label="Backup path" value={preview.backup_path || '-'} mono />
-                  <Metric label="Project configs" value={String(preview.project_count)} />
-                  <Metric label="Resources" value={String(preview.total_resources)} />
-                </dl>
-                {preview.validation_errors && preview.validation_errors.length > 0 && (
-                  <div className="space-y-2">
-                    {preview.validation_errors.map((issue) => (
-                      <div key={`${issue.owner}:${issue.field}:${issue.message}`} className="text-xs text-destructive">
-                        {issue.owner}: {issue.field} - {issue.message}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {preview.warnings && preview.warnings.length > 0 && (
-                  <div className="space-y-2">
-                    {preview.warnings.slice(0, 6).map((warning) => (
-                      <div key={warning} className="text-xs text-[var(--color-warning)]">{warning}</div>
-                    ))}
-                  </div>
-                )}
-                <div className="overflow-x-auto border border-border-soft bg-panel-2/40">
-                  <table className="w-full min-w-full text-sm">
-                    <thead className="text-[10px] uppercase tracking-[.28em] text-text-subtle">
-                      <tr className="border-b border-border-strong">
-                        <th className="px-3 py-2 text-left font-medium">Owner</th>
-                        <th className="px-3 py-2 text-left font-medium">Project</th>
-                        <th className="px-3 py-2 text-left font-medium">Counts</th>
-                        <th className="px-3 py-2 text-left font-medium">Destination</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border-soft">
-                      {preview.entries.map((entry) => (
-                        <tr key={entry.owner}>
-                          <td className="px-3 py-2 text-text">{entry.owner}</td>
-                          <td className="px-3 py-2 text-text-soft">{entry.project_name || entry.project_id}</td>
-                          <td className="px-3 py-2 text-text-soft">{entry.resource_count} resources, {entry.pipeline_count} pipelines</td>
-                          <td className="px-3 py-2 font-mono text-xs text-text-soft">{entry.destination}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="space-y-3 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm text-text-soft">Review destination paths before writing split project configs.</div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!sessionToken || busy !== null || !!preview.error || (preview.validation_errors?.length ?? 0) > 0}
+                    onClick={() => void runMigration()}
+                  >
+                    {busy === 'migrate' ? 'Migrating...' : 'Run migration'}
+                  </Button>
+                </div>
+                <SettingsGrid>
+                  <Field label="Projects dir" value={preview.projects_dir || '-'} mono />
+                  <Field label="Backup path" value={preview.backup_path || '-'} mono />
+                  <Field label="Project configs" value={String(preview.project_count)} />
+                  <Field label="Resources" value={String(preview.total_resources)} />
+                </SettingsGrid>
+                {preview.validation_errors?.length ? (
+                  <SettingsNotice
+                    tone="danger"
+                    title="Validation blockers"
+                    description={preview.validation_errors.map((issue) => `${issue.owner}: ${issue.field} - ${issue.message}`).join('\n')}
+                    className="whitespace-pre-wrap"
+                  />
+                ) : null}
+                {preview.warnings?.length ? (
+                  <SettingsNotice
+                    tone="warning"
+                    title="Migration warnings"
+                    description={preview.warnings.slice(0, 6).join('\n')}
+                    className="whitespace-pre-wrap"
+                  />
+                ) : null}
+                <DataTable items={preview.entries} columns={previewColumns} getRowId={(entry) => entry.owner} />
+              </div>
+            )}
+          </SettingsPanel>
+
+          <SettingsPanel title="Backups" icon={<Database className="h-4 w-4" />}>
+            {backupList.length === 0 ? (
+              <div className="px-4 py-3 text-sm text-text-soft">No backups discovered for the active config path.</div>
+            ) : (
+              <div className="space-y-3 px-4 py-3">
+                <DataTable items={backupList} columns={backupColumns} getRowId={(backup) => backup.path} />
+                <div className="flex flex-wrap gap-2">
+                  {backupList.map((backup) => (
+                    <Button
+                      key={backup.path}
+                      variant="outline"
+                      size="sm"
+                      disabled={!sessionToken || busy !== null}
+                      onClick={() => void restoreBackup(backup.path)}
+                    >
+                      {busy === backup.path ? `Restoring ${backup.name}...` : `Restore ${backup.name}`}
+                    </Button>
+                  ))}
                 </div>
               </div>
             )}
-          </section>
+          </SettingsPanel>
         </div>
-
-        <section className="border border-border bg-panel p-4">
-          <div className="mb-3 text-sm text-text">Backups</div>
-          {backupList.length === 0 ? (
-            <div className="text-sm text-text-soft">No backups discovered for the active config path.</div>
-          ) : (
-            <div className="space-y-3">
-              {backupList.map((backup) => (
-                <div key={backup.path} className="flex flex-wrap items-start justify-between gap-3 border border-border-soft bg-panel-2/40 p-3">
-                  <div>
-                    <div className="text-sm text-text">{backup.name}</div>
-                    <div className="mt-1 font-mono text-xs text-text-soft">{backup.path}</div>
-                    <div className="mt-1 text-xs text-text-soft">{new Date(backup.modified).toLocaleString()} · {formatBytes(backup.size)}</div>
-                  </div>
-                  <Button variant="outline" size="sm" disabled={!sessionToken || busy !== null} onClick={() => void restoreBackup(backup.path)}>
-                    {busy === backup.path ? 'Restoring...' : 'Restore'}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
       </div>
     </div>
   )
 }
 
-function Metric({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="min-w-0">
-      <div className="text-xs uppercase tracking-wide text-muted">{label}</div>
-      <div className={`mt-1 break-words ${mono ? 'font-mono text-xs text-text-soft' : 'text-text'}`}>{value}</div>
-    </div>
+    <SettingsField
+      label={label}
+      valueClassName={mono ? 'font-mono text-[11px] text-text-subtle' : undefined}
+    >
+      {value}
+    </SettingsField>
   )
 }
 

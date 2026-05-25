@@ -1,5 +1,7 @@
+import { Globe, KeyRound, Rocket } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, SummaryCards, Textarea, usePoll } from '@hollis-labs/sysop-ui'
+import { Button, EmptyState, Input, Pill, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type DeploymentProfile, type DeploymentRunResult, type InfraProvider } from '../api/client'
 
 export function DeploymentsPage() {
@@ -129,37 +131,44 @@ export function DeploymentsPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
-      <div className="space-y-4 p-4">
-        {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      <div className="space-y-4">
+        {error && <div className="mx-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
 
-        <section className="border border-border bg-panel p-4">
-          <div className="mb-3 text-sm text-text">Provider settings</div>
+        <SettingsPanel title="Provider settings" icon={<KeyRound className="h-4 w-4" />}>
+          <div className="px-4 py-3">
           <div className="grid gap-4 xl:grid-cols-2">
             {providers.map((provider) => (
-              <div key={provider.id} className="border border-border-soft bg-panel-2/40 p-4">
-                <div className="mb-3 text-sm text-text">{provider.label}</div>
+              <div key={provider.id} className="rounded-none border border-border bg-bg p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm text-text">{provider.label}</div>
+                    <div className="mt-1 text-xs text-text-soft">{provider.id}</div>
+                  </div>
+                  <Pill tone="neutral">
+                    {provider.fields.length} fields · {provider.secrets.length} secrets
+                  </Pill>
+                </div>
                 <div className="space-y-3">
                   {provider.fields.map((field) => (
                     <label key={field.name} className="block">
-                      <div className="mb-1 text-xs uppercase tracking-wide text-muted">{field.label}</div>
-                      <input
+                      <div className="mb-1 text-xs uppercase tracking-wide text-text-subtle">{field.label}</div>
+                      <Input
                         value={providerDrafts[provider.id]?.[field.name] ?? ''}
                         onChange={(event) => setProviderDrafts((current) => ({
                           ...current,
                           [provider.id]: { ...(current[provider.id] ?? {}), [field.name]: event.target.value },
                         }))}
-                        className="w-full border border-border bg-panel px-3 py-2 text-sm text-text outline-none transition-colors focus:border-border-strong"
                       />
                       {field.description && <div className="mt-1 text-xs text-text-soft">{field.description}</div>}
                     </label>
                   ))}
                   {provider.secrets.map((field) => (
                     <label key={field.name} className="block">
-                      <div className="mb-1 flex items-center justify-between gap-3 text-xs uppercase tracking-wide text-muted">
+                      <div className="mb-1 flex items-center justify-between gap-3 text-xs uppercase tracking-wide text-text-subtle">
                         <span>{field.label}</span>
-                        <span>{field.present ? 'Stored' : 'Missing'}</span>
+                        <Pill tone={field.present ? 'success' : 'warning'}>{field.present ? 'Stored' : 'Missing'}</Pill>
                       </div>
-                      <input
+                      <Input
                         type="password"
                         value={secretDrafts[provider.id]?.[field.name] ?? ''}
                         onChange={(event) => setSecretDrafts((current) => ({
@@ -167,7 +176,6 @@ export function DeploymentsPage() {
                           [provider.id]: { ...(current[provider.id] ?? {}), [field.name]: event.target.value },
                         }))}
                         placeholder={field.present ? 'Leave blank to keep current secret' : 'Enter secret'}
-                        className="w-full border border-border bg-panel px-3 py-2 text-sm text-text outline-none transition-colors focus:border-border-strong"
                       />
                       {field.description && <div className="mt-1 text-xs text-text-soft">{field.description}</div>}
                     </label>
@@ -177,12 +185,13 @@ export function DeploymentsPage() {
                   </Button>
                 </div>
               </div>
-            ))}
+              ))}
           </div>
-        </section>
+          </div>
+        </SettingsPanel>
 
-        <section className="border border-border bg-panel p-4">
-          <div className="mb-3 text-sm text-text">Deployment profiles</div>
+        <SettingsPanel title="Deployment profiles" icon={<Rocket className="h-4 w-4" />} className="border-b-0">
+          <div className="px-4 py-3">
           {deployments.length === 0 && suggestions.length === 0 ? (
             <div className="text-sm text-text-soft">No deployment profiles yet.</div>
           ) : (
@@ -201,7 +210,7 @@ export function DeploymentsPage() {
               ))}
               {suggestions.length > 0 && (
                 <div className="space-y-4">
-                  <div className="text-xs uppercase tracking-wide text-muted">Suggested</div>
+                  <div className="text-xs uppercase tracking-wide text-text-subtle">Suggested</div>
                   {suggestions.map((profile) => (
                     <DeploymentCard
                       key={profile.id}
@@ -218,7 +227,8 @@ export function DeploymentsPage() {
               )}
             </div>
           )}
-        </section>
+          </div>
+        </SettingsPanel>
       </div>
     </div>
   )
@@ -242,11 +252,16 @@ function DeploymentCard({
   onRun?: () => void
 }) {
   return (
-    <div className="border border-border-soft bg-panel-2/40 p-4">
+    <div className="rounded-none border border-border bg-bg p-4">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm text-text">{profile.name}</div>
-          <div className="mt-1 text-xs text-text-soft">{profile.provider} · {profile.repo_path}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-soft">
+            <Pill tone="neutral">{profile.provider}</Pill>
+            {profile.domain ? <Pill tone="success">{profile.domain}</Pill> : null}
+            {profile.suggested ? <Pill tone="warning">Suggested</Pill> : null}
+          </div>
+          <div className="mt-2 font-mono text-[11px] text-text-subtle">{profile.repo_path}</div>
         </div>
         <div className="flex flex-wrap gap-2">
           {onRun && (
@@ -287,7 +302,10 @@ function DeploymentCard({
       </div>
       {result && (
         <div className="mt-4 space-y-3">
-          <div className="text-xs uppercase tracking-wide text-muted">Last run</div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-text-subtle">
+            <Globe className="h-3.5 w-3.5" />
+            Last run
+          </div>
           <div className="grid gap-3 md:grid-cols-2 text-sm">
             <div className="text-text-soft">Branch: {result.git.branch || '-'}</div>
             <div className="text-text-soft">Commit: {result.git.commit || '-'}</div>
@@ -311,11 +329,10 @@ function DeploymentCard({
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block">
-      <div className="mb-1 text-xs uppercase tracking-wide text-muted">{label}</div>
-      <input
+      <div className="mb-1 text-xs uppercase tracking-wide text-text-subtle">{label}</div>
+      <Input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full border border-border bg-panel px-3 py-2 text-sm text-text outline-none transition-colors focus:border-border-strong"
       />
     </label>
   )

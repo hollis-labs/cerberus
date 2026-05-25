@@ -7,13 +7,12 @@ import {
   DetailDialog,
   DetailSection,
   EmptyState,
-  FilterBar,
   SummaryCards,
   Textarea,
   cn,
-  refreshPolledData,
-  usePoll,
-} from '@hollis-labs/sysop-ui'
+} from '@hollis-labs/sysop-ui/ui'
+import { FilterBar } from '@hollis-labs/sysop-ui/data'
+import { refreshPolledData, usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type LogLines, type OpResult, type ResourceAction, type ResourceInfo, type ResourceRuntimeStatus } from '../api/client'
 
 type StatusFilter = 'all' | 'running' | 'attention' | 'stopped'
