@@ -19,7 +19,7 @@ var (
 	dbPath string
 
 	// Set via -ldflags at build time
-	version   = "0.3.0"
+	version   = "0.4.0"
 	buildDate = "unknown"
 )
 
