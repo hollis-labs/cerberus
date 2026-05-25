@@ -1,10 +1,65 @@
 package local
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/service"
 )
+
+func TestRecommendedDevSessionAction(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	appDir := t.TempDir()
+	bin := filepath.Join(appDir, "app")
+	if err := os.WriteFile(bin, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec := ProcessSpec{
+		Dir:           appDir,
+		Command:       []string{"./app", "serve"},
+		Mode:          ProcessModeDevSession,
+		BuildStrategy: &BuildStrategyConfig{Kind: "make_standard", Rules: map[string]any{}},
+	}
+	start := time.Now().Add(-time.Hour)
+
+	// Binary rebuilt after the process started -> stale -> deploy.
+	if err := service.WriteMetaFile("devsvc", service.PIDMeta{PID: 1, StartedAt: start}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(bin, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if action, _ := RecommendedDevSessionAction("devsvc", spec, domain.StateRunning); action != "deploy" {
+		t.Fatalf("stale dev session: action = %q, want deploy", action)
+	}
+
+	// Binary older than process start -> current -> no action.
+	if err := service.WriteMetaFile("devsvc", service.PIDMeta{PID: 1, StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(bin, start, start); err != nil {
+		t.Fatal(err)
+	}
+	if action, _ := RecommendedDevSessionAction("devsvc", spec, domain.StateRunning); action != "" {
+		t.Fatalf("current dev session: action = %q, want none", action)
+	}
+
+	// No build_strategy (hot-reloader) -> always silent.
+	noBuild := spec
+	noBuild.BuildStrategy = nil
+	if action, _ := RecommendedDevSessionAction("devsvc", noBuild, domain.StateRunning); action != "" {
+		t.Fatalf("hot-reloader: action = %q, want none", action)
+	}
+
+	// Stopped -> silent even if stale.
+	if action, _ := RecommendedDevSessionAction("devsvc", spec, domain.StateStopped); action != "" {
+		t.Fatalf("stopped dev session: action = %q, want none", action)
+	}
+}
 
 func TestRecommendedStatusAction(t *testing.T) {
 	spec := ProcessSpec{

@@ -168,6 +168,18 @@ func TestValidateProjectConfigCrossConfigRefsAreWarnings(t *testing.T) {
 	}
 }
 
+func TestValidateProjectConfigLegacyBuildIsWarning(t *testing.T) {
+	pc := newValidProjectConfig()
+	pc.Resources[0].Config = map[string]any{"build": []any{"make", "build"}}
+	result := ValidateProjectConfig(pc)
+	if result.HasErrors() {
+		t.Fatalf("legacy build must not be an error: %v", result.Errors())
+	}
+	if !hasIssueField(result.Warnings(), "resources[clockwork-api].config.build") {
+		t.Fatalf("expected deprecation warning for legacy build, got %v", result.Warnings())
+	}
+}
+
 // ---- Bundle manifest ----
 
 func TestLoadBundleResolvesRelativePaths(t *testing.T) {

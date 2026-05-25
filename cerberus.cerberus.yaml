@@ -30,6 +30,36 @@ resources:
       supervisor: launchd
       run_from: artifact
       service_name: com.fragments-engine.cerberus
+  - id: cerberus-web-service
+    name: Cerberus Web UI
+    type: process
+    project: cerberus
+    connector: local
+    tags:
+      - gui
+      - web
+      - infrastructure
+      - launchd
+      - v2
+    config:
+      dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+      # `make all` builds the web/ React bundle into internal/webui/dist
+      # (gitignored) and then the binary, so the embedded web UI is never
+      # stale or blank — a plain go build would embed whatever dist exists.
+      build_strategy:
+        kind: make_standard
+        rules:
+          target: all
+      command: ["./cerberus", "web", "--listen", "127.0.0.1:4783", "--open=false"]
+      mode: os_service
+      supervisor: launchd
+      run_from: artifact
+      service_name: com.fragments-engine.cerberus.web
+      port: 4783
+      url: http://127.0.0.1:4783
+      protected: true
+      env:
+        PATH: /opt/homebrew/bin:/Users/chrispian/go/bin:/usr/bin:/bin:/usr/sbin:/sbin
   - id: cerberus-release-artifacts
     name: Cerberus Release Artifacts
     type: process
@@ -100,3 +130,4 @@ pipelines:
               test -f dist/checksums.txt
               tar -tzf "dist/cerberus_${VERSION}_darwin_arm64.tar.gz"
               tar -tzf "dist/cerberus_${VERSION}_darwin_amd64.tar.gz"
+registry_urn: msg://agent/agent-mux/prj_wpn7mdxdgn

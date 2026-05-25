@@ -50,3 +50,24 @@ go test ./...
   port: 0        # NEVER do this
   tags: [daemon]
 ```
+
+## CRITICAL: To update a running service, DEPLOY — don't just build or restart
+
+For any `run_from: artifact` resource (most `os_service` backends), the running
+process launches an **installed copy** under `~/.cerberus/apps/<project>/<resource>/bin/`,
+**not** the binary in your repo. Building or restarting does **not** update that copy.
+
+**The only command that makes a running service match your source is:**
+```bash
+cerberus resource deploy <resource-id>   # build + sync artifact + activate
+```
+
+**These do NOT update the running service (common cause of "stale binary" incidents):**
+- `go build` / `make build` / `go install` — builds in the repo (or PATH), never touches the installed artifact.
+- `go test ./...` — verifies; deploys nothing.
+- `cerberus resource reload` / a GUI/TUI "Restart" — **relaunches the existing (possibly stale) artifact**; no rebuild, no re-sync.
+- `cerberus resource apply` — activates an already-built artifact; does **not** build.
+
+**Rule of thumb:** changed source → `cerberus resource deploy`. Already built, just need it running → `apply`. Only restarting an unchanged service → `reload`.
+
+**Check before assuming it worked:** `cerberus resource status <id>` reports `artifact_stale` and a `recommended_next_step` — act on it. (Note: `mode: dev_session` resources have no staleness detection yet — for those, restart the dev session after rebuilding.)

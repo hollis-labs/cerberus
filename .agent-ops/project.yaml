@@ -40,6 +40,14 @@ usage_examples:
   - intent: Build a project and restart its running service to match source
     command: cerberus resource deploy <resource-id>
     note: deploy = build + sync artifact + activate; preferred when repo state changed
+  - intent: STALENESS RULE — make a running service reflect new source
+    command: cerberus resource deploy <resource-id>
+    note: >-
+      run_from=artifact services run an installed copy under
+      ~/.cerberus/apps/<project>/<resource>/bin, NOT the repo binary. `go build`,
+      `make build`, `go install`, `go test` and reload/GUI-restart do NOT update
+      the running service. Only `deploy` rebuilds+reinstalls. Verify with
+      `cerberus resource status <id>` (artifact_stale + recommended_next_step).
   - intent: Inspect live runtime state of a managed resource
     command: cerberus resource status <resource-id>
     note: PID-file primary detection; lsof fallback only when a port is configured

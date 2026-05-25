@@ -150,6 +150,10 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 			add(SeverityError, field+".config.port",
 				"port is 0; omit the port field entirely for resources that do not listen on a TCP port")
 		}
+		if _, ok := resource.Config["build"]; ok {
+			add(SeverityWarning, field+".config.build",
+				"`build` is deprecated and auto-translated to a legacy_command build_strategy; migrate to an explicit build_strategy (go_standard, make_standard, or legacy_command)")
+		}
 		for _, dep := range resource.DependsOn {
 			if !bundleHasResource(pc.Resources, dep) {
 				add(SeverityWarning, field+".depends_on",

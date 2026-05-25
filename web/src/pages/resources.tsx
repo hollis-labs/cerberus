@@ -208,7 +208,13 @@ function ResourceTable({
       key: 'resource',
       header: 'Resource',
       width: 'fill',
-      cell: (item) => <ResourceCell item={item} />,
+      cell: (item) => (
+        <ResourceCell
+          item={item}
+          onMakeCurrent={() => void runQuickAction(item, 'deploy')}
+          busy={!token || anyBusy}
+        />
+      ),
       sortValue: (item) => item.name || item.id,
     },
     {
@@ -233,7 +239,16 @@ function ResourceTable({
                 disabled: !token || anyBusy,
               },
               {
-                label: 'Restart',
+                // Make current = deploy (build + sync + activate). Co-located
+                // with Restart so it is obvious which one rebuilds: Restart
+                // only relaunches the existing (possibly stale) artifact.
+                label: 'Make current (deploy)',
+                icon: <Hammer className="h-3.5 w-3.5" />,
+                onSelect: () => void runQuickAction(item, 'deploy'),
+                disabled: !token || anyBusy,
+              },
+              {
+                label: 'Restart (no rebuild)',
                 icon: <RotateCw className="h-3.5 w-3.5" />,
                 onSelect: () => void runQuickAction(item, 'reload'),
                 disabled: !token || anyBusy,
@@ -271,14 +286,22 @@ function ResourceTable({
   )
 }
 
-function ResourceCell({ item }: { item: ResourceInfo }) {
+function ResourceCell({
+  item,
+  onMakeCurrent,
+  busy,
+}: {
+  item: ResourceInfo
+  onMakeCurrent?: () => void
+  busy?: boolean
+}) {
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
         <span className="truncate tracking-[.02em] text-text" title={item.name || item.id}>
           {item.name || item.id}
         </span>
-        <DriftChip item={item} />
+        <DriftChip item={item} onMakeCurrent={onMakeCurrent} busy={busy} />
         <RuntimeChips item={item} />
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -363,7 +386,15 @@ function ResourceStatusBadge({ status }: { status: string }) {
 // commonly a running service whose installed artifact has drifted from the
 // repo. The status badge alone only reports process liveness, so a
 // stale-but-running resource would otherwise look healthy at a glance.
-function DriftChip({ item }: { item: ResourceInfo }) {
+function DriftChip({
+  item,
+  onMakeCurrent,
+  busy,
+}: {
+  item: ResourceInfo
+  onMakeCurrent?: () => void
+  busy?: boolean
+}) {
   if (!item.artifact_stale && !item.recommended_action) return null
   const label = item.artifact_stale ? 'drift' : 'attention'
   const tip =
@@ -371,16 +402,33 @@ function DriftChip({ item }: { item: ResourceInfo }) {
     (item.artifact_stale
       ? 'Installed artifact has drifted from the current repo state.'
       : 'This resource needs operator attention.')
+  const className =
+    'inline-flex items-center gap-1 border px-1.5 py-0.5 text-[9px] uppercase leading-none tracking-[.14em]'
+  const style = {
+    borderColor: 'color-mix(in srgb, var(--color-status-blocked) 45%, transparent)',
+    backgroundColor: 'color-mix(in srgb, var(--color-status-blocked) 14%, transparent)',
+    color: 'var(--color-status-blocked)',
+  }
+  // When a deploy handler is available, the chip becomes the fix: click it to
+  // make the resource current (deploy), so the warning and its remedy live in
+  // the same place.
+  if (onMakeCurrent) {
+    return (
+      <button
+        type="button"
+        className={`${className} cursor-pointer disabled:opacity-60`}
+        style={style}
+        title={`${tip} — click to make current (deploy)`}
+        disabled={busy}
+        onClick={onMakeCurrent}
+      >
+        <AlertTriangle className="h-2.5 w-2.5" />
+        {label}
+      </button>
+    )
+  }
   return (
-    <span
-      className="inline-flex items-center gap-1 border px-1.5 py-0.5 text-[9px] uppercase leading-none tracking-[.14em]"
-      style={{
-        borderColor: 'color-mix(in srgb, var(--color-status-blocked) 45%, transparent)',
-        backgroundColor: 'color-mix(in srgb, var(--color-status-blocked) 14%, transparent)',
-        color: 'var(--color-status-blocked)',
-      }}
-      title={tip}
-    >
+    <span className={className} style={style} title={tip}>
       <AlertTriangle className="h-2.5 w-2.5" />
       {label}
     </span>

@@ -46,9 +46,18 @@ type BuildStrategy interface {
 	Build(ctx context.Context, cfg BuildConfig) (*BuildResult, error)
 }
 
+// LegacyCommandKind is the build_strategy kind that runs an explicit
+// command list. It is the translation target for the deprecated `build:`
+// resource field (see SpecFromResourceConfig): a config carrying
+// `build: [make, build]` is decoded as a legacy_command strategy so
+// existing apps keep building while they migrate to a first-class
+// strategy (go_standard, make_standard, ...).
+const LegacyCommandKind = "legacy_command"
+
 var buildStrategies = map[string]BuildStrategy{
-	"go_standard":   goStandardBuildStrategy{},
-	"make_standard": makeStandardBuildStrategy{},
+	"go_standard":     goStandardBuildStrategy{},
+	"make_standard":   makeStandardBuildStrategy{},
+	LegacyCommandKind: legacyCommandBuildStrategy{},
 }
 
 func BuildProcess(spec ProcessSpec) (string, error) {
@@ -215,6 +224,28 @@ func (makeStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*B
 	args := append([]string{target}, stringSliceRule(cfg.Rules, "args")...)
 
 	cmd := exec.CommandContext(ctx, "make", args...) //nolint:gosec // strategy arguments come from trusted local Cerberus config
+	cmd.Dir = dir
+	cmd.Env = cfg.Env
+	out, err := cmd.CombinedOutput()
+	return &BuildResult{Output: string(out)}, err
+}
+
+// legacyCommandBuildStrategy runs an explicit command list in the
+// resource's build directory. It exists only as the compatibility target
+// for the deprecated `build:` field; new configs should prefer a
+// first-class strategy. The command is read from rules.command.
+type legacyCommandBuildStrategy struct{}
+
+func (legacyCommandBuildStrategy) Kind() string { return LegacyCommandKind }
+
+func (legacyCommandBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*BuildResult, error) {
+	root := stringRule(cfg.Source, "root", ".")
+	dir := resolveBuildDir(cfg.WorkDir, root)
+	command := stringSliceRule(cfg.Rules, "command")
+	if len(command) == 0 {
+		return nil, fmt.Errorf("legacy_command build_strategy requires a non-empty rules.command")
+	}
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // command comes from trusted local Cerberus config
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
