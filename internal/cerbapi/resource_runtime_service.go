@@ -239,9 +239,10 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 		if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
 			launchdRec = rec
 		}
-	} else if recommendedAction == "" {
-		// dev_session resources have no artifact; surface "rebuilt but not
-		// restarted" staleness so the running process can be made current.
+	} else {
+		// Non-os_service (dev_session) resources have no artifact;
+		// recommendedAction is still "" here, so surface "rebuilt but not
+		// restarted" staleness to make the running process current.
 		recommendedAction, recommendedReason = localconn.RecommendedDevSessionAction(id, spec, state)
 	}
 
@@ -386,7 +387,8 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 			out.LaunchdHighlights = append([]string(nil), rec.Highlights...)
 			out.LaunchdRaw = rec.Raw
 		}
-	} else if out.RecommendedAction == "" {
+	} else {
+		// Non-os_service (dev_session): out.RecommendedAction is still "" here.
 		if action, reason := localconn.RecommendedDevSessionAction(id, spec, state); action != "" {
 			out.RecommendedAction = action
 			out.RecommendedReason = reason
