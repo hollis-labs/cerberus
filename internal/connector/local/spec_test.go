@@ -191,6 +191,48 @@ func TestSpecFromResourceConfigTranslatesLegacyBuild(t *testing.T) {
 	}
 }
 
+func TestResolveArtifactSourcePrefersBuildOutput(t *testing.T) {
+	// With a declared build_strategy output, the installer must copy that
+	// built binary, not a divergent command[0].
+	spec := ProcessSpec{
+		Dir:     "/tmp/app",
+		Command: []string{"./app", "serve"},
+		RunFrom: ProcessRunFromArtifact,
+		BuildStrategy: &BuildStrategyConfig{
+			Kind:   "go_standard",
+			Source: map[string]any{"root": "."},
+			Rules:  map[string]any{"output": "build/app", "target": "./cmd/app"},
+		},
+	}
+	got, err := ResolveArtifactSourcePath(spec)
+	if err != nil {
+		t.Fatalf("ResolveArtifactSourcePath: %v", err)
+	}
+	if want := "/tmp/app/build/app"; got != want {
+		t.Fatalf("source = %q, want build output %q", got, want)
+	}
+}
+
+func TestResolveArtifactSourceFallsBackToCommand(t *testing.T) {
+	// No declared output (e.g. a legacy_command shim) → command[0].
+	spec := ProcessSpec{
+		Dir:     "/tmp/app",
+		Command: []string{"./app", "serve"},
+		RunFrom: ProcessRunFromArtifact,
+		BuildStrategy: &BuildStrategyConfig{
+			Kind:  LegacyCommandKind,
+			Rules: map[string]any{"command": []string{"make", "build"}},
+		},
+	}
+	got, err := ResolveArtifactSourcePath(spec)
+	if err != nil {
+		t.Fatalf("ResolveArtifactSourcePath: %v", err)
+	}
+	if want := "/tmp/app/app"; got != want {
+		t.Fatalf("source = %q, want command[0] fallback %q", got, want)
+	}
+}
+
 func TestSpecFromResourceConfigRejectsBuildAndStrategyTogether(t *testing.T) {
 	_, err := SpecFromResourceConfig(map[string]any{
 		"dir":            "/tmp/app",

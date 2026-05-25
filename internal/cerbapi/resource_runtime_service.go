@@ -669,6 +669,27 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 				gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Install skipped for resource %s", id))
 			}
 		}
+
+		// Freshness guard: for artifact-mode resources the build must have
+		// produced the binary the installer will copy. If it is missing, a
+		// "successful" build would silently sync a stale or absent artifact —
+		// the exact failure mode behind recurring stale-after-deploy
+		// incidents — so fail loudly instead.
+		if spec.RunFrom == localconn.ProcessRunFromArtifact {
+			if src, srcErr := localconn.ResolveArtifactSourcePath(spec); srcErr == nil {
+				if _, statErr := os.Stat(src); statErr != nil {
+					gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Build produced no artifact")
+					return &OpResult{
+						Success:     false,
+						ServiceID:   id,
+						BuildOutput: buildOutput,
+						Error: fmt.Sprintf(
+							"build for %q completed but produced no artifact at %s; the build_strategy output does not match what the service runs (command[0]) — set the build_strategy `output` rule to the built binary",
+							id, src),
+					}, nil
+				}
+			}
+		}
 	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
