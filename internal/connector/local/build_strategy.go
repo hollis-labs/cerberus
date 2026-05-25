@@ -31,7 +31,12 @@ type BuildConfig struct {
 }
 
 type BuildResult struct {
-	Output    string
+	Output string
+	// Command is the argv the strategy executed, and Dir the directory it ran
+	// in — surfaced for diagnostics (deploy errors and the build log) so a
+	// build failure is self-explanatory instead of a bare "exit status 2".
+	Command   []string
+	Dir       string
 	Artifacts []BuildArtifact
 }
 
@@ -124,7 +129,7 @@ func (goStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*Bui
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out)}, err
+	return &BuildResult{Output: string(out), Command: append([]string{"go"}, args...), Dir: dir}, err
 }
 
 func buildGoMatrix(ctx context.Context, cfg BuildConfig, dir, target string, matrix []map[string]string) (*BuildResult, error) {
@@ -227,7 +232,7 @@ func (makeStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*B
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out)}, err
+	return &BuildResult{Output: string(out), Command: append([]string{"make"}, args...), Dir: dir}, err
 }
 
 // legacyCommandBuildStrategy runs an explicit command list in the
@@ -249,7 +254,7 @@ func (legacyCommandBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out)}, err
+	return &BuildResult{Output: string(out), Command: append([]string(nil), command...), Dir: dir}, err
 }
 
 func resolveBuildDir(base, root string) string {

@@ -638,21 +638,34 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	}
 	installAfterBuild := s.resolveInstallAfterBuild(res.Config, spec, opts)
 	buildOutput := ""
+	buildLogPath := ""
 	installOutput := ""
 	installSkipped := false
 	if localconn.HasBuildStrategy(spec) {
 		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Building resource %s", id))
 		gmcp.NotifyProgress(ctx, progressToken, 1, 4, "Building")
-		out, buildErr := localconn.BuildProcessContext(ctx, spec)
-		buildOutput = strings.TrimSpace(out)
+		result, buildErr := localconn.BuildProcessResultContext(ctx, spec)
+		buildOutput = strings.TrimSpace(result.Output)
+		// Always-on build-log capture: persist the command, dir, and output to
+		// ~/.cerberus/apps/<project>/<resource>/logs/build.log so a build is
+		// diagnosable after the fact (success or failure).
+		if p, logErr := localconn.WriteBuildLog(resourceDefToDomain(res), spec, result, buildErr); logErr == nil {
+			buildLogPath = p
+		}
 		if buildErr != nil {
 			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Build failed for resource %s: %s", id, buildErr.Error()))
 			gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Build failed")
+			errMsg := fmt.Sprintf("build failed for resource %q (%s): %s",
+				id, localconn.BuildCommandSummary(spec, result), buildErr.Error())
+			if buildLogPath != "" {
+				errMsg += fmt.Sprintf(" — see %s", buildLogPath)
+			}
 			return &OpResult{
-				Success:     false,
-				ServiceID:   id,
-				BuildOutput: buildOutput,
-				Error:       fmt.Sprintf("build failed for resource %q: %s", id, buildErr.Error()),
+				Success:      false,
+				ServiceID:    id,
+				BuildOutput:  buildOutput,
+				BuildLogPath: buildLogPath,
+				Error:        errMsg,
 			}, nil
 		}
 		if installAfterBuild {
@@ -668,6 +681,7 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 					Success:        false,
 					ServiceID:      id,
 					BuildOutput:    buildOutput,
+					BuildLogPath:   buildLogPath,
 					InstallOutput:  installOutput,
 					InstallSkipped: false,
 					Error:          fmt.Sprintf("install failed for resource %q: %s", id, installErr.Error()),
@@ -692,9 +706,10 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 				if _, statErr := os.Stat(src); statErr != nil {
 					gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Build produced no artifact")
 					return &OpResult{
-						Success:     false,
-						ServiceID:   id,
-						BuildOutput: buildOutput,
+						Success:      false,
+						ServiceID:    id,
+						BuildOutput:  buildOutput,
+						BuildLogPath: buildLogPath,
 						Error: fmt.Sprintf(
 							"build for %q completed but produced no artifact at %s; the build_strategy output does not match what the service runs (command[0]) — set the build_strategy `output` rule to the built binary",
 							id, src),
@@ -731,6 +746,7 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 		Success:        true,
 		ServiceID:      id,
 		BuildOutput:    buildOutput,
+		BuildLogPath:   buildLogPath,
 		InstallOutput:  installOutput,
 		InstallSkipped: installSkipped,
 		Message:        msg,
