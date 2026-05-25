@@ -83,6 +83,7 @@ type OpResult struct {
 	ServiceID      string `json:"service_id"`
 	Message        string `json:"message,omitempty"`
 	BuildOutput    string `json:"build_output,omitempty"`
+	BuildLogPath   string `json:"build_log_path,omitempty"`
 	InstallOutput  string `json:"install_output,omitempty"`
 	InstallSkipped bool   `json:"install_skipped,omitempty"`
 	Error          string `json:"error,omitempty"`

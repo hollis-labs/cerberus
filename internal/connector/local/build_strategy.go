@@ -31,7 +31,14 @@ type BuildConfig struct {
 }
 
 type BuildResult struct {
-	Output    string
+	Output string
+	// Command is the argv the strategy executed, and Dir the directory it ran
+	// in — surfaced for diagnostics (deploy errors and the build log) so a
+	// build failure is self-explanatory instead of a bare "exit status 2".
+	// Command is empty for go_standard matrix builds, which run one command
+	// per os/arch variant (no single command to record); Dir is still set.
+	Command   []string
+	Dir       string
 	Artifacts []BuildArtifact
 }
 
@@ -105,7 +112,13 @@ func (goStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*Bui
 	dir := resolveBuildDir(cfg.WorkDir, root)
 	target := stringRule(cfg.Rules, "target", stringRule(cfg.Source, "package", "."))
 	if matrix := matrixRule(cfg.Rules, "matrix"); len(matrix) > 0 {
-		return buildGoMatrix(ctx, cfg, dir, target, matrix)
+		res, err := buildGoMatrix(ctx, cfg, dir, target, matrix)
+		if res != nil {
+			// A matrix build runs one `go build` per os/arch variant, so there
+			// is no single Command to record; surface the dir at least.
+			res.Dir = dir
+		}
+		return res, err
 	}
 
 	output := stringRule(cfg.Rules, "output", "")
@@ -124,7 +137,7 @@ func (goStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*Bui
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out)}, err
+	return &BuildResult{Output: string(out), Command: append([]string{"go"}, args...), Dir: dir}, err
 }
 
 func buildGoMatrix(ctx context.Context, cfg BuildConfig, dir, target string, matrix []map[string]string) (*BuildResult, error) {
@@ -227,7 +240,7 @@ func (makeStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*B
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out)}, err
+	return &BuildResult{Output: string(out), Command: append([]string{"make"}, args...), Dir: dir}, err
 }
 
 // legacyCommandBuildStrategy runs an explicit command list in the
@@ -249,7 +262,7 @@ func (legacyCommandBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out)}, err
+	return &BuildResult{Output: string(out), Command: append([]string(nil), command...), Dir: dir}, err
 }
 
 func resolveBuildDir(base, root string) string {
