@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, FileText, Hammer, Info, Play, RefreshCw, RotateCw, Server, Square, Trash2, Upload } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Activity, AlertTriangle, FileText, Hammer, Play, RefreshCw, RotateCw, Server, Square, Trash2, Upload } from 'lucide-react'
 import {
   Button,
   CopyableId,
@@ -11,7 +10,7 @@ import {
   Textarea,
   cn,
 } from '@hollis-labs/sysop-ui/ui'
-import { FilterBar } from '@hollis-labs/sysop-ui/data'
+import { DataTable, FilterBar, RowActionMenu, type ColumnDef } from '@hollis-labs/sysop-ui/data'
 import { refreshPolledData, usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type LogLines, type OpResult, type ResourceAction, type ResourceInfo, type ResourceRuntimeStatus } from '../api/client'
 
@@ -41,6 +40,7 @@ export function ResourcesPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [projectFilter, setProjectFilter] = useState('')
   const [selectedID, setSelectedID] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -125,7 +125,7 @@ export function ResourcesPage() {
           Refresh
         </Button>
       </FilterBar>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         {resources.isLoading && items.length === 0 ? (
           <div className="p-4 text-sm text-text-soft">Loading resources...</div>
         ) : filtered.length === 0 ? (
@@ -146,6 +146,7 @@ export function ResourcesPage() {
             items={filtered}
             token={sessionToken}
             onOpen={setSelectedID}
+            scrollRootRef={scrollRef}
             onActionDone={() => {
               void resources.refetch()
               refreshPolledData()
@@ -171,16 +172,19 @@ function ResourceTable({
   token,
   onOpen,
   onActionDone,
+  scrollRootRef,
 }: {
   items: ResourceInfo[]
   token: string
   onOpen: (id: string) => void
   onActionDone: () => void
+  scrollRootRef?: RefObject<HTMLElement | null>
 }) {
   // busy holds the single in-flight quick action (one at a time, across all
-  // rows) so every action button can disable while one is running.
+  // rows) so the action menu can disable while one is running.
   const [busy, setBusy] = useState<{ id: string; action: ResourceAction } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const anyBusy = busy !== null
 
   async function runQuickAction(item: ResourceInfo, action: ResourceAction) {
     if (!token || busy) return
@@ -199,6 +203,48 @@ function ResourceTable({
     }
   }
 
+  const columns: ColumnDef<ResourceInfo>[] = [
+    {
+      key: 'resource',
+      header: 'Resource',
+      width: 'fill',
+      cell: (item) => <ResourceCell item={item} />,
+      sortValue: (item) => item.name || item.id,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (item) => <ResourceStatusBadge status={item.operator_stopped ? 'paused' : item.status || 'unknown'} />,
+      sortValue: (item) => item.operator_stopped ? 'paused' : item.status || 'unknown',
+    },
+    {
+      key: 'actions',
+      header: '',
+      cell: (item) => {
+        const running = !item.operator_stopped && ['running', 'healthy'].includes((item.status || '').toLowerCase())
+        return (
+          <RowActionMenu
+            ariaLabel={`Actions for ${item.name || item.id}`}
+            actions={[
+              {
+                label: running ? 'Stop' : 'Start',
+                icon: running ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />,
+                onSelect: () => void runQuickAction(item, running ? 'stop' : 'apply'),
+                disabled: !token || anyBusy,
+              },
+              {
+                label: 'Restart',
+                icon: <RotateCw className="h-3.5 w-3.5" />,
+                onSelect: () => void runQuickAction(item, 'reload'),
+                disabled: !token || anyBusy,
+              },
+            ]}
+          />
+        )
+      },
+    },
+  ]
+
   return (
     <>
       {actionError && (
@@ -213,146 +259,53 @@ function ResourceTable({
           </button>
         </div>
       )}
-      <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-full">
-          <thead className="text-[10px] uppercase tracking-[.28em] text-text-subtle">
-            <tr className="border-b border-border-strong">
-              <th className="px-3 py-1.5 text-left font-medium">Resource</th>
-              <th className="w-px whitespace-nowrap px-1.5 py-1.5 text-left font-medium">Status</th>
-              <th className="w-px whitespace-nowrap px-3 py-1.5">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-soft text-[13px] leading-4">
-            {items.map((item) => {
-              // A resource is "running" only when live and not operator-paused;
-              // the start/stop control toggles on this.
-              const running =
-                !item.operator_stopped && ['running', 'healthy'].includes((item.status || '').toLowerCase())
-              const rowBusy = busy?.id === item.id
-              const anyBusy = busy !== null
-              return (
-                <tr
-                  key={item.id}
-                  className="cursor-pointer bg-bg outline-none hover:bg-panel-hover/60 focus-visible:ring-1 focus-visible:ring-ring"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`Open ${item.name || item.id}`}
-                  onClick={() => onOpen(item.id)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      onOpen(item.id)
-                    }
-                  }}
-                >
-                  <td className="w-full max-w-0 px-3 py-1.5 text-left align-top">
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className="truncate tracking-[.02em] text-text" title={item.name || item.id}>
-                          {item.name || item.id}
-                        </span>
-                        <DriftChip item={item} />
-                        <RuntimeChips item={item} />
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        {item.project && (
-                          <span className="font-mono text-[10px] uppercase tracking-[.12em] text-text-subtle/80">
-                            project: <span className="text-text-soft">{item.project}</span>
-                          </span>
-                        )}
-                        <span className="font-mono text-[10px] text-text-subtle/80">id:</span>
-                        <CopyableId id={item.id} label={shortID(item.id)} />
-                        {item.url && (
-                          <>
-                            <span className="font-mono text-[10px] text-text-subtle/80">url:</span>
-                            <a
-                              href={item.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(event) => event.stopPropagation()}
-                              className="truncate font-mono text-[10px] text-text-soft underline-offset-2 hover:text-text hover:underline"
-                              title={`Open ${item.url} in a new tab`}
-                            >
-                              {item.url}
-                            </a>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="w-px whitespace-nowrap px-1.5 py-1.5 align-top">
-                    <ResourceStatusBadge status={item.operator_stopped ? 'paused' : item.status || 'unknown'} />
-                  </td>
-                  <td className="w-px whitespace-nowrap px-3 py-1.5 align-top">
-                    <div className="flex items-center justify-end gap-1">
-                      <IconAction
-                        icon={running ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                        label={running ? `Stop ${item.name || item.id}` : `Start ${item.name || item.id}`}
-                        disabled={!token || anyBusy}
-                        busy={rowBusy && (busy?.action === 'stop' || busy?.action === 'apply')}
-                        onClick={() => void runQuickAction(item, running ? 'stop' : 'apply')}
-                      />
-                      <IconAction
-                        icon={<RotateCw className="h-3.5 w-3.5" />}
-                        label={`Restart ${item.name || item.id}`}
-                        disabled={!token || anyBusy}
-                        busy={rowBusy && busy?.action === 'reload'}
-                        onClick={() => void runQuickAction(item, 'reload')}
-                      />
-                      <IconAction
-                        icon={<Info className="h-3.5 w-3.5" />}
-                        label={`Open console for ${item.name || item.id}`}
-                        onClick={() => onOpen(item.id)}
-                      />
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        items={items}
+        columns={columns}
+        getRowId={(item) => item.id}
+        onRowOpen={(id) => onOpen(id)}
+        rowAriaLabel={(item) => `Open ${item.name || item.id}`}
+        scrollRootRef={scrollRootRef}
+      />
     </>
   )
 }
 
-// IconAction is a compact square icon button shared by the resource row's
-// quick-action cluster (start/stop, restart, open console). While busy it
-// swaps its glyph for a spinner and disables itself.
-function IconAction({
-  icon,
-  label,
-  onClick,
-  disabled = false,
-  busy = false,
-}: {
-  icon: ReactNode
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  busy?: boolean
-}) {
-  const inactive = disabled || busy
+function ResourceCell({ item }: { item: ResourceInfo }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      disabled={inactive}
-      className={cn(
-        'inline-flex h-6 w-6 items-center justify-center border border-border bg-panel-2/50 text-text-soft transition-colors',
-        inactive ? 'cursor-default opacity-35' : 'hover:border-border-strong hover:bg-panel-hover hover:text-text',
-      )}
-      onClick={(event) => {
-        event.stopPropagation()
-        if (!inactive) onClick()
-      }}
-    >
-      {busy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : icon}
-    </button>
+    <div className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="truncate tracking-[.02em] text-text" title={item.name || item.id}>
+          {item.name || item.id}
+        </span>
+        <DriftChip item={item} />
+        <RuntimeChips item={item} />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        {item.project && (
+          <span className="font-mono text-[10px] uppercase tracking-[.12em] text-text-subtle/80">
+            project: <span className="text-text-soft">{item.project}</span>
+          </span>
+        )}
+        <span className="font-mono text-[10px] text-text-subtle/80">id:</span>
+        <CopyableId id={item.id} label={shortID(item.id)} />
+        {item.url && (
+          <>
+            <span className="font-mono text-[10px] text-text-subtle/80">url:</span>
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(event) => event.stopPropagation()}
+              className="truncate font-mono text-[10px] text-text-soft underline-offset-2 hover:text-text hover:underline"
+              title={`Open ${item.url} in a new tab`}
+            >
+              {item.url}
+            </a>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 
