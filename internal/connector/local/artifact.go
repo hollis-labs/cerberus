@@ -241,7 +241,25 @@ func SyncArtifactInstall(res *domain.Resource, spec ProcessSpec) (InstallLayout,
 	return newArtifactInstaller().Sync(res, spec)
 }
 
+// ResolveArtifactSourcePath is the exported view of resolveArtifactSource:
+// the filesystem path the installer copies into the artifact tree. Callers
+// outside this package (e.g. the deploy flow's post-build freshness guard)
+// use it to confirm the build actually produced the binary that will be
+// installed.
+func ResolveArtifactSourcePath(spec ProcessSpec) (string, error) {
+	return resolveArtifactSource(spec)
+}
+
 func resolveArtifactSource(spec ProcessSpec) (string, error) {
+	// Prefer the build strategy's declared output binary. The build writes
+	// to that path, so installing from it guarantees the artifact is exactly
+	// what the build produced — closing the gap where a build wrote to its
+	// declared output while the installer blindly copied a divergent (and
+	// possibly stale) command[0]. Resources without a declared output fall
+	// back to command[0], preserving existing behavior.
+	if out, ok := buildStrategyOutputPath(spec); ok {
+		return out, nil
+	}
 	if len(spec.Command) == 0 {
 		return "", fmt.Errorf("artifact mode requires a command with a filesystem path")
 	}
@@ -257,6 +275,31 @@ func resolveArtifactSource(spec ProcessSpec) (string, error) {
 	default:
 		return "", fmt.Errorf("artifact mode requires command[0] to be an absolute or relative filesystem path, got %q", cmd0)
 	}
+}
+
+// buildStrategyOutputPath returns the absolute path of the binary a build
+// strategy declares via its `output` rule, resolved against the build dir
+// (source.root under the process dir). It returns ok=false when no build
+// strategy or no output rule is declared, in which case the caller falls
+// back to command[0]. go_standard always declares output; make_standard and
+// legacy_command may declare one to make their build/install path explicit.
+func buildStrategyOutputPath(spec ProcessSpec) (string, bool) {
+	if spec.BuildStrategy == nil {
+		return "", false
+	}
+	out := stringRule(spec.BuildStrategy.Rules, "output", "")
+	if out == "" {
+		return "", false
+	}
+	if filepath.IsAbs(out) {
+		return out, true
+	}
+	root := stringRule(spec.BuildStrategy.Source, "root", ".")
+	dir := resolveBuildDir(spec.Dir, root)
+	if dir == "" {
+		return out, true
+	}
+	return filepath.Join(dir, out), true
 }
 
 func readArtifactManifest(path string) (artifactManifest, error) {

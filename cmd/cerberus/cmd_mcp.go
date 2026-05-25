@@ -81,6 +81,7 @@ func buildCerberusMCPServer(socketClient cerbapi.Client, logger *slog.Logger) *m
 	srv.RegisterTool(mcp.NewCerberusResourceReloadTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusResourceStopTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusResourceDeployTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusResourceEnsureFreshTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusResourceSyncTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusResourceApplyTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(socketClient))

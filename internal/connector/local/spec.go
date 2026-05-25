@@ -91,11 +91,29 @@ func SpecFromResourceConfig(cfg map[string]any) (ProcessSpec, error) {
 	spec.Env = stringMapField(cfg, "env")
 	spec.URL, _ = stringField(cfg, "url")
 	spec.Port = intField(cfg, "port")
-	if _, present := cfg["build"]; present {
-		return ProcessSpec{}, fmt.Errorf("build is no longer supported; use build_strategy")
-	}
-	if raw, exists := cfg["build_strategy"]; exists {
-		strategy, err := buildStrategyConfigFromAny(raw)
+	// `build:` is deprecated in favor of `build_strategy:`. Rather than
+	// hard-rejecting it (which silently drops every not-yet-migrated
+	// resource out of the runtime), translate a legacy command list into
+	// an equivalent legacy_command build_strategy so existing apps keep
+	// working. The deprecation is surfaced by ValidateProjectConfig /
+	// `cerberus registry health` to nudge migration to a first-class
+	// strategy.
+	_, hasLegacyBuild := cfg["build"]
+	_, hasStrategy := cfg["build_strategy"]
+	switch {
+	case hasLegacyBuild && hasStrategy:
+		return ProcessSpec{}, fmt.Errorf("config sets both build (deprecated) and build_strategy; remove the legacy build field")
+	case hasLegacyBuild:
+		command := stringSliceField(cfg, "build")
+		if len(command) == 0 {
+			return ProcessSpec{}, fmt.Errorf("build is deprecated and could not be translated: expected a non-empty command list")
+		}
+		spec.BuildStrategy = &BuildStrategyConfig{
+			Kind:  LegacyCommandKind,
+			Rules: map[string]any{"command": command},
+		}
+	case hasStrategy:
+		strategy, err := buildStrategyConfigFromAny(cfg["build_strategy"])
 		if err != nil {
 			return ProcessSpec{}, fmt.Errorf("decode build_strategy: %w", err)
 		}

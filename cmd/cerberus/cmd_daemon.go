@@ -544,6 +544,7 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusResourceReloadTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceStopTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceDeployTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusResourceEnsureFreshTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceSyncTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceApplyTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(inProc))

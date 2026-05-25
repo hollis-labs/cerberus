@@ -20,7 +20,7 @@ import (
 var resourceCmd = &cobra.Command{
 	Use:   "resource",
 	Short: "V2 resource management",
-	Long:  "Manages v2 resources. For local process resources, use deploy for build+activate, apply for already-built activation, reload for restart-only, sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state.",
+	Long:  "Manages v2 resources. To make a running service match your current source, use ensure-fresh (idempotent: it runs the recommended deploy/apply/sync for you) — or deploy directly. Lower-level verbs: deploy for build+activate, apply for already-built activation, reload for restart-only (NO rebuild), sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state. NOTE: run_from: artifact services run an installed copy under ~/.cerberus/apps/...; building (go/make) or reload/restart does not update them — only deploy/apply/ensure-fresh do.",
 }
 
 var resourceListProject string
@@ -206,7 +206,7 @@ var resourceDoctorCmd = &cobra.Command{
 var resourceReloadCmd = &cobra.Command{
 	Use:   "reload <resource-id>",
 	Short: "Kickstart a local process resource through its runtime backend",
-	Long:  "Asks the configured runtime backend to restart the current installed resource without syncing artifacts or rewriting service definitions. For launchd-backed os_service resources, this runs launchctl kickstart -k against the loaded service.",
+	Long:  "Asks the configured runtime backend to restart the current installed resource without syncing artifacts or rewriting service definitions. For launchd-backed os_service resources, this runs launchctl kickstart -k against the loaded service. IMPORTANT: reload does NOT rebuild or re-sync — it relaunches the existing (possibly stale) installed artifact. If your source changed, use `cerberus resource deploy` (or `ensure-fresh`), not reload.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		res, err := loadResource(args[0])
@@ -347,6 +347,78 @@ var resourceDeployCmd = &cobra.Command{
 //
 // --no-install-after-build is a presence-only "hard false" shortcut: any
 // explicit set forces the override to false regardless of any parsed value.
+var resourceEnsureFreshForce bool
+
+var resourceEnsureFreshCmd = &cobra.Command{
+	Use:   "ensure-fresh <resource-id>",
+	Short: "Make a running service match the current source (idempotent)",
+	Long: `Makes a resource current by running whatever action Cerberus already
+recommends from its runtime status, so you don't have to choose between
+deploy/apply/reload yourself:
+
+  - source changed / artifact stale  -> deploy (rebuild + sync + activate)
+  - built but not active / synced     -> apply
+  - artifact stale, service stopped   -> sync
+  - already current                   -> nothing
+
+This is the command to reach for when your goal is "make the running service
+reflect my latest code." Building (go build / make build / go install) or
+restarting (reload / a GUI "Restart") does NOT do that for run_from: artifact
+services — they run an installed copy under ~/.cerberus/apps/.../bin/.
+
+mode: dev_session resources have no staleness detection yet, so ensure-fresh
+will no-op on them unless you pass --force (which always deploys).`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := args[0]
+		deployOpts, err := resolveDeployFlags(cmd)
+		if err != nil {
+			return err
+		}
+		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+			res, efErr := cerbapi.EnsureFresh(cmd.Context(), client, id, resourceEnsureFreshForce, deployOpts...)
+			if efErr == nil {
+				return printEnsureFreshResult(res)
+			}
+			var dErr *cerbapi.DaemonUnreachableError
+			if !errors.As(efErr, &dErr) {
+				return efErr
+			}
+		}
+		res, err := cerbapi.EnsureFresh(cmd.Context(), newResourceRuntimeService(), id, resourceEnsureFreshForce, deployOpts...)
+		if err != nil {
+			return err
+		}
+		return printEnsureFreshResult(res)
+	},
+}
+
+func printEnsureFreshResult(res *cerbapi.EnsureFreshResult) error {
+	if res == nil {
+		return errors.New("ensure-fresh returned no result")
+	}
+	if !res.Success {
+		if res.Message != "" {
+			return errors.New(res.Message)
+		}
+		return fmt.Errorf("ensure-fresh %s: %s failed", res.ServiceID, res.Action)
+	}
+	switch res.Action {
+	case "noop":
+		fmt.Printf("%s: %s\n", res.ServiceID, res.Message)
+	default:
+		reason := res.Reason
+		if reason != "" {
+			reason = " (" + reason + ")"
+		}
+		fmt.Printf("%s: %s%s\n", res.ServiceID, res.Action, reason)
+		if res.Message != "" {
+			fmt.Println(res.Message)
+		}
+	}
+	return nil
+}
+
 func resolveDeployFlags(cmd *cobra.Command) ([]cerbapi.DeployResourceOption, error) {
 	yesSet := cmd.Flags().Changed("install-after-build")
 	noSet := cmd.Flags().Changed("no-install-after-build")
@@ -809,6 +881,10 @@ func init() {
 	resourceDeployCmd.Flags().BoolVar(&resourceDeployInstallAfterBuild, "install-after-build", true, "force-run `make install` after `make build` (overrides resource + global config)")
 	resourceDeployCmd.Flags().BoolVar(&resourceDeployNoInstallAfterBuild, "no-install-after-build", false, "skip `make install` after `make build` for this invocation only")
 	resourceCmd.AddCommand(resourceDeployCmd)
+	resourceEnsureFreshCmd.Flags().BoolVar(&resourceEnsureFreshForce, "force", false, "always deploy (rebuild); use for dev_session resources, which have no staleness detection")
+	resourceEnsureFreshCmd.Flags().Bool("install-after-build", true, "force-run `make install` after `make build` (overrides resource + global config)")
+	resourceEnsureFreshCmd.Flags().Bool("no-install-after-build", false, "skip `make install` after `make build` for this invocation only")
+	resourceCmd.AddCommand(resourceEnsureFreshCmd)
 	resourceCmd.AddCommand(resourceApplyCmd)
 	resourceCmd.AddCommand(resourceReloadCmd)
 	resourceCmd.AddCommand(resourceStopCmd)

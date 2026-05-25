@@ -13,6 +13,16 @@ goes through Cerberus's v2 `resource` lane. The product is operationally
 **v2-only** — `resources:` are the active model and legacy `services:` plus the
 TUI are frozen.
 
+## Golden rule: to update a running service, DEPLOY
+
+A `run_from: artifact` service runs an **installed copy** under
+`~/.cerberus/apps/<project>/<resource>/bin/`, not your repo binary. So:
+
+- **Changed source and want it live → `cerberus resource deploy <id>`** (build + sync + activate). This is the ONLY thing that rebuilds and reinstalls.
+- `go build` / `make build` / `go install` / `go test ./...` update or verify your **repo**, not the running service. They do **not** deploy anything.
+- `reload` and any GUI/TUI "Restart" relaunch the **existing (maybe stale) artifact** — no rebuild.
+- After acting, confirm with `cerberus resource status <id>` and obey its `recommended_next_step` (it reports `artifact_stale`). `mode: dev_session` resources have no staleness signal yet — restart the dev session yourself after a rebuild.
+
 ## Where to start
 
 - **`cmd/cerberus/`** — main entry point: Cobra CLI, daemon mode, MCP adapter.

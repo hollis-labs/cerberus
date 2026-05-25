@@ -78,7 +78,7 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_status",
-		Description: "Get runtime status for one resource. Use before deploy, apply, reload, or remove.",
+		Description: "Get runtime status for one resource. Read artifact_stale and recommended_action / recommended_next_step and act on them — or just call cerberus_resource_ensure_fresh to perform the recommended action automatically. Use before deploy, apply, reload, or remove.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -220,7 +220,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_reload",
-		Description: "Restart an installed resource without rebuilding or syncing.",
+		Description: "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh instead.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -284,7 +284,7 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_deploy",
-		Description: "Build, sync, and apply a resource from the current source tree.",
+		Description: "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. Prefer cerberus_resource_ensure_fresh if you just want 'make it current' without choosing a verb.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -312,11 +312,48 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 	}
 }
 
+// NewCerberusResourceEnsureFreshTool creates the cerberus_resource_ensure_fresh tool.
+func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_resource_ensure_fresh",
+		Description: "Make a running service match its current source, idempotently. Runs the action Cerberus recommends from status — deploy (rebuild+sync+activate) if stale, apply/sync if needed, or nothing if already current. This is the tool to use when your goal is 'the running service should reflect the latest code' and you don't want to choose between deploy/apply/reload. For mode: dev_session resources (no staleness detection yet) pass force=true to always rebuild.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Resource ID.",
+			},
+			"force": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Always deploy (rebuild). Use for dev_session resources, which have no staleness detection. Default false.",
+			},
+		}, "resource_id"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			resourceID, _ := args["resource_id"].(string)
+			if resourceID == "" {
+				return marshalResult(lifecycleResult{
+					Success: false,
+					Error:   "resource_id is required",
+				}), nil
+			}
+			force, _ := args["force"].(bool)
+			res, err := cerbapi.EnsureFresh(ctx, client, resourceID, force)
+			if err != nil {
+				return "", err
+			}
+			data, mErr := json.MarshalIndent(res, "", "  ")
+			if mErr != nil {
+				return "", mErr
+			}
+			return string(data), nil
+		},
+	}
+}
+
 // NewCerberusResourceApplyTool creates the cerberus_resource_apply tool.
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_apply",
-		Description: "Apply a resource without running its build step.",
+		Description: "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh) so it rebuilds first.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",

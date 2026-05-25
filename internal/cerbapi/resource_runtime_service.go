@@ -239,6 +239,11 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 		if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
 			launchdRec = rec
 		}
+	} else {
+		// Non-os_service (dev_session) resources have no artifact;
+		// recommendedAction is still "" here, so surface "rebuilt but not
+		// restarted" staleness to make the running process current.
+		recommendedAction, recommendedReason = localconn.RecommendedDevSessionAction(id, spec, state)
 	}
 
 	return &ResourceRuntimeStatus{
@@ -381,6 +386,13 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 			out.LaunchdDiagnosis = rec.Diagnosis
 			out.LaunchdHighlights = append([]string(nil), rec.Highlights...)
 			out.LaunchdRaw = rec.Raw
+		}
+	} else {
+		// Non-os_service (dev_session): out.RecommendedAction is still "" here.
+		if action, reason := localconn.RecommendedDevSessionAction(id, spec, state); action != "" {
+			out.RecommendedAction = action
+			out.RecommendedReason = reason
+			out.RecommendedNextStep = localconn.RecommendedNextStep(action, reason)
 		}
 	}
 
@@ -667,6 +679,27 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 					"reason", "no_install_target_in_makefile",
 				)
 				gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Install skipped for resource %s", id))
+			}
+		}
+
+		// Freshness guard: for artifact-mode resources the build must have
+		// produced the binary the installer will copy. If it is missing, a
+		// "successful" build would silently sync a stale or absent artifact —
+		// the exact failure mode behind recurring stale-after-deploy
+		// incidents — so fail loudly instead.
+		if spec.RunFrom == localconn.ProcessRunFromArtifact {
+			if src, srcErr := localconn.ResolveArtifactSourcePath(spec); srcErr == nil {
+				if _, statErr := os.Stat(src); statErr != nil {
+					gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Build produced no artifact")
+					return &OpResult{
+						Success:     false,
+						ServiceID:   id,
+						BuildOutput: buildOutput,
+						Error: fmt.Sprintf(
+							"build for %q completed but produced no artifact at %s; the build_strategy output does not match what the service runs (command[0]) — set the build_strategy `output` rule to the built binary",
+							id, src),
+					}, nil
+				}
 			}
 		}
 	}
