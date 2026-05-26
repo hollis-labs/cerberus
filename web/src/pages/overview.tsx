@@ -1,24 +1,23 @@
-import { Activity, FolderKanban, FolderTree, ServerCog, Workflow } from 'lucide-react'
+import { Activity, Boxes, FolderTree, Gauge, Route, ServerCog, Waypoints } from 'lucide-react'
 import {
   Button,
+  Callout,
   EmptyState,
   SettingsNotice,
   StatusBadge,
-  SummaryCards,
 } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import {
   BarList,
   CompositionBars,
-  SignalBars,
   IntelligenceRow,
   Kpi,
   KpiGrid,
   MiniTrend,
   Panel,
+  SignalBars,
 } from '@hollis-labs/sysop-ui/widgets'
 import { apiClient } from '../api/client'
-
 
 function compact(n: number): string {
   return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
@@ -29,12 +28,15 @@ function ratio(part: number, total: number): string {
   return `${Math.round((part / total) * 100)}%`
 }
 
-function spark(seed: number, variance = 0.18): number[] {
-  const base = Math.max(1, seed)
-  return Array.from({ length: 12 }, (_, index) => {
-    const wave = ((index % 5) - 2) * variance
-    return Math.max(0, Math.round(base * (1 + wave)))
-  })
+function sum(arr: number[]): number {
+  return arr.reduce((a, b) => a + b, 0)
+}
+
+// addSeries pairwise-sums two trend arrays. Used to build the Runtime /
+// Interaction composite series the big SignalBars chart renders.
+function addSeries(a: number[], b: number[]): number[] {
+  const n = Math.max(a.length, b.length)
+  return Array.from({ length: n }, (_, i) => (a[i] ?? 0) + (b[i] ?? 0))
 }
 
 export function OverviewPage() {
@@ -66,23 +68,19 @@ export function OverviewPage() {
     return <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading overview...</div>
   }
 
-  const cards = [
-    { label: 'Resources', value: ov.inventory.resources, subtitle: `${ov.runtime.running} running`, accentColor: 'var(--color-text)' },
-    { label: 'Projects', value: ov.inventory.projects, subtitle: `${sys.resolved_projects} resolved`, accentColor: 'var(--color-status-done)' },
-    { label: 'Pipelines', value: ov.inventory.pipelines, subtitle: `${sys.resolved_pipelines} resolved`, accentColor: 'var(--color-warning)' },
-    { label: 'Registry', value: ov.registry.entries, subtitle: `${ov.registry.unhealthy} unhealthy`, accentColor: 'var(--color-status-blocked)' },
-  ]
+  const trends = ov.trends
+  const resourcesTrend = trends.resources
+  const projectsTrend = trends.projects
+  const pipelinesTrend = trends.pipelines
+  const registryTrend = trends.registry_entries
 
-  const runtimeBars = [
-    ov.runtime.running,
-    ov.runtime.attention,
-    ov.runtime.stopped,
-    ov.daemon.services_failed,
-    ov.inventory.projects,
-    ov.inventory.pipelines,
-    ov.inventory.connectors,
-    ov.inventory.plugins,
-  ]
+  // Runtime = running + attention (active service signal).
+  // Interaction = projects + pipelines (declarative-surface activity).
+  // Stacked together on the big SignalBars chart so the two layers read
+  // distinctly. Matches Tether's runtime/interaction split.
+  const runtimeSeries = addSeries(trends.running, trends.attention)
+  const interactionSeries = addSeries(trends.projects, trends.pipelines)
+
   const inventoryMix = [
     { label: 'Resources', value: ov.inventory.resources },
     { label: 'Projects', value: ov.inventory.projects },
@@ -90,17 +88,23 @@ export function OverviewPage() {
     { label: 'Connectors', value: ov.inventory.connectors },
     { label: 'Plugins', value: ov.inventory.plugins },
   ]
-  const runtimeList = [
-    { label: 'Running', value: ov.runtime.running },
-    { label: 'Attention', value: ov.runtime.attention },
-    { label: 'Stopped', value: ov.runtime.stopped },
-    { label: 'Failed services', value: ov.daemon.services_failed },
+  const runtimeStates = [
+    { label: 'running', value: ov.runtime.running },
+    { label: 'attention', value: ov.runtime.attention },
+    { label: 'stopped', value: ov.runtime.stopped },
   ]
+  const registryStates = [
+    { label: 'healthy', value: ov.registry.healthy },
+    { label: 'unhealthy', value: ov.registry.unhealthy },
+  ]
+
   const daemonStatus = ov.daemon.running ? 'done' : 'blocked'
   const registryStatus = ov.registry.unhealthy > 0 ? 'blocked' : 'done'
+  const warnings = sys.resolve_warnings ?? []
+  const trackedStates = ov.runtime.running + ov.runtime.attention + ov.runtime.stopped
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
+    <div className="flex min-h-0 flex-1 flex-col bg-bg">
       <div className="flex shrink-0 items-center justify-between border-b border-border-strong bg-bg px-4 py-2">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[.18em] text-text-subtle">Control Plane Overview</p>
@@ -119,85 +123,139 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <SummaryCards cards={cards} />
-
-      <div className="grid gap-3 p-3 xl:grid-cols-[minmax(0,2fr)_minmax(20rem,0.9fr)]">
-        <Panel
-          title="Runtime Signal"
-          icon={<Activity className="h-3.5 w-3.5" />}
-          meta={`${compact(ov.runtime.running + ov.runtime.attention + ov.runtime.stopped)} tracked states`}
-        >
-          <KpiGrid>
-            <Kpi label="Running" value={ov.runtime.running} sub={`${ratio(ov.runtime.running, ov.inventory.resources)} of resources`} accent="var(--color-status-done)" />
-            <Kpi label="Attention" value={ov.runtime.attention} sub="needs operator review" accent="var(--color-status-blocked)" />
-            <Kpi label="Stopped" value={ov.runtime.stopped} sub="inactive or paused" accent="var(--color-warning)" />
-            <Kpi label="Registry Health" value={`${ov.registry.healthy}/${ov.registry.entries}`} sub={ov.registry.unhealthy ? `${ov.registry.unhealthy} unhealthy` : 'all healthy'} />
-          </KpiGrid>
-          <div className="grid gap-0 lg:grid-cols-[1.4fr_.6fr]">
-            <div className="border-r border-border">
-              <SignalBars
-                data={runtimeBars}
-                secondaryData={runtimeBars.map((value, index) => Math.max(0, Math.round(value * (0.2 + (index % 3) * 0.08))))}
-                primaryLabel="live"
-                secondaryLabel="drift"
-                className="h-full"
-                heightClassName="h-44"
-              />
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(20rem,0.85fr)]">
+          <Panel
+            title="Activity Signal"
+            icon={<Activity className="h-3.5 w-3.5" />}
+            meta={`${compact(trackedStates)} tracked states`}
+          >
+            <KpiGrid cols="grid-cols-2 md:grid-cols-6">
+              <Kpi label="Resources" value={compact(ov.inventory.resources)} sub={`${ov.runtime.running} running`} />
+              <Kpi label="Projects" value={compact(ov.inventory.projects)} sub={`${sys.resolved_projects} resolved`} />
+              <Kpi label="Pipelines" value={compact(ov.inventory.pipelines)} sub={`${sys.resolved_pipelines} resolved`} />
+              <Kpi label="Registry" value={compact(ov.registry.entries)} sub={`${ov.registry.unhealthy} unhealthy`} />
+              <Kpi label="Healthy" value={ratio(ov.runtime.running, ov.inventory.resources)} sub={`${ov.runtime.running}/${ov.inventory.resources}`} />
+              <Kpi label="Attention" value={ov.runtime.attention} sub={ov.runtime.attention ? 'needs review' : 'all clear'} accent={ov.runtime.attention ? 'var(--color-status-blocked)' : undefined} />
+            </KpiGrid>
+            <SignalBars
+              data={runtimeSeries}
+              secondaryData={interactionSeries}
+              heightClassName="h-56"
+              primaryLabel="Runtime"
+              secondaryLabel="Interaction"
+            />
+            <div className="grid md:grid-cols-4">
+              <MiniTrend label="Resources" value={sum(resourcesTrend)} data={resourcesTrend} />
+              <MiniTrend label="Projects" value={sum(projectsTrend)} data={projectsTrend} />
+              <MiniTrend label="Pipelines" value={sum(pipelinesTrend)} data={pipelinesTrend} />
+              <MiniTrend label="Registry" value={sum(registryTrend)} data={registryTrend} />
             </div>
-            <div className="space-y-0">
-              <MiniTrend label="Daemon failures" value={ov.daemon.services_failed} data={spark(ov.daemon.services_failed + 1, 0.35)} />
-              <MiniTrend label="Resolve warnings" value={sys.resolve_warnings?.length ?? 0} data={spark((sys.resolve_warnings?.length ?? 0) + 1, 0.4)} />
-              <MiniTrend label="Registry drift" value={ov.registry.unhealthy} data={spark(ov.registry.unhealthy + 1, 0.32)} />
-            </div>
-          </div>
-        </Panel>
+          </Panel>
 
-        <Panel title="Operator Focus" icon={<Workflow className="h-3.5 w-3.5" />}>
-          <IntelligenceRow label="Daemon reachability" value={ov.daemon.running ? 'online' : 'offline'} status={daemonStatus} />
-          <IntelligenceRow label="Socket availability" value={ov.daemon.socket_exists ? 'present' : 'missing'} status={ov.daemon.socket_exists ? 'done' : 'blocked'} />
-          <IntelligenceRow label="Registry status" value={ov.registry.unhealthy ? `${ov.registry.unhealthy} unhealthy` : 'healthy'} status={registryStatus} />
-          <IntelligenceRow label="Resolved resources" value={sys.resolved_resources} status="done" />
-          <IntelligenceRow label="Resolved pipelines" value={sys.resolved_pipelines} status="done" />
-          <IntelligenceRow label="Resolve warnings" value={sys.resolve_warnings?.length ?? 0} status={(sys.resolve_warnings?.length ?? 0) > 0 ? 'blocked' : 'done'} />
-        </Panel>
+          <Panel title="Intelligence" icon={<Gauge className="h-3.5 w-3.5" />}>
+            <IntelligenceRow label="Daemon reachability" value={ov.daemon.running ? 'online' : 'offline'} status={daemonStatus} />
+            <IntelligenceRow label="Socket availability" value={ov.daemon.socket_exists ? 'present' : 'missing'} status={ov.daemon.socket_exists ? 'done' : 'blocked'} />
+            <IntelligenceRow label="Registry status" value={ov.registry.unhealthy ? `${ov.registry.unhealthy} unhealthy` : 'healthy'} status={registryStatus} />
+            <IntelligenceRow label="Resolved resources" value={sys.resolved_resources} status="done" />
+            <IntelligenceRow label="Resolved pipelines" value={sys.resolved_pipelines} status="done" />
+            <IntelligenceRow label="Resolve warnings" value={warnings.length} status={warnings.length > 0 ? 'blocked' : 'done'} />
+          </Panel>
+        </div>
 
-        <Panel title="Inventory Mix" icon={<FolderKanban className="h-3.5 w-3.5" />}>
-          <div className="grid gap-0 lg:grid-cols-[.8fr_1.2fr]">
-            <div className="border-r border-border px-3 py-3">
-              <div className="mb-2 text-[10px] uppercase tracking-[.16em] text-text-subtle">Composition</div>
-              <CompositionBars items={inventoryMix} />
+        <div className="mt-3 grid gap-3 xl:grid-cols-4">
+          <Panel
+            title="Resources"
+            icon={<ServerCog className="h-3.5 w-3.5" />}
+            meta={`${ov.runtime.running} running`}
+          >
+            <KpiGrid>
+              <Kpi label="Total" value={ov.inventory.resources} />
+              <Kpi label="Running" value={ov.runtime.running} accent="var(--color-status-done)" />
+              <Kpi label="Attention" value={ov.runtime.attention} accent={ov.runtime.attention ? 'var(--color-status-blocked)' : undefined} />
+              <Kpi label="Stopped" value={ov.runtime.stopped} />
+            </KpiGrid>
+            <div className="border-b border-border p-3">
+              <div className="mb-2 text-[10px] uppercase tracking-[.16em] text-text-subtle">State mix</div>
+              <CompositionBars items={runtimeStates} />
             </div>
-            <div className="px-3 py-3">
-              <div className="mb-2 text-[10px] uppercase tracking-[.16em] text-text-subtle">Counts</div>
+            <div className="border-t border-border">
+              <MiniTrend label="24h resources" value={sum(resourcesTrend)} data={resourcesTrend} />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Projects"
+            icon={<Boxes className="h-3.5 w-3.5" />}
+            meta={`${sys.resolved_projects} resolved`}
+          >
+            <KpiGrid>
+              <Kpi label="Total" value={ov.inventory.projects} />
+              <Kpi label="Resolved" value={sys.resolved_projects} />
+              <Kpi label="Pipelines" value={ov.inventory.pipelines} />
+              <Kpi label="Connectors" value={ov.inventory.connectors} />
+            </KpiGrid>
+            <div className="p-3">
+              <div className="mb-2 text-[10px] uppercase tracking-[.16em] text-text-subtle">Inventory mix</div>
               <BarList items={inventoryMix} />
             </div>
-          </div>
-        </Panel>
-
-        <Panel title="Runtime Breakdown" icon={<ServerCog className="h-3.5 w-3.5" />}>
-          <div className="px-3 py-3">
-            <BarList items={runtimeList} />
-          </div>
-        </Panel>
-
-        <Panel title="Registry And Resolve" icon={<FolderTree className="h-3.5 w-3.5" />} className="xl:col-span-2">
-          <div className="grid gap-3 px-3 py-3 lg:grid-cols-[1fr_1fr]">
-            <div className="space-y-2">
-              <div className="text-[10px] uppercase tracking-[.16em] text-text-subtle">Sources</div>
-              <div className="space-y-1 text-[12px] text-text-soft">
-                <div className="font-mono text-[11px] text-text-subtle">{sys.config_path || 'No config path'}</div>
-                <div className="font-mono text-[11px] text-text-subtle">{sys.registry_path || 'No registry path'}</div>
-                <div className="font-mono text-[11px] text-text-subtle">{sys.socket_path || 'No socket path'}</div>
-              </div>
+            <div className="border-t border-border">
+              <MiniTrend label="24h projects" value={sum(projectsTrend)} data={projectsTrend} />
             </div>
-            <div className="space-y-2">
-              {(sys.resolve_warnings?.length ?? 0) > 0 ? (
-                <SettingsNotice
-                  tone="warning"
-                  title="Resolve warnings"
-                  description={sys.resolve_warnings?.join('\n') || ''}
-                  className="whitespace-pre-wrap"
-                />
+          </Panel>
+
+          <Panel
+            title="Pipelines"
+            icon={<Route className="h-3.5 w-3.5" />}
+            meta={`${sys.resolved_pipelines} resolved`}
+          >
+            <KpiGrid>
+              <Kpi label="Declared" value={ov.inventory.pipelines} />
+              <Kpi label="Resolved" value={sys.resolved_pipelines} />
+              <Kpi label="Warnings" value={warnings.length} accent={warnings.length ? 'var(--color-warning)' : undefined} />
+              <Kpi label="Plugins" value={ov.inventory.plugins} />
+            </KpiGrid>
+            <div className="border-t border-border">
+              <MiniTrend label="24h pipelines" value={sum(pipelinesTrend)} data={pipelinesTrend} />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Registry"
+            icon={<Waypoints className="h-3.5 w-3.5" />}
+            meta={`${ov.registry.entries} entries`}
+          >
+            <KpiGrid>
+              <Kpi label="Entries" value={ov.registry.entries} />
+              <Kpi label="Healthy" value={ov.registry.healthy} accent="var(--color-status-done)" />
+              <Kpi label="Unhealthy" value={ov.registry.unhealthy} accent={ov.registry.unhealthy ? 'var(--color-status-blocked)' : undefined} />
+              <Kpi label="Failed svc" value={ov.daemon.services_failed} accent={ov.daemon.services_failed ? 'var(--color-status-blocked)' : undefined} />
+            </KpiGrid>
+            <div className="border-b border-border p-3">
+              <div className="mb-2 text-[10px] uppercase tracking-[.16em] text-text-subtle">Registry health</div>
+              <CompositionBars items={registryStates} />
+            </div>
+            <div className="border-t border-border">
+              <MiniTrend label="24h entries" value={sum(registryTrend)} data={registryTrend} />
+            </div>
+          </Panel>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <Panel title="Operator Sources" icon={<FolderTree className="h-3.5 w-3.5" />}>
+            <div className="space-y-1 p-3 text-[12px] text-text-soft">
+              <div className="font-mono text-[11px] text-text-subtle">{sys.config_path || 'No config path'}</div>
+              <div className="font-mono text-[11px] text-text-subtle">{sys.registry_path || 'No registry path'}</div>
+              <div className="font-mono text-[11px] text-text-subtle">{sys.socket_path || 'No socket path'}</div>
+            </div>
+          </Panel>
+
+          <Panel title="Operator Notes" icon={<Gauge className="h-3.5 w-3.5" />}>
+            <div className="p-3">
+              {warnings.length > 0 ? (
+                <Callout tone="warning" title="Resolve warnings">
+                  <div className="whitespace-pre-wrap font-mono text-[11px]">{warnings.join('\n')}</div>
+                </Callout>
               ) : (
                 <SettingsNotice
                   tone="info"
@@ -206,8 +264,8 @@ export function OverviewPage() {
                 />
               )}
             </div>
-          </div>
-        </Panel>
+          </Panel>
+        </div>
       </div>
     </div>
   )

@@ -44,7 +44,7 @@ export PATH="$PWD/bin:$PATH"
 Or install into a prefix:
 
 ```sh
-make install PREFIX="$HOME/.local"
+make homebrew-install PREFIX="$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 

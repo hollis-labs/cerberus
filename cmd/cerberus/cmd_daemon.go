@@ -505,6 +505,32 @@ func runDaemonBody() error {
 		cerbapi.WithInProcessLogger(logger),
 	)
 
+	// Start the overview snapshot recorder. Samples control-plane
+	// counters (resources, projects, running/attention/stopped, registry
+	// health, etc.) on a 1-minute tick and persists them to
+	// ~/.cerberus/state/overview_snapshots.json. The web overview API
+	// reads that file and buckets the samples into a 24h trend so the
+	// dashboard's SignalBars + MiniTrend widgets render real history.
+	snapshotPath, snapshotErr := cerbapi.SnapshotStatePath()
+	if snapshotErr != nil {
+		logger.Warn("daemon.snapshot.path_resolve_failed", "error", snapshotErr.Error())
+	} else {
+		snapshotCfg := cerbapi.DefaultSnapshotRecorderConfig()
+		snapshotCfg.Path = snapshotPath
+		recorder := cerbapi.NewSnapshotRecorder(
+			snapshotCfg,
+			cerbapi.NewClientSnapshotFunc(inProc, cfgPath, logger),
+			logger,
+		)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := recorder.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Warn("daemon.snapshot.exited", "error", err.Error())
+			}
+		}()
+	}
+
 	// ---- Unix-socket RPC server (CERB-2). ----
 	//
 	// The standalone `cerberus mcp` subprocess dials this socket and

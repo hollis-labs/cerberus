@@ -30,6 +30,11 @@ resources:
       supervisor: launchd
       run_from: artifact
       service_name: com.fragments-engine.cerberus
+      env:
+        # launchd hands the daemon a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+        # so `cerberus resource deploy` can't find `go` to build. Same env the
+        # web service uses.
+        PATH: /opt/homebrew/bin:/Users/chrispian/go/bin:/usr/bin:/bin:/usr/sbin:/sbin
   - id: cerberus-web-service
     name: Cerberus Web UI
     type: process
@@ -50,6 +55,11 @@ resources:
         kind: make_standard
         rules:
           target: all
+          # Makefile builds to bin/cerberus (Hadron-style install layout from
+          # PR #14); without this `output:` cerberus falls back to command[0]
+          # (./cerberus at project root) and the install step can't find the
+          # binary to sync.
+          output: bin/cerberus
       command: ["./cerberus", "web", "--listen", "127.0.0.1:4783", "--open=false"]
       mode: os_service
       supervisor: launchd

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, SettingsField, SettingsGrid, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { Button, Callout, EmptyState, SettingsField, SettingsGrid, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type PluginHealth, type PluginTrustOptions } from '../api/client'
 
@@ -129,7 +129,7 @@ export function PluginsPage() {
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
       <div className="space-y-4">
-        {error && <div className="mx-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+        {error && <Callout tone="danger" className="mx-4">{error}</Callout>}
 
         <section className="grid gap-4 px-4 xl:grid-cols-2">
           <SettingsPanel title="Install managed plugin">

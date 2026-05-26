@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -20,7 +21,28 @@ type overviewResponse struct {
 	Inventory overviewCountsDTO   `json:"inventory"`
 	Runtime   overviewRuntimeDTO  `json:"runtime"`
 	Registry  overviewRegistryDTO `json:"registry"`
+	Trends    overviewTrendsDTO   `json:"trends"`
 	Error     string              `json:"error,omitempty"`
+}
+
+// overviewTrendsDTO carries the per-metric 24h hourly history that drives
+// the SignalBars + MiniTrend widgets on the overview page. Each field is a
+// 24-element slice, oldest → newest. Computed from the daemon's persisted
+// snapshot buffer (see cerbapi.SnapshotRecorder). Empty slices when the
+// recorder hasn't run yet or the buffer is missing.
+type overviewTrendsDTO struct {
+	Resources         []int `json:"resources"`
+	Projects          []int `json:"projects"`
+	Pipelines         []int `json:"pipelines"`
+	Connectors        []int `json:"connectors"`
+	Plugins           []int `json:"plugins"`
+	Running           []int `json:"running"`
+	Attention         []int `json:"attention"`
+	Stopped           []int `json:"stopped"`
+	ServicesFailed    []int `json:"services_failed"`
+	RegistryEntries   []int `json:"registry_entries"`
+	RegistryHealthy   []int `json:"registry_healthy"`
+	RegistryUnhealthy []int `json:"registry_unhealthy"`
 }
 
 type overviewDaemonDTO struct {
@@ -287,10 +309,65 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		errs = append(errs, err.Error())
 	}
 
+	resp.Trends = readOverviewTrends()
+
 	if len(errs) > 0 {
 		resp.Error = strings.Join(uniqueStrings(errs), " | ")
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// overviewTrendBuckets is the bucket count the UI expects per trend (one
+// per hour, last 24h). Mirrors Tether's overviewTrendBuckets constant.
+const overviewTrendBuckets = 24
+
+// overviewTrendWindow is the lookback period the trend covers.
+const overviewTrendWindow = 24 * time.Hour
+
+// readOverviewTrends loads the daemon's persisted snapshot buffer and
+// buckets each metric into a 24h hourly trend. Returns zeroed slices when
+// the buffer is missing or unreadable — a fresh daemon will fill in as it
+// samples (one sample per minute, 7d retention).
+func readOverviewTrends() overviewTrendsDTO {
+	out := overviewTrendsDTO{
+		Resources:         make([]int, overviewTrendBuckets),
+		Projects:          make([]int, overviewTrendBuckets),
+		Pipelines:         make([]int, overviewTrendBuckets),
+		Connectors:        make([]int, overviewTrendBuckets),
+		Plugins:           make([]int, overviewTrendBuckets),
+		Running:           make([]int, overviewTrendBuckets),
+		Attention:         make([]int, overviewTrendBuckets),
+		Stopped:           make([]int, overviewTrendBuckets),
+		ServicesFailed:    make([]int, overviewTrendBuckets),
+		RegistryEntries:   make([]int, overviewTrendBuckets),
+		RegistryHealthy:   make([]int, overviewTrendBuckets),
+		RegistryUnhealthy: make([]int, overviewTrendBuckets),
+	}
+	path, err := cerbapi.SnapshotStatePath()
+	if err != nil {
+		return out
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path comes from trusted state-dir resolver
+	if err != nil || len(data) == 0 {
+		return out
+	}
+	var samples []cerbapi.OverviewSnapshot
+	if err := json.Unmarshal(data, &samples); err != nil {
+		return out
+	}
+	out.Resources = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Resources }, overviewTrendWindow, overviewTrendBuckets)
+	out.Projects = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Projects }, overviewTrendWindow, overviewTrendBuckets)
+	out.Pipelines = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Pipelines }, overviewTrendWindow, overviewTrendBuckets)
+	out.Connectors = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Connectors }, overviewTrendWindow, overviewTrendBuckets)
+	out.Plugins = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Plugins }, overviewTrendWindow, overviewTrendBuckets)
+	out.Running = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Running }, overviewTrendWindow, overviewTrendBuckets)
+	out.Attention = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Attention }, overviewTrendWindow, overviewTrendBuckets)
+	out.Stopped = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.Stopped }, overviewTrendWindow, overviewTrendBuckets)
+	out.ServicesFailed = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.ServicesFailed }, overviewTrendWindow, overviewTrendBuckets)
+	out.RegistryEntries = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.RegistryEntries }, overviewTrendWindow, overviewTrendBuckets)
+	out.RegistryHealthy = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.RegistryHealthy }, overviewTrendWindow, overviewTrendBuckets)
+	out.RegistryUnhealthy = cerbapi.BucketGaugeTrend(samples, func(s cerbapi.OverviewSnapshot) int { return s.RegistryUnhealthy }, overviewTrendWindow, overviewTrendBuckets)
+	return out
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
