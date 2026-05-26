@@ -75,7 +75,7 @@ Use this if you want shell-visible binaries from a source checkout:
 ```sh
 git clone git@github.com:hollis-labs/cerberus.git
 cd cerberus
-make install PREFIX="$HOME/.local"
+make homebrew-install PREFIX="$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -87,7 +87,7 @@ Defaults:
 Override either:
 
 ```sh
-make install BINDIR="$HOME/bin"
+make homebrew-install BINDIR="$HOME/bin"
 ```
 
 Uninstall mirrors the path you installed to:

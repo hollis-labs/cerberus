@@ -2,19 +2,35 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } 
 import { Activity, AlertTriangle, FileText, Hammer, Play, RefreshCw, RotateCw, Server, Square, Trash2, Upload } from 'lucide-react'
 import {
   Button,
+  Callout,
   CopyableId,
   DetailDialog,
   DetailSection,
   EmptyState,
+  Pill,
   SummaryCards,
   Textarea,
-  cn,
 } from '@hollis-labs/sysop-ui/ui'
-import { DataTable, FilterBar, RowActionMenu, type ColumnDef } from '@hollis-labs/sysop-ui/data'
+import {
+  DataTable,
+  FilterBar,
+  FilterChipGroup,
+  FilterEntityCombobox,
+  RowActionMenu,
+  type ColumnDef,
+  type FilterChip,
+} from '@hollis-labs/sysop-ui/data'
 import { refreshPolledData, usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type LogLines, type OpResult, type ResourceAction, type ResourceInfo, type ResourceRuntimeStatus } from '../api/client'
 
 type StatusFilter = 'all' | 'running' | 'attention' | 'stopped'
+
+const STATUS_CHIPS: readonly FilterChip[] = [
+  { value: 'all', label: 'All' },
+  { value: 'running', label: 'Running' },
+  { value: 'attention', label: 'Attention' },
+  { value: 'stopped', label: 'Stopped' },
+]
 
 const ACTIONS: { key: ResourceAction; label: string; icon: ReactNode; variant: 'default' | 'secondary' | 'outline' | 'destructive' }[] = [
   { key: 'apply', label: 'Apply', icon: <Play className="h-3.5 w-3.5" />, variant: 'default' },
@@ -118,8 +134,20 @@ export function ResourcesPage() {
           setProjectFilter('')
         }}
       >
-        <SegmentedStatus value={statusFilter} onChange={setStatusFilter} />
-        <ProjectFilter projects={projects} value={projectFilter} onChange={setProjectFilter} />
+        <FilterChipGroup
+          label="Status"
+          chips={STATUS_CHIPS}
+          selected={[statusFilter]}
+          onToggle={(value) => setStatusFilter(value as StatusFilter)}
+        />
+        <FilterEntityCombobox
+          icon={<Server className="h-3.5 w-3.5" />}
+          items={projects.map((id) => ({ id, name: id }))}
+          value={projectFilter || null}
+          onChange={(id) => setProjectFilter(id ?? '')}
+          allLabel="All projects"
+          ariaLabel="Filter by project"
+        />
         <Button variant="outline" size="sm" onClick={resources.refetch}>
           <RefreshCw className="h-3.5 w-3.5" />
           Refresh
@@ -263,16 +291,17 @@ function ResourceTable({
   return (
     <>
       {actionError && (
-        <div className="m-3 flex items-start justify-between gap-3 border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <Callout
+          tone="danger"
+          className="m-3"
+          actions={
+            <Button variant="outline" size="xs" onClick={() => setActionError(null)}>
+              Dismiss
+            </Button>
+          }
+        >
           <span className="whitespace-pre-wrap break-words">{actionError}</span>
-          <button
-            type="button"
-            className="shrink-0 uppercase tracking-wider opacity-70 hover:opacity-100"
-            onClick={() => setActionError(null)}
-          >
-            Dismiss
-          </button>
-        </div>
+        </Callout>
       )}
       <DataTable
         items={items}
@@ -336,49 +365,35 @@ function shortID(id: string) {
   return id.length > 14 ? `${id.slice(0, 14)}...` : id
 }
 
-// resourceStatusColor maps a resource runtime status to a semantic theme
-// color: green for healthy/running, red for failed states, amber for
-// transient or paused states, and a muted gray for off/unknown. The kit's
-// StatusBadge only knows task-board status keys, so resources need their
-// own good/bad classification.
-function resourceStatusColor(status: string): string {
+// The kit's StatusBadge is locked to the task-board status vocabulary, so
+// resources map their runtime status onto the generic Pill tones instead.
+// Candidate for upstream contribution: a "resource" preset on Pill / StatusBadge.
+function resourceStatusTone(status: string): 'success' | 'danger' | 'warning' | 'info' | 'neutral' {
   switch (status.toLowerCase()) {
     case 'running':
     case 'healthy':
-      return 'var(--color-status-done)'
+      return 'success'
     case 'failed':
     case 'error':
     case 'unhealthy':
     case 'degraded':
-      return 'var(--color-status-blocked)'
+      return 'danger'
     case 'starting':
     case 'building':
-      return 'var(--color-warning)'
+      return 'warning'
     case 'paused':
-      return 'var(--color-status-paused)'
+      return 'info'
     default:
-      // stopped, unknown, and anything unrecognized — neutral.
-      return 'var(--color-text-subtle)'
+      return 'neutral'
   }
 }
 
-// ResourceStatusBadge mirrors the kit StatusBadge layout (bordered pill with
-// a leading dot) but tints itself by resource-runtime semantics.
 function ResourceStatusBadge({ status }: { status: string }) {
   const label = status || 'unknown'
-  const color = resourceStatusColor(label)
   return (
-    <span
-      className="inline-flex items-center gap-2 rounded border px-2 py-1 text-[11px] uppercase tracking-[0.14em]"
-      style={{
-        borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
-        backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
-        color,
-      }}
-    >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
-      <span>{label}</span>
-    </span>
+    <Pill tone={resourceStatusTone(label)} dot className="uppercase tracking-[0.14em]">
+      {label}
+    </Pill>
   )
 }
 
@@ -402,37 +417,30 @@ function DriftChip({
     (item.artifact_stale
       ? 'Installed artifact has drifted from the current repo state.'
       : 'This resource needs operator attention.')
-  const className =
-    'inline-flex items-center gap-1 border px-1.5 py-0.5 text-[9px] uppercase leading-none tracking-[.14em]'
-  const style = {
-    borderColor: 'color-mix(in srgb, var(--color-status-blocked) 45%, transparent)',
-    backgroundColor: 'color-mix(in srgb, var(--color-status-blocked) 14%, transparent)',
-    color: 'var(--color-status-blocked)',
-  }
+  const body = (
+    <Pill tone="danger" className="uppercase tracking-[.14em]">
+      <AlertTriangle className="h-2.5 w-2.5" />
+      {label}
+    </Pill>
+  )
   // When a deploy handler is available, the chip becomes the fix: click it to
   // make the resource current (deploy), so the warning and its remedy live in
-  // the same place.
+  // the same place. Candidate for upstream contribution: an interactive
+  // DriftChip widget that owns this affordance.
   if (onMakeCurrent) {
     return (
       <button
         type="button"
-        className={`${className} cursor-pointer disabled:opacity-60`}
-        style={style}
+        className="cursor-pointer disabled:opacity-60"
         title={`${tip} — click to make current (deploy)`}
         disabled={busy}
         onClick={onMakeCurrent}
       >
-        <AlertTriangle className="h-2.5 w-2.5" />
-        {label}
+        {body}
       </button>
     )
   }
-  return (
-    <span className={className} style={style} title={tip}>
-      <AlertTriangle className="h-2.5 w-2.5" />
-      {label}
-    </span>
-  )
+  return <span title={tip}>{body}</span>
 }
 
 function RuntimeChips({ item }: { item: ResourceInfo }) {
@@ -441,64 +449,11 @@ function RuntimeChips({ item }: { item: ResourceInfo }) {
   return (
     <span className="inline-flex min-w-0 flex-wrap items-center gap-1">
       {chips.map((value) => (
-        <span
-          key={value}
-          className="inline-flex h-4 items-center border border-border bg-panel-2/50 px-1.5 text-[10px] uppercase leading-none tracking-[.12em] text-text-soft"
-        >
+        <Pill key={value} tone="neutral" className="uppercase tracking-[.12em]">
           {value}
-        </span>
+        </Pill>
       ))}
     </span>
-  )
-}
-
-function SegmentedStatus({ value, onChange }: { value: StatusFilter; onChange: (value: StatusFilter) => void }) {
-  const options: { value: StatusFilter; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'running', label: 'Running' },
-    { value: 'attention', label: 'Attention' },
-    { value: 'stopped', label: 'Stopped' },
-  ]
-  return (
-    <div className="flex flex-wrap items-center gap-1">
-      <span className="mr-1 text-[10px] uppercase tracking-wider text-text-subtle">Status:</span>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange(option.value)}
-          className={cn(
-            'border px-2 py-0.5 text-[10px] uppercase tracking-wider transition-all',
-            value === option.value
-              ? 'border-border-strong bg-panel-hover text-text ring-1 ring-white/15'
-              : 'border-border bg-panel-2/50 text-text-subtle opacity-70 hover:text-text-soft hover:opacity-100',
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function ProjectFilter({ projects, value, onChange }: { projects: string[]; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="flex items-center gap-1 border-l border-border pl-3">
-      <span className="mr-1 text-[10px] uppercase tracking-wider text-text-subtle">Project:</span>
-      <Server className="h-3.5 w-3.5 text-text-subtle" />
-      <select
-        className="border border-border bg-panel-2/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-text-soft outline-none transition-colors hover:border-border-strong focus:border-border-strong"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">All projects</option>
-        {projects.map((project) => (
-          <option key={project} value={project}>
-            {project}
-          </option>
-        ))}
-      </select>
-    </label>
   )
 }
 
@@ -597,7 +552,7 @@ function ResourceDetailDialog({
       }
     >
       {loading && <div className="p-3 text-sm text-muted">Loading...</div>}
-      {error && <div className="border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+      {error && <Callout tone="danger" className="m-3">{error}</Callout>}
       {detail && (
         <div className="grid gap-4">
           <DetailSection title="Runtime">

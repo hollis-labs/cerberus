@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { Route } from 'lucide-react'
+import { Button, Callout, EmptyState, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { Panel } from '@hollis-labs/sysop-ui/widgets'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient } from '../api/client'
 
@@ -59,36 +61,32 @@ export function PipelinesPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
-      <div className="space-y-4">
-        {error && <div className="mx-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      <div className="space-y-3 p-3">
+        {error && <Callout tone="danger">{error}</Callout>}
         {pipelines.isLoading && items.length === 0 ? (
           <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading pipelines...</div>
         ) : items.length === 0 ? (
-          <div className="px-4 py-4">
-            <EmptyState variant="no-results" title="No pipelines declared." description="The active config does not expose any pipelines." />
-          </div>
+          <EmptyState variant="no-results" title="No pipelines declared." description="The active config does not expose any pipelines." />
         ) : (
-          items.map((item, index) => (
-            <section
+          items.map((item) => (
+            <Panel
               key={item.id}
-              className={index === 0 ? 'bg-panel px-4 py-4' : 'border-t border-border-strong bg-panel px-4 py-4'}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm text-text">{item.name || item.id}</div>
-                  <div className="font-mono text-xs text-text-soft">{item.id}</div>
-                  <div className="mt-1 text-xs text-text-soft">{item.description || `${item.stage_count} stage(s)`}</div>
-                </div>
+              title={item.name || item.id}
+              icon={<Route className="h-3.5 w-3.5" />}
+              meta={
                 <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null} onClick={() => void run(item.id)}>
                   {busy === item.id ? 'Running...' : 'Run'}
                 </Button>
-              </div>
-              {output[item.id] && (
-                <div className="mt-3">
+              }
+            >
+              <div className="space-y-2 px-3 py-3">
+                <div className="font-mono text-xs text-text-soft">{item.id}</div>
+                <div className="text-xs text-text-soft">{item.description || `${item.stage_count} stage(s)`}</div>
+                {output[item.id] && (
                   <Textarea readOnly value={output[item.id]} className="min-h-32 resize-none font-mono text-xs" />
-                </div>
-              )}
-            </section>
+                )}
+              </div>
+            </Panel>
           ))
         )}
       </div>

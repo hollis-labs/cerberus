@@ -1,6 +1,6 @@
 import { Globe, KeyRound, Rocket } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Button, EmptyState, Input, Pill, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { Button, Callout, EmptyState, Input, Pill, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type DeploymentProfile, type DeploymentRunResult, type InfraProvider } from '../api/client'
 
@@ -132,7 +132,7 @@ export function DeploymentsPage() {
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
       <div className="space-y-4">
-        {error && <div className="mx-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+        {error && <Callout tone="danger" className="mx-4">{error}</Callout>}
 
         <SettingsPanel title="Provider settings" icon={<KeyRound className="h-4 w-4" />}>
           <div className="px-4 py-3">

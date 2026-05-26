@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import { Boxes, Cable, Gauge, LayoutDashboard, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
-import { NavRail, PageHeader, ThemeSwitcher, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
+import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
+import { createRouter } from '@hollis-labs/sysop-ui/api'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
 import { OverviewPage } from './pages/overview'
@@ -11,7 +11,18 @@ import { RegistryPage } from './pages/registry'
 import { ResourcesPage } from './pages/resources'
 import { SettingsPage } from './pages/settings'
 
-type RouteKey = 'overview' | 'resources' | 'projects' | 'pipelines' | 'registry' | 'deployments' | 'connectors' | 'plugins' | 'settings'
+const ROUTES = [
+  'overview',
+  'resources',
+  'projects',
+  'pipelines',
+  'registry',
+  'deployments',
+  'connectors',
+  'plugins',
+  'settings',
+] as const
+type RouteKey = (typeof ROUTES)[number]
 
 const TITLES: Record<RouteKey, string> = {
   overview: 'Overview',
@@ -25,8 +36,15 @@ const TITLES: Record<RouteKey, string> = {
   settings: 'Settings',
 }
 
+// Overview lives at `/` exactly; the rest mount at `/<name>`.
+const useRoute = createRouter({
+  routes: ROUTES,
+  default: 'overview',
+  paths: { overview: '' },
+})
+
 export function App() {
-  const [route, setRoute] = useState<RouteKey>('overview')
+  const { route, navigate } = useRoute()
 
   const nav: NavRailItem[] = [
     {
@@ -34,78 +52,85 @@ export function App() {
       label: 'Overview',
       icon: <Gauge className="h-4 w-4" />,
       active: route === 'overview',
-      onSelect: () => setRoute('overview'),
+      onSelect: () => navigate('overview'),
     },
     {
       key: 'resources',
       label: 'Resources',
       icon: <LayoutDashboard className="h-4 w-4" />,
       active: route === 'resources',
-      onSelect: () => setRoute('resources'),
+      onSelect: () => navigate('resources'),
     },
     {
       key: 'projects',
       label: 'Projects',
       icon: <Boxes className="h-4 w-4" />,
       active: route === 'projects',
-      onSelect: () => setRoute('projects'),
+      onSelect: () => navigate('projects'),
     },
     {
       key: 'pipelines',
       label: 'Pipelines',
       icon: <Route className="h-4 w-4" />,
       active: route === 'pipelines',
-      onSelect: () => setRoute('pipelines'),
+      onSelect: () => navigate('pipelines'),
     },
     {
       key: 'registry',
       label: 'Registry',
       icon: <Waypoints className="h-4 w-4" />,
       active: route === 'registry',
-      onSelect: () => setRoute('registry'),
+      onSelect: () => navigate('registry'),
     },
     {
       key: 'deployments',
       label: 'Deployments',
       icon: <Rocket className="h-4 w-4" />,
       active: route === 'deployments',
-      onSelect: () => setRoute('deployments'),
+      onSelect: () => navigate('deployments'),
     },
     {
       key: 'connectors',
       label: 'Connectors',
       icon: <Cable className="h-4 w-4" />,
       active: route === 'connectors',
-      onSelect: () => setRoute('connectors'),
+      onSelect: () => navigate('connectors'),
     },
     {
       key: 'plugins',
       label: 'Plugins',
       icon: <Plug className="h-4 w-4" />,
       active: route === 'plugins',
-      onSelect: () => setRoute('plugins'),
+      onSelect: () => navigate('plugins'),
     },
     {
       key: 'settings',
       label: 'Settings',
       icon: <Settings2 className="h-4 w-4" />,
+      footer: true,
       active: route === 'settings',
-      onSelect: () => setRoute('settings'),
+      onSelect: () => navigate('settings'),
     },
   ]
 
   return (
-    <div className="flex h-dvh w-dvw overflow-hidden bg-bg text-text">
-      <NavRail items={nav} logo={<Server className="h-4 w-4" />} logoLabel="Cerberus" />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <PageHeader title={TITLES[route]}>
-          <ThemeSwitcher />
-        </PageHeader>
-        <main className="min-h-0 flex-1 overflow-hidden">
-          <RouteView route={route} />
-        </main>
+    <TooltipProvider>
+      <div className="flex h-dvh w-dvw overflow-hidden bg-bg text-text">
+        <NavRail
+          items={nav}
+          logo={<Server className="h-4 w-4" />}
+          logoLabel="Cerberus"
+          footerExtra={<ThemeSwitcher />}
+        />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <PageHeader title={TITLES[route]} />
+          <main className="flex min-h-0 flex-1 flex-col">
+            <RouteView route={route} />
+          </main>
+        </div>
       </div>
-    </div>
+      <Toaster />
+    </TooltipProvider>
   )
 }
 

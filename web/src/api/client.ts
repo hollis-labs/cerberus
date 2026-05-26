@@ -31,7 +31,27 @@ export interface OverviewInfo {
     healthy: number
     unhealthy: number
   }
+  trends: OverviewTrends
   error?: string
+}
+
+// OverviewTrends carries the per-metric 24h hourly history that powers the
+// SignalBars + MiniTrend widgets on the overview page. Each array is 24
+// hourly buckets, oldest → newest. Empty (zero-filled) arrays mean the
+// daemon hasn't recorded enough samples yet.
+export interface OverviewTrends {
+  resources: number[]
+  projects: number[]
+  pipelines: number[]
+  connectors: number[]
+  plugins: number[]
+  running: number[]
+  attention: number[]
+  stopped: number[]
+  services_failed: number[]
+  registry_entries: number[]
+  registry_healthy: number[]
+  registry_unhealthy: number[]
 }
 
 export interface SystemInfo {
