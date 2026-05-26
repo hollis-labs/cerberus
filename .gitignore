@@ -1,4 +1,6 @@
 /cerberus
+/bin/
+/dist/
 *.log
 
 # Web UI: source deps and generated bundle are not tracked.
