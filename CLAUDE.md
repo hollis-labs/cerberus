@@ -11,7 +11,7 @@
 
 ## Project Overview
 
-Cerberus is a TUI service manager for the Tiamat ecosystem. It provides a Bubble Tea interface to start, stop, and monitor all project daemons and dev servers from one screen.
+Cerberus is an agent-first, single-binary Go control plane for managing local OS processes (daemons, dev servers, background services) across the portfolio. It exposes one consistent surface — CLI, daemon, HTTP/socket API, web console, and MCP — over the v2 `resource` model.
 
 ## Build & Test
 
@@ -22,18 +22,20 @@ go test ./...
 
 ## Architecture
 
-- `cmd/cerberus/` — Entry point, TUI application, daemon mode
-- `internal/config/` — Configuration loading and service definitions
-- `internal/service/` — Service lifecycle management (start/stop/monitor)
-- `internal/daemon/` — Health monitor, auto-restart, alerting
-- `internal/mcp/` — MCP tools (status, health, lifecycle)
-- `internal/tui/` — Bubble Tea TUI models and views
+- `cmd/cerberus/` — Entry point: Cobra CLI, daemon mode, MCP adapter
+- `internal/config/` — v2 resource config loading and validation
+- `internal/cerbapi/` — Shared resource runtime service (CLI/API/MCP route through here)
+- `internal/service/` — Process lifecycle management
+- `internal/daemon/` — Health monitor, auto-restart, supervisor
+- `internal/mcp/` — MCP tools (resource, registry, platform connectors)
+- `internal/webui/` — Web console server + embedded assets
+- `internal/registry/` — v2 project/resource registry
 
 ## CRITICAL: Never Set port: 0
 
 **Do NOT set `port: 0` on any service in the config.** Omit the `port` field entirely for services that don't listen on a TCP port (CLIs, daemons without HTTP, build-only entries).
 
-**Why:** Cerberus uses `lsof -ti :<port>` for status detection. `lsof -ti :0` returns arbitrary macOS system PIDs (identityservicesd, mDNSResponder, etc.), causing false-positive "running" status in the TUI and daemon monitor. This has caused repeated incidents.
+**Why:** Cerberus uses `lsof -ti :<port>` for status detection. `lsof -ti :0` returns arbitrary macOS system PIDs (identityservicesd, mDNSResponder, etc.), causing false-positive "running" status in the daemon monitor. This has caused repeated incidents.
 
 **Correct:**
 ```yaml
@@ -65,7 +67,7 @@ cerberus resource deploy <resource-id>   # build + sync artifact + activate
 **These do NOT update the running service (common cause of "stale binary" incidents):**
 - `go build` / `make build` / `go install` — builds in the repo (or PATH), never touches the installed artifact.
 - `go test ./...` — verifies; deploys nothing.
-- `cerberus resource reload` / a GUI/TUI "Restart" — **relaunches the existing (possibly stale) artifact**; no rebuild, no re-sync.
+- `cerberus resource reload` / a web-console "Restart" — **relaunches the existing (possibly stale) artifact**; no rebuild, no re-sync.
 - `cerberus resource apply` — activates an already-built artifact; does **not** build.
 
 **Rule of thumb:** changed source → `cerberus resource deploy`. Already built, just need it running → `apply`. Only restarting an unchanged service → `reload`.
