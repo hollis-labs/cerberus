@@ -5,6 +5,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
@@ -12,7 +13,18 @@ import (
 var projectCmd = &cobra.Command{
 	Use:   "project",
 	Short: "Project management",
+	Long: `Project inventory commands.
+
+A project is a logical grouping of v2 resources under 'projects:' in the
+config. These commands read the registered config tree — to add/remove
+projects, edit the config or use 'cerberus register' / 'cerberus deregister'.
+
+Subcommands:
+  list   list all registered projects
+  show   show a project's metadata and resources`,
 }
+
+var projectListOutput string
 
 var projectListCmd = &cobra.Command{
 	Use:   "list",
@@ -22,6 +34,25 @@ var projectListCmd = &cobra.Command{
 		v2, err := registry.ResolveConfig(cfgPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
+		}
+
+		if projectListOutput == outputFormatJSON {
+			// Marshal via cerbapi.ProjectInfo so the JSON shape matches the
+			// MCP / socket project_list contract (lowercase keys, resource_count).
+			resourceCounts := map[string]int{}
+			for _, r := range v2.Resources {
+				resourceCounts[r.Project]++
+			}
+			out := make([]cerbapi.ProjectInfo, 0, len(v2.Projects))
+			for _, p := range v2.Projects {
+				out = append(out, cerbapi.ProjectInfo{
+					ID:          p.ID,
+					Name:        p.Name,
+					Description: p.Description,
+					Resources:   resourceCounts[p.ID],
+				})
+			}
+			return printJSON(out)
 		}
 
 		if len(v2.Projects) == 0 {
@@ -90,6 +121,7 @@ var projectShowCmd = &cobra.Command{
 }
 
 func init() {
+	addOutputFlag(projectListCmd, &projectListOutput)
 	projectCmd.AddCommand(projectListCmd)
 	projectCmd.AddCommand(projectShowCmd)
 }

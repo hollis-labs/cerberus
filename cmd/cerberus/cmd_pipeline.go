@@ -18,6 +18,17 @@ import (
 var pipelineCmd = &cobra.Command{
 	Use:   "pipeline",
 	Short: "Pipeline management",
+	Long: `Pipeline definition and execution commands.
+
+A pipeline is an ordered set of stages (each with one or more actions) defined
+under 'pipelines:' in the v2 config. Stages run in dependency order with
+parallel execution where possible. Pipelines are the right tool for orchestrating
+multi-step deploys, releases, and operational workflows across resources.
+
+Subcommands:
+  list   list available pipelines
+  show   show a pipeline definition (stages, actions, dependencies)
+  run    execute a pipeline by ID`,
 }
 
 var pipelineListCmd = &cobra.Command{

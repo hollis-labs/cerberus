@@ -20,18 +20,18 @@ const DefaultIndexFilename = "registry.yaml"
 // index a local-first resolver handle (Tether D2).
 type IndexEntry struct {
 	// Owner is the registry key, copied from the project config.
-	Owner string `yaml:"owner"`
+	Owner string `yaml:"owner" json:"owner"`
 	// Namespace is copied from the project config (reserved field).
-	Namespace string `yaml:"namespace"`
+	Namespace string `yaml:"namespace" json:"namespace"`
 	// Path is the absolute path to the owning app's project config.
-	Path string `yaml:"path"`
+	Path string `yaml:"path" json:"path"`
 	// Kind records the config kind at registration time.
-	Kind string `yaml:"kind"`
+	Kind string `yaml:"kind" json:"kind"`
 	// RegisteredAt is an RFC3339 UTC timestamp.
-	RegisteredAt string `yaml:"registered_at"`
+	RegisteredAt string `yaml:"registered_at" json:"registered_at"`
 	// Via is the manifest path when this entry was registered through a
 	// bundle manifest rather than directly. Empty for direct registers.
-	Via string `yaml:"via,omitempty"`
+	Via string `yaml:"via,omitempty" json:"via,omitempty"`
 }
 
 // Index is the on-disk registry: ~/.cerberus/registry.yaml. It is a flat

@@ -8,28 +8,62 @@ and day-to-day docs primarily refer to it simply as **Cerberus**.
 
 ## Install
 
-Cerberus is currently a macOS-first unsigned beta. For released beta builds,
-install the binary into the canonical user-owned Cerberus path:
+Cerberus is a macOS-first unsigned beta. Pick whichever install path fits your
+setup — `cerberus install` (the launchd bootstrap) reads the path of the
+running binary, so it works no matter which path you used.
 
-```bash
-mkdir -p ~/.cerberus/bin
-tar -xzf cerberus_<version>_darwin_<arch>.tar.gz
-install -m 0755 cerberus ~/.cerberus/bin/cerberus
-export PATH="$HOME/.cerberus/bin:$PATH"
-cerberus init
-cerberus install
+### Option 1: Homebrew
+
+```sh
+brew install hollis-labs/tap/cerberus
 ```
 
-Released macOS binaries are expected at `~/.cerberus/bin/cerberus`.
-`cerberus install` writes the `com.fragments-engine.cerberus` launch agent
-against that path when it exists. Repo-local development can still use
-`go install ./cmd/cerberus/`, but released beta installs should not depend on
-`~/go/bin`.
+### Option 2: Download a release tarball
 
-Release packaging and verification steps live in
+```sh
+curl -L -o cerberus.tar.gz \
+  https://github.com/hollis-labs/cerberus/releases/download/v0.4.0-beta.1/cerberus_0.4.0-beta.1_darwin_arm64.tar.gz
+tar -xzf cerberus.tar.gz
+install -d "$HOME/.local/bin"
+install -m 0755 cerberus "$HOME/.local/bin/"
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Released checksums sit next to each tarball as `<archive>.tar.gz.sha256`
+plus a combined `checksums.txt` for the whole release.
+
+### Option 3: Build from source
+
+```sh
+git clone git@github.com:hollis-labs/cerberus.git
+cd cerberus
+make build
+export PATH="$PWD/bin:$PATH"
+```
+
+Or install into a prefix:
+
+```sh
+make install PREFIX="$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Option 4: Install with `go install`
+
+```sh
+go install github.com/chrispian/cerberus/cmd/cerberus@latest
+```
+
+### First-time setup
+
+```sh
+cerberus init      # write a starter ~/.cerberus/config.yaml
+cerberus install   # bootstrap the macOS launch agent (uses the current binary path)
+```
+
+See [docs/install.md](docs/install.md) for prerequisites, paths, first-run
+walkthrough, and release artifact details. Release packaging steps live in
 [docs/release/beta-release-process.md](docs/release/beta-release-process.md).
-For first-time beta operation, start with
-[docs/guides/macos-beta-quickstart.md](docs/guides/macos-beta-quickstart.md).
 For Cerberus releasing Cerberus, see
 [docs/release/self-release-via-pipeline.md](docs/release/self-release-via-pipeline.md).
 
@@ -264,8 +298,8 @@ The accepted direction is:
 - `resources:` is the only future local workload model
 - local workloads should be `type: process`
 - runtime policy should be `mode: dev_session | os_service`
-- `services:` and the TUI are frozen rather than evolved further
-- v2 runtime execution should live behind one shared service layer so CLI, API, MCP, and any future GUI are thin clients
+- legacy `services:` are frozen rather than evolved further
+- v2 runtime execution lives behind one shared service layer so CLI, API, MCP, and the web console are thin clients
 
 See:
 

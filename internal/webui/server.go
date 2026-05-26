@@ -25,6 +25,21 @@ import (
 //go:embed all:dist
 var embeddedUI embed.FS
 
+// distFS is the sub-filesystem rooted at the embedded dist directory. We
+// compute it once at package init because fs.Sub on a build-time-embedded FS
+// with a constant path is a build invariant: if it fails, the binary is
+// misbuilt and there's nothing to do but panic. Doing it here surfaces the
+// failure at program start rather than on first HTTP request.
+var distFS = mustSubDist()
+
+func mustSubDist() fs.FS {
+	sub, err := fs.Sub(embeddedUI, "dist")
+	if err != nil {
+		panic(fmt.Errorf("webui: subset embedded dist fs: %w", err))
+	}
+	return sub
+}
+
 type Server struct {
 	client      cerbapi.Client
 	configPath  string
@@ -33,11 +48,15 @@ type Server struct {
 	actionToken string
 }
 
-func New(client cerbapi.Client, configPath string, secrets secretpkg.Provider, logger *slog.Logger) *Server {
+func New(client cerbapi.Client, configPath string, secrets secretpkg.Provider, logger *slog.Logger) (*Server, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{client: client, configPath: configPath, secrets: secrets, logger: logger, actionToken: randomActionToken()}
+	token, err := randomActionToken()
+	if err != nil {
+		return nil, err
+	}
+	return &Server{client: client, configPath: configPath, secrets: secrets, logger: logger, actionToken: token}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -76,11 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/plugins/connectors/operations/", s.handlePluginOperations)
 	mux.HandleFunc("/api/plugins/connectors/", s.handleManagedPluginByID)
 
-	dist, err := fs.Sub(embeddedUI, "dist")
-	if err != nil {
-		panic(err)
-	}
-	mux.Handle("/", gowebui.Handler(gowebui.Config{FS: dist, BasePath: "/"}))
+	mux.Handle("/", gowebui.Handler(gowebui.Config{FS: distFS, BasePath: "/"}))
 	return s.withLogging(mux)
 }
 
@@ -235,12 +250,12 @@ func (s *Server) performAction(ctx context.Context, id, action string) (*cerbapi
 	}
 }
 
-func randomActionToken() string {
+func randomActionToken() (string, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		panic(fmt.Errorf("generate web action token: %w", err))
+		return "", fmt.Errorf("generate web action token: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(raw[:])
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -275,6 +290,8 @@ func writeClientError(w http.ResponseWriter, err error) {
 			status = http.StatusServiceUnavailable
 		case cerbapi.ExternalConnectorUnsupported:
 			status = http.StatusNotFound
+		case cerbapi.ExternalConnectorAckRequired:
+			status = http.StatusConflict
 		}
 	}
 	writeError(w, status, msg)
