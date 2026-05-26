@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ -z "${VERSION:-}" ]]; then
-  echo "VERSION is required (example: VERSION=0.3.0-beta.1)" >&2
+  echo "VERSION is required (example: VERSION=0.5.0-beta.1)" >&2
   exit 1
 fi
 
@@ -11,6 +11,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DIST_DIR="${DIST_DIR:-${REPO_ROOT}/dist}"
 BUILD_DATE="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+COMMIT="${COMMIT:-$(cd "${REPO_ROOT}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+
+# Targets to build. macOS-first per README, but linux artifacts are cheap
+# (pure-Go deps) and let `go install` / tarball users on linux work.
+TARGETS=(
+  "darwin/arm64"
+  "darwin/amd64"
+  "linux/arm64"
+  "linux/amd64"
+)
 
 mkdir -p "${DIST_DIR}"
 
@@ -20,35 +30,57 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Building Cerberus beta artifacts"
+echo "Building Cerberus release artifacts"
 echo "  version: ${VERSION}"
+echo "  commit: ${COMMIT}"
 echo "  build date: ${BUILD_DATE}"
 echo "  dist dir: ${DIST_DIR}"
 
-for arch in arm64 amd64; do
-  work_dir="${tmp_dir}/${arch}"
+ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}"
+
+declare -a archives
+
+for target in "${TARGETS[@]}"; do
+  os="${target%/*}"
+  arch="${target#*/}"
+  work_dir="${tmp_dir}/${os}_${arch}"
   mkdir -p "${work_dir}"
 
-  archive_path="${DIST_DIR}/cerberus_${VERSION}_darwin_${arch}.tar.gz"
+  archive_name="cerberus_${VERSION}_${os}_${arch}.tar.gz"
+  archive_path="${DIST_DIR}/${archive_name}"
   checksum_path="${archive_path}.sha256"
 
   echo
-  echo "==> darwin/${arch}"
+  echo "==> ${os}/${arch}"
 
   (
     cd "${REPO_ROOT}"
-    GOOS=darwin GOARCH="${arch}" go build \
+    CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" go build \
       -trimpath \
-      -ldflags "-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}" \
+      -ldflags "${ldflags}" \
       -o "${work_dir}/cerberus" ./cmd/cerberus
   )
 
-  tar -C "${work_dir}" -czf "${archive_path}" cerberus
+  # Stage README + LICENSE alongside the binary, matching Hadron's layout.
+  cp "${REPO_ROOT}/README.md" "${REPO_ROOT}/LICENSE" "${work_dir}/"
+
+  tar -C "${work_dir}" -czf "${archive_path}" cerberus README.md LICENSE
   shasum -a 256 "${archive_path}" > "${checksum_path}"
 
   echo "  wrote: ${archive_path}"
   echo "  wrote: ${checksum_path}"
+  archives+=("${archive_name}")
 done
+
+# Emit a combined checksums.txt that scripts/render-homebrew-formula.sh and
+# `gh release upload` can both consume. Entries are bare basenames so the file
+# is usable from the dist/ directory without path rewriting.
+combined_checksums="${DIST_DIR}/checksums.txt"
+(
+  cd "${DIST_DIR}"
+  shasum -a 256 "${archives[@]}" > "${combined_checksums}"
+)
 
 echo
 echo "Done."
+echo "  combined checksums: ${combined_checksums}"

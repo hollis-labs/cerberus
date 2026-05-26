@@ -18,8 +18,9 @@ var (
 	// value overrides that resolution.
 	dbPath string
 
-	// Set via -ldflags at build time
+	// Set via -ldflags at build time. See Makefile for stamping.
 	version   = "0.4.0"
+	commit    = "unknown"
 	buildDate = "unknown"
 )
 
@@ -69,7 +70,7 @@ MIT licensed. Published by Hollis Labs.`,
 }
 
 func init() {
-	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (built %s)\nCerberus by Hollis Labs\nMIT licensed\n", version, buildDate))
+	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (commit %s, built %s)\nCerberus by Hollis Labs\nMIT licensed\n", version, commit, buildDate))
 	rootCmd.PersistentFlags().StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "override the main database path (default: go-apppaths XDG resolution; CERBERUS_DB_PATH is also honored)")
 

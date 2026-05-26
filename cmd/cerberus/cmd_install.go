@@ -39,7 +39,6 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 const launchdPlistName = "com.fragments-engine.cerberus.plist"
-const releaseBinaryRelativePath = ".cerberus/bin/cerberus"
 
 type launchdData struct {
 	BinaryPath string
@@ -47,22 +46,13 @@ type launchdData struct {
 	HomeDir    string
 }
 
-func resolveDaemonBinaryPath(home string, executable func() (string, error), stat func(string) error, getenv func(string) string) (string, error) {
-	candidates := []string{filepath.Join(home, releaseBinaryRelativePath)}
-	if gobin := getenv("GOBIN"); gobin != "" {
-		candidates = append(candidates, filepath.Join(gobin, "cerberus"))
-	} else if gopath := getenv("GOPATH"); gopath != "" {
-		candidates = append(candidates, filepath.Join(gopath, "bin", "cerberus"))
-	} else {
-		candidates = append(candidates, filepath.Join(home, "go", "bin", "cerberus"))
-	}
-
-	for _, candidate := range candidates {
-		if stat(candidate) == nil {
-			return candidate, nil
-		}
-	}
-
+// resolveDaemonBinaryPath returns the absolute path of the cerberus binary that
+// should be baked into the launchd plist. We use the path of the currently
+// running executable (symlink-resolved) so the plist always points at whichever
+// cerberus the user just invoked — Homebrew, /usr/local/bin, ~/.local/bin,
+// $GOBIN, or a source-build location. This avoids the "I `brew install`d but
+// my plist still points at a stale ~/.cerberus/bin/" footgun.
+func resolveDaemonBinaryPath(executable func() (string, error)) (string, error) {
 	exePath, err := executable()
 	if err != nil {
 		return "", fmt.Errorf("could not determine binary path: %w", err)
@@ -87,10 +77,7 @@ var installCmd = &cobra.Command{
 			return fmt.Errorf("could not determine home directory: %w", err)
 		}
 
-		binPath, err := resolveDaemonBinaryPath(home, os.Executable, func(path string) error {
-			_, statErr := os.Stat(path)
-			return statErr
-		}, os.Getenv)
+		binPath, err := resolveDaemonBinaryPath(os.Executable)
 		if err != nil {
 			return err
 		}
