@@ -292,15 +292,17 @@ projects:
 
 	tool := NewCerberusProjectListTool(socketClient)
 
-	// Baseline: alpha + bravo via the socket round-trip.
+	// Baseline: alpha + bravo via the socket round-trip. List tools return a
+	// compact-JSON budgeted envelope (`"id":"alpha"`, no space after colon),
+	// distinct from the indented format used by single-record tools.
 	out, err := tool.Handler(context.Background(), map[string]interface{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id": "alpha"`) || !strings.Contains(out, `"id": "bravo"`) {
+	if !strings.Contains(out, `"id":"alpha"`) || !strings.Contains(out, `"id":"bravo"`) {
 		t.Fatalf("baseline missing expected projects: %s", out)
 	}
-	if strings.Contains(out, `"id": "charlie"`) {
+	if strings.Contains(out, `"id":"charlie"`) {
 		t.Fatalf("baseline should not have charlie: %s", out)
 	}
 
@@ -322,10 +324,10 @@ projects:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id": "charlie"`) {
+	if !strings.Contains(out, `"id":"charlie"`) {
 		t.Fatalf("post-edit: project_list did not pick up charlie: %s", out)
 	}
-	if strings.Contains(out, `"id": "alpha"`) {
+	if strings.Contains(out, `"id":"alpha"`) {
 		t.Fatalf("post-edit: project_list still shows removed alpha (stale snapshot): %s", out)
 	}
 }
@@ -597,7 +599,9 @@ func TestConnectorListToolViaSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id": "docker"`) {
+	// List tools return a compact-JSON budgeted envelope; assertion uses the
+	// no-space-after-colon format to match.
+	if !strings.Contains(out, `"id":"docker"`) {
 		t.Fatalf("missing docker connector definition: %s", out)
 	}
 	if !strings.Contains(out, `"resource_types"`) {

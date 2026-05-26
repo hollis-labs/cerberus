@@ -13,9 +13,18 @@ import (
 	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
+func mustNew(t *testing.T, client cerbapi.Client) *Server {
+	t.Helper()
+	srv, err := New(client, "", nil, nil)
+	if err != nil {
+		t.Fatalf("webui.New: %v", err)
+	}
+	return srv
+}
+
 func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := New(client, "", nil, nil).Handler()
+	handler := mustNew(t, client).Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/resources/app/apply", nil)
 	req.Header.Set("Content-Type", "application/json")
@@ -61,7 +70,7 @@ func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 
 func TestStateChangingResourceStopRequiresSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := New(client, "", nil, nil).Handler()
+	handler := mustNew(t, client).Handler()
 
 	sessionReq := httptest.NewRequest(http.MethodGet, "/api/session", nil)
 	sessionRec := httptest.NewRecorder()
@@ -101,7 +110,7 @@ func TestHandleResourcesReturnsServiceUnavailableForDaemonDialFailure(t *testing
 	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	New(client, "", nil, nil).Handler().ServeHTTP(rec, req)
+	mustNew(t, client).Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -116,7 +125,7 @@ func TestHandleResourcesReturnsServiceUnavailableForTimeout(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	New(client, "", nil, nil).Handler().ServeHTTP(rec, req)
+	mustNew(t, client).Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -143,7 +152,7 @@ func sessionToken(t *testing.T, handler http.Handler) string {
 }
 
 func TestDomainReadEndpointsReachable(t *testing.T) {
-	handler := New(&fakeClient{}, "", nil, nil).Handler()
+	handler := mustNew(t, &fakeClient{}).Handler()
 	paths := []string{
 		"/api/settings",
 		"/api/health",
@@ -172,7 +181,7 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 }
 
 func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
-	handler := New(&fakeClient{}, "", nil, nil).Handler()
+	handler := mustNew(t, &fakeClient{}).Handler()
 	token := sessionToken(t, handler)
 	paths := []string{
 		"/api/resources/app/sync",
