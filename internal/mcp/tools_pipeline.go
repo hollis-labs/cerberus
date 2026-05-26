@@ -13,7 +13,8 @@ func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 		Name:        "cerberus_pipeline_list",
 		Description: "List pipelines (budgeted envelope).",
 		InputSchema: objectSchema(map[string]interface{}{
-			"limit": limitSchemaProp(),
+			"limit":  limitSchemaProp(),
+			"offset": offsetSchemaProp(),
 		}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			list, err := client.ListPipelines(ctx)
@@ -23,7 +24,7 @@ func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 			if list == nil {
 				list = []cerbapi.PipelineInfo{}
 			}
-			return budgetedList("cerberus_pipeline_list", list, args, "%d pipelines available."), nil
+			return budgetedList("cerberus_pipeline_list", list, args, "%d pipelines total."), nil
 		},
 	}
 }

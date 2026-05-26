@@ -13,7 +13,8 @@ func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 		Name:        "cerberus_project_list",
 		Description: "List projects and resource counts. Returns a budgeted envelope ({items,count,total,truncated,hint}).",
 		InputSchema: objectSchema(map[string]interface{}{
-			"limit": limitSchemaProp(),
+			"limit":  limitSchemaProp(),
+			"offset": offsetSchemaProp(),
 		}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			list, err := client.ListProjects(ctx)
@@ -23,8 +24,7 @@ func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 			if list == nil {
 				list = []cerbapi.ProjectInfo{}
 			}
-			return budgetedList("cerberus_project_list", list, args,
-				"%d projects total; response truncated — request a specific project by id."), nil
+			return budgetedList("cerberus_project_list", list, args, "%d projects total."), nil
 		},
 	}
 }
@@ -47,7 +47,8 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 				"type":        "string",
 				"description": "Tag filter.",
 			},
-			"limit": limitSchemaProp(),
+			"limit":  limitSchemaProp(),
+			"offset": offsetSchemaProp(),
 		}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			projectID, _ := args["project_id"].(string)
