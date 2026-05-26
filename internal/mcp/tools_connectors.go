@@ -11,18 +11,16 @@ import (
 func NewCerberusConnectorListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_connector_list",
-		Description: "List available connectors. Use cerberus_connector_describe for full schema and operations.",
-		InputSchema: emptyObjectSchema(),
+		Description: "List available connectors (budgeted envelope). Use cerberus_connector_describe for full schema and operations.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"limit": limitSchemaProp(),
+		}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			defs, err := client.ListConnectors(ctx)
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
 			}
-			data, err := json.MarshalIndent(defs, "", "  ")
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
+			return budgetedList("cerberus_connector_list", defs, args, "%d connectors available."), nil
 		},
 	}
 }

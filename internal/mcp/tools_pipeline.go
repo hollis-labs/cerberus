@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
@@ -12,8 +11,10 @@ import (
 func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_pipeline_list",
-		Description: "List pipelines.",
-		InputSchema: emptyObjectSchema(),
+		Description: "List pipelines (budgeted envelope).",
+		InputSchema: objectSchema(map[string]interface{}{
+			"limit": limitSchemaProp(),
+		}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			list, err := client.ListPipelines(ctx)
 			if err != nil {
@@ -22,11 +23,7 @@ func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 			if list == nil {
 				list = []cerbapi.PipelineInfo{}
 			}
-			data, err := json.MarshalIndent(list, "", "  ")
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
+			return budgetedList("cerberus_pipeline_list", list, args, "%d pipelines available."), nil
 		},
 	}
 }

@@ -11,8 +11,10 @@ import (
 func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_project_list",
-		Description: "List projects and resource counts.",
-		InputSchema: emptyObjectSchema(),
+		Description: "List projects and resource counts. Returns a budgeted envelope ({items,count,total,truncated,hint}).",
+		InputSchema: objectSchema(map[string]interface{}{
+			"limit": limitSchemaProp(),
+		}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			list, err := client.ListProjects(ctx)
 			if err != nil {
@@ -21,11 +23,8 @@ func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 			if list == nil {
 				list = []cerbapi.ProjectInfo{}
 			}
-			data, err := json.MarshalIndent(list, "", "  ")
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
+			return budgetedList("cerberus_project_list", list, args,
+				"%d projects total; response truncated — request a specific project by id."), nil
 		},
 	}
 }
@@ -34,7 +33,7 @@ func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_list",
-		Description: "List resources. Optional filters: project_id, connector, tag.",
+		Description: "List resources. Optional filters: project_id, connector, tag. Returns a budgeted envelope ({items,count,total,truncated,hint}); narrow with filters if truncated.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"project_id": map[string]interface{}{
 				"type":        "string",
@@ -48,6 +47,7 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 				"type":        "string",
 				"description": "Tag filter.",
 			},
+			"limit": limitSchemaProp(),
 		}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			projectID, _ := args["project_id"].(string)
@@ -65,11 +65,8 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 			if list == nil {
 				list = []cerbapi.ResourceInfo{}
 			}
-			data, err := json.MarshalIndent(list, "", "  ")
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
+			return budgetedList("cerberus_resource_list", list, args,
+				"%d resources match; narrow with project_id, connector, or tag to see the rest."), nil
 		},
 	}
 }
