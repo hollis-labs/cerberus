@@ -34,13 +34,18 @@ var webCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(cmd.Context(), webWait)
 		defer cancel()
 		if err := waitForDaemon(ctx, client); err != nil {
-			return fmt.Errorf("connect daemon: %w", err)
+			return fmt.Errorf("connect daemon: %w (try `cerberus daemon status` to check; if not installed, run `cerberus install`)", err)
+		}
+
+		webSrv, err := webui.New(client, cfgPath, secrets.NewKeychainProvider(), nil)
+		if err != nil {
+			return fmt.Errorf("init web ui: %w", err)
 		}
 
 		url := "http://" + webListenAddr
 		srv := &http.Server{
 			Addr:              webListenAddr,
-			Handler:           webui.New(client, cfgPath, secrets.NewKeychainProvider(), nil).Handler(),
+			Handler:           webSrv.Handler(),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 

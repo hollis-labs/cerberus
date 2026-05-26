@@ -177,7 +177,7 @@ func findResource(a *app.App, id string) (*domain.Resource, error) {
 			}, nil
 		}
 	}
-	return nil, fmt.Errorf("resource %q not found", id)
+	return nil, fmt.Errorf("resource %q not found in config; run `cerberus resource list` to see available resources", id)
 }
 
 func sshConfig(res *domain.Resource, command string) map[string]any {

@@ -530,6 +530,8 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 				status = http.StatusServiceUnavailable
 			case ExternalConnectorUnsupported:
 				status = http.StatusNotFound
+			case ExternalConnectorAckRequired:
+				status = http.StatusConflict
 			}
 		}
 		writeJSONError(w, status, err.Error())

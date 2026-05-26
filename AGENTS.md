@@ -6,12 +6,12 @@ Cerberus is an agent-first, single-binary Go control plane for managing local OS
 processes, with a planned trajectory toward unified cloud infrastructure
 orchestration. It exists so that humans and agents can build, deploy, supervise,
 and inspect the dev servers, daemons, and background services that make up the
-broader portfolio from one consistent surface (CLI, daemon, HTTP/socket API, and
-MCP). Cerberus is itself the build/deploy authority for other local projects:
-when an agent needs a project's binary built and its service (re)started, that
-goes through Cerberus's v2 `resource` lane. The product is operationally
-**v2-only** — `resources:` are the active model and legacy `services:` plus the
-TUI are frozen.
+broader portfolio from one consistent surface (CLI, daemon, HTTP/socket API, web
+console, and MCP). Cerberus is itself the build/deploy authority for other local
+projects: when an agent needs a project's binary built and its service
+(re)started, that goes through Cerberus's v2 `resource` lane. The product is
+operationally **v2-only** — `resources:` are the active model and legacy
+`services:` are frozen.
 
 ## Golden rule: to update a running service, DEPLOY
 
@@ -20,7 +20,7 @@ A `run_from: artifact` service runs an **installed copy** under
 
 - **Changed source and want it live → `cerberus resource deploy <id>`** (build + sync + activate). This is the ONLY thing that rebuilds and reinstalls.
 - `go build` / `make build` / `go install` / `go test ./...` update or verify your **repo**, not the running service. They do **not** deploy anything.
-- `reload` and any GUI/TUI "Restart" relaunch the **existing (maybe stale) artifact** — no rebuild.
+- `reload` and the web console's "Restart" relaunch the **existing (maybe stale) artifact** — no rebuild.
 - After acting, confirm with `cerberus resource status <id>` and obey its `recommended_next_step` (it reports `artifact_stale`). `mode: dev_session` resources have no staleness signal yet — restart the dev session yourself after a rebuild.
 
 ## Where to start
@@ -37,8 +37,9 @@ A `run_from: artifact` service runs an **installed copy** under
 - **`docs/plans/`** — beta release plan/execution, daemon-management-v2,
   post-beta external connectors plugin plan.
 - **`internal/`** — implementation: `domain/` (connector/provider interfaces),
-  `config/`, `service/`, `daemon/`, `mcp/`, `connector/`, `pipeline/`,
-  `pluginhost/`, `store/` (SQLite), `procscan/`, `tui/` (frozen).
+  `config/`, `cerbapi/` (shared resource runtime service), `service/`,
+  `daemon/`, `mcp/`, `webui/`, `connector/`, `pipeline/`, `pluginhost/`,
+  `store/` (SQLite), `procscan/`, `registry/`.
 
 ## Key domain concepts
 

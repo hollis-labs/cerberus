@@ -82,6 +82,8 @@ var registryCmd = &cobra.Command{
 	GroupID: "resources",
 }
 
+var registryListOutput string
+
 var registryListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List registered project configs",
@@ -93,6 +95,12 @@ var registryListCmd = &cobra.Command{
 		entries, err := reg.List()
 		if err != nil {
 			return err
+		}
+		if registryListOutput == outputFormatJSON {
+			if entries == nil {
+				entries = []registry.IndexEntry{}
+			}
+			return printJSON(entries)
 		}
 		if len(entries) == 0 {
 			fmt.Println("No project configs registered.")
@@ -144,6 +152,7 @@ var registryHealthCmd = &cobra.Command{
 }
 
 func init() {
+	addOutputFlag(registryListCmd, &registryListOutput)
 	registryCmd.AddCommand(registryListCmd)
 	registryCmd.AddCommand(registryHealthCmd)
 }

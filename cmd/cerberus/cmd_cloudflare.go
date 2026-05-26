@@ -13,6 +13,16 @@ import (
 var cloudflareCmd = &cobra.Command{
 	Use:   "cloudflare",
 	Short: "Cloudflare operations",
+	Long: `Cloudflare zone and DNS operations.
+
+Routes through the Cloudflare connector configured under
+'connectors.cloudflare' in the v2 config (API token required). Subcommands:
+
+  zones            list and create zones
+  dns list/create/delete  manage DNS records on a zone
+
+Credentials resolve via the connector's credential block; see
+'cerberus connectors' for the active definition.`,
 }
 
 var cloudflareZonesCmd = &cobra.Command{

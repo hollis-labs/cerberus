@@ -2,81 +2,56 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestResolveDaemonBinaryPathPrefersReleaseBinary(t *testing.T) {
-	home := t.TempDir()
-	releasePath := filepath.Join(home, releaseBinaryRelativePath)
-	goPathBin := filepath.Join(home, "go", "bin", "cerberus")
-
-	got, err := resolveDaemonBinaryPath(home,
-		func() (string, error) { return "/running/cerberus", nil },
-		func(path string) error {
-			switch path {
-			case releasePath, goPathBin:
-				return nil
-			default:
-				return errors.New("missing")
-			}
-		},
-		func(string) string { return "" },
-	)
+func TestResolveDaemonBinaryPathReturnsExecutablePath(t *testing.T) {
+	got, err := resolveDaemonBinaryPath(func() (string, error) {
+		return "/usr/local/bin/cerberus", nil
+	})
 	if err != nil {
 		t.Fatalf("resolve daemon binary path: %v", err)
 	}
-	if got != releasePath {
-		t.Fatalf("expected release binary %q, got %q", releasePath, got)
+	if got != "/usr/local/bin/cerberus" {
+		t.Fatalf("expected /usr/local/bin/cerberus, got %q", got)
 	}
 }
 
-func TestResolveDaemonBinaryPathFallsBackToGoInstall(t *testing.T) {
-	home := t.TempDir()
-	goPathBin := filepath.Join(home, "go", "bin", "cerberus")
+func TestResolveDaemonBinaryPathResolvesSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "real-cerberus")
+	if err := os.WriteFile(realBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	linkBin := filepath.Join(dir, "cerberus")
+	if err := os.Symlink(realBin, linkBin); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
 
-	got, err := resolveDaemonBinaryPath(home,
-		func() (string, error) { return "/running/cerberus", nil },
-		func(path string) error {
-			if path == goPathBin {
-				return nil
-			}
-			return errors.New("missing")
-		},
-		func(string) string { return "" },
-	)
+	got, err := resolveDaemonBinaryPath(func() (string, error) {
+		return linkBin, nil
+	})
 	if err != nil {
 		t.Fatalf("resolve daemon binary path: %v", err)
 	}
-	if got != goPathBin {
-		t.Fatalf("expected go install binary %q, got %q", goPathBin, got)
+	// EvalSymlinks also resolves any symlinks in the parent path, so resolve
+	// the expected real binary the same way before comparing.
+	wantResolved, err := filepath.EvalSymlinks(realBin)
+	if err != nil {
+		t.Fatalf("eval symlinks on target: %v", err)
+	}
+	if got != wantResolved {
+		t.Fatalf("expected symlink-resolved path %q, got %q", wantResolved, got)
 	}
 }
 
-func TestResolveDaemonBinaryPathHonorsGOBINAfterReleasePath(t *testing.T) {
-	home := t.TempDir()
-	gobin := filepath.Join(home, "custom-bin")
-	gobinPath := filepath.Join(gobin, "cerberus")
-
-	got, err := resolveDaemonBinaryPath(home,
-		func() (string, error) { return "/running/cerberus", nil },
-		func(path string) error {
-			if path == gobinPath {
-				return nil
-			}
-			return errors.New("missing")
-		},
-		func(key string) string {
-			if key == "GOBIN" {
-				return gobin
-			}
-			return ""
-		},
-	)
-	if err != nil {
-		t.Fatalf("resolve daemon binary path: %v", err)
-	}
-	if got != gobinPath {
-		t.Fatalf("expected GOBIN binary %q, got %q", gobinPath, got)
+func TestResolveDaemonBinaryPathPropagatesExecutableError(t *testing.T) {
+	_, err := resolveDaemonBinaryPath(func() (string, error) {
+		return "", errors.New("boom")
+	})
+	if err == nil {
+		t.Fatalf("expected error from executable() to propagate")
 	}
 }

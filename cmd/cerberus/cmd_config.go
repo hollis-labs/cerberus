@@ -75,7 +75,8 @@ func validateOneFile(path string) error {
 		}
 		result = registry.ValidateBundle(bundle)
 	default:
-		return fmt.Errorf("%s declares unknown kind %q", path, kind)
+		return fmt.Errorf("%s declares unknown kind %q; valid kinds are %q (single project) or %q (bundle of project paths)",
+			path, kind, registry.ProjectConfigKind, registry.BundleKind)
 	}
 
 	printIssues(path, result)
