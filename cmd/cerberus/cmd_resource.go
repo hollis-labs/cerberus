@@ -24,6 +24,8 @@ var resourceCmd = &cobra.Command{
 }
 
 var resourceListProject string
+var resourceListOutput string
+var resourceStatusOutput string
 var resourceLogsLines int
 var resourceLogsStream string
 var resourceDeployInstallAfterBuild bool
@@ -37,8 +39,7 @@ var resourceListCmd = &cobra.Command{
 		if client, err := newResourceSocketClient(); err == nil {
 			list, listErr := client.ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: resourceListProject})
 			if listErr == nil {
-				printResourceList(list)
-				return nil
+				return renderResourceList(list, resourceListOutput)
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(listErr, &dErr) {
@@ -49,8 +50,7 @@ var resourceListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		printResourceList(list)
-		return nil
+		return renderResourceList(list, resourceListOutput)
 	},
 }
 
@@ -129,7 +129,7 @@ var resourceShowCmd = &cobra.Command{
 			}
 		}
 
-		return fmt.Errorf("resource %q not found", id)
+		return fmt.Errorf("resource %q not found in config; run `cerberus resource list` to see available resources", id)
 	},
 }
 
@@ -456,8 +456,7 @@ var resourceStatusCmd = &cobra.Command{
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			st, statusErr := client.GetResourceRuntime(cmd.Context(), res.ID)
 			if statusErr == nil {
-				printResourceRuntimeStatus(st)
-				return nil
+				return renderResourceRuntimeStatus(st, resourceStatusOutput)
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(statusErr, &dErr) {
@@ -469,8 +468,7 @@ var resourceStatusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		printResourceRuntimeStatus(st)
-		return nil
+		return renderResourceRuntimeStatus(st, resourceStatusOutput)
 	},
 }
 
@@ -591,7 +589,7 @@ func loadResource(id string) (*config.ResourceDef, error) {
 			return &v2.Resources[i], nil
 		}
 	}
-	return nil, fmt.Errorf("resource %q not found", id)
+	return nil, fmt.Errorf("resource %q not found in config; run `cerberus resource list` to see available resources", id)
 }
 
 func newResourceSocketClient() (*cerbapi.SocketClient, error) {
@@ -847,6 +845,25 @@ func printResourceDoctor(out *cerbapi.ResourceDoctor) {
 	}
 }
 
+func renderResourceList(list []cerbapi.ResourceInfo, format string) error {
+	if format == outputFormatJSON {
+		if list == nil {
+			list = []cerbapi.ResourceInfo{}
+		}
+		return printJSON(list)
+	}
+	printResourceList(list)
+	return nil
+}
+
+func renderResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus, format string) error {
+	if format == outputFormatJSON {
+		return printJSON(st)
+	}
+	printResourceRuntimeStatus(st)
+	return nil
+}
+
 func printResourceList(list []cerbapi.ResourceInfo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tSTATUS\tARTIFACT\tNEXT\tTAGS")
@@ -885,6 +902,8 @@ func valueOrDash(v string) string {
 
 func init() {
 	resourceListCmd.Flags().StringVar(&resourceListProject, "project", "", "filter by project ID")
+	addOutputFlag(resourceListCmd, &resourceListOutput)
+	addOutputFlag(resourceStatusCmd, &resourceStatusOutput)
 	resourceCmd.AddCommand(resourceListCmd)
 	resourceCmd.AddCommand(resourceShowCmd)
 	resourceCmd.AddCommand(resourceInspectCmd)

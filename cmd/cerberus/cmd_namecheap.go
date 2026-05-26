@@ -15,6 +15,12 @@ import (
 var domainCmd = &cobra.Command{
 	Use:   "domain",
 	Short: "Domain operations (Namecheap)",
+	Long: `Domain inventory and nameserver management via the Namecheap connector.
+
+Routes through the connector configured under 'connectors.namecheap' in the
+v2 config (API user + key required, IP allowlisted on Namecheap's side).
+Subcommands cover list / status / nameservers; use 'cerberus dns' for record
+management on a domain.`,
 }
 
 var domainNameserversCmd = &cobra.Command{
@@ -95,6 +101,11 @@ var domainStatusCmd = &cobra.Command{
 var dnsCmd = &cobra.Command{
 	Use:   "dns",
 	Short: "DNS operations (Namecheap)",
+	Long: `DNS record management via the Namecheap connector.
+
+Lists, creates, and deletes records on a domain you own through Namecheap.
+For Cloudflare-managed zones, use 'cerberus cloudflare dns' instead.
+Records are addressed by record ID returned from 'dns list'.`,
 }
 
 var (
