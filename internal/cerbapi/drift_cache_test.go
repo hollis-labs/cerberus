@@ -23,14 +23,14 @@ func TestDriftCacheLookupFresh(t *testing.T) {
 	d.entries["api"] = driftEntry{
 		installed:   true,
 		stale:       true,
-		staleReason: "repo_head_changed",
+		staleReason: "source_changed",
 		updatedAt:   time.Now(),
 	}
 	art, ok := d.Lookup("api")
 	if !ok {
 		t.Fatal("a fresh entry should hit")
 	}
-	if !art.Installed || !art.Stale || art.StaleReason != "repo_head_changed" {
+	if !art.Installed || !art.Stale || art.StaleReason != "source_changed" {
 		t.Fatalf("unexpected artifact status: %+v", art)
 	}
 }

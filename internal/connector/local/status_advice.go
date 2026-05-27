@@ -22,9 +22,6 @@ func RecommendedStatusAction(spec ProcessSpec, state domain.State, art ArtifactS
 	if !art.Stale {
 		return "", ""
 	}
-	if artifactNeedsDeploy(art.StaleReason) {
-		return "deploy", "repo state changed since the installed artifact was last synced"
-	}
 	switch state {
 	case domain.StateRunning, domain.StateStarting, domain.StateHealthy, domain.StateUnhealthy, domain.StateFailed:
 		return "apply", "installed artifact is stale while the service is active"
@@ -120,11 +117,3 @@ func isActiveState(s domain.State) bool {
 	}
 }
 
-func artifactNeedsDeploy(reason string) bool {
-	switch reason {
-	case "repo_root_changed", "repo_head_changed", "repo_worktree_changed":
-		return true
-	default:
-		return false
-	}
-}
