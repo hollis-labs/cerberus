@@ -95,11 +95,11 @@ func TestRecommendedStatusAction(t *testing.T) {
 			reason: "installed artifact is stale",
 		},
 		{
-			name:   "repo drift recommends deploy",
+			name:   "source_changed running recommends apply",
 			state:  domain.StateRunning,
-			art:    ArtifactStatus{Installed: true, Stale: true, StaleReason: "repo_worktree_changed"},
-			action: "deploy",
-			reason: "repo state changed since the installed artifact was last synced",
+			art:    ArtifactStatus{Installed: true, Stale: true, StaleReason: "source_changed"},
+			action: "apply",
+			reason: "installed artifact is stale while the service is active",
 		},
 		{
 			name:   "current artifact no recommendation",

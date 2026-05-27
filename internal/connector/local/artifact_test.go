@@ -215,7 +215,14 @@ func TestInspectArtifactInstallDetectsMissingSource(t *testing.T) {
 	}
 }
 
-func TestInspectArtifactInstallDetectsChangedRepoStateWithoutBinaryRebuild(t *testing.T) {
+// Staleness is driven by source-binary content hash, not by repo metadata.
+// Editing source files without rebuilding the binary does NOT mark the
+// artifact stale — the source binary on disk is unchanged, so the running
+// artifact still matches what was deployed. This is intentional: a docs-only
+// commit, an untracked scratch file, or any unrelated repo change should not
+// flip every artifact in that repo to "stale". Source code drift becomes
+// staleness only after the build runs and produces a different binary.
+func TestStatusIgnoresRepoStateWhenSourceBinaryUnchanged(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
@@ -265,84 +272,14 @@ func TestInspectArtifactInstallDetectsChangedRepoStateWithoutBinaryRebuild(t *te
 	if err := os.WriteFile(sourceFile, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil { //nolint:gosec
 		t.Fatalf("rewrite source file: %v", err)
 	}
-
-	_, status, err := installer.Status(res, spec)
-	if err != nil {
-		t.Fatalf("Status failed: %v", err)
-	}
-	if !status.Stale {
-		t.Fatalf("expected stale=true")
-	}
-	if status.StaleReason != "repo_worktree_changed" {
-		t.Fatalf("stale reason = %q, want %q", status.StaleReason, "repo_worktree_changed")
-	}
-}
-
-func TestSyncRefreshesRepoStateWhenBinaryBytesAreUnchanged(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-
-	tmp := t.TempDir()
-	sourceDir := filepath.Join(tmp, "workspace")
-	if err := os.MkdirAll(sourceDir, 0755); err != nil { //nolint:gosec
-		t.Fatalf("mkdir workspace: %v", err)
-	}
-	runGit(t, sourceDir, "init")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-
-	sourcePath := filepath.Join(sourceDir, "app")
-	if err := os.WriteFile(sourcePath, []byte("v1"), 0755); err != nil { //nolint:gosec
-		t.Fatalf("write source artifact: %v", err)
-	}
-	sourceFile := filepath.Join(sourceDir, "main.go")
-	if err := os.WriteFile(sourceFile, []byte("package main\n"), 0644); err != nil { //nolint:gosec
-		t.Fatalf("write source file: %v", err)
-	}
-	runGit(t, sourceDir, "add", "app", "main.go")
-	runGit(t, sourceDir, "commit", "-m", "initial")
-
-	installer := artifactInstaller{
-		homeDir:          func() (string, error) { return tmp, nil },
-		now:              func() time.Time { return time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC) },
-		inspectRepoState: inspectArtifactRepoState,
-	}
-	res := &domain.Resource{ID: "app", ProjectID: "demo"}
-	spec := ProcessSpec{
-		RunFrom: ProcessRunFromArtifact,
-		Dir:     sourceDir,
-		Command: []string{"./app", "serve"},
-		BuildStrategy: &BuildStrategyConfig{
-			Kind: "go_standard",
-			Rules: map[string]any{
-				"output": "app",
-				"target": "./cmd/app",
-			},
-		},
-	}
-	if _, err := installer.EnsureInstalled(res, spec); err != nil {
-		t.Fatalf("EnsureInstalled failed: %v", err)
-	}
-
-	if err := os.WriteFile(sourceFile, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil { //nolint:gosec
-		t.Fatalf("rewrite source file: %v", err)
-	}
-
-	_, syncRes, err := installer.Sync(res, spec)
-	if err != nil {
-		t.Fatalf("Sync failed: %v", err)
-	}
-	if !syncRes.Changed {
-		t.Fatalf("expected Changed=true when repo state is refreshed")
-	}
+	runGit(t, sourceDir, "commit", "-am", "edit main.go")
 
 	_, status, err := installer.Status(res, spec)
 	if err != nil {
 		t.Fatalf("Status failed: %v", err)
 	}
 	if status.Stale {
-		t.Fatalf("expected stale=false after sync, got %q", status.StaleReason)
+		t.Fatalf("expected stale=false (source binary unchanged), got stale=true reason=%q", status.StaleReason)
 	}
 }
 

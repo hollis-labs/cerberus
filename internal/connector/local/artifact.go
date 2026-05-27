@@ -49,10 +49,9 @@ type artifactSyncResult struct {
 type ArtifactSyncResult = artifactSyncResult
 
 type artifactInstaller struct {
-	homeDir              func() (string, error)
-	now                  func() time.Time
-	inspectRepoState     func(ProcessSpec) (*artifactRepoState, error)
-	skipCurrentRepoState bool
+	homeDir          func() (string, error)
+	now              func() time.Time
+	inspectRepoState func(ProcessSpec) (*artifactRepoState, error)
 }
 
 func newArtifactInstaller() artifactInstaller {
@@ -96,8 +95,7 @@ func (i artifactInstaller) Sync(res *domain.Resource, spec ProcessSpec) (Install
 
 	manifestPath := filepath.Join(layout.RootDir, artifactManifestName)
 	if manifest, err := readArtifactManifest(manifestPath); err == nil {
-		repoStateCurrent := repoStateEqual(manifest.RepoState, repoState)
-		if manifest.SourcePath == sourcePath && manifest.SourceHash == sourceHash && repoStateCurrent {
+		if manifest.SourcePath == sourcePath && manifest.SourceHash == sourceHash {
 			if _, statErr := os.Stat(layout.ArtifactPath); statErr == nil {
 				return layout, artifactSyncResult{
 					Performed:    true,
@@ -196,14 +194,6 @@ func (i artifactInstaller) inspectArtifactDrift(spec ProcessSpec, manifest artif
 	if sourceHash != manifest.SourceHash {
 		return true, "source_changed"
 	}
-	if !i.skipCurrentRepoState && manifest.RepoState != nil {
-		currentRepoState, repoErr := inspectArtifactRepoState(spec)
-		if repoErr == nil {
-			if stale, reason := manifest.RepoState.diff(currentRepoState); stale {
-				return true, reason
-			}
-		}
-	}
 	return false, ""
 }
 
@@ -228,12 +218,12 @@ func InspectArtifactInstall(res *domain.Resource, spec ProcessSpec) (InstallLayo
 	return newArtifactInstaller().Status(res, spec)
 }
 
-// InspectArtifactInstallBasic reports artifact install state without running
-// live repository drift probes. Use this for high-fanout polling surfaces.
+// InspectArtifactInstallBasic is retained as an alias of InspectArtifactInstall
+// for callers that historically wanted to skip the (now removed) live git
+// repo-drift probe. With staleness driven by source-binary content hash alone,
+// both entry points do the same work — no per-poll git invocation either way.
 func InspectArtifactInstallBasic(res *domain.Resource, spec ProcessSpec) (InstallLayout, ArtifactStatus, error) {
-	installer := newArtifactInstaller()
-	installer.skipCurrentRepoState = true
-	return installer.Status(res, spec)
+	return newArtifactInstaller().Status(res, spec)
 }
 
 // SyncArtifactInstall performs an artifact sync without starting the runtime.
@@ -360,44 +350,17 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
+// artifactRepoState captures the source repo's git state at sync time. It is
+// recorded in install-manifest.json for operator inspection ("what HEAD was
+// this artifact built from?"), but is NOT used to compute staleness — the
+// content-hash check on the source binary is authoritative. Any commit or
+// untracked-file change in the source repo would otherwise mark every artifact
+// in that repo stale, even when the resource's own binary is byte-identical.
 type artifactRepoState struct {
 	RepoRoot    string `json:"repo_root,omitempty"`
 	GitHead     string `json:"git_head,omitempty"`
 	GitDirty    bool   `json:"git_dirty,omitempty"`
 	GitTreeHash string `json:"git_tree_hash,omitempty"`
-}
-
-func (s artifactRepoState) diff(other *artifactRepoState) (bool, string) {
-	if other == nil {
-		return false, ""
-	}
-	if s.RepoRoot != "" && other.RepoRoot != "" && s.RepoRoot != other.RepoRoot {
-		return true, "repo_root_changed"
-	}
-	if s.GitHead != "" && other.GitHead != "" && s.GitHead != other.GitHead {
-		return true, "repo_head_changed"
-	}
-	if s.GitDirty != other.GitDirty {
-		return true, "repo_worktree_changed"
-	}
-	if s.GitTreeHash != "" && other.GitTreeHash != "" && s.GitTreeHash != other.GitTreeHash {
-		return true, "repo_worktree_changed"
-	}
-	return false, ""
-}
-
-func repoStateEqual(left, right *artifactRepoState) bool {
-	switch {
-	case left == nil && right == nil:
-		return true
-	case left == nil || right == nil:
-		return false
-	default:
-		return left.RepoRoot == right.RepoRoot &&
-			left.GitHead == right.GitHead &&
-			left.GitDirty == right.GitDirty &&
-			left.GitTreeHash == right.GitTreeHash
-	}
 }
 
 func inspectArtifactRepoState(spec ProcessSpec) (*artifactRepoState, error) {
