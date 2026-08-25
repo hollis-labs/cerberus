@@ -8,7 +8,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/go-github/v72 v72.0.0
 	github.com/hollis-labs/go-apppaths v0.1.0
-	github.com/hollis-labs/go-mcp v0.0.0
+	github.com/hollis-labs/go-mcp v0.2.0
 	github.com/hollis-labs/go-webui v0.1.0
 	github.com/hollis-labs/plugin-sdk v0.3.1
 	github.com/spf13/cobra v1.10.2
@@ -44,5 +44,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/hollis-labs/go-mcp => ../../libs/go-mcp
