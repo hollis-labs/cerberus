@@ -80,13 +80,13 @@ then the repo must produce a deterministic filesystem artifact in the workspace.
 Good examples:
 
 - `./bin/hadrond`
-- `./contextd`
+- `./tesseract`
 - `./nanite`
 - `./clockwork`
 
 Bad examples:
 
-- `contextd` from `PATH`
+- `tesseract` from `PATH`
 - `nanite` from `~/go/bin`
 - wrapper scripts that only work because a global install happens to exist
 
