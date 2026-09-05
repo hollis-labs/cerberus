@@ -128,6 +128,7 @@ func init() {
 	rootCmd.AddCommand(cloudflareCmd)
 	rootCmd.AddCommand(dockerCmd)
 	rootCmd.AddCommand(connectorsCmd)
+	rootCmd.AddCommand(runSecretsCmd)
 }
 
 // loadUnifiedForTools resolves the effective config for the standalone
