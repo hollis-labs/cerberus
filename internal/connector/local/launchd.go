@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/secretref"
 )
 
 const launchdProcessPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
@@ -66,6 +67,10 @@ type launchdBackend struct {
 	homeDir func() (string, error)
 	uid     func() int
 	install artifactInstaller
+	// selfPath resolves the Cerberus executable used to front a service whose
+	// environment carries secret references. Nil falls back to os.Executable
+	// with a PATH lookup behind it; tests override it.
+	selfPath func() (string, error)
 }
 
 type plistTemplateData struct {
@@ -267,6 +272,17 @@ func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (Inst
 	}
 	data.Environment, data.EnvironmentEntries = launchdEnvironment(spec)
 
+	// A service whose environment carries secret references is fronted by
+	// `cerberus run-secrets`, which resolves them in the service's own process.
+	// The plist keeps the references; the credentials never reach disk.
+	if secretref.EnvHasRefs(data.Environment) {
+		shim, shimErr := b.cerberusPath()
+		if shimErr != nil {
+			return InstallLayout{}, "", "", false, false, fmt.Errorf("resource %q uses secret references but the cerberus executable could not be located to front it: %w", res.ID, shimErr)
+		}
+		data.ProgramArguments = append([]string{shim, "run-secrets", "--"}, data.ProgramArguments...)
+	}
+
 	rendered, err := renderLaunchdPlist(data)
 	if err != nil {
 		return InstallLayout{}, "", "", false, false, err
@@ -413,6 +429,20 @@ func launchdProgramArguments(layout InstallLayout, spec ProcessSpec) ([]string, 
 	default:
 		return nil, fmt.Errorf("unsupported run_from value %q", spec.RunFrom)
 	}
+}
+
+// cerberusPath resolves the Cerberus executable that fronts services using
+// secret references. os.Executable is preferred so a service is pinned to the
+// same binary that installed it; a PATH lookup covers callers that exec through
+// a wrapper.
+func (b launchdBackend) cerberusPath() (string, error) {
+	if b.selfPath != nil {
+		return b.selfPath()
+	}
+	if path, err := os.Executable(); err == nil && path != "" {
+		return filepath.EvalSymlinks(path)
+	}
+	return exec.LookPath("cerberus")
 }
 
 func isLaunchdNotFound(out string, err error) bool {
