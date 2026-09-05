@@ -704,3 +704,114 @@ func TestLaunchdBackendRemoveRemovesInstallRootAndPlist(t *testing.T) {
 		t.Fatalf("expected install root removed, got err=%v", err)
 	}
 }
+
+// TestLaunchdBackendFrontsSecretRefsWithRunSecrets is the regression guard for
+// CW-20260518-0087: a service whose environment names a secret reference must
+// produce a plist that carries the reference and routes through the
+// run-secrets shim, never one that carries the credential itself.
+func TestLaunchdBackendFrontsSecretRefsWithRunSecrets(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "tesseract"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.tesseract.tesseract-api-service")
+	backend := launchdBackend{
+		runner:   runner,
+		homeDir:  func() (string, error) { return tmp, nil },
+		uid:      func() int { return 501 },
+		selfPath: func() (string, error) { return "/usr/local/bin/cerberus", nil },
+	}
+	res := &domain.Resource{ID: "tesseract-api-service", ProjectID: "tesseract"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./tesseract", "serve"},
+		Env:        map[string]string{"OPENAI_API_KEY": "keychain://openai/work"},
+	}
+
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.tesseract.tesseract-api-service.plist")
+	raw, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
+	if err != nil {
+		t.Fatalf("expected plist at %s: %v", plistPath, err)
+	}
+	plist := string(raw)
+
+	if !strings.Contains(plist, "<string>keychain://openai/work</string>") {
+		t.Errorf("plist does not carry the unresolved reference:\n%s", plist)
+	}
+	for _, want := range []string{
+		"<string>/usr/local/bin/cerberus</string>",
+		"<string>run-secrets</string>",
+		"<string>--</string>",
+	} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("plist is not fronted by the run-secrets shim (missing %s):\n%s", want, plist)
+		}
+	}
+	// The shim must precede the real program, or launchd starts the service
+	// without ever resolving anything.
+	shimIdx := strings.Index(plist, "run-secrets")
+	binIdx := strings.Index(plist, filepath.Join(tmp, ".cerberus", "apps", "tesseract"))
+	if shimIdx < 0 || binIdx < 0 || shimIdx > binIdx {
+		t.Errorf("run-secrets does not precede the service binary:\n%s", plist)
+	}
+}
+
+// TestLaunchdBackendLeavesLiteralEnvUnfronted keeps the shim off the path of
+// every service that has no secret references, so this change is inert for
+// existing resources.
+func TestLaunchdBackendLeavesLiteralEnvUnfronted(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "plain"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.plain.plain-api")
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		selfPath: func() (string, error) {
+			t.Error("cerberusPath consulted for a literal-only environment")
+			return "", nil
+		},
+	}
+	res := &domain.Resource{ID: "plain-api", ProjectID: "plain"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./plain", "serve"},
+		Env:        map[string]string{"LOG_LEVEL": "debug"},
+	}
+
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.plain.plain-api.plist")
+	raw, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
+	if err != nil {
+		t.Fatalf("expected plist: %v", err)
+	}
+	if strings.Contains(string(raw), "run-secrets") {
+		t.Errorf("literal-only service was fronted by the shim:\n%s", string(raw))
+	}
+}
