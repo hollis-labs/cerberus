@@ -7,3 +7,7 @@
 web/node_modules/
 /internal/webui/dist/*
 !/internal/webui/dist/.gitkeep
+
+# Claude Code client runtime state (worktrees, settings.local.json, locks).
+# Agent configuration lives in AGENTS.md; nothing here should be tracked.
+/.claude/
