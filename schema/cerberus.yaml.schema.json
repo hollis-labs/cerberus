@@ -50,7 +50,8 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Stable project identifier."
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "The portfolio-wide project slug. Lowercase kebab-case. This is the join key other systems use: it is the Cerberus registry key (equal to `owner`), the Tesseract memory namespace segment, and the agent-setup project-template basename. Choose it once; changing it is a rename across every one of those."
         },
         "name": {
           "type": "string",
@@ -59,9 +60,35 @@
         "description": {
           "type": "string",
           "description": "Optional free-form description."
+        },
+        "capabilities": {
+          "type": "array",
+          "description": "Portable tags describing what this project is or needs, e.g. [go, launchd, mcp]. Free-form; consumed by the local control plane for filtering and routing.",
+          "items": { "type": "string" }
+        },
+        "links": {
+          "type": "array",
+          "description": "Typed pointers from this project to things outside it — its repo, its docs, the org that owns it.",
+          "items": { "$ref": "#/$defs/Link" }
         }
       },
       "required": ["id", "name"],
+      "additionalProperties": false
+    },
+    "Link": {
+      "type": "object",
+      "description": "A typed pointer from a project to something outside it.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "The relation. Deliberately free-form, not an enum: a closed vocabulary would need a coordinated schema change in every reader for each new relation. Blessed v1 kinds are repo, docs, pipeline, owned_by, member_of and requires_secret."
+        },
+        "target": {
+          "type": "string",
+          "description": "What the link points at. Shape depends on kind: a git URL for repo, a path or URL for docs, an `org:<slug>` reference for owned_by."
+        }
+      },
+      "required": ["kind", "target"],
       "additionalProperties": false
     },
     "ResourceDef": {

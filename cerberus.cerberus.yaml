@@ -4,6 +4,12 @@ namespace: local
 project:
   id: cerberus
   name: Cerberus
+  description: Single-binary Go control plane for local infrastructure.
+  capabilities: [go, launchd, mcp, connectors, http-api, web-console]
+  links:
+    - { kind: repo, target: "git@github.com:hollis-labs/cerberus.git" }
+    - { kind: docs, target: ./docs }
+    - { kind: owned_by, target: "org:hollis-labs" }
 resources:
   - id: cerberus-daemon-service
     name: Cerberus Daemon Service

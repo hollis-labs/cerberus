@@ -44,10 +44,34 @@ func NormalizeV2(cfg *ConfigV2) {
 }
 
 // ProjectDef groups related resources under a logical project.
+//
+// ID is the portfolio-wide project slug — the same string Cerberus uses
+// as its registry key, Tesseract uses as a namespace segment, and
+// agent-setup uses as a project-template basename. It is the value other
+// systems join on, so it is validated rather than merely required; see
+// ValidateProjectConfig in internal/registry.
 type ProjectDef struct {
 	ID          string `yaml:"id"`
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
+	// Capabilities and Links are the portable props the local control
+	// plane reads. Shapes are copied from Tether's registry model so its
+	// Cerberus bootstrap maps across with no translation layer.
+	Capabilities []string `yaml:"capabilities,omitempty"`
+	Links        []Link   `yaml:"links,omitempty"`
+}
+
+// Link is a typed pointer from a project to something outside it — its
+// repo, its docs, the org that owns it.
+//
+// Kind is deliberately free-form rather than an enum. That is the same
+// call Tether's ADR 0041 made (D16): a closed vocabulary means every new
+// relation needs a coordinated schema change in every reader, and the
+// blessed v1 kinds (repo, docs, pipeline, owned_by, requires_secret, …)
+// are a convention to document, not a constraint to enforce.
+type Link struct {
+	Kind   string `yaml:"kind"`
+	Target string `yaml:"target"`
 }
 
 // ResourceDef represents a managed resource (process, server, container, etc.).
