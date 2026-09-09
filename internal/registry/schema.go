@@ -19,6 +19,16 @@ const (
 // kebab-case with no leading separator.
 var identPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// slugPattern constrains project.id — the portfolio-wide project slug.
+//
+// Stricter than identPattern on purpose. identPattern admits a trailing
+// or doubled hyphen ("app-", "a--b"); those are harmless as a local
+// registry key but this value is also a Tesseract namespace segment and
+// an agent-setup template basename, and a slug that round-trips
+// differently through those is a join that silently misses. Single
+// interior hyphens only.
+var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
 // ValidationIssue is a single finding from a validator. Field is a
 // dotted path into the file (e.g. "resources[clockwork-api].type") to
 // make the report actionable.
@@ -135,8 +145,36 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 	}
 
 	// --- project ---
-	if pc.Project.ID == "" {
+	//
+	// project.id is the portfolio-wide slug, not merely a local label:
+	// Cerberus keys the registry on it, Tesseract uses it as a memory
+	// namespace segment, and agent-setup names project templates after
+	// it. Validating it here is the only place that invariant is
+	// enforced before those systems join on it.
+	switch {
+	case pc.Project.ID == "":
 		add(SeverityError, "project.id", "missing; a project config must declare exactly one project")
+	case !slugPattern.MatchString(pc.Project.ID):
+		add(SeverityError, "project.id", fmt.Sprintf(
+			"invalid slug %q; must be lowercase kebab-case (letters, digits, single interior hyphens)", pc.Project.ID))
+	case pc.Owner != "" && pc.Owner != pc.Project.ID:
+		// Two names for one project is a join waiting to pick the wrong
+		// one. They have never diverged in practice; this keeps it that
+		// way rather than deciding later which one other systems meant.
+		add(SeverityError, "project.id", fmt.Sprintf(
+			"is %q but owner is %q; they name the same project and must match", pc.Project.ID, pc.Owner))
+	}
+
+	for i, link := range pc.Project.Links {
+		field := fmt.Sprintf("project.links[%d]", i)
+		// kind stays free-form (Tether ADR 0041 D16) — validated as
+		// present, never against a closed vocabulary.
+		if link.Kind == "" {
+			add(SeverityError, field+".kind", "missing; a link must say what kind of relation it is")
+		}
+		if link.Target == "" {
+			add(SeverityError, field+".target", "missing; a link must point at something")
+		}
 	}
 
 	// --- resources ---

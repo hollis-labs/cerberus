@@ -225,6 +225,103 @@ Examples:
 
 Health endpoints make status, diagnosis, and future rollout automation much more reliable.
 
+## The Project Block
+
+Every project config declares exactly one project. Beyond a name, it
+carries the slug other systems join on and two portable props the local
+control plane reads:
+
+```yaml
+kind: cerberus-project/v1
+project:
+  id: my-project
+  name: "My Project"
+  description: What this project is.
+  capabilities: [go, launchd, mcp]
+  links:
+    - { kind: repo,     target: "git@github.com:hollis-labs/my-project.git" }
+    - { kind: docs,     target: ./docs }
+    - { kind: owned_by, target: "org:hollis-labs" }
+```
+
+### `project.id` is the portfolio-wide slug
+
+It is not a local label. The same string is already:
+
+- the Cerberus registry key (`owner`),
+- the Tesseract memory namespace segment — `user/<user>/project/<slug>/memory/<type>`,
+- the agent-setup project-template basename — `templates/projects/<slug>.md`.
+
+So it is validated, not merely required: lowercase kebab-case, letters,
+digits and single interior hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`). Trailing
+and doubled hyphens are rejected — they are harmless as a registry key but
+round-trip differently through a namespace segment or a filename, which
+turns a join into a silent miss.
+
+Choose it once. Changing it is a rename across every system above, not a
+config edit.
+
+`owner` is the same slug at the registration envelope. Write it or omit
+it — omitted, it defaults from `project.id`. Write both and they must
+match; a config naming the project two different things is rejected.
+
+### `capabilities` and `links`
+
+Both are optional and both are portable — they describe the project
+itself, not this machine's opinion of it. Anything Chrispian-local (an
+inbox, launch preferences, which project card to plant) belongs to the
+local control plane's own objects, never here.
+
+`capabilities` is a free-form list of tags: what the project is built
+with, or needs. `links` are typed pointers out of the project, and
+`kind` is deliberately free-form rather than an enum — a closed
+vocabulary would need a coordinated schema change in every reader for
+each new relation. The blessed v1 kinds are:
+
+| kind | target |
+|---|---|
+| `repo` | git URL or path |
+| `docs` | path or URL |
+| `pipeline` | pipeline id |
+| `owned_by` | `org:<slug>` |
+| `member_of` | `org:<slug>` or group ref |
+| `requires_secret` | a `keychain://` or `helper://` reference, never a secret |
+
+A kind outside that list validates fine. Both `kind` and `target` must be
+non-empty.
+
+### Before you write these fields
+
+`capabilities` and `links` are new. A Cerberus that does not know them
+still reads the config — unknown fields are warnings, not errors — but
+**that leniency lives in the binary, not in the file**, and the binary
+that matters is the running daemon, not the source tree.
+
+A daemon older than the leniency parses strictly and drops the entire
+project: its resources vanish from `resource list`, health and the
+console, with the config itself still perfectly valid. That is the
+2026-05-25 failure mode, and adding a field is enough to trigger it.
+
+Check before adding them to a registered config:
+
+```bash
+cerberus resource list --project <slug>   # resources present?
+# add capabilities/links, then check again — same count?
+```
+
+If the count drops, the daemon predates the leniency. Redeploy it first,
+following the daemon-deploy procedure in `AGENTS.md` — never through its
+own socket — and confirm the project reappears before relying on the new
+fields anywhere else.
+
+### What does not go here
+
+No repo root, no Tesseract namespace, no inbox, no launch preferences.
+The namespace is derived at materialization time from the slug plus the
+local user; the repo root is `dirname(configPath)` once the config lives
+in the repo it describes. Storing either is the stale state this shape
+exists to avoid.
+
 ## Recommended Cerberus Resource Shape
 
 Example artifact-backed API:
