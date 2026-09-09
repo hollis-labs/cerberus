@@ -59,7 +59,10 @@ type ProjectConfig struct {
 	// Owner identifies the registering app. It is the registry key:
 	// unique across all registered configs and stable across the app's
 	// lifetime. Lowercase kebab-case.
-	Owner string `yaml:"owner"`
+	//
+	// Owner and Project.ID are the same slug. Omit Owner and it defaults
+	// from Project.ID at load; write both and they must match.
+	Owner string `yaml:"owner,omitempty"`
 
 	// Namespace is reserved for multi-tenant trust isolation. Defaults
 	// to DefaultNamespace when omitted.
@@ -117,6 +120,14 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 
 	if pc.Namespace == "" {
 		pc.Namespace = DefaultNamespace
+	}
+	// owner and project.id are the same slug, so a config need only
+	// write it once. Defaulting here rather than requiring both removes
+	// the duplication without changing anything that works today: an
+	// omitted owner used to be a hard validation error, and when both
+	// are written ValidateProjectConfig still requires them to match.
+	if pc.Owner == "" {
+		pc.Owner = pc.Project.ID
 	}
 	pc.UnknownFields = unknownFields(data, new(ProjectConfig))
 	return &pc, nil
