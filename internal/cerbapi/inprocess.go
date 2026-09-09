@@ -277,25 +277,13 @@ func (c *InProcessClient) Health(ctx context.Context, id string) (*DaemonHealth,
 }
 
 // ListProjects implements Client.
-func (c *InProcessClient) ListProjects(_ context.Context) ([]ProjectInfo, error) {
-	cfg := c.snapshotConfig()
-	if cfg == nil {
-		return nil, nil
-	}
-	counts := make(map[string]int)
-	for _, r := range cfg.Resources {
-		counts[r.Project]++
-	}
-	out := make([]ProjectInfo, 0, len(cfg.Projects))
-	for _, p := range cfg.Projects {
-		out = append(out, ProjectInfo{
-			ID:          p.ID,
-			Name:        p.Name,
-			Description: p.Description,
-			Resources:   counts[p.ID],
-		})
-	}
-	return out, nil
+//
+// Delegates rather than assembling its own ProjectInfo: this used to be
+// a second construction that could drift from the runtime service's
+// view, and adding capabilities/links to only one of them is exactly
+// how that drift starts.
+func (c *InProcessClient) ListProjects(ctx context.Context) ([]ProjectInfo, error) {
+	return c.runtime.ListProjects(ctx)
 }
 
 // ListResources implements Client.
