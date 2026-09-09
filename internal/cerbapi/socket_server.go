@@ -197,6 +197,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 
 	// /project, /resource, /pipeline list + run — active v2 surface.
 	mux.HandleFunc("/projects", s.handleProjects)
+	mux.HandleFunc("/registry/diagnostics", s.handleRegistryDiagnostics)
 	mux.HandleFunc("/resources", s.handleResources)
 	mux.HandleFunc("/resources/", s.handleResourcesID)
 	mux.HandleFunc("/pipelines", s.handlePipelines)
@@ -249,6 +250,22 @@ func (s *SocketServer) handleProjects(w http.ResponseWriter, r *http.Request) {
 		list = []ProjectInfo{}
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *SocketServer) handleRegistryDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	diag, err := s.client.ResolveDiagnostics(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if diag == nil {
+		diag = &ResolveDiagnostics{}
+	}
+	writeJSON(w, http.StatusOK, diag)
 }
 
 func (s *SocketServer) handleResources(w http.ResponseWriter, r *http.Request) {

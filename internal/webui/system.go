@@ -105,15 +105,16 @@ type settingsResponse struct {
 }
 
 type registryCollectionResponse struct {
-	ConfigPath      string               `json:"config_path,omitempty"`
-	ConfigExists    bool                 `json:"config_exists"`
-	IndexPath       string               `json:"index_path,omitempty"`
-	IndexExists     bool                 `json:"index_exists"`
-	Summary         registryAuditDTO     `json:"summary"`
-	ResolveWarnings []string             `json:"resolve_warnings,omitempty"`
-	Skipped         []registryHealthDTO  `json:"skipped,omitempty"`
-	Entries         []registryEntryDTO   `json:"entries"`
-	Error           string               `json:"error,omitempty"`
+	ConfigPath      string              `json:"config_path,omitempty"`
+	ConfigExists    bool                `json:"config_exists"`
+	IndexPath       string              `json:"index_path,omitempty"`
+	IndexExists     bool                `json:"index_exists"`
+	Summary         registryAuditDTO    `json:"summary"`
+	ResolveWarnings []string            `json:"resolve_warnings,omitempty"`
+	Skipped         []registryHealthDTO `json:"skipped,omitempty"`
+	Warned          []registryHealthDTO `json:"warned,omitempty"`
+	Entries         []registryEntryDTO  `json:"entries"`
+	Error           string              `json:"error,omitempty"`
 }
 
 type registryHealthResponse struct {
@@ -123,20 +124,20 @@ type registryHealthResponse struct {
 }
 
 type registryEntryDTO struct {
-	Owner         string `json:"owner"`
-	Namespace     string `json:"namespace"`
-	Kind          string `json:"kind"`
-	Path          string `json:"path"`
-	RegisteredAt  string `json:"registered_at,omitempty"`
-	Via           string `json:"via,omitempty"`
-	ProjectID     string `json:"project_id,omitempty"`
-	ProjectName   string `json:"project_name,omitempty"`
-	ResourceCount int    `json:"resource_count"`
-	PipelineCount int    `json:"pipeline_count"`
-	RegistryURN   string `json:"registry_urn,omitempty"`
-	SharedIdentity bool  `json:"shared_identity"`
-	HealthStatus  string `json:"health_status,omitempty"`
-	HealthDetail  string `json:"health_detail,omitempty"`
+	Owner          string `json:"owner"`
+	Namespace      string `json:"namespace"`
+	Kind           string `json:"kind"`
+	Path           string `json:"path"`
+	RegisteredAt   string `json:"registered_at,omitempty"`
+	Via            string `json:"via,omitempty"`
+	ProjectID      string `json:"project_id,omitempty"`
+	ProjectName    string `json:"project_name,omitempty"`
+	ResourceCount  int    `json:"resource_count"`
+	PipelineCount  int    `json:"pipeline_count"`
+	RegistryURN    string `json:"registry_urn,omitempty"`
+	SharedIdentity bool   `json:"shared_identity"`
+	HealthStatus   string `json:"health_status,omitempty"`
+	HealthDetail   string `json:"health_detail,omitempty"`
 }
 
 type registryAuditDTO struct {
@@ -146,6 +147,10 @@ type registryAuditDTO struct {
 	Shared       int `json:"shared"`
 	LocalOnly    int `json:"local_only"`
 	ResolveSkips int `json:"resolve_skips"`
+	// ResolveWarned counts configs that resolved but carry
+	// warning-severity issues — most often a field this binary does not
+	// know. Separate from Unhealthy: these are in the resolved config.
+	ResolveWarned int `json:"resolve_warned"`
 }
 
 type registryHealthDTO struct {
@@ -187,6 +192,7 @@ type configResolveResponse struct {
 	Pipelines  int                      `json:"pipelines"`
 	Warnings   []string                 `json:"warnings,omitempty"`
 	Skipped    []registryHealthDTO      `json:"skipped,omitempty"`
+	Warned     []registryHealthDTO      `json:"warned,omitempty"`
 	Global     *configValidationFileDTO `json:"global,omitempty"`
 	Error      string                   `json:"error,omitempty"`
 }
@@ -514,7 +520,17 @@ func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 				Detail: skipped.Detail,
 			})
 		}
+		resp.Warned = make([]registryHealthDTO, 0, len(resolved.Warned))
+		for _, warned := range resolved.Warned {
+			resp.Warned = append(resp.Warned, registryHealthDTO{
+				Owner:  warned.Owner,
+				Path:   warned.Path,
+				Status: warned.Status,
+				Detail: warned.Detail,
+			})
+		}
 		resp.Summary.ResolveSkips = len(resolved.Skipped)
+		resp.Summary.ResolveWarned = len(resolved.Warned)
 	} else if resp.Error == "" {
 		resp.Error = err.Error()
 	}
@@ -707,6 +723,15 @@ func (s *Server) handleConfigResolve(w http.ResponseWriter, r *http.Request) {
 			Path:   skipped.Path,
 			Status: skipped.Status,
 			Detail: skipped.Detail,
+		})
+	}
+	resp.Warned = make([]registryHealthDTO, 0, len(resolved.Warned))
+	for _, warned := range resolved.Warned {
+		resp.Warned = append(resp.Warned, registryHealthDTO{
+			Owner:  warned.Owner,
+			Path:   warned.Path,
+			Status: warned.Status,
+			Detail: warned.Detail,
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)

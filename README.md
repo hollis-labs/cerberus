@@ -148,6 +148,21 @@ installed artifact tree.
 
 On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied. `resource status` and `resource list` now surface artifact drift plus a recommended next action (`deploy`, `sync`, or `apply`) for artifact-backed services.
 
+`resource list` and `project list` also print a trailing notice on stderr when
+registry resolution dropped a registered config or resolved one with warnings:
+
+```
+2 config(s) skipped, 1 with warnings
+  skipped: torque, tether; warnings: futureapp
+  run 'cerberus registry health' for detail
+```
+
+A skipped config contributes nothing to the list, so without the notice a short
+list is indistinguishable from a complete one. The notice is absent from
+`--output json`, whose contract stays a bare array; machine readers can ask the
+daemon directly at `/registry/diagnostics`. The console shows the same thing as
+a banner on its Resources and Projects pages.
+
 Recommended project pattern:
 
 - `dev`: repo-local iteration paths like Vite, `go run`, and watcher-driven backends should stay on `dev_session` with dev-only ports.

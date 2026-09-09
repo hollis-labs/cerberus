@@ -243,6 +243,10 @@ func (f *fakeClient) ListProjects(context.Context) ([]cerbapi.ProjectInfo, error
 	return nil, nil
 }
 
+func (f *fakeClient) ResolveDiagnostics(context.Context) (*cerbapi.ResolveDiagnostics, error) {
+	return &cerbapi.ResolveDiagnostics{}, nil
+}
+
 func (f *fakeClient) ListResources(context.Context, cerbapi.ResourceListArgs) ([]cerbapi.ResourceInfo, error) {
 	if f.listResourcesErr != nil {
 		return nil, f.listResourcesErr

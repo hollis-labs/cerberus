@@ -26,6 +26,10 @@ type Client interface {
 	ListProjects(ctx context.Context) ([]ProjectInfo, error)
 	// ListResources returns resource-list output with optional filters.
 	ListResources(ctx context.Context, args ResourceListArgs) ([]ResourceInfo, error)
+	// ResolveDiagnostics reports what registry resolution dropped or
+	// warned about, so a caller rendering a list can say the list is
+	// short rather than showing fewer rows with no explanation.
+	ResolveDiagnostics(ctx context.Context) (*ResolveDiagnostics, error)
 	// GetResourceRuntime returns the runtime status of a specific resource.
 	GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error)
 	// GetResourceInspect returns detailed inspection output for a specific resource.
