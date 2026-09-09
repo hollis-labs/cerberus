@@ -78,3 +78,16 @@ release artifacts against this machine's launchd, so editing it changes what is
 supervised here, not just what a test asserts. Its resource configs name
 credentials and never carry them: `keychain://` or `helper://`, resolved by
 `cerberus run-secrets` inside the service's own process.
+
+**`infrastructure.cerberus.yaml` is live too**, and it is not this project — it
+carries the machine-level services nothing else owns: PostgreSQL 16, Ollama and
+Jaeger, all under launchd. It lives here because a config belongs in a repo and
+this is the only repo that plausibly owns machine infrastructure, not because
+those services are part of Cerberus. Editing it changes whether the portfolio's
+database is supervised.
+
+**A config that only exists on a branch is a config that disappears.** Both
+files above are registered by absolute path, so checking out a branch without
+them drops those projects from the runtime — resources vanish from
+`resource list`, health and the console while the registry still points at the
+path. Register a new config only once it is on `main`.
