@@ -54,6 +54,24 @@ func (r ValidationResult) Errors() []ValidationIssue { return r.filter(SeverityE
 // Warnings returns just the warning-severity issues.
 func (r ValidationResult) Warnings() []ValidationIssue { return r.filter(SeverityWarning) }
 
+// UnknownFieldIssues returns the unrecognised-field findings.
+//
+// These are warnings, not errors, and that asymmetry is deliberate: the
+// runtime resolver skips any config whose validation has errors, so
+// promoting them would reintroduce the silent whole-project drop this
+// leniency exists to prevent. Author-time callers — register and
+// `cerberus validate` — select on this and reject, which is where a
+// typo can still be caught without a running daemon losing a project.
+func (r ValidationResult) UnknownFieldIssues() []ValidationIssue {
+	var out []ValidationIssue
+	for _, issue := range r.Issues {
+		if issue.Field == unknownFieldName {
+			out = append(out, issue)
+		}
+	}
+	return out
+}
+
 func (r ValidationResult) filter(severity string) []ValidationIssue {
 	var out []ValidationIssue
 	for _, issue := range r.Issues {
@@ -91,6 +109,10 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 	if pc == nil {
 		add(SeverityError, "project-config", "config is nil")
 		return result
+	}
+
+	for _, f := range pc.UnknownFields {
+		add(SeverityWarning, unknownFieldName, f)
 	}
 
 	// --- registration envelope ---
@@ -197,6 +219,10 @@ func ValidateBundle(bundle *Bundle) ValidationResult {
 	if bundle == nil {
 		add(SeverityError, "bundle", "bundle is nil")
 		return result
+	}
+
+	for _, f := range bundle.UnknownFields {
+		add(SeverityWarning, unknownFieldName, f)
 	}
 
 	switch bundle.Kind {

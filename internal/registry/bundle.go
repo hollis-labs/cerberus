@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,12 +30,19 @@ type Bundle struct {
 	// Projects lists paths to project config files. Relative paths are
 	// resolved against the manifest's own directory at load time.
 	Projects []string `yaml:"projects"`
+
+	// UnknownFields mirrors ProjectConfig.UnknownFields: fields the
+	// lenient parse ignored, filled by LoadBundle from a strict second
+	// pass and reported as warnings by ValidateBundle.
+	UnknownFields []string `yaml:"-"`
 }
 
 // LoadBundle reads a bundle manifest. Relative project paths are
 // resolved against the manifest's own directory and returned absolute,
 // so callers can load each referenced project config directly. Unknown
-// top-level fields are rejected, consistent with LoadProjectConfig.
+// fields are recorded rather than rejected, consistent with
+// LoadProjectConfig — see its doc comment for why the runtime parse is
+// lenient.
 //
 // LoadBundle does not check that the referenced files exist or parse;
 // register / resolve do that when they load each project config.
@@ -47,11 +53,10 @@ func LoadBundle(path string) (*Bundle, error) {
 	}
 
 	var bundle Bundle
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&bundle); err != nil {
+	if err := yaml.Unmarshal(data, &bundle); err != nil {
 		return nil, fmt.Errorf("parse bundle %s: %w", path, err)
 	}
+	bundle.UnknownFields = unknownFields(data, new(Bundle))
 
 	base := filepath.Dir(path)
 	for i, p := range bundle.Projects {
