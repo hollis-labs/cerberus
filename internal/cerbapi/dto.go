@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/chrispian/cerberus/internal/config"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -233,10 +234,17 @@ func (d ResolveDiagnostics) Clean() bool { return d.Skipped == 0 && d.Warned == 
 
 // ProjectInfo is the DTO for project-list responses.
 type ProjectInfo struct {
+	// ID is the portfolio-wide project slug — the value Tachyon and
+	// anything else joins on. See config.ProjectDef.
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Resources   int    `json:"resource_count"`
+	// Capabilities and Links are the app-owned portable props, carried
+	// verbatim from the project config. config.Link is reused rather
+	// than remapped so the JSON is literally Tether's registry shape.
+	Capabilities []string      `json:"capabilities,omitempty"`
+	Links        []config.Link `json:"links,omitempty"`
 }
 
 // ResourceInfo is the DTO for resource-list responses.

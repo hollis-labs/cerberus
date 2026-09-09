@@ -70,8 +70,8 @@ type ProjectDef struct {
 // blessed v1 kinds (repo, docs, pipeline, owned_by, requires_secret, …)
 // are a convention to document, not a constraint to enforce.
 type Link struct {
-	Kind   string `yaml:"kind"`
-	Target string `yaml:"target"`
+	Kind   string `yaml:"kind" json:"kind"`
+	Target string `yaml:"target" json:"target"`
 }
 
 // ResourceDef represents a managed resource (process, server, container, etc.).

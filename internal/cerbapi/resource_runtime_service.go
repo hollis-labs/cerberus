@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,6 +94,44 @@ func NewResourceRuntimeService(opts ...ResourceRuntimeOption) *ResourceRuntimeSe
 		opt(s)
 	}
 	return s
+}
+
+// ListProjects returns the resolved project set with its portable
+// props, ordered by slug.
+//
+// This lives here rather than in a client because every surface — CLI,
+// socket, MCP, console — has to report the same project set, and there
+// used to be two constructions of ProjectInfo that could drift: one in
+// InProcessClient and one built directly from a resolve inside
+// cmd_project.go. Both now route through this.
+//
+// Capabilities and Links are carried verbatim from the app-owned
+// config. Nothing is derived here: the Tesseract namespace is computed
+// at materialization from the slug plus local identity, and the repo
+// root is dirname(configPath) — storing either would be the stale state
+// the project-object work exists to remove.
+func (s *ResourceRuntimeService) ListProjects(_ context.Context) ([]ProjectInfo, error) {
+	cfg := s.snapshotConfig()
+	if cfg == nil {
+		return nil, nil
+	}
+	counts := make(map[string]int, len(cfg.Projects))
+	for _, r := range cfg.Resources {
+		counts[r.Project]++
+	}
+	out := make([]ProjectInfo, 0, len(cfg.Projects))
+	for _, p := range cfg.Projects {
+		out = append(out, ProjectInfo{
+			ID:           p.ID,
+			Name:         p.Name,
+			Description:  p.Description,
+			Resources:    counts[p.ID],
+			Capabilities: append([]string(nil), p.Capabilities...),
+			Links:        append([]config.Link(nil), p.Links...),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 func (s *ResourceRuntimeService) ListResources(ctx context.Context, args ResourceListArgs) ([]ResourceInfo, error) {

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -26,58 +28,73 @@ Subcommands:
 
 var projectListOutput string
 
+// projectSurface is the shared runtime service, reached either through
+// the daemon socket or in-process. Both list commands take everything
+// from it rather than resolving the config themselves: a second
+// construction of the project set is a second thing to keep in step.
+type projectSurface interface {
+	resolveDiagnoser
+	ListProjects(ctx context.Context) ([]cerbapi.ProjectInfo, error)
+	ListResources(ctx context.Context, args cerbapi.ResourceListArgs) ([]cerbapi.ResourceInfo, error)
+}
+
+// projectClient prefers the daemon and falls back in-process, matching
+// the resource commands. The returned surface is also the diagnostics
+// source, so a trailing skip notice describes the same view the rows
+// came from.
+func projectClient(ctx context.Context) (projectSurface, []cerbapi.ProjectInfo, error) {
+	if client, err := newResourceSocketClient(); err == nil {
+		list, listErr := client.ListProjects(ctx)
+		if listErr == nil {
+			return client, list, nil
+		}
+		var dErr *cerbapi.DaemonUnreachableError
+		if !errors.As(listErr, &dErr) {
+			return nil, nil, listErr
+		}
+	}
+	svc := newResourceRuntimeService()
+	list, err := svc.ListProjects(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return svc, list, nil
+}
+
 var projectListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List projects",
-	Long:  "Lists all projects defined in the config.",
+	Long:  "Lists all projects defined in the config, with their capabilities.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Resolved with diagnostics kept: project list resolves for
-		// itself rather than going through the daemon, so the notice
-		// can describe the very resolve these rows came from instead
-		// of a second, possibly different read.
-		resolved, err := registry.ResolveConfigDetailed(cfgPath)
+		surface, list, err := projectClient(cmd.Context())
 		if err != nil {
-			return fmt.Errorf("load config: %w", err)
+			return err
 		}
-		v2 := resolved.Config
 
 		if projectListOutput == outputFormatJSON {
-			// Marshal via cerbapi.ProjectInfo so the JSON shape matches the
-			// MCP / socket project_list contract (lowercase keys, resource_count).
-			resourceCounts := map[string]int{}
-			for _, r := range v2.Resources {
-				resourceCounts[r.Project]++
+			if list == nil {
+				list = []cerbapi.ProjectInfo{}
 			}
-			out := make([]cerbapi.ProjectInfo, 0, len(v2.Projects))
-			for _, p := range v2.Projects {
-				out = append(out, cerbapi.ProjectInfo{
-					ID:          p.ID,
-					Name:        p.Name,
-					Description: p.Description,
-					Resources:   resourceCounts[p.ID],
-				})
-			}
-			return printJSON(out)
+			return printJSON(list)
 		}
 
-		diag := cerbapi.DiagnosticsFrom(resolved)
-
-		if len(v2.Projects) == 0 {
+		if len(list) == 0 {
 			fmt.Println("No projects defined.")
-			printResolveNotice(os.Stderr, &diag)
+			reportResolveNotice(cmd.Context(), surface)
 			return nil
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
-		fmt.Fprintln(w, "--\t----\t-----------")
-		for _, p := range v2.Projects {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", p.ID, p.Name, p.Description)
+		fmt.Fprintln(w, "ID\tNAME\tRESOURCES\tCAPABILITIES\tDESCRIPTION")
+		fmt.Fprintln(w, "--\t----\t---------\t------------\t-----------")
+		for _, p := range list {
+			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
+				p.ID, p.Name, p.Resources, valueOrDash(strings.Join(p.Capabilities, ", ")), p.Description)
 		}
 		if err := w.Flush(); err != nil {
 			return err
 		}
-		printResolveNotice(os.Stderr, &diag)
+		reportResolveNotice(cmd.Context(), surface)
 		return nil
 	},
 }
@@ -85,47 +102,61 @@ var projectListCmd = &cobra.Command{
 var projectShowCmd = &cobra.Command{
 	Use:   "show <project-id>",
 	Short: "Show project details",
-	Long:  "Shows a project and its resources.",
+	Long:  "Shows a project's metadata, capabilities, links and resources.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		v2, err := registry.ResolveConfig(cfgPath)
+		surface, list, err := projectClient(cmd.Context())
 		if err != nil {
-			return fmt.Errorf("load config: %w", err)
+			return err
 		}
 
 		projectID := args[0]
-
-		// Find project
-		var found bool
-		for _, p := range v2.Projects {
-			if p.ID == projectID {
-				fmt.Printf("Project: %s\n", p.Name)
-				if p.Description != "" {
-					fmt.Printf("Description: %s\n", p.Description)
-				}
-				found = true
+		var found *cerbapi.ProjectInfo
+		for i := range list {
+			if list[i].ID == projectID {
+				found = &list[i]
 				break
 			}
 		}
-		if !found {
+		if found == nil {
+			// A project can be missing because its config was skipped,
+			// not because it was never declared. Say so rather than
+			// leaving the operator to guess which.
+			fmt.Fprintf(os.Stderr, "project %q not found\n", projectID)
+			reportResolveNotice(cmd.Context(), surface)
 			return fmt.Errorf("project %q not found", projectID)
 		}
 
-		// Show resources in this project
+		fmt.Printf("Project: %s\n", found.Name)
+		fmt.Printf("Slug:    %s\n", found.ID)
+		if found.Description != "" {
+			fmt.Printf("Description: %s\n", found.Description)
+		}
+		if len(found.Capabilities) > 0 {
+			fmt.Printf("Capabilities: %s\n", strings.Join(found.Capabilities, ", "))
+		}
+		if len(found.Links) > 0 {
+			fmt.Println("Links:")
+			for _, link := range found.Links {
+				fmt.Printf("  %-16s %s\n", link.Kind, link.Target)
+			}
+		}
+
+		resources, err := surface.ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: projectID})
+		if err != nil {
+			return err
+		}
+
 		fmt.Println()
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "ID\tNAME\tTYPE\tCONNECTOR")
 		fmt.Fprintln(w, "--\t----\t----\t---------")
-		count := 0
-		for _, r := range v2.Resources {
-			if r.Project == projectID {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.ID, r.Name, r.Type, r.Connector)
-				count++
-			}
+		for _, r := range resources {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.ID, r.Name, r.Type, r.Connector)
 		}
 		w.Flush() //nolint:errcheck
 
-		if count == 0 {
+		if len(resources) == 0 {
 			fmt.Println("No resources in this project.")
 		}
 		return nil
