@@ -2,6 +2,7 @@ import { EmptyState, SummaryCards } from '@hollis-labs/sysop-ui/ui'
 import { DataTable, type ColumnDef } from '@hollis-labs/sysop-ui/data'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type ProjectInfo } from '../api/client'
+import { ResolveNotice } from '../components/resolve-notice'
 
 const columns: ColumnDef<ProjectInfo>[] = [
   {
@@ -58,6 +59,7 @@ export function ProjectsPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto">
       <SummaryCards cards={cards} />
+      <ResolveNotice />
       <div>
         {projects.isLoading && items.length === 0 ? (
           <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading projects...</div>

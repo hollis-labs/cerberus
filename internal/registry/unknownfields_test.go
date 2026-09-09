@@ -127,6 +127,103 @@ func TestResolveKeepsProjectWithUnknownField(t *testing.T) {
 	}
 }
 
+// TestResolveReportsUnknownFieldAsWarned is the visibility half of the
+// same regression. Keeping the project is necessary but not sufficient:
+// if resolve says nothing, a config nobody has looked at reads exactly
+// like a clean one, and the operator has no reason to run
+// `registry health`.
+func TestResolveReportsUnknownFieldAsWarned(t *testing.T) {
+	dir := t.TempDir()
+
+	cfgPath := filepath.Join(dir, "futureapp.cerberus.yaml")
+	if err := os.WriteFile(cfgPath, []byte(futureConfig), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	indexPath := filepath.Join(dir, "registry.yaml")
+	index := "version: 1\nentries:\n" +
+		"    - owner: futureapp\n" +
+		"      namespace: local\n" +
+		"      path: " + cfgPath + "\n" +
+		"      kind: cerberus-project/v1\n" +
+		"      registered_at: \"2026-09-09T00:00:00Z\"\n"
+	if err := os.WriteFile(indexPath, []byte(index), 0o600); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	resolved, err := registry.Resolve(registry.ResolveOptions{IndexPath: indexPath})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	if len(resolved.Warned) != 1 {
+		t.Fatalf("Warned = %+v, want one entry", resolved.Warned)
+	}
+	if resolved.Warned[0].Owner != "futureapp" {
+		t.Errorf("Warned owner = %q, want futureapp", resolved.Warned[0].Owner)
+	}
+	// Warned is not Skipped: the config is in the result.
+	if resolved.Warned[0].Status != registry.HealthOK {
+		t.Errorf("Warned status = %q, want %q", resolved.Warned[0].Status, registry.HealthOK)
+	}
+	if len(resolved.Warnings) == 0 {
+		t.Fatal("Warnings is empty; the validation warning was dropped")
+	}
+	var named bool
+	for _, w := range resolved.Warnings {
+		if strings.Contains(w, "futureapp") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("Warnings = %q, want one naming futureapp", resolved.Warnings)
+	}
+}
+
+// TestResolveCleanConfigWarnsNothing pins the other direction: a notice
+// that fires on a healthy tree is noise the operator learns to ignore,
+// which costs exactly the signal this change adds.
+func TestResolveCleanConfigWarnsNothing(t *testing.T) {
+	dir := t.TempDir()
+
+	clean := `kind: cerberus-project/v1
+owner: cleanapp
+project:
+  id: cleanapp
+  name: Clean App
+resources:
+  - id: cleanapp-api
+    name: Clean API
+    type: process
+    connector: local
+    project: cleanapp
+`
+	cfgPath := filepath.Join(dir, "cleanapp.cerberus.yaml")
+	if err := os.WriteFile(cfgPath, []byte(clean), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	indexPath := filepath.Join(dir, "registry.yaml")
+	index := "version: 1\nentries:\n" +
+		"    - owner: cleanapp\n" +
+		"      namespace: local\n" +
+		"      path: " + cfgPath + "\n" +
+		"      kind: cerberus-project/v1\n" +
+		"      registered_at: \"2026-09-09T00:00:00Z\"\n"
+	if err := os.WriteFile(indexPath, []byte(index), 0o600); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+
+	resolved, err := registry.Resolve(registry.ResolveOptions{IndexPath: indexPath})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if len(resolved.Warned) != 0 || len(resolved.Skipped) != 0 || len(resolved.Warnings) != 0 {
+		t.Errorf("clean resolve reported warned=%+v skipped=%+v warnings=%q",
+			resolved.Warned, resolved.Skipped, resolved.Warnings)
+	}
+}
+
 // TestRegisterRejectsUnknownField holds the other half of the contract:
 // leniency is a runtime property only. Registration is author time, so a
 // typo still has to stop there.

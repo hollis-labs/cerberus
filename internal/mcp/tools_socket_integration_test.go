@@ -160,6 +160,9 @@ func (fakeSocketProgressClient) ListProjects(context.Context) ([]cerbapi.Project
 func (fakeSocketProgressClient) ListResources(context.Context, cerbapi.ResourceListArgs) ([]cerbapi.ResourceInfo, error) {
 	return nil, errors.New("not implemented")
 }
+func (fakeSocketProgressClient) ResolveDiagnostics(context.Context) (*cerbapi.ResolveDiagnostics, error) {
+	return nil, errors.New("not implemented")
+}
 func (fakeSocketProgressClient) GetResourceRuntime(context.Context, string) (*cerbapi.ResourceRuntimeStatus, error) {
 	return nil, errors.New("not implemented")
 }

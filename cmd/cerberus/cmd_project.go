@@ -31,10 +31,15 @@ var projectListCmd = &cobra.Command{
 	Short: "List projects",
 	Long:  "Lists all projects defined in the config.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		v2, err := registry.ResolveConfig(cfgPath)
+		// Resolved with diagnostics kept: project list resolves for
+		// itself rather than going through the daemon, so the notice
+		// can describe the very resolve these rows came from instead
+		// of a second, possibly different read.
+		resolved, err := registry.ResolveConfigDetailed(cfgPath)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
+		v2 := resolved.Config
 
 		if projectListOutput == outputFormatJSON {
 			// Marshal via cerbapi.ProjectInfo so the JSON shape matches the
@@ -55,8 +60,11 @@ var projectListCmd = &cobra.Command{
 			return printJSON(out)
 		}
 
+		diag := cerbapi.DiagnosticsFrom(resolved)
+
 		if len(v2.Projects) == 0 {
 			fmt.Println("No projects defined.")
+			printResolveNotice(os.Stderr, &diag)
 			return nil
 		}
 
@@ -66,7 +74,11 @@ var projectListCmd = &cobra.Command{
 		for _, p := range v2.Projects {
 			fmt.Fprintf(w, "%s\t%s\t%s\n", p.ID, p.Name, p.Description)
 		}
-		return w.Flush()
+		if err := w.Flush(); err != nil {
+			return err
+		}
+		printResolveNotice(os.Stderr, &diag)
+		return nil
 	},
 }
 

@@ -180,6 +180,14 @@ func (c *SocketClient) ListResources(ctx context.Context, args ResourceListArgs)
 	return out, nil
 }
 
+func (c *SocketClient) ResolveDiagnostics(ctx context.Context) (*ResolveDiagnostics, error) {
+	var out ResolveDiagnostics
+	if err := c.doJSON(ctx, http.MethodGet, "/registry/diagnostics", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *SocketClient) GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error) {
 	if id == "" {
 		return nil, errors.New("resource id required")

@@ -23,12 +23,19 @@ type ResolvedConfig struct {
 	// Config is the assembled, normalized ConfigV2.
 	Config *config.ConfigV2
 	// Warnings records non-fatal events: registered configs skipped
-	// because they no longer load, and registered-vs-registered id
-	// collisions resolved by precedence.
+	// because they no longer load, registered-vs-registered id
+	// collisions resolved by precedence, and warning-severity
+	// validation issues on configs that did resolve.
 	Warnings []string
 	// Skipped lists registered entries dropped from the result because
 	// their file is missing or invalid.
 	Skipped []HealthReport
+	// Warned lists registered entries that resolved but carry
+	// warning-severity validation issues — most commonly a field this
+	// binary does not know, written by a newer writer. These are in the
+	// result; the entry is here so a caller can say so rather than
+	// present a clean list over a config nobody has looked at.
+	Warned []HealthReport
 }
 
 // Resolve assembles the effective ConfigV2 from the optional global
@@ -101,9 +108,13 @@ func Resolve(opts ResolveOptions) (*ResolvedConfig, error) {
 			resolved.skip(entry, HealthMissing, loadErr.Error())
 			continue
 		}
-		if vr := ValidateProjectConfig(pc); vr.HasErrors() {
+		vr := ValidateProjectConfig(pc)
+		if vr.HasErrors() {
 			resolved.skip(entry, HealthInvalid, vr.Errors()[0].String())
 			continue
+		}
+		if issues := vr.Warnings(); len(issues) > 0 {
+			resolved.warnConfig(entry, issues)
 		}
 
 		if prev := projectOwner[pc.Project.ID]; prev != "" {
@@ -143,15 +154,25 @@ func Resolve(opts ResolveOptions) (*ResolvedConfig, error) {
 // keeps resolution hermetic: a test or `--config` override that
 // relocates config.yaml relocates the registry with it.
 func ResolveConfig(globalPath string) (*config.ConfigV2, error) {
-	indexPath, err := IndexPathFor(globalPath)
-	if err != nil {
-		return nil, err
-	}
-	resolved, err := Resolve(ResolveOptions{IndexPath: indexPath, GlobalPath: globalPath})
+	resolved, err := ResolveConfigDetailed(globalPath)
 	if err != nil {
 		return nil, err
 	}
 	return resolved.Config, nil
+}
+
+// ResolveConfigDetailed is ResolveConfig with the diagnostics kept.
+//
+// ResolveConfig throws Warnings and Skipped away, which is what made a
+// dropped config invisible: the operator saw a short list, not a short
+// list plus "2 configs were skipped". Callers that render a list should
+// use this and report what resolution dropped.
+func ResolveConfigDetailed(globalPath string) (*ResolvedConfig, error) {
+	indexPath, err := IndexPathFor(globalPath)
+	if err != nil {
+		return nil, err
+	}
+	return Resolve(ResolveOptions{IndexPath: indexPath, GlobalPath: globalPath})
 }
 
 func (r *ResolvedConfig) skip(entry IndexEntry, status, detail string) {
@@ -159,6 +180,17 @@ func (r *ResolvedConfig) skip(entry IndexEntry, status, detail string) {
 		Owner: entry.Owner, Path: entry.Path, Status: status, Detail: detail,
 	})
 	r.Warnings = append(r.Warnings, fmt.Sprintf("skipped owner %q (%s): %s", entry.Owner, status, detail))
+}
+
+func (r *ResolvedConfig) warnConfig(entry IndexEntry, issues []ValidationIssue) {
+	r.Warned = append(r.Warned, HealthReport{
+		Owner: entry.Owner, Path: entry.Path, Status: HealthOK,
+		Detail: fmt.Sprintf("%d warning(s): %s", len(issues), issues[0].Message),
+	})
+	for _, issue := range issues {
+		r.Warnings = append(r.Warnings,
+			fmt.Sprintf("owner %q: %s — %s", entry.Owner, issue.Field, issue.Message))
+	}
 }
 
 func (r *ResolvedConfig) warnOverride(kind, id, winner, loser string) {

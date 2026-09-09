@@ -39,18 +39,22 @@ var resourceListCmd = &cobra.Command{
 		if client, err := newResourceSocketClient(); err == nil {
 			list, listErr := client.ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: resourceListProject})
 			if listErr == nil {
-				return renderResourceList(list, resourceListOutput)
+				// Diagnostics come from whichever surface served the
+				// list, so the notice describes the same view of the
+				// config tree the rows came from.
+				return renderResourceList(cmd.Context(), client, list, resourceListOutput)
 			}
 			var dErr *cerbapi.DaemonUnreachableError
 			if !errors.As(listErr, &dErr) {
 				return listErr
 			}
 		}
-		list, err := newResourceRuntimeService().ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: resourceListProject})
+		svc := newResourceRuntimeService()
+		list, err := svc.ListResources(cmd.Context(), cerbapi.ResourceListArgs{ProjectID: resourceListProject})
 		if err != nil {
 			return err
 		}
-		return renderResourceList(list, resourceListOutput)
+		return renderResourceList(cmd.Context(), svc, list, resourceListOutput)
 	},
 }
 
@@ -845,14 +849,17 @@ func printResourceDoctor(out *cerbapi.ResourceDoctor) {
 	}
 }
 
-func renderResourceList(list []cerbapi.ResourceInfo, format string) error {
+func renderResourceList(ctx context.Context, d resolveDiagnoser, list []cerbapi.ResourceInfo, format string) error {
 	if format == outputFormatJSON {
 		if list == nil {
 			list = []cerbapi.ResourceInfo{}
 		}
+		// No notice on the JSON path: the contract is a bare array and
+		// a machine reader that wants skips has /registry/diagnostics.
 		return printJSON(list)
 	}
 	printResourceList(list)
+	reportResolveNotice(ctx, d)
 	return nil
 }
 

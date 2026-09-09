@@ -303,6 +303,11 @@ func (c *InProcessClient) ListResources(ctx context.Context, args ResourceListAr
 	return c.runtime.ListResources(ctx, args)
 }
 
+// ResolveDiagnostics implements Client.
+func (c *InProcessClient) ResolveDiagnostics(ctx context.Context) (*ResolveDiagnostics, error) {
+	return c.runtime.ResolveDiagnostics(ctx)
+}
+
 // GetResourceRuntime implements Client.
 func (c *InProcessClient) GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error) {
 	return c.runtime.GetResourceRuntime(ctx, id)
