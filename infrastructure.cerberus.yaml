@@ -1,0 +1,76 @@
+kind: cerberus-project/v1
+owner: infrastructure
+namespace: local
+project:
+  id: infrastructure
+  name: Infrastructure
+resources:
+  - id: ollama-service
+    name: Ollama Service
+    type: process
+    project: infrastructure
+    connector: local
+    config:
+      command:
+        - /opt/homebrew/opt/ollama/bin/ollama
+        - serve
+      dir: /opt/homebrew/var
+      mode: os_service
+      port: 11434
+      run_from: workspace
+      service_name: com.fragments-engine.cerberus.ollama-service
+      supervisor: launchd
+      url: http://127.0.0.1:11434
+    tags:
+      - ai
+      - llm
+      - launchd
+      - v2
+      - external
+  - id: postgres-service
+    name: PostgreSQL 16 Service
+    type: process
+    project: infrastructure
+    connector: local
+    config:
+      command:
+        - /opt/homebrew/opt/postgresql@16/bin/postgres
+        - -D
+        - /opt/homebrew/var/postgresql@16
+      dir: /opt/homebrew/var
+      env:
+        LC_ALL: C
+        CLAUDE_CODE_OAUTH_TOKEN: keychain://anthropic/claude-code-oauth
+      mode: os_service
+      port: 5432
+      run_from: workspace
+      service_name: com.fragments-engine.cerberus.postgres-service
+      supervisor: launchd
+    tags:
+      - db
+      - postgres
+      - launchd
+      - v2
+      - external
+  - id: jaeger
+    name: Jaeger
+    type: process
+    project: infrastructure
+    connector: local
+    config:
+      command:
+        - ./jaeger
+      dir: /Users/chrispian/.cerberus/bin
+      health: http://127.0.0.1:16686
+      mode: os_service
+      port: 4318
+      protected: true
+      run_from: workspace
+      supervisor: launchd
+      url: http://127.0.0.1:16686
+    tags:
+      - daemon
+      - infrastructure
+      - otel
+      - v2
+registry_urn: msg://agent/agent-mux/prj_fq2tp0ee0s
