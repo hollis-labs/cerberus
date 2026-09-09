@@ -127,8 +127,12 @@ func (r *Registry) collect(path, via string, seenManifest map[string]bool) ([]In
 		if err != nil {
 			return nil, err
 		}
-		if result := ValidateProjectConfig(pc); result.HasErrors() {
+		result := ValidateProjectConfig(pc)
+		if result.HasErrors() {
 			return nil, fmt.Errorf("invalid project config %s: %s", path, result.Errors()[0])
+		}
+		if unknown := result.UnknownFieldIssues(); len(unknown) > 0 {
+			return nil, unknownFieldError(path, unknown)
 		}
 		return []IndexEntry{{
 			Owner:        pc.Owner,
@@ -149,8 +153,12 @@ func (r *Registry) collect(path, via string, seenManifest map[string]bool) ([]In
 		if err != nil {
 			return nil, err
 		}
-		if result := ValidateBundle(bundle); result.HasErrors() {
+		result := ValidateBundle(bundle)
+		if result.HasErrors() {
 			return nil, fmt.Errorf("invalid bundle manifest %s: %s", path, result.Errors()[0])
+		}
+		if unknown := result.UnknownFieldIssues(); len(unknown) > 0 {
+			return nil, unknownFieldError(path, unknown)
 		}
 		var all []IndexEntry
 		owners := map[string]bool{}

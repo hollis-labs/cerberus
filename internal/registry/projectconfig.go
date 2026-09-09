@@ -19,7 +19,6 @@
 package registry
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 
@@ -81,13 +80,27 @@ type ProjectConfig struct {
 	// to the v2 monolithic config.
 	Resources []config.ResourceDef `yaml:"resources,omitempty"`
 	Pipelines []config.PipelineDef `yaml:"pipelines,omitempty"`
+
+	// UnknownFields names every field the lenient parse ignored, in
+	// yaml.v3's "line N: field x not found in type T" form. It is not
+	// itself a YAML field — LoadProjectConfig fills it from a second,
+	// strict pass. ValidateProjectConfig turns each into a warning, so
+	// the runtime resolver keeps the project; register and validate
+	// reject on them, so a typo is still caught at author time.
+	UnknownFields []string `yaml:"-"`
 }
 
 // LoadProjectConfig reads and parses an app-owned project config.
-// Unknown top-level fields are rejected (KnownFields) so a typo'd field
-// surfaces as an error rather than silently dropping config — the drift
-// guard the validator depends on. Connector-specific resource Config
-// maps stay open by design.
+//
+// The parse is deliberately lenient: an unrecognised field is recorded
+// in UnknownFields rather than failing the load. Strict parsing here
+// was a silent-outage generator — the resolver drops any config that
+// fails to load, so one field written by a newer writer took 17 of 18
+// projects offline on 2026-05-25 with no error anywhere. Forward
+// compatibility at runtime is worth more than typo detection at runtime,
+// and nothing is lost: register and `cerberus validate` still reject
+// unrecognised fields, which is where a typo is actually introduced.
+// Connector-specific resource Config maps stay open by design.
 //
 // LoadProjectConfig does not validate semantics; call
 // ValidateProjectConfig for that.
@@ -98,15 +111,14 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	}
 
 	var pc ProjectConfig
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&pc); err != nil {
+	if err := yaml.Unmarshal(data, &pc); err != nil {
 		return nil, fmt.Errorf("parse project config %s: %w", path, err)
 	}
 
 	if pc.Namespace == "" {
 		pc.Namespace = DefaultNamespace
 	}
+	pc.UnknownFields = unknownFields(data, new(ProjectConfig))
 	return &pc, nil
 }
 

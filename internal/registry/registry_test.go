@@ -59,10 +59,22 @@ func TestLoadProjectConfigValid(t *testing.T) {
 	}
 }
 
-func TestLoadProjectConfigRejectsUnknownField(t *testing.T) {
-	_, err := LoadProjectConfig(writeFile(t, "x.cerberus.yaml", validProjectConfigYAML+"surprise: true\n"))
-	if err == nil {
-		t.Fatal("expected error for unknown top-level field")
+// TestLoadProjectConfigRecordsUnknownField: the load used to reject an
+// unknown top-level field. It now records it instead, because the
+// resolver drops any config that fails to load and a strict parse there
+// meant one field from a newer writer could blank the whole registry.
+// The field is still not ignored — it becomes a validation warning, and
+// register/validate reject on it.
+func TestLoadProjectConfigRecordsUnknownField(t *testing.T) {
+	pc, err := LoadProjectConfig(writeFile(t, "x.cerberus.yaml", validProjectConfigYAML+"surprise: true\n"))
+	if err != nil {
+		t.Fatalf("load must tolerate an unknown top-level field, got: %v", err)
+	}
+	if len(pc.UnknownFields) != 1 {
+		t.Fatalf("UnknownFields = %v, want one entry naming `surprise`", pc.UnknownFields)
+	}
+	if issues := ValidateProjectConfig(pc).UnknownFieldIssues(); len(issues) != 1 {
+		t.Fatalf("UnknownFieldIssues = %d, want 1", len(issues))
 	}
 }
 
@@ -202,11 +214,19 @@ func TestLoadBundleResolvesRelativePaths(t *testing.T) {
 	}
 }
 
-func TestLoadBundleRejectsUnknownField(t *testing.T) {
-	_, err := LoadBundle(writeFile(t, DefaultBundleFilename,
+// TestLoadBundleRecordsUnknownField mirrors the project-config case:
+// recorded, not rejected, at load time.
+func TestLoadBundleRecordsUnknownField(t *testing.T) {
+	bundle, err := LoadBundle(writeFile(t, DefaultBundleFilename,
 		"kind: cerberus-bundle/v1\nprojects: []\nsurprise: true\n"))
-	if err == nil {
-		t.Fatal("expected error for unknown top-level field")
+	if err != nil {
+		t.Fatalf("load must tolerate an unknown top-level field, got: %v", err)
+	}
+	if len(bundle.UnknownFields) != 1 {
+		t.Fatalf("UnknownFields = %v, want one entry naming `surprise`", bundle.UnknownFields)
+	}
+	if issues := ValidateBundle(bundle).UnknownFieldIssues(); len(issues) != 1 {
+		t.Fatalf("UnknownFieldIssues = %d, want 1", len(issues))
 	}
 }
 

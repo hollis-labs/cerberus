@@ -83,6 +83,13 @@ func validateOneFile(path string) error {
 	if result.HasErrors() {
 		return fmt.Errorf("%s has %d error(s)", path, len(result.Errors()))
 	}
+	// Author-time strictness. The runtime readers tolerate an
+	// unrecognised field so it can never drop a project; validate is
+	// where a typo should still stop you.
+	if unknown := result.UnknownFieldIssues(); len(unknown) > 0 {
+		return fmt.Errorf("%s has %d unrecognised field(s); fix the typo, or upgrade cerberus if the field is newer than this binary",
+			path, len(unknown))
+	}
 	fmt.Printf("%s: OK\n", path)
 	return nil
 }
