@@ -1,4 +1,4 @@
-import { EmptyState, SummaryCards } from '@hollis-labs/sysop-ui/ui'
+import { EmptyState, Pill, SummaryCards } from '@hollis-labs/sysop-ui/ui'
 import { DataTable, type ColumnDef } from '@hollis-labs/sysop-ui/data'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type ProjectInfo } from '../api/client'
@@ -23,6 +23,37 @@ const columns: ColumnDef<ProjectInfo>[] = [
     align: 'right',
     cell: (item) => item.resource_count,
     sortValue: (item) => item.resource_count,
+  },
+  {
+    key: 'capabilities',
+    header: 'Capabilities',
+    width: 'fill',
+    cell: (item) =>
+      item.capabilities?.length ? (
+        <div className="flex flex-wrap gap-1">
+          {item.capabilities.map((capability) => (
+            <Pill key={capability} tone="neutral">
+              {capability}
+            </Pill>
+          ))}
+        </div>
+      ) : (
+        <span className="text-[11px] text-text-subtle">—</span>
+      ),
+    sortValue: (item) => (item.capabilities ?? []).join(', '),
+  },
+  {
+    key: 'links',
+    header: 'Links',
+    cell: (item) =>
+      item.links?.length ? (
+        <span className="text-[11px] text-text-soft" title={item.links.map((l) => `${l.kind}: ${l.target}`).join('\n')}>
+          {item.links.map((l) => l.kind).join(', ')}
+        </span>
+      ) : (
+        <span className="text-[11px] text-text-subtle">—</span>
+      ),
+    sortValue: (item) => (item.links ?? []).length,
   },
   {
     key: 'description',

@@ -84,11 +84,18 @@ export interface SettingsInfo {
   error?: string
 }
 
+export interface ProjectLink {
+  kind: string
+  target: string
+}
+
 export interface ProjectInfo {
   id: string
   name: string
   description?: string
   resource_count: number
+  capabilities?: string[]
+  links?: ProjectLink[]
 }
 
 export interface ResourceInfo {
