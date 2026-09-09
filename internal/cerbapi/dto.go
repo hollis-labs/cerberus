@@ -206,6 +206,31 @@ type StreamEnvelope struct {
 	Error        string             `json:"error,omitempty"`
 }
 
+// ResolveDiagnostics is the DTO for what registry resolution dropped or
+// complained about on the most recent read of the config tree.
+//
+// It is a sibling of the list DTOs rather than a field on them: the
+// list wire shapes are bare arrays consumed by the CLI, MCP and the
+// console, and the point of this record is to let a caller say "the
+// list is short because 2 configs were skipped" without changing any
+// of them.
+type ResolveDiagnostics struct {
+	// Skipped counts registered configs dropped from the resolved
+	// config because their file is missing or fails validation.
+	Skipped int `json:"skipped"`
+	// Warned counts registered configs that resolved but carry
+	// warning-severity validation issues.
+	Warned int `json:"warned"`
+	// SkippedOwners and WarnedOwners name the configs behind the
+	// counts, so a caller can point at one without a second round trip.
+	SkippedOwners []string `json:"skipped_owners,omitempty"`
+	WarnedOwners  []string `json:"warned_owners,omitempty"`
+}
+
+// Clean reports whether resolution dropped nothing and complained about
+// nothing — the case where list output needs no trailing notice.
+func (d ResolveDiagnostics) Clean() bool { return d.Skipped == 0 && d.Warned == 0 }
+
 // ProjectInfo is the DTO for project-list responses.
 type ProjectInfo struct {
 	ID          string `json:"id"`

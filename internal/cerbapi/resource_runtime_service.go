@@ -33,6 +33,11 @@ type ResourceRuntimeService struct {
 	cfgMu sync.RWMutex
 	cfg   *config.ConfigV2
 
+	// diag holds the diagnostics from the most recent successful
+	// resolve. snapshotConfig re-resolves on every call, so this is
+	// on-disk truth as of the last read rather than a startup snapshot.
+	diag atomic.Pointer[ResolveDiagnostics]
+
 	// drift holds the optional background artifact-drift cache. When set
 	// (daemon mode), ListResources reads repo-drift staleness from it
 	// instead of running a live git probe per poll.
@@ -1108,7 +1113,7 @@ func (s *ResourceRuntimeService) snapshotConfig() *config.ConfigV2 {
 		defer s.cfgMu.RUnlock()
 		return s.cfg
 	}
-	fresh, err := registry.ResolveConfig(s.cfgPath)
+	resolved, err := registry.ResolveConfigDetailed(s.cfgPath)
 	if err != nil {
 		s.logger.Warn("resource_runtime.config_reload.failed",
 			"path", s.cfgPath,
@@ -1118,10 +1123,55 @@ func (s *ResourceRuntimeService) snapshotConfig() *config.ConfigV2 {
 		defer s.cfgMu.RUnlock()
 		return s.cfg
 	}
+	// Recorded from the resolve the list path already performs, so
+	// asking what was skipped costs no extra read of the config tree.
+	diag := DiagnosticsFrom(resolved)
+	s.diag.Store(&diag)
+	fresh := resolved.Config
 	s.cfgMu.Lock()
 	s.cfg = fresh
 	s.cfgMu.Unlock()
 	return fresh
+}
+
+// ResolveDiagnostics reports what the current config tree resolves to:
+// how many registered configs were dropped, and how many resolved with
+// warnings. It re-resolves so the answer matches what a list issued at
+// the same moment would contain.
+//
+// A service constructed from an in-memory config (no cfgPath) has no
+// registry to resolve and reports clean.
+func (s *ResourceRuntimeService) ResolveDiagnostics(_ context.Context) (*ResolveDiagnostics, error) {
+	if s.cfgPath == "" {
+		return &ResolveDiagnostics{}, nil
+	}
+	s.snapshotConfig()
+	if d := s.diag.Load(); d != nil {
+		out := *d
+		return &out, nil
+	}
+	// snapshotConfig only fails to record when the resolve itself
+	// failed; it already logged, and a list built on the stale config
+	// is better served by "unknown" than by a false all-clear.
+	return nil, fmt.Errorf("resolve config %s", s.cfgPath)
+}
+
+// DiagnosticsFrom summarizes a resolve a caller has already performed.
+// Callers that resolve for themselves — the CLI's project list — use
+// this instead of a second round trip, so the notice describes the very
+// resolve the list was rendered from.
+func DiagnosticsFrom(resolved *registry.ResolvedConfig) ResolveDiagnostics {
+	d := ResolveDiagnostics{
+		Skipped: len(resolved.Skipped),
+		Warned:  len(resolved.Warned),
+	}
+	for _, r := range resolved.Skipped {
+		d.SkippedOwners = append(d.SkippedOwners, r.Owner)
+	}
+	for _, r := range resolved.Warned {
+		d.WarnedOwners = append(d.WarnedOwners, r.Owner)
+	}
+	return d
 }
 
 func (s *ResourceRuntimeService) localConnector() *localconn.Connector {

@@ -22,6 +22,7 @@ import {
 } from '@hollis-labs/sysop-ui/data'
 import { refreshPolledData, usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type LogLines, type OpResult, type ResourceAction, type ResourceInfo, type ResourceRuntimeStatus } from '../api/client'
+import { ResolveNotice } from '../components/resolve-notice'
 
 type StatusFilter = 'all' | 'running' | 'attention' | 'stopped'
 
@@ -122,6 +123,7 @@ export function ResourcesPage() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
       <SummaryCards cards={summaryCards} />
+      <ResolveNotice />
       <FilterBar
         searchQuery={query}
         onSearchChange={setQuery}

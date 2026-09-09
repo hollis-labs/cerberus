@@ -190,9 +190,11 @@ export interface RegistryListResponse {
     shared: number
     local_only: number
     resolve_skips: number
+    resolve_warned: number
   }
   resolve_warnings?: string[]
   skipped?: RegistryHealthReport[]
+  warned?: RegistryHealthReport[]
   entries: RegistryEntry[]
   error?: string
 }
@@ -244,6 +246,7 @@ export interface ConfigResolveResponse {
   pipelines: number
   warnings?: string[]
   skipped?: RegistryHealthReport[]
+  warned?: RegistryHealthReport[]
   global?: ConfigValidationFile
   error?: string
 }
