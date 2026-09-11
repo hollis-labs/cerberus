@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -303,6 +304,12 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 		}
 	case "namecheap":
 		switch args.Operation {
+		case "set_dns_record_set":
+			domainName, set, err := namecheapRecordSetArgs(args.Config)
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			return dryRunPreview(args, "Would replace every Namecheap DNS host record and explicitly set email routing.", map[string]any{"domain": domainName}, map[string]any{"email_type": set.EmailType, "records": set.Records}, "All omitted records will be deleted. getHosts can omit existing records; supply a complete authoritative set."), true, nil
 		case "create_dns_record":
 			domain, err := requiredString(args.Config, "domain")
 			if err != nil {
@@ -720,6 +727,20 @@ func (s *ExternalConnectorService) executeNamecheap(ctx context.Context, c contr
 	}
 
 	switch args.Operation {
+	case "get_dns_record_set":
+		domainName, err := requiredString(args.Config, "domain")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		set, err := namecheap.GetDNSRecordSet(ctx, domainName)
+		return externalConnectorResult(args, set), err
+	case "set_dns_record_set":
+		domainName, set, err := namecheapRecordSetArgs(args.Config)
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		err = namecheap.SetDNSRecordSet(ctx, domainName, set)
+		return externalConnectorResult(args, set), err
 	case "list_domains":
 		domains, err := namecheap.ListDomains(ctx)
 		return externalConnectorResult(args, domains), err
@@ -1006,4 +1027,34 @@ func serverSiteIDs(cfg map[string]any) (int, int, error) {
 		return 0, 0, err
 	}
 	return serverID, siteID, nil
+}
+
+func namecheapRecordSetArgs(config map[string]any) (string, ncconn.DNSRecordSet, error) {
+	domainName, err := requiredString(config, "domain")
+	if err != nil {
+		return "", ncconn.DNSRecordSet{}, err
+	}
+	emailType, err := requiredString(config, "email_type")
+	if err != nil {
+		return "", ncconn.DNSRecordSet{}, err
+	}
+	raw, exists := config["records"]
+	if !exists || raw == nil {
+		return "", ncconn.DNSRecordSet{}, errors.New("records must explicitly contain the complete authoritative host record array")
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return "", ncconn.DNSRecordSet{}, err
+	}
+	var records []ncconn.DNSRecord
+	if err = json.Unmarshal(data, &records); err != nil {
+		return "", ncconn.DNSRecordSet{}, fmt.Errorf("records: %w", err)
+	}
+	for _, record := range records {
+		if record.Type == "" || record.Host == "" || record.Value == "" {
+			return "", ncconn.DNSRecordSet{}, errors.New("each record requires type, host and value")
+		}
+	}
+	set := ncconn.DNSRecordSet{EmailType: emailType, Records: records}
+	return domainName, set, set.Validate()
 }

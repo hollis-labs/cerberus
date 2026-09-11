@@ -148,6 +148,7 @@ func (b *fakeCloudflareBackend) ListTunnels(_ context.Context, _ string) ([]cfco
 }
 
 type fakeNamecheapBackend struct {
+	recordSet   *ncconn.DNSRecordSet
 	domain      string
 	nameservers []string
 }
@@ -161,12 +162,13 @@ func (b *fakeNamecheapBackend) GetDomainStatus(_ context.Context, domain string)
 	return &ncconn.DomainStatus{Domain: domain, Registered: true}, nil
 }
 
-func (b *fakeNamecheapBackend) ListDNSRecords(_ context.Context, sld, tld string) ([]ncconn.DNSRecord, error) {
+func (b *fakeNamecheapBackend) GetDNSRecordSet(_ context.Context, sld, tld string) (*ncconn.DNSRecordSet, error) {
 	b.domain = sld + "." + tld
-	return []ncconn.DNSRecord{{ID: 1, Type: "A", Host: "@", Value: "1.2.3.4"}}, nil
+	return &ncconn.DNSRecordSet{EmailType: "MX", Records: []ncconn.DNSRecord{{ID: 1, Type: "A", Host: "@", Value: "1.2.3.4"}}}, nil
 }
 
-func (b *fakeNamecheapBackend) SetDNSRecords(_ context.Context, sld, tld string, _ []ncconn.DNSRecord) error {
+func (b *fakeNamecheapBackend) SetDNSRecordSet(_ context.Context, sld, tld string, set ncconn.DNSRecordSet) error {
+	b.recordSet = &set
 	b.domain = sld + "." + tld
 	return nil
 }
@@ -765,4 +767,39 @@ func startConnectorSocket(t *testing.T, client Client) *SocketClient {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return NewSocketClient(socketPath)
+}
+
+func TestNamecheapWholeZoneReplacementIsExplicitAndAcknowledged(t *testing.T) {
+	backend := &fakeNamecheapBackend{}
+	reg := connector.NewRegistry()
+	reg.Register(ncconn.NewWithBackend(backend))
+	service := NewExternalConnectorService(reg)
+	args := ExternalConnectorOperationArgs{Connector: "namecheap", Operation: "set_dns_record_set", Config: map[string]any{
+		"domain": "example.com", "email_type": "MX", "records": []any{map[string]any{"type": "TXT", "host": "resend._domainkey", "value": "p=AA/BB"}},
+	}}
+	if _, err := service.Execute(context.Background(), args); err == nil {
+		t.Fatal("replacement accepted without acknowledgment")
+	}
+	if backend.recordSet != nil {
+		t.Fatal("unacknowledged write reached backend")
+	}
+	args.DryRun = true
+	if _, err := service.Execute(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	if backend.recordSet != nil {
+		t.Fatal("dry run wrote")
+	}
+	args.DryRun = false
+	args.Acknowledged = true
+	if _, err := service.Execute(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	if backend.recordSet == nil || backend.recordSet.EmailType != "MX" || backend.recordSet.Records[0].Value != "p=AA/BB" {
+		t.Fatal("explicit mode/records lost")
+	}
+	delete(args.Config, "records")
+	if _, err := service.Execute(context.Background(), args); err == nil {
+		t.Fatal("missing authoritative records accepted")
+	}
 }

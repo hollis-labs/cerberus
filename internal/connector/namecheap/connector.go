@@ -17,8 +17,8 @@ var _ contract.Describer = (*Connector)(nil)
 type Backend interface {
 	ListDomains(ctx context.Context) ([]Domain, error)
 	GetDomainStatus(ctx context.Context, domain string) (*DomainStatus, error)
-	ListDNSRecords(ctx context.Context, sld, tld string) ([]DNSRecord, error)
-	SetDNSRecords(ctx context.Context, sld, tld string, records []DNSRecord) error
+	GetDNSRecordSet(ctx context.Context, sld, tld string) (*DNSRecordSet, error)
+	SetDNSRecordSet(ctx context.Context, sld, tld string, set DNSRecordSet) error
 	SetCustomNameservers(ctx context.Context, domain string, nameservers []string) (*DomainNameserverUpdate, error)
 }
 
@@ -134,6 +134,21 @@ func Definition() contract.Definition {
 			},
 		},
 		Operations: []contract.Operation{
+			{
+				Name: "get_dns_record_set", Description: "Read visible host records and domain email_type. getHosts may omit records; this is not an authoritative zone backup.",
+				InputSchema: contract.ObjectSchema(map[string]any{"domain": contract.StringSchema("Domain name.")}, "domain"),
+			},
+			{
+				Name: "set_dns_record_set", Description: "Replace ALL DNS hosts and explicitly set domain email routing. Supply an authoritative complete records array, including records getHosts hides. Omitted records are deleted.",
+				Destructive: true, SupportsDry: true,
+				InputSchema: contract.ObjectSchema(map[string]any{
+					"domain":     contract.StringSchema("Domain name."),
+					"email_type": map[string]any{"type": "string", "enum": []string{"MX", "MXE", "FWD", "OX", "NONE"}},
+					"records": map[string]any{"type": "array", "items": contract.ObjectSchema(map[string]any{
+						"type": contract.StringSchema("DNS type."), "host": contract.StringSchema("Host name."), "value": contract.StringSchema("Record value."), "ttl": contract.IntegerSchema("TTL."), "mx_pref": contract.IntegerSchema("MX preference."),
+					}, "type", "host", "value")},
+				}, "domain", "email_type", "records"),
+			},
 			{
 				Name:        "list_domains",
 				Description: "List domains in the Namecheap account.",
@@ -258,41 +273,64 @@ func (c *Connector) GetDomainStatus(ctx context.Context, domainName string) (*Do
 
 // ListDNSRecords returns DNS records for a domain. The domain is split into SLD+TLD.
 func (c *Connector) ListDNSRecords(ctx context.Context, domainName string) ([]DNSRecord, error) {
+	set, err := c.GetDNSRecordSet(ctx, domainName)
+	if err != nil {
+		return nil, err
+	}
+	return set.Records, nil
+}
+
+func (c *Connector) GetDNSRecordSet(ctx context.Context, domainName string) (*DNSRecordSet, error) {
 	sld, tld, err := SplitDomain(domainName)
 	if err != nil {
 		return nil, err
 	}
-	return c.backend.ListDNSRecords(ctx, sld, tld)
+	return c.backend.GetDNSRecordSet(ctx, sld, tld)
 }
 
+// SetDNSRecords replaces caller-supplied hosts while preserving the current email mode.
 func (c *Connector) SetDNSRecords(ctx context.Context, domainName string, records []DNSRecord) error {
+	set, err := c.GetDNSRecordSet(ctx, domainName)
+	if err != nil {
+		return err
+	}
+	set.Records = records
+	return c.SetDNSRecordSet(ctx, domainName, *set)
+}
+
+// SetDNSRecordSet explicitly replaces all hosts and the email mode. The caller
+// must supply an authoritative complete set, not a getHosts reconstruction.
+func (c *Connector) SetDNSRecordSet(ctx context.Context, domainName string, set DNSRecordSet) error {
+	if err := set.Validate(); err != nil {
+		return err
+	}
 	sld, tld, err := SplitDomain(domainName)
 	if err != nil {
 		return err
 	}
-	return c.backend.SetDNSRecords(ctx, sld, tld, records)
+	return c.backend.SetDNSRecordSet(ctx, sld, tld, set)
 }
 
 func (c *Connector) CreateDNSRecord(ctx context.Context, domainName string, record DNSRecord) (*DNSRecord, error) {
-	records, err := c.ListDNSRecords(ctx, domainName)
+	set, err := c.GetDNSRecordSet(ctx, domainName)
 	if err != nil {
 		return nil, err
 	}
-	records = append(records, record)
-	if err := c.SetDNSRecords(ctx, domainName, records); err != nil {
+	set.Records = append(set.Records, record)
+	if err = c.SetDNSRecordSet(ctx, domainName, *set); err != nil {
 		return nil, err
 	}
 	return &record, nil
 }
 
 func (c *Connector) DeleteDNSRecord(ctx context.Context, domainName string, recordID int) error {
-	records, err := c.ListDNSRecords(ctx, domainName)
+	set, err := c.GetDNSRecordSet(ctx, domainName)
 	if err != nil {
 		return err
 	}
-	filtered := make([]DNSRecord, 0, len(records))
+	filtered := make([]DNSRecord, 0, len(set.Records))
 	found := false
-	for _, record := range records {
+	for _, record := range set.Records {
 		if record.ID == recordID {
 			found = true
 			continue
@@ -302,7 +340,8 @@ func (c *Connector) DeleteDNSRecord(ctx context.Context, domainName string, reco
 	if !found {
 		return fmt.Errorf("namecheap dns record %d not found for %s", recordID, domainName)
 	}
-	return c.SetDNSRecords(ctx, domainName, filtered)
+	set.Records = filtered
+	return c.SetDNSRecordSet(ctx, domainName, *set)
 }
 
 func (c *Connector) SetCustomNameservers(ctx context.Context, domainName string, nameservers []string) (*DomainNameserverUpdate, error) {
