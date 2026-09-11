@@ -124,11 +124,13 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 
 	needsReload := !loaded || artifactChanged || plistChanged
 	if needsReload && loaded {
-		_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
+		if out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget); err != nil && !isLaunchdNotFound(string(out), err) {
+			return ApplyResult{}, fmt.Errorf("launchctl bootout %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
+		}
 	}
 	if needsReload {
 		if out, err := b.bootstrapService(ctx, domainTarget, serviceTarget, plistPath); err != nil {
-			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
+			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s failed; service may be stopped, retry cerberus resource apply %s: %w%s", label, res.ID, err, formatLaunchdFailureDetails(out, layout))
 		}
 	}
 	if !needsReload && (state == domain.StateRunning || state == domain.StateStarting) {
@@ -380,8 +382,20 @@ func (b launchdBackend) bootstrapService(ctx context.Context, domainTarget, serv
 	if !isLaunchdBootstrapConflict(string(out), err) {
 		return out, err
 	}
-	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
-	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", domainTarget, plistPath)
+	for _, args := range [][]string{{"bootout", serviceTarget}, {"bootout", domainTarget, plistPath}} {
+		if recoveryOut, recoveryErr := b.runner.CombinedOutput(ctx, "launchctl", args...); recoveryErr != nil && !isLaunchdNotFound(string(recoveryOut), recoveryErr) {
+			return recoveryOut, fmt.Errorf("recovery bootout failed: %w", recoveryErr)
+		}
+	}
+	// launchd can retain the just-booted-out slot briefly. The bounded retry
+	// must yield for it to clear, and cancellation must not start a new job.
+	timer := time.NewTimer(250 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return out, ctx.Err()
+	case <-timer.C:
+	}
 	return b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath)
 }
 

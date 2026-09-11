@@ -845,3 +845,32 @@ func TestWaitRunningHonorsCancellation(t *testing.T) {
 		t.Fatalf("expected cancellation: %v", err)
 	}
 }
+
+func TestBootstrapRecoveryHonorsCancellationAndBootoutFailure(t *testing.T) {
+	for _, mode := range []string{"cancel", "bootout-fails"} {
+		t.Run(mode, func(t *testing.T) {
+			runner := &fakeCommandRunner{out: map[string][]byte{"launchctl bootstrap gui/501 app.plist": []byte("Bootstrap failed: 5: Input/output error")}, err: map[string]error{"launchctl bootstrap gui/501 app.plist": errors.New("exit status 5")}}
+			ctx := context.Background()
+			if mode == "cancel" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 20*time.Millisecond)
+				defer cancel()
+			} else {
+				runner.err["launchctl bootout gui/501/app"] = errors.New("permission denied")
+			}
+			backend := launchdBackend{runner: runner}
+			_, err := backend.bootstrapService(ctx, "gui/501", "gui/501/app", "app.plist")
+			if mode == "cancel" && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("lost cancellation: %v", err)
+			}
+			if mode == "bootout-fails" && (err == nil || !strings.Contains(err.Error(), "recovery bootout failed")) {
+				t.Fatalf("lost failed step: %v", err)
+			}
+			for _, call := range runner.calls[1:] {
+				if call.args[0] == "bootstrap" {
+					t.Fatal("retried bootstrap after failed/canceled recovery")
+				}
+			}
+		})
+	}
+}
