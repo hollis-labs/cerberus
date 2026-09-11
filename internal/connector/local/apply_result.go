@@ -23,7 +23,7 @@ func FormatApplyResultMessage(id string, spec ProcessSpec, res ApplyResult) stri
 				parts = append(parts, "plist updated")
 			}
 			if len(parts) == 0 {
-				parts = append(parts, "launchd reloaded")
+				parts = append(parts, "activation pending")
 			}
 			return fmt.Sprintf("resource %q applied successfully (%s, launchd reloaded)", id, strings.Join(parts, ", "))
 		case ApplyActionRestarted:

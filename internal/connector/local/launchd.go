@@ -136,6 +136,9 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 		if out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget); err != nil && !isLaunchdNotFound(string(out), err) {
 			return ApplyResult{}, fmt.Errorf("launchctl bootout %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
 		}
+		if err := waitLaunchdSlot(ctx); err != nil {
+			return ApplyResult{}, err
+		}
 	}
 	if needsReload {
 		if out, err := b.bootstrapService(ctx, domainTarget, serviceTarget, plistPath); err != nil {
@@ -397,21 +400,31 @@ func (b launchdBackend) bootstrapService(ctx context.Context, domainTarget, serv
 	if !isLaunchdBootstrapConflict(string(out), err) {
 		return out, err
 	}
-	for _, args := range [][]string{{"bootout", serviceTarget}, {"bootout", domainTarget, plistPath}} {
-		if recoveryOut, recoveryErr := b.runner.CombinedOutput(ctx, "launchctl", args...); recoveryErr != nil && !isLaunchdNotFound(string(recoveryOut), recoveryErr) {
+	// A conflict can mean a just-removed slot is still draining. Probe the
+	// label first: booting out an already-absent job returns a misleading EIO.
+	printOut, printErr := b.runner.CombinedOutput(ctx, "launchctl", "print", serviceTarget)
+	if printErr == nil {
+		if recoveryOut, recoveryErr := b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget); recoveryErr != nil && !isLaunchdNotFound(string(recoveryOut), recoveryErr) {
 			return recoveryOut, fmt.Errorf("recovery bootout failed: %w", recoveryErr)
 		}
+	} else if !isLaunchdNotFound(string(printOut), printErr) {
+		return printOut, fmt.Errorf("inspect bootstrap conflict: %w", printErr)
 	}
-	// launchd can retain the just-booted-out slot briefly. The bounded retry
-	// must yield for it to clear, and cancellation must not start a new job.
+	if err := waitLaunchdSlot(ctx); err != nil {
+		return out, err
+	}
+	return b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath)
+}
+
+func waitLaunchdSlot(ctx context.Context) error {
 	timer := time.NewTimer(250 * time.Millisecond)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return out, ctx.Err()
+		return ctx.Err()
 	case <-timer.C:
+		return nil
 	}
-	return b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath)
 }
 
 func (b launchdBackend) serviceName(res *domain.Resource, spec ProcessSpec) (string, error) {
