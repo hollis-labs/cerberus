@@ -96,7 +96,7 @@ func (i artifactInstaller) Sync(res *domain.Resource, spec ProcessSpec) (Install
 	manifestPath := filepath.Join(layout.RootDir, artifactManifestName)
 	if manifest, err := readArtifactManifest(manifestPath); err == nil {
 		if manifest.SourcePath == sourcePath && manifest.SourceHash == sourceHash {
-			if _, statErr := os.Stat(layout.ArtifactPath); statErr == nil {
+			if installedHash, hashErr := fileSHA256(layout.ArtifactPath); hashErr == nil && installedHash == sourceHash {
 				return layout, artifactSyncResult{
 					Performed:    true,
 					Changed:      false,
@@ -166,6 +166,9 @@ func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (Insta
 		return InstallLayout{}, artifactStatus{}, statErr
 	}
 	stale, staleReason := i.inspectArtifactDrift(spec, manifest)
+	if installedHash, hashErr := fileSHA256(layout.ArtifactPath); hashErr != nil || installedHash != manifest.SourceHash {
+		stale, staleReason = true, "installed_artifact_changed"
+	}
 	return layout, artifactStatus{
 		Installed:    true,
 		SourcePath:   manifest.SourcePath,
@@ -338,16 +341,30 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm()) //nolint:gosec
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("artifact source must be a regular file: %s", src)
+	}
+	// A fresh inode avoids macOS's cached code-signing identity. Rename also
+	// keeps readers on the previous complete binary until the copy is ready.
+	out, err := os.CreateTemp(filepath.Dir(dst), ".artifact-*")
 	if err != nil {
 		return err
 	}
+	defer func() { _ = out.Close(); _ = os.Remove(out.Name()) }()
 
 	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
 		return err
 	}
-	return out.Close()
+	if err := out.Chmod(info.Mode().Perm()); err != nil {
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(out.Name(), dst)
 }
 
 // artifactRepoState captures the source repo's git state at sync time. It is

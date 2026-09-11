@@ -70,7 +70,8 @@ type launchdBackend struct {
 	// selfPath resolves the Cerberus executable used to front a service whose
 	// environment carries secret references. Nil falls back to os.Executable
 	// with a PATH lookup behind it; tests override it.
-	selfPath func() (string, error)
+	selfPath     func() (string, error)
+	startTimeout time.Duration
 }
 
 type plistTemplateData struct {
@@ -131,6 +132,11 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 		}
 	}
 	if !needsReload && (state == domain.StateRunning || state == domain.StateStarting) {
+		if state == domain.StateStarting {
+			if err := b.waitRunning(ctx, res, spec, layout); err != nil {
+				return ApplyResult{}, err
+			}
+		}
 		return ApplyResult{
 			Action:          ApplyActionNoop,
 			ArtifactChanged: artifactChanged,
@@ -139,6 +145,9 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 	}
 	if out, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", serviceTarget); err != nil {
 		return ApplyResult{}, fmt.Errorf("launchctl kickstart %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
+	}
+	if err := b.waitRunning(ctx, res, spec, layout); err != nil {
+		return ApplyResult{}, err
 	}
 	action := ApplyActionRestarted
 	if !loaded {
@@ -193,7 +202,48 @@ func (b launchdBackend) Reload(ctx context.Context, res *domain.Resource, spec P
 	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", target); err != nil {
 		return fmt.Errorf("launchctl kickstart %s: %w", label, err)
 	}
-	return nil
+	layout, err := defaultInstallLayoutFromBackend(b, res, spec)
+	if err != nil {
+		return err
+	}
+	return b.waitRunning(ctx, res, spec, layout)
+}
+
+// Command acceptance does not mean launchd could execute the binary. Require
+// a running PID across successive observations, and keep failure diagnostics.
+func (b launchdBackend) waitRunning(ctx context.Context, res *domain.Resource, spec ProcessSpec, layout InstallLayout) error {
+	timeout := b.startTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var last launchdRecord
+	previousPID := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("launchd service %q did not reach running: %w%s", layout.ServiceName, err, formatLaunchdFailureDetails([]byte(last.Raw), layout))
+		}
+		rec, err := b.Inspect(ctx, res, spec)
+		if err != nil {
+			return err
+		}
+		last = rec
+		if rec.Loaded && rec.State == "running" && rec.PID > 0 {
+			if rec.PID == previousPID {
+				return nil
+			}
+			previousPID = rec.PID
+		} else {
+			previousPID = 0
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
 }
 
 func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec ProcessSpec) (launchdRecord, error) {

@@ -292,3 +292,90 @@ func runGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 }
+
+//nolint:gosec // executable fixtures and file paths are confined to t.TempDir
+func TestCopyArtifactReplacesInodeAndPreservesOpenReaders(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "source"), filepath.Join(dir, "installed")
+	if err := os.WriteFile(src, []byte("new binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Open(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = old.Close() }()
+	before, err := old.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = copyFile(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(before, after) {
+		t.Fatal("replacement reused installed inode")
+	}
+	if after.Mode().Perm() != 0700 {
+		t.Fatalf("lost executable mode: %v", after.Mode())
+	}
+	oldBytes := make([]byte, 10)
+	if _, err = old.Read(oldBytes); err != nil {
+		t.Fatal(err)
+	}
+	newBytes, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(oldBytes) != "old binary" || string(newBytes) != "new binary" {
+		t.Fatal("reader observed partial replacement")
+	}
+	if err = copyFile(dir, dst); err == nil {
+		t.Fatal("directory source accepted")
+	}
+	newBytes, err = os.ReadFile(dst)
+	if err != nil || string(newBytes) != "new binary" {
+		t.Fatalf("failed copy damaged destination: %q %v", newBytes, err)
+	}
+}
+
+//nolint:gosec // executable fixtures are confined to t.TempDir
+func TestSyncRepairsTamperedInstalledArtifact(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source")
+	if err := os.WriteFile(src, []byte("valid"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	installer := artifactInstaller{homeDir: func() (string, error) { return dir, nil }, now: time.Now}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{RunFrom: ProcessRunFromArtifact, Command: []string{src}}
+	layout, _, err := installer.Sync(res, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(layout.ArtifactPath, []byte("corrupt"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, status, err := installer.Status(res, spec)
+	if err != nil || !status.Stale {
+		t.Fatalf("corruption not detected: %+v %v", status, err)
+	}
+	_, result, err := installer.Sync(res, spec)
+	if err != nil || !result.Changed {
+		t.Fatalf("corruption not repaired: %+v %v", result, err)
+	}
+	installedHash, err := fileSHA256(layout.ArtifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceHash, err := fileSHA256(src)
+	if err != nil || installedHash != sourceHash {
+		t.Fatal("repair did not restore artifact")
+	}
+}
