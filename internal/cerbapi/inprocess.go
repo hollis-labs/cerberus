@@ -2,11 +2,12 @@ package cerbapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
@@ -395,7 +396,7 @@ func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*Pipeline
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("pipeline execution: %s", err.Error())}, nil
 	}
-	raw, err := json.Marshal(result)
+	raw, err := redact.Marshal(result)
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("marshal result: %s", err.Error())}, nil
 	}

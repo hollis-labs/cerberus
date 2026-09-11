@@ -373,7 +373,7 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 		Status:             string(state),
 		OperatorStopped:    pausectl.IsServicePaused(res.ID),
 		WorkspaceDir:       spec.Dir,
-		Command:            append([]string(nil), spec.Command...),
+		Command:            localconn.OutputRedactor(spec).Args(spec.Command),
 		BuildStrategy:      buildStrategyKind(spec),
 		WorkingDir:         spec.Dir,
 	}
@@ -702,6 +702,13 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 		if out != nil {
 			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
 			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.snapshotConfig())...)
+			if spec, parseErr := localconn.SpecFromResourceConfig(res.Config); parseErr == nil {
+				r := localconn.OutputRedactor(spec)
+				out.Message = r.Text(out.Message)
+				out.Error = r.Text(out.Error)
+				out.BuildOutput = r.Text(out.BuildOutput)
+				out.InstallOutput = r.Text(out.InstallOutput)
+			}
 		}
 	}()
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
@@ -910,6 +917,13 @@ func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (
 		if out != nil {
 			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
 			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.snapshotConfig())...)
+			if spec, parseErr := localconn.SpecFromResourceConfig(res.Config); parseErr == nil {
+				r := localconn.OutputRedactor(spec)
+				out.Message = r.Text(out.Message)
+				out.Error = r.Text(out.Error)
+				out.BuildOutput = r.Text(out.BuildOutput)
+				out.InstallOutput = r.Text(out.InstallOutput)
+			}
 		}
 	}()
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
@@ -1091,7 +1105,7 @@ func (s *ResourceRuntimeService) ResourceLogs(ctx context.Context, id string, li
 		ResourceID: id,
 		Stream:     stream,
 		LogPath:    logPath,
-		Content:    content,
+		Content:    localconn.OutputRedactor(spec).Text(content),
 	}, nil
 }
 

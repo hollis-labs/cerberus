@@ -104,7 +104,9 @@ func BuildProcessResultContext(ctx context.Context, spec ProcessSpec) (*BuildRes
 	if result == nil {
 		result = &BuildResult{}
 	}
-	return result, err
+	result.Command = OutputRedactor(spec).Args(result.Command)
+	result.Output = OutputRedactor(spec).Text(result.Output)
+	return result, OutputRedactor(spec).Error(err)
 }
 
 func HasBuildStrategy(spec ProcessSpec) bool {

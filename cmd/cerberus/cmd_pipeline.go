@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"text/tabwriter"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/domain"
@@ -146,7 +147,7 @@ var pipelineShowCmd = &cobra.Command{
 		pipelineID := args[0]
 		for _, pd := range a.Config.Pipelines {
 			if pd.ID == pipelineID {
-				data, err := json.MarshalIndent(pd, "", "  ")
+				data, err := redact.MarshalIndent(pd, "", "  ")
 				if err != nil {
 					return err
 				}

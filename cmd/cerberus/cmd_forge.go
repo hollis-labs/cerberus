@@ -1,11 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"text/tabwriter"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -254,7 +255,7 @@ var forgeExecCmd = &cobra.Command{
 		if !ok {
 			return fmt.Errorf("forge exec: unexpected result type %T", result.Data)
 		}
-		data, _ := json.MarshalIndent(command, "", "  ")
+		data, _ := redact.MarshalIndent(command, "", "  ")
 		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		return nil
 	},

@@ -1,11 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"text/tabwriter"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
@@ -92,7 +93,7 @@ var domainStatusCmd = &cobra.Command{
 			return fmt.Errorf("domain status: unexpected result type %T", result.Data)
 		}
 
-		data, _ := json.MarshalIndent(status, "", "  ")
+		data, _ := redact.MarshalIndent(status, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	},

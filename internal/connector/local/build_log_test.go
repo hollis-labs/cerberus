@@ -87,3 +87,24 @@ func TestBuildCommandSummary(t *testing.T) {
 		t.Fatalf("fallback summary = %q", got)
 	}
 }
+
+func TestBuildAndInstallRedactKnownEnvironmentValues(t *testing.T) {
+	requireMake(t)
+	dir := t.TempDir()
+	writeMakefile(t, dir, "build:\n\t@echo $$API_KEY\ninstall:\n\t@echo $$API_KEY\n")
+	spec := ProcessSpec{Dir: dir, Env: map[string]string{"API_KEY": "opaque-build-sentinel"}, BuildStrategy: &BuildStrategyConfig{Kind: "make_standard"}}
+	result, err := BuildProcessResultContext(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result.Output, "opaque-build-sentinel") || !strings.Contains(result.Output, "[REDACTED]") {
+		t.Fatal("build output leaked")
+	}
+	_, output, err := RunInstall(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output, "opaque-build-sentinel") || !strings.Contains(output, "[REDACTED]") {
+		t.Fatal("install output leaked")
+	}
+}
