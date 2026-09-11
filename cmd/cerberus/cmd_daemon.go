@@ -596,6 +596,9 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusNameserversSetTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDNSListTool(inProc))
+		for _, tool := range mcp.NewCerberusDNSRecordSetTools(inProc) {
+			srv.RegisterTool(tool)
+		}
 		srv.RegisterTool(mcp.NewCerberusDNSCreateTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(inProc))
 

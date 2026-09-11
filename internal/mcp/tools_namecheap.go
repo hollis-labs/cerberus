@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/chrispian/cerberus/internal/connector/namecheap"
 )
 
 // NewCerberusDomainListTool creates the cerberus_domain_list tool.
@@ -128,4 +129,29 @@ func NewCerberusNameserversSetTool(client cerbapi.Client) Tool {
 func stringArg(args map[string]interface{}, key string) string {
 	value, _ := args[key].(string)
 	return value
+}
+
+// NewCerberusDNSRecordSetTools exposes the email-aware whole-zone operations.
+func NewCerberusDNSRecordSetTools(client cerbapi.Client) []Tool {
+	var result []Tool
+	for _, op := range namecheap.Definition().Operations {
+		if op.Name != "get_dns_record_set" && op.Name != "set_dns_record_set" {
+			continue
+		}
+		operation := op.Name
+		properties := op.InputSchema["properties"].(map[string]any)
+		if op.Destructive {
+			properties["dry_run"] = map[string]any{"type": "boolean", "description": "Preview without changing DNS or email routing."}
+			properties["acknowledged"] = map[string]any{"type": "boolean", "description": "Acknowledge replacing the full zone and explicitly setting email routing; omitted hosts are deleted."}
+		}
+		result = append(result, Tool{Name: "cerberus_" + operation, Description: op.Description, InputSchema: op.InputSchema, Handler: func(ctx context.Context, args map[string]any) (string, error) {
+			config := map[string]any{"domain": stringArg(args, "domain")}
+			if operation == "set_dns_record_set" {
+				config["email_type"] = stringArg(args, "email_type")
+				config["records"] = args["records"]
+			}
+			return executeConnectorMCP(ctx, client, "namecheap", operation, config, boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
+		}})
+	}
+	return result
 }

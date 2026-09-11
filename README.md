@@ -272,7 +272,8 @@ For registrar and DNS operations:
   `email_type`. Its `set_dns_record_set` operation explicitly replaces all
   hosts and the email mode; it requires acknowledgment, `domain`, `email_type`,
   and a complete `records` array. Use it through connector execution in the
-  API, MCP or console. It supports dry-run. `FWD` rejects MX/MXE records;
+  API, MCP (`cerberus_get_dns_record_set` / `cerberus_set_dns_record_set`)
+  or console. It supports dry-run. `FWD` rejects MX/MXE records;
   changing to custom MX is an explicit email-routing change.
   [Namecheap setHosts](https://www.namecheap.com/support/api/methods/domains-dns/set-hosts/)
   deletes omitted records. The API can hide existing records, so its read-back
