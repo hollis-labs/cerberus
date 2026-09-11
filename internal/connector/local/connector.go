@@ -10,10 +10,11 @@ import (
 
 // Connector manages local OS processes through the v2 local runtime backends.
 type Connector struct {
-	mu       sync.RWMutex
-	sessions map[string]*devSession
-	dev      runtimeBackend
-	service  runtimeBackend
+	mu            sync.RWMutex
+	sessions      map[string]*devSession
+	dev           runtimeBackend
+	service       runtimeBackend
+	mutationGuard func(*domain.Resource, ProcessSpec) error
 }
 
 // New creates a local connector.
@@ -23,6 +24,28 @@ func New() *Connector {
 		dev:      devSessionBackend{},
 		service:  newOSServiceBackend(),
 	}
+}
+
+// SetMutationGuard installs the serving runtime's policy for all local callers,
+// including pipelines that use the connector without a transport client.
+func (c *Connector) SetMutationGuard(guard func(*domain.Resource, ProcessSpec) error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mutationGuard = guard
+}
+
+func (c *Connector) ValidateMutation(res *domain.Resource) error {
+	spec, err := SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return err
+	}
+	c.mu.RLock()
+	guard := c.mutationGuard
+	c.mu.RUnlock()
+	if guard != nil {
+		return guard(res, spec)
+	}
+	return nil
 }
 
 func (c *Connector) ID() string              { return "local" }
@@ -61,6 +84,9 @@ func (c *Connector) Start(ctx context.Context, res *domain.Resource) error {
 }
 
 func (c *Connector) Apply(ctx context.Context, res *domain.Resource) (ApplyResult, error) {
+	if err := c.ValidateMutation(res); err != nil {
+		return ApplyResult{}, err
+	}
 	backend, spec, svc, err := c.runtimeFor(res)
 	if err != nil {
 		return ApplyResult{}, err
@@ -69,6 +95,9 @@ func (c *Connector) Apply(ctx context.Context, res *domain.Resource) (ApplyResul
 }
 
 func (c *Connector) Reload(ctx context.Context, res *domain.Resource) error {
+	if err := c.ValidateMutation(res); err != nil {
+		return err
+	}
 	backend, spec, svc, err := c.runtimeFor(res)
 	if err != nil {
 		return err
@@ -77,6 +106,9 @@ func (c *Connector) Reload(ctx context.Context, res *domain.Resource) error {
 }
 
 func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {
+	if err := c.ValidateMutation(res); err != nil {
+		return err
+	}
 	backend, spec, svc, err := c.runtimeFor(res)
 	if err != nil {
 		return err
@@ -85,6 +117,9 @@ func (c *Connector) Stop(ctx context.Context, res *domain.Resource) error {
 }
 
 func (c *Connector) Destroy(ctx context.Context, res *domain.Resource) error {
+	if err := c.ValidateMutation(res); err != nil {
+		return err
+	}
 	backend, spec, svc, err := c.runtimeFor(res)
 	if err != nil {
 		return err

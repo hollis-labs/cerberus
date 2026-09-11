@@ -44,7 +44,10 @@ type ResourceRuntimeService struct {
 	// instead of running a live git probe per poll.
 	drift atomic.Pointer[DriftCache]
 
-	opMu sync.Mutex
+	opMu              sync.Mutex
+	servingDaemon     bool
+	servingExecutable string
+	servingLabel      string
 }
 
 // AttachDriftCache wires a background drift cache into the runtime so the
@@ -618,6 +621,9 @@ func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string) 
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
+	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
+	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
 	}
@@ -642,6 +648,9 @@ func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string) (*
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
+	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
 	}
 	paused := false
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
@@ -679,6 +688,9 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
+	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
 	}
 	installAfterBuild := s.resolveInstallAfterBuild(res.Config, spec, opts)
 	buildOutput := ""
@@ -863,6 +875,9 @@ func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
+	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
+	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
 	}
@@ -928,6 +943,9 @@ func (s *ResourceRuntimeService) SyncResource(ctx context.Context, id string) (*
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
+	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
+	}
 	if spec.RunFrom != localconn.ProcessRunFromArtifact {
 		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Sync skipped for resource %s: artifact mode not enabled", id))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Nothing to sync")
@@ -969,6 +987,9 @@ func (s *ResourceRuntimeService) RemoveResource(ctx context.Context, id string) 
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
+	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
 	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.PauseService(id)
