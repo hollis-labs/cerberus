@@ -282,6 +282,7 @@ type ResourceListArgs struct {
 
 // ResourceRuntimeStatus is the DTO for resource-runtime status and apply flows.
 type ResourceRuntimeStatus struct {
+	DependencyWarnings  []string `json:"dependency_warnings,omitempty"`
 	ConfigWarnings      []string `json:"config_warnings,omitempty"`
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`
@@ -319,6 +320,7 @@ type ResourceRuntimeStatus struct {
 
 // ResourceInspect is the detailed operator-facing inspection view for a local process resource.
 type ResourceInspect struct {
+	DependencyWarnings  []string `json:"dependency_warnings,omitempty"`
 	ConfigWarnings      []string `json:"config_warnings,omitempty"`
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`

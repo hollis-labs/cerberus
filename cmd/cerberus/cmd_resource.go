@@ -631,6 +631,9 @@ func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {
 }
 
 func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
+	for _, warning := range st.DependencyWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
 	for _, warning := range st.ConfigWarnings {
 		fmt.Printf("Warning: %s\n", warning)
 	}
@@ -709,6 +712,9 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 }
 
 func printResourceInspect(st *cerbapi.ResourceInspect) {
+	for _, warning := range st.DependencyWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
 	for _, warning := range st.ConfigWarnings {
 		fmt.Printf("Warning: %s\n", warning)
 	}

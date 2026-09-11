@@ -295,6 +295,7 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 
 	return &ResourceRuntimeStatus{
 		ConfigWarnings:      localconn.ProcessConfigWarnings(res.Config),
+		DependencyWarnings:  s.dependencyWarnings(ctx, res, cfg),
 		ID:                  res.ID,
 		Name:                res.Name,
 		Type:                res.Type,
@@ -357,23 +358,24 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 	}
 
 	out := &ResourceInspect{
-		ConfigWarnings:  localconn.ProcessConfigWarnings(res.Config),
-		ID:              res.ID,
-		Name:            res.Name,
-		Type:            res.Type,
-		Project:         res.Project,
-		Connector:       res.Connector,
-		Mode:            resourceMode(*res),
-		Supervisor:      resourceSupervisor(*res),
-		RunFrom:         resourceRunFrom(*res),
-		URL:             spec.URL,
-		Port:            spec.Port,
-		Status:          string(state),
-		OperatorStopped: pausectl.IsServicePaused(res.ID),
-		WorkspaceDir:    spec.Dir,
-		Command:         append([]string(nil), spec.Command...),
-		BuildStrategy:   buildStrategyKind(spec),
-		WorkingDir:      spec.Dir,
+		DependencyWarnings: s.dependencyWarnings(ctx, res, cfg),
+		ConfigWarnings:     localconn.ProcessConfigWarnings(res.Config),
+		ID:                 res.ID,
+		Name:               res.Name,
+		Type:               res.Type,
+		Project:            res.Project,
+		Connector:          res.Connector,
+		Mode:               resourceMode(*res),
+		Supervisor:         resourceSupervisor(*res),
+		RunFrom:            resourceRunFrom(*res),
+		URL:                spec.URL,
+		Port:               spec.Port,
+		Status:             string(state),
+		OperatorStopped:    pausectl.IsServicePaused(res.ID),
+		WorkspaceDir:       spec.Dir,
+		Command:            append([]string(nil), spec.Command...),
+		BuildStrategy:      buildStrategyKind(spec),
+		WorkingDir:         spec.Dir,
 	}
 
 	if spec.Mode == localconn.ProcessModeOSService {
@@ -459,6 +461,9 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 		checks = append(checks, ResourceDoctorCheck{Name: name, Status: status, Message: msg})
 	}
 
+	for _, warning := range inspect.DependencyWarnings {
+		add("dependency", "warn", warning)
+	}
 	for _, warning := range inspect.ConfigWarnings {
 		add("config_key", "warn", warning)
 	}
@@ -696,6 +701,7 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	defer func() {
 		if out != nil {
 			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
+			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.snapshotConfig())...)
 		}
 	}()
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
@@ -903,6 +909,7 @@ func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (
 	defer func() {
 		if out != nil {
 			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
+			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.snapshotConfig())...)
 		}
 	}()
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
