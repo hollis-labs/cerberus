@@ -19,6 +19,7 @@ import (
 	"github.com/chrispian/cerberus/internal/domain"
 	"github.com/chrispian/cerberus/internal/pausectl"
 	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/chrispian/cerberus/internal/secretref"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -503,6 +504,13 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 
 		checkPathCheck("install_root", inspect.InstallRoot, true)
 		checkPathCheck("plist", inspect.PlistPath, true)
+		if _, spec, specErr := s.requireLocalProcessSpec(id); specErr == nil && secretref.EnvHasRefs(spec.Env) {
+			if checkErr := localconn.CheckSecretReferencePlist(inspect.PlistPath, spec); checkErr != nil {
+				add("secret_reference_shim", "fail", checkErr.Error())
+			} else {
+				add("secret_reference_shim", "pass", "plist retains secret references and fronts the service with run-secrets; live credential resolution is a separate check")
+			}
+		}
 		checkPathCheck("stdout_log", inspect.StdoutLogPath, false)
 		checkPathCheck("stderr_log", inspect.StderrLogPath, false)
 
