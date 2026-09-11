@@ -18,10 +18,10 @@ import (
 // Fragments-style kind/source/rules shape so new strategies can be added
 // without changing process-resource fields again.
 type BuildStrategyConfig struct {
-	Kind      string
-	EnvPrefix []string
-	Source    map[string]any
-	Rules     map[string]any
+	Kind      string         `yaml:"kind"`
+	EnvPrefix []string       `yaml:"env_prefix"`
+	Source    map[string]any `yaml:"source"`
+	Rules     map[string]any `yaml:"rules"`
 }
 
 type BuildConfig struct {

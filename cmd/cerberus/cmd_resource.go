@@ -602,6 +602,9 @@ func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {
 		fmt.Println(fallback)
 		return nil
 	}
+	for _, warning := range out.Warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+	}
 	if !out.Success {
 		// Surface captured build/install output and the log path so a failed
 		// deploy is diagnosable inline instead of a bare "exit status 2".
@@ -628,6 +631,9 @@ func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {
 }
 
 func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
+	for _, warning := range st.ConfigWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
 	fmt.Printf("Resource:    %s\n", st.ID)
 	fmt.Printf("Name:        %s\n", st.Name)
 	fmt.Printf("Status:      %s\n", st.Status)
@@ -703,6 +709,9 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 }
 
 func printResourceInspect(st *cerbapi.ResourceInspect) {
+	for _, warning := range st.ConfigWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
 	fmt.Printf("Resource:    %s\n", st.ID)
 	fmt.Printf("Name:        %s\n", st.Name)
 	fmt.Printf("Status:      %s\n", st.Status)

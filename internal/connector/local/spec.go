@@ -38,30 +38,30 @@ const (
 // It preserves the existing v1-compatible service fields while adding the
 // explicit daemon-management fields needed for v2 service backends.
 type ProcessSpec struct {
-	Dir                string
-	Command            []string
-	EnvFile            string
-	Env                map[string]string
-	URL                string
-	Port               int
-	BuildStrategy      *BuildStrategyConfig
-	Health             string
-	HealthCheck        config.HealthCheck
-	AutoStart          bool
-	AutoRestart        bool
-	RestartDelay       string
-	MaxRestartAttempts int
-	RestartCooldown    string
-	LogFile            string
-	Profiles           []string
-	Protected          bool
-	Mode               ProcessMode
-	Supervisor         ProcessSupervisor
-	RunFrom            ProcessRunFrom
-	ServiceName        string
-	ArtifactPath       string
-	InstallRoot        string
-	InstallWorkDir     string
+	Dir                string               `yaml:"dir"`
+	Command            []string             `yaml:"command"`
+	EnvFile            string               `yaml:"env_file"`
+	Env                map[string]string    `yaml:"env"`
+	URL                string               `yaml:"url"`
+	Port               int                  `yaml:"port"`
+	BuildStrategy      *BuildStrategyConfig `yaml:"build_strategy"`
+	Health             string               `yaml:"health"`
+	HealthCheck        config.HealthCheck   `yaml:"health_check"`
+	AutoStart          bool                 `yaml:"auto_start"`
+	AutoRestart        bool                 `yaml:"auto_restart"`
+	RestartDelay       string               `yaml:"restart_delay"`
+	MaxRestartAttempts int                  `yaml:"max_restart_attempts"`
+	RestartCooldown    string               `yaml:"restart_cooldown"`
+	LogFile            string               `yaml:"log_file"`
+	Profiles           []string             `yaml:"profiles"`
+	Protected          bool                 `yaml:"protected"`
+	Mode               ProcessMode          `yaml:"mode"`
+	Supervisor         ProcessSupervisor    `yaml:"supervisor"`
+	RunFrom            ProcessRunFrom       `yaml:"run_from"`
+	ServiceName        string               `yaml:"service_name"`
+	ArtifactPath       string               `yaml:"artifact_path"`
+	InstallRoot        string               `yaml:"install_root"`
+	InstallWorkDir     string               `yaml:"install_work_dir"`
 	// InstallAfterBuild reflects the resource-level value parsed from the
 	// `install_after_build` config key. The field is plain bool and defaults
 	// to true when the YAML key is absent — that matches the documented
@@ -70,7 +70,7 @@ type ProcessSpec struct {
 	// opt-out). Callers that need to distinguish "absent" from "explicit
 	// false" should still probe presence on the raw config map and route
 	// through cerbapi.ResolveInstallAfterBuild.
-	InstallAfterBuild bool
+	InstallAfterBuild bool `yaml:"install_after_build"`
 }
 
 // SpecFromResourceConfig decodes a local process config map into a typed spec.
