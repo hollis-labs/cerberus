@@ -11,3 +11,6 @@ web/node_modules/
 # Claude Code client runtime state (worktrees, settings.local.json, locks).
 # Agent configuration lives in AGENTS.md; nothing here should be tracked.
 /.claude/
+
+# Source-tree build coordination (lock inode must persist).
+.cerberus-build.lock

@@ -447,3 +447,13 @@ The correct pattern is:
 - supervisor-managed status for durable services
 
 For artifact-backed resources with a `build:` command, Cerberus now also records Git repo state when the artifact is synced. That lets status warn when the current repo commit or worktree no longer matches the installed UAT or release artifact, even if nobody rebuilt the binary yet.
+
+Cerberus serializes builds in the same source tree, including build subdirectories
+of one Git repository. A concurrent caller fails promptly with the holder's
+resource ID, PID and lock age. The lock spans build, optional install and deploy
+activation. Process exit releases it automatically; do not delete an active lock
+file. Add this entry to the project's `.gitignore`:
+
+```gitignore
+.cerberus-build.lock
+```

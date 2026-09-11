@@ -25,6 +25,11 @@ func (a *Build) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 	if !localconn.HasBuildStrategy(a.spec) {
 		return nil // no build command configured — skip
 	}
+	ctx, release, err := localconn.WithBuildLock(ctx, a.spec, a.resourceID)
+	if err != nil {
+		return err
+	}
+	defer release()
 	result, err := localconn.BuildProcessResultContext(ctx, a.spec)
 	if result == nil {
 		result = &localconn.BuildResult{}

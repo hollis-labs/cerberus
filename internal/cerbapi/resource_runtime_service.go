@@ -693,6 +693,11 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
 	}
 	installAfterBuild := s.resolveInstallAfterBuild(res.Config, spec, opts)
+	ctx, releaseBuild, lockErr := localconn.WithBuildLock(ctx, spec, id)
+	if lockErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: lockErr.Error()}, nil
+	}
+	defer releaseBuild()
 	buildOutput := ""
 	buildLogPath := ""
 	installOutput := ""

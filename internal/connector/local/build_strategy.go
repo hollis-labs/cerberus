@@ -87,6 +87,11 @@ func BuildProcessResultContext(ctx context.Context, spec ProcessSpec) (*BuildRes
 	if strategy == nil {
 		return nil, fmt.Errorf("unknown build_strategy kind %q", spec.BuildStrategy.Kind)
 	}
+	ctx, release, err := WithBuildLock(ctx, spec, "")
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	result, err := strategy.Build(ctx, BuildConfig{
 		WorkDir: spec.Dir,
 		Env:     sessionEnv(spec),

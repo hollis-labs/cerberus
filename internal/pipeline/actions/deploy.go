@@ -39,6 +39,11 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 		}
 	}
 
+	ctx, release, lockErr := localconn.WithBuildLock(ctx, a.spec, a.resourceID)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer release()
 	var buildResult *localconn.BuildResult
 	if localconn.HasBuildStrategy(a.spec) {
 		result, err := localconn.BuildProcessResultContext(ctx, a.spec)
