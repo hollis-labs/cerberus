@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/redact"
 	"github.com/chrispian/cerberus/internal/secretref"
 )
 
@@ -275,7 +276,7 @@ func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec 
 		}
 		return launchdRecord{}, fmt.Errorf("launchctl print %s: %w", label, err)
 	}
-	text := string(out)
+	text := OutputRedactor(spec).Text(redact.Launchd(string(out)))
 	diagnosis, highlights := diagnoseLaunchdRecord(text)
 	return launchdRecord{
 		Loaded:       true,
@@ -443,7 +444,7 @@ func renderLaunchdPlist(data plistTemplateData) ([]byte, error) {
 
 func formatLaunchdFailureDetails(out []byte, layout InstallLayout) string {
 	parts := make([]string, 0, 6)
-	if text := strings.TrimSpace(string(out)); text != "" {
+	if text := strings.TrimSpace(redact.Text(string(out))); text != "" {
 		parts = append(parts, "launchd output: "+text)
 	}
 	parts = append(parts,
@@ -628,40 +629,7 @@ func diagnoseLaunchdRecord(text string) (string, []string) {
 	}
 }
 
-func redactLaunchdRecordSecrets(text string) string {
-	lines := strings.SplitAfter(text, "\n")
-	for i, line := range lines {
-		key, value, ok := strings.Cut(line, "=>")
-		if !ok || !isSensitiveLaunchdEnvKey(key) {
-			continue
-		}
-		lineEnd := ""
-		if strings.HasSuffix(value, "\n") {
-			lineEnd = "\n"
-		}
-		lines[i] = key + "=> [REDACTED]" + lineEnd
-	}
-	return strings.Join(lines, "")
-}
-
-func isSensitiveLaunchdEnvKey(key string) bool {
-	normalized := strings.ToUpper(strings.TrimSpace(key))
-	for _, marker := range []string{
-		"API_KEY",
-		"ACCESS_KEY",
-		"SECRET",
-		"TOKEN",
-		"PASSWORD",
-		"PASSCODE",
-		"PRIVATE_KEY",
-		"CREDENTIAL",
-	} {
-		if strings.Contains(normalized, marker) {
-			return true
-		}
-	}
-	return false
-}
+func redactLaunchdRecordSecrets(text string) string { return redact.Launchd(text) }
 
 func hasNonZeroLaunchdExit(text string) bool {
 	for _, line := range strings.Split(text, "\n") {

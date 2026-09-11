@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
@@ -66,7 +67,7 @@ func executeGitHubMCP(ctx context.Context, client cerbapi.Client, operation, own
 		return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
 	}
 
-	data, err := json.MarshalIndent(result.Data, "", "  ")
+	data, err := redact.MarshalIndent(result.Data, "", "  ")
 	if err != nil {
 		return "", err
 	}

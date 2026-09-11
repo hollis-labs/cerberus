@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/redact"
 )
 
 // ProcessConfigWarnings uses the typed contracts' YAML field names. Dynamic
@@ -51,3 +52,5 @@ func unknownConfigKeys(values map[string]any, schema reflect.Type, path string, 
 	}
 	return warnings
 }
+
+func OutputRedactor(spec ProcessSpec) redact.Redactor { return redact.FromEnv(sessionEnv(spec)) }

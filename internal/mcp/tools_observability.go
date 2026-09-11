@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
@@ -24,7 +25,7 @@ func NewCerberusHealthTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(h, "", "  ")
+			data, err := redact.MarshalIndent(h, "", "  ")
 			if err != nil {
 				return "", err
 			}

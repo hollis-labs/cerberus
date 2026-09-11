@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
@@ -95,7 +96,7 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(st, "", "  ")
+			data, err := redact.MarshalIndent(st, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -127,7 +128,7 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(st, "", "  ")
+			data, err := redact.MarshalIndent(st, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -159,7 +160,7 @@ func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(st, "", "  ")
+			data, err := redact.MarshalIndent(st, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -205,7 +206,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(out, "", "  ")
+			data, err := redact.MarshalIndent(out, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -334,7 +335,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, mErr := json.MarshalIndent(res, "", "  ")
+			data, mErr := redact.MarshalIndent(res, "", "  ")
 			if mErr != nil {
 				return "", mErr
 			}

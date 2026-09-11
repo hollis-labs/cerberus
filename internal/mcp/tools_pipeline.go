@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/chrispian/cerberus/internal/redact"
+
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
 
@@ -66,7 +68,8 @@ func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 			// Raw already holds the marshaled pipeline.Result JSON; we
 			// pass it through verbatim rather than re-indenting.
 			if len(res.Raw) > 0 {
-				return string(res.Raw), nil
+				safe, err := redact.JSON(res.Raw)
+				return string(safe), err
 			}
 			return fmt.Sprintf("pipeline %q completed", pipelineID), nil
 		},

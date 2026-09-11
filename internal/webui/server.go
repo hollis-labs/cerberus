@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/chrispian/cerberus/internal/redact"
+
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	contract "github.com/chrispian/cerberus/pkg/connector"
 	secretpkg "github.com/chrispian/cerberus/pkg/secret"
@@ -113,7 +115,10 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"action_token": s.actionToken})
+	// This authenticated UI bootstrap intentionally delivers a credential,
+	// unlike diagnostic responses. Keep it out of the redaction path.
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]string{"action_token": s.actionToken})
 }
 
 func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +266,10 @@ func randomActionToken() (string, error) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	data, err := redact.Marshal(v)
+	if err == nil {
+		_ = json.NewEncoder(w).Encode(json.RawMessage(data))
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

@@ -61,7 +61,7 @@ func RunInstallContext(ctx context.Context, spec ProcessSpec) (bool, string, err
 	run.Dir = spec.Dir
 	run.Env = sessionEnv(spec)
 	out, err := run.CombinedOutput()
-	return false, string(out), err
+	return false, OutputRedactor(spec).Text(string(out)), OutputRedactor(spec).Error(err)
 }
 
 // hasMakefile reports whether `make` invoked in dir would find a default

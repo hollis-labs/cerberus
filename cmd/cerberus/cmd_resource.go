@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/chrispian/cerberus/internal/config"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/redact"
 	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
@@ -119,15 +119,11 @@ var resourceShowCmd = &cobra.Command{
 				}
 				if len(r.Config) > 0 {
 					fmt.Println("Config:")
-					keys := make([]string, 0, len(r.Config))
-					for k := range r.Config {
-						keys = append(keys, k)
+					data, err := redact.MarshalIndent(r.Config, "  ", "  ")
+					if err != nil {
+						return err
 					}
-					sort.Strings(keys)
-					for _, k := range keys {
-						v := r.Config[k]
-						fmt.Printf("  %s: %v\n", k, v)
-					}
+					fmt.Printf("  %s\n", data)
 				}
 				return nil
 			}

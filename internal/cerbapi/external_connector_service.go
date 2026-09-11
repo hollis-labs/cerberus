@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/chrispian/cerberus/internal/redact"
+
 	"github.com/chrispian/cerberus/internal/connector"
 	cfconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
 	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
@@ -41,7 +43,7 @@ func (e *ExternalConnectorError) Error() string {
 	if e.Err == nil {
 		return fmt.Sprintf("%s %s: %s", e.Connector, e.Operation, e.Code)
 	}
-	return fmt.Sprintf("%s %s: %s: %v", e.Connector, e.Operation, e.Code, e.Err)
+	return redact.Text(fmt.Sprintf("%s %s: %s: %v", e.Connector, e.Operation, e.Code, e.Err))
 }
 
 func (e *ExternalConnectorError) Unwrap() error {
@@ -139,7 +141,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if args.DryRun {
 		if preview, ok, err := s.dryRunPreview(args); ok || err != nil {
 			if err != nil {
-				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 				gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Dry run failed")
 				return ExternalConnectorOperationResult{}, err
 			}
@@ -172,12 +174,12 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	c, resolveErr := s.registry.Resolve(ctx, args.Connector)
 	if resolveErr != nil {
 		err := resolveErr
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, unavailableCode(err), err)
 	}
 	if err := s.requireAcknowledgment(args); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Acknowledgment required")
 		return ExternalConnectorOperationResult{}, err
 	}
@@ -207,7 +209,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		err = externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector operation failed")
 		return ExternalConnectorOperationResult{}, err
 	}
@@ -854,7 +856,7 @@ func unavailableCode(err error) ExternalConnectorErrorCode {
 	if err == nil {
 		return ExternalConnectorUnavailable
 	}
-	msg := strings.ToLower(err.Error())
+	msg := strings.ToLower(redact.Text(err.Error()))
 	if strings.Contains(msg, "token") || strings.Contains(msg, "credential") || strings.Contains(msg, "secret") || strings.Contains(msg, "api key") {
 		return ExternalConnectorCredentialMissing
 	}

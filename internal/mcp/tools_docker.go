@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
@@ -184,12 +185,12 @@ func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 
 func marshalConnectorData(data any) (string, error) {
 	if text, ok := data.(string); ok {
-		return text, nil
+		return redact.Text(text), nil
 	}
 	if data == nil {
 		return marshalResult(lifecycleResult{Success: true}), nil
 	}
-	out, err := json.MarshalIndent(data, "", "  ")
+	out, err := redact.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return "", err
 	}

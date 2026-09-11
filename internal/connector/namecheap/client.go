@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/chrispian/cerberus/internal/redact"
 )
 
 const apiBaseURL = "https://api.namecheap.com/xml.response"
@@ -309,7 +311,8 @@ func (c *Client) SetCustomNameservers(ctx context.Context, domain string, namese
 
 // --- internal helpers ---
 
-func (c *Client) doRequest(ctx context.Context, command string, extra map[string]string) ([]byte, error) {
+func (c *Client) doRequest(ctx context.Context, command string, extra map[string]string) (body []byte, err error) {
+	defer func() { err = redact.New(c.apiKey, url.QueryEscape(c.apiKey)).Error(err) }()
 	params := url.Values{}
 	params.Set("ApiUser", c.apiUser)
 	params.Set("ApiKey", c.apiKey)
@@ -332,7 +335,7 @@ func (c *Client) doRequest(ctx context.Context, command string, extra map[string
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	body, err := io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
