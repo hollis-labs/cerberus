@@ -447,24 +447,17 @@ func TestLaunchdBackendApplyRetriesBootstrapAfterConflict(t *testing.T) {
 		t.Fatalf("Apply failed: %v", err)
 	}
 
-	got := []string{
-		runner.calls[0].name + " " + strings.Join(runner.calls[0].args, " "),
-		runner.calls[1].name + " " + strings.Join(runner.calls[1].args, " "),
-		runner.calls[2].name + " " + strings.Join(runner.calls[2].args, " "),
-		runner.calls[3].name + " " + strings.Join(runner.calls[3].args, " "),
-		runner.calls[4].name + " " + strings.Join(runner.calls[4].args, " "),
-	}
-	want := []string{
-		"launchctl print gui/501/" + label,
-		"launchctl bootstrap gui/501 " + plistPath,
-		"launchctl bootout gui/501/" + label,
-		"launchctl bootout gui/501 " + plistPath,
-		"launchctl bootstrap gui/501 " + plistPath,
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("call[%d] = %q, want %q", i, got[i], want[i])
+	bootstraps := 0
+	for _, call := range runner.calls {
+		if call.args[0] == "bootout" {
+			t.Fatal("attempted recovery bootout although the job was absent")
 		}
+		if call.args[0] == "bootstrap" {
+			bootstraps++
+		}
+	}
+	if bootstraps != 2 {
+		t.Fatalf("expected one bounded retry, got %d bootstraps", bootstraps)
 	}
 }
 
@@ -906,5 +899,37 @@ func TestApplyActivatesArtifactThatWasPreviouslySynced(t *testing.T) {
 	_, status, err = installer.Status(res, spec)
 	if err != nil || status.ActivationPending {
 		t.Fatalf("activation not recorded: %+v %v", status, err)
+	}
+}
+
+type settlingLaunchdRunner struct {
+	base       *fakeCommandRunner
+	bootoutAt  time.Time
+	bootstraps int
+}
+
+func (r *settlingLaunchdRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "bootout" {
+		r.bootoutAt = time.Now()
+	}
+	if len(args) > 0 && args[0] == "bootstrap" {
+		r.bootstraps++
+		if !r.bootoutAt.IsZero() && time.Since(r.bootoutAt) < 200*time.Millisecond {
+			return []byte("Bootstrap failed: 5: Input/output error"), errors.New("slot still draining")
+		}
+	}
+	return r.base.CombinedOutput(ctx, name, args...)
+}
+func TestApplyWaitsForRemovedLaunchdSlotBeforeBootstrap(t *testing.T) {
+	dir := t.TempDir()
+	label := "com.test.slot"
+	runner := &settlingLaunchdRunner{base: &fakeCommandRunner{out: map[string][]byte{"launchctl print gui/501/" + label: []byte("state = running\npid = 123")}, err: map[string]error{}}}
+	backend := launchdBackend{runner: runner, homeDir: func() (string, error) { return dir, nil }, uid: func() int { return 501 }}
+	_, err := backend.Apply(context.Background(), &domain.Resource{ID: "slot", ProjectID: "test"}, ProcessSpec{Mode: ProcessModeOSService, Supervisor: ProcessSupervisorLaunchd, RunFrom: ProcessRunFromWorkspace, ServiceName: label, Dir: dir, Command: []string{"/bin/sleep", "60"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.bootstraps != 1 {
+		t.Fatalf("bootstrap raced the draining slot: %d attempts", runner.bootstraps)
 	}
 }
