@@ -150,3 +150,36 @@ func (c *Connector) runtimeFor(res *domain.Resource) (runtimeBackend, ProcessSpe
 		return nil, ProcessSpec{}, nil, fmt.Errorf("unsupported process mode %q for resource %q", spec.Mode, res.ID)
 	}
 }
+
+// ActivateBuilt restarts a dev session after a build; Apply alone only launches
+// its command. OS services already compare and activate installed artifacts.
+func (c *Connector) ActivateBuilt(ctx context.Context, res *domain.Resource) (ApplyResult, error) {
+	if err := c.ValidateMutation(res); err != nil {
+		return ApplyResult{}, err
+	}
+	backend, spec, session, err := c.runtimeFor(res)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	if session == nil {
+		return backend.Apply(ctx, res, spec, nil)
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.Update(res, spec)
+	state := session.Poll()
+	if state == domain.StateUnknown {
+		return ApplyResult{}, fmt.Errorf("%s", session.errMsg)
+	}
+	action := ApplyActionStarted
+	if isActiveState(state) {
+		if err := session.stopContext(ctx); err != nil {
+			return ApplyResult{}, err
+		}
+		action = ApplyActionRestarted
+	}
+	if err := ctx.Err(); err != nil {
+		return ApplyResult{}, err
+	}
+	return ApplyResult{Action: action}, session.Start()
+}

@@ -20,6 +20,7 @@ func TestGoStandardBuildStrategyMatrixArchivesAndChecksums(t *testing.T) {
 	fakeGo := filepath.Join(binDir, "go")
 	if err := os.WriteFile(fakeGo, []byte(`#!/bin/sh
 set -eu
+test "$CERBERUS_PIN_TEST" = 22
 out=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-o" ]; then
@@ -37,9 +38,10 @@ printf 'GOOS=%s GOARCH=%s\n' "$GOOS" "$GOARCH" > "$out"
 
 	strategy := goStandardBuildStrategy{}
 	result, err := strategy.Build(context.Background(), BuildConfig{
-		WorkDir: tmp,
-		Env:     []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"), "VERSION=v1.2.3"},
-		Source:  map[string]any{"root": "."},
+		WorkDir:   tmp,
+		EnvPrefix: []string{"/usr/bin/env", "CERBERUS_PIN_TEST=22"},
+		Env:       []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"), "VERSION=v1.2.3"},
+		Source:    map[string]any{"root": "."},
 		Rules: map[string]any{
 			"target": "./cmd/hadron",
 			"matrix": map[string]any{
@@ -125,4 +127,49 @@ func readSingleTarGzEntry(t *testing.T, path string) tarEntry {
 		t.Fatalf("expected one archive entry, got err=%v", err)
 	}
 	return tarEntry{Name: header.Name, Body: string(body)}
+}
+
+func TestBuildAndInstallUsePinnedPrefix(t *testing.T) {
+	dir := t.TempDir()
+	wrapper := filepath.Join(dir, "pin.sh")
+	if err := os.WriteFile(wrapper, []byte("test \"$1\" = 'pin with spaces' || exit 90\nshift\nexport CERBERUS_PIN_TEST=22\nexec \"$@\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	makefile := "build:\n\t@test \"$$CERBERUS_PIN_TEST\" = 22\n\t@echo pinned > result\ninstall:\n\t@test \"$$CERBERUS_PIN_TEST\" = 22\n\t@echo installed\n"
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw := map[string]any{"kind": "make_standard", "env_prefix": []any{"/bin/sh", wrapper, "pin with spaces"}}
+	strategy, err := buildStrategyConfigFromAny(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := buildStrategyConfigFromAny(strategy.toConfigMap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := ProcessSpec{Dir: dir, BuildStrategy: roundTrip}
+	result, err := BuildProcessResultContext(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("pinned build: %v %+v", err, result)
+	}
+	if strings.Join(result.Command, "|") != "/bin/sh|"+wrapper+"|pin with spaces|make|build" {
+		t.Fatalf("prefix lost argv boundaries: %v", result.Command)
+	}
+	skipped, out, err := RunInstallContext(context.Background(), spec)
+	if err != nil || skipped || !strings.Contains(out, "installed") {
+		t.Fatalf("pinned install: skip=%v out=%q err=%v", skipped, out, err)
+	}
+	spec.BuildStrategy.EnvPrefix = nil
+	if _, err = BuildProcessResultContext(context.Background(), spec); err == nil {
+		t.Fatal("fixture accepted default toolchain")
+	}
+}
+
+func TestInvalidToolchainPrefixRejected(t *testing.T) {
+	for _, prefix := range []any{"mise exec", []any{}, []any{"mise", 22}, []any{""}} {
+		if _, err := buildStrategyConfigFromAny(map[string]any{"kind": "make_standard", "env_prefix": prefix}); err == nil {
+			t.Fatalf("invalid prefix accepted: %#v", prefix)
+		}
+	}
 }

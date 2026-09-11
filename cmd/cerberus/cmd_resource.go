@@ -355,23 +355,12 @@ var resourceEnsureFreshForce bool
 
 var resourceEnsureFreshCmd = &cobra.Command{
 	Use:   "ensure-fresh <resource-id>",
-	Short: "Make a running service match the current source (idempotent)",
-	Long: `Makes a resource current by running whatever action Cerberus already
-recommends from its runtime status, so you don't have to choose between
-deploy/apply/reload yourself:
-
-  - source changed / artifact stale  -> deploy (rebuild + sync + activate)
-  - built but not active / synced     -> apply
-  - artifact stale, service stopped   -> sync
-  - already current                   -> nothing
-
-This is the command to reach for when your goal is "make the running service
-reflect my latest code." Building (go build / make build / go install) or
-restarting (reload / a GUI "Restart") does NOT do that for run_from: artifact
-services — they run an installed copy under ~/.cerberus/apps/.../bin/.
-
-mode: dev_session resources have no staleness detection yet, so ensure-fresh
-will no-op on them unless you pass --force (which always deploys).`,
+	Short: "Reconcile built-binary drift; --force rebuilds source",
+	Long: `Without --force, reconciles the built binaries with installed/running
+resources using status advice. It does not check unbuilt source edits.
+After editing code, use resource deploy or ensure-fresh --force to build,
+install and activate the new binary. Apply activates existing build output;
+sync only copies it; reload only restarts the current installed binary.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]

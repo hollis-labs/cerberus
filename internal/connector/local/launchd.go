@@ -122,7 +122,15 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 		return ApplyResult{}, err
 	}
 
-	needsReload := !loaded || artifactChanged || plistChanged
+	activationPending := false
+	if spec.RunFrom == ProcessRunFromArtifact {
+		_, art, statusErr := b.artifactInstaller().Status(res, spec)
+		if statusErr != nil {
+			return ApplyResult{}, statusErr
+		}
+		activationPending = art.ActivationPending
+	}
+	needsReload := !loaded || artifactChanged || plistChanged || activationPending
 	if needsReload && loaded {
 		if out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget); err != nil && !isLaunchdNotFound(string(out), err) {
 			return ApplyResult{}, fmt.Errorf("launchctl bootout %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
@@ -151,10 +159,13 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 	if err := b.waitRunning(ctx, res, spec, layout); err != nil {
 		return ApplyResult{}, err
 	}
+	if err := recordArtifactActivation(layout, spec); err != nil {
+		return ApplyResult{}, fmt.Errorf("record artifact activation: %w", err)
+	}
 	action := ApplyActionRestarted
 	if !loaded {
 		action = ApplyActionStarted
-	} else if artifactChanged || plistChanged {
+	} else if artifactChanged || plistChanged || activationPending {
 		action = ApplyActionReloaded
 	}
 	return ApplyResult{
@@ -208,7 +219,10 @@ func (b launchdBackend) Reload(ctx context.Context, res *domain.Resource, spec P
 	if err != nil {
 		return err
 	}
-	return b.waitRunning(ctx, res, spec, layout)
+	if err := b.waitRunning(ctx, res, spec, layout); err != nil {
+		return err
+	}
+	return recordArtifactActivation(layout, spec)
 }
 
 // Command acceptance does not mean launchd could execute the binary. Require

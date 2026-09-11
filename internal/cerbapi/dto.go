@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/config"
+	localconn "github.com/chrispian/cerberus/internal/connector/local"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -80,14 +81,16 @@ type AuditContext struct {
 
 // OpResult is the DTO for a lifecycle-operation response.
 type OpResult struct {
-	Success        bool   `json:"success"`
-	ServiceID      string `json:"service_id"`
-	Message        string `json:"message,omitempty"`
-	BuildOutput    string `json:"build_output,omitempty"`
-	BuildLogPath   string `json:"build_log_path,omitempty"`
-	InstallOutput  string `json:"install_output,omitempty"`
-	InstallSkipped bool   `json:"install_skipped,omitempty"`
-	Error          string `json:"error,omitempty"`
+	BuildPerformed bool                          `json:"build_performed"`
+	Activation     *localconn.ActivationArtifact `json:"activation,omitempty"`
+	Success        bool                          `json:"success"`
+	ServiceID      string                        `json:"service_id"`
+	Message        string                        `json:"message,omitempty"`
+	BuildOutput    string                        `json:"build_output,omitempty"`
+	BuildLogPath   string                        `json:"build_log_path,omitempty"`
+	InstallOutput  string                        `json:"install_output,omitempty"`
+	InstallSkipped bool                          `json:"install_skipped,omitempty"`
+	Error          string                        `json:"error,omitempty"`
 }
 
 // DeployResourceOpts carries per-invocation overrides for DeployResource.

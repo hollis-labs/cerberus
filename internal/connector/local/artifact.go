@@ -18,20 +18,22 @@ import (
 const artifactManifestName = "install-manifest.json"
 
 type artifactManifest struct {
-	SourcePath   string             `json:"source_path"`
-	SourceHash   string             `json:"source_hash"`
-	ArtifactPath string             `json:"artifact_path"`
-	SyncedAt     time.Time          `json:"synced_at"`
-	RepoState    *artifactRepoState `json:"repo_state,omitempty"`
+	SourcePath    string             `json:"source_path"`
+	SourceHash    string             `json:"source_hash"`
+	ArtifactPath  string             `json:"artifact_path"`
+	SyncedAt      time.Time          `json:"synced_at"`
+	RepoState     *artifactRepoState `json:"repo_state,omitempty"`
+	ActivatedHash string             `json:"activated_hash,omitempty"`
 }
 
 type artifactStatus struct {
-	Installed    bool
-	SourcePath   string
-	ArtifactPath string
-	SyncedAt     time.Time
-	Stale        bool
-	StaleReason  string
+	Installed         bool
+	SourcePath        string
+	ArtifactPath      string
+	SyncedAt          time.Time
+	Stale             bool
+	StaleReason       string
+	ActivationPending bool
 }
 
 // ArtifactStatus is the exported read-only view of an installed artifact.
@@ -170,13 +172,31 @@ func (i artifactInstaller) Status(res *domain.Resource, spec ProcessSpec) (Insta
 		stale, staleReason = true, "installed_artifact_changed"
 	}
 	return layout, artifactStatus{
-		Installed:    true,
-		SourcePath:   manifest.SourcePath,
-		ArtifactPath: manifest.ArtifactPath,
-		SyncedAt:     manifest.SyncedAt,
-		Stale:        stale,
-		StaleReason:  staleReason,
+		Installed:         true,
+		SourcePath:        manifest.SourcePath,
+		ArtifactPath:      manifest.ArtifactPath,
+		SyncedAt:          manifest.SyncedAt,
+		Stale:             stale,
+		StaleReason:       staleReason,
+		ActivationPending: manifest.ActivatedHash == "" || manifest.ActivatedHash != manifest.SourceHash,
 	}, nil
+}
+
+func recordArtifactActivation(layout InstallLayout, spec ProcessSpec) error {
+	if spec.RunFrom != ProcessRunFromArtifact {
+		return nil
+	}
+	path := filepath.Join(layout.RootDir, artifactManifestName)
+	manifest, err := readArtifactManifest(path)
+	if err != nil {
+		return err
+	}
+	hash, err := fileSHA256(layout.ArtifactPath)
+	if err != nil {
+		return err
+	}
+	manifest.ActivatedHash = hash
+	return writeArtifactManifest(path, manifest)
 }
 
 func (i artifactInstaller) inspectArtifactDrift(spec ProcessSpec, manifest artifactManifest) (bool, string) {
