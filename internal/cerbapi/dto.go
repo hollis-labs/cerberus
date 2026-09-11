@@ -81,6 +81,7 @@ type AuditContext struct {
 
 // OpResult is the DTO for a lifecycle-operation response.
 type OpResult struct {
+	Warnings       []string                      `json:"warnings,omitempty"`
 	BuildPerformed bool                          `json:"build_performed"`
 	Activation     *localconn.ActivationArtifact `json:"activation,omitempty"`
 	Success        bool                          `json:"success"`
@@ -281,6 +282,7 @@ type ResourceListArgs struct {
 
 // ResourceRuntimeStatus is the DTO for resource-runtime status and apply flows.
 type ResourceRuntimeStatus struct {
+	ConfigWarnings      []string `json:"config_warnings,omitempty"`
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`
 	Type                string   `json:"type"`
@@ -317,6 +319,7 @@ type ResourceRuntimeStatus struct {
 
 // ResourceInspect is the detailed operator-facing inspection view for a local process resource.
 type ResourceInspect struct {
+	ConfigWarnings      []string `json:"config_warnings,omitempty"`
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`
 	Type                string   `json:"type"`

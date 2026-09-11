@@ -294,6 +294,7 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 	}
 
 	return &ResourceRuntimeStatus{
+		ConfigWarnings:      localconn.ProcessConfigWarnings(res.Config),
 		ID:                  res.ID,
 		Name:                res.Name,
 		Type:                res.Type,
@@ -356,6 +357,7 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 	}
 
 	out := &ResourceInspect{
+		ConfigWarnings:  localconn.ProcessConfigWarnings(res.Config),
 		ID:              res.ID,
 		Name:            res.Name,
 		Type:            res.Type,
@@ -457,6 +459,9 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 		checks = append(checks, ResourceDoctorCheck{Name: name, Status: status, Message: msg})
 	}
 
+	for _, warning := range inspect.ConfigWarnings {
+		add("config_key", "warn", warning)
+	}
 	if inspect.Status == "" || inspect.Status == string(domain.StateUnknown) {
 		add("runtime_status", "warn", "runtime state is unknown")
 	} else {
@@ -672,7 +677,7 @@ func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string) (*
 	}, nil
 }
 
-func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, options ...DeployResourceOption) (*OpResult, error) {
+func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, options ...DeployResourceOption) (out *OpResult, opErr error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
@@ -685,6 +690,11 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
+	defer func() {
+		if out != nil {
+			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
+		}
+	}()
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
@@ -873,7 +883,7 @@ func hasBuildStrategyConfig(cfg map[string]any) bool {
 	return kind != ""
 }
 
-func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
+func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (out *OpResult, opErr error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	progressToken := fmt.Sprintf("resource:%s:apply", id)
@@ -884,6 +894,11 @@ func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
+	defer func() {
+		if out != nil {
+			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
+		}
+	}()
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
