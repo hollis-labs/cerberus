@@ -228,6 +228,10 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 		}
 	}
 
+	for _, conflict := range PortConflicts(pc.Resources) {
+		add(SeverityWarning, duplicatePortField, conflict.String())
+	}
+
 	// --- pipelines ---
 	for i, pipeline := range pc.Pipelines {
 		field := fmt.Sprintf("pipelines[%d]", i)

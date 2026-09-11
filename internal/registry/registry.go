@@ -2,9 +2,11 @@ package registry
 
 import (
 	"fmt"
+	"github.com/chrispian/cerberus/internal/config"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -20,7 +22,8 @@ const (
 // operation reads the index fresh, consistent with Cerberus's
 // no-stale-config discipline.
 type Registry struct {
-	indexPath string
+	indexPath  string
+	globalPath string
 }
 
 // New constructs a Registry backed by the given index file path.
@@ -29,13 +32,7 @@ func New(indexPath string) *Registry {
 }
 
 // Default constructs a Registry backed by ~/.cerberus/registry.yaml.
-func Default() (*Registry, error) {
-	path, err := DefaultIndexPath()
-	if err != nil {
-		return nil, err
-	}
-	return New(path), nil
-}
+func Default() (*Registry, error) { return ForConfig(config.DefaultPath()) }
 
 // IndexPathFor returns the registry index path paired with a global
 // config path: its sibling registry.yaml. An empty globalPath yields
@@ -57,7 +54,7 @@ func ForConfig(globalPath string) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return New(path), nil
+	return &Registry{indexPath: path, globalPath: globalPath}, nil
 }
 
 // IndexPath returns the index file this registry reads and writes.
@@ -93,6 +90,19 @@ func (r *Registry) Register(path string) ([]IndexEntry, error) {
 	}
 	for _, entry := range entries {
 		idx.upsert(entry)
+	}
+	preview, err := resolveIndex(ResolveOptions{GlobalPath: r.globalPath}, idx)
+	if err != nil {
+		return nil, err
+	}
+	for _, conflict := range PortConflicts(preview.Config.Resources) {
+		for _, resource := range conflict.Resources {
+			for _, entry := range entries {
+				if resource.Project == entry.Owner {
+					return nil, fmt.Errorf("register: %s", conflict.String())
+				}
+			}
+		}
 	}
 	if err := idx.Save(r.indexPath); err != nil {
 		return nil, err
@@ -130,6 +140,9 @@ func (r *Registry) collect(path, via string, seenManifest map[string]bool) ([]In
 		result := ValidateProjectConfig(pc)
 		if result.HasErrors() {
 			return nil, fmt.Errorf("invalid project config %s: %s", path, result.Errors()[0])
+		}
+		if conflicts := result.PortConflictIssues(); len(conflicts) > 0 {
+			return nil, fmt.Errorf("invalid project config %s: %s", path, conflicts[0].Message)
 		}
 		if unknown := result.UnknownFieldIssues(); len(unknown) > 0 {
 			return nil, unknownFieldError(path, unknown)
@@ -230,6 +243,26 @@ func (r *Registry) Health() ([]HealthReport, error) {
 	reports := make([]HealthReport, 0, len(entries))
 	for _, entry := range entries {
 		reports = append(reports, checkEntry(entry))
+	}
+	resolved, err := Resolve(ResolveOptions{IndexPath: r.indexPath, GlobalPath: r.globalPath})
+	if err != nil {
+		return nil, err
+	}
+	for _, conflict := range PortConflicts(resolved.Config.Resources) {
+		affected := false
+		for i := range reports {
+			for _, resource := range conflict.Resources {
+				if resource.Project == reports[i].Owner {
+					reports[i].Status = HealthInvalid
+					reports[i].Detail = strings.TrimSpace(reports[i].Detail + "; " + conflict.String())
+					affected = true
+					break
+				}
+			}
+		}
+		if !affected {
+			reports = append(reports, HealthReport{Owner: "<global>", Path: r.globalPath, Status: HealthInvalid, Detail: conflict.String()})
+		}
 	}
 	return reports, nil
 }

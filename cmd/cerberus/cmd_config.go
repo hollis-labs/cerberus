@@ -80,6 +80,9 @@ func validateOneFile(path string) error {
 	}
 
 	printIssues(path, result)
+	if conflicts := result.PortConflictIssues(); len(conflicts) > 0 {
+		return fmt.Errorf("%s: %s", path, conflicts[0].Message)
+	}
 	if result.HasErrors() {
 		return fmt.Errorf("%s has %d error(s)", path, len(result.Errors()))
 	}

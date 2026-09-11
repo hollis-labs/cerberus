@@ -626,6 +626,9 @@ func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string) 
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
+	if portErr := s.refusePortConflict(id); portErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: portErr.Error()}, nil
+	}
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
 	}
@@ -698,6 +701,9 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
+	if portErr := s.refusePortConflict(id); portErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: portErr.Error()}, nil
 	}
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
@@ -902,6 +908,9 @@ func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (
 	spec, err := localconn.SpecFromResourceConfig(res.Config)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
+	}
+	if portErr := s.refusePortConflict(id); portErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: portErr.Error()}, nil
 	}
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
@@ -1427,4 +1436,19 @@ func resourceStateHealthy(state domain.State) bool {
 	default:
 		return false
 	}
+}
+
+func (s *ResourceRuntimeService) refusePortConflict(id string) error {
+	cfg := s.snapshotConfig()
+	if cfg == nil {
+		return fmt.Errorf("no config available")
+	}
+	for _, conflict := range registry.PortConflicts(cfg.Resources) {
+		for _, resource := range conflict.Resources {
+			if resource.ID == id {
+				return fmt.Errorf("%s", conflict.String())
+			}
+		}
+	}
+	return nil
 }
