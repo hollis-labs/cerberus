@@ -24,7 +24,10 @@ type Connector struct {
 func New(secrets secret.Provider) (*Connector, error) {
 	// Try API backend first
 	if secrets != nil {
-		token, _ := secrets.Get(context.Background(), "github", "token")
+		token, err := secrets.Get(context.Background(), "github", "token")
+		if err != nil {
+			return nil, fmt.Errorf("github: resolve credential: %w", err)
+		}
 		if token != "" {
 			return &Connector{backend: NewAPIBackend(token)}, nil
 		}

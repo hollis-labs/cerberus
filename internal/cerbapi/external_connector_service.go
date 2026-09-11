@@ -113,7 +113,7 @@ func (s *ExternalConnectorService) LiveDefinitions() []contract.Definition {
 	defs := make(map[string]contract.Definition)
 	if s.registry != nil {
 		for _, def := range s.registry.Definitions() {
-			if _, ok := s.registry.Get(def.ID); ok {
+			if s.registry.Configured(def.ID) {
 				defs[def.ID] = def
 			}
 		}
@@ -169,9 +169,9 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
 
-	c, ok := s.registry.Get(args.Connector)
-	if !ok {
-		err := s.registry.UnavailableError(args.Connector)
+	c, resolveErr := s.registry.Resolve(ctx, args.Connector)
+	if resolveErr != nil {
+		err := resolveErr
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, unavailableCode(err), err)
