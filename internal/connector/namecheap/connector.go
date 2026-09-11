@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	contract "github.com/chrispian/cerberus/pkg/connector"
@@ -40,7 +39,7 @@ func New(secrets secret.Provider) (*Connector, error) {
 		return nil, fmt.Errorf("namecheap: get api_user: %w", err)
 	}
 	if apiUser == "" {
-		return nil, fmt.Errorf("namecheap: no API user — set CERBERUS_NAMECHEAP_API_USER or store via cerberus secrets set namecheap api_user")
+		return nil, fmt.Errorf("namecheap: no API user — set CERBERUS_NAMECHEAP_API_USER or configure its secret reference in ~/.cerberus/connector-secrets.yaml (see docs/secrets.md)")
 	}
 
 	apiKey, err := secrets.Get(ctx, "namecheap", "api_key")
@@ -48,7 +47,7 @@ func New(secrets secret.Provider) (*Connector, error) {
 		return nil, fmt.Errorf("namecheap: get api_key: %w", err)
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("namecheap: no API key — set CERBERUS_NAMECHEAP_API_KEY or store via cerberus secrets set namecheap api_key")
+		return nil, fmt.Errorf("namecheap: no API key — set CERBERUS_NAMECHEAP_API_KEY or configure its secret reference in ~/.cerberus/connector-secrets.yaml (see docs/secrets.md)")
 	}
 
 	username, err := secrets.Get(ctx, "namecheap", "username")
@@ -56,10 +55,13 @@ func New(secrets secret.Provider) (*Connector, error) {
 		return nil, fmt.Errorf("namecheap: get username: %w", err)
 	}
 	if username == "" {
-		return nil, fmt.Errorf("namecheap: no username — set CERBERUS_NAMECHEAP_USERNAME or store via cerberus secrets set namecheap username")
+		return nil, fmt.Errorf("namecheap: no username — set CERBERUS_NAMECHEAP_USERNAME or configure its secret reference in ~/.cerberus/connector-secrets.yaml (see docs/secrets.md)")
 	}
 
-	clientIP := os.Getenv("CERBERUS_NAMECHEAP_CLIENT_IP")
+	clientIP, err := secrets.Get(ctx, "namecheap", "client_ip")
+	if err != nil {
+		return nil, fmt.Errorf("namecheap: get client_ip: %w", err)
+	}
 	if clientIP == "" {
 		clientIP = "127.0.0.1"
 	}

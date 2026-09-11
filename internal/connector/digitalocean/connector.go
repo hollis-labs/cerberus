@@ -75,7 +75,7 @@ func New(secrets secret.Provider) (*Connector, error) {
 		return nil, fmt.Errorf("digitalocean: get token: %w", err)
 	}
 	if token == "" {
-		return nil, fmt.Errorf("digitalocean: no API token — set CERBERUS_DIGITALOCEAN_API_TOKEN or store via cerberus secrets set digitalocean api_token")
+		return nil, fmt.Errorf("digitalocean: no API token — set CERBERUS_DIGITALOCEAN_API_TOKEN or configure its secret reference in ~/.cerberus/connector-secrets.yaml (see docs/secrets.md)")
 	}
 
 	client := godo.NewFromToken(token)
