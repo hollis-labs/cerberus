@@ -35,25 +35,36 @@ type ApplyResult struct {
 
 type devSessionBackend struct{}
 
-func (b devSessionBackend) Apply(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) (ApplyResult, error) {
+func (b devSessionBackend) Apply(_ context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) (ApplyResult, error) {
 	if session == nil {
 		return ApplyResult{}, fmt.Errorf("dev_session backend requires a session")
 	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.Update(res, spec)
 	return ApplyResult{Action: ApplyActionStarted}, session.Start()
 }
 
-func (b devSessionBackend) Stop(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) error {
+func (b devSessionBackend) Stop(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) error {
 	if session == nil {
 		return fmt.Errorf("dev_session backend requires a session")
 	}
-	return session.Stop()
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.Update(res, spec)
+	return session.stopContext(ctx)
 }
 
-func (b devSessionBackend) Reload(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) error {
+func (b devSessionBackend) Reload(ctx context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) error {
 	if session == nil {
 		return fmt.Errorf("dev_session backend requires a session")
 	}
-	_ = session.Stop()
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.Update(res, spec)
+	if err := session.stopContext(ctx); err != nil {
+		return err
+	}
 	return session.Start()
 }
 
@@ -61,11 +72,18 @@ func (b devSessionBackend) Destroy(ctx context.Context, res *domain.Resource, sp
 	return b.Stop(ctx, res, spec, session)
 }
 
-func (b devSessionBackend) Status(_ context.Context, _ *domain.Resource, _ ProcessSpec, session *devSession) (domain.State, error) {
+func (b devSessionBackend) Status(_ context.Context, res *domain.Resource, spec ProcessSpec, session *devSession) (domain.State, error) {
 	if session == nil {
 		return domain.StateUnknown, fmt.Errorf("dev_session backend requires a session")
 	}
-	return session.Poll(), nil
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.Update(res, spec)
+	state := session.Poll()
+	if state == domain.StateUnknown {
+		return state, fmt.Errorf("%s", session.errMsg)
+	}
+	return state, nil
 }
 
 type osServiceBackend struct {

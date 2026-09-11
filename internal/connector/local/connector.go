@@ -43,7 +43,6 @@ func (c *Connector) getOrCreateSession(res *domain.Resource, spec ProcessSpec) *
 	defer c.mu.Unlock()
 
 	if session, ok := c.sessions[res.ID]; ok {
-		session.Update(res, spec)
 		return session
 	}
 
