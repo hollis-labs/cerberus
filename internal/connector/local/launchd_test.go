@@ -14,9 +14,10 @@ import (
 )
 
 type fakeCommandRunner struct {
-	calls []fakeCall
-	out   map[string][]byte
-	err   map[string]error
+	calls     []fakeCall
+	out       map[string][]byte
+	err       map[string]error
+	keepState bool
 }
 
 type sequencedCommandError struct {
@@ -39,6 +40,11 @@ func (f *fakeCommandRunner) CombinedOutput(_ context.Context, name string, args 
 	f.calls = append(f.calls, fakeCall{name: name, args: append([]string(nil), args...)})
 	key := name + " " + strings.Join(args, " ")
 	err := f.err[key]
+	if name == "launchctl" && len(args) == 3 && args[0] == "kickstart" && err == nil && !f.keepState {
+		printKey := "launchctl print " + args[2]
+		f.out[printKey] = []byte("state = running\npid = 1234")
+		delete(f.err, printKey)
+	}
 	if seq, ok := err.(*sequencedCommandError); ok {
 		return f.out[key], seq.next()
 	}
@@ -153,8 +159,8 @@ func TestLaunchdBackendStartWritesPlistAndRunsLaunchctl(t *testing.T) {
 		t.Fatalf("plist did not point at installed artifact: %s", string(data))
 	}
 
-	if len(runner.calls) != 3 {
-		t.Fatalf("launchctl calls = %d, want 3", len(runner.calls))
+	if len(runner.calls) != 5 {
+		t.Fatalf("launchctl calls = %d, want 5", len(runner.calls))
 	}
 }
 
@@ -310,8 +316,8 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 		t.Fatalf("Apply failed: %v", err)
 	}
 
-	if len(runner.calls) != 4 {
-		t.Fatalf("launchctl calls = %d, want 4", len(runner.calls))
+	if len(runner.calls) != 6 {
+		t.Fatalf("launchctl calls = %d, want 6", len(runner.calls))
 	}
 	got := []string{
 		runner.calls[0].name + " " + strings.Join(runner.calls[0].args, " "),
@@ -654,8 +660,8 @@ func TestLaunchdBackendReloadKickstartsLoadedService(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("launchctl calls = %d, want 2", len(runner.calls))
+	if len(runner.calls) != 4 {
+		t.Fatalf("launchctl calls = %d, want 4", len(runner.calls))
 	}
 }
 
@@ -813,5 +819,29 @@ func TestLaunchdBackendLeavesLiteralEnvUnfronted(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "run-secrets") {
 		t.Errorf("literal-only service was fronted by the shim:\n%s", string(raw))
+	}
+}
+
+func TestApplyFailsWhenLaunchdAcceptsButCannotExecute(t *testing.T) {
+	dir := t.TempDir()
+	label := "com.example.failed"
+	runner := &fakeCommandRunner{
+		out: map[string][]byte{"launchctl print gui/501/" + label: []byte("state = spawn scheduled\nlast exit reason = OS_REASON_CODESIGNING")},
+		err: map[string]error{}, keepState: true,
+	}
+	backend := launchdBackend{runner: runner, homeDir: func() (string, error) { return dir, nil }, uid: func() int { return 501 }, startTimeout: 20 * time.Millisecond}
+	_, err := backend.Apply(context.Background(), &domain.Resource{ID: "app", ProjectID: "test"}, ProcessSpec{RunFrom: ProcessRunFromWorkspace, Command: []string{"/bin/false"}, ServiceName: label})
+	if err == nil || !strings.Contains(err.Error(), "did not reach running") || !strings.Contains(err.Error(), "OS_REASON_CODESIGNING") {
+		t.Fatalf("false deployment success or missing diagnosis: %v", err)
+	}
+}
+
+func TestWaitRunningHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	backend := launchdBackend{}
+	err := backend.waitRunning(ctx, &domain.Resource{}, ProcessSpec{}, InstallLayout{ServiceName: "test"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation: %v", err)
 	}
 }
