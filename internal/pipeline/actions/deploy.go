@@ -33,6 +33,11 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 	if a.local == nil {
 		return fmt.Errorf("deploy %s: local connector is required", a.resourceID)
 	}
+	if guarded, ok := a.local.(interface{ ValidateMutation(*domain.Resource) error }); ok {
+		if err := guarded.ValidateMutation(a.resource); err != nil {
+			return err
+		}
+	}
 
 	var buildResult *localconn.BuildResult
 	if localconn.HasBuildStrategy(a.spec) {

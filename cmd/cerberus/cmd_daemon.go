@@ -438,6 +438,11 @@ func runDaemonBody() error {
 
 	// Start the active v2 resource monitor. Resource-native supervision
 	// lives on the shared runtime side.
+	executable, executableErr := os.Executable()
+	if executableErr != nil {
+		return fmt.Errorf("identify serving daemon: %w", executableErr)
+	}
+	a.Runtime.ProtectServingDaemon(executable, os.Getenv("XPC_SERVICE_NAME"))
 	resourceMonitor := cerbapi.NewResourceMonitor(a.Runtime, cerbapi.DefaultResourceMonitorConfig(), logger)
 
 	// Start the background artifact-drift scan and wire it into the
