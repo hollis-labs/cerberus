@@ -1,5 +1,10 @@
 package namecheap
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Domain is the normalized view of a Namecheap domain.
 type Domain struct {
 	Name       string `json:"name"`
@@ -33,4 +38,25 @@ type DomainNameserverUpdate struct {
 	Domain      string   `json:"domain"`
 	Updated     bool     `json:"updated"`
 	NameServers []string `json:"name_servers"`
+}
+
+// DNSRecordSet carries domain-level email routing alongside host records.
+// Records returned by getHosts may be incomplete; they are not a zone backup.
+type DNSRecordSet struct {
+	EmailType string      `json:"email_type"`
+	Records   []DNSRecord `json:"records"`
+}
+
+func (set DNSRecordSet) Validate() error {
+	switch set.EmailType {
+	case "MX", "MXE", "FWD", "OX", "NONE":
+	default:
+		return fmt.Errorf("namecheap: email_type must explicitly be MX, MXE, FWD, OX or NONE; refusing to reset an unknown email mode")
+	}
+	for _, record := range set.Records {
+		if set.EmailType == "FWD" && (strings.EqualFold(record.Type, "MX") || strings.EqualFold(record.Type, "MXE")) {
+			return fmt.Errorf("namecheap: MX records conflict with EmailType=FWD; explicitly replace the complete record set with email_type=MX to change email routing")
+		}
+	}
+	return nil
 }
