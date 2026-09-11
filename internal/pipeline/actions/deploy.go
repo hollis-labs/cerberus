@@ -39,6 +39,9 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 		}
 	}
 
+	if err := localconn.ValidateDeployOutput(a.spec); err != nil {
+		return err
+	}
 	ctx, release, lockErr := localconn.WithBuildLock(ctx, a.spec, a.resourceID)
 	if lockErr != nil {
 		return lockErr
@@ -59,7 +62,7 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 	installSkipped := false
 	installOutput := ""
 	if localconn.HasBuildStrategy(a.spec) && a.spec.InstallAfterBuild {
-		skipped, out, err := localconn.RunInstall(a.spec)
+		skipped, out, err := localconn.RunInstallContext(ctx, a.spec)
 		installSkipped = skipped
 		installOutput = strings.TrimSpace(out)
 		if err != nil {
@@ -67,7 +70,13 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 		}
 	}
 
-	applyResult, err := a.local.Apply(ctx, a.resource)
+	activate := a.local.Apply
+	if built, ok := a.local.(interface {
+		ActivateBuilt(context.Context, *domain.Resource) (localconn.ApplyResult, error)
+	}); ok {
+		activate = built.ActivateBuilt
+	}
+	applyResult, err := activate(ctx, a.resource)
 	if err != nil {
 		return fmt.Errorf("deploy %s: apply failed: %w", a.resourceID, err)
 	}

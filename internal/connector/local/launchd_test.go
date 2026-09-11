@@ -874,3 +874,37 @@ func TestBootstrapRecoveryHonorsCancellationAndBootoutFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyActivatesArtifactThatWasPreviouslySynced(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source")
+	if err := os.WriteFile(src, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	backend := launchdBackend{runner: runner, homeDir: func() (string, error) { return dir, nil }, uid: func() int { return 501 }}
+	res := &domain.Resource{ID: "app", ProjectID: "test"}
+	spec := ProcessSpec{RunFrom: ProcessRunFromArtifact, Command: []string{src}}
+	if _, err := backend.Apply(context.Background(), res, spec); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	installer := backend.artifactInstaller()
+	if _, _, err := installer.Sync(res, spec); err != nil {
+		t.Fatal(err)
+	}
+	_, status, err := installer.Status(res, spec)
+	if err != nil || !status.ActivationPending {
+		t.Fatalf("sync claimed runtime current: %+v %v", status, err)
+	}
+	result, err := backend.Apply(context.Background(), res, spec)
+	if err != nil || result.Action != ApplyActionReloaded {
+		t.Fatalf("pre-synced binary not activated: %+v %v", result, err)
+	}
+	_, status, err = installer.Status(res, spec)
+	if err != nil || status.ActivationPending {
+		t.Fatalf("activation not recorded: %+v %v", status, err)
+	}
+}

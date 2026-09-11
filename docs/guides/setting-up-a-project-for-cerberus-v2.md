@@ -457,3 +457,24 @@ file. Add this entry to the project's `.gitignore`:
 ```gitignore
 .cerberus-build.lock
 ```
+
+A pinned toolchain can wrap every build command (including Go matrix variants
+and optional `make install`) without shell interpolation:
+
+```yaml
+build_strategy:
+  kind: make_standard
+  env_prefix: [mise, --no-config, exec, node@22.12.0, --]
+  rules:
+    target: build
+    output: ./tangent
+```
+
+`rules.output` is required when deploying a built `run_from: artifact` resource.
+It names the binary relative to the build directory, not its installed copy.
+Deploy builds and installs that output and activates it; for a dev session it
+restarts the owned process. Apply reports that no build ran, along with the
+activated binary's path, hash and modification time when it is a direct binary.
+These facts identify the build output; they do not prove it reflects source edits.
+After changing source, use `resource deploy` or `resource ensure-fresh --force`.
+Without `--force`, ensure-fresh only checks drift in binaries already built.

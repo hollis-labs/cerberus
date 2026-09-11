@@ -692,6 +692,9 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
 	}
+	if outputErr := localconn.ValidateDeployOutput(spec); outputErr != nil {
+		return &OpResult{Success: false, ServiceID: id, Error: outputErr.Error()}, nil
+	}
 	installAfterBuild := s.resolveInstallAfterBuild(res.Config, spec, opts)
 	ctx, releaseBuild, lockErr := localconn.WithBuildLock(ctx, spec, id)
 	if lockErr != nil {
@@ -738,7 +741,7 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 		if installAfterBuild {
 			gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Installing build output for resource %s", id))
 			gmcp.NotifyProgress(ctx, progressToken, 2, 4, "Installing")
-			skipped, instOut, installErr := localconn.RunInstall(spec)
+			skipped, instOut, installErr := localconn.RunInstallContext(ctx, spec)
 			installOutput = strings.TrimSpace(instOut)
 			installSkipped = skipped
 			if installErr != nil {
@@ -790,7 +793,7 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 	}
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Applying resource %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 3, 4, "Applying")
-	applyRes, applyErr := s.localConnector().Apply(ctx, resourceDefToDomain(res))
+	applyRes, applyErr := s.localConnector().ActivateBuilt(ctx, resourceDefToDomain(res))
 	if applyErr != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Apply failed for resource %s: %s", id, applyErr.Error()))
 		gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Apply failed")
@@ -803,14 +806,19 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 			Error:          s.formatApplyError(id, res, spec, applyErr),
 		}, nil
 	}
+	activation, _ := localconn.InspectActivationArtifact(resourceDefToDomain(res), spec)
 	msg := localconn.FormatApplyResultMessage(id, spec, applyRes)
 	if localconn.HasBuildStrategy(spec) {
-		msg = fmt.Sprintf("resource %q deployed successfully (%s)", id, strings.TrimPrefix(msg, fmt.Sprintf("resource %q ", id)))
+		msg = fmt.Sprintf("resource %q deployed successfully (build completed; runtime %s)", id, applyRes.Action)
+	} else {
+		msg += "; no build_strategy configured, activated existing output"
 	}
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Deploy completed for resource %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 4, 4, "Deploy completed")
 	return &OpResult{
 		Success:        true,
+		BuildPerformed: localconn.HasBuildStrategy(spec),
+		Activation:     activation,
 		ServiceID:      id,
 		BuildOutput:    buildOutput,
 		BuildLogPath:   buildLogPath,
@@ -896,10 +904,12 @@ func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (
 	}
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Apply completed for resource %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Apply completed")
+	activation, _ := localconn.InspectActivationArtifact(resourceDefToDomain(res), spec)
 	return &OpResult{
-		Success:   true,
-		ServiceID: id,
-		Message:   localconn.FormatApplyResultMessage(id, spec, applyRes),
+		Activation: activation,
+		Success:    true,
+		ServiceID:  id,
+		Message:    localconn.FormatApplyResultMessage(id, spec, applyRes) + "; no build ran and source freshness was not checked; use cerberus resource deploy " + id + " after source changes",
 	}, nil
 }
 

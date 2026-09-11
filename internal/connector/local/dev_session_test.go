@@ -165,3 +165,25 @@ func TestDevSessionReloadWaitsForPreviousProcess(t *testing.T) {
 		t.Fatal("reload did not replace the owned process")
 	}
 }
+
+func TestActivateBuiltReplacesOwnedRunningDevSession(t *testing.T) {
+	res := testDevResource(t)
+	c := New()
+	ctx := context.Background()
+	if err := c.Start(ctx, res); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Stop(ctx, res) })
+	before, err := service.ReadPIDFile(res.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := c.ActivateBuilt(ctx, res)
+	if err != nil || result.Action != ApplyActionRestarted {
+		t.Fatalf("deploy activation failed: %+v %v", result, err)
+	}
+	after, err := service.ReadPIDFile(res.ID)
+	if err != nil || after == before || processAlive(before) || !processAlive(after) {
+		t.Fatalf("old build still running: old=%d new=%d %v", before, after, err)
+	}
+}
