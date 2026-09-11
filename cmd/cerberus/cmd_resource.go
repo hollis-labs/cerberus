@@ -20,7 +20,7 @@ import (
 var resourceCmd = &cobra.Command{
 	Use:   "resource",
 	Short: "V2 resource management",
-	Long:  "Manages v2 resources. To make a running service match your current source, use ensure-fresh (idempotent: it runs the recommended deploy/apply/sync for you) — or deploy directly. Lower-level verbs: deploy for build+activate, apply for already-built activation, reload for restart-only (NO rebuild), sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state. NOTE: run_from: artifact services run an installed copy under ~/.cerberus/apps/...; building (go/make) or reload/restart does not update them — only deploy/apply/ensure-fresh do.",
+	Long:  "Manages v2 resources. After editing source, use deploy to build and activate it, or ensure-fresh --force. Without --force, ensure-fresh checks existing binary/install drift; it cannot detect unbuilt source edits. Lower-level verbs: deploy for build+activate, apply for already-built activation, reload for restart-only (NO rebuild), sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state. NOTE: run_from: artifact services run an installed copy under ~/.cerberus/apps/...; building (go/make) or reload/restart does not update them — only deploy/apply/ensure-fresh do.",
 }
 
 var resourceListProject string
