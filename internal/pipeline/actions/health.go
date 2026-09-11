@@ -31,6 +31,8 @@ func (a *HealthWait) Name() string { return fmt.Sprintf("health_wait(%s)", a.res
 
 func (a *HealthWait) Execute(ctx context.Context, _ *domain.PipelineEnv) error {
 	deadline := time.Now().Add(a.timeout)
+	timeout := time.NewTimer(a.timeout)
+	defer timeout.Stop()
 
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
@@ -38,14 +40,12 @@ func (a *HealthWait) Execute(ctx context.Context, _ *domain.PipelineEnv) error {
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return fmt.Errorf("health check timed out after %s for %s (%s)", a.timeout, a.resourceID, a.url)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
 		}
 
 		attemptTimeout := 5 * time.Second
@@ -70,6 +70,8 @@ func (a *HealthWait) Execute(ctx context.Context, _ *domain.PipelineEnv) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-timeout.C:
+			return fmt.Errorf("health check timed out after %s for %s (%s)", a.timeout, a.resourceID, a.url)
 		case <-ticker.C:
 		}
 	}
