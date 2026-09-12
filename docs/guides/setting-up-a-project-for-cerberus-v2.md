@@ -478,3 +478,10 @@ activated binary's path, hash and modification time when it is a direct binary.
 These facts identify the build output; they do not prove it reflects source edits.
 After changing source, use `resource deploy` or `resource ensure-fresh --force`.
 Without `--force`, ensure-fresh only checks drift in binaries already built.
+If a startup wait times out, launchd can still recover afterward. When the
+installed binary is unchanged but its activation is unconfirmed, status
+recommends `inspect` and ensure-fresh stops with an unsuccessful result without
+restarting the service. Verify the running executable against the installed
+artifact before repeating apply. A PID or a hash of the current pathname alone
+does not establish which image an existing process runs. This advice preserves
+the pending marker; it does not automatically confirm late activation.

@@ -1,6 +1,11 @@
 package cerbapi
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	localconn "github.com/chrispian/cerberus/internal/connector/local"
+)
 
 // EnsureFresher is the narrow capability set EnsureFresh composes. Both
 // *SocketClient (daemon path) and *ResourceRuntimeService (in-process path)
@@ -17,8 +22,10 @@ type EnsureFreshResult struct {
 	ServiceID string    `json:"service_id"`
 	Result    *OpResult `json:"result,omitempty"`
 	// Action is the verb EnsureFresh ran: deploy | apply | sync | noop.
+	// A noop with Success=false means verification or unsupported advice
+	// prevented a lifecycle action; it is not a freshness confirmation.
 	Action string `json:"action"`
-	// Reason is the staleness reason that drove the choice (empty for noop).
+	// Reason explains why an action or further verification was needed.
 	Reason string `json:"reason,omitempty"`
 	// Message is the underlying op's message (or error text on failure).
 	Message string `json:"message,omitempty"`
@@ -48,9 +55,15 @@ func EnsureFresh(ctx context.Context, f EnsureFresher, id string, force bool, op
 	case "sync":
 		op, err := f.SyncResource(ctx, id)
 		return ensureFreshResult(id, "sync", st.RecommendedReason, op), err
-	default:
+	case "":
 		msg := "no built-binary drift detected; source freshness is not checked; use deploy or ensure-fresh --force after source changes"
 		return &EnsureFreshResult{ServiceID: id, Action: "noop", Message: msg, Success: true}, nil
+	case "inspect":
+		return &EnsureFreshResult{ServiceID: id, Action: "noop", Reason: st.RecommendedReason,
+			Message: localconn.RecommendedNextStep("inspect", st.RecommendedReason), Success: false}, nil
+	default:
+		return &EnsureFreshResult{ServiceID: id, Action: "noop", Reason: st.RecommendedReason,
+			Message: fmt.Sprintf("unsupported recommended action %q; inspect the resource before changing it", st.RecommendedAction), Success: false}, nil
 	}
 }
 
