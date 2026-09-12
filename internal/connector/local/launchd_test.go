@@ -827,6 +827,9 @@ func TestApplyFailsWhenLaunchdAcceptsButCannotExecute(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "did not reach running") || !strings.Contains(err.Error(), "OS_REASON_CODESIGNING") {
 		t.Fatalf("false deployment success or missing diagnosis: %v", err)
 	}
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "launchd may still retry") || !strings.Contains(err.Error(), "cerberus resource status app") {
+		t.Fatalf("startup timeout lost its cause or recovery guidance: %v", err)
+	}
 }
 
 func TestWaitRunningHonorsCancellation(t *testing.T) {
@@ -836,6 +839,41 @@ func TestWaitRunningHonorsCancellation(t *testing.T) {
 	err := backend.waitRunning(ctx, &domain.Resource{}, ProcessSpec{}, InstallLayout{ServiceName: "test"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected cancellation: %v", err)
+	}
+}
+
+type interruptedInspectionRunner struct {
+	observed bool
+	cancel   context.CancelFunc
+}
+
+func (r *interruptedInspectionRunner) CombinedOutput(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+	if !r.observed {
+		r.observed = true
+		return []byte("state = spawn scheduled\nlast exit reason = OS_REASON_CODESIGNING"), nil
+	}
+	r.cancel()
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestWaitRunningPreservesLastObservationWhenInspectionIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	backend := launchdBackend{
+		runner:  &interruptedInspectionRunner{cancel: cancel},
+		homeDir: func() (string, error) { return dir, nil },
+		uid:     func() int { return 501 },
+	}
+	err := backend.waitRunning(ctx, &domain.Resource{ID: "test-app"}, ProcessSpec{ServiceName: "com.example.test"}, InstallLayout{ServiceName: "com.example.test"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("lost cancellation cause: %v", err)
+	}
+	for _, want := range []string{"spawn scheduled", "OS_REASON_CODESIGNING", "launchd may still retry", "cerberus resource status test-app"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("interrupted startup verification omitted %q: %v", want, err)
+		}
 	}
 }
 
