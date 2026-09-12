@@ -161,7 +161,6 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 		"/api/pipelines",
 		"/api/config/validate",
 		"/api/config/resolve",
-		"/api/config/migrate/preview",
 		"/api/config/backups",
 		"/api/infra",
 		"/api/deployments",

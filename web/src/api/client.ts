@@ -270,45 +270,6 @@ export interface ConfigBackupResponse {
   error?: string
 }
 
-export interface MigrationValidationError {
-  owner: string
-  field: string
-  message: string
-}
-
-export interface ConfigMigrateEntry {
-  owner: string
-  project_id: string
-  project_name?: string
-  resource_count: number
-  pipeline_count: number
-  destination: string
-}
-
-export interface ConfigMigratePreviewResponse {
-  config_path?: string
-  projects_dir?: string
-  backup_path?: string
-  project_count: number
-  total_resources: number
-  warnings?: string[]
-  validation_errors?: MigrationValidationError[]
-  entries: ConfigMigrateEntry[]
-  error?: string
-}
-
-export interface ConfigMigrateResponse {
-  success: boolean
-  projects_dir?: string
-  backup_path?: string
-  warnings?: string[]
-  written_paths?: string[]
-  registered_owners?: string[]
-  total_resources: number
-  validation_errors?: MigrationValidationError[]
-  error?: string
-}
-
 export interface ConfigRestoreResponse {
   success: boolean
   backup_path?: string
@@ -493,11 +454,6 @@ export const apiClient = {
   getRegistryHealth: (signal?: AbortSignal) => http.get<RegistryHealthResponse>('/api/registry/health', { signal }),
   getConfigValidation: (signal?: AbortSignal) => http.get<ConfigValidationResponse>('/api/config/validate', { signal }),
   getConfigResolve: (signal?: AbortSignal) => http.get<ConfigResolveResponse>('/api/config/resolve', { signal }),
-  getConfigMigratePreview: (signal?: AbortSignal) => http.get<ConfigMigratePreviewResponse>('/api/config/migrate/preview', { signal }),
-  runConfigMigrate: (token: string) =>
-    http.post<ConfigMigrateResponse>('/api/config/migrate', {} as JsonObject, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
   listConfigBackups: (signal?: AbortSignal) => http.get<ConfigBackupResponse>('/api/config/backups', { signal }),
   restoreConfigBackup: (backupPath: string, token: string) =>
     http.post<ConfigRestoreResponse>('/api/config/backups/restore', { backup_path: backupPath }, {

@@ -1,4 +1,4 @@
-import { Database, FolderTree, RefreshCw, Settings2 } from 'lucide-react'
+import { Database, Settings2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   Button,
@@ -11,42 +11,7 @@ import {
 } from '@hollis-labs/sysop-ui/ui'
 import { DataTable, type ColumnDef } from '@hollis-labs/sysop-ui/data'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type ConfigBackupInfo, type ConfigMigrateEntry } from '../api/client'
-
-const previewColumns: ColumnDef<ConfigMigrateEntry>[] = [
-  {
-    key: 'owner',
-    header: 'Owner',
-    cell: (entry) => entry.owner,
-    sortValue: (entry) => entry.owner,
-  },
-  {
-    key: 'project',
-    header: 'Project',
-    cell: (entry) => entry.project_name || entry.project_id || '—',
-    sortValue: (entry) => entry.project_name || entry.project_id || '',
-  },
-  {
-    key: 'counts',
-    header: 'Counts',
-    width: 'fill',
-    cell: (entry) => (
-      <span className="text-[11px] text-text-soft">
-        {entry.resource_count} resources, {entry.pipeline_count} pipelines
-      </span>
-    ),
-    sortValue: (entry) => `${entry.resource_count}:${entry.pipeline_count}`,
-  },
-  {
-    key: 'destination',
-    header: 'Destination',
-    width: 'fill',
-    cell: (entry) => (
-      <span className="block truncate font-mono text-[11px] text-text-subtle">{entry.destination}</span>
-    ),
-    sortValue: (entry) => entry.destination,
-  },
-]
+import { apiClient, type ConfigBackupInfo } from '../api/client'
 
 const backupColumns: ColumnDef<ConfigBackupInfo>[] = [
   {
@@ -78,7 +43,6 @@ const backupColumns: ColumnDef<ConfigBackupInfo>[] = [
 
 export function SettingsPage() {
   const settings = usePoll((signal) => apiClient.getSettings(signal), 5000)
-  const migratePreview = usePoll((signal) => apiClient.getConfigMigratePreview(signal), 5000)
   const backups = usePoll((signal) => apiClient.listConfigBackups(signal), 5000)
   const [sessionToken, setSessionToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -95,7 +59,7 @@ export function SettingsPage() {
     }
   }, [])
 
-  const requestError = settings.error || migratePreview.error || backups.error
+  const requestError = settings.error || backups.error
   if (requestError) {
     return (
       <EmptyState
@@ -107,7 +71,6 @@ export function SettingsPage() {
           label: 'Retry',
           onClick: () => {
             void settings.refetch()
-            void migratePreview.refetch()
             void backups.refetch()
           },
         }}
@@ -116,42 +79,13 @@ export function SettingsPage() {
   }
 
   const snapshot = settings.data
-  const preview = migratePreview.data
   const backupList = backups.data?.backups ?? []
 
   const cards = [
     { label: 'Resolved resources', value: snapshot?.resolved_resources ?? 0, accentColor: 'var(--color-text)' },
     { label: 'Backups', value: snapshot?.backup_count ?? backupList.length, accentColor: 'var(--color-status-done)' },
-    { label: 'Migration targets', value: preview?.project_count ?? 0, accentColor: 'var(--color-warning)' },
-    { label: 'Validation blockers', value: preview?.validation_errors?.length ?? 0, accentColor: 'var(--color-status-blocked)' },
+    { label: 'Resolved projects', value: snapshot?.resolved_projects ?? 0, accentColor: 'var(--color-text)' },
   ]
-
-  async function runMigration() {
-    if (!sessionToken || busy) return
-    setBusy('migrate')
-    setError(null)
-    try {
-      const response = await apiClient.runConfigMigrate(sessionToken)
-      if (!response.success) {
-        setError(response.error || 'Migration failed.')
-      } else {
-        setResult(
-          [
-            `Wrote ${response.written_paths?.length ?? 0} project config(s).`,
-            response.backup_path ? `Backup: ${response.backup_path}` : '',
-            response.projects_dir ? `Projects dir: ${response.projects_dir}` : '',
-          ]
-            .filter(Boolean)
-            .join('\n'),
-        )
-      }
-      await Promise.all([settings.refetch(), migratePreview.refetch(), backups.refetch()])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
-  }
 
   async function restoreBackup(path: string) {
     if (!sessionToken || busy) return
@@ -172,7 +106,7 @@ export function SettingsPage() {
             .join('\n'),
         )
       }
-      await Promise.all([settings.refetch(), migratePreview.refetch(), backups.refetch()])
+      await Promise.all([settings.refetch(), backups.refetch()])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -202,51 +136,6 @@ export function SettingsPage() {
               </SettingsGrid>
             ) : (
               <div className="px-4 py-3 text-sm text-text-soft">Loading settings...</div>
-            )}
-          </SettingsPanel>
-
-          <SettingsPanel title="Migration preview" icon={<FolderTree className="h-4 w-4" />}>
-            {!preview ? (
-              <div className="px-4 py-3 text-sm text-text-soft">Loading migration preview...</div>
-            ) : preview.error ? (
-              <div className="px-4 py-3 text-sm text-text-soft">{preview.error}</div>
-            ) : (
-              <div className="space-y-3 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm text-text-soft">Review destination paths before writing split project configs.</div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={!sessionToken || busy !== null || !!preview.error || (preview.validation_errors?.length ?? 0) > 0}
-                    onClick={() => void runMigration()}
-                  >
-                    {busy === 'migrate' ? 'Migrating...' : 'Run migration'}
-                  </Button>
-                </div>
-                <SettingsGrid>
-                  <Field label="Projects dir" value={preview.projects_dir || '-'} mono />
-                  <Field label="Backup path" value={preview.backup_path || '-'} mono />
-                  <Field label="Project configs" value={String(preview.project_count)} />
-                  <Field label="Resources" value={String(preview.total_resources)} />
-                </SettingsGrid>
-                {preview.validation_errors?.length ? (
-                  <SettingsNotice
-                    tone="danger"
-                    title="Validation blockers"
-                    description={preview.validation_errors.map((issue) => `${issue.owner}: ${issue.field} - ${issue.message}`).join('\n')}
-                    className="whitespace-pre-wrap"
-                  />
-                ) : null}
-                {preview.warnings?.length ? (
-                  <SettingsNotice
-                    tone="warning"
-                    title="Migration warnings"
-                    description={preview.warnings.slice(0, 6).join('\n')}
-                    className="whitespace-pre-wrap"
-                  />
-                ) : null}
-                <DataTable items={preview.entries} columns={previewColumns} getRowId={(entry) => entry.owner} />
-              </div>
             )}
           </SettingsPanel>
 
