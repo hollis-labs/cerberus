@@ -139,6 +139,10 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector registry unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
+	// Refuse before credential resolution, dry-run previews, or plugin dispatch.
+	if args.Connector == "namecheap" && (args.Operation == "create_dns_record" || args.Operation == "delete_dns_record") {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
+	}
 	if args.DryRun {
 		if preview, ok, err := s.dryRunPreview(args); ok || err != nil {
 			if err != nil {
@@ -310,45 +314,8 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 			}
 			return dryRunPreview(args, "Would replace every Namecheap DNS host record and explicitly set email routing.", map[string]any{"domain": domainName}, map[string]any{"email_type": set.EmailType, "records": set.Records}, "All omitted records will be deleted. getHosts can omit existing records; supply a complete authoritative set."), true, nil
-		case "create_dns_record":
-			domain, err := requiredString(args.Config, "domain")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			recordType, err := requiredString(args.Config, "type")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			host, err := requiredString(args.Config, "host")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			value, err := requiredString(args.Config, "value")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would create a Namecheap DNS record.", map[string]any{
-				"domain": domain,
-				"host":   host,
-				"type":   recordType,
-			}, map[string]any{
-				"value":   value,
-				"ttl":     intFromConfig(args.Config, "ttl", 0),
-				"mx_pref": intFromConfig(args.Config, "mx_pref", 0),
-			}, "Namecheap DNS writes replace the full host-record set for the domain; concurrent edits can race."), true, nil
-		case "delete_dns_record":
-			domain, err := requiredString(args.Config, "domain")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			recordID, err := requiredInt(args.Config, "record_id")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would delete a Namecheap DNS record.", map[string]any{
-				"domain":    domain,
-				"record_id": recordID,
-			}, nil, "Namecheap DNS writes replace the full host-record set for the domain; concurrent edits can race."), true, nil
+		case "create_dns_record", "delete_dns_record":
+			return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
 		case "set_custom_nameservers":
 			domain, err := requiredString(args.Config, "domain")
 			if err != nil {

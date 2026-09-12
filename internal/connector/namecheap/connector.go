@@ -3,6 +3,7 @@ package namecheap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,9 @@ import (
 
 var _ contract.Connector = (*Connector)(nil)
 var _ contract.Describer = (*Connector)(nil)
+
+// ErrUnsafePerRecordWrite protects records that getHosts silently omits.
+var ErrUnsafePerRecordWrite = errors.New("namecheap per-record create/delete is disabled: getHosts can omit existing records and setHosts replaces the entire zone, risking silent data loss; use the Namecheap dashboard or explicit set_dns_record_set (MCP: cerberus_set_dns_record_set) with a complete authoritative record set and email_type")
 
 type Backend interface {
 	ListDomains(ctx context.Context) ([]Domain, error)
@@ -169,38 +173,6 @@ func Definition() contract.Definition {
 				}, "domain"),
 			},
 			{
-				Name:        "create_dns_record",
-				Description: "Create a DNS record for a Namecheap domain.",
-				Examples: []string{
-					"cerberus domain dns create example.com --type A --host api --value 203.0.113.10 --ttl 300 --dry-run",
-					"cerberus domain dns create example.com --type TXT --host @ --value verification-token --ack",
-				},
-				InputSchema: contract.ObjectSchema(map[string]any{
-					"domain":  contract.StringSchema("Domain name in sld.tld form."),
-					"type":    contract.StringSchema("DNS record type."),
-					"host":    contract.StringSchema("Host name such as @, www, or api."),
-					"value":   contract.StringSchema("Record value."),
-					"ttl":     contract.IntegerSchema("TTL in seconds."),
-					"mx_pref": contract.IntegerSchema("MX preference when type is MX."),
-				}, "domain", "type", "host", "value"),
-				Destructive: true,
-				SupportsDry: true,
-			},
-			{
-				Name:        "delete_dns_record",
-				Description: "Delete a DNS record for a Namecheap domain by record ID.",
-				Examples: []string{
-					"cerberus domain dns delete example.com 42 --dry-run",
-					"cerberus domain dns delete example.com 42 --ack",
-				},
-				InputSchema: contract.ObjectSchema(map[string]any{
-					"domain":    contract.StringSchema("Domain name in sld.tld form."),
-					"record_id": contract.IntegerSchema("Namecheap DNS host record ID."),
-				}, "domain", "record_id"),
-				Destructive: true,
-				SupportsDry: true,
-			},
-			{
 				Name:        "set_custom_nameservers",
 				Description: "Switch a Namecheap domain to a custom nameserver set.",
 				Examples: []string{
@@ -311,37 +283,14 @@ func (c *Connector) SetDNSRecordSet(ctx context.Context, domainName string, set 
 	return c.backend.SetDNSRecordSet(ctx, sld, tld, set)
 }
 
-func (c *Connector) CreateDNSRecord(ctx context.Context, domainName string, record DNSRecord) (*DNSRecord, error) {
-	set, err := c.GetDNSRecordSet(ctx, domainName)
-	if err != nil {
-		return nil, err
-	}
-	set.Records = append(set.Records, record)
-	if err = c.SetDNSRecordSet(ctx, domainName, *set); err != nil {
-		return nil, err
-	}
-	return &record, nil
+// CreateDNSRecord is retained for compatibility, but never reads or writes DNS.
+func (c *Connector) CreateDNSRecord(_ context.Context, _ string, _ DNSRecord) (*DNSRecord, error) {
+	return nil, ErrUnsafePerRecordWrite
 }
 
-func (c *Connector) DeleteDNSRecord(ctx context.Context, domainName string, recordID int) error {
-	set, err := c.GetDNSRecordSet(ctx, domainName)
-	if err != nil {
-		return err
-	}
-	filtered := make([]DNSRecord, 0, len(set.Records))
-	found := false
-	for _, record := range set.Records {
-		if record.ID == recordID {
-			found = true
-			continue
-		}
-		filtered = append(filtered, record)
-	}
-	if !found {
-		return fmt.Errorf("namecheap dns record %d not found for %s", recordID, domainName)
-	}
-	set.Records = filtered
-	return c.SetDNSRecordSet(ctx, domainName, *set)
+// DeleteDNSRecord is retained for compatibility, but never reads or writes DNS.
+func (c *Connector) DeleteDNSRecord(_ context.Context, _ string, _ int) error {
+	return ErrUnsafePerRecordWrite
 }
 
 func (c *Connector) SetCustomNameservers(ctx context.Context, domainName string, nameservers []string) (*DomainNameserverUpdate, error) {

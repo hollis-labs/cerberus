@@ -462,28 +462,15 @@ func TestExternalConnectorServiceDryRunPreviewBypassesAcknowledgment(t *testing.
 	}
 }
 
-func TestExternalConnectorServiceNamecheapDryRunWarnsAboutSetHostsRewrite(t *testing.T) {
-	registry := connector.NewRegistry()
-	svc := NewExternalConnectorService(registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "namecheap",
-		Operation: "delete_dns_record",
-		DryRun:    true,
-		Config: map[string]any{
-			"domain":    "example.com",
-			"record_id": 42,
-		},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	preview, ok := result.Data.(ExternalConnectorDryRunPreview)
-	if !ok {
-		t.Fatalf("Data = %T, want ExternalConnectorDryRunPreview", result.Data)
-	}
-	if len(preview.Warnings) == 0 || preview.Warnings[0] == "" {
-		t.Fatalf("preview warnings = %#v, want rewrite warning", preview.Warnings)
+func TestNamecheapPerRecordWritesRefusedWithoutCredentialsIncludingDryRun(t *testing.T) {
+	svc := NewExternalConnectorService(nil)
+	for _, op := range []string{"create_dns_record", "delete_dns_record"} {
+		for _, dryRun := range []bool{true, false} {
+			_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "namecheap", Operation: op, DryRun: dryRun, Acknowledged: true, Config: map[string]any{"domain": "example.com"}})
+			if !errors.Is(err, ncconn.ErrUnsafePerRecordWrite) {
+				t.Fatalf("expected disabled operation before credential lookup: %v", err)
+			}
+		}
 	}
 }
 

@@ -28,7 +28,7 @@ func emailTestClient(t *testing.T, mode string, onWrite func(*http.Request)) *Cl
 	return c
 }
 
-func TestCreatePreservesDomainEmailMode(t *testing.T) {
+func TestWholeSetReplacementPreservesDomainEmailMode(t *testing.T) {
 	for _, mode := range []string{"FWD", "MX", "MXE", "OX", "NONE"} {
 		t.Run(mode, func(t *testing.T) {
 			wrote := false
@@ -43,9 +43,9 @@ func TestCreatePreservesDomainEmailMode(t *testing.T) {
 				}
 			})
 			connector := NewWithBackend(client)
-			_, err := connector.CreateDNSRecord(context.Background(), "example.com", DNSRecord{Type: "A", Host: "www", Value: "192.0.2.2"})
+			err := connector.SetDNSRecords(context.Background(), "example.com", []DNSRecord{{Type: "A", Host: "@", Value: "192.0.2.1"}, {Type: "A", Host: "www", Value: "192.0.2.2"}})
 			if err != nil || !wrote {
-				t.Fatalf("create failed: %v", err)
+				t.Fatalf("replacement failed: %v", err)
 			}
 		})
 	}
@@ -54,7 +54,7 @@ func TestCreatePreservesDomainEmailMode(t *testing.T) {
 func TestMXUnderForwardingRefusedBeforeWrite(t *testing.T) {
 	client := emailTestClient(t, "FWD", func(*http.Request) { t.Fatal("conflicting MX write reached API") })
 	connector := NewWithBackend(client)
-	_, err := connector.CreateDNSRecord(context.Background(), "example.com", DNSRecord{Type: "MX", Host: "send", Value: "mail.example.com"})
+	err := connector.SetDNSRecordSet(context.Background(), "example.com", DNSRecordSet{EmailType: "FWD", Records: []DNSRecord{{Type: "MX", Host: "send", Value: "mail.example.com"}}})
 	if err == nil || !strings.Contains(err.Error(), "EmailType=FWD") {
 		t.Fatalf("missing actionable conflict: %v", err)
 	}
