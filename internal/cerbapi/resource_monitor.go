@@ -116,13 +116,17 @@ func (m *ResourceMonitor) checkAllResources(ctx context.Context) {
 	if cfg == nil {
 		return
 	}
-	for i := range cfg.Resources {
+	ordered, warnings := resourceStartupOrder(cfg.Resources, nil)
+	for _, warning := range warnings {
+		m.logger.Warn("daemon.resource_monitor.dependencies", "warning", warning)
+	}
+	for i := range ordered {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		res := cfg.Resources[i]
+		res := ordered[i]
 		spec, err := localconn.SpecFromResourceConfig(res.Config)
 		if err != nil {
 			continue
@@ -170,6 +174,11 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 		return
 	}
 
+	if conflictErr := m.runtime.refusePortConflict(res.ID); conflictErr != nil {
+		m.lastError[res.ID] = conflictErr.Error()
+		m.logger.Warn("daemon.resource_monitor.port_conflict", "resource", res.ID, "error", conflictErr.Error())
+		return
+	}
 	maxAttempts := m.config.DefaultMaxRestartAttempts
 	if spec.MaxRestartAttempts > 0 {
 		maxAttempts = spec.MaxRestartAttempts
@@ -193,6 +202,9 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 		return
 	}
 
+	for _, warning := range m.runtime.dependencyWarnings(ctx, &res, m.runtime.snapshotConfig()) {
+		m.logger.Warn("daemon.resource_monitor.dependency_unavailable", "resource", res.ID, "warning", warning)
+	}
 	m.failureCount[res.ID]++
 	m.lastRestart[res.ID] = time.Now()
 	m.logger.Info("daemon.resource_monitor.restart_attempt",

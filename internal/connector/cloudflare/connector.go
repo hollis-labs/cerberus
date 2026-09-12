@@ -24,7 +24,10 @@ type Connector struct {
 func New(secrets secret.Provider) (*Connector, error) {
 	// Try API backend first
 	if secrets != nil {
-		token, _ := secrets.Get(context.Background(), "cloudflare", "api_token")
+		token, err := secrets.Get(context.Background(), "cloudflare", "api_token")
+		if err != nil {
+			return nil, fmt.Errorf("cloudflare: resolve credential: %w", err)
+		}
 		if token != "" {
 			b, err := NewAPIBackend(token)
 			if err != nil {

@@ -14,7 +14,8 @@ type EnsureFresher interface {
 
 // EnsureFreshResult records the action EnsureFresh chose and its outcome.
 type EnsureFreshResult struct {
-	ServiceID string `json:"service_id"`
+	ServiceID string    `json:"service_id"`
+	Result    *OpResult `json:"result,omitempty"`
 	// Action is the verb EnsureFresh ran: deploy | apply | sync | noop.
 	Action string `json:"action"`
 	// Reason is the staleness reason that drove the choice (empty for noop).
@@ -24,17 +25,8 @@ type EnsureFreshResult struct {
 	Success bool   `json:"success"`
 }
 
-// EnsureFresh idempotently makes a resource match its current source by
-// executing the action Cerberus already recommends from runtime status —
-// deploy (rebuild + sync + activate), apply, or sync — or nothing when the
-// resource is already current. It exists to remove the
-// deploy-vs-apply-vs-reload choice, which is the most common cause of a
-// running service silently lagging its source: callers just ask for "fresh".
-//
-// force makes it always deploy. Use force for resources whose mode has no
-// staleness detection yet (mode: dev_session) when you know the source
-// changed — without it, EnsureFresh cannot tell a dev_session is stale and
-// will no-op.
+// EnsureFresh reconciles built artifacts using runtime advice. Source edits
+// are not inspected: after editing code use force or DeployResource to build.
 func EnsureFresh(ctx context.Context, f EnsureFresher, id string, force bool, opts ...DeployResourceOption) (*EnsureFreshResult, error) {
 	if force {
 		op, err := f.DeployResource(ctx, id, opts...)
@@ -57,20 +49,13 @@ func EnsureFresh(ctx context.Context, f EnsureFresher, id string, force bool, op
 		op, err := f.SyncResource(ctx, id)
 		return ensureFreshResult(id, "sync", st.RecommendedReason, op), err
 	default:
-		// No recommended action: either already current (os_service +
-		// run_from: artifact) or a mode with no staleness detection yet
-		// (dev_session). Either way there is nothing safe to do without an
-		// explicit --force.
-		msg := "already current"
-		if st.Mode == "dev_session" {
-			msg = "no staleness detection for dev_session; rerun with --force to rebuild"
-		}
+		msg := "no built-binary drift detected; source freshness is not checked; use deploy or ensure-fresh --force after source changes"
 		return &EnsureFreshResult{ServiceID: id, Action: "noop", Message: msg, Success: true}, nil
 	}
 }
 
 func ensureFreshResult(id, action, reason string, op *OpResult) *EnsureFreshResult {
-	r := &EnsureFreshResult{ServiceID: id, Action: action, Reason: reason}
+	r := &EnsureFreshResult{ServiceID: id, Action: action, Reason: reason, Result: op}
 	if op != nil {
 		r.Success = op.Success
 		r.Message = op.Message

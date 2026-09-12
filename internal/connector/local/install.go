@@ -1,9 +1,9 @@
 package local
 
 import (
+	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -33,6 +33,10 @@ var makefileNames = []string{"GNUmakefile", "makefile", "Makefile"}
 // Returns (skipped, combined output, error). On skip both output and error
 // are empty so the caller can attribute the no-op cleanly in deploy messaging.
 func RunInstall(spec ProcessSpec) (bool, string, error) {
+	return RunInstallContext(context.Background(), spec)
+}
+
+func RunInstallContext(ctx context.Context, spec ProcessSpec) (bool, string, error) {
 	if spec.Dir == "" {
 		return false, "", errors.New("install: spec.Dir is empty")
 	}
@@ -41,7 +45,11 @@ func RunInstall(spec ProcessSpec) (bool, string, error) {
 		return true, "", nil
 	}
 
-	probe := exec.Command("make", "-q", "install") //nolint:gosec // make + literal args, no user input
+	cfg := BuildConfig{}
+	if spec.BuildStrategy != nil {
+		cfg.EnvPrefix = spec.BuildStrategy.EnvPrefix
+	}
+	probe := buildCommand(ctx, cfg, "make", "-q", "install")
 	probe.Dir = spec.Dir
 	probe.Env = sessionEnv(spec)
 	probeOut, _ := probe.CombinedOutput()
@@ -49,11 +57,11 @@ func RunInstall(spec ProcessSpec) (bool, string, error) {
 		return true, "", nil
 	}
 
-	run := exec.Command("make", "install") //nolint:gosec // make + literal args, no user input
+	run := buildCommand(ctx, cfg, "make", "install")
 	run.Dir = spec.Dir
 	run.Env = sessionEnv(spec)
 	out, err := run.CombinedOutput()
-	return false, string(out), err
+	return false, OutputRedactor(spec).Text(string(out)), OutputRedactor(spec).Error(err)
 }
 
 // hasMakefile reports whether `make` invoked in dir would find a default

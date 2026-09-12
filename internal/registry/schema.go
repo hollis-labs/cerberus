@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	"github.com/chrispian/cerberus/internal/config"
+	localconn "github.com/chrispian/cerberus/internal/connector/local"
 )
 
 // Severity classifies a validation issue. Errors block registration and
@@ -210,6 +211,11 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 			add(SeverityError, field+".config.port",
 				"port is 0; omit the port field entirely for resources that do not listen on a TCP port")
 		}
+		if resource.Connector == "local" && resource.Type == "process" {
+			for _, warning := range localconn.ProcessConfigWarnings(resource.Config) {
+				add(SeverityWarning, unknownFieldName, field+": "+warning)
+			}
+		}
 		if _, ok := resource.Config["build"]; ok {
 			add(SeverityWarning, field+".config.build",
 				"`build` is deprecated and auto-translated to a legacy_command build_strategy; migrate to an explicit build_strategy (go_standard, make_standard, or legacy_command)")
@@ -220,6 +226,10 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 					fmt.Sprintf("dependency %q is not defined in this config (may be cross-config)", dep))
 			}
 		}
+	}
+
+	for _, conflict := range PortConflicts(pc.Resources) {
+		add(SeverityWarning, duplicatePortField, conflict.String())
 	}
 
 	// --- pipelines ---

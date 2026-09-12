@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/chrispian/cerberus/internal/secrets"
 	"github.com/chrispian/cerberus/internal/store/sqlite"
+	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
 // App is the central dependency container for Cerberus. It wires together
@@ -74,7 +76,7 @@ func NewWithOptions(opts Options) (*App, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	registry, sec := newConnectorRegistry()
+	registry, sec := newConnectorRegistry(opts.ConfigPath)
 	local := localconn.New()
 	registry.Register(local)
 
@@ -115,8 +117,12 @@ func NewExternalConnectorService() *cerbapi.ExternalConnectorService {
 	return cerbapi.NewExternalConnectorService(registry)
 }
 
-func newConnectorRegistry() (*connector.Registry, domain.SecretProvider) {
-	sec := secrets.NewKeychainProvider()
+func newConnectorRegistry(configPaths ...string) (*connector.Registry, domain.SecretProvider) {
+	configPath := config.DefaultPath()
+	if len(configPaths) > 0 && configPaths[0] != "" {
+		configPath = configPaths[0]
+	}
+	sec := secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"))
 	registry := connector.NewRegistry()
 	registerBuiltInConnectors(registry, sec)
 	return registry, sec
@@ -131,37 +137,27 @@ func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretPr
 	registry.RegisterDefinition(namecheapconn.Definition())
 	registry.RegisterDefinition(sshconn.Definition())
 
-	if cloudflare, err := cloudflareconn.New(sec); err == nil {
-		registry.Register(cloudflare)
-	} else {
-		registry.RegisterUnavailable("cloudflare", err)
-	}
-	if digitalocean, err := doconn.New(sec); err == nil {
-		registry.Register(digitalocean)
-	} else {
-		registry.RegisterUnavailable("digitalocean", err)
-	}
-
+	registry.RegisterFactory(cloudflareconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
+		return cloudflareconn.New(secrets.WithContext(ctx, sec))
+	})
+	registry.RegisterFactory(doconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
+		return doconn.New(secrets.WithContext(ctx, sec))
+	})
+	registry.RegisterFactory(forgeconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
+		return forgeconn.New(secrets.WithContext(ctx, sec))
+	})
+	registry.RegisterFactory(githubconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
+		return githubconn.New(secrets.WithContext(ctx, sec))
+	})
+	registry.RegisterFactory(namecheapconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
+		return namecheapconn.New(secrets.WithContext(ctx, sec))
+	})
 	if docker, err := dockerconn.New(); err == nil {
 		registry.Register(docker)
 	} else {
 		registry.RegisterUnavailable("docker", err)
 	}
-	if forge, err := forgeconn.New(sec); err == nil {
-		registry.Register(forge)
-	} else {
-		registry.RegisterUnavailable("forge", err)
-	}
-	if github, err := githubconn.New(sec); err == nil {
-		registry.Register(github)
-	} else {
-		registry.RegisterUnavailable("github", err)
-	}
-	if namecheap, err := namecheapconn.New(sec); err == nil {
-		registry.Register(namecheap)
-	} else {
-		registry.RegisterUnavailable("namecheap", err)
-	}
+
 	registry.Register(sshconn.New(sec))
 }
 

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chrispian/cerberus/internal/redact"
+
 	contract "github.com/chrispian/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
@@ -756,9 +758,10 @@ func decodeJSONBody(r *http.Request, dst interface{}) error {
 func writeJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(body)
+	data, err := redact.MarshalIndent(body, "", "  ")
+	if err == nil {
+		_ = json.NewEncoder(w).Encode(json.RawMessage(data))
+	}
 }
 
 func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn func(context.Context) (interface{}, error)) bool {
@@ -777,7 +780,7 @@ func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn f
 
 	bw := bufio.NewWriter(w)
 	writeEnvelope := func(env StreamEnvelope) {
-		data, err := json.Marshal(env)
+		data, err := redact.Marshal(env)
 		if err != nil {
 			return
 		}
@@ -797,7 +800,7 @@ func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn f
 		writeEnvelope(StreamEnvelope{Type: "error", Error: err.Error()})
 		return true
 	}
-	data, err := json.Marshal(result)
+	data, err := redact.Marshal(result)
 	if err != nil {
 		writeEnvelope(StreamEnvelope{Type: "error", Error: fmt.Sprintf("marshal result: %v", err)})
 		return true

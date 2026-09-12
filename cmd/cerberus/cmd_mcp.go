@@ -109,6 +109,9 @@ func buildCerberusMCPServer(socketClient cerbapi.Client, logger *slog.Logger) *m
 	srv.RegisterTool(mcp.NewCerberusDomainStatusTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusNameserversSetTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusDNSListTool(socketClient))
+	for _, tool := range mcp.NewCerberusDNSRecordSetTools(socketClient) {
+		srv.RegisterTool(tool)
+	}
 	srv.RegisterTool(mcp.NewCerberusDNSCreateTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(socketClient))
 

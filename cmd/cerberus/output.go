@@ -1,8 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/spf13/cobra"
 )
@@ -23,7 +24,7 @@ func addOutputFlag(cmd *cobra.Command, target *string) {
 // printJSON marshals v as indented JSON and writes it to stdout with a
 // trailing newline. Use for --output json paths in list/status commands.
 func printJSON(v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
+	data, err := redact.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal json: %w", err)
 	}

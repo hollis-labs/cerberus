@@ -1,9 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"text/tabwriter"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
@@ -75,7 +76,7 @@ var serverShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		data, err := json.MarshalIndent(result.Data, "", "  ")
+		data, err := redact.MarshalIndent(result.Data, "", "  ")
 		if err != nil {
 			return err
 		}

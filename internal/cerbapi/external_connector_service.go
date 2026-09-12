@@ -2,10 +2,13 @@ package cerbapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/connector"
 	cfconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
@@ -41,7 +44,7 @@ func (e *ExternalConnectorError) Error() string {
 	if e.Err == nil {
 		return fmt.Sprintf("%s %s: %s", e.Connector, e.Operation, e.Code)
 	}
-	return fmt.Sprintf("%s %s: %s: %v", e.Connector, e.Operation, e.Code, e.Err)
+	return redact.Text(fmt.Sprintf("%s %s: %s: %v", e.Connector, e.Operation, e.Code, e.Err))
 }
 
 func (e *ExternalConnectorError) Unwrap() error {
@@ -113,7 +116,7 @@ func (s *ExternalConnectorService) LiveDefinitions() []contract.Definition {
 	defs := make(map[string]contract.Definition)
 	if s.registry != nil {
 		for _, def := range s.registry.Definitions() {
-			if _, ok := s.registry.Get(def.ID); ok {
+			if s.registry.Configured(def.ID) {
 				defs[def.ID] = def
 			}
 		}
@@ -136,10 +139,14 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector registry unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
+	// Refuse before credential resolution, dry-run previews, or plugin dispatch.
+	if args.Connector == "namecheap" && (args.Operation == "create_dns_record" || args.Operation == "delete_dns_record") {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
+	}
 	if args.DryRun {
 		if preview, ok, err := s.dryRunPreview(args); ok || err != nil {
 			if err != nil {
-				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 				gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Dry run failed")
 				return ExternalConnectorOperationResult{}, err
 			}
@@ -169,15 +176,15 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
 
-	c, ok := s.registry.Get(args.Connector)
-	if !ok {
-		err := s.registry.UnavailableError(args.Connector)
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+	c, resolveErr := s.registry.Resolve(ctx, args.Connector)
+	if resolveErr != nil {
+		err := resolveErr
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, unavailableCode(err), err)
 	}
 	if err := s.requireAcknowledgment(args); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Acknowledgment required")
 		return ExternalConnectorOperationResult{}, err
 	}
@@ -207,7 +214,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		err = externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector operation failed")
 		return ExternalConnectorOperationResult{}, err
 	}
@@ -301,45 +308,14 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 		}
 	case "namecheap":
 		switch args.Operation {
-		case "create_dns_record":
-			domain, err := requiredString(args.Config, "domain")
+		case "set_dns_record_set":
+			domainName, set, err := namecheapRecordSetArgs(args.Config)
 			if err != nil {
 				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 			}
-			recordType, err := requiredString(args.Config, "type")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			host, err := requiredString(args.Config, "host")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			value, err := requiredString(args.Config, "value")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would create a Namecheap DNS record.", map[string]any{
-				"domain": domain,
-				"host":   host,
-				"type":   recordType,
-			}, map[string]any{
-				"value":   value,
-				"ttl":     intFromConfig(args.Config, "ttl", 0),
-				"mx_pref": intFromConfig(args.Config, "mx_pref", 0),
-			}, "Namecheap DNS writes replace the full host-record set for the domain; concurrent edits can race."), true, nil
-		case "delete_dns_record":
-			domain, err := requiredString(args.Config, "domain")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			recordID, err := requiredInt(args.Config, "record_id")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would delete a Namecheap DNS record.", map[string]any{
-				"domain":    domain,
-				"record_id": recordID,
-			}, nil, "Namecheap DNS writes replace the full host-record set for the domain; concurrent edits can race."), true, nil
+			return dryRunPreview(args, "Would replace every Namecheap DNS host record and explicitly set email routing.", map[string]any{"domain": domainName}, map[string]any{"email_type": set.EmailType, "records": set.Records}, "All omitted records will be deleted. getHosts can omit existing records; supply a complete authoritative set."), true, nil
+		case "create_dns_record", "delete_dns_record":
+			return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
 		case "set_custom_nameservers":
 			domain, err := requiredString(args.Config, "domain")
 			if err != nil {
@@ -718,6 +694,20 @@ func (s *ExternalConnectorService) executeNamecheap(ctx context.Context, c contr
 	}
 
 	switch args.Operation {
+	case "get_dns_record_set":
+		domainName, err := requiredString(args.Config, "domain")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		set, err := namecheap.GetDNSRecordSet(ctx, domainName)
+		return externalConnectorResult(args, set), err
+	case "set_dns_record_set":
+		domainName, set, err := namecheapRecordSetArgs(args.Config)
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		err = namecheap.SetDNSRecordSet(ctx, domainName, set)
+		return externalConnectorResult(args, set), err
 	case "list_domains":
 		domains, err := namecheap.ListDomains(ctx)
 		return externalConnectorResult(args, domains), err
@@ -854,7 +844,7 @@ func unavailableCode(err error) ExternalConnectorErrorCode {
 	if err == nil {
 		return ExternalConnectorUnavailable
 	}
-	msg := strings.ToLower(err.Error())
+	msg := strings.ToLower(redact.Text(err.Error()))
 	if strings.Contains(msg, "token") || strings.Contains(msg, "credential") || strings.Contains(msg, "secret") || strings.Contains(msg, "api key") {
 		return ExternalConnectorCredentialMissing
 	}
@@ -1004,4 +994,34 @@ func serverSiteIDs(cfg map[string]any) (int, int, error) {
 		return 0, 0, err
 	}
 	return serverID, siteID, nil
+}
+
+func namecheapRecordSetArgs(config map[string]any) (string, ncconn.DNSRecordSet, error) {
+	domainName, err := requiredString(config, "domain")
+	if err != nil {
+		return "", ncconn.DNSRecordSet{}, err
+	}
+	emailType, err := requiredString(config, "email_type")
+	if err != nil {
+		return "", ncconn.DNSRecordSet{}, err
+	}
+	raw, exists := config["records"]
+	if !exists || raw == nil {
+		return "", ncconn.DNSRecordSet{}, errors.New("records must explicitly contain the complete authoritative host record array")
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return "", ncconn.DNSRecordSet{}, err
+	}
+	var records []ncconn.DNSRecord
+	if err = json.Unmarshal(data, &records); err != nil {
+		return "", ncconn.DNSRecordSet{}, fmt.Errorf("records: %w", err)
+	}
+	for _, record := range records {
+		if record.Type == "" || record.Host == "" || record.Value == "" {
+			return "", ncconn.DNSRecordSet{}, errors.New("each record requires type, host and value")
+		}
+	}
+	set := ncconn.DNSRecordSet{EmailType: emailType, Records: records}
+	return domainName, set, set.Validate()
 }

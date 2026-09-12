@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/chrispian/cerberus/internal/redact"
 )
 
 const apiBaseURL = "https://api.namecheap.com/xml.response"
@@ -95,7 +97,9 @@ type dnsGetHostsResponse struct {
 	} `xml:"Errors"`
 	CommandResponse struct {
 		DomainDNSGetHostsResult struct {
-			Hosts []xmlHost `xml:"host"`
+			Hosts      []xmlHost `xml:"host"`
+			UpperHosts []xmlHost `xml:"Host"`
+			EmailType  string    `xml:"EmailType,attr"`
 		} `xml:"DomainDNSGetHostsResult"`
 	} `xml:"CommandResponse"`
 }
@@ -188,6 +192,14 @@ func (c *Client) GetDomainStatus(ctx context.Context, domain string) (*DomainSta
 // ListDNSRecords returns DNS host records for a domain.
 // The Namecheap API requires the domain split into SLD and TLD.
 func (c *Client) ListDNSRecords(ctx context.Context, sld, tld string) ([]DNSRecord, error) {
+	set, err := c.GetDNSRecordSet(ctx, sld, tld)
+	if err != nil {
+		return nil, err
+	}
+	return set.Records, nil
+}
+
+func (c *Client) GetDNSRecordSet(ctx context.Context, sld, tld string) (*DNSRecordSet, error) {
 	body, err := c.doRequest(ctx, "namecheap.domains.dns.getHosts", map[string]string{
 		"SLD": sld,
 		"TLD": tld,
@@ -204,7 +216,8 @@ func (c *Client) ListDNSRecords(ctx context.Context, sld, tld string) ([]DNSReco
 		return nil, fmt.Errorf("namecheap list dns: %s", extractError(resp.Errors.Error))
 	}
 
-	hosts := resp.CommandResponse.DomainDNSGetHostsResult.Hosts
+	result := resp.CommandResponse.DomainDNSGetHostsResult
+	hosts := append(result.Hosts, result.UpperHosts...)
 	records := make([]DNSRecord, len(hosts))
 	for i, h := range hosts {
 		id, _ := strconv.Atoi(h.HostID)
@@ -219,16 +232,28 @@ func (c *Client) ListDNSRecords(ctx context.Context, sld, tld string) ([]DNSReco
 			MXPref: mxPref,
 		}
 	}
-	return records, nil
+	return &DNSRecordSet{EmailType: result.EmailType, Records: records}, nil
 }
 
 // SetDNSRecords replaces the full DNS host record set for a domain.
 func (c *Client) SetDNSRecords(ctx context.Context, sld, tld string, records []DNSRecord) error {
-	params := map[string]string{
-		"SLD": sld,
-		"TLD": tld,
+	current, err := c.GetDNSRecordSet(ctx, sld, tld)
+	if err != nil {
+		return err
 	}
-	for i, record := range records {
+	return c.SetDNSRecordSet(ctx, sld, tld, DNSRecordSet{EmailType: current.EmailType, Records: records})
+}
+
+func (c *Client) SetDNSRecordSet(ctx context.Context, sld, tld string, set DNSRecordSet) error {
+	if err := set.Validate(); err != nil {
+		return err
+	}
+	params := map[string]string{
+		"SLD":       sld,
+		"TLD":       tld,
+		"EmailType": set.EmailType,
+	}
+	for i, record := range set.Records {
 		n := strconv.Itoa(i + 1)
 		params["HostName"+n] = record.Host
 		params["RecordType"+n] = record.Type
@@ -247,9 +272,14 @@ func (c *Client) SetDNSRecords(ctx context.Context, sld, tld string, records []D
 	}
 
 	var resp struct {
-		XMLName xml.Name `xml:"ApiResponse"`
-		Status  string   `xml:"Status,attr"`
-		Errors  struct {
+		XMLName         xml.Name `xml:"ApiResponse"`
+		Status          string   `xml:"Status,attr"`
+		CommandResponse struct {
+			Result struct {
+				IsSuccess string `xml:"IsSuccess,attr"`
+			} `xml:"DomainDNSSetHostsResult"`
+		} `xml:"CommandResponse"`
+		Errors struct {
 			Error []struct {
 				Number  string `xml:"Number,attr"`
 				Message string `xml:",chardata"`
@@ -261,6 +291,9 @@ func (c *Client) SetDNSRecords(ctx context.Context, sld, tld string, records []D
 	}
 	if resp.Status != "OK" {
 		return fmt.Errorf("namecheap set dns: %s", extractError(resp.Errors.Error))
+	}
+	if !parseBool(resp.CommandResponse.Result.IsSuccess) {
+		return fmt.Errorf("namecheap set dns: API did not confirm IsSuccess")
 	}
 	return nil
 }
@@ -309,7 +342,8 @@ func (c *Client) SetCustomNameservers(ctx context.Context, domain string, namese
 
 // --- internal helpers ---
 
-func (c *Client) doRequest(ctx context.Context, command string, extra map[string]string) ([]byte, error) {
+func (c *Client) doRequest(ctx context.Context, command string, extra map[string]string) (body []byte, err error) {
+	defer func() { err = redact.New(c.apiKey, url.QueryEscape(c.apiKey)).Error(err) }()
 	params := url.Values{}
 	params.Set("ApiUser", c.apiUser)
 	params.Set("ApiKey", c.apiKey)
@@ -332,7 +366,7 @@ func (c *Client) doRequest(ctx context.Context, command string, extra map[string
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	body, err := io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}

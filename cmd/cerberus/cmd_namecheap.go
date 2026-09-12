@@ -1,11 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"text/tabwriter"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	ncconn "github.com/chrispian/cerberus/internal/connector/namecheap"
@@ -92,7 +92,7 @@ var domainStatusCmd = &cobra.Command{
 			return fmt.Errorf("domain status: unexpected result type %T", result.Data)
 		}
 
-		data, _ := json.MarshalIndent(status, "", "  ")
+		data, _ := redact.MarshalIndent(status, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	},
@@ -103,7 +103,7 @@ var dnsCmd = &cobra.Command{
 	Short: "DNS operations (Namecheap)",
 	Long: `DNS record management via the Namecheap connector.
 
-Lists, creates, and deletes records on a domain you own through Namecheap.
+Lists visible records on a domain you own through Namecheap. Per-record create/delete are disabled because getHosts can omit records. Use explicit set_dns_record_set for authoritative whole-zone replacement.
 For Cloudflare-managed zones, use 'cerberus cloudflare dns' instead.
 Records are addressed by record ID returned from 'dns list'.`,
 }
@@ -197,74 +197,16 @@ var dnsListCmd = &cobra.Command{
 
 var dnsCreateCmd = &cobra.Command{
 	Use:   "create <domain>",
-	Short: "Create a DNS record for a domain",
+	Short: "Disabled: unsafe per-record Namecheap writes",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
-		if err != nil {
-			return err
-		}
-		defer closeFn()
-		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
-			Connector: "namecheap",
-			Operation: "create_dns_record",
-			Config: map[string]any{
-				"domain":  args[0],
-				"type":    namecheapDNSCreateType,
-				"host":    namecheapDNSCreateHost,
-				"value":   namecheapDNSCreateValue,
-				"ttl":     namecheapDNSCreateTTL,
-				"mx_pref": namecheapDNSCreateMXPref,
-			},
-			DryRun:       namecheapDryRun,
-			Acknowledged: namecheapAcknowledge,
-		})
-		if err != nil {
-			return err
-		}
-		if namecheapDryRun {
-			return writeJSON(cmd.OutOrStdout(), result.Data)
-		}
-		record, ok := result.Data.(*ncconn.DNSRecord)
-		if !ok {
-			return fmt.Errorf("dns create: unexpected result type %T", result.Data)
-		}
-		return writeJSON(cmd.OutOrStdout(), record)
-	},
+	RunE:  func(_ *cobra.Command, _ []string) error { return ncconn.ErrUnsafePerRecordWrite },
 }
 
 var dnsDeleteCmd = &cobra.Command{
 	Use:   "delete <domain> <record-id>",
-	Short: "Delete a DNS record for a domain by record ID",
+	Short: "Disabled: unsafe per-record Namecheap writes",
 	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		recordID, err := strconv.Atoi(args[1])
-		if err != nil {
-			return fmt.Errorf("invalid record ID %q: %w", args[1], err)
-		}
-		svc, closeFn, err := newExternalConnectorService()
-		if err != nil {
-			return err
-		}
-		defer closeFn()
-		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
-			Connector: "namecheap",
-			Operation: "delete_dns_record",
-			Config: map[string]any{
-				"domain":    args[0],
-				"record_id": recordID,
-			},
-			DryRun:       namecheapDryRun,
-			Acknowledged: namecheapAcknowledge,
-		})
-		if err != nil {
-			return err
-		}
-		if namecheapDryRun {
-			return writeJSON(cmd.OutOrStdout(), result.Data)
-		}
-		return nil
-	},
+	RunE:  func(_ *cobra.Command, _ []string) error { return ncconn.ErrUnsafePerRecordWrite },
 }
 
 func init() {

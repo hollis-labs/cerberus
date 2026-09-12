@@ -6,6 +6,7 @@ import (
 
 	"github.com/chrispian/cerberus/internal/app"
 	"github.com/chrispian/cerberus/internal/config"
+	"github.com/chrispian/cerberus/internal/redact"
 	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
@@ -33,13 +34,15 @@ func appOptions() app.Options {
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", redact.Text(err.Error()))
 		os.Exit(1)
 	}
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "cerberus",
-	Short: "Agent-first local infrastructure manager",
+	Use:           "cerberus",
+	SilenceErrors: true,
+	Short:         "Agent-first local infrastructure manager",
 	Long: `Cerberus by Hollis Labs — agent-first local infrastructure manager.
 
 Cerberus is now v2-only for local workload management.

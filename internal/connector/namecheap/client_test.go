@@ -2,6 +2,7 @@ package namecheap
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -52,5 +53,18 @@ func TestClientSetCustomNameservers(t *testing.T) {
 	}
 	if !update.Updated || update.Domain != "chrispian.dev" || len(update.NameServers) != 2 {
 		t.Fatalf("update = %#v", update)
+	}
+}
+
+func TestTransportErrorDoesNotExposeAPIKey(t *testing.T) {
+	client := NewClient("user", "opaque/slash+sentinel", "user", "127.0.0.1")
+	source := errors.New("connection failed")
+	client.http = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) { return nil, source })}
+	_, err := client.ListDomains(context.Background())
+	if err == nil || !errors.Is(err, source) {
+		t.Fatalf("lost transport cause: %v", err)
+	}
+	if strings.Contains(err.Error(), "sentinel") {
+		t.Fatal("API key leaked through URL error")
 	}
 }

@@ -1,6 +1,8 @@
 package local
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 )
 
 type devSession struct {
+	mu      sync.Mutex
 	id      string
 	name    string
 	spec    ProcessSpec
@@ -43,15 +47,18 @@ func (s *devSession) Update(res *domain.Resource, spec ProcessSpec) {
 }
 
 func (s *devSession) Start() error {
-	if s.status == domain.StateRunning || s.status == domain.StateHealthy || s.status == domain.StateUnhealthy {
-		return fmt.Errorf("already running (pid %d)", s.pid)
-	}
-
 	lock, err := service.AcquireLock(s.id)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = lock.Release() }()
+	s.Poll()
+	if s.status == domain.StateUnknown {
+		return errors.New(s.errMsg)
+	}
+	if isActiveState(s.status) {
+		return fmt.Errorf("already running (pid %d)", s.pid)
+	}
 
 	if len(s.spec.Command) == 0 {
 		return fmt.Errorf("no command configured")
@@ -88,6 +95,9 @@ func (s *devSession) Start() error {
 	}
 
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		s.errMsg = err.Error()
 		return err
 	}
@@ -103,156 +113,177 @@ func (s *devSession) Start() error {
 			StartedAt:       s.uptime,
 			ConfigHash:      sessionConfigHash(s.id, s.spec),
 			CerberusVersion: service.CerberusVersion,
+			ProcessStart:    processStartIdentity(s.pid),
 		})
 	}
 
 	s.exited = make(chan struct{})
+	exited := s.exited
+	id, pid := s.id, s.pid
 	go func() {
 		_ = cmd.Wait()
 		if logFile != nil {
 			_ = logFile.Close()
 		}
-		_ = service.RemovePIDFile(s.id)
-		close(s.exited)
+		if current, readErr := service.ReadPIDFile(id); readErr == nil && current == pid {
+			_ = service.RemovePIDFile(id)
+		}
+		close(exited)
 	}()
 
 	return nil
 }
 
+// Stop waits for the owned process to exit before a caller can restart it.
+// A listening port is evidence of occupancy, never evidence of ownership.
 func (s *devSession) Stop() error {
+	return s.stopContext(context.Background())
+}
+
+func (s *devSession) stopContext(ctx context.Context) error {
 	lock, err := service.AcquireLock(s.id)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = lock.Release() }()
-
-	var pid int
-	useGroup := false
-
-	if pidFromFile, alive := service.ValidatePIDFile(s.id); alive {
-		pid = pidFromFile
-		useGroup = true
-	} else {
-		portPID := findPIDByPort(s.spec.Port)
-		if portPID <= 0 {
-			s.status = domain.StateStopped
-			s.pid = 0
-			_ = service.RemovePIDFile(s.id)
-			return nil
-		}
-		pid = portPID
+	pid, ownershipErr := s.ownedPID()
+	if ownershipErr != nil {
+		return ownershipErr
 	}
-
-	if useGroup {
-		_ = syscall.Kill(-pid, syscall.SIGTERM)
-	} else if proc, err := os.FindProcess(pid); err == nil {
-		_ = proc.Signal(syscall.SIGTERM)
+	if pid == 0 {
+		if portPID := findPIDByPort(s.spec.Port); portPID != 0 {
+			return s.foreignPortError(portPID)
+		}
+		s.status, s.pid = domain.StateStopped, 0
+		_ = service.RemovePIDFile(s.id)
+		return nil
 	}
-
-	go func(pid int, useGroup bool) {
-		time.Sleep(10 * time.Second)
-		if !processAlive(pid) {
-			return
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	group, err := syscall.Getpgid(pid)
+	if err != nil {
+		return fmt.Errorf("verify process group for %d: %w", pid, err)
+	}
+	if group != pid {
+		return fmt.Errorf("refusing to stop pid %d: it is not the recorded session's process-group leader", pid)
+	}
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("stop process group %d: %w", pid, err)
+	}
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	escalated := false
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for processAlive(pid) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			if escalated {
+				return fmt.Errorf("process %d did not exit after SIGKILL", pid)
+			}
+			escalated = true
+			// Recheck ownership before escalating; never leave a delayed kill
+			// behind that could target a later process reusing this PID.
+			owned, checkErr := s.ownedPID()
+			if checkErr != nil {
+				return checkErr
+			}
+			if owned != pid {
+				return fmt.Errorf("process %d ownership changed while stopping", pid)
+			}
+			if killErr := syscall.Kill(-pid, syscall.SIGKILL); killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
+				return killErr
+			}
+			timer.Reset(time.Second)
+		case <-ticker.C:
 		}
-		if useGroup {
-			_ = syscall.Kill(-pid, syscall.SIGKILL)
-			return
-		}
-		if proc, err := os.FindProcess(pid); err == nil {
-			_ = proc.Signal(syscall.SIGKILL)
-		}
-	}(pid, useGroup)
-
-	s.status = domain.StateStopped
-	s.pid = 0
+	}
+	if s.exited != nil {
+		<-s.exited
+	}
+	s.status, s.pid = domain.StateStopped, 0
 	_ = service.RemovePIDFile(s.id)
 	return nil
 }
 
 func (s *devSession) Reload() error {
-	_ = s.Stop()
+	if err := s.Stop(); err != nil {
+		return err
+	}
 	return s.Start()
+}
+
+func (s *devSession) ownedPID() (int, error) {
+	if s.pid > 0 && s.exited != nil {
+		select {
+		case <-s.exited:
+			return 0, nil
+		default:
+			if processAlive(s.pid) {
+				return s.pid, nil
+			}
+		}
+	}
+	pid, alive := service.ValidatePIDFile(s.id)
+	if !alive {
+		return 0, nil
+	}
+	meta, err := service.ReadMetaFile(s.id)
+	if err != nil || meta.PID != pid || meta.StartedAt.IsZero() {
+		return 0, fmt.Errorf("refusing to adopt pid %d for %q: no matching launch metadata", pid, s.id)
+	}
+	identity := processStartIdentity(pid)
+	if identity == "" {
+		return 0, fmt.Errorf("cannot verify launch identity of pid %d for %q", pid, s.id)
+	}
+	if meta.ProcessStart != "" {
+		if identity == meta.ProcessStart {
+			return pid, nil
+		}
+	} else {
+		// Older Cerberus launches recorded wall time but no ps identity.
+		// Allow those only when the OS start time agrees with that launch.
+		started, parseErr := time.ParseInLocation("Mon Jan 2 15:04:05 2006", identity, time.Local)
+		if parseErr == nil && meta.StartedAt.Sub(started) >= 0 && meta.StartedAt.Sub(started) < 5*time.Second {
+			return pid, nil
+		}
+	}
+	return 0, fmt.Errorf("refusing to adopt pid %d for %q: process identity differs from the recorded launch", pid, s.id)
+}
+
+func processStartIdentity(pid int) string {
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=").Output() //nolint:gosec // numeric PID only; no command or environment is read
+	if err != nil {
+		return ""
+	}
+	return strings.Join(strings.Fields(string(out)), " ")
+}
+
+func (s *devSession) foreignPortError(pid int) error {
+	return fmt.Errorf("port %d is occupied by an unowned process (pid %d); refusing to adopt or stop it for resource %q", s.spec.Port, pid, s.id)
 }
 
 func (s *devSession) Poll() domain.State {
 	if s.status == domain.StateBuilding {
 		return s.status
 	}
-
-	if pidFromFile, alive := service.ValidatePIDFile(s.id); alive {
-		s.pid = pidFromFile
-		if s.status != domain.StateRunning && s.status != domain.StateHealthy && s.status != domain.StateUnhealthy {
-			s.status = domain.StateRunning
-			s.uptime = time.Now()
-		}
-		s.errMsg = ""
-		return s.status
-	}
-
-	if s.spec.Port <= 0 {
-		if s.status == domain.StateStarting {
-			if s.exited != nil {
-				select {
-				case <-s.exited:
-					s.status = domain.StateStopped
-					s.errMsg = s.tailLog()
-					return s.status
-				default:
-				}
-			}
-			if time.Since(s.uptime) > 30*time.Second {
-				s.status = domain.StateStopped
-				s.errMsg = "start timeout"
-			}
-			return s.status
-		}
-		s.status = domain.StateStopped
-		s.pid = 0
-		_ = service.RemovePIDFile(s.id)
-		return s.status
-	}
-
-	pid := findPIDByPort(s.spec.Port)
-	if pid > 0 && s.status == domain.StateStarting {
-		s.pid = pid
-		_ = service.WritePIDFile(s.id, pid)
-		s.status = domain.StateRunning
-		s.uptime = time.Now()
-		s.errMsg = ""
+	pid, err := s.ownedPID()
+	if err != nil {
+		s.status, s.errMsg = domain.StateUnknown, err.Error()
 		return s.status
 	}
 	if pid > 0 {
-		s.pid = pid
-		_ = service.WritePIDFile(s.id, pid)
-		if s.status != domain.StateRunning && s.status != domain.StateHealthy && s.status != domain.StateUnhealthy {
-			s.status = domain.StateRunning
-			if s.uptime.IsZero() {
-				s.uptime = time.Now()
-			}
-		}
-		s.errMsg = ""
+		s.pid, s.status, s.errMsg = pid, domain.StateRunning, ""
 		return s.status
 	}
-
-	if s.status == domain.StateStarting {
-		if s.exited != nil {
-			select {
-			case <-s.exited:
-				s.status = domain.StateStopped
-				s.errMsg = s.tailLog()
-				return s.status
-			default:
-			}
-		}
-		if time.Since(s.uptime) > 30*time.Second {
-			s.status = domain.StateStopped
-			s.errMsg = "start timeout"
-		}
+	if portPID := findPIDByPort(s.spec.Port); portPID != 0 {
+		s.status, s.errMsg, s.pid = domain.StateUnknown, s.foreignPortError(portPID).Error(), 0
 		return s.status
 	}
-
-	s.status = domain.StateStopped
-	s.pid = 0
+	s.status, s.pid = domain.StateStopped, 0
 	_ = service.RemovePIDFile(s.id)
 	return s.status
 }

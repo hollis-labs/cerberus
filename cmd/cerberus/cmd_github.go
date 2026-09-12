@@ -1,11 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	ghconn "github.com/chrispian/cerberus/internal/connector/github"
@@ -46,7 +47,7 @@ var githubStatusCmd = &cobra.Command{
 			return fmt.Errorf("github status: unexpected result type %T", result.Data)
 		}
 
-		data, _ := json.MarshalIndent(status, "", "  ")
+		data, _ := redact.MarshalIndent(status, "", "  ")
 		fmt.Println(string(data))
 		return nil
 	},

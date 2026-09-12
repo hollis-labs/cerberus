@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/redact"
 	"github.com/chrispian/cerberus/internal/secretref"
 )
 
@@ -70,7 +71,8 @@ type launchdBackend struct {
 	// selfPath resolves the Cerberus executable used to front a service whose
 	// environment carries secret references. Nil falls back to os.Executable
 	// with a PATH lookup behind it; tests override it.
-	selfPath func() (string, error)
+	selfPath     func() (string, error)
+	startTimeout time.Duration
 }
 
 type plistTemplateData struct {
@@ -121,16 +123,34 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 		return ApplyResult{}, err
 	}
 
-	needsReload := !loaded || artifactChanged || plistChanged
+	activationPending := false
+	if spec.RunFrom == ProcessRunFromArtifact {
+		_, art, statusErr := b.artifactInstaller().Status(res, spec)
+		if statusErr != nil {
+			return ApplyResult{}, statusErr
+		}
+		activationPending = art.ActivationPending
+	}
+	needsReload := !loaded || artifactChanged || plistChanged || activationPending
 	if needsReload && loaded {
-		_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
+		if out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget); err != nil && !isLaunchdNotFound(string(out), err) {
+			return ApplyResult{}, fmt.Errorf("launchctl bootout %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
+		}
+		if err := waitLaunchdSlot(ctx); err != nil {
+			return ApplyResult{}, err
+		}
 	}
 	if needsReload {
 		if out, err := b.bootstrapService(ctx, domainTarget, serviceTarget, plistPath); err != nil {
-			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
+			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s failed; service may be stopped, retry cerberus resource apply %s: %w%s", label, res.ID, err, formatLaunchdFailureDetails(out, layout))
 		}
 	}
 	if !needsReload && (state == domain.StateRunning || state == domain.StateStarting) {
+		if state == domain.StateStarting {
+			if err := b.waitRunning(ctx, res, spec, layout); err != nil {
+				return ApplyResult{}, err
+			}
+		}
 		return ApplyResult{
 			Action:          ApplyActionNoop,
 			ArtifactChanged: artifactChanged,
@@ -140,10 +160,16 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 	if out, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", serviceTarget); err != nil {
 		return ApplyResult{}, fmt.Errorf("launchctl kickstart %s: %w%s", label, err, formatLaunchdFailureDetails(out, layout))
 	}
+	if err := b.waitRunning(ctx, res, spec, layout); err != nil {
+		return ApplyResult{}, err
+	}
+	if err := recordArtifactActivation(layout, spec); err != nil {
+		return ApplyResult{}, fmt.Errorf("record artifact activation: %w", err)
+	}
 	action := ApplyActionRestarted
 	if !loaded {
 		action = ApplyActionStarted
-	} else if artifactChanged || plistChanged {
+	} else if artifactChanged || plistChanged || activationPending {
 		action = ApplyActionReloaded
 	}
 	return ApplyResult{
@@ -193,7 +219,51 @@ func (b launchdBackend) Reload(ctx context.Context, res *domain.Resource, spec P
 	if _, err := b.runner.CombinedOutput(ctx, "launchctl", "kickstart", "-k", target); err != nil {
 		return fmt.Errorf("launchctl kickstart %s: %w", label, err)
 	}
-	return nil
+	layout, err := defaultInstallLayoutFromBackend(b, res, spec)
+	if err != nil {
+		return err
+	}
+	if err := b.waitRunning(ctx, res, spec, layout); err != nil {
+		return err
+	}
+	return recordArtifactActivation(layout, spec)
+}
+
+// Command acceptance does not mean launchd could execute the binary. Require
+// a running PID across successive observations, and keep failure diagnostics.
+func (b launchdBackend) waitRunning(ctx context.Context, res *domain.Resource, spec ProcessSpec, layout InstallLayout) error {
+	timeout := b.startTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var last launchdRecord
+	previousPID := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("launchd service %q did not reach running: %w%s", layout.ServiceName, err, formatLaunchdFailureDetails([]byte(last.Raw), layout))
+		}
+		rec, err := b.Inspect(ctx, res, spec)
+		if err != nil {
+			return err
+		}
+		last = rec
+		if rec.Loaded && rec.State == "running" && rec.PID > 0 {
+			if rec.PID == previousPID {
+				return nil
+			}
+			previousPID = rec.PID
+		} else {
+			previousPID = 0
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
 }
 
 func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec ProcessSpec) (launchdRecord, error) {
@@ -209,7 +279,7 @@ func (b launchdBackend) Inspect(ctx context.Context, res *domain.Resource, spec 
 		}
 		return launchdRecord{}, fmt.Errorf("launchctl print %s: %w", label, err)
 	}
-	text := string(out)
+	text := OutputRedactor(spec).Text(redact.Launchd(string(out)))
 	diagnosis, highlights := diagnoseLaunchdRecord(text)
 	return launchdRecord{
 		Loaded:       true,
@@ -330,9 +400,31 @@ func (b launchdBackend) bootstrapService(ctx context.Context, domainTarget, serv
 	if !isLaunchdBootstrapConflict(string(out), err) {
 		return out, err
 	}
-	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget)
-	_, _ = b.runner.CombinedOutput(ctx, "launchctl", "bootout", domainTarget, plistPath)
+	// A conflict can mean a just-removed slot is still draining. Probe the
+	// label first: booting out an already-absent job returns a misleading EIO.
+	printOut, printErr := b.runner.CombinedOutput(ctx, "launchctl", "print", serviceTarget)
+	if printErr == nil {
+		if recoveryOut, recoveryErr := b.runner.CombinedOutput(ctx, "launchctl", "bootout", serviceTarget); recoveryErr != nil && !isLaunchdNotFound(string(recoveryOut), recoveryErr) {
+			return recoveryOut, fmt.Errorf("recovery bootout failed: %w", recoveryErr)
+		}
+	} else if !isLaunchdNotFound(string(printOut), printErr) {
+		return printOut, fmt.Errorf("inspect bootstrap conflict: %w", printErr)
+	}
+	if err := waitLaunchdSlot(ctx); err != nil {
+		return out, err
+	}
 	return b.runner.CombinedOutput(ctx, "launchctl", "bootstrap", domainTarget, plistPath)
+}
+
+func waitLaunchdSlot(ctx context.Context) error {
+	timer := time.NewTimer(250 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (b launchdBackend) serviceName(res *domain.Resource, spec ProcessSpec) (string, error) {
@@ -365,7 +457,7 @@ func renderLaunchdPlist(data plistTemplateData) ([]byte, error) {
 
 func formatLaunchdFailureDetails(out []byte, layout InstallLayout) string {
 	parts := make([]string, 0, 6)
-	if text := strings.TrimSpace(string(out)); text != "" {
+	if text := strings.TrimSpace(redact.Text(string(out))); text != "" {
 		parts = append(parts, "launchd output: "+text)
 	}
 	parts = append(parts,
@@ -550,40 +642,7 @@ func diagnoseLaunchdRecord(text string) (string, []string) {
 	}
 }
 
-func redactLaunchdRecordSecrets(text string) string {
-	lines := strings.SplitAfter(text, "\n")
-	for i, line := range lines {
-		key, value, ok := strings.Cut(line, "=>")
-		if !ok || !isSensitiveLaunchdEnvKey(key) {
-			continue
-		}
-		lineEnd := ""
-		if strings.HasSuffix(value, "\n") {
-			lineEnd = "\n"
-		}
-		lines[i] = key + "=> [REDACTED]" + lineEnd
-	}
-	return strings.Join(lines, "")
-}
-
-func isSensitiveLaunchdEnvKey(key string) bool {
-	normalized := strings.ToUpper(strings.TrimSpace(key))
-	for _, marker := range []string{
-		"API_KEY",
-		"ACCESS_KEY",
-		"SECRET",
-		"TOKEN",
-		"PASSWORD",
-		"PASSCODE",
-		"PRIVATE_KEY",
-		"CREDENTIAL",
-	} {
-		if strings.Contains(normalized, marker) {
-			return true
-		}
-	}
-	return false
-}
+func redactLaunchdRecordSecrets(text string) string { return redact.Launchd(text) }
 
 func hasNonZeroLaunchdExit(text string) bool {
 	for _, line := range strings.Split(text, "\n") {

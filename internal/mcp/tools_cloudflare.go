@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"math"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
@@ -68,6 +69,7 @@ func NewCerberusCloudflareDNSCreateTool(client cerbapi.Client) Tool {
 			"name":         map[string]interface{}{"type": "string", "description": "DNS record name."},
 			"content":      map[string]interface{}{"type": "string", "description": "DNS record value."},
 			"ttl":          map[string]interface{}{"type": "integer", "description": "TTL in seconds. Use 1 for automatic."},
+			"priority":     map[string]interface{}{"type": "integer", "minimum": 0, "maximum": 65535, "description": "MX priority; required for MX records. Zero is valid."},
 			"proxied":      map[string]interface{}{"type": "boolean", "description": "Proxy through Cloudflare."},
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
@@ -84,6 +86,16 @@ func NewCerberusCloudflareDNSCreateTool(client cerbapi.Client) Tool {
 			}
 			if proxied, ok := args["proxied"].(bool); ok {
 				cfg["proxied"] = proxied
+			}
+			if raw, present := args["priority"]; present {
+				priority, ok := raw.(float64)
+				if integer, isInt := raw.(int); isInt {
+					priority, ok = float64(integer), true
+				}
+				if !ok || math.IsNaN(priority) || priority < 0 || priority > 65535 || math.Trunc(priority) != priority {
+					return marshalResult(lifecycleResult{Success: false, Error: "priority must be an integer between 0 and 65535"}), nil
+				}
+				cfg["priority"] = int(priority)
 			}
 			return executeConnectorMCP(ctx, client, "cloudflare", "create_dns_record", cfg, boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},

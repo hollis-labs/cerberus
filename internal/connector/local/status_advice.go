@@ -19,6 +19,9 @@ func RecommendedStatusAction(spec ProcessSpec, state domain.State, art ArtifactS
 	if !art.Installed {
 		return "apply", "installed artifact is missing"
 	}
+	if art.ActivationPending {
+		return "apply", "installed binary has not been confirmed active; activate it with apply, or deploy after source changes"
+	}
 	if !art.Stale {
 		return "", ""
 	}
@@ -116,4 +119,3 @@ func isActiveState(s domain.State) bool {
 		return false
 	}
 }
-

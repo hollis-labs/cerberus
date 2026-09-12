@@ -2,7 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 )
@@ -95,7 +96,7 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(st, "", "  ")
+			data, err := redact.MarshalIndent(st, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -127,7 +128,7 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(st, "", "  ")
+			data, err := redact.MarshalIndent(st, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -159,7 +160,7 @@ func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(st, "", "  ")
+			data, err := redact.MarshalIndent(st, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -205,7 +206,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, err := json.MarshalIndent(out, "", "  ")
+			data, err := redact.MarshalIndent(out, "", "  ")
 			if err != nil {
 				return "", err
 			}
@@ -218,7 +219,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_reload",
-		Description: "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh instead.",
+		Description: "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh with force=true instead.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -282,7 +283,7 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_deploy",
-		Description: "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. Prefer cerberus_resource_ensure_fresh if you just want 'make it current' without choosing a verb.",
+		Description: "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. This is the default action after editing source. ensure_fresh requires force=true to guarantee a rebuild.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -301,11 +302,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(lifecycleResult{
-				Success: res.Success,
-				Message: res.Message,
-				Error:   res.Error,
-			}), nil
+			return marshalResult(*res), nil
 		},
 	}
 }
@@ -314,7 +311,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_ensure_fresh",
-		Description: "Make a running service match its current source, idempotently. Runs the action Cerberus recommends from status — deploy (rebuild+sync+activate) if stale, apply/sync if needed, or nothing if already current. This is the tool to use when your goal is 'the running service should reflect the latest code' and you don't want to choose between deploy/apply/reload. For mode: dev_session resources (no staleness detection yet) pass force=true to always rebuild.",
+		Description: "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -322,7 +319,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 			},
 			"force": map[string]interface{}{
 				"type":        "boolean",
-				"description": "Always deploy (rebuild). Use for dev_session resources, which have no staleness detection. Default false.",
+				"description": "Always rebuild, install and activate. Required after source edits in ANY runtime mode; default false only checks built-binary drift.",
 			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
@@ -338,7 +335,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			data, mErr := json.MarshalIndent(res, "", "  ")
+			data, mErr := redact.MarshalIndent(res, "", "  ")
 			if mErr != nil {
 				return "", mErr
 			}
@@ -351,7 +348,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_apply",
-		Description: "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh) so it rebuilds first.",
+		Description: "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh with force=true) so it rebuilds first.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -370,11 +367,7 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(lifecycleResult{
-				Success: res.Success,
-				Message: res.Message,
-				Error:   res.Error,
-			}), nil
+			return marshalResult(*res), nil
 		},
 	}
 }

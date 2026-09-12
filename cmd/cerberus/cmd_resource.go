@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/chrispian/cerberus/internal/config"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
 	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/chrispian/cerberus/internal/redact"
 	"github.com/chrispian/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
@@ -20,7 +20,7 @@ import (
 var resourceCmd = &cobra.Command{
 	Use:   "resource",
 	Short: "V2 resource management",
-	Long:  "Manages v2 resources. To make a running service match your current source, use ensure-fresh (idempotent: it runs the recommended deploy/apply/sync for you) — or deploy directly. Lower-level verbs: deploy for build+activate, apply for already-built activation, reload for restart-only (NO rebuild), sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state. NOTE: run_from: artifact services run an installed copy under ~/.cerberus/apps/...; building (go/make) or reload/restart does not update them — only deploy/apply/ensure-fresh do.",
+	Long:  "Manages v2 resources. After editing source, use deploy to build and activate it, or ensure-fresh --force. Without --force, ensure-fresh checks existing binary/install drift; it cannot detect unbuilt source edits. Lower-level verbs: deploy for build+activate, apply for already-built activation, reload for restart-only (NO rebuild), sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state. NOTE: run_from: artifact services run an installed copy under ~/.cerberus/apps/...; building (go/make) or reload/restart does not update them — only deploy/apply/ensure-fresh do.",
 }
 
 var resourceListProject string
@@ -119,15 +119,11 @@ var resourceShowCmd = &cobra.Command{
 				}
 				if len(r.Config) > 0 {
 					fmt.Println("Config:")
-					keys := make([]string, 0, len(r.Config))
-					for k := range r.Config {
-						keys = append(keys, k)
+					data, err := redact.MarshalIndent(r.Config, "  ", "  ")
+					if err != nil {
+						return err
 					}
-					sort.Strings(keys)
-					for _, k := range keys {
-						v := r.Config[k]
-						fmt.Printf("  %s: %v\n", k, v)
-					}
+					fmt.Printf("  %s\n", data)
 				}
 				return nil
 			}
@@ -355,23 +351,12 @@ var resourceEnsureFreshForce bool
 
 var resourceEnsureFreshCmd = &cobra.Command{
 	Use:   "ensure-fresh <resource-id>",
-	Short: "Make a running service match the current source (idempotent)",
-	Long: `Makes a resource current by running whatever action Cerberus already
-recommends from its runtime status, so you don't have to choose between
-deploy/apply/reload yourself:
-
-  - source changed / artifact stale  -> deploy (rebuild + sync + activate)
-  - built but not active / synced     -> apply
-  - artifact stale, service stopped   -> sync
-  - already current                   -> nothing
-
-This is the command to reach for when your goal is "make the running service
-reflect my latest code." Building (go build / make build / go install) or
-restarting (reload / a GUI "Restart") does NOT do that for run_from: artifact
-services — they run an installed copy under ~/.cerberus/apps/.../bin/.
-
-mode: dev_session resources have no staleness detection yet, so ensure-fresh
-will no-op on them unless you pass --force (which always deploys).`,
+	Short: "Reconcile built-binary drift; --force rebuilds source",
+	Long: `Without --force, reconciles the built binaries with installed/running
+resources using status advice. It does not check unbuilt source edits.
+After editing code, use resource deploy or ensure-fresh --force to build,
+install and activate the new binary. Apply activates existing build output;
+sync only copies it; reload only restarts the current installed binary.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
@@ -613,6 +598,9 @@ func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {
 		fmt.Println(fallback)
 		return nil
 	}
+	for _, warning := range out.Warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+	}
 	if !out.Success {
 		// Surface captured build/install output and the log path so a failed
 		// deploy is diagnosable inline instead of a bare "exit status 2".
@@ -639,6 +627,12 @@ func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {
 }
 
 func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
+	for _, warning := range st.DependencyWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
+	for _, warning := range st.ConfigWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
 	fmt.Printf("Resource:    %s\n", st.ID)
 	fmt.Printf("Name:        %s\n", st.Name)
 	fmt.Printf("Status:      %s\n", st.Status)
@@ -714,6 +708,12 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 }
 
 func printResourceInspect(st *cerbapi.ResourceInspect) {
+	for _, warning := range st.DependencyWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
+	for _, warning := range st.ConfigWarnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
 	fmt.Printf("Resource:    %s\n", st.ID)
 	fmt.Printf("Name:        %s\n", st.Name)
 	fmt.Printf("Status:      %s\n", st.Status)

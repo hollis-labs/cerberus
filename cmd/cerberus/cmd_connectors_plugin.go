@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/spf13/cobra"
@@ -259,7 +260,10 @@ func parsePluginArgs(items []string) (map[string]any, error) {
 }
 
 func writeJSON(out io.Writer, value any) error {
-	enc := json.NewEncoder(out)
-	enc.SetIndent("", "  ")
-	return enc.Encode(value)
+	data, err := redact.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, string(data))
+	return err
 }

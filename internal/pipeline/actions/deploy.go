@@ -33,7 +33,20 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 	if a.local == nil {
 		return fmt.Errorf("deploy %s: local connector is required", a.resourceID)
 	}
+	if guarded, ok := a.local.(interface{ ValidateMutation(*domain.Resource) error }); ok {
+		if err := guarded.ValidateMutation(a.resource); err != nil {
+			return err
+		}
+	}
 
+	if err := localconn.ValidateDeployOutput(a.spec); err != nil {
+		return err
+	}
+	ctx, release, lockErr := localconn.WithBuildLock(ctx, a.spec, a.resourceID)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer release()
 	var buildResult *localconn.BuildResult
 	if localconn.HasBuildStrategy(a.spec) {
 		result, err := localconn.BuildProcessResultContext(ctx, a.spec)
@@ -49,7 +62,7 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 	installSkipped := false
 	installOutput := ""
 	if localconn.HasBuildStrategy(a.spec) && a.spec.InstallAfterBuild {
-		skipped, out, err := localconn.RunInstall(a.spec)
+		skipped, out, err := localconn.RunInstallContext(ctx, a.spec)
 		installSkipped = skipped
 		installOutput = strings.TrimSpace(out)
 		if err != nil {
@@ -57,7 +70,13 @@ func (a *Deploy) Execute(ctx context.Context, env *domain.PipelineEnv) error {
 		}
 	}
 
-	applyResult, err := a.local.Apply(ctx, a.resource)
+	activate := a.local.Apply
+	if built, ok := a.local.(interface {
+		ActivateBuilt(context.Context, *domain.Resource) (localconn.ApplyResult, error)
+	}); ok {
+		activate = built.ActivateBuilt
+	}
+	applyResult, err := activate(ctx, a.resource)
 	if err != nil {
 		return fmt.Errorf("deploy %s: apply failed: %w", a.resourceID, err)
 	}

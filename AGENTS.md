@@ -63,7 +63,7 @@ with a next step. `resolveArtifactSource` in
 **Never deploy the daemon through its own socket.** `deploy` or `ensure-fresh`
 on `cerberus-daemon-service` restarts the daemon mid-operation: the call dies on
 EOF, the artifact is left half-synced, and the launchd job can end up booted out
-where `KeepAlive` will not bring it back. Nothing refuses this yet. Build to a
+where `KeepAlive` will not bring it back. The serving runtime now refuses resource mutations targeting itself. Build to a
 temp path, `mv` it over the artifact, then `launchctl kickstart -k
 gui/$(id -u)/com.fragments-engine.cerberus`.
 

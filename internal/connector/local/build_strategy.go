@@ -18,16 +18,18 @@ import (
 // Fragments-style kind/source/rules shape so new strategies can be added
 // without changing process-resource fields again.
 type BuildStrategyConfig struct {
-	Kind   string
-	Source map[string]any
-	Rules  map[string]any
+	Kind      string         `yaml:"kind"`
+	EnvPrefix []string       `yaml:"env_prefix"`
+	Source    map[string]any `yaml:"source"`
+	Rules     map[string]any `yaml:"rules"`
 }
 
 type BuildConfig struct {
-	WorkDir string
-	Env     []string
-	Source  map[string]any
-	Rules   map[string]any
+	WorkDir   string
+	EnvPrefix []string
+	Env       []string
+	Source    map[string]any
+	Rules     map[string]any
 }
 
 type BuildResult struct {
@@ -87,16 +89,24 @@ func BuildProcessResultContext(ctx context.Context, spec ProcessSpec) (*BuildRes
 	if strategy == nil {
 		return nil, fmt.Errorf("unknown build_strategy kind %q", spec.BuildStrategy.Kind)
 	}
+	ctx, release, err := WithBuildLock(ctx, spec, "")
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	result, err := strategy.Build(ctx, BuildConfig{
-		WorkDir: spec.Dir,
-		Env:     sessionEnv(spec),
-		Source:  spec.BuildStrategy.Source,
-		Rules:   spec.BuildStrategy.Rules,
+		WorkDir:   spec.Dir,
+		EnvPrefix: spec.BuildStrategy.EnvPrefix,
+		Env:       sessionEnv(spec),
+		Source:    spec.BuildStrategy.Source,
+		Rules:     spec.BuildStrategy.Rules,
 	})
 	if result == nil {
 		result = &BuildResult{}
 	}
-	return result, err
+	result.Command = OutputRedactor(spec).Args(result.Command)
+	result.Output = OutputRedactor(spec).Text(result.Output)
+	return result, OutputRedactor(spec).Error(err)
 }
 
 func HasBuildStrategy(spec ProcessSpec) bool {
@@ -133,11 +143,11 @@ func (goStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*Bui
 	}
 	args = append(args, target)
 
-	cmd := exec.CommandContext(ctx, "go", args...) //nolint:gosec // strategy arguments come from trusted local Cerberus config
+	cmd := buildCommand(ctx, cfg, append([]string{"go"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out), Command: append([]string{"go"}, args...), Dir: dir}, err
+	return &BuildResult{Output: string(out), Command: cmd.Args, Dir: dir}, err
 }
 
 func buildGoMatrix(ctx context.Context, cfg BuildConfig, dir, target string, matrix []map[string]string) (*BuildResult, error) {
@@ -183,7 +193,7 @@ func buildGoMatrix(ctx context.Context, cfg BuildConfig, dir, target string, mat
 		}
 		args = append(args, target)
 
-		cmd := exec.CommandContext(ctx, "go", args...) //nolint:gosec // strategy arguments come from trusted local Cerberus config
+		cmd := buildCommand(ctx, cfg, append([]string{"go"}, args...)...)
 		cmd.Dir = dir
 		cmd.Env = appendVariantEnv(cfg.Env, variant)
 		out, err := cmd.CombinedOutput()
@@ -236,11 +246,11 @@ func (makeStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*B
 	target := stringRule(cfg.Rules, "target", "build")
 	args := append([]string{target}, stringSliceRule(cfg.Rules, "args")...)
 
-	cmd := exec.CommandContext(ctx, "make", args...) //nolint:gosec // strategy arguments come from trusted local Cerberus config
+	cmd := buildCommand(ctx, cfg, append([]string{"make"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out), Command: append([]string{"make"}, args...), Dir: dir}, err
+	return &BuildResult{Output: string(out), Command: cmd.Args, Dir: dir}, err
 }
 
 // legacyCommandBuildStrategy runs an explicit command list in the
@@ -258,11 +268,11 @@ func (legacyCommandBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*
 	if len(command) == 0 {
 		return nil, fmt.Errorf("legacy_command build_strategy requires a non-empty rules.command")
 	}
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // command comes from trusted local Cerberus config
+	cmd := buildCommand(ctx, cfg, command...)
 	cmd.Dir = dir
 	cmd.Env = cfg.Env
 	out, err := cmd.CombinedOutput()
-	return &BuildResult{Output: string(out), Command: append([]string(nil), command...), Dir: dir}, err
+	return &BuildResult{Output: string(out), Command: cmd.Args, Dir: dir}, err
 }
 
 func resolveBuildDir(base, root string) string {
@@ -284,10 +294,24 @@ func buildStrategyConfigFromAny(raw any) (*BuildStrategyConfig, error) {
 	if kind == "" {
 		return nil, fmt.Errorf("kind is required")
 	}
+	prefix := stringSliceField(m, "env_prefix")
+	if raw, present := m["env_prefix"]; present {
+		valid := false
+		switch v := raw.(type) {
+		case []string:
+			valid = len(v) == len(prefix)
+		case []any:
+			valid = len(v) == len(prefix)
+		}
+		if !valid || len(prefix) == 0 || strings.TrimSpace(prefix[0]) == "" {
+			return nil, fmt.Errorf("env_prefix must be a non-empty argv list")
+		}
+	}
 	return &BuildStrategyConfig{
-		Kind:   kind,
-		Source: anyMapField(m, "source"),
-		Rules:  anyMapField(m, "rules"),
+		Kind:      kind,
+		EnvPrefix: prefix,
+		Source:    anyMapField(m, "source"),
+		Rules:     anyMapField(m, "rules"),
 	}, nil
 }
 
@@ -295,12 +319,16 @@ func (c *BuildStrategyConfig) expandHome() {
 	if c == nil {
 		return
 	}
+	c.EnvPrefix = expandHomeSlice(c.EnvPrefix)
 	c.Source = expandHomeAnyMap(c.Source)
 	c.Rules = expandHomeAnyMap(c.Rules)
 }
 
 func (c *BuildStrategyConfig) toConfigMap() map[string]any {
 	out := map[string]any{"kind": c.Kind}
+	if len(c.EnvPrefix) > 0 {
+		out["env_prefix"] = append([]string(nil), c.EnvPrefix...)
+	}
 	if len(c.Source) > 0 {
 		out["source"] = cloneAnyMap(c.Source)
 	}
@@ -528,4 +556,10 @@ func writeTarGz(dst, src, entryName string) error {
 		return fmt.Errorf("write archive body: %w", err)
 	}
 	return nil
+}
+
+// buildCommand preserves argv boundaries; prefixes never pass through a shell.
+func buildCommand(ctx context.Context, cfg BuildConfig, argv ...string) *exec.Cmd {
+	command := append(append([]string(nil), cfg.EnvPrefix...), argv...)
+	return exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // argv comes from the trusted project build contract
 }
