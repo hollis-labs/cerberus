@@ -50,7 +50,7 @@ var sshExecCmd = &cobra.Command{
 			return err
 		}
 
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -104,7 +104,7 @@ var sshStatusCmd = &cobra.Command{
 			return err
 		}
 
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -140,7 +140,7 @@ var sshStopCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}

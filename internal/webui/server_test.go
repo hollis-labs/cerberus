@@ -339,3 +339,7 @@ func (f *fakeClient) ManagedPluginHealth(context.Context, string) (cerbapi.Plugi
 func (f *fakeClient) ExecuteManagedPlugin(context.Context, string, cerbapi.PluginConnectorExecArgs) (cerbapi.ExternalConnectorOperationResult, error) {
 	return cerbapi.ExternalConnectorOperationResult{}, nil
 }
+
+func (*fakeClient) GetPipeline(context.Context, string) (*cerbapi.PipelineDetail, error) {
+	return nil, nil
+}

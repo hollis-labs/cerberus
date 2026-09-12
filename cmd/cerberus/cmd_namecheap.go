@@ -32,7 +32,7 @@ var domainListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all domains",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ var domainStatusCmd = &cobra.Command{
 	Short: "Show domain status",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -123,7 +123,7 @@ var domainNameserversSetCmd = &cobra.Command{
 	Short: "Switch a domain to custom nameservers",
 	Args:  cobra.MinimumNArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -158,7 +158,7 @@ var dnsListCmd = &cobra.Command{
 	Short: "List DNS records for a domain",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}

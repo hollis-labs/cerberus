@@ -51,6 +51,8 @@ type Client interface {
 	RemoveResource(ctx context.Context, id string) (*OpResult, error)
 	// ListPipelines returns pipeline-list output.
 	ListPipelines(ctx context.Context) ([]PipelineInfo, error)
+	// GetPipeline returns the definition and validation diagnostics, or nil if missing.
+	GetPipeline(ctx context.Context, id string) (*PipelineDetail, error)
 	// RunPipeline executes a pipeline and returns the raw result JSON.
 	RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error)
 	// ListConnectors returns connector discovery metadata.

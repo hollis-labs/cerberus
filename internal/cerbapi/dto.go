@@ -29,6 +29,7 @@ import (
 
 	"github.com/chrispian/cerberus/internal/config"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
+	"github.com/chrispian/cerberus/internal/pipeline"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -390,15 +391,33 @@ type PipelineInfo struct {
 	Stages      int    `json:"stage_count"`
 }
 
+// PipelineDetail is the inspectable definition, including resolution diagnostics.
+type PipelineDetail struct {
+	Definition      config.PipelineDef `json:"definition"`
+	ValidationError string             `json:"validation_error,omitempty"`
+}
+
+// PipelineExecution is the typed execution result used by formatting clients.
+type PipelineExecution = pipeline.RunResult
+
 // PipelineRunResult is the DTO for pipeline-run responses. The body is
 // whatever pipeline.Executor returns, serialized verbatim, so we don't
 // have to re-declare the nested structure here.
 type PipelineRunResult struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
-	// Raw is the JSON body of the underlying pipeline.Result, passed
-	// through opaquely to avoid coupling cerbapi to pipeline internals.
+	// Raw preserves the existing pipeline-result wire format used by MCP
+	// and the console. Formatting clients can use Execution to decode it.
 	Raw []byte `json:"raw,omitempty"`
+}
+
+// Execution decodes the existing wire result without changing MCP/web responses.
+func (r *PipelineRunResult) Execution() (*PipelineExecution, error) {
+	var out PipelineExecution
+	if err := json.Unmarshal(r.Raw, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // DialTimeout is the default deadline for establishing a socket

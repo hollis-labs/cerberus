@@ -472,6 +472,19 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 	if len(parts) == 2 {
 		action = parts[1]
 	}
+	if action == "" {
+		if r.Method != http.MethodGet {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.GetPipeline(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	if action != "run" {
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown pipeline action %q", action))
 		return

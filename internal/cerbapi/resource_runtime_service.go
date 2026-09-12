@@ -45,6 +45,8 @@ type ResourceRuntimeService struct {
 	// instead of running a live git probe per poll.
 	drift atomic.Pointer[DriftCache]
 
+	// pipelineMu serializes pipeline runs without holding the resource mutation lock.
+	pipelineMu        sync.Mutex
 	opMu              sync.Mutex
 	servingDaemon     bool
 	servingExecutable string
@@ -96,6 +98,9 @@ func NewResourceRuntimeService(opts ...ResourceRuntimeOption) *ResourceRuntimeSe
 	s := &ResourceRuntimeService{logger: slog.Default()}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.local == nil {
+		s.local = localconn.New()
 	}
 	return s
 }

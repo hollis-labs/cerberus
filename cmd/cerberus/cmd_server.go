@@ -20,7 +20,7 @@ var serverListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List DigitalOcean droplets",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -57,7 +57,7 @@ var serverShowCmd = &cobra.Command{
 	Short: "Show droplet details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -100,7 +100,7 @@ var serverCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a droplet",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -154,7 +154,7 @@ var serverDestroyCmd = &cobra.Command{
 }
 
 func runServerLifecycle(cmd *cobra.Command, rawID, operation string) error {
-	svc, closeFn, err := newExternalConnectorService()
+	svc, closeFn, err := newExternalConnectorService(cmd.Context())
 	if err != nil {
 		return err
 	}
