@@ -228,8 +228,6 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 }
 
 func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
 
 	cfg := s.snapshotConfig()
 	if cfg == nil {
@@ -333,8 +331,6 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 }
 
 func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id string) (*ResourceInspect, error) {
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
 
 	cfg := s.snapshotConfig()
 	if cfg == nil {
@@ -1076,8 +1072,6 @@ func (s *ResourceRuntimeService) ResourceLogs(ctx context.Context, id string, li
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	s.opMu.Lock()
-	defer s.opMu.Unlock()
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
