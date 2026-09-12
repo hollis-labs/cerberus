@@ -62,6 +62,10 @@ func Resolve(opts ResolveOptions) (*ResolvedConfig, error) {
 		return nil, err
 	}
 
+	return resolveIndex(opts, idx)
+}
+
+func resolveIndex(opts ResolveOptions, idx *Index) (*ResolvedConfig, error) {
 	resolved := &ResolvedConfig{Config: &config.ConfigV2{Version: 2}}
 
 	projects := map[string]config.ProjectDef{}
@@ -143,6 +147,9 @@ func Resolve(opts ResolveOptions) (*ResolvedConfig, error) {
 	resolved.Config.Resources = flattenResources(resources)
 	resolved.Config.Pipelines = flattenPipelines(pipelines)
 	config.NormalizeV2(resolved.Config)
+	for _, conflict := range PortConflicts(resolved.Config.Resources) {
+		resolved.Warnings = append(resolved.Warnings, conflict.String())
+	}
 	return resolved, nil
 }
 

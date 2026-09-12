@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"encoding/json"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
@@ -10,6 +10,6 @@ import (
 type lifecycleResult = cerbapi.OpResult
 
 func marshalResult(r lifecycleResult) string {
-	data, _ := json.MarshalIndent(r, "", "  ")
+	data, _ := redact.MarshalIndent(r, "", "  ")
 	return string(data)
 }

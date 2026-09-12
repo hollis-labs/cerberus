@@ -21,6 +21,7 @@ const CerberusVersion = "0.2.0"
 // PIDMeta stores metadata alongside a PID file.
 type PIDMeta struct {
 	PID             int       `json:"pid"`
+	ProcessStart    string    `json:"process_start,omitempty"`
 	StartedAt       time.Time `json:"started_at"`
 	ConfigHash      string    `json:"config_hash"`
 	CerberusVersion string    `json:"cerberus_version"`

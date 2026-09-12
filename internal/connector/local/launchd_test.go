@@ -14,9 +14,10 @@ import (
 )
 
 type fakeCommandRunner struct {
-	calls []fakeCall
-	out   map[string][]byte
-	err   map[string]error
+	calls     []fakeCall
+	out       map[string][]byte
+	err       map[string]error
+	keepState bool
 }
 
 type sequencedCommandError struct {
@@ -39,6 +40,11 @@ func (f *fakeCommandRunner) CombinedOutput(_ context.Context, name string, args 
 	f.calls = append(f.calls, fakeCall{name: name, args: append([]string(nil), args...)})
 	key := name + " " + strings.Join(args, " ")
 	err := f.err[key]
+	if name == "launchctl" && len(args) == 3 && args[0] == "kickstart" && err == nil && !f.keepState {
+		printKey := "launchctl print " + args[2]
+		f.out[printKey] = []byte("state = running\npid = 1234")
+		delete(f.err, printKey)
+	}
 	if seq, ok := err.(*sequencedCommandError); ok {
 		return f.out[key], seq.next()
 	}
@@ -153,8 +159,8 @@ func TestLaunchdBackendStartWritesPlistAndRunsLaunchctl(t *testing.T) {
 		t.Fatalf("plist did not point at installed artifact: %s", string(data))
 	}
 
-	if len(runner.calls) != 3 {
-		t.Fatalf("launchctl calls = %d, want 3", len(runner.calls))
+	if len(runner.calls) != 5 {
+		t.Fatalf("launchctl calls = %d, want 5", len(runner.calls))
 	}
 }
 
@@ -310,8 +316,8 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 		t.Fatalf("Apply failed: %v", err)
 	}
 
-	if len(runner.calls) != 4 {
-		t.Fatalf("launchctl calls = %d, want 4", len(runner.calls))
+	if len(runner.calls) != 6 {
+		t.Fatalf("launchctl calls = %d, want 6", len(runner.calls))
 	}
 	got := []string{
 		runner.calls[0].name + " " + strings.Join(runner.calls[0].args, " "),
@@ -441,24 +447,17 @@ func TestLaunchdBackendApplyRetriesBootstrapAfterConflict(t *testing.T) {
 		t.Fatalf("Apply failed: %v", err)
 	}
 
-	got := []string{
-		runner.calls[0].name + " " + strings.Join(runner.calls[0].args, " "),
-		runner.calls[1].name + " " + strings.Join(runner.calls[1].args, " "),
-		runner.calls[2].name + " " + strings.Join(runner.calls[2].args, " "),
-		runner.calls[3].name + " " + strings.Join(runner.calls[3].args, " "),
-		runner.calls[4].name + " " + strings.Join(runner.calls[4].args, " "),
-	}
-	want := []string{
-		"launchctl print gui/501/" + label,
-		"launchctl bootstrap gui/501 " + plistPath,
-		"launchctl bootout gui/501/" + label,
-		"launchctl bootout gui/501 " + plistPath,
-		"launchctl bootstrap gui/501 " + plistPath,
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("call[%d] = %q, want %q", i, got[i], want[i])
+	bootstraps := 0
+	for _, call := range runner.calls {
+		if call.args[0] == "bootout" {
+			t.Fatal("attempted recovery bootout although the job was absent")
 		}
+		if call.args[0] == "bootstrap" {
+			bootstraps++
+		}
+	}
+	if bootstraps != 2 {
+		t.Fatalf("expected one bounded retry, got %d bootstraps", bootstraps)
 	}
 }
 
@@ -654,8 +653,8 @@ func TestLaunchdBackendReloadKickstartsLoadedService(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("launchctl calls = %d, want 2", len(runner.calls))
+	if len(runner.calls) != 4 {
+		t.Fatalf("launchctl calls = %d, want 4", len(runner.calls))
 	}
 }
 
@@ -813,5 +812,124 @@ func TestLaunchdBackendLeavesLiteralEnvUnfronted(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "run-secrets") {
 		t.Errorf("literal-only service was fronted by the shim:\n%s", string(raw))
+	}
+}
+
+func TestApplyFailsWhenLaunchdAcceptsButCannotExecute(t *testing.T) {
+	dir := t.TempDir()
+	label := "com.example.failed"
+	runner := &fakeCommandRunner{
+		out: map[string][]byte{"launchctl print gui/501/" + label: []byte("state = spawn scheduled\nlast exit reason = OS_REASON_CODESIGNING")},
+		err: map[string]error{}, keepState: true,
+	}
+	backend := launchdBackend{runner: runner, homeDir: func() (string, error) { return dir, nil }, uid: func() int { return 501 }, startTimeout: 20 * time.Millisecond}
+	_, err := backend.Apply(context.Background(), &domain.Resource{ID: "app", ProjectID: "test"}, ProcessSpec{RunFrom: ProcessRunFromWorkspace, Command: []string{"/bin/false"}, ServiceName: label})
+	if err == nil || !strings.Contains(err.Error(), "did not reach running") || !strings.Contains(err.Error(), "OS_REASON_CODESIGNING") {
+		t.Fatalf("false deployment success or missing diagnosis: %v", err)
+	}
+}
+
+func TestWaitRunningHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	backend := launchdBackend{}
+	err := backend.waitRunning(ctx, &domain.Resource{}, ProcessSpec{}, InstallLayout{ServiceName: "test"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation: %v", err)
+	}
+}
+
+func TestBootstrapRecoveryHonorsCancellationAndBootoutFailure(t *testing.T) {
+	for _, mode := range []string{"cancel", "bootout-fails"} {
+		t.Run(mode, func(t *testing.T) {
+			runner := &fakeCommandRunner{out: map[string][]byte{"launchctl bootstrap gui/501 app.plist": []byte("Bootstrap failed: 5: Input/output error")}, err: map[string]error{"launchctl bootstrap gui/501 app.plist": errors.New("exit status 5")}}
+			ctx := context.Background()
+			if mode == "cancel" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 20*time.Millisecond)
+				defer cancel()
+			} else {
+				runner.err["launchctl bootout gui/501/app"] = errors.New("permission denied")
+			}
+			backend := launchdBackend{runner: runner}
+			_, err := backend.bootstrapService(ctx, "gui/501", "gui/501/app", "app.plist")
+			if mode == "cancel" && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("lost cancellation: %v", err)
+			}
+			if mode == "bootout-fails" && (err == nil || !strings.Contains(err.Error(), "recovery bootout failed")) {
+				t.Fatalf("lost failed step: %v", err)
+			}
+			for _, call := range runner.calls[1:] {
+				if call.args[0] == "bootstrap" {
+					t.Fatal("retried bootstrap after failed/canceled recovery")
+				}
+			}
+		})
+	}
+}
+
+func TestApplyActivatesArtifactThatWasPreviouslySynced(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "source")
+	if err := os.WriteFile(src, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	backend := launchdBackend{runner: runner, homeDir: func() (string, error) { return dir, nil }, uid: func() int { return 501 }}
+	res := &domain.Resource{ID: "app", ProjectID: "test"}
+	spec := ProcessSpec{RunFrom: ProcessRunFromArtifact, Command: []string{src}}
+	if _, err := backend.Apply(context.Background(), res, spec); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	installer := backend.artifactInstaller()
+	if _, _, err := installer.Sync(res, spec); err != nil {
+		t.Fatal(err)
+	}
+	_, status, err := installer.Status(res, spec)
+	if err != nil || !status.ActivationPending {
+		t.Fatalf("sync claimed runtime current: %+v %v", status, err)
+	}
+	result, err := backend.Apply(context.Background(), res, spec)
+	if err != nil || result.Action != ApplyActionReloaded {
+		t.Fatalf("pre-synced binary not activated: %+v %v", result, err)
+	}
+	_, status, err = installer.Status(res, spec)
+	if err != nil || status.ActivationPending {
+		t.Fatalf("activation not recorded: %+v %v", status, err)
+	}
+}
+
+type settlingLaunchdRunner struct {
+	base       *fakeCommandRunner
+	bootoutAt  time.Time
+	bootstraps int
+}
+
+func (r *settlingLaunchdRunner) CombinedOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "bootout" {
+		r.bootoutAt = time.Now()
+	}
+	if len(args) > 0 && args[0] == "bootstrap" {
+		r.bootstraps++
+		if !r.bootoutAt.IsZero() && time.Since(r.bootoutAt) < 200*time.Millisecond {
+			return []byte("Bootstrap failed: 5: Input/output error"), errors.New("slot still draining")
+		}
+	}
+	return r.base.CombinedOutput(ctx, name, args...)
+}
+func TestApplyWaitsForRemovedLaunchdSlotBeforeBootstrap(t *testing.T) {
+	dir := t.TempDir()
+	label := "com.test.slot"
+	runner := &settlingLaunchdRunner{base: &fakeCommandRunner{out: map[string][]byte{"launchctl print gui/501/" + label: []byte("state = running\npid = 123")}, err: map[string]error{}}}
+	backend := launchdBackend{runner: runner, homeDir: func() (string, error) { return dir, nil }, uid: func() int { return 501 }}
+	_, err := backend.Apply(context.Background(), &domain.Resource{ID: "slot", ProjectID: "test"}, ProcessSpec{Mode: ProcessModeOSService, Supervisor: ProcessSupervisorLaunchd, RunFrom: ProcessRunFromWorkspace, ServiceName: label, Dir: dir, Command: []string{"/bin/sleep", "60"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.bootstraps != 1 {
+		t.Fatalf("bootstrap raced the draining slot: %d attempts", runner.bootstraps)
 	}
 }

@@ -42,7 +42,7 @@ func WriteBuildLog(res *domain.Resource, spec ProcessSpec, result *BuildResult, 
 	fmt.Fprintf(&b, "=== build %s ===\n", time.Now().UTC().Format(time.RFC3339))
 	if result != nil {
 		if len(result.Command) > 0 {
-			fmt.Fprintf(&b, "command: %s\n", strings.Join(result.Command, " "))
+			fmt.Fprintf(&b, "command: %s\n", strings.Join(OutputRedactor(spec).Args(result.Command), " "))
 		}
 		if result.Dir != "" {
 			fmt.Fprintf(&b, "dir: %s\n", result.Dir)
@@ -61,8 +61,11 @@ func WriteBuildLog(res *domain.Resource, spec ProcessSpec, result *BuildResult, 
 		}
 	}
 
-	if writeErr := os.WriteFile(path, []byte(b.String()), 0o644); writeErr != nil { //nolint:gosec // operator-readable build log
+	if writeErr := os.WriteFile(path, []byte(OutputRedactor(spec).Text(b.String())), 0o600); writeErr != nil {
 		return path, writeErr
+	}
+	if chmodErr := os.Chmod(path, 0600); chmodErr != nil {
+		return path, chmodErr
 	}
 	return path, nil
 }
@@ -76,7 +79,7 @@ func BuildCommandSummary(spec ProcessSpec, result *BuildResult) string {
 		if dir == "" {
 			dir = spec.Dir
 		}
-		return fmt.Sprintf("`%s` in %s", strings.Join(result.Command, " "), dir)
+		return fmt.Sprintf("`%s` in %s", strings.Join(OutputRedactor(spec).Args(result.Command), " "), dir)
 	}
 	if spec.BuildStrategy != nil {
 		return fmt.Sprintf("build_strategy %q in %s", spec.BuildStrategy.Kind, spec.Dir)

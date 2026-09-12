@@ -139,3 +139,35 @@ func TestRegistryUnavailableErrorClearsOnRegister(t *testing.T) {
 		t.Fatalf("UnavailableError after Register = %v, want nil", got)
 	}
 }
+
+func TestConnectorFactoryDoesNotCacheMissingOrRotatedCredentials(t *testing.T) {
+	registry := NewRegistry()
+	var available contract.Connector
+	registry.RegisterFactory(contract.Definition{ID: "late"}, func(ctx context.Context) (contract.Connector, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if available == nil {
+			return nil, errors.New("credential missing")
+		}
+		return available, nil
+	})
+	if _, err := registry.Resolve(context.Background(), "late"); err == nil {
+		t.Fatal("missing credential accepted")
+	}
+	available = &stubConnector{id: "late"}
+	first, err := registry.Resolve(context.Background(), "late")
+	if err != nil || first != available {
+		t.Fatalf("credential added after startup not picked up: %v", err)
+	}
+	available = &stubConnector{id: "late"}
+	second, err := registry.Resolve(context.Background(), "late")
+	if err != nil || second != available || second == first {
+		t.Fatalf("rotated credential not picked up: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err = registry.Resolve(ctx, "late"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("lost operation context: %v", err)
+	}
+}
