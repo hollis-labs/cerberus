@@ -86,17 +86,17 @@ func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {
 // its cancellation must still reach the daemon operation.
 type cancellableConnectorClient struct {
 	Client
-	started, cancelled chan struct{}
+	started, canceled chan struct{}
 }
 
 func (c cancellableConnectorClient) ExecuteConnectorOperation(ctx context.Context, _ ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	close(c.started)
 	<-ctx.Done()
-	close(c.cancelled)
+	close(c.canceled)
 	return ExternalConnectorOperationResult{}, ctx.Err()
 }
 func TestForegroundConnectorTransportHonorsCancellation(t *testing.T) {
-	backend := cancellableConnectorClient{started: make(chan struct{}), cancelled: make(chan struct{})}
+	backend := cancellableConnectorClient{started: make(chan struct{}), canceled: make(chan struct{})}
 	socket := startConnectorSocket(t, backend)
 	client := NewSocketClient(socket.DialPath(), WithClientTimeout(time.Nanosecond), WithClientTimeout(0))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -115,11 +115,11 @@ func TestForegroundConnectorTransportHonorsCancellation(t *testing.T) {
 	}
 	cancel()
 	select {
-	case <-backend.cancelled:
+	case <-backend.canceled:
 	case <-time.After(3 * time.Second):
 		t.Fatal("cancellation did not reach operation")
 	}
 	if err := <-result; err == nil {
-		t.Fatal("cancelled request succeeded")
+		t.Fatal("canceled request succeeded")
 	}
 }
