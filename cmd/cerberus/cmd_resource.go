@@ -354,6 +354,8 @@ var resourceEnsureFreshCmd = &cobra.Command{
 	Short: "Reconcile built-binary drift; --force rebuilds source",
 	Long: `Without --force, reconciles the built binaries with installed/running
 resources using status advice. It does not check unbuilt source edits.
+If activation is unconfirmed, it stops without changing the service and asks
+you to verify the running image before retrying activation.
 After editing code, use resource deploy or ensure-fresh --force to build,
 install and activate the new binary. Apply activates existing build output;
 sync only copies it; reload only restarts the current installed binary.`,

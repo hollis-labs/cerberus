@@ -108,6 +108,20 @@ func TestRecommendedStatusAction(t *testing.T) {
 			action: "",
 			reason: "",
 		},
+		{
+			name:   "unconfirmed stopped artifact can be activated",
+			state:  domain.StateStopped,
+			art:    ArtifactStatus{Installed: true, ActivationPending: true},
+			action: "apply",
+			reason: "installed binary has not been confirmed active; activate it with apply, or deploy after source changes",
+		},
+		{
+			name:   "new source still needs activation despite pending marker",
+			state:  domain.StateRunning,
+			art:    ArtifactStatus{Installed: true, Stale: true, ActivationPending: true},
+			action: "apply",
+			reason: "installed binary has not been confirmed active; activate it with apply, or deploy after source changes",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

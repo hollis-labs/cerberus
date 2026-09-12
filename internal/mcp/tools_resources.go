@@ -311,7 +311,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_resource_ensure_fresh",
-		Description: "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift.",
+		Description: "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift. Unconfirmed activation returns success=false without restarting; follow the verification guidance before retrying.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",

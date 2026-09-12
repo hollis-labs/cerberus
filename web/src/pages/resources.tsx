@@ -429,7 +429,7 @@ function DriftChip({
   // make the resource current (deploy), so the warning and its remedy live in
   // the same place. Candidate for upstream contribution: an interactive
   // DriftChip widget that owns this affordance.
-  if (onMakeCurrent) {
+  if (onMakeCurrent && item.recommended_action !== 'inspect') {
     return (
       <button
         type="button"

@@ -20,6 +20,13 @@ func RecommendedStatusAction(spec ProcessSpec, state domain.State, art ArtifactS
 		return "apply", "installed artifact is missing"
 	}
 	if art.ActivationPending {
+		// A timed-out wait does not stop launchd's retries. With unchanged
+		// installed bytes, a missing activation marker cannot distinguish an
+		// old process from one that recovered later. Keep that uncertainty
+		// visible without recommending another automatic restart.
+		if !art.Stale && state != domain.StateStopped {
+			return "inspect", "installed binary activation is unconfirmed; the supervised service may have recovered after the startup wait"
+		}
 		return "apply", "installed binary has not been confirmed active; activate it with apply, or deploy after source changes"
 	}
 	if !art.Stale {
@@ -35,6 +42,8 @@ func RecommendedStatusAction(spec ProcessSpec, state domain.State, art ArtifactS
 
 func RecommendedNextStep(action, reason string) string {
 	switch action {
+	case "inspect":
+		return "Run `cerberus resource inspect <resource-id>` and verify the running executable against the installed artifact before retrying activation. A running PID alone does not confirm the installed image; use apply only when another activation is needed."
 	case "apply":
 		if reason == "installed artifact is missing" {
 			return "Run `cerberus resource apply <resource-id>` to install the artifact and load the service."
