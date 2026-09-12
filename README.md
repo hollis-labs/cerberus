@@ -268,6 +268,9 @@ For registrar and DNS operations:
   nameserver set such as Cloudflare's assigned nameservers.
 - `cerberus dns list` inspects the current Namecheap-hosted host records for a
   domain before or after a delegation cutover.
+- Namecheap per-record create/delete are disabled, including dry-run. The API
+  can hide existing records, making read-modify-write silently destructive.
+  Existing CLI/MCP commands return an error without issuing a DNS request.
 - The Namecheap connector's `get_dns_record_set` operation includes domain
   `email_type`. Its `set_dns_record_set` operation explicitly replaces all
   hosts and the email mode; it requires acknowledgment, `domain`, `email_type`,

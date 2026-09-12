@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"context"
+	"strings"
+	"testing"
+
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/connector"
 	nc "github.com/chrispian/cerberus/internal/connector/namecheap"
-	"testing"
 )
 
 type recordSetBackend struct {
@@ -51,4 +53,15 @@ func TestNamecheapMCPPreservesExplicitEmailModeAndAuthoritativeRecords(t *testin
 		return
 	}
 	t.Fatal("replacement tool missing")
+}
+
+func TestDisabledNamecheapMCPCommandsDoNotContactEvenAnOlderDaemon(t *testing.T) {
+	for _, tool := range []Tool{NewCerberusDNSCreateTool(nil), NewCerberusDNSDeleteTool(nil)} {
+		for _, dryRun := range []bool{true, false} {
+			out, err := tool.Handler(context.Background(), map[string]any{"domain": "example.com", "dry_run": dryRun, "acknowledged": true})
+			if err != nil || !strings.Contains(out, "per-record create/delete is disabled") {
+				t.Fatalf("missing refusal: %s %v", out, err)
+			}
+		}
+	}
 }
