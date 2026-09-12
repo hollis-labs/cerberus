@@ -8,11 +8,10 @@ import (
 )
 
 // defaultListLimit caps MCP list responses. It uses the budget package's
-// MaxLimit (25): generous enough that current operational lists rarely
-// truncate, while bounding pathological responses well under the ~25k-token
-// MCP tool-response ceiling (MCPContentTooLargeError). Truncations are logged
-// (mcp.budget.truncated) so the limit can be tuned from real data — see the
-// scheduled 2026-06-01 review.
+// MaxLimit (25) to bound responses while offset paging keeps larger lists
+// recoverable. The tuning review (CW-20260909-0009) retained this default:
+// paging handles the inventory without raising the shared library's cap.
+// Truncations remain logged as mcp.budget.truncated for future tuning.
 const defaultListLimit = budget.MaxLimit
 
 // limitSchemaProp is the shared "limit" input-schema property for budgeted
@@ -70,7 +69,7 @@ func budgetedList[T any](tool string, items []T, args map[string]interface{}, hi
 		}
 		env.Hint += " Pass offset/limit (limit max 25) to page through the rest."
 		// Logged to stderr (safe alongside the stdio MCP protocol on stdout)
-		// for the 1-week tuning review: grep `mcp.budget.truncated`.
+		// for tuning reviews: grep `mcp.budget.truncated`.
 		log.Printf("mcp.budget.truncated tool=%s total=%d returned=%d offset=%d limit=%d", tool, total, env.Count, offset, limit)
 	}
 	return budget.ToolJSON(env)
