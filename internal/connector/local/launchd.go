@@ -239,13 +239,21 @@ func (b launchdBackend) waitRunning(ctx context.Context, res *domain.Resource, s
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var last launchdRecord
+	interrupted := func(cause error) error {
+		// The wait only bounds confirmation. KeepAlive may launch the new
+		// artifact after it ends, so callers must inspect before retrying.
+		return fmt.Errorf("launchd service %q did not reach running: %w%s; startup was not confirmed and launchd may still retry; check `cerberus resource status %s` before retrying the operation", layout.ServiceName, cause, formatLaunchdFailureDetails([]byte(last.Raw), layout), res.ID)
+	}
 	previousPID := 0
 	for {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("launchd service %q did not reach running: %w%s", layout.ServiceName, err, formatLaunchdFailureDetails([]byte(last.Raw), layout))
+			return interrupted(err)
 		}
 		rec, err := b.Inspect(ctx, res, spec)
 		if err != nil {
+			if cause := ctx.Err(); cause != nil {
+				return interrupted(cause)
+			}
 			return err
 		}
 		last = rec
