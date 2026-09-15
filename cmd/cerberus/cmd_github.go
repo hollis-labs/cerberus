@@ -28,7 +28,7 @@ var githubStatusCmd = &cobra.Command{
 			return err
 		}
 
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -65,7 +65,7 @@ var githubReleasesCmd = &cobra.Command{
 			return err
 		}
 
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -113,7 +113,7 @@ var githubRunsCmd = &cobra.Command{
 			return err
 		}
 
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}

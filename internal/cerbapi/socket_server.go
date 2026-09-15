@@ -93,6 +93,11 @@ func (s *SocketServer) Run(ctx context.Context) error {
 	if err := s.listen(); err != nil {
 		return err
 	}
+	defer func() {
+		if err := s.cleanupSocket(); err != nil {
+			s.logger.Warn("daemon.socket.cleanup_failed", "error", err.Error())
+		}
+	}()
 
 	mux := s.routes()
 	srv := &http.Server{
@@ -121,10 +126,8 @@ func (s *SocketServer) Run(ctx context.Context) error {
 		}
 		// Drain the serve goroutine.
 		<-serveErr
-		_ = s.cleanupSocket()
 		return ctx.Err()
 	case err := <-serveErr:
-		_ = s.cleanupSocket()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("socket server: %w", err)
 		}
@@ -149,10 +152,8 @@ func (s *SocketServer) listen() error {
 	// daemon-lock flock is the authoritative single-daemon guard, so
 	// by the time Run is invoked we are the uncontested owner and can
 	// safely Unlink.
-	if _, err := os.Stat(s.path); err == nil {
-		if rmErr := os.Remove(s.path); rmErr != nil && !os.IsNotExist(rmErr) {
-			return fmt.Errorf("remove stale socket %q: %w", s.path, rmErr)
-		}
+	if err := s.cleanupSocket(); err != nil {
+		return err
 	}
 	ln, err := net.Listen("unix", s.path)
 	if err != nil {
@@ -171,8 +172,8 @@ func (s *SocketServer) listen() error {
 }
 
 func (s *SocketServer) cleanupSocket() error {
-	if _, err := os.Stat(s.path); err == nil {
-		return os.Remove(s.path)
+	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove socket %q: %w", s.path, err)
 	}
 	return nil
 }
@@ -470,6 +471,19 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 	action := ""
 	if len(parts) == 2 {
 		action = parts[1]
+	}
+	if action == "" {
+		if r.Method != http.MethodGet {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		out, err := s.client.GetPipeline(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
 	}
 	if action != "run" {
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown pipeline action %q", action))

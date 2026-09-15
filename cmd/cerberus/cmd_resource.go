@@ -583,12 +583,12 @@ func loadResource(id string) (*config.ResourceDef, error) {
 	return nil, fmt.Errorf("resource %q not found in config; run `cerberus resource list` to see available resources", id)
 }
 
-func newResourceSocketClient() (*cerbapi.SocketClient, error) {
+func newResourceSocketClient(opts ...cerbapi.SocketClientOption) (*cerbapi.SocketClient, error) {
 	path, err := cerbapi.SocketPath()
 	if err != nil {
 		return nil, err
 	}
-	return cerbapi.NewSocketClient(path), nil
+	return cerbapi.NewSocketClient(path, opts...), nil
 }
 
 func newResourceRuntimeService() *cerbapi.ResourceRuntimeService {

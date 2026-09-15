@@ -22,7 +22,7 @@ var forgeServersCmd = &cobra.Command{
 	Use:   "servers",
 	Short: "List all Forge servers",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -60,7 +60,7 @@ var forgeServerCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid server ID %q: %w", args[0], err)
 		}
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -91,7 +91,7 @@ var forgeSitesCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid server ID %q: %w", args[0], err)
 		}
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -133,7 +133,7 @@ var forgeDeployCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -168,7 +168,7 @@ var forgeScriptGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -200,7 +200,7 @@ var forgeScriptSetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -229,7 +229,7 @@ var forgeExecCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}

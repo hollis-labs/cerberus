@@ -627,3 +627,7 @@ func TestConnectorDescribeToolViaSocket(t *testing.T) {
 		t.Fatalf("missing operations: %s", out)
 	}
 }
+
+func (fakeSocketProgressClient) GetPipeline(context.Context, string) (*cerbapi.PipelineDetail, error) {
+	return nil, nil
+}

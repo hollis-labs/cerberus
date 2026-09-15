@@ -161,7 +161,6 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 		"/api/pipelines",
 		"/api/config/validate",
 		"/api/config/resolve",
-		"/api/config/migrate/preview",
 		"/api/config/backups",
 		"/api/infra",
 		"/api/deployments",
@@ -338,4 +337,8 @@ func (f *fakeClient) ManagedPluginHealth(context.Context, string) (cerbapi.Plugi
 
 func (f *fakeClient) ExecuteManagedPlugin(context.Context, string, cerbapi.PluginConnectorExecArgs) (cerbapi.ExternalConnectorOperationResult, error) {
 	return cerbapi.ExternalConnectorOperationResult{}, nil
+}
+
+func (*fakeClient) GetPipeline(context.Context, string) (*cerbapi.PipelineDetail, error) {
+	return nil, nil
 }

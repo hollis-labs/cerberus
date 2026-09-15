@@ -10,6 +10,27 @@ The short version:
 - `os_service` resources must have a deterministic repo-local runtime story
 - Cerberus should not have to guess which binary on `PATH` is the real one
 
+## Keep The Config In Its Owning Repo
+
+Each project owns its `.cerberus.yaml` in its repo, conventionally at the repo
+root as `<project>.cerberus.yaml`. Cerberus records that file's path; it does
+not keep a separate copy of the definition. The project root derives from the
+config directory.
+
+Commit the config on `main` before registering its absolute repo path. A config
+that exists only on a feature branch disappears when the working tree changes
+branches. Keep the file on any active branch that will remain checked out.
+
+`~/.cerberus/projects/` is retired, including the equivalent `projects/`
+directory beside a custom Cerberus registry. Registration and validation reject
+those paths, including symlink aliases; registry health identifies an old
+pointer with instructions to relocate it. Register each repo-owned file with
+`cerberus register <repo>/<project>.cerberus.yaml`.
+
+The old `config migrate` command and console migration action no longer create
+central copies. Registration updates discovery only; it does not build, deploy
+or restart a resource.
+
 ## Choose The Right Runtime Mode
 
 Use `dev_session` when the process is primarily for local iteration:
