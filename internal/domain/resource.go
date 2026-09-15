@@ -10,7 +10,6 @@ const (
 	ResourceServer    = resource.Server
 	ResourceContainer = resource.Container
 	ResourceDomain    = resource.Domain
-	ResourcePipeline  = resource.Pipeline
 	ResourceRepo      = resource.Repo
 )
 

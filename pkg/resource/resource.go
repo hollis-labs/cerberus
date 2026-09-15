@@ -10,7 +10,6 @@ const (
 	Server    Type = "server"
 	Container Type = "container"
 	Domain    Type = "domain"
-	Pipeline  Type = "pipeline"
 	Repo      Type = "repository"
 )
 

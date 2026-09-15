@@ -2,7 +2,7 @@ package domain
 
 import "context"
 
-// Store persists resource, project, and pipeline state.
+// Store persists resource and project state.
 // The default implementation uses SQLite; the interface allows
 // future adapters for PostgreSQL, etc.
 type Store interface {
@@ -17,11 +17,6 @@ type Store interface {
 	GetResource(ctx context.Context, id string) (*Resource, error)
 	ListResources(ctx context.Context, projectID string) ([]*Resource, error)
 	DeleteResource(ctx context.Context, id string) error
-
-	// Pipeline runs
-	SavePipelineRun(ctx context.Context, run *PipelineRun) error
-	GetPipelineRun(ctx context.Context, id string) (*PipelineRun, error)
-	ListPipelineRuns(ctx context.Context, pipelineID string) ([]*PipelineRun, error)
 
 	Close() error
 }
