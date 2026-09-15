@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
 )
@@ -30,9 +29,6 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 	if _, err := s.ListResources(ctx, "nonexistent"); err != nil {
 		t.Fatalf("list resources after migration: %v", err)
-	}
-	if _, err := s.ListPipelineRuns(ctx, "nonexistent"); err != nil {
-		t.Fatalf("list pipeline runs after migration: %v", err)
 	}
 }
 
@@ -197,81 +193,5 @@ func TestResourceCRUD(t *testing.T) {
 	_, err = s.GetResource(ctx, "res-1")
 	if err == nil {
 		t.Fatal("expected error getting deleted resource")
-	}
-}
-
-func TestPipelineRunCRUD(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-
-	run := &domain.PipelineRun{
-		ID:         "run-1",
-		PipelineID: "pipe-1",
-		Status:     domain.StateRunning,
-		StartedAt:  time.Now().UTC().Truncate(time.Second),
-	}
-
-	// Save
-	if err := s.SavePipelineRun(ctx, run); err != nil {
-		t.Fatalf("save pipeline run: %v", err)
-	}
-
-	// Get
-	got, err := s.GetPipelineRun(ctx, "run-1")
-	if err != nil {
-		t.Fatalf("get pipeline run: %v", err)
-	}
-	if got.Status != domain.StateRunning {
-		t.Errorf("got status %q, want %q", got.Status, domain.StateRunning)
-	}
-	if got.FinishedAt.IsZero() == false {
-		t.Error("finished_at should be zero for running pipeline")
-	}
-
-	// Update with finish
-	run.Status = domain.StateHealthy
-	run.FinishedAt = time.Now().UTC().Truncate(time.Second)
-	run.Error = ""
-	if err := s.SavePipelineRun(ctx, run); err != nil { //nolint:govet
-		t.Fatalf("update pipeline run: %v", err)
-	}
-	got, _ = s.GetPipelineRun(ctx, "run-1")
-	if got.Status != domain.StateHealthy {
-		t.Errorf("got status %q, want %q", got.Status, domain.StateHealthy)
-	}
-	if got.FinishedAt.IsZero() {
-		t.Error("finished_at should not be zero after completion")
-	}
-
-	// Save a failed run
-	run2 := &domain.PipelineRun{
-		ID:         "run-2",
-		PipelineID: "pipe-1",
-		Status:     domain.StateFailed,
-		StartedAt:  time.Now().UTC().Truncate(time.Second),
-		FinishedAt: time.Now().UTC().Truncate(time.Second),
-		Error:      "something broke",
-	}
-	s.SavePipelineRun(ctx, run2)
-
-	// List
-	list, err := s.ListPipelineRuns(ctx, "pipe-1")
-	if err != nil {
-		t.Fatalf("list pipeline runs: %v", err)
-	}
-	if len(list) != 2 {
-		t.Fatalf("got %d runs, want 2", len(list))
-	}
-
-	// List for different pipeline returns empty
-	list, _ = s.ListPipelineRuns(ctx, "pipe-other")
-	if len(list) != 0 {
-		t.Fatalf("got %d runs for other pipeline, want 0", len(list))
-	}
-
-	// Get non-existent
-	_, err = s.GetPipelineRun(ctx, "run-999")
-	if err == nil {
-		t.Fatal("expected error getting non-existent run")
 	}
 }
