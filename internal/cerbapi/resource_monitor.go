@@ -116,6 +116,30 @@ func (m *ResourceMonitor) checkAllResources(ctx context.Context) {
 	if cfg == nil {
 		return
 	}
+	// A removed or no-longer-monitored resource must not retain an exhausted
+	// retry budget if the same ID is later added again.
+	monitored := make(map[string]bool)
+	for _, res := range cfg.Resources {
+		spec, err := localconn.SpecFromResourceConfig(res.Config)
+		if err == nil && shouldMonitorResource(res, spec) {
+			monitored[res.ID] = true
+		}
+	}
+	for id := range m.failureCount {
+		if !monitored[id] {
+			delete(m.failureCount, id)
+		}
+	}
+	for id := range m.lastRestart {
+		if !monitored[id] {
+			delete(m.lastRestart, id)
+		}
+	}
+	for id := range m.lastError {
+		if !monitored[id] {
+			delete(m.lastError, id)
+		}
+	}
 	ordered, warnings := resourceStartupOrder(cfg.Resources, nil)
 	for _, warning := range warnings {
 		m.logger.Warn("daemon.resource_monitor.dependencies", "warning", warning)

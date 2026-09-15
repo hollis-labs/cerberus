@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,9 +12,8 @@ import (
 
 	"github.com/chrispian/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/app"
+	"github.com/chrispian/cerberus/internal/cerbapi"
 	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 
@@ -36,24 +37,15 @@ var pipelineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List available pipelines",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.NewWithOptions(appOptions())
+		client, err := newPipelineClient(cmd)
 		if err != nil {
-			return fmt.Errorf("init app: %w", err)
+			return err
 		}
-		defer a.Close() //nolint:errcheck
-
-		if len(a.Config.Pipelines) == 0 {
-			fmt.Println("No pipelines defined. Add pipelines to your config under the 'pipelines:' key.")
-			return nil
+		list, err := client.ListPipelines(cmd.Context())
+		if err != nil {
+			return err
 		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tSTAGES\tDESCRIPTION")
-		fmt.Fprintln(w, "--\t----\t------\t-----------")
-		for _, p := range a.Config.Pipelines {
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", p.ID, p.Name, len(p.Stages), p.Description)
-		}
-		return w.Flush()
+		return printPipelineList(os.Stdout, list)
 	},
 }
 
@@ -63,73 +55,13 @@ var pipelineRunCmd = &cobra.Command{
 	Long:  "Executes a pipeline defined in the config. Stages run in dependency order with parallel execution where possible.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.NewWithOptions(appOptions())
+		client, err := newPipelineClient(cmd)
 		if err != nil {
-			return fmt.Errorf("init app: %w", err)
+			return err
 		}
-		defer a.Close() //nolint:errcheck
-
-		pipelineID := args[0]
-
-		// Find pipeline def
-		for _, pd := range a.Config.Pipelines {
-			if pd.ID != pipelineID {
-				continue
-			}
-
-			// Resolve config def into executable pipeline against the
-			// current v2 resource definitions.
-			fresh, err := loadUnifiedForTools(cfgPath)
-			if err != nil {
-				return fmt.Errorf("reload config: %w", err)
-			}
-			p, err := pipeline.Resolve(pd, fresh.Resources, a.Local)
-			if err != nil {
-				return fmt.Errorf("resolve pipeline: %w", err)
-			}
-
-			// Set up cancellation
-			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-			defer cancel()
-
-			fmt.Printf("Running pipeline: %s (%s)\n", p.Name, p.ID)
-
-			env := &domain.PipelineEnv{
-				Values: make(map[string]any),
-			}
-
-			exec := pipeline.NewExecutor(nil)
-			result, err := exec.Run(ctx, p, env)
-			if err != nil {
-				return fmt.Errorf("pipeline execution: %w", err)
-			}
-
-			// Print results
-			fmt.Println()
-			for _, sr := range result.Stages {
-				var status string
-				switch sr.Status {
-				case domain.StateFailed:
-					status = "FAILED"
-				case domain.StateStopped:
-					status = "skipped"
-				default:
-					status = "ok"
-				}
-				fmt.Printf("  %-20s %s (%s)\n", sr.Name, status, sr.Duration)
-				if sr.Error != "" {
-					fmt.Printf("    error: %s\n", sr.Error)
-				}
-			}
-			fmt.Printf("\nPipeline %s: %s (%s)\n", pipelineID, result.Status, result.Duration)
-
-			if result.Status == domain.StateFailed {
-				return fmt.Errorf("pipeline failed: %s", result.Error)
-			}
-			return nil
-		}
-
-		return fmt.Errorf("pipeline %q not found in config", pipelineID)
+		ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+		return runPipelineCommand(ctx, client, args[0], os.Stdout)
 	},
 }
 
@@ -138,25 +70,92 @@ var pipelineShowCmd = &cobra.Command{
 	Short: "Show pipeline details",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.NewWithOptions(appOptions())
+		client, err := newPipelineClient(cmd)
 		if err != nil {
-			return fmt.Errorf("init app: %w", err)
+			return err
 		}
-		defer a.Close() //nolint:errcheck
-
-		pipelineID := args[0]
-		for _, pd := range a.Config.Pipelines {
-			if pd.ID == pipelineID {
-				data, err := redact.MarshalIndent(pd, "", "  ")
-				if err != nil {
-					return err
-				}
-				fmt.Println(string(data))
-				return nil
-			}
+		detail, err := client.GetPipeline(cmd.Context(), args[0])
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("pipeline %q not found", pipelineID)
+		if detail == nil {
+			return fmt.Errorf("pipeline %q not found", args[0])
+		}
+		return printPipelineDetail(os.Stdout, detail)
 	},
+}
+
+func printPipelineList(out io.Writer, list []cerbapi.PipelineInfo) error {
+	if len(list) == 0 {
+		_, err := fmt.Fprintln(out, "No pipelines defined. Add pipelines to your config under the 'pipelines:' key.")
+		return err
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tSTAGES\tDESCRIPTION")
+	fmt.Fprintln(w, "--\t----\t------\t-----------")
+	for _, p := range list {
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", p.ID, p.Name, p.Stages, p.Description)
+	}
+	return w.Flush()
+}
+
+func printPipelineDetail(out io.Writer, detail *cerbapi.PipelineDetail) error {
+	data, err := redact.MarshalIndent(detail.Definition, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, string(data))
+	return err
+}
+
+func runPipelineCommand(ctx context.Context, client pipelineClient, id string, out io.Writer) error {
+	detail, err := client.GetPipeline(ctx, id)
+	if err != nil {
+		return err
+	}
+	if detail == nil {
+		return fmt.Errorf("pipeline %q not found in config", id)
+	}
+	if detail.ValidationError != "" {
+		return errors.New(detail.ValidationError)
+	}
+	fmt.Fprintf(out, "Running pipeline: %s (%s)\n", detail.Definition.Name, detail.Definition.ID)
+	result, err := client.RunPipeline(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !result.Success {
+		return errors.New(result.Error)
+	}
+	execution, err := result.Execution()
+	if err != nil {
+		return fmt.Errorf("decode pipeline result: %w", err)
+	}
+	return printPipelineExecution(out, id, execution)
+}
+
+func printPipelineExecution(out io.Writer, id string, result *cerbapi.PipelineExecution) error {
+	fmt.Fprintln(out)
+	for _, sr := range result.Stages {
+		var status string
+		switch sr.Status {
+		case domain.StateFailed:
+			status = "FAILED"
+		case domain.StateStopped:
+			status = "skipped"
+		default:
+			status = "ok"
+		}
+		fmt.Fprintf(out, "  %-20s %s (%s)\n", sr.Name, status, sr.Duration)
+		if sr.Error != "" {
+			fmt.Fprintf(out, "    error: %s\n", sr.Error)
+		}
+	}
+	fmt.Fprintf(out, "\nPipeline %s: %s (%s)\n", id, result.Status, result.Duration)
+	if result.Status == domain.StateFailed {
+		return fmt.Errorf("pipeline failed: %s", result.Error)
+	}
+	return nil
 }
 
 func init() {

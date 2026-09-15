@@ -107,6 +107,10 @@ func resolveIndex(opts ResolveOptions, idx *Index) (*ResolvedConfig, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Owner < entries[j].Owner })
 
 	for _, entry := range entries {
+		if err := ValidateConfigLocation(entry.Path, opts.IndexPath); err != nil {
+			resolved.skip(entry, HealthInvalid, err.Error())
+			continue
+		}
 		pc, loadErr := LoadProjectConfig(entry.Path)
 		if loadErr != nil {
 			resolved.skip(entry, HealthMissing, loadErr.Error())

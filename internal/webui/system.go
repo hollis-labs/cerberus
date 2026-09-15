@@ -209,39 +209,6 @@ type configBackupDTO struct {
 	Modified string `json:"modified"`
 }
 
-type configMigratePreviewResponse struct {
-	ConfigPath       string                               `json:"config_path,omitempty"`
-	ProjectsDir      string                               `json:"projects_dir,omitempty"`
-	BackupPath       string                               `json:"backup_path,omitempty"`
-	ProjectCount     int                                  `json:"project_count"`
-	TotalResources   int                                  `json:"total_resources"`
-	Warnings         []string                             `json:"warnings,omitempty"`
-	ValidationErrors []configops.MigrationValidationError `json:"validation_errors,omitempty"`
-	Entries          []configMigrateEntryDTO              `json:"entries"`
-	Error            string                               `json:"error,omitempty"`
-}
-
-type configMigrateEntryDTO struct {
-	Owner         string `json:"owner"`
-	ProjectID     string `json:"project_id"`
-	ProjectName   string `json:"project_name,omitempty"`
-	ResourceCount int    `json:"resource_count"`
-	PipelineCount int    `json:"pipeline_count"`
-	Destination   string `json:"destination"`
-}
-
-type configMigrateResponse struct {
-	Success          bool                                 `json:"success"`
-	ProjectsDir      string                               `json:"projects_dir,omitempty"`
-	BackupPath       string                               `json:"backup_path,omitempty"`
-	Warnings         []string                             `json:"warnings,omitempty"`
-	WrittenPaths     []string                             `json:"written_paths,omitempty"`
-	RegisteredOwners []string                             `json:"registered_owners,omitempty"`
-	TotalResources   int                                  `json:"total_resources"`
-	ValidationErrors []configops.MigrationValidationError `json:"validation_errors,omitempty"`
-	Error            string                               `json:"error,omitempty"`
-}
-
 type configRestoreRequest struct {
 	BackupPath string `json:"backup_path"`
 }
@@ -737,17 +704,14 @@ func (s *Server) handleConfigResolve(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// Old clients receive an actionable retirement response instead of recreating
+// the centralized directory. Keep the mutation endpoint's origin/token guard.
 func (s *Server) handleConfigMigratePreview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	preview, err := configops.PreviewMigration(s.configPath)
-	if err != nil {
-		writeJSON(w, http.StatusOK, configMigratePreviewResponse{Error: err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, previewResponse(preview))
+	writeError(w, http.StatusGone, configops.ErrCentralizedMigrationRetired.Error())
 }
 
 func (s *Server) handleConfigMigrate(w http.ResponseWriter, r *http.Request) {
@@ -759,35 +723,7 @@ func (s *Server) handleConfigMigrate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "state-changing request rejected")
 		return
 	}
-
-	preview, err := configops.PreviewMigration(s.configPath)
-	if err != nil {
-		writeJSON(w, http.StatusOK, configMigrateResponse{Success: false, Error: err.Error()})
-		return
-	}
-	if len(preview.ValidationErrors) > 0 {
-		writeJSON(w, http.StatusOK, configMigrateResponse{
-			Success:          false,
-			Error:            "migration preview has validation errors",
-			ValidationErrors: preview.ValidationErrors,
-			TotalResources:   preview.TotalResources,
-		})
-		return
-	}
-	result, err := configops.MigrateConfig(s.configPath)
-	if err != nil {
-		writeJSON(w, http.StatusOK, configMigrateResponse{Success: false, Error: err.Error(), TotalResources: preview.TotalResources})
-		return
-	}
-	writeJSON(w, http.StatusOK, configMigrateResponse{
-		Success:          true,
-		ProjectsDir:      result.ProjectsDir,
-		BackupPath:       result.BackupPath,
-		Warnings:         result.Warnings,
-		WrittenPaths:     result.WrittenPaths,
-		RegisteredOwners: result.RegisteredOwners,
-		TotalResources:   result.TotalResources,
-	})
+	writeError(w, http.StatusGone, configops.ErrCentralizedMigrationRetired.Error())
 }
 
 func (s *Server) handleConfigBackups(w http.ResponseWriter, r *http.Request) {
@@ -939,7 +875,7 @@ func (s *Server) configValidationResponse() (configValidationResponse, error) {
 		accumulateValidationSummary(&resp.Summary, *global)
 	}
 	for _, entry := range entries {
-		dto := validateRegisteredEntry(entry)
+		dto := validateRegisteredEntry(entry, reg.IndexPath())
 		resp.Registered = append(resp.Registered, dto)
 		accumulateValidationSummary(&resp.Summary, dto)
 	}
@@ -962,12 +898,17 @@ func validateGlobalConfig(path string) *configValidationFileDTO {
 	return dto
 }
 
-func validateRegisteredEntry(entry registry.IndexEntry) configValidationFileDTO {
+func validateRegisteredEntry(entry registry.IndexEntry, indexPath string) configValidationFileDTO {
 	dto := configValidationFileDTO{
 		Path:  entry.Path,
 		Kind:  entry.Kind,
 		Owner: entry.Owner,
 		OK:    true,
+	}
+	if err := registry.ValidateConfigLocation(entry.Path, indexPath); err != nil {
+		dto.OK = false
+		dto.Errors = []string{err.Error()}
+		return dto
 	}
 	pc, err := registry.LoadProjectConfig(entry.Path)
 	if err != nil {
@@ -1002,30 +943,6 @@ func accumulateValidationSummary(summary *configValidationSummaryDTO, file confi
 	}
 	summary.Warnings += len(file.Warnings)
 	summary.Errors += len(file.Errors)
-}
-
-func previewResponse(preview *configops.MigrationPreview) configMigratePreviewResponse {
-	resp := configMigratePreviewResponse{
-		ConfigPath:       preview.ConfigPath,
-		ProjectsDir:      preview.ProjectsDir,
-		BackupPath:       preview.BackupPath,
-		ProjectCount:     len(preview.ProjectConfigs),
-		TotalResources:   preview.TotalResources,
-		Warnings:         preview.Warnings,
-		ValidationErrors: preview.ValidationErrors,
-		Entries:          make([]configMigrateEntryDTO, 0, len(preview.ProjectConfigs)),
-	}
-	for _, pc := range preview.ProjectConfigs {
-		resp.Entries = append(resp.Entries, configMigrateEntryDTO{
-			Owner:         pc.Owner,
-			ProjectID:     pc.Project.ID,
-			ProjectName:   pc.Project.Name,
-			ResourceCount: len(pc.Resources),
-			PipelineCount: len(pc.Pipelines),
-			Destination:   filepath.Join(preview.ProjectsDir, pc.Owner+registry.FileSuffix),
-		})
-	}
-	return resp
 }
 
 func (r overviewRuntimeDTO) String() string {

@@ -2,12 +2,13 @@ package registry
 
 import (
 	"fmt"
-	"github.com/chrispian/cerberus/internal/config"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/chrispian/cerberus/internal/config"
 )
 
 // Health status values for a registered entry.
@@ -91,7 +92,7 @@ func (r *Registry) Register(path string) ([]IndexEntry, error) {
 	for _, entry := range entries {
 		idx.upsert(entry)
 	}
-	preview, err := resolveIndex(ResolveOptions{GlobalPath: r.globalPath}, idx)
+	preview, err := resolveIndex(ResolveOptions{IndexPath: r.indexPath, GlobalPath: r.globalPath}, idx)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +115,9 @@ func (r *Registry) Register(path string) ([]IndexEntry, error) {
 // anything. via carries the manifest path when recursing through a
 // bundle. seenManifest guards against manifest reference cycles.
 func (r *Registry) collect(path, via string, seenManifest map[string]bool) ([]IndexEntry, error) {
+	if err := ValidateConfigLocation(path, r.indexPath); err != nil {
+		return nil, err
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", path, err)
@@ -242,7 +246,7 @@ func (r *Registry) Health() ([]HealthReport, error) {
 	}
 	reports := make([]HealthReport, 0, len(entries))
 	for _, entry := range entries {
-		reports = append(reports, checkEntry(entry))
+		reports = append(reports, checkEntry(entry, r.indexPath))
 	}
 	resolved, err := Resolve(ResolveOptions{IndexPath: r.indexPath, GlobalPath: r.globalPath})
 	if err != nil {
@@ -267,8 +271,13 @@ func (r *Registry) Health() ([]HealthReport, error) {
 	return reports, nil
 }
 
-func checkEntry(entry IndexEntry) HealthReport {
+func checkEntry(entry IndexEntry, indexPath string) HealthReport {
 	report := HealthReport{Owner: entry.Owner, Path: entry.Path}
+	if err := ValidateConfigLocation(entry.Path, indexPath); err != nil {
+		report.Status = HealthInvalid
+		report.Detail = err.Error()
+		return report
+	}
 	if _, err := os.Stat(entry.Path); err != nil {
 		report.Status = HealthMissing
 		report.Detail = "config file no longer exists at registered path"

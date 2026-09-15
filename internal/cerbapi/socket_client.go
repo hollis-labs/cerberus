@@ -46,10 +46,11 @@ func WithClientLogger(l *slog.Logger) SocketClientOption {
 	}
 }
 
-// WithClientTimeout overrides the default per-request timeout.
+// WithClientTimeout overrides the default per-request timeout. Zero disables
+// the client timeout; cancellation and deadlines still follow the request context.
 func WithClientTimeout(d time.Duration) SocketClientOption {
 	return func(c *SocketClient) {
-		if d > 0 {
+		if d >= 0 {
 			c.http.Timeout = d
 		}
 	}
@@ -306,6 +307,17 @@ func (c *SocketClient) ListPipelines(ctx context.Context) ([]PipelineInfo, error
 	return out, nil
 }
 
+func (c *SocketClient) GetPipeline(ctx context.Context, id string) (*PipelineDetail, error) {
+	if id == "" {
+		return nil, errors.New("pipeline id required")
+	}
+	var out *PipelineDetail
+	if err := c.doJSON(ctx, http.MethodGet, "/pipelines/"+url.PathEscape(id), nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *SocketClient) RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error) {
 	if id == "" {
 		return nil, errors.New("pipeline id required")
@@ -326,18 +338,38 @@ func (c *SocketClient) ListConnectors(ctx context.Context) ([]contract.Definitio
 }
 
 func (c *SocketClient) ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	if args.Connector == "" {
-		return ExternalConnectorOperationResult{}, errors.New("connector id required")
-	}
-	if args.Operation == "" {
-		return ExternalConnectorOperationResult{}, errors.New("connector operation required")
-	}
-	path := "/connectors/" + url.PathEscape(args.Connector) + "/operations/" + url.PathEscape(args.Operation)
 	var out ExternalConnectorOperationResult
-	if err := c.doJSONStream(ctx, http.MethodPost, path, args, &out); err != nil {
+	err := c.executeConnectorOperation(ctx, args, &out)
+	return out, err
+}
+
+// ExecuteTypedConnectorOperation retains built-in DTOs for callers that format
+// provider-specific fields. Generic MCP/plugin callers keep their open payloads.
+func (c *SocketClient) ExecuteTypedConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
+	var out struct {
+		Connector string          `json:"connector"`
+		Operation string          `json:"operation"`
+		Data      json.RawMessage `json:"data"`
+	}
+	if err := c.executeConnectorOperation(ctx, args, &out); err != nil {
 		return ExternalConnectorOperationResult{}, err
 	}
-	return out, nil
+	data, err := decodeConnectorPayload(args, out.Data)
+	if err != nil {
+		return ExternalConnectorOperationResult{}, fmt.Errorf("decode %s %s payload: %w", args.Connector, args.Operation, err)
+	}
+	return ExternalConnectorOperationResult{Connector: out.Connector, Operation: out.Operation, Data: data}, nil
+}
+
+func (c *SocketClient) executeConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs, out any) error {
+	if args.Connector == "" {
+		return errors.New("connector id required")
+	}
+	if args.Operation == "" {
+		return errors.New("connector operation required")
+	}
+	path := "/connectors/" + url.PathEscape(args.Connector) + "/operations/" + url.PathEscape(args.Operation)
+	return c.doJSONStream(ctx, http.MethodPost, path, args, out)
 }
 
 func (c *SocketClient) PluginHealth(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {

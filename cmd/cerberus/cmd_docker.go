@@ -5,7 +5,6 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/app"
 	"github.com/chrispian/cerberus/internal/cerbapi"
 	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
 	"github.com/spf13/cobra"
@@ -20,7 +19,7 @@ var dockerPSCmd = &cobra.Command{
 	Use:   "ps",
 	Short: "List running containers",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -68,7 +67,7 @@ var dockerLogsCmd = &cobra.Command{
 	Short: "Show container logs",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -100,7 +99,7 @@ var dockerUpCmd = &cobra.Command{
 	Short: "Start container or compose stack",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -132,7 +131,7 @@ var dockerDownCmd = &cobra.Command{
 	Short: "Stop container or compose stack",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService()
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -158,10 +157,6 @@ var dockerDownCmd = &cobra.Command{
 		fmt.Printf("Container stopped: %s\n", resourceID)
 		return nil
 	},
-}
-
-func newExternalConnectorService() (*cerbapi.ExternalConnectorService, func(), error) {
-	return app.NewExternalConnectorService(), func() {}, nil
 }
 
 func dockerResourceConfig(resourceID, composeFile string) map[string]any {

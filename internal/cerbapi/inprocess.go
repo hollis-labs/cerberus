@@ -3,17 +3,10 @@ package cerbapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
-	"sync"
-
-	"github.com/chrispian/cerberus/internal/redact"
 
 	"github.com/chrispian/cerberus/internal/config"
 	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/pipeline"
-	"github.com/chrispian/cerberus/internal/registry"
 	contract "github.com/chrispian/cerberus/pkg/connector"
 )
 
@@ -30,25 +23,9 @@ type InProcessClient struct {
 	plugins        *PluginConnectorService
 	managedPlugins *ManagedPluginConnectorService
 
-	// cfgPath is the on-disk path for the unified v2 config. When set,
-	// every project / resource / pipeline endpoint re-reads the file
-	// via config.LoadUnified(cfgPath) before serving — this is the
-	// analog of ServiceRegistry.Reload() for the v2 config tree and
-	// closes the staleness bug that CERB-2 exists to prevent.
-	//
-	// Empty in tests that seed cfg in-memory via WithConfigV2.
+	// Construction options forwarded to the shared runtime.
 	cfgPath string
-
-	// cfgMu guards cfg. cfg holds the last-known-good ConfigV2
-	// snapshot: it is hydrated from LoadUnified(cfgPath) on each
-	// project/resource/pipeline call (when cfgPath is set) and used
-	// as a read-only fallback when reload fails.
-	cfgMu sync.RWMutex
-	cfg   *config.ConfigV2
-
-	// opMu serializes pipeline resolution/execution against the shared
-	// local connector.
-	opMu sync.Mutex
+	cfg     *config.ConfigV2
 }
 
 // InProcessOption tunes construction of an InProcessClient.
@@ -114,8 +91,8 @@ func WithConfigPath(path string) InProcessOption {
 	return func(c *InProcessClient) { c.cfgPath = path }
 }
 
-// WithLocalConnector attaches the local connector used by pipeline
-// execution. Required for RunPipeline; unused otherwise.
+// WithLocalConnector attaches the shared local connector used by resource
+// operations and pipeline execution. A default is constructed when omitted.
 func WithLocalConnector(l *localconn.Connector) InProcessOption {
 	return func(c *InProcessClient) { c.local = l }
 }
@@ -226,40 +203,6 @@ func (c *InProcessClient) ExecuteManagedPlugin(ctx context.Context, id string, a
 	return c.managedPlugins.Execute(ctx, id, args)
 }
 
-// snapshotConfig returns the current v2 config snapshot used by the
-// project/resource/pipeline endpoints. When cfgPath is set it re-reads
-// the file on every call (closing the staleness bug for v2 config).
-// On read failure it falls back to the last-good snapshot — and logs
-// the error so silent drift can't hide.
-//
-// When cfgPath is not set (tests seeding cfg via WithConfigV2), the
-// stored pointer is returned directly.
-//
-// The returned *ConfigV2 is safe to read for the duration of a single
-// call: the client never mutates it in place — reload replaces the
-// whole pointer under cfgMu.
-func (c *InProcessClient) snapshotConfig() *config.ConfigV2 {
-	if c.cfgPath == "" {
-		c.cfgMu.RLock()
-		defer c.cfgMu.RUnlock()
-		return c.cfg
-	}
-	fresh, err := registry.ResolveConfig(c.cfgPath)
-	if err != nil {
-		c.logger.Warn("client.config_reload.failed",
-			"path", c.cfgPath,
-			"error", err.Error(),
-		)
-		c.cfgMu.RLock()
-		defer c.cfgMu.RUnlock()
-		return c.cfg
-	}
-	c.cfgMu.Lock()
-	c.cfg = fresh
-	c.cfgMu.Unlock()
-	return fresh
-}
-
 // ResourceLogs implements Client.
 func (c *InProcessClient) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
 	return c.runtime.ResourceLogs(ctx, id, lines, stream)
@@ -350,62 +293,16 @@ func (c *InProcessClient) RemoveResource(ctx context.Context, id string) (*OpRes
 }
 
 // ListPipelines implements Client.
-func (c *InProcessClient) ListPipelines(_ context.Context) ([]PipelineInfo, error) {
-	cfg := c.snapshotConfig()
-	if cfg == nil {
-		return nil, nil
-	}
-	out := make([]PipelineInfo, 0, len(cfg.Pipelines))
-	for _, p := range cfg.Pipelines {
-		out = append(out, PipelineInfo{
-			ID:          p.ID,
-			Name:        p.Name,
-			Description: p.Description,
-			Stages:      len(p.Stages),
-		})
-	}
-	return out, nil
+func (c *InProcessClient) ListPipelines(ctx context.Context) ([]PipelineInfo, error) {
+	return c.runtime.ListPipelines(ctx)
+}
+
+// GetPipeline implements Client.
+func (c *InProcessClient) GetPipeline(ctx context.Context, id string) (*PipelineDetail, error) {
+	return c.runtime.GetPipeline(ctx, id)
 }
 
 // RunPipeline implements Client.
 func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error) {
-	cfg := c.snapshotConfig()
-	if cfg == nil {
-		return &PipelineRunResult{Success: false, Error: "no config available"}, nil
-	}
-	var pdef *config.PipelineDef
-	for i := range cfg.Pipelines {
-		if cfg.Pipelines[i].ID == id {
-			pdef = &cfg.Pipelines[i]
-			break
-		}
-	}
-	if pdef == nil {
-		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("pipeline %q not found in config", id)}, nil
-	}
-
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	p, err := pipeline.Resolve(*pdef, c.pipelineResources(cfg), c.local)
-	if err != nil {
-		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("resolve pipeline: %s", err.Error())}, nil
-	}
-	env := &domain.PipelineEnv{Values: make(map[string]any)}
-	exec := pipeline.NewExecutor(nil)
-	result, err := exec.Run(ctx, p, env)
-	if err != nil {
-		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("pipeline execution: %s", err.Error())}, nil
-	}
-	raw, err := redact.Marshal(result)
-	if err != nil {
-		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("marshal result: %s", err.Error())}, nil
-	}
-	return &PipelineRunResult{Success: true, Raw: raw}, nil
-}
-
-func (c *InProcessClient) pipelineResources(cfg *config.ConfigV2) []config.ResourceDef {
-	if cfg == nil {
-		return nil
-	}
-	return append([]config.ResourceDef(nil), cfg.Resources...)
+	return c.runtime.RunPipeline(ctx, id)
 }
