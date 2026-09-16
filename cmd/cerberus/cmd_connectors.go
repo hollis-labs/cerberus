@@ -112,9 +112,24 @@ func connectorDefinitions(ctx context.Context) ([]contract.Definition, map[strin
 		return nil, nil, err
 	}
 
+	// Liveness has to come from the daemon, because the daemon is what runs the
+	// operation. This process has the user's shell PATH and credentials; the
+	// daemon has launchd's. Reporting the CLI's view here is how a connector
+	// could read LIVE=yes while every call against it failed. Fall back to the
+	// local view only if the daemon cannot answer.
 	live := make(map[string]bool, len(defs))
-	for id, ok := range localLive {
-		live[id] = ok
+	liveIDs, liveErr := client.ListLiveConnectors(ctx)
+	if liveErr == nil {
+		for _, def := range defs {
+			live[def.ID] = false
+		}
+		for _, id := range liveIDs {
+			live[id] = true
+		}
+	} else {
+		for id, ok := range localLive {
+			live[id] = ok
+		}
 	}
 	plugins, err := client.ListManagedPlugins(ctx)
 	if err == nil {

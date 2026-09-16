@@ -337,6 +337,14 @@ func (c *SocketClient) ListConnectors(ctx context.Context) ([]contract.Definitio
 	return out, nil
 }
 
+func (c *SocketClient) ListLiveConnectors(ctx context.Context) ([]string, error) {
+	var out []string
+	if err := c.doJSON(ctx, http.MethodGet, "/connectors/live", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *SocketClient) ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	var out ExternalConnectorOperationResult
 	err := c.executeConnectorOperation(ctx, args, &out)

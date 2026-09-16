@@ -218,6 +218,9 @@ func (fakeSocketProgressClient) RunPipeline(ctx context.Context, _ string) (*cer
 func (fakeSocketProgressClient) ListConnectors(context.Context) ([]contract.Definition, error) {
 	return nil, errors.New("not implemented")
 }
+func (fakeSocketProgressClient) ListLiveConnectors(context.Context) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
 func (fakeSocketProgressClient) ExecuteConnectorOperation(ctx context.Context, args cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake connector operation started")
 	gmcp.NotifyProgress(ctx, "fake-connector", 1, 2, "running connector operation")

@@ -206,6 +206,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/pipelines", s.handlePipelines)
 	mux.HandleFunc("/pipelines/", s.handlePipelinesID)
 	mux.HandleFunc("/connectors", s.handleConnectors)
+	mux.HandleFunc("/connectors/live", s.handleConnectorsLive)
 	mux.HandleFunc("/connectors/", s.handleConnectorsID)
 	mux.HandleFunc("/plugins/connectors", s.handleManagedPluginConnectors)
 	mux.HandleFunc("/plugins/connectors/", s.handleManagedPluginConnectorsID)
@@ -520,6 +521,22 @@ func (s *SocketServer) handleConnectors(w http.ResponseWriter, r *http.Request) 
 		list = []contract.Definition{}
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *SocketServer) handleConnectorsLive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	ids, err := s.client.ListLiveConnectors(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	writeJSON(w, http.StatusOK, ids)
 }
 
 func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request) {

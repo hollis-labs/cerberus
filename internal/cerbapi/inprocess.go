@@ -137,6 +137,19 @@ func (c *InProcessClient) ListConnectors(_ context.Context) ([]contract.Definiti
 	return c.external.Definitions(), nil
 }
 
+// ListLiveConnectors implements Client.
+func (c *InProcessClient) ListLiveConnectors(ctx context.Context) ([]string, error) {
+	if c.external == nil {
+		return nil, nil
+	}
+	defs := c.external.LiveDefinitionsContext(ctx)
+	ids := make([]string, 0, len(defs))
+	for _, def := range defs {
+		ids = append(ids, def.ID)
+	}
+	return ids, nil
+}
+
 // ExecuteConnectorOperation implements Client.
 func (c *InProcessClient) ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	if c.external == nil {

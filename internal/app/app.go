@@ -152,11 +152,13 @@ func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretPr
 	registry.RegisterFactory(namecheapconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
 		return namecheapconn.New(secrets.WithContext(ctx, sec))
 	})
-	if docker, err := dockerconn.New(); err == nil {
-		registry.Register(docker)
-	} else {
-		registry.RegisterUnavailable("docker", err)
-	}
+	// Docker resolves per call, like the credentialed connectors above. Eager
+	// registration cached a boot-time "docker CLI not found" for the daemon's
+	// whole lifetime, so starting Docker Desktop — or correcting the daemon's
+	// PATH — could not recover without a restart.
+	registry.RegisterFactory(dockerconn.Definition(), func(context.Context) (contract.Connector, error) {
+		return dockerconn.New()
+	})
 
 	registry.Register(sshconn.New(sec))
 }

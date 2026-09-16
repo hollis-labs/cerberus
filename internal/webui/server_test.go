@@ -303,6 +303,10 @@ func (f *fakeClient) ListConnectors(context.Context) ([]contract.Definition, err
 	return nil, nil
 }
 
+func (f *fakeClient) ListLiveConnectors(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (f *fakeClient) ExecuteConnectorOperation(context.Context, cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
 	return cerbapi.ExternalConnectorOperationResult{}, nil
 }

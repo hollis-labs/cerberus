@@ -110,13 +110,22 @@ func (s *ExternalConnectorService) Definitions() []contract.Definition {
 }
 
 func (s *ExternalConnectorService) LiveDefinitions() []contract.Definition {
+	return s.LiveDefinitionsContext(context.Background())
+}
+
+// LiveDefinitionsContext returns the connectors that can actually be
+// constructed right now. It probes rather than checking registration: a
+// registered factory whose docker binary is missing, or whose API token is
+// unset, is not live. Probing costs a secret read per credentialed connector
+// and no network calls.
+func (s *ExternalConnectorService) LiveDefinitionsContext(ctx context.Context) []contract.Definition {
 	if s == nil {
 		return nil
 	}
 	defs := make(map[string]contract.Definition)
 	if s.registry != nil {
 		for _, def := range s.registry.Definitions() {
-			if s.registry.Configured(def.ID) {
+			if s.registry.Probe(ctx, def.ID) == nil {
 				defs[def.ID] = def
 			}
 		}

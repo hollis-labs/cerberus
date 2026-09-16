@@ -57,6 +57,12 @@ type Client interface {
 	RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error)
 	// ListConnectors returns connector discovery metadata.
 	ListConnectors(ctx context.Context) ([]contract.Definition, error)
+
+	// ListLiveConnectors returns the IDs of connectors the serving process can
+	// construct right now. Liveness must come from the process that will run
+	// the operation: a CLI's own registry sees the user's shell PATH and
+	// credentials, which is not what the daemon has.
+	ListLiveConnectors(ctx context.Context) ([]string, error)
 	// ExecuteConnectorOperation runs a connector operation through the external connector service.
 	ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error)
 	// PluginHealth runs plugin install/load/health for a local plugin directory.
