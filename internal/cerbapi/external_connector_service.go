@@ -175,10 +175,18 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 			Acknowledged: args.Acknowledged,
 		})
 	}
+	// An installed-but-unloaded plugin is only fatal when nothing else can serve
+	// the id. A plugin that shadows a built-in must not disable it: unloading
+	// the plugin previously left `cerberus docker ps` permanently broken, with
+	// no uninstall command and hand-editing the state file as the only recovery.
 	if s.managedPlugins != nil && s.managedPlugins.Installed(args.Connector) && !s.managedPlugins.Loaded(args.Connector) {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: plugin connector is installed but not loaded", args.Connector, args.Operation))
-		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("plugin connector %q is installed but not loaded", args.Connector))
+		if s.registry == nil || !s.registry.Configured(args.Connector) {
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: plugin connector is installed but not loaded", args.Connector, args.Operation))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable,
+				fmt.Errorf("plugin connector %q is installed but not loaded; run `cerberus connectors plugin managed load %s`, or `... uninstall %s` to drop it", args.Connector, args.Connector, args.Connector))
+		}
+		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Plugin connector %q is installed but not loaded; using the built-in connector", args.Connector))
 	}
 	if s.registry == nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: connector registry is not configured", args.Connector, args.Operation))

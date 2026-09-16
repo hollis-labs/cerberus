@@ -726,6 +726,22 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
+	case "uninstall":
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.UninstallManagedPlugin(ctx, id)
+		}) {
+			return
+		}
+		out, err := s.client.UninstallManagedPlugin(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
 	case "health":
 		if r.Method != http.MethodGet {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")

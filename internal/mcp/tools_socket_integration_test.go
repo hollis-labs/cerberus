@@ -261,6 +261,13 @@ func (fakeSocketProgressClient) UnloadManagedPlugin(ctx context.Context, id stri
 	gmcp.NotifyMessage(ctx, "info", "fake managed plugin unload completed")
 	return cerbapi.ManagedPluginConnectorState{ID: id, Loaded: false, Version: "0.1.0"}, nil
 }
+
+func (fakeSocketProgressClient) UninstallManagedPlugin(ctx context.Context, id string) (cerbapi.ManagedPluginConnectorState, error) {
+	gmcp.NotifyMessage(ctx, "info", "fake managed plugin unload started")
+	gmcp.NotifyProgress(ctx, "fake-managed-unload", 1, 2, "unloading managed plugin")
+	gmcp.NotifyMessage(ctx, "info", "fake managed plugin unload completed")
+	return cerbapi.ManagedPluginConnectorState{ID: id, Loaded: false, Version: "0.1.0"}, nil
+}
 func (fakeSocketProgressClient) ListManagedPlugins(context.Context) ([]cerbapi.ManagedPluginConnectorState, error) {
 	return nil, errors.New("not implemented")
 }

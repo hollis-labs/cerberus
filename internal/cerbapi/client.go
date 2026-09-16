@@ -75,6 +75,10 @@ type Client interface {
 	LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
 	// UnloadManagedPlugin stops a loaded plugin by id.
 	UnloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
+
+	// UninstallManagedPlugin unloads a plugin if needed and removes it from the
+	// managed set and the persisted state.
+	UninstallManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
 	// ListManagedPlugins returns currently installed daemon-managed plugins.
 	ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error)
 	// ManagedPluginHealth returns health for a daemon-managed plugin by id.

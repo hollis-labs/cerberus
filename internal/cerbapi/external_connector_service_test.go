@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +19,10 @@ import (
 	ghconn "github.com/chrispian/cerberus/internal/connector/github"
 	ncconn "github.com/chrispian/cerberus/internal/connector/namecheap"
 	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
+	"github.com/chrispian/cerberus/internal/pluginhost"
+	contract "github.com/chrispian/cerberus/pkg/connector"
 	"github.com/digitalocean/godo"
+	"gopkg.in/yaml.v3"
 )
 
 type fakeDockerBackend struct {
@@ -938,5 +943,145 @@ func TestNamecheapWholeZoneReplacementIsExplicitAndAcknowledged(t *testing.T) {
 	delete(args.Config, "records")
 	if _, err := service.Execute(context.Background(), args); err == nil {
 		t.Fatal("missing authoritative records accepted")
+	}
+}
+
+// writeTestPluginDir creates a minimal installable plugin directory for the
+// given connector id. It is never loaded, so the entrypoint only has to exist
+// and be executable.
+func writeTestPluginDir(t *testing.T, id string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Owner-only, but still executable: the launcher rejects a non-executable
+	// entrypoint, and these tests install without ever loading.
+	if err := os.WriteFile(filepath.Join(dir, "bin", "plugin"), []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // an entrypoint must carry an execute bit; 0o700 is owner-only
+		t.Fatalf("write entrypoint: %v", err)
+	}
+
+	manifest := contract.ManifestFromDefinition(sshconn.Definition())
+	manifest.ID = id
+	spec := pluginhost.PluginYAMLFromManifest(manifest, pluginhost.Entrypoint{Command: "bin/plugin"})
+	spec.ID = id
+	data, err := yaml.Marshal(spec)
+	if err != nil {
+		t.Fatalf("marshal plugin.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, pluginhost.PluginYAMLFilename), data, 0o600); err != nil {
+		t.Fatalf("write plugin.yaml: %v", err)
+	}
+	return dir
+}
+
+// A plugin that shadows a built-in must not disable it when unloaded.
+// Previously `cerberus docker ps` stayed permanently broken after an unload,
+// with no uninstall command and hand-editing the state file as the only way out.
+func TestExternalConnectorServiceFallsBackToBuiltInWhenPluginNotLoaded(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	registry := connector.NewRegistry()
+	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
+
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+	if !managed.Installed("ssh") {
+		t.Fatal("plugin should be installed")
+	}
+	if managed.Loaded("ssh") {
+		t.Fatal("plugin should not be loaded")
+	}
+
+	svc := NewExternalConnectorService(registry, managed)
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "status",
+		Config:    sshTransferConfig(nil),
+	})
+	if err != nil {
+		t.Fatalf("execute fell through to an error instead of the built-in: %v", err)
+	}
+	if _, ok := result.Data.(string); !ok {
+		t.Fatalf("Data = %#v, want the built-in ssh status payload", result.Data)
+	}
+}
+
+// With no built-in to fall back to, an installed-but-unloaded plugin is still
+// an error — and the message should say how to recover.
+func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testing.T) {
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+
+	svc := NewExternalConnectorService(connector.NewRegistry(), managed)
+	_, err = svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "status",
+	})
+	if err == nil {
+		t.Fatal("expected an error with no built-in connector available")
+	}
+	if !strings.Contains(err.Error(), "uninstall") {
+		t.Fatalf("error %q should point at the recovery commands", err.Error())
+	}
+}
+
+// An unsigned local install must succeed with no signature flags and no
+// operator-supplied hash, and must record what really happened.
+func TestManagedPluginInstallUnsignedRecordsHonestTierAndHash(t *testing.T) {
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	state, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	})
+	if err != nil {
+		t.Fatalf("unsigned install failed: %v", err)
+	}
+	if state.TrustTier != string(pluginhost.TrustTierUnsigned) {
+		t.Fatalf("TrustTier = %q, want %q", state.TrustTier, pluginhost.TrustTierUnsigned)
+	}
+	installed, ok := managed.manager.Installed("ssh")
+	if !ok {
+		t.Fatal("plugin not registered")
+	}
+	if installed.ArchiveSHA256 == "" {
+		t.Fatal("host did not compute an archive hash")
+	}
+}
+
+func TestManagedPluginUninstallRemovesEntry(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if _, err := managed.Uninstall(context.Background(), "ssh"); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if managed.Installed("ssh") {
+		t.Fatal("plugin still installed after uninstall")
+	}
+	if _, err := managed.Uninstall(context.Background(), "ssh"); err == nil {
+		t.Fatal("uninstalling an absent plugin should error")
 	}
 }

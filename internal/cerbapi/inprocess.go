@@ -195,6 +195,13 @@ func (c *InProcessClient) UnloadManagedPlugin(ctx context.Context, id string) (M
 	return c.managedPlugins.Unload(ctx, id)
 }
 
+func (c *InProcessClient) UninstallManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	if c.managedPlugins == nil {
+		return ManagedPluginConnectorState{}, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.Uninstall(ctx, id)
+}
+
 func (c *InProcessClient) ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error) {
 	if c.managedPlugins == nil {
 		return nil, errors.New("managed plugin connector service is not configured")

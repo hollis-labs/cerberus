@@ -331,6 +331,10 @@ func (f *fakeClient) UnloadManagedPlugin(context.Context, string) (cerbapi.Manag
 	return cerbapi.ManagedPluginConnectorState{}, nil
 }
 
+func (f *fakeClient) UninstallManagedPlugin(context.Context, string) (cerbapi.ManagedPluginConnectorState, error) {
+	return cerbapi.ManagedPluginConnectorState{}, nil
+}
+
 func (f *fakeClient) ListManagedPlugins(context.Context) ([]cerbapi.ManagedPluginConnectorState, error) {
 	return nil, nil
 }

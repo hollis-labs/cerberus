@@ -109,6 +109,45 @@ func (s *ManagedPluginConnectorService) Unload(ctx context.Context, id string) (
 	return state, nil
 }
 
+// Uninstall unloads the plugin if needed and drops it from the managed set and
+// the persisted state. Without it the only way to undo an install was editing
+// ~/.cerberus/plugin-connectors.json by hand.
+func (s *ManagedPluginConnectorService) Uninstall(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	progressToken := fmt.Sprintf("managed-plugin-uninstall:%s", id)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Uninstalling managed plugin %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Uninstalling managed plugin")
+
+	installed, ok := s.manager.Installed(id)
+	if !ok {
+		err := fmt.Errorf("plugin %q is not installed", id)
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+		return ManagedPluginConnectorState{}, err
+	}
+	if s.manager.Loaded(id) {
+		if err := s.manager.Unload(ctx, id); err != nil {
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+			return ManagedPluginConnectorState{}, err
+		}
+	}
+	if err := s.manager.Remove(id); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+		return ManagedPluginConnectorState{}, err
+	}
+	delete(s.records, id)
+	if err := s.persist(); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+		return ManagedPluginConnectorState{}, err
+	}
+
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin uninstalled: %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstalled")
+	return managedState(installed, false), nil
+}
+
 func (s *ManagedPluginConnectorService) List(context.Context) ([]ManagedPluginConnectorState, error) {
 	plugins := s.manager.InstalledPlugins()
 	out := make([]ManagedPluginConnectorState, 0, len(plugins))

@@ -424,6 +424,14 @@ func (c *SocketClient) UnloadManagedPlugin(ctx context.Context, id string) (Mana
 	return out, nil
 }
 
+func (c *SocketClient) UninstallManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	var out ManagedPluginConnectorState
+	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/uninstall", nil, &out); err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	return out, nil
+}
+
 func (c *SocketClient) ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error) {
 	var out []ManagedPluginConnectorState
 	if err := c.doJSON(ctx, http.MethodGet, "/plugins/connectors", nil, &out); err != nil {
