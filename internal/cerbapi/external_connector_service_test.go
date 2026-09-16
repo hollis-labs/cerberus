@@ -225,7 +225,11 @@ func (b *fakeForgeBackend) ExecuteSiteCommand(_ context.Context, serverID, siteI
 }
 
 type fakeSSHBackend struct {
-	command string
+	command    string
+	localPath  string
+	remotePath string
+	putCalls   int
+	getCalls   int
 }
 
 func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _ string, _ sshconn.HostKeyConfig) error {
@@ -235,6 +239,18 @@ func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _
 func (b *fakeSSHBackend) Exec(_ context.Context, command string) (*sshconn.ExecResult, error) {
 	b.command = command
 	return &sshconn.ExecResult{Stdout: "ok", ExitCode: 0}, nil
+}
+
+func (b *fakeSSHBackend) Put(_ context.Context, localPath, remotePath string) (int64, error) {
+	b.putCalls++
+	b.localPath, b.remotePath = localPath, remotePath
+	return 42, nil
+}
+
+func (b *fakeSSHBackend) Get(_ context.Context, remotePath, localPath string) (int64, error) {
+	b.getCalls++
+	b.localPath, b.remotePath = localPath, remotePath
+	return 7, nil
 }
 
 func (b *fakeSSHBackend) Ping(_ context.Context) error {
@@ -579,6 +595,140 @@ func TestExternalConnectorServiceExecutesSSHOperation(t *testing.T) {
 	}
 	if backend.command != "uptime" {
 		t.Fatalf("command = %q, want uptime", backend.command)
+	}
+}
+
+func newSSHTestService(backend *fakeSSHBackend) *ExternalConnectorService {
+	registry := connector.NewRegistry()
+	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
+	return NewExternalConnectorService(registry)
+}
+
+func sshTransferConfig(extra map[string]any) map[string]any {
+	cfg := map[string]any{
+		"id":       "server-1",
+		"host":     "127.0.0.1",
+		"user":     "root",
+		"key_file": "/tmp/fake-key",
+	}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	return cfg
+}
+
+func TestExternalConnectorServiceExecutesSSHPut(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector:    "ssh",
+		Operation:    "put",
+		Acknowledged: true,
+		Config: sshTransferConfig(map[string]any{
+			"local_path":  "./docker-compose.yml",
+			"remote_path": "/opt/app/docker-compose.yml",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	transfer, ok := result.Data.(*sshconn.TransferResult)
+	if !ok {
+		t.Fatalf("Data = %#v, want ssh transfer result", result.Data)
+	}
+	if transfer.Bytes != 42 {
+		t.Fatalf("Bytes = %d, want 42", transfer.Bytes)
+	}
+	if backend.putCalls != 1 || backend.getCalls != 0 {
+		t.Fatalf("put=%d get=%d, want put=1 get=0", backend.putCalls, backend.getCalls)
+	}
+	if backend.localPath != "./docker-compose.yml" || backend.remotePath != "/opt/app/docker-compose.yml" {
+		t.Fatalf("backend paths = %q -> %q", backend.localPath, backend.remotePath)
+	}
+}
+
+// put overwrites a file on a real host, so it must be gated the same way exec
+// is. Without the ack an agent could replace a config with no confirmation.
+func TestExternalConnectorServiceSSHPutRequiresAcknowledgment(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "put",
+		Config: sshTransferConfig(map[string]any{
+			"local_path":  "./a",
+			"remote_path": "/opt/a",
+		}),
+	})
+	var connErr *ExternalConnectorError
+	if !errors.As(err, &connErr) {
+		t.Fatalf("err = %T, want ExternalConnectorError", err)
+	}
+	if connErr.Code != ExternalConnectorAckRequired {
+		t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorAckRequired)
+	}
+	if backend.putCalls != 0 {
+		t.Fatalf("put ran %d times despite a missing acknowledgment", backend.putCalls)
+	}
+}
+
+// get only reads, so it must NOT demand an ack — otherwise every read becomes
+// a confirmation prompt and the gate stops meaning anything.
+func TestExternalConnectorServiceSSHGetNeedsNoAcknowledgment(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "get",
+		Config: sshTransferConfig(map[string]any{
+			"remote_path": "/etc/nginx/nginx.conf",
+			"local_path":  "./nginx.conf",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	transfer, ok := result.Data.(*sshconn.TransferResult)
+	if !ok || transfer.Bytes != 7 {
+		t.Fatalf("Data = %#v, want ssh transfer result of 7 bytes", result.Data)
+	}
+	if backend.getCalls != 1 {
+		t.Fatalf("getCalls = %d, want 1", backend.getCalls)
+	}
+}
+
+func TestExternalConnectorServiceSSHTransferRequiresPaths(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		operation string
+		config    map[string]any
+	}{
+		{"put without remote_path", "put", map[string]any{"local_path": "./a"}},
+		{"put without local_path", "put", map[string]any{"remote_path": "/opt/a"}},
+		{"get without local_path", "get", map[string]any{"remote_path": "/opt/a"}},
+		{"get without remote_path", "get", map[string]any{"local_path": "./a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &fakeSSHBackend{}
+			svc := newSSHTestService(backend)
+
+			_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+				Connector:    "ssh",
+				Operation:    tc.operation,
+				Acknowledged: true,
+				Config:       sshTransferConfig(tc.config),
+			})
+			var connErr *ExternalConnectorError
+			if !errors.As(err, &connErr) {
+				t.Fatalf("err = %T, want ExternalConnectorError", err)
+			}
+			if connErr.Code != ExternalConnectorInvalidArgs {
+				t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorInvalidArgs)
+			}
+		})
 	}
 }
 

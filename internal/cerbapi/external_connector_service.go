@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -426,6 +427,38 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 			}, map[string]any{
 				"command": command,
 			}), true, nil
+		case "put":
+			host, err := requiredString(args.Config, "host")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			localPath, err := requiredString(args.Config, "local_path")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			remotePath, err := requiredString(args.Config, "remote_path")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			warnings := []string{}
+			info, statErr := os.Stat(localPath)
+			switch {
+			case statErr != nil:
+				warnings = append(warnings, fmt.Sprintf("local file %s cannot be read: %v", localPath, statErr))
+			case info.IsDir():
+				warnings = append(warnings, fmt.Sprintf("%s is a directory; ssh put transfers a single file", localPath))
+			}
+			input := map[string]any{"local_path": localPath}
+			if statErr == nil && !info.IsDir() {
+				input["bytes"] = info.Size()
+				input["mode"] = info.Mode().Perm().String()
+			}
+			return dryRunPreview(args, "Would upload a local file over SFTP, replacing the remote file if it exists.", map[string]any{
+				"host":        host,
+				"user":        stringFromConfig(args.Config, "user", "root"),
+				"port":        intFromConfig(args.Config, "port", 22),
+				"remote_path": remotePath,
+			}, input, warnings...), true, nil
 		case "stop":
 			host, err := requiredString(args.Config, "host")
 			if err != nil {
@@ -798,6 +831,28 @@ func (s *ExternalConnectorService) executeSSH(ctx context.Context, c contract.Co
 			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 		}
 		result, err := ssh.Exec(ctx, &res, command)
+		return externalConnectorResult(args, result), err
+	case "put":
+		localPath, err := requiredString(args.Config, "local_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		remotePath, err := requiredString(args.Config, "remote_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		result, err := ssh.Put(ctx, &res, localPath, remotePath)
+		return externalConnectorResult(args, result), err
+	case "get":
+		remotePath, err := requiredString(args.Config, "remote_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		localPath, err := requiredString(args.Config, "local_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		result, err := ssh.Get(ctx, &res, remotePath, localPath)
 		return externalConnectorResult(args, result), err
 	case "stop":
 		err := ssh.Stop(ctx, &res)

@@ -33,11 +33,17 @@ furniture an admin tool needs:
 | `SupportsDry: true` → `--dry-run` preview | `dryRunPreview` |
 | Progress + message notifications | `gmcp.NotifyProgress` / `NotifyMessage` |
 | Secret redaction on error paths | `redact.Text` |
-| One auto-generated MCP tool per operation | `pluginhost.ToolNameForOperation` |
 | Per-call connector resolution | `registry.Resolve` |
 
-Every verb added here is simultaneously a CLI command, an HTTP API operation,
-and an MCP tool an agent can call. That is the leverage.
+A verb added here is a CLI command and an HTTP API operation at once. The MCP
+tool is **not** free for a built-in connector: plugin connectors get generated
+names via `pluginhost.ToolNameForOperation`, but the built-ins have hand-written
+tools in `internal/mcp/tools_<connector>.go` that must also be registered in
+both `cmd_mcp.go` and `cmd_daemon.go`. Budget four touch points per verb —
+operation definition, service dispatch, CLI command, MCP tool — plus a
+`decodeConnectorPayload` case if the operation returns a typed DTO rather than
+a string, or the CLI gets `unexpected result type json.RawMessage` over the
+socket.
 
 **Explicitly deferred:** letting `type: container` through
 `resource_runtime_service.go`. That service is hardcoded to local/process in
@@ -219,14 +225,41 @@ digitalocean  server      no     # truthful: no API token, ops fail credential_m
 `TestDetectDockerFindsBinaryWithEmptyPATH` is the regression test — it clears
 `PATH` entirely and asserts discovery still succeeds.
 
-### 2. SSH file transfer
+### 2. SSH file transfer — DONE 2026-09-16
 
-`ssh.put` and `ssh.get` over `github.com/pkg/sftp`, on the existing
-`APIBackend` SSH client. This is the single biggest capability gap: today you
-can `ssh exec` but you cannot push a compose file, a `.env`, or a config —
-which is most of what a deploy is.
+`ssh put` and `ssh get` over `github.com/pkg/sftp` v1.13.11, reusing the
+existing `APIBackend` SSH client — the SFTP subsystem opens as another channel
+on the connection, so a transfer costs no second handshake.
 
-`put` is destructive (it overwrites); `get` is not.
+`put` is `Destructive` + `SupportsDry` (it overwrites a file on a real host);
+`get` is read-only and deliberately needs no ack, or the gate stops meaning
+anything.
+
+Both write to a temporary name and rename into place, so an interrupted
+transfer leaves the previous file intact rather than a truncated one — which is
+the whole point when the target is a compose file or an env file something is
+about to read. `put` preserves the local mode, so an uploaded script stays
+executable.
+
+Verified end to end against muctlvaig:
+
+```
+$ cerberus ssh put muctlvaig ./probe.txt /home/cburks/cerberus-probe.txt --dry-run
+{ "summary": "Would upload a local file over SFTP, replacing the remote file if it exists.",
+  "input": { "bytes": 52, "mode": "-rw-r--r--" }, ... }
+
+$ cerberus ssh put muctlvaig ./probe.txt /home/cburks/cerberus-probe.txt --ack
+./probe.txt → /home/cburks/cerberus-probe.txt (52 bytes)
+
+$ cerberus ssh get muctlvaig /home/cburks/cerberus-probe.txt ./roundtrip.txt
+# diff against the original: identical; remote mode preserved as -rw-r--r--
+```
+
+MCP tools `cerberus_ssh_put` and `cerberus_ssh_get` are registered alongside.
+
+This replaces `rput`/`scp` in `tools/lib/common.sh`. Still missing for a full
+`tools/` port: recursive directory transfer, and the `rsudo` elevation model
+(see Open Questions).
 
 ### 3. Remote Docker
 

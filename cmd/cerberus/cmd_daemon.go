@@ -590,6 +590,8 @@ func runDaemonBody() error {
 		// SSH tools
 		srv.RegisterTool(mcp.NewCerberusSSHExecTool(a.Config, inProc))
 		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(a.Config, inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHPutTool(a.Config, inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHGetTool(a.Config, inProc))
 
 		// Namecheap tools
 		srv.RegisterTool(mcp.NewCerberusDomainListTool(inProc))

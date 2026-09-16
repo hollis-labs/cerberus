@@ -69,6 +69,65 @@ func NewCerberusSSHStatusTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 	}
 }
 
+// NewCerberusSSHPutTool creates the cerberus_ssh_put tool.
+func NewCerberusSSHPutTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_ssh_put",
+		Description: "Upload a local file to an SSH resource over SFTP, replacing the remote file if it exists.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local file to upload."},
+			"remote_path":  map[string]interface{}{"type": "string", "description": "Destination path on the remote host."},
+			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
+		}, "resource_id", "local_path", "remote_path"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return runSSHTransfer(ctx, cfg, client, "put", args,
+				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
+		},
+	}
+}
+
+// NewCerberusSSHGetTool creates the cerberus_ssh_get tool.
+func NewCerberusSSHGetTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_ssh_get",
+		Description: "Download a file from an SSH resource over SFTP.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+			"remote_path": map[string]interface{}{"type": "string", "description": "File to download from the remote host."},
+			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination path."},
+		}, "resource_id", "remote_path", "local_path"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return runSSHTransfer(ctx, cfg, client, "get", args, false, false)
+		},
+	}
+}
+
+// runSSHTransfer backs both transfer tools; they differ only in direction and
+// in whether the operation needs an acknowledgment.
+func runSSHTransfer(ctx context.Context, cfg *config.ConfigV2, client cerbapi.Client, operation string, args map[string]interface{}, dryRun, acknowledged bool) (string, error) {
+	res, err := findSSHResource(cfg, stringArg(args, "resource_id"))
+	if err != nil {
+		return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // tool failures travel in the result payload, not as Go errors
+	}
+	opConfig := sshToolConfig(res, "")
+	opConfig["local_path"] = stringArg(args, "local_path")
+	opConfig["remote_path"] = stringArg(args, "remote_path")
+
+	result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
+		Connector:    "ssh",
+		Operation:    operation,
+		Config:       opConfig,
+		DryRun:       dryRun,
+		Acknowledged: acknowledged,
+	})
+	if err != nil {
+		return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // tool failures travel in the result payload, not as Go errors
+	}
+	return marshalConnectorData(result.Data)
+}
+
 // findSSHResource looks up a resource by ID from the config and converts it to a domain.Resource.
 func findSSHResource(cfg *config.ConfigV2, id string) (*domain.Resource, error) {
 	for _, r := range cfg.Resources {

@@ -85,6 +85,22 @@ func Definition() contract.Definition {
 				"key_file": contract.StringSchema("Private key path."),
 				"command":  contract.StringSchema("Command to execute."),
 			}, "host", "command"), Destructive: true, SupportsDry: true},
+			{Name: "put", Description: "Upload a local file to the remote host over SFTP.", Examples: []string{"cerberus ssh put prod-api ./docker-compose.yml /opt/app/docker-compose.yml --dry-run", "cerberus ssh put prod-api ./app.env /opt/app/.env --ack"}, InputSchema: contract.ObjectSchema(map[string]any{
+				"host":        contract.StringSchema("Remote host name or IP address."),
+				"port":        contract.IntegerSchema("SSH port."),
+				"user":        contract.StringSchema("SSH username."),
+				"key_file":    contract.StringSchema("Private key path."),
+				"local_path":  contract.StringSchema("Local file to upload."),
+				"remote_path": contract.StringSchema("Destination path on the remote host."),
+			}, "host", "local_path", "remote_path"), Destructive: true, SupportsDry: true},
+			{Name: "get", Description: "Download a file from the remote host over SFTP.", Examples: []string{"cerberus ssh get prod-api /etc/nginx/nginx.conf ./nginx.conf"}, InputSchema: contract.ObjectSchema(map[string]any{
+				"host":        contract.StringSchema("Remote host name or IP address."),
+				"port":        contract.IntegerSchema("SSH port."),
+				"user":        contract.StringSchema("SSH username."),
+				"key_file":    contract.StringSchema("Private key path."),
+				"remote_path": contract.StringSchema("File to download from the remote host."),
+				"local_path":  contract.StringSchema("Local destination path."),
+			}, "host", "remote_path", "local_path")},
 			{Name: "stop", Description: "Shut down the remote host via SSH.", Examples: []string{"cerberus ssh stop prod-api --dry-run", "cerberus ssh stop prod-api --ack"}, InputSchema: sshInputSchema(), Destructive: true, SupportsDry: true},
 		},
 	}
@@ -155,6 +171,43 @@ func (c *Connector) Exec(ctx context.Context, res *resource.Resource, command st
 	defer backend.Close() //nolint:errcheck
 
 	return backend.Exec(ctx, command)
+}
+
+// TransferResult reports the outcome of a file transfer.
+type TransferResult struct {
+	LocalPath  string `json:"local_path"`
+	RemotePath string `json:"remote_path"`
+	Bytes      int64  `json:"bytes"`
+}
+
+// Put uploads a local file to the remote host described by the resource.
+func (c *Connector) Put(ctx context.Context, res *resource.Resource, localPath, remotePath string) (*TransferResult, error) {
+	backend, err := c.connect(ctx, res)
+	if err != nil {
+		return nil, fmt.Errorf("ssh put: %w", err)
+	}
+	defer backend.Close() //nolint:errcheck
+
+	written, err := backend.Put(ctx, localPath, remotePath)
+	if err != nil {
+		return nil, fmt.Errorf("ssh put: %w", err)
+	}
+	return &TransferResult{LocalPath: localPath, RemotePath: remotePath, Bytes: written}, nil
+}
+
+// Get downloads a file from the remote host described by the resource.
+func (c *Connector) Get(ctx context.Context, res *resource.Resource, remotePath, localPath string) (*TransferResult, error) {
+	backend, err := c.connect(ctx, res)
+	if err != nil {
+		return nil, fmt.Errorf("ssh get: %w", err)
+	}
+	defer backend.Close() //nolint:errcheck
+
+	written, err := backend.Get(ctx, remotePath, localPath)
+	if err != nil {
+		return nil, fmt.Errorf("ssh get: %w", err)
+	}
+	return &TransferResult{LocalPath: localPath, RemotePath: remotePath, Bytes: written}, nil
 }
 
 // HostStatusJSON returns the connectivity status of a remote host as JSON.
