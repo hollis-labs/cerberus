@@ -40,8 +40,8 @@ github.com/hollis-labs/go-mcp v0.2.0 h1:uTGXeNFAwCimXwtE/AG1Ue7RCSHCryLfm/Vhi8qS
 github.com/hollis-labs/go-mcp v0.2.0/go.mod h1:gX8xjkIRwnenTeAmZiWj3ZrbrNwupwZd7XDnSQmg5pk=
 github.com/hollis-labs/go-webui v0.1.0 h1:j+seGHO3FBehZvUhiJWIS3/aLeEETlJ0G23qpx8gFRE=
 github.com/hollis-labs/go-webui v0.1.0/go.mod h1:AxZNBuBPpMv6SmS7xaQm2emmSikL8pa8mjNamCzaUz8=
-github.com/hollis-labs/plugin-sdk v0.3.1 h1:gLj3CWyRfYWgvMfTwOInuiGovFaQ0zNkSoQB+I3WuWg=
-github.com/hollis-labs/plugin-sdk v0.3.1/go.mod h1:+FcTow9tco3OoINjc5LSCkm8RZzWSLNG1tTCzLSQuHs=
+github.com/hollis-labs/plugin-sdk v0.4.0 h1:e7LTkwJQL+n9kRf9IUAUCUeydS11XIdjGIfFjP2PyBg=
+github.com/hollis-labs/plugin-sdk v0.4.0/go.mod h1:+FcTow9tco3OoINjc5LSCkm8RZzWSLNG1tTCzLSQuHs=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/kr/fs v0.1.0 h1:Jskdu9ieNAYnjxsi0LbQp1ulIKZV1LAFgK1tWhpZgl8=

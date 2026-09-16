@@ -10,7 +10,7 @@ require (
 	github.com/hollis-labs/go-apppaths v0.1.0
 	github.com/hollis-labs/go-mcp v0.2.0
 	github.com/hollis-labs/go-webui v0.1.0
-	github.com/hollis-labs/plugin-sdk v0.3.1
+	github.com/hollis-labs/plugin-sdk v0.4.0
 	github.com/pkg/sftp v1.13.11
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
