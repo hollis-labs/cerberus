@@ -107,13 +107,13 @@ package needs a real write to prove itself, write to a scratch path under
 ```
 WP-0 plugin gaps          DONE
 WP-1 dry-run extraction   ──► WP-3 remote docker
-WP-2 pkg/plugin promotion ──► WP-4 ContextForge ──► WP-5 Azure
+WP-2 pkg/plugin promotion DONE ──► WP-4 ContextForge ──► WP-5 Azure
 WP-6 container validation     (independent; needs a decision)
 ```
 
 WP-1 and WP-2 are independent of each other and both unblock work downstream.
 WP-1 rewrites the 600-line `dryRunPreview` switch, so nothing else that touches
-that file should run beside it.
+that file should run beside it. WP-2 is done, so WP-4 is unblocked.
 
 ---
 
@@ -165,7 +165,7 @@ the `Execute` dispatch switch.
 
 ---
 
-## WP-2 — Promote the plugin authoring contract to `pkg/plugin`
+## WP-2 — Promote the plugin authoring contract to `pkg/plugin` — DONE 2026-09-16
 
 **Why this blocks everything plugin-shaped:** `internal/plugins/dockerplugin`
 imports `github.com/chrispian/cerberus/internal/pluginhost`. An external module
@@ -204,18 +204,50 @@ rename the module path, publish at the declared path, or keep `replace`
 directives in the plugin repo is an owner decision that is **out of scope for
 this package** — flag it, do not change `go.mod`'s module line.
 
-**Acceptance:**
-- `internal/pluginhost` keeps working, re-exporting or importing from
-  `pkg/plugin` as needed; no behaviour change.
-- A scratch module outside this repo, with a `replace` pointing at this
-  checkout, importing only `pkg/connector`, `pkg/resource`, `pkg/plugin` and
-  `plugin-sdk/subprocess`, compiles a trivial plugin. Prove this — it is the
-  whole point of the package. Report the exact `go.mod` that worked, since the
-  plugin repo will need the same shape.
-- `internal/plugins/dockerplugin` builds against the public packages and the
-  generated prototype still installs, loads and serves `docker ps`.
+**Acceptance — met:**
 
-**Do not:** move the trust policy or the subprocess launcher. Those are host
+- `pkg/plugin` holds `ToolNameForOperation`, `OperationFromToolName`,
+  `PluginYAML`, `Entrypoint`, `CerberusPluginBlock`, `PluginYAMLFromManifest`
+  and `PluginYAMLFilename`. `go list -deps ./pkg/...` names no `internal/`
+  package, which is what makes the surface reachable from outside the module.
+- `internal/pluginhost` keeps every one of those names as a type alias or a
+  thin wrapper, so host code and the host tests are unchanged. `Manager`,
+  `DirectoryInstaller`, `TrustPolicy`, `SubprocessLauncher`,
+  `StdioTransportFactory` and the `SDK*` protocol types stayed put.
+- An out-of-tree module importing only `pkg/connector`, `pkg/resource`,
+  `pkg/plugin` and `plugin-sdk/subprocess` compiles a plugin that serves
+  `cerberus_scratch_ping` and emits a valid `plugin.yaml`. Adding an
+  `internal/pluginhost` import to that same module still fails with *use of
+  internal package github.com/chrispian/cerberus/internal/pluginhost not
+  allowed* — the boundary is compiler-enforced, not a convention.
+- `internal/plugins/dockerplugin` imports `pkg/plugin` instead of
+  `internal/pluginhost`, and the generated prototype still installs, loads and
+  serves `list_containers` through `cerberus connectors plugin exec`.
+
+**The `go.mod` that worked**, for the plugin repo to copy — `go mod tidy`
+resolves it and `go build ./...` succeeds:
+
+```
+module example.com/wp2-extplugin
+
+go 1.26.3
+
+require (
+	github.com/chrispian/cerberus v0.0.0
+	github.com/hollis-labs/plugin-sdk v0.4.0
+)
+
+replace github.com/chrispian/cerberus => /Users/cburks/Projects-apps/cerberus
+```
+
+The `v0.0.0` is a placeholder the `replace` satisfies; nothing fetches it. The
+resulting `go.sum` carries only the two `plugin-sdk` lines, because a replaced
+local directory needs no checksum. **The module-path question is still open** —
+this shape works for a plugin developed beside a checkout, but
+`hollis-labs/cerberus-plugins` CI will need either a published module path or a
+committed `replace`, and that is still an owner decision.
+
+**Did not:** move the trust policy or the subprocess launcher. Those are host
 decisions and must not be something a plugin can influence.
 
 ---
@@ -276,6 +308,50 @@ repo as the reference implementation.
 **Library:** `github.com/leefowlercu/go-contextforge` v0.9.0, pinned, behind a
 `Backend` interface. Non-negotiable — it is what makes a v0.x dependency
 swappable.
+
+### SDK surface, verified 2026-09-16
+
+`NewClient(httpClient *http.Client, address string, bearerToken string)` — base
+URL is a plain constructor argument, which is what the tunnel requirement needs,
+and auth is bearer JWT, matching what our probes found.
+
+Eight services hang off the client: `Tools`, `Resources`, `Gateways`, `Servers`,
+`Prompts`, `Agents`, `Teams`, `Cancel`. Each of the first six follows the same
+shape — `List`, `Get`, `Create`, `Update`, `Delete`, `Toggle`/`SetState` — plus
+extras: `Gateways.RefreshTools`, `Servers.ListTools`/`ListResources`/
+`ListPrompts`, `Resources.ListTemplates`, `Agents.Invoke`.
+
+**Route compatibility is confirmed against the live gateway.** Every path the
+SDK targets answers `401` rather than `404`, so the routes exist and only auth
+is missing — the SDK and the deployed CF agree on the API shape:
+
+```
+/health 200   /version 401  /gateways 401  /servers 401  /tools 401
+/prompts 401  /resources 401  /a2a 401  /teams 307  /openapi.json 401
+/resources/templates/list 401   /cancellation/status/x 401
+```
+
+Note the SDK is tested against **ContextForge v1.0.0-BETA-2**
+(`mcpgateway==1.0.0b2`); confirm the deployed version once a token is in hand.
+`/teams` answers 307, so that service redirects — the SDK uses trailing slashes
+on team sub-paths and none on the collection.
+
+### ⚠ `Gateway` carries live credentials — redact before returning
+
+The `Gateway` type includes `AuthToken`, `AuthPassword`, `AuthHeaderValue`,
+`AuthValue`, `AuthUsername`, `AuthHeaders` and `OAuthConfig`. `types.go` has 32
+secret-bearing field references in total.
+
+A `list_gateways` that marshals the SDK struct straight out **will leak upstream
+auth tokens** into CLI output, MCP tool results and agent context. This is the
+single most likely way this package causes real harm.
+
+So: **define our own response DTOs; never return the SDK type directly.** For a
+gateway, return id, name, URL, transport, enabled, reachable, and `auth_type`
+only — the *kind* of auth configured, never the value. That matches the
+`probe-*` convention already in use: names, never values. Add a test that
+asserts a gateway response containing a populated `AuthToken` does not serialize
+it.
 
 **Operations, in priority order.** Read-only first: safe, they prove auth and
 connectivity, and they are what agents call most.
