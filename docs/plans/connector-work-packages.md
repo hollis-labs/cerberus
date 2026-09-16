@@ -189,12 +189,29 @@ everything else on the host side.
 `pkg/connector` already carries `Manifest` and `ManifestFromDefinition`, so the
 contract half is done — this is the remaining gap.
 
+**Known constraint — do not try to solve this, just work around it.** The module
+path in `go.mod` is `github.com/chrispian/cerberus`, the remote is
+`hollis-labs/cerberus`, and the declared path does not resolve publicly:
+
+```
+$ go list -m github.com/chrispian/cerberus@latest
+ERROR: Repository not found.
+```
+
+So an external module cannot `go get` these packages. For the acceptance test
+below, use a `replace` directive pointing at the local checkout. Whether to
+rename the module path, publish at the declared path, or keep `replace`
+directives in the plugin repo is an owner decision that is **out of scope for
+this package** — flag it, do not change `go.mod`'s module line.
+
 **Acceptance:**
 - `internal/pluginhost` keeps working, re-exporting or importing from
   `pkg/plugin` as needed; no behaviour change.
-- A scratch module outside this repo that imports only `pkg/connector`,
-  `pkg/resource`, `pkg/plugin` and `plugin-sdk/subprocess` compiles a trivial
-  plugin. Prove this — it is the whole point of the package.
+- A scratch module outside this repo, with a `replace` pointing at this
+  checkout, importing only `pkg/connector`, `pkg/resource`, `pkg/plugin` and
+  `plugin-sdk/subprocess`, compiles a trivial plugin. Prove this — it is the
+  whole point of the package. Report the exact `go.mod` that worked, since the
+  plugin repo will need the same shape.
 - `internal/plugins/dockerplugin` builds against the public packages and the
   generated prototype still installs, loads and serves `docker ps`.
 
