@@ -262,11 +262,23 @@ On the DigitalOcean shape: `Backend` interface, SDK, secret provider, typed
 operations. Worth it primarily for VM start/stop — deallocated Azure VMs stop
 billing compute, so this is real cost control, not just convenience.
 
-### 6. Tunnels as managed resources
+### 6. Tunnels as managed resources — DONE 2026-09-16
 
-`tunnel-muctlvaig` is currently running outside Cerberus and reports blank
-status while both its forwards are demonstrably open. Bring it under Cerberus.
-Everything that depends on CF reachability depends on this.
+`tunnel-muctlvaig` was running as a detached `ssh -N -f` started outside
+Cerberus, so `resource list` showed blank status while both forwards were
+demonstrably open. The manual process was killed and the resource started with
+`cerberus resource apply tunnel-muctlvaig`; it now reports `running`, and CF
+(`:14444/health`) and Nanite (`:18095/api/health`) both answer 200 through it.
+
+Note the dependency this creates: the CF connector in item 4 is unreachable
+whenever this tunnel is down, and the tunnel is deliberately `auto_start: false`
+/ `auto_restart: false` because a Cerberus-started `ssh` has no TTY and a
+restart loop against corporate auth risks an account lockout. A CF operation
+failing with a connection refused on 14444 means "start the tunnel", not "CF is
+down" — worth surfacing in the connector's error text.
+
+Two other SSH processes to muctlvaig are unrelated and were left alone: an
+interactive session, and the `ControlPersist` sftp master that `tools/` opens.
 
 ## Open Questions
 
