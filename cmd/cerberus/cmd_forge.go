@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	forgeconn "github.com/chrispian/cerberus/internal/connector/forge"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	"github.com/spf13/cobra"
 )
 

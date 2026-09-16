@@ -1,4 +1,4 @@
-module github.com/chrispian/cerberus
+module github.com/hollis-labs/cerberus
 
 go 1.26.3
 

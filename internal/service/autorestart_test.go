@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 func TestNewRestartPolicyDefaults(t *testing.T) {

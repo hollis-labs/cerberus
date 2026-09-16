@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/spf13/cobra"
 )
 

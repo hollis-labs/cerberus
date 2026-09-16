@@ -3,8 +3,8 @@ package local
 import (
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 func TestServiceDefToResource(t *testing.T) {

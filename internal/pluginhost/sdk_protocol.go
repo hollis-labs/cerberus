@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	plugin "github.com/chrispian/cerberus/pkg/plugin"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
 const (

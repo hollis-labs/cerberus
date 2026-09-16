@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	plugin "github.com/chrispian/cerberus/pkg/plugin"
-	"github.com/chrispian/cerberus/pkg/resource"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
+	"github.com/hollis-labs/cerberus/pkg/resource"
 	"github.com/hollis-labs/plugin-sdk/subprocess"
 )
 

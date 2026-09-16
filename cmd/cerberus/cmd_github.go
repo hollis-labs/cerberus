@@ -6,10 +6,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	ghconn "github.com/chrispian/cerberus/internal/connector/github"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	"github.com/spf13/cobra"
 )
 

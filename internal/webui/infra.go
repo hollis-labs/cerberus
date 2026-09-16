@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/infra"
+	"github.com/hollis-labs/cerberus/internal/infra"
 )
 
 type infraResponse struct {

@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/chrispian/cerberus/internal/secretref"
-	"github.com/chrispian/cerberus/internal/secrets"
+	"github.com/hollis-labs/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 )
 
 // runSecretsTimeout bounds the whole resolution pass. Keychain reads can block

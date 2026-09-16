@@ -9,7 +9,7 @@
 package plugin
 
 import (
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // ToolNameForOperation creates the plugin-sdk MCP tool name Cerberus uses to

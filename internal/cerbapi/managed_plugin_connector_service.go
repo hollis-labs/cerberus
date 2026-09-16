@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/chrispian/cerberus/internal/pluginhost"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 

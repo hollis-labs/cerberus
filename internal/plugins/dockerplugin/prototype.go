@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	plugin "github.com/chrispian/cerberus/pkg/plugin"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	"gopkg.in/yaml.v3"
 )
 

@@ -3,7 +3,7 @@ package pipeline
 import (
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // Builder provides a fluent API for constructing pipelines.

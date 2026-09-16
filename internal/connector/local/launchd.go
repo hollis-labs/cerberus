@@ -13,9 +13,9 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/redact"
-	"github.com/chrispian/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/secretref"
 )
 
 const launchdProcessPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>

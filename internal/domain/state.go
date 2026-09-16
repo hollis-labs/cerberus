@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/chrispian/cerberus/pkg/resource"
+import "github.com/hollis-labs/cerberus/pkg/resource"
 
 // State represents the current known state of a Resource.
 type State = resource.State

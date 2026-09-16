@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // NewCerberusSSHExecTool creates the cerberus_ssh_exec tool.

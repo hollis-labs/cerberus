@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chrispian/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/secretref"
 )
 
 type plistNode struct {

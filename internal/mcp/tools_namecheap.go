@@ -3,8 +3,8 @@ package mcp
 import (
 	"context"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/connector/namecheap"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/connector/namecheap"
 )
 
 // NewCerberusDomainListTool creates the cerberus_domain_list tool.

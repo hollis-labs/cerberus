@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
 // resolveDiagnoser is the shape both list paths already have on hand:

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/spf13/cobra"
 )
 

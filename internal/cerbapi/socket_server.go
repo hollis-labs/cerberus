@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 

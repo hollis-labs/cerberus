@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func validManifest() contract.Manifest {

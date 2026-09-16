@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/pausectl"
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/hollis-labs/cerberus/internal/pausectl"
+	"github.com/hollis-labs/cerberus/internal/service"
 )
 
 // MonitorConfig holds configuration for the daemon monitor.

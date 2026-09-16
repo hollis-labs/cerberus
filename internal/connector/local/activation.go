@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // ActivationArtifact identifies the binary on disk used for this activation.

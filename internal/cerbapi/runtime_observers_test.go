@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 func TestRuntimeObserversDoNotWaitBehindBuild(t *testing.T) {

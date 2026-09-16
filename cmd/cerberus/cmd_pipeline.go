@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/spf13/cobra"
 )
 

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/domain"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // stubConnector is a minimal Connector for testing the registry.

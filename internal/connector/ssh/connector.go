@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	"github.com/chrispian/cerberus/pkg/resource"
-	"github.com/chrispian/cerberus/pkg/secret"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/resource"
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 var _ contract.Connector = (*Connector)(nil)

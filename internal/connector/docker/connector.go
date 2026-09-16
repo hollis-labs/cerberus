@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	"github.com/chrispian/cerberus/pkg/resource"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/resource"
 )
 
 var _ contract.Connector = (*Connector)(nil)

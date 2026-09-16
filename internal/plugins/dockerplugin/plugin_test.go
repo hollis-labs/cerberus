@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	plugin "github.com/chrispian/cerberus/pkg/plugin"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	"github.com/hollis-labs/plugin-sdk/subprocess"
 )
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/registry"
 )
 
 // futureConfig is a valid cerberus-project/v1 file that additionally

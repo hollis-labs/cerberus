@@ -5,8 +5,8 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	"github.com/spf13/cobra"
 )
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // helper to build a service with an ID and optional dependencies.

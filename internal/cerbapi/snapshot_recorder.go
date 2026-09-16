@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/registry"
 )
 
 // OverviewSnapshot is one timestamped sample of the control-plane counters

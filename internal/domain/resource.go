@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/chrispian/cerberus/pkg/resource"
+import "github.com/hollis-labs/cerberus/pkg/resource"
 
 // ResourceType classifies what kind of infrastructure a Resource represents.
 type ResourceType = resource.Type

@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	plugin "github.com/chrispian/cerberus/pkg/plugin"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	"gopkg.in/yaml.v3"
 )
 

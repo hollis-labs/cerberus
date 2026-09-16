@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/chrispian/cerberus/pkg/secret"
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 type DeploymentRunResult struct {

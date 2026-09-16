@@ -5,7 +5,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // ResolveOptions selects the sources the resolver merges.

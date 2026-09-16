@@ -1,8 +1,8 @@
 package pluginhost
 
 import (
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	plugin "github.com/chrispian/cerberus/pkg/plugin"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
 // The plugin descriptor is part of the public authoring contract: a plugin

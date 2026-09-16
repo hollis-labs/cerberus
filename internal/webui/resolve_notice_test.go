@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/registry"
 )
 
 // registryFixture writes a config.yaml plus a sibling registry index

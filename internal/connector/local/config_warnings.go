@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 // ProcessConfigWarnings uses the typed contracts' YAML field names. Dynamic

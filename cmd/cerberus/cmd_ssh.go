@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/app"
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/app"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/spf13/cobra"
 )
 

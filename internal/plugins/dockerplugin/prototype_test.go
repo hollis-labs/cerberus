@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	plugin "github.com/chrispian/cerberus/pkg/plugin"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
 func TestPluginYAMLValidates(t *testing.T) {

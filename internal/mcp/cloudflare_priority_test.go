@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/connector"
-	cf "github.com/chrispian/cerberus/internal/connector/cloudflare"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/connector"
+	cf "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 )
 
 type priorityBackend struct {

@@ -175,7 +175,7 @@ the `Execute` dispatch switch.
 ## WP-2 — Promote the plugin authoring contract to `pkg/plugin` — DONE 2026-09-16
 
 **Why this blocks everything plugin-shaped:** `internal/plugins/dockerplugin`
-imports `github.com/chrispian/cerberus/internal/pluginhost`. An external module
+imports `github.com/hollis-labs/cerberus/internal/pluginhost`. An external module
 cannot import `internal/`, so **a plugin in `hollis-labs/cerberus-plugins` will
 not compile today.**
 
@@ -196,101 +196,11 @@ everything else on the host side.
 `pkg/connector` already carries `Manifest` and `ManifestFromDefinition`, so the
 contract half is done — this is the remaining gap.
 
-**Known constraint — do not try to solve this, just work around it.** The module
-path in `go.mod` is `github.com/chrispian/cerberus`, the remote is
-`hollis-labs/cerberus`, and the declared path does not resolve publicly:
-
-```
-$ go list -m github.com/chrispian/cerberus@latest
-ERROR: Repository not found.
-```
-
-So an external module cannot `go get` these packages. For the acceptance test
-below, use a `replace` directive pointing at the local checkout. Whether to
-rename the module path, publish at the declared path, or keep `replace`
-directives in the plugin repo is an owner decision that is **out of scope for
-this package** — flag it, do not change `go.mod`'s module line.
-
-**Acceptance — met:**
-
-- `pkg/plugin` holds `ToolNameForOperation`, `OperationFromToolName`,
-  `PluginYAML`, `Entrypoint`, `CerberusPluginBlock`, `PluginYAMLFromManifest`
-  and `PluginYAMLFilename`. `go list -deps ./pkg/...` names no `internal/`
-  package, which is what makes the surface reachable from outside the module.
-- `internal/pluginhost` keeps every one of those names as a type alias or a
-  thin wrapper, so host code and the host tests are unchanged. `Manager`,
-  `DirectoryInstaller`, `TrustPolicy`, `SubprocessLauncher`,
-  `StdioTransportFactory` and the `SDK*` protocol types stayed put.
-- An out-of-tree module importing only `pkg/connector`, `pkg/resource`,
-  `pkg/plugin` and `plugin-sdk/subprocess` compiles a plugin that serves
-  `cerberus_scratch_ping` and emits a valid `plugin.yaml`. Adding an
-  `internal/pluginhost` import to that same module still fails with *use of
-  internal package github.com/chrispian/cerberus/internal/pluginhost not
-  allowed* — the boundary is compiler-enforced, not a convention.
-- `internal/plugins/dockerplugin` imports `pkg/plugin` instead of
-  `internal/pluginhost`, and the generated prototype still installs, loads and
-  serves `list_containers` through `cerberus connectors plugin exec`.
-
-**The `go.mod` that worked**, for the plugin repo to copy — `go mod tidy`
-resolves it and `go build ./...` succeeds:
-
-```
-module example.com/wp2-extplugin
-
-go 1.26.3
-
-require (
-	github.com/chrispian/cerberus v0.0.0
-	github.com/hollis-labs/plugin-sdk v0.4.0
-)
-
-replace github.com/chrispian/cerberus => /Users/cburks/Projects-apps/cerberus
-```
-
-The `v0.0.0` is a placeholder the `replace` satisfies; nothing fetches it. The
-resulting `go.sum` carries only the two `plugin-sdk` lines, because a replaced
-local directory needs no checksum. **The module-path question is still open** —
-this shape works for a plugin developed beside a checkout, but
-`hollis-labs/cerberus-plugins` CI will need either a published module path or a
-committed `replace`, and that is still an owner decision.
-
-**Did not:** move the trust policy or the subprocess launcher. Those are host
-decisions and must not be something a plugin can influence.
-
----
-
-## WP-3 — Remote Docker over SSH *(core connector)*
-
-**Why:** the same Docker operations should target a remote daemon, so one
-implementation serves both the Azure box and muctlvaig. No new connector, no new
-SDK.
-
-**Do:** add host selection to the Docker connector — `DOCKER_HOST` (including
-`ssh://user@host`) and/or `docker context`, configurable per operation rather
-than per process, so one daemon can talk to several hosts.
-
-**Design notes:**
-- The CLI backend shells out to `docker`, which already understands
-  `DOCKER_HOST=ssh://`. Setting it on the `exec.Cmd` environment is likely the
-  whole feature. Confirm before building anything larger.
-- `DetectDocker()` and `CERBERUS_DOCKER_PATH` already landed; do not re-litigate
-  binary discovery.
-- Surface the target host in errors. "connection refused" with no host named is
-  the failure mode to avoid.
-
-**Known constraint — verify, do not assume:** `cburks` is not in the `docker`
-group on muctlvaig. Confirmed 2026-09-16:
-
-```
-$ cerberus ssh exec muctlvaig --ack -- 'id; docker ps'
-uid=12989(cburks) gid=11000(hsv-all) groups=11000(hsv-all),20922(muctlvaig)
-permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
-```
-
-So **muctlvaig cannot be the happy-path test.** Use Docker Desktop locally over
-`ssh://localhost` if key auth to localhost is available, or document what could
-not be verified and why. A clear "blocked, here is the evidence" beats a test
-that quietly proves nothing.
+**Module path — RESOLVED 2026-09-16.** The module was renamed from
+`github.com/chrispian/cerberus` to `github.com/hollis-labs/cerberus` to match
+the remote. `GOPRIVATE=github.com/hollis-labs/*` is already set, so a module
+with repository access resolves it directly and **no `replace` directive is
+needed**.
 
 **Acceptance:** an operation runs against a non-default Docker host and the
 result is demonstrably from that host. Permission failures name the host and
@@ -398,32 +308,28 @@ connection on 14444 means the former.
 `cerberus connectors plugin managed install <dir>` with no trust flags, which
 records `trust_tier: unsigned`.
 
-### The `go.mod` an external plugin needs — verified 2026-09-16
-
-The module path does not resolve publicly (see WP-2), so a plugin module needs a
-`replace`. This exact shape was compiled and run against `pkg/plugin`:
+### The `go.mod` an external plugin needs
 
 ```
-module example.com/cerberus-plugin-<name>
+module github.com/hollis-labs/cerberus-plugins/<name>
 
 go 1.26.3
 
 require (
-	github.com/chrispian/cerberus v0.0.0
+	github.com/hollis-labs/cerberus v0.0.0-...
 	github.com/hollis-labs/plugin-sdk v0.4.0
 )
-
-replace github.com/chrispian/cerberus => /path/to/cerberus
 ```
+
+No `replace` directive: the module path now matches the remote and
+`GOPRIVATE=github.com/hollis-labs/*` covers it, so `go get` works for anyone
+with repository access. A plugin developed beside a local checkout can still add
+a `replace` for convenience; CI does not need one.
 
 A plugin imports `pkg/connector`, `pkg/resource`, `pkg/plugin` and
 `plugin-sdk/subprocess` — and nothing else from Cerberus. If a plugin needs
 something from `internal/`, that is a signal the authoring contract is missing a
 piece, not that the plugin should reach in.
-
-The `replace` pointing at a local checkout is a stopgap. Settling it properly —
-renaming the module to match the remote, or publishing at the declared path — is
-an owner decision still open.
 
 **Acceptance:** the plugin installs unsigned, loads, and
 `cerberus connectors plugin managed exec contextforge list_gateways` returns the

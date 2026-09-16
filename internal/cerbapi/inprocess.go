@@ -5,9 +5,9 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/chrispian/cerberus/internal/config"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/config"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // InProcessClient satisfies Client by driving the daemon's shared runtime

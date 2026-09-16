@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func TestMCPRequestFromOperation(t *testing.T) {

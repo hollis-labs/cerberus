@@ -3,7 +3,7 @@ package pluginhost
 import (
 	"context"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Host is the narrow boundary Cerberus will adapt to plugin-sdk subprocesses.

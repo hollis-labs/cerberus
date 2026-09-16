@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func mustNew(t *testing.T, client cerbapi.Client) *Server {

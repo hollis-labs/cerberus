@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Client is the abstract interface every caller uses to drive Cerberus

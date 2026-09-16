@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chrispian/cerberus/internal/config"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/daemon"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/config"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/daemon"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // ProtectServingDaemon marks the process that is about to serve this runtime.

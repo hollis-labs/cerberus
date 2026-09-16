@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 func TestResourceMonitorRemovedResourceGetsFreshRetryBudget(t *testing.T) {

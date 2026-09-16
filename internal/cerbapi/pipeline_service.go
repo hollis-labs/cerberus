@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/pipeline"
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/pipeline"
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 // ListPipelines lists definitions from the current shared config.

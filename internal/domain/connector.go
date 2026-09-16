@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/chrispian/cerberus/pkg/connector"
+import "github.com/hollis-labs/cerberus/pkg/connector"
 
 // Connector manages resources of a specific type via a specific provider.
 // The local connector wraps OS process management; the DigitalOcean connector

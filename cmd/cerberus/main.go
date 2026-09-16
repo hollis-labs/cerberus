@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chrispian/cerberus/internal/app"
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/redact"
-	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/app"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
 

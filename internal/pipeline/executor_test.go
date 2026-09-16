@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 

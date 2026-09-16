@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 type runtimeBackend interface {

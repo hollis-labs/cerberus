@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // BuildLogPath returns the build-log path for a resource:

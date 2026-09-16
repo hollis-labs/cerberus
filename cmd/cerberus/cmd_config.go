@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chrispian/cerberus/internal/configops"
-	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/configops"
+	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
 

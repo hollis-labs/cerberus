@@ -9,10 +9,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/app"
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/plugins/dockerplugin"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/app"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/plugins/dockerplugin"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/spf13/cobra"
 )
 

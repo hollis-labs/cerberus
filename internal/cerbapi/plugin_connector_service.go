@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 

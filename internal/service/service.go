@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 type Status int

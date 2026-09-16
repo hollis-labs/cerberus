@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 const propsProjectConfig = `kind: cerberus-project/v1

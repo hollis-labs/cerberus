@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Registry holds all registered connectors, keyed by their ID.

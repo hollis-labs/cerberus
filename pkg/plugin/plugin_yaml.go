@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // PluginYAMLFilename is the metadata file every plugin directory carries.

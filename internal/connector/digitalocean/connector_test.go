@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	"github.com/chrispian/cerberus/pkg/resource"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/resource"
 	"github.com/digitalocean/godo"
 )
 

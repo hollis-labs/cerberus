@@ -3,7 +3,7 @@ package plugin
 import (
 	"testing"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func TestToolNameForOperation(t *testing.T) {

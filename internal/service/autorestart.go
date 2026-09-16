@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/pausectl"
+	"github.com/hollis-labs/cerberus/internal/pausectl"
 )
 
 // RestartStats holds the current state of a restart policy for display.

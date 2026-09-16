@@ -3,13 +3,13 @@ package cerbapi
 import (
 	"encoding/json"
 
-	cf "github.com/chrispian/cerberus/internal/connector/cloudflare"
-	do "github.com/chrispian/cerberus/internal/connector/digitalocean"
-	docker "github.com/chrispian/cerberus/internal/connector/docker"
-	forge "github.com/chrispian/cerberus/internal/connector/forge"
-	gh "github.com/chrispian/cerberus/internal/connector/github"
-	nc "github.com/chrispian/cerberus/internal/connector/namecheap"
-	ssh "github.com/chrispian/cerberus/internal/connector/ssh"
+	cf "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
+	do "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
+	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
+	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
+	gh "github.com/hollis-labs/cerberus/internal/connector/github"
+	nc "github.com/hollis-labs/cerberus/internal/connector/namecheap"
+	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
 )
 
 // decodeConnectorPayload restores the service's DTOs across JSON transport.

@@ -16,11 +16,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	secretpkg "github.com/chrispian/cerberus/pkg/secret"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	secretpkg "github.com/hollis-labs/cerberus/pkg/secret"
 	gowebui "github.com/hollis-labs/go-webui"
 )
 

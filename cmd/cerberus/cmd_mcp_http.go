@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/service"
 	httptransport "github.com/hollis-labs/go-mcp/transport/http"
 	"github.com/spf13/cobra"
 )

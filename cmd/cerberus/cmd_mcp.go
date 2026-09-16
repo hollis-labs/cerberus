@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/mcp"
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/mcp"
+	"github.com/hollis-labs/cerberus/internal/service"
 	"github.com/spf13/cobra"
 )
 

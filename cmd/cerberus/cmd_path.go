@@ -7,7 +7,7 @@ import (
 	"github.com/hollis-labs/go-apppaths/paths"
 	"github.com/spf13/cobra"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // pathCommand prints Cerberus's resolved on-disk layout — the go-apppaths XDG

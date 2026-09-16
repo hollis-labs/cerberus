@@ -5,8 +5,8 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	cfconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	"github.com/spf13/cobra"
 )
 

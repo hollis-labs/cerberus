@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 type fakeCommandRunner struct {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/secretref"
-	"github.com/chrispian/cerberus/pkg/secret"
+	"github.com/hollis-labs/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 type referenceTestProvider struct {

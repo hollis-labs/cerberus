@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/pausectl"
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/pausectl"
+	"github.com/hollis-labs/cerberus/internal/service"
 )
 
 func TestResourceStartupOrderRespectsDependenciesAndReportsCycles(t *testing.T) {
