@@ -83,6 +83,13 @@ the host derives tool names, so a plugin does not touch any of the five.
 - **Never log or return a secret value.** Follow the `probe-*` convention from
   `~/Projects/tools`: environment variable *names*, never values. Error paths go
   through `redact.Text`.
+- **Return a Cerberus DTO, never a vendor SDK type** — see
+  `docs/adr/0003-connector-response-dtos.md`. The DTO is an allow-list, so a
+  vendor adding a credential field in a minor release cannot silently widen our
+  output. This is not theoretical: `go-contextforge`'s `Gateway` carries
+  `AuthToken`, `AuthPassword` and `OAuthConfig`, and the natural implementation
+  of `list_gateways` would have emitted them into CLI output, MCP results and
+  agent context.
 - **Credentials come from the secret provider**, never a config field. See
   `docs/secrets.md`; copy how `digitalocean.New` does it.
 - **Put the vendor SDK behind a `Backend` interface** in the connector package,
@@ -346,6 +353,9 @@ A `list_gateways` that marshals the SDK struct straight out **will leak upstream
 auth tokens** into CLI output, MCP tool results and agent context. This is the
 single most likely way this package causes real harm.
 
+This is the case that produced `docs/adr/0003-connector-response-dtos.md`; read
+it before writing the first operation.
+
 So: **define our own response DTOs; never return the SDK type directly.** For a
 gateway, return id, name, URL, transport, enabled, reachable, and `auth_type`
 only — the *kind* of auth configured, never the value. That matches the
@@ -387,6 +397,33 @@ connection on 14444 means the former.
 **Install:** unsigned local is now the supported path —
 `cerberus connectors plugin managed install <dir>` with no trust flags, which
 records `trust_tier: unsigned`.
+
+### The `go.mod` an external plugin needs — verified 2026-09-16
+
+The module path does not resolve publicly (see WP-2), so a plugin module needs a
+`replace`. This exact shape was compiled and run against `pkg/plugin`:
+
+```
+module example.com/cerberus-plugin-<name>
+
+go 1.26.3
+
+require (
+	github.com/chrispian/cerberus v0.0.0
+	github.com/hollis-labs/plugin-sdk v0.4.0
+)
+
+replace github.com/chrispian/cerberus => /path/to/cerberus
+```
+
+A plugin imports `pkg/connector`, `pkg/resource`, `pkg/plugin` and
+`plugin-sdk/subprocess` — and nothing else from Cerberus. If a plugin needs
+something from `internal/`, that is a signal the authoring contract is missing a
+piece, not that the plugin should reach in.
+
+The `replace` pointing at a local checkout is a stopgap. Settling it properly —
+renaming the module to match the remote, or publishing at the declared path — is
+an owner decision still open.
 
 **Acceptance:** the plugin installs unsigned, loads, and
 `cerberus connectors plugin managed exec contextforge list_gateways` returns the
