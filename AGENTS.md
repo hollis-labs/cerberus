@@ -93,6 +93,23 @@ Note the trap: a `type: container` resource currently passes `cerberus validate`
 and then fails on every runtime operation, because validation only checks that
 `type` and `connector` are non-empty.
 
+## Core or plugin
+
+Cerberus ships as a single installed binary. Compiled in: `local`, `ssh`,
+`docker` — the primitives the control plane is built on, none of which carries a
+vendor SDK — plus `github`, which does carry one but earns its place because
+Cerberus's own release and pipeline story leans on it. Everything else that
+talks to a provider is a plugin: optional per user, its own release schedule,
+loaded at runtime without rebuilding the host.
+
+Our plugins live in `hollis-labs/cerberus-plugins`; third-party plugins are
+standalone repos. `cloudflare`, `digitalocean`, `forge` and `namecheap` are
+compiled in today and will migrate later — do not add a fifth.
+
+**A new provider integration is a plugin, not a built-in.** If you are about to
+add a vendor SDK to `go.mod` for a connector, that is the signal you are in the
+wrong lane. See `docs/plans/connector-work-packages.md`.
+
 ## Boundaries
 
 **Never set `port: 0`.** `lsof -ti :0` returns arbitrary system PIDs, read as a

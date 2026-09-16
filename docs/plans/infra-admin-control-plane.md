@@ -138,6 +138,24 @@ so a generated client is the fallback. Do not hand-roll one.
 CF is only reachable through the tunnel at `127.0.0.1:14444`, or on the box, so
 the connector needs a configurable base URL and depends on the tunnel being up.
 
+## Core or plugin
+
+Cerberus ships as a single installed binary. What is in that binary is the
+primitives the control plane is built on — `local`, `ssh`, `docker`, `github`.
+Provider integrations that are optional per user, carry a vendor SDK, and ship
+on someone else's schedule are plugins: `cloudflare`, `digitalocean`, `forge`,
+`namecheap`, and the new ContextForge and Azure connectors.
+
+Our plugins live in `hollis-labs/cerberus-plugins`, one directory each. Third-
+party plugins are standalone repos. The full table, the migration order, and why
+the four existing provider connectors stay compiled for now are in
+`docs/plans/connector-work-packages.md`.
+
+The plugin lane is real and working — install, load, execute and uninstall were
+verified end to end against the generated Docker plugin prototype on
+2026-09-16 — but writing a plugin outside this repo is blocked until the
+authoring contract moves out of `internal/pluginhost` (WP-2).
+
 ## Current verb inventory
 
 | Connector | Operations |
