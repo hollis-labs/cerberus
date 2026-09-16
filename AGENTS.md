@@ -44,6 +44,8 @@ Destructive connector operations require explicit operator acknowledgment
   administration. Read this before adding connector capability.
 - `docs/adr/0002-resource-only-local-workload-model.md` — why v2 is the only
   model, and what "frozen" means for `services:`.
+- `docs/adr/0003-connector-response-dtos.md` — why a connector operation returns
+  a Cerberus DTO and never a vendor SDK type. Read before writing one.
 - `internal/cerbapi/resource_runtime_service.go` — the shared runtime service
   for supervised local workloads. Behavior changes belong here, not in a caller.
 - `internal/cerbapi/external_connector_service.go` — the imperative admin lane:
@@ -52,6 +54,9 @@ Destructive connector operations require explicit operator acknowledgment
 - `internal/domain/connector.go` — the interface every provider implements.
 - `internal/connector/local/` — `dev_session.go` and `launchd.go` are the two
   runtime modes, `artifact.go` owns the build→install join.
+- `pkg/plugin/` — the public plugin authoring contract: `plugin.yaml` and MCP
+  tool naming. A plugin outside this repo imports this, `pkg/connector` and
+  `pkg/resource`; the host half stays in `internal/pluginhost`.
 - `internal/registry/` — discovery and validation of per-repo `*.cerberus.yaml`.
 - `docs/secrets.md` — how a resource names a credential without carrying one.
 - `~/Projects/tools` — ~70 shell scripts that already administer the work host,

@@ -1,4 +1,4 @@
-package pluginhost
+package plugin
 
 import (
 	"strings"
@@ -62,5 +62,18 @@ func TestPluginYAMLRejectsInvalidConnectorManifest(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "connector manifest") {
 		t.Fatalf("error = %v, want connector manifest", err)
+	}
+}
+
+func validManifest() contract.Manifest {
+	return contract.Manifest{
+		APIVersion:    contract.ManifestAPIVersion,
+		Kind:          "Connector",
+		ID:            "docker",
+		Version:       "dev",
+		ResourceTypes: []string{"container"},
+		Operations: []contract.ManifestOperation{
+			{Name: "status", InputSchema: contract.ObjectSchema(map[string]any{})},
+		},
 	}
 }

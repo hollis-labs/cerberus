@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	contract "github.com/chrispian/cerberus/pkg/connector"
+	plugin "github.com/chrispian/cerberus/pkg/plugin"
 )
 
 const (
@@ -66,18 +67,18 @@ type SDKMCPCallResult struct {
 }
 
 // ToolNameForOperation creates the plugin-sdk MCP tool name Cerberus uses to
-// route a connector operation through a subprocess plugin.
+// route a connector operation through a subprocess plugin. Naming is part of
+// the public authoring contract — a plugin serves the names the host routes
+// against — so it lives in pkg/plugin, reachable from an external plugin
+// module. The SDK* protocol types above stay host-side.
 func ToolNameForOperation(connectorID, operation string) string {
-	return "cerberus_" + connectorID + "_" + operation
+	return plugin.ToolNameForOperation(connectorID, operation)
 }
 
+// OperationFromToolName resolves an MCP tool name back to the manifest
+// operation it was derived from.
 func OperationFromToolName(connectorID, toolName string, manifest contract.Manifest) (contract.ManifestOperation, bool) {
-	for _, op := range manifest.Operations {
-		if toolName == ToolNameForOperation(connectorID, op.Name) {
-			return op, true
-		}
-	}
-	return contract.ManifestOperation{}, false
+	return plugin.OperationFromToolName(connectorID, toolName, manifest)
 }
 
 func MCPRequestFromOperation(args OperationArgs) SDKMCPCallRequest {

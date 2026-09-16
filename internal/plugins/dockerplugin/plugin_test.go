@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	"github.com/chrispian/cerberus/internal/pluginhost"
+	plugin "github.com/chrispian/cerberus/pkg/plugin"
 	"github.com/hollis-labs/plugin-sdk/subprocess"
 )
 
@@ -59,13 +59,13 @@ func (f *fakeBackend) ComposePS(context.Context, string) (*dockerconn.ComposeSta
 }
 
 func TestPluginMCPLogs(t *testing.T) {
-	plugin := NewWithConnector(dockerconn.NewWithBackend(&fakeBackend{logs: "hello"}))
-	if _, err := plugin.Load(context.Background()); err != nil {
+	p := NewWithConnector(dockerconn.NewWithBackend(&fakeBackend{logs: "hello"}))
+	if _, err := p.Load(context.Background()); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	result, err := plugin.MCPCallTool(context.Background(), subprocess.MCPCallRequest{
-		ToolName:  pluginhost.ToolNameForOperation("docker", "logs"),
+	result, err := p.MCPCallTool(context.Background(), subprocess.MCPCallRequest{
+		ToolName:  plugin.ToolNameForOperation("docker", "logs"),
 		Arguments: map[string]interface{}{"container": "web", "lines": float64(10)},
 	})
 	if err != nil {
@@ -83,13 +83,13 @@ func TestPluginMCPLogs(t *testing.T) {
 
 func TestPluginMCPStartCompose(t *testing.T) {
 	backend := &fakeBackend{}
-	plugin := NewWithConnector(dockerconn.NewWithBackend(backend))
-	if _, err := plugin.Load(context.Background()); err != nil {
+	p := NewWithConnector(dockerconn.NewWithBackend(backend))
+	if _, err := p.Load(context.Background()); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if _, err := plugin.MCPCallTool(context.Background(), subprocess.MCPCallRequest{
-		ToolName: pluginhost.ToolNameForOperation("docker", "start"),
+	if _, err := p.MCPCallTool(context.Background(), subprocess.MCPCallRequest{
+		ToolName: plugin.ToolNameForOperation("docker", "start"),
 		Arguments: map[string]interface{}{
 			"compose_file": "docker-compose.yml",
 		},
@@ -103,13 +103,13 @@ func TestPluginMCPStartCompose(t *testing.T) {
 
 func TestPluginMCPStatus(t *testing.T) {
 	backend := &fakeBackend{state: &dockerconn.Container{State: "running"}}
-	plugin := NewWithConnector(dockerconn.NewWithBackend(backend))
-	if _, err := plugin.Load(context.Background()); err != nil {
+	p := NewWithConnector(dockerconn.NewWithBackend(backend))
+	if _, err := p.Load(context.Background()); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	result, err := plugin.MCPCallTool(context.Background(), subprocess.MCPCallRequest{
-		ToolName:  pluginhost.ToolNameForOperation("docker", "status"),
+	result, err := p.MCPCallTool(context.Background(), subprocess.MCPCallRequest{
+		ToolName:  plugin.ToolNameForOperation("docker", "status"),
 		Arguments: map[string]interface{}{"container": "web"},
 	})
 	if err != nil {

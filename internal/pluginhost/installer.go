@@ -9,10 +9,13 @@ import (
 	"os"
 	"path/filepath"
 
+	plugin "github.com/chrispian/cerberus/pkg/plugin"
 	"gopkg.in/yaml.v3"
 )
 
-const PluginYAMLFilename = "plugin.yaml"
+// PluginYAMLFilename is defined in pkg/plugin so a plugin author can name the
+// file without importing internal/.
+const PluginYAMLFilename = plugin.PluginYAMLFilename
 
 // DirectoryInstaller installs plugins from a local directory by reading and
 // validating the Cerberus-owned plugin.yaml metadata before any subprocess is

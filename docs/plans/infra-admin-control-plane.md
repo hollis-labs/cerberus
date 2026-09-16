@@ -37,7 +37,7 @@ furniture an admin tool needs:
 
 A verb added here is a CLI command and an HTTP API operation at once. The MCP
 tool is **not** free for a built-in connector: plugin connectors get generated
-names via `pluginhost.ToolNameForOperation`, but the built-ins have hand-written
+names via `plugin.ToolNameForOperation`, but the built-ins have hand-written
 tools in `internal/mcp/tools_<connector>.go` that must also be registered in
 both `cmd_mcp.go` and `cmd_daemon.go`. Budget four touch points per verb —
 operation definition, service dispatch, CLI command, MCP tool — plus a
@@ -153,8 +153,11 @@ the four existing provider connectors stay compiled for now are in
 
 The plugin lane is real and working — install, load, execute and uninstall were
 verified end to end against the generated Docker plugin prototype on
-2026-09-16 — but writing a plugin outside this repo is blocked until the
-authoring contract moves out of `internal/pluginhost` (WP-2).
+2026-09-16 — and writing a plugin outside this repo is now possible: the
+authoring contract lives in `pkg/plugin` (WP-2, 2026-09-16). A plugin module
+imports `pkg/connector`, `pkg/resource`, `pkg/plugin` and
+`plugin-sdk/subprocess`; the host half — manager, installer, trust policy,
+subprocess launcher — stays in `internal/pluginhost` and stays unreachable.
 
 ## Current verb inventory
 

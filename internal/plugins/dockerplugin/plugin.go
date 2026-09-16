@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	"github.com/chrispian/cerberus/internal/pluginhost"
+	plugin "github.com/chrispian/cerberus/pkg/plugin"
 	"github.com/chrispian/cerberus/pkg/resource"
 	"github.com/hollis-labs/plugin-sdk/subprocess"
 )
@@ -74,26 +74,26 @@ func (p *Plugin) MCPCallTool(ctx context.Context, req subprocess.MCPCallRequest)
 	}
 
 	switch req.ToolName {
-	case pluginhost.ToolNameForOperation("docker", "list_containers"):
+	case plugin.ToolNameForOperation("docker", "list_containers"):
 		containers, err := p.connector.ListContainers(ctx)
 		return marshalResult(containers, err)
-	case pluginhost.ToolNameForOperation("docker", "logs"):
+	case plugin.ToolNameForOperation("docker", "logs"):
 		name, err := requiredString(req.Arguments, "container")
 		if err != nil {
 			return subprocess.MCPCallResult{}, err
 		}
 		logs, err := p.connector.Logs(ctx, name, intArg(req.Arguments, "lines", 50))
 		return marshalResult(logs, err)
-	case pluginhost.ToolNameForOperation("docker", "start"):
+	case plugin.ToolNameForOperation("docker", "start"):
 		err := p.connector.Start(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(nil, err)
-	case pluginhost.ToolNameForOperation("docker", "stop"):
+	case plugin.ToolNameForOperation("docker", "stop"):
 		err := p.connector.Stop(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(nil, err)
-	case pluginhost.ToolNameForOperation("docker", "destroy"):
+	case plugin.ToolNameForOperation("docker", "destroy"):
 		err := p.connector.Destroy(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(nil, err)
-	case pluginhost.ToolNameForOperation("docker", "status"):
+	case plugin.ToolNameForOperation("docker", "status"):
 		state, err := p.connector.Status(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(state, err)
 	default:

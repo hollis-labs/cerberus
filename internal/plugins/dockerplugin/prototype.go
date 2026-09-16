@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	"github.com/chrispian/cerberus/internal/pluginhost"
 	contract "github.com/chrispian/cerberus/pkg/connector"
+	plugin "github.com/chrispian/cerberus/pkg/plugin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,8 +17,8 @@ func Manifest() contract.Manifest {
 	return contract.ManifestFromDefinition(dockerconn.Definition())
 }
 
-func PluginYAML() pluginhost.PluginYAML {
-	return pluginhost.PluginYAMLFromManifest(Manifest(), pluginhost.Entrypoint{
+func PluginYAML() plugin.PluginYAML {
+	return plugin.PluginYAMLFromManifest(Manifest(), plugin.Entrypoint{
 		Command: filepath.ToSlash(filepath.Join("bin", BinaryName)),
 	})
 }
@@ -36,7 +36,7 @@ func WritePrototype(dir string) error {
 	if err != nil {
 		return fmt.Errorf("marshal plugin.yaml: %w", err)
 	}
-	path := filepath.Join(dir, pluginhost.PluginYAMLFilename)
+	path := filepath.Join(dir, plugin.PluginYAMLFilename)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("write plugin.yaml: %w", err)
 	}
