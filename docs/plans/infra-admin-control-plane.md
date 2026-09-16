@@ -76,7 +76,7 @@ What it establishes, and what it maps to:
 | `tools/` behaviour | Becomes |
 |---|---|
 | `rsh` — run a command on the host | `ssh.exec` (exists) |
-| `rput` / `scp` — push a file | `ssh.put` — **missing, highest value** |
+| `rput` / `scp` — push a file | `ssh.put` (done) |
 | `rsudo` — run as root, needs a tty | `ssh.exec` with elevation — missing |
 | `ssh_open` ControlMaster multiplexing | Native: one `*ssh.Client`, many sessions |
 | `docker load` / `docker ps` on the host | Remote docker via `DOCKER_HOST` |
@@ -147,10 +147,14 @@ the connector needs a configurable base URL and depends on the tunnel being up.
 | forge | servers, sites, deploy_site, exec_site_command, deployment script get/update |
 | github | status, releases, workflow runs |
 | namecheap | domain list/status, DNS |
-| ssh | status, exec, stop |
-| docker | ps, logs, start, stop, destroy — **currently broken, see below** |
+| ssh | status, exec, **put**, **get**, stop |
+| docker | ps, logs, start, stop, destroy |
 
-Gaps: no file transfer anywhere, no remote docker, no ContextForge, no Azure.
+Gaps: no remote docker, no ContextForge, no Azure, no recursive transfer, no
+privilege elevation.
+
+Work is broken into agent-sized packages in
+`docs/plans/connector-work-packages.md`.
 
 ## Work items
 
@@ -315,39 +319,25 @@ interactive session, and the `ControlPersist` sftp master that `tools/` opens.
 
 ## Open Questions
 
-### Team impact of the Docker connector change — needs team alignment
+### ~~Team impact of the Docker connector change~~ — RESOLVED 2026-09-16
 
-**The code changes require no action from anyone.** No config schema change, no
-migration, no new secret, no CLI flag change. The fallback-path change is
-strictly more permissive, and `RegisterFactory` only changes *when* resolution
-happens.
+Decided and approved by the owner: ship it. Cerberus has no users outside this
+machine yet — it is being prepared to share, not already shared — so there is no
+installed base to coordinate with and no scripts in the wild to break. Landing a
+semantic change *before* anyone depends on it is the cheapest moment to do it.
 
-Three observable differences to announce:
+Recorded because the behaviour is non-obvious, not because it still needs a
+decision:
 
-1. **`connectors list` `"live"` changes meaning for *every* connector, not just
-   docker.** It used to mean "registered" and was computed in the CLI's own
-   process; it now means "the daemon can construct this right now". On a machine
-   with no connector credentials configured, five connectors flip from `yes` to
-   `no`:
+- **`connectors list` `"live"` means "constructible right now", not
+  "registered".** Connectors with no credentials configured correctly report
+  `no`. User-facing docs should say "usable now", never "installed".
+- **Connector errors surface per call rather than at daemon startup**, so a
+  connector that becomes available later works without a daemon restart.
 
-   ```
-   cloudflare no · digitalocean no · forge no · github no · namecheap no
-   docker yes · ssh yes
-   ```
-
-   Those `no`s are correct — `cerberus server list` fails with
-   `credential_missing` — but anyone reading `yes` as "installed" will see this
-   as a regression. This is the change most likely to generate a question.
-2. **Connector errors move from daemon startup to per-call.** Tooling that
-   greps daemon startup logs for connector availability loses that signal.
-3. **Whether a teammate has this bug at all is environment-dependent.** A
-   daemon started from a shell inherits a full PATH and Docker works fine; only
-   a launchd-started daemon gets the minimal PATH. So "the Docker connector is
-   broken" will read as false to anyone running it from a terminal. Say this
-   explicitly or the report will be dismissed.
-
-**Action:** confirm nobody is parsing `connectors list --json` `"live"` in
-CI or scripts before shipping.
+General principle worth keeping while the app is pre-share: prefer the correct
+semantic now over a compatible one, and spend the freedom deliberately before it
+expires.
 
 ### Should `cburks` be added to the `docker` group on muctlvaig?
 
