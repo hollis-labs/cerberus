@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	sftpsync "github.com/hollis-labs/go-sftpsync"
 	"github.com/pkg/sftp"
 )
 
@@ -150,3 +151,64 @@ func copyWithContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, 
 type readerFunc func(p []byte) (int, error)
 
 func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
+
+// PutDir recursively uploads a local directory tree.
+//
+// The walk, the escape check, the temp-and-rename per file and the
+// between-files cancellation all live in go-sftpsync; this is the binding.
+// Recursion is not reimplemented here on purpose — see WP-9 in
+// docs/plans/connector-work-packages.md for why that library exists.
+func (a *APIBackend) PutDir(ctx context.Context, localDir, remoteDir string) (*DirTransferResult, error) {
+	client, err := a.sftpSession()
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close() //nolint:errcheck
+
+	res, err := sftpsync.Upload(ctx, client, localDir, remoteDir)
+	if err != nil {
+		return nil, dirTransferError("upload", localDir, remoteDir, res, err)
+	}
+	return dirTransferResultFrom(res, localDir, remoteDir), nil
+}
+
+// GetDir recursively downloads a remote directory tree. It is the same walk as
+// PutDir with the ends exchanged, including the refusal to follow a symlink
+// out of the tree — a download is where "it is only reading" quietly becomes
+// "it wrote outside the destination".
+func (a *APIBackend) GetDir(ctx context.Context, remoteDir, localDir string) (*DirTransferResult, error) {
+	client, err := a.sftpSession()
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close() //nolint:errcheck
+
+	res, err := sftpsync.Download(ctx, client, remoteDir, localDir)
+	if err != nil {
+		return nil, dirTransferError("download", localDir, remoteDir, res, err)
+	}
+	return dirTransferResultFrom(res, localDir, remoteDir), nil
+}
+
+// dirTransferError folds how far the transfer got into the message.
+//
+// go-sftpsync returns a partial result alongside its error, but the connector
+// service drops the result whenever the error is non-nil, so an operator would
+// otherwise be told only that it failed. "Nothing moved" and "half the tree
+// moved" are different situations to recover from, and a failed sync is
+// exactly when that difference matters.
+func dirTransferError(direction, localDir, remoteDir string, res *sftpsync.Result, err error) error {
+	prefix := fmt.Sprintf("ssh %s %s <-> %s", direction, localDir, remoteDir)
+	if res == nil {
+		return fmt.Errorf("%s: %w", prefix, err)
+	}
+	if errors.Is(err, sftpsync.ErrSymlinkEscape) {
+		// Named rather than left to read as an I/O failure: an escape is a
+		// property of the tree, so retrying will not fix it and the operator
+		// has to decide what to do about the link.
+		return fmt.Errorf("%s: refused after %d files, %d dirs, %d bytes: %w",
+			prefix, res.Files, res.Dirs, res.Bytes, err)
+	}
+	return fmt.Errorf("%s: stopped after %d files, %d dirs, %d bytes: %w",
+		prefix, res.Files, res.Dirs, res.Bytes, err)
+}

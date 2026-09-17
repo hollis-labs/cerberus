@@ -236,11 +236,13 @@ func (b *fakeForgeBackend) ExecuteSiteCommand(_ context.Context, serverID, siteI
 }
 
 type fakeSSHBackend struct {
-	command    string
-	localPath  string
-	remotePath string
-	putCalls   int
-	getCalls   int
+	command     string
+	localPath   string
+	remotePath  string
+	putCalls    int
+	getCalls    int
+	putDirCalls int
+	getDirCalls int
 }
 
 func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _ string, _ sshconn.HostKeyConfig) error {
@@ -262,6 +264,18 @@ func (b *fakeSSHBackend) Get(_ context.Context, remotePath, localPath string) (i
 	b.getCalls++
 	b.localPath, b.remotePath = localPath, remotePath
 	return 7, nil
+}
+
+func (b *fakeSSHBackend) PutDir(_ context.Context, localDir, remoteDir string) (*sshconn.DirTransferResult, error) {
+	b.putDirCalls++
+	b.localPath, b.remotePath = localDir, remoteDir
+	return &sshconn.DirTransferResult{Direction: "upload", LocalPath: localDir, RemotePath: remoteDir, Files: 2, Dirs: 1, Bytes: 42}, nil
+}
+
+func (b *fakeSSHBackend) GetDir(_ context.Context, remoteDir, localDir string) (*sshconn.DirTransferResult, error) {
+	b.getDirCalls++
+	b.localPath, b.remotePath = localDir, remoteDir
+	return &sshconn.DirTransferResult{Direction: "download", LocalPath: localDir, RemotePath: remoteDir, Files: 3, Dirs: 2, Bytes: 7}, nil
 }
 
 func (b *fakeSSHBackend) Ping(_ context.Context) error {
@@ -761,6 +775,131 @@ func TestExternalConnectorServiceSSHGetNeedsNoAcknowledgment(t *testing.T) {
 	}
 }
 
+func TestExternalConnectorServiceExecutesSSHPutDir(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector:    "ssh",
+		Operation:    "put_dir",
+		Acknowledged: true,
+		Config: sshTransferConfig(map[string]any{
+			"local_path":  "./deploy",
+			"remote_path": "/opt/app/deploy",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	transfer, ok := result.Data.(*sshconn.DirTransferResult)
+	if !ok {
+		t.Fatalf("Data = %#v, want ssh directory transfer result", result.Data)
+	}
+	if transfer.Files != 2 || transfer.Bytes != 42 {
+		t.Fatalf("transfer = %+v, want 2 files and 42 bytes", transfer)
+	}
+	if backend.putDirCalls != 1 || backend.getDirCalls != 0 {
+		t.Fatalf("put_dir=%d get_dir=%d, want 1 and 0", backend.putDirCalls, backend.getDirCalls)
+	}
+	if backend.localPath != "./deploy" || backend.remotePath != "/opt/app/deploy" {
+		t.Fatalf("backend paths = %q -> %q", backend.localPath, backend.remotePath)
+	}
+}
+
+// put_dir replaces a whole tree on a real host, so it is gated like put.
+func TestExternalConnectorServiceSSHPutDirRequiresAcknowledgment(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "put_dir",
+		Config: sshTransferConfig(map[string]any{
+			"local_path":  "./deploy",
+			"remote_path": "/opt/app/deploy",
+		}),
+	})
+	var connErr *ExternalConnectorError
+	if !errors.As(err, &connErr) {
+		t.Fatalf("err = %T, want ExternalConnectorError", err)
+	}
+	if connErr.Code != ExternalConnectorAckRequired {
+		t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorAckRequired)
+	}
+	if backend.putDirCalls != 0 {
+		t.Fatalf("put_dir ran %d times despite a missing acknowledgment", backend.putDirCalls)
+	}
+}
+
+// The trap this guards: without a dryRunPreview case, --dry-run falls through
+// to the acknowledgment gate and a preview demands --ack, which is the one
+// thing a preview exists to avoid.
+func TestExternalConnectorServiceSSHPutDirDryRunNeedsNoAcknowledgment(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "compose.yml"), []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, "conf"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "put_dir",
+		DryRun:    true,
+		Config: sshTransferConfig(map[string]any{
+			"local_path":  src,
+			"remote_path": "/opt/app/deploy",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	preview, ok := result.Data.(ExternalConnectorDryRunPreview)
+	if !ok {
+		t.Fatalf("Data = %T, want ExternalConnectorDryRunPreview", result.Data)
+	}
+	// File count and total bytes are what an operator decides on.
+	if preview.Input["files"] != 1 || preview.Input["dirs"] != 2 || preview.Input["bytes"] != int64(13) {
+		t.Fatalf("Input = %#v, want 1 file, 2 dirs, 13 bytes", preview.Input)
+	}
+	if preview.Target["remote_path"] != "/opt/app/deploy" {
+		t.Fatalf("Target = %#v", preview.Target)
+	}
+	if backend.putDirCalls != 0 {
+		t.Fatalf("a dry run transferred %d times", backend.putDirCalls)
+	}
+}
+
+// get_dir writes only to the local machine, under a path the operator named —
+// the same reason get needs no ack. Making a read prompt empties the gate.
+func TestExternalConnectorServiceSSHGetDirNeedsNoAcknowledgment(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "get_dir",
+		Config: sshTransferConfig(map[string]any{
+			"remote_path": "/opt/app/conf",
+			"local_path":  "./conf",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	transfer, ok := result.Data.(*sshconn.DirTransferResult)
+	if !ok || transfer.Files != 3 {
+		t.Fatalf("Data = %#v, want a directory transfer of 3 files", result.Data)
+	}
+	if backend.getDirCalls != 1 {
+		t.Fatalf("getDirCalls = %d, want 1", backend.getDirCalls)
+	}
+}
+
 func TestExternalConnectorServiceSSHTransferRequiresPaths(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -771,6 +910,10 @@ func TestExternalConnectorServiceSSHTransferRequiresPaths(t *testing.T) {
 		{"put without local_path", "put", map[string]any{"remote_path": "/opt/a"}},
 		{"get without local_path", "get", map[string]any{"remote_path": "/opt/a"}},
 		{"get without remote_path", "get", map[string]any{"local_path": "./a"}},
+		{"put_dir without remote_path", "put_dir", map[string]any{"local_path": "./a"}},
+		{"put_dir without local_path", "put_dir", map[string]any{"remote_path": "/opt/a"}},
+		{"get_dir without local_path", "get_dir", map[string]any{"remote_path": "/opt/a"}},
+		{"get_dir without remote_path", "get_dir", map[string]any{"local_path": "./a"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &fakeSSHBackend{}

@@ -56,6 +56,8 @@ func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {
 		{"namecheap", "set_custom_nameservers", &nc.DomainNameserverUpdate{Domain: "example.com", Updated: true}},
 		{"ssh", "exec", &ssh.ExecResult{Stdout: "hello\n", ExitCode: 7}},
 		{"ssh", "status", `{"state":"running"}`},
+		{"ssh", "put_dir", &ssh.DirTransferResult{Direction: "upload", LocalPath: "./deploy", RemotePath: "/opt/app/deploy", Files: 2, Dirs: 1, Bytes: 4096, DurationMS: 12, Entries: []ssh.DirTransferEntry{{Path: ".", Action: "dir", Mode: "-rwxr-xr-x"}, {Path: "run.sh", Action: "file", Mode: "-rwxr-xr-x", Size: 4096}}}},
+		{"ssh", "get_dir", &ssh.DirTransferResult{Direction: "download", LocalPath: "./conf", RemotePath: "/opt/app/conf", Files: 1, Dirs: 1, Symlinks: 1, Entries: []ssh.DirTransferEntry{{Path: "link", Action: "symlink", Target: "../conf.yml"}}}},
 		{"docker", "list_containers", []docker.Container(nil)},
 	} {
 		t.Run(tt.connector+"/"+tt.operation, func(t *testing.T) {

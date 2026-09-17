@@ -161,7 +161,8 @@ WP-2 pkg/plugin promotion  DONE ──► WP-4 ContextForge  DONE ──► WP-7
 WP-1 dry-run extraction    ──► WP-3 remote docker DONE ──► WP-6 docker resources DONE
                                (WP-1 was skipped, never blocking; still open)
 
-WP-8 ssh elevation         ──► WP-9 recursive transfer   completes the tools/ port
+WP-8 ssh elevation             still open ──┐
+WP-9 recursive transfer    DONE           ──┴─► completes the tools/ port
 WP-10 prove list_gateways      operator action; closes the ContextForge story
 
 Deferred Azure — cost reporting, Key Vault, Resource Graph. All three probed
@@ -1184,7 +1185,7 @@ containing a space arrives as one argument — test it, that is the regression
 
 ---
 
-## WP-9 — Recursive directory transfer
+## WP-9 — Recursive directory transfer — DONE 2026-09-17
 
 **Why:** `ssh put`/`get` move one file. A deploy moves a tree — `tools/`
 builds a tarball precisely because single-file transfer is not enough.
@@ -1260,6 +1261,36 @@ bytes, because that is what an operator needs to decide whether to proceed.
 **Acceptance:** a directory with nested subdirectories, an executable script and
 a symlink round-trips to muctlvaig and back byte-identical, modes intact, with
 the symlink not followed outside the tree. Clean up what the test writes.
+
+### What shipped
+
+`hollis-labs/go-sftpsync v0.1.1` carries the walk; Cerberus is the thin binding
+the brief called for. `ssh put_dir` and `ssh get_dir`, `cerberus ssh put-dir` /
+`get-dir`, `cerberus_ssh_put_dir` / `cerberus_ssh_get_dir`, all five touch
+points. Verified live against muctlvaig: the acceptance tree round-tripped
+byte-identical with 0755 and 0640 intact, the symlink arrived as a link, and a
+link added to `/etc/shadow` was refused with nothing written — then the probe
+directory was removed.
+
+Two decisions worth carrying:
+
+- **`get_dir` is not marked destructive**, mirroring `get`. It writes a tree
+  rather than one file, which points at the house rule, but it writes only to
+  the local machine under a path the operator typed. Marking it destructive
+  would also promise a `--dry-run` that cannot be built: previewing a download
+  means walking the *remote* tree, and `dryRunPreview` runs before the connector
+  is resolved, with no connection to walk it over.
+- **`put_dir`'s preview walks the tree a second time**, in
+  `sshconn.PreviewDirUpload`, for the same reason — the library's own dry-run
+  mode needs an `*sftp.Client` that does not exist yet at preview time. The
+  second walk mirrors the library's rules, and
+  `TestPreviewDirUploadMatchesLibraryDryRun` runs both against an in-process
+  `pkg/sftp` server and fails if the counts diverge. That test is the reason
+  this duplication is safe; do not delete it while the duplication stands.
+
+WP-1 would remove the need for both. Once per-connector previews are their own
+functions, a preview could take the connector and `get_dir` could gain a real
+one — worth revisiting there rather than here.
 
 ---
 

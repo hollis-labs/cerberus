@@ -38,6 +38,8 @@ github.com/hollis-labs/go-apppaths v0.1.0 h1:LJQv483BhOoizLL4qKwsLcCbM0lQoVrNvks
 github.com/hollis-labs/go-apppaths v0.1.0/go.mod h1:b3gOdAFgSYY9ZT7VUooAczFdb6o0C2xSGQa7ktcyw30=
 github.com/hollis-labs/go-mcp v0.2.0 h1:uTGXeNFAwCimXwtE/AG1Ue7RCSHCryLfm/Vhi8qSwV4=
 github.com/hollis-labs/go-mcp v0.2.0/go.mod h1:gX8xjkIRwnenTeAmZiWj3ZrbrNwupwZd7XDnSQmg5pk=
+github.com/hollis-labs/go-sftpsync v0.1.1 h1:T148mCsmhEXyh+6G3YtaFRAI2UIPblKu9G1aiITMpxE=
+github.com/hollis-labs/go-sftpsync v0.1.1/go.mod h1:/tdtDawz0r263DRcEghXk1Ny0GlTHiSUxDPuteSMh60=
 github.com/hollis-labs/go-webui v0.1.0 h1:j+seGHO3FBehZvUhiJWIS3/aLeEETlJ0G23qpx8gFRE=
 github.com/hollis-labs/go-webui v0.1.0/go.mod h1:AxZNBuBPpMv6SmS7xaQm2emmSikL8pa8mjNamCzaUz8=
 github.com/hollis-labs/plugin-sdk v0.4.0 h1:e7LTkwJQL+n9kRf9IUAUCUeydS11XIdjGIfFjP2PyBg=

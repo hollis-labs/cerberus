@@ -9,6 +9,7 @@ require (
 	github.com/google/go-github/v72 v72.0.0
 	github.com/hollis-labs/go-apppaths v0.1.0
 	github.com/hollis-labs/go-mcp v0.2.0
+	github.com/hollis-labs/go-sftpsync v0.1.1
 	github.com/hollis-labs/go-webui v0.1.0
 	github.com/hollis-labs/plugin-sdk v0.4.0
 	github.com/pkg/sftp v1.13.11

@@ -1,5 +1,10 @@
 # Task: build `hollis-labs/go-sftpsync`
 
+> **Done.** Built and released as `hollis-labs/go-sftpsync v0.1.1`, consumed by
+> Cerberus since WP-9. Kept as the record of what was asked for and why; it is
+> not work to pick up.
+
+
 Build a small, opinionated Go library for **recursive directory transfer over an
 existing SSH connection**. New repository, standalone, consumed by Cerberus once
 it lands — do not vendor it into Cerberus or develop it inside that repo.

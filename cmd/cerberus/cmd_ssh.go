@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/app"
@@ -236,6 +237,114 @@ var sshGetCmd = sshTransferCmd("get",
 		"acknowledgment.",
 	false)
 
+// sshDirTransferCmd builds put-dir and get-dir. They mirror put and get: same
+// argument order, same config keys, and the same rule about which one needs an
+// acknowledgment.
+func sshDirTransferCmd(operation, use, short, long string, destructive bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Long:  long,
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.NewWithOptions(appOptions())
+			if err != nil {
+				return fmt.Errorf("init app: %w", err)
+			}
+			defer a.Close() //nolint:errcheck
+
+			res, err := findResource(a, args[0])
+			if err != nil {
+				return err
+			}
+
+			cfg := sshConfig(res, "")
+			if operation == "put_dir" {
+				cfg["local_path"], cfg["remote_path"] = args[1], args[2]
+			} else {
+				cfg["remote_path"], cfg["local_path"] = args[1], args[2]
+			}
+
+			svc, closeFn, err := newExternalConnectorService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer closeFn()
+
+			result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+				Connector:    "ssh",
+				Operation:    operation,
+				Config:       cfg,
+				DryRun:       destructive && sshDryRun,
+				Acknowledged: sshAcknowledge,
+			})
+			if err != nil {
+				return err
+			}
+			if destructive && sshDryRun {
+				return writeJSON(cmd.OutOrStdout(), result.Data)
+			}
+			transfer, ok := result.Data.(*sshconn.DirTransferResult)
+			if !ok {
+				return fmt.Errorf("ssh %s: unexpected result type %T", operation, result.Data)
+			}
+			writeDirTransfer(cmd.OutOrStdout(), transfer)
+			return nil
+		},
+	}
+}
+
+// writeDirTransfer prints the summary first and the per-path detail after, so
+// a thousand-file sync still answers "what did it do" in the first line.
+func writeDirTransfer(w io.Writer, t *sshconn.DirTransferResult) {
+	src, dst := t.LocalPath, t.RemotePath
+	if t.Direction == "download" {
+		src, dst = t.RemotePath, t.LocalPath
+	}
+	fmt.Fprintf(w, "%s → %s: %s, %s", src, dst, countOf(t.Files, "file"), countOf(t.Dirs, "dir"))
+	if t.Symlinks > 0 {
+		fmt.Fprintf(w, ", %s", countOf(t.Symlinks, "symlink"))
+	}
+	if t.Skipped > 0 {
+		fmt.Fprintf(w, ", %d skipped", t.Skipped)
+	}
+	fmt.Fprintf(w, ", %d bytes\n", t.Bytes)
+	for _, e := range t.Entries {
+		if e.Action == "skip" {
+			fmt.Fprintf(w, "  skip %s (%s)\n", e.Path, e.Reason)
+		}
+	}
+}
+
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+var sshPutDirCmd = sshDirTransferCmd("put_dir",
+	"put-dir <resource-id> <local-dir> <remote-dir>",
+	"Upload a directory tree to a remote host",
+	"Recursively uploads a local directory to the remote host over SFTP.\n\n"+
+		"Permission bits are carried, so an uploaded script stays executable.\n"+
+		"Each file lands on a temporary name and is renamed into place, so an\n"+
+		"interrupted sync leaves the previous file intact. A symlink pointing\n"+
+		"outside the tree is refused rather than followed.\n\n"+
+		"Every byte is copied every time — there is no delta transfer. That fits\n"+
+		"compose files, env files and config directories, not a large build tree.",
+	true)
+
+var sshGetDirCmd = sshDirTransferCmd("get_dir",
+	"get-dir <resource-id> <remote-dir> <local-dir>",
+	"Download a directory tree from a remote host",
+	"Recursively downloads a remote directory over SFTP. It is the same walk as\n"+
+		"put-dir with the ends exchanged, including the refusal to follow a\n"+
+		"symlink out of the tree.\n\n"+
+		"Like get, it writes only to the local machine under a path you named, so\n"+
+		"it needs no acknowledgment.",
+	false)
+
 // findResource looks up a resource by ID from the app's v2 config.
 func findResource(a *app.App, id string) (*domain.Resource, error) {
 	for _, r := range a.Config.Resources {
@@ -274,9 +383,13 @@ func init() {
 	sshStopCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge destructive remote execution")
 	sshPutCmd.Flags().BoolVar(&sshDryRun, "dry-run", false, "preview the upload without transferring")
 	sshPutCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge overwriting the remote file")
+	sshPutDirCmd.Flags().BoolVar(&sshDryRun, "dry-run", false, "preview the upload without transferring")
+	sshPutDirCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge overwriting remote files")
 	sshCmd.AddCommand(sshExecCmd)
 	sshCmd.AddCommand(sshStatusCmd)
 	sshCmd.AddCommand(sshStopCmd)
 	sshCmd.AddCommand(sshPutCmd)
 	sshCmd.AddCommand(sshGetCmd)
+	sshCmd.AddCommand(sshPutDirCmd)
+	sshCmd.AddCommand(sshGetDirCmd)
 }
