@@ -7,6 +7,50 @@ constraints; this file is the work breakdown.
 Each package names its own files, its acceptance criteria, and what it must not
 do. Take one package. Do not take two.
 
+## Before you start
+
+State as of 2026-09-17, so you do not have to rediscover it:
+
+- `main` is at `41c76a2` and is green. `v0.4.0-beta.2` is the current tag and the
+  **first** one carrying `pkg/plugin`. `v0.4.0-beta.1` is unusable from a plugin —
+  it predates the module rename and declares `github.com/chrispian/cerberus`, so
+  Go rejects it on a path mismatch. `go mod tidy` will try to resolve back to it;
+  pin `v0.4.0-beta.2` explicitly.
+- `hollis-labs/cerberus-plugins` exists, CI is green, and it fetches this private
+  module with a scoped PAT in `HOLLIS_LABS_TOKEN`. No `replace` directives — do
+  not add one.
+- The ContextForge plugin is installed in the running daemon from
+  `cerberus-plugins/dist/`, which is gitignored. `make clean` there is safe now
+  (a missing plugin directory no longer kills the daemon) but the plugin will
+  disappear from `connectors list` until `make dist` runs again.
+
+### Working alongside other sessions
+
+**Take a worktree.** `git worktree add ../cerberus-<wp> -b <branch>` gives you your
+own index and checkout. Two sessions in one checkout share an index, and a bare
+`git commit` or `git add -A` will sweep up whatever the other session has staged —
+this happened twice, once producing a commit that did not compile.
+
+Commit with explicit pathspecs (`git commit -- path/to/file`) and check
+`git diff --cached --name-only` before committing if anything else might be live.
+
+### Gates, and one that does not fire
+
+- `make test` and `golangci-lint run --new-from-rev=main ./...` must both be clean.
+- **`--new-from-rev` does not check formatting.** Run `gofmt -l .` separately. A
+  module rename slipped three unformatted files past the lint gate precisely this
+  way.
+- Leave these alone, all pre-existing: `web/package-lock.json` (dirty in the
+  working tree), and the gofmt drift in `internal/cerbapi/snapshot_recorder.go`
+  and `internal/service/lockfile.go`. The repo has ~149 pre-existing lint issues;
+  fixing them is not your package.
+
+### Editing these docs
+
+Use anchored replacements, not offset or index slicing. An index-based edit
+silently deleted an entire work package from this file and it took a commit
+audit to notice.
+
 ## Core or plugin
 
 Decided 2026-09-16.
