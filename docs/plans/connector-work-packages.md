@@ -1218,6 +1218,14 @@ wraps what we already have. So this is a genuine gap in the Go ecosystem, not a
 lookup failure — **which makes the sync logic a candidate to extract as an OSS
 library** once it has earned its keep here.
 
+Treat `povsister/scp` and the others as **prior art, not a base**: read what they
+got right and where they stopped, then build something opinionated. The opinions
+worth having are the ones this package already lists — preserve mode, refuse
+symlink escapes out of the tree, temp-and-rename per file, honour cancellation
+between files as well as within one. Those are the properties a general-purpose
+"copy a directory" helper tends not to have, and they are exactly what makes it
+safe to point at a real host.
+
 **Use `pkg/sftp`, already a dependency.** It has the primitives: `Walk`,
 `ReadDir`, `MkdirAll`, `Chtimes`. Recursion is ours to write, which is a real
 cost, but it keeps one transport, one auth path, and no remote dependency.
