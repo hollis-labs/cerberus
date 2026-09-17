@@ -115,6 +115,24 @@ compiled in today and will migrate later — do not add a fifth.
 add a vendor SDK to `go.mod` for a connector, that is the signal you are in the
 wrong lane. See `docs/plans/connector-work-packages.md`.
 
+A plugin declares its credentials in its manifest and the host resolves them
+from the same provider the built-ins use, handing them over the `Init` config
+channel keyed by secret name. A plugin never reaches the credential store and
+never receives a secret it did not declare. Secrets deliberately do not travel
+in the environment — `pluginLaunchEnv()` is an allow-list and adding a
+credential to it would hand that value to every plugin, not the one that asked.
+
+A missing credential is not fatal. The plugin loads, `plugin managed list`
+reports it under `missing_secrets`, and an operation that actually needed it
+fails as `credential_missing` with the recovery named. This matters concretely:
+ContextForge's `get_health` is open and must keep working while `list_gateways`
+401s, because that is how you tell a down tunnel from a down gateway.
+
+**Built-in connector ids are reserved.** A plugin claiming `ssh`, `docker`,
+`local` or `github` is refused at install — it would shadow the connector
+Cerberus serves itself and, since the secret channel namespaces by connector id,
+would be handed that connector's credentials.
+
 ## Boundaries
 
 **Never set `port: 0`.** `lsof -ti :0` returns arbitrary system PIDs, read as a
@@ -156,6 +174,17 @@ one silent outage: the Docker connector resolving `docker` once at boot,
 failing, and caching that failure for the daemon's lifetime while
 `cerberus connectors list` reported it healthy. Prefer explicit paths, fallback
 search locations, and per-call resolution over boot-time resolution.
+
+**Redaction runs over operator-facing error text, and it cannot read.**
+`redact.Text` rewrites anything that parses as a credential on every error path.
+It has eaten its own guidance four times: `Bearer JWT` became `Bearer
+[REDACTED]`, `set CERBERUS_..._TOKEN` was swallowed as an assignment, and a
+names-only `missing_secrets` field came back as `["[REDACTED]"]`. The redactor
+has since learned to leave a non-token-shaped word after `Bearer` alone and to
+skip fields that carry names by construction. The rule that remains: **do not
+run redaction over a value that is a name by construction**, and if an error
+message carries a recovery instruction, add a test that it survives `redact.Text`
+intact. A safety net that eats the instruction is worse than no instruction.
 
 **A config that only exists on a branch is a config that disappears.**
 Registered configs are referenced by absolute path, so checking out a branch
