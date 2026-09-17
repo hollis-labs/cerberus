@@ -179,3 +179,45 @@ func TestNamesOnlyKey(t *testing.T) {
 		}
 	}
 }
+
+// The sixth and seventh time redaction ate its own guidance, and the first two
+// that were not the Bearer case. Both are recovery instructions: the word the
+// rule removed is the word that told the operator what to do.
+func TestTextKeepsRecoveryGuidanceReadable(t *testing.T) {
+	for _, in := range []string{
+		// `assignment` read the error code as a key, because
+		// "credential_missing" contains "credential", and ate "reload".
+		"contextforge list_gateways: credential_missing: reload the plugin after setting CONTEXTFORGE_JWT",
+		"contextforge get_health: credential_missing: run `cerberus plugin managed list` to see which name is unset",
+		// `flag` read the hyphen inside a header name as a flag dash, because
+		// `--?` was satisfied by any internal hyphen, and ate "header".
+		"gateway rejected the request; set X-API-Key header on the tunnel",
+		"pass X-Auth-Token header when the gateway sits behind the proxy",
+	} {
+		if got := Text(in); got != in {
+			t.Errorf("guidance was mangled:\n  in:  %s\n  got: %s", in, got)
+		}
+	}
+}
+
+// Neither exemption may become a way through. The error code is prose, but the
+// text behind it is not exempt, and a header name with an actual value is a
+// real leak that the assignment rule still has to catch.
+func TestRecoveryGuidanceExemptionsStillRedact(t *testing.T) {
+	for _, in := range []string{
+		"credential_missing: API_KEY=sentinel-secret",
+		"credential_missing: token=sentinel-secret",
+		"X-API-Key: sentinel-secret",
+		"curl -H 'X-API-Key: sentinel-secret' https://example.com",
+		"run with --api-key sentinel-secret",
+		"cerberus ssh exec --token=sentinel-secret",
+	} {
+		got := Text(in)
+		if strings.Contains(got, "sentinel-secret") {
+			t.Errorf("credential survived: Text(%q) = %q", in, got)
+		}
+		if !strings.Contains(got, Marker) {
+			t.Errorf("missing replacement: Text(%q) = %q", in, got)
+		}
+	}
+}

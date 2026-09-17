@@ -216,15 +216,16 @@ var resourceReloadCmd = &cobra.Command{
 		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
 			return cerbapi.UnsupervisedOperationError("reload", res)
 		}
-		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+		client, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if client != nil {
 			out, reloadErr := client.ReloadResource(cmd.Context(), res.ID)
-			if reloadErr == nil {
-				return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
-			}
-			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(reloadErr, &dErr) {
+			if reloadErr != nil {
 				return reloadErr
 			}
+			return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
 		}
 		out, err := newResourceRuntimeService().ReloadResource(cmd.Context(), res.ID)
 		if err != nil {
@@ -247,15 +248,16 @@ var resourceStopCmd = &cobra.Command{
 		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
 			return cerbapi.UnsupervisedOperationError("stop", res)
 		}
-		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+		client, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if client != nil {
 			out, stopErr := client.StopResource(cmd.Context(), res.ID)
-			if stopErr == nil {
-				return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
-			}
-			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(stopErr, &dErr) {
+			if stopErr != nil {
 				return stopErr
 			}
+			return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
 		}
 		out, err := newResourceRuntimeService().StopResource(cmd.Context(), res.ID)
 		if err != nil {
@@ -279,15 +281,16 @@ var resourceApplyCmd = &cobra.Command{
 			return cerbapi.UnsupervisedOperationError("apply", res)
 		}
 
-		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+		client, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if client != nil {
 			out, applyErr := client.ApplyResource(cmd.Context(), res.ID)
-			if applyErr == nil {
-				return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
-			}
-			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(applyErr, &dErr) {
+			if applyErr != nil {
 				return applyErr
 			}
+			return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
 		}
 
 		out, err := newResourceRuntimeService().ApplyResource(cmd.Context(), res.ID)
@@ -317,15 +320,16 @@ var resourceDeployCmd = &cobra.Command{
 			return err
 		}
 
-		if socketClient, socketErr := newResourceSocketClient(); socketErr == nil {
+		socketClient, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if socketClient != nil {
 			out, deployErr := socketClient.DeployResource(cmd.Context(), res.ID, deployOpts...)
-			if deployErr == nil {
-				return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
-			}
-			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(deployErr, &dErr) {
+			if deployErr != nil {
 				return deployErr
 			}
+			return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
 		}
 
 		out, err := newResourceRuntimeService().DeployResource(cmd.Context(), res.ID, deployOpts...)
@@ -366,15 +370,16 @@ sync only copies it; reload only restarts the current installed binary.`,
 		if err != nil {
 			return err
 		}
-		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+		client, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if client != nil {
 			res, efErr := cerbapi.EnsureFresh(cmd.Context(), client, id, resourceEnsureFreshForce, deployOpts...)
-			if efErr == nil {
-				return printEnsureFreshResult(res)
-			}
-			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(efErr, &dErr) {
+			if efErr != nil {
 				return efErr
 			}
+			return printEnsureFreshResult(res)
 		}
 		res, err := cerbapi.EnsureFresh(cmd.Context(), newResourceRuntimeService(), id, resourceEnsureFreshForce, deployOpts...)
 		if err != nil {
@@ -520,15 +525,16 @@ var resourceSyncCmd = &cobra.Command{
 			return cerbapi.UnsupervisedOperationError("sync", res)
 		}
 
-		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+		client, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if client != nil {
 			out, syncErr := client.SyncResource(cmd.Context(), res.ID)
-			if syncErr == nil {
-				return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
-			}
-			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(syncErr, &dErr) {
+			if syncErr != nil {
 				return syncErr
 			}
+			return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
 		}
 
 		out, err := newResourceRuntimeService().SyncResource(cmd.Context(), res.ID)
@@ -553,15 +559,16 @@ var resourceRemoveCmd = &cobra.Command{
 			return cerbapi.UnsupervisedOperationError("remove", res)
 		}
 
-		if client, sockErr := newResourceSocketClient(); sockErr == nil {
+		client, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if client != nil {
 			out, removeErr := client.RemoveResource(cmd.Context(), res.ID)
-			if removeErr == nil {
-				return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
-			}
-			var dErr *cerbapi.DaemonUnreachableError
-			if !errors.As(removeErr, &dErr) {
+			if removeErr != nil {
 				return removeErr
 			}
+			return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
 		}
 
 		out, err := newResourceRuntimeService().RemoveResource(cmd.Context(), res.ID)
@@ -583,6 +590,23 @@ func loadResource(id string) (*config.ResourceDef, error) {
 		}
 	}
 	return nil, fmt.Errorf("resource %q not found in config; run `cerberus resource list` to see available resources", id)
+}
+
+// resourceMutationSocket chooses the transport for a mutating resource
+// command before the operation is sent.
+//
+// Reads may attempt the daemon and fall back in-process when the call
+// fails. A mutation may not: once the request is on the wire an error
+// does not tell us whether the daemon executed it, and re-running it here
+// would bypass the serving runtime's guards — including the one that
+// refuses a resource mutation targeting the daemon itself. So the choice
+// is made here, while nothing is yet at stake, exactly as commandSocket
+// does for the connector lane (see cmd_transport.go).
+//
+// A nil client with a nil error means the daemon is not running and the
+// caller should execute in-process.
+func resourceMutationSocket(ctx context.Context) (*cerbapi.SocketClient, error) {
+	return commandSocket(ctx)
 }
 
 func newResourceSocketClient(opts ...cerbapi.SocketClientOption) (*cerbapi.SocketClient, error) {

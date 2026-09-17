@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"syscall"
 	"time"
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -489,12 +490,7 @@ func (c *SocketClient) doJSON(ctx context.Context, method, path string, body int
 
 	resp, err := c.http.Do(req) //nolint:gosec // see NewRequestWithContext note
 	if err != nil {
-		// Distinguish "daemon not running" (dial failure) from other
-		// errors so the caller can surface the operator-facing hint.
-		c.logger.Warn("client.socket.dial_failed",
-			"path", c.dialPath,
-			"error", err.Error())
-		return &DaemonUnreachableError{Path: c.dialPath, Err: err}
+		return c.classifyTransportError(method, path, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -544,8 +540,7 @@ func (c *SocketClient) doJSONStream(ctx context.Context, method, path string, bo
 
 	resp, err := c.http.Do(req) //nolint:gosec // see NewRequestWithContext note
 	if err != nil {
-		c.logger.Warn("client.socket.dial_failed", "path", c.dialPath, "error", err.Error())
-		return &DaemonUnreachableError{Path: c.dialPath, Err: err}
+		return c.classifyTransportError(method, path, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -599,10 +594,58 @@ func (c *SocketClient) doJSONStream(ctx context.Context, method, path string, bo
 	return nil
 }
 
-// DaemonUnreachableError is returned by SocketClient when dial to the
-// daemon socket fails. Callers (particularly `cerberus mcp`) can use
-// errors.As to format a structured "daemon not running" error rather
-// than leaking low-level syscall details.
+// classifyTransportError turns an http.Client.Do error into either a
+// DaemonUnreachableError or a plain transport error.
+//
+// The distinction that matters is NOT "does this look like the daemon is
+// down". It is "can we prove the request was never delivered", because
+// DaemonUnreachableError is what licenses a caller to retry the operation
+// in-process. A dial failure is safe: nothing was ever written. An EOF, a
+// connection reset or a timeout is not, because the daemon may have
+// executed the request before the connection died — which is precisely
+// what deploying the daemon does to an in-flight mutation.
+func (c *SocketClient) classifyTransportError(method, path string, err error) error {
+	if requestNeverSent(err) {
+		c.logger.Warn("client.socket.dial_failed",
+			"path", c.dialPath,
+			"error", err.Error())
+		return &DaemonUnreachableError{Path: c.dialPath, Err: err}
+	}
+	// Delivery is unproven, so this error must not reach a caller that
+	// reads it as permission to re-run the operation somewhere else.
+	c.logger.Warn("client.socket.request_failed",
+		"path", c.dialPath,
+		"method", method,
+		"route", path,
+		"error", err.Error())
+	return fmt.Errorf("daemon request failed after the request was sent; it may have been executed: %w", err)
+}
+
+// requestNeverSent reports whether err proves the connection was never
+// established, and therefore that not a byte of the request reached the
+// daemon. Anything it cannot prove, it calls delivered.
+func requestNeverSent(err error) bool {
+	if err == nil {
+		return false
+	}
+	// A failed dial — refused, missing socket, or dial timeout — is the
+	// one case where Go tells us no connection ever existed. Any other
+	// Op ("read", "write") means we were already talking to the daemon.
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return opErr.Op == "dial"
+	}
+	// Defensive: a bare syscall error, not wrapped in *net.OpError, can
+	// only have come from establishing the connection.
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
+}
+
+// DaemonUnreachableError is returned by SocketClient when the daemon
+// socket could not be dialed — meaning the request was never delivered.
+// Callers use errors.As both to format a structured "daemon not running"
+// error (`cerberus mcp`) and to decide that falling back to in-process
+// execution is safe. Because it carries that second meaning, it is
+// returned only when non-delivery is proven; see classifyTransportError.
 type DaemonUnreachableError struct {
 	Path string
 	Err  error

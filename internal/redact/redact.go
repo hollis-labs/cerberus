@@ -18,11 +18,17 @@ var (
 	bearer      = regexp.MustCompile(`(?i)\bBearer[ \t]+([a-z0-9._~+/=-]+)`)
 	providerKey = regexp.MustCompile(`\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16})\b`)
 	assignment  = regexp.MustCompile(`(?i)(["']?[a-z0-9_.-]*(?:api[_-]?key|token|secret|password|passwd|passcode|private[_-]?key|credentials?|authorization|cookie)[a-z0-9_.-]*["']?\s*(?:=>|=|:)\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;&<>]+)`)
-	flag        = regexp.MustCompile(`(?i)(--?[a-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|private[_-]?key|credentials?)[a-z0-9_-]*(?:=|[ \t]+))("[^"\n]*"|'[^'\n]*'|[^\s,;<>]+)`)
-	userinfo    = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s:@]+:[^@\s/]+@`)
-	plistArgs   = regexp.MustCompile(`(?s)(<key>ProgramArguments</key>\s*<array>)(.*?)(</array>)`)
-	plistArg    = regexp.MustCompile(`(?s)<string>(.*?)</string>`)
-	plistValue  = regexp.MustCompile(`(?s)(<key>([^<]+)</key>\s*<string>)(.*?)(</string>)`)
+	// The flag rule anchors on a word boundary before the dash. Without it,
+	// `--?` was satisfied by any internal hyphen, so "set X-API-Key header on
+	// the tunnel" lost the word "header": the hyphen in the *middle* of a
+	// header name read as a command-line flag. A real flag is always at the
+	// start of the text or preceded by whitespace or an opening delimiter.
+	// The boundary is part of group 1 so the replacement writes it back.
+	flag       = regexp.MustCompile(`(?i)((?:^|[\s"'` + "`" + `([{])--?[a-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|private[_-]?key|credentials?)[a-z0-9_-]*(?:=|[ \t]+))("[^"\n]*"|'[^'\n]*'|[^\s,;<>]+)`)
+	userinfo   = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s:@]+:[^@\s/]+@`)
+	plistArgs  = regexp.MustCompile(`(?s)(<key>ProgramArguments</key>\s*<array>)(.*?)(</array>)`)
+	plistArg   = regexp.MustCompile(`(?s)<string>(.*?)</string>`)
+	plistValue = regexp.MustCompile(`(?s)(<key>([^<]+)</key>\s*<string>)(.*?)(</string>)`)
 )
 
 // looksLikeToken reports whether the text following "Bearer" is plausibly a
@@ -83,6 +89,35 @@ func NamesOnlyKey(key string) bool {
 	return namesOnlyKeys[strings.ToLower(strings.TrimSpace(key))]
 }
 
+// errorCodes is the same idea as namesOnlyKeys applied to the left of the
+// colon. Cerberus renders a failure as "<connector> <operation>: <code>: <err>",
+// and "credential_missing" contains "credential", so the assignment rule read
+// the code as an assignment key and ate the first word of the message after
+// it: "credential_missing: reload the plugin" became "credential_missing:
+// [REDACTED] the plugin", destroying the recovery instruction.
+//
+// An error code is a name by construction — the control plane emits it from a
+// constant and nothing downstream can make it carry a credential value. The
+// list covers the whole ExternalConnectorErrorCode vocabulary rather than only
+// the one word that collides today, so a code added later cannot reintroduce
+// this.
+var errorCodes = map[string]bool{
+	"connector_unavailable":   true,
+	"credential_missing":      true,
+	"operation_unsupported":   true,
+	"invalid_args":            true,
+	"acknowledgment_required": true,
+}
+
+// isErrorCode reports whether an assignment rule's captured key is really a
+// Cerberus error code in rendered prose rather than a key with a value.
+func isErrorCode(key string) bool {
+	key = strings.TrimSpace(key)
+	key = strings.TrimRight(key, " \t:=>")
+	key = strings.Trim(key, "\"'")
+	return errorCodes[strings.ToLower(strings.TrimSpace(key))]
+}
+
 type Redactor struct{ values []string }
 
 // New also removes known credential values when they appear without a label.
@@ -108,6 +143,27 @@ func FromEnv(env []string) Redactor {
 	return New(values...)
 }
 
+// redactPairs applies one key/value rule, replacing each captured value with
+// the marker.
+func redactPairs(pattern *regexp.Regexp, value string) string {
+	return pattern.ReplaceAllStringFunc(value, func(match string) string {
+		parts := pattern.FindStringSubmatch(match)
+		if IsReference(strings.Trim(parts[2], "\"'")) {
+			return match
+		}
+		if isErrorCode(parts[1]) {
+			// The code is prose, not an assignment key, so its "value" is
+			// the next word of a sentence and must survive. The match has
+			// already consumed that text, though, so hand it back to the
+			// same rule: a real assignment sitting behind the code — as in
+			// "credential_missing: API_KEY=..." — must not ride through on
+			// the exemption.
+			return parts[1] + redactPairs(pattern, parts[2])
+		}
+		return parts[1] + Marker
+	})
+}
+
 func Text(value string) string { return (Redactor{}).Text(value) }
 func (r Redactor) Text(value string) string {
 	for _, secret := range r.values {
@@ -128,13 +184,7 @@ func (r Redactor) Text(value string) string {
 	})
 	value = userinfo.ReplaceAllString(value, "${1}"+Marker+"@")
 	for _, pattern := range []*regexp.Regexp{assignment, flag} {
-		value = pattern.ReplaceAllStringFunc(value, func(match string) string {
-			parts := pattern.FindStringSubmatch(match)
-			if IsReference(strings.Trim(parts[2], "\"'")) {
-				return match
-			}
-			return parts[1] + Marker
-		})
+		value = redactPairs(pattern, value)
 	}
 	value = plistArgs.ReplaceAllStringFunc(value, func(block string) string {
 		parts := plistArgs.FindStringSubmatch(block)

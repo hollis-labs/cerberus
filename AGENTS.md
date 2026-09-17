@@ -75,17 +75,18 @@ make lint        # go vet, golangci-lint, staticcheck, errcheck, govulncheck
 make typecheck   # web/ TypeScript
 ```
 
-**A fresh checkout does not compile.** `internal/webui/dist` is gitignored and
+A fresh checkout compiles. `internal/webui/dist` is gitignored and
 `internal/webui/server.go` has `//go:embed all:dist`, which is a compile-time
-error when the pattern matches nothing:
+error when the pattern matches nothing — so a clone used to fail `go build`,
+`make test` and lefthook's pre-push hook before a contributor had any reason to
+suspect the web build. A tracked `internal/webui/dist/.gitkeep` satisfies the
+embed without committing the bundle. **Do not delete it**, and do not commit the
+built bundle beside it. `emptyOutDir` wipes the directory on every build, so a
+vite plugin in `web/vite.config.ts` writes the placeholder back after the bundle
+is written; that is why the rule holds for a bare `npm run build` and not only
+for `make`.
 
-```
-internal/webui/server.go:27:12: pattern all:dist: no matching files found
-```
-
-So `go build`, `make test` and therefore lefthook's pre-push hook all fail on a
-clone until `make all` has produced the bundle once. Run `make all` first. After
-that the milder rule applies: use `make all`, not `make build`, whenever `web/`
+The milder rule still applies: use `make all`, not `make build`, whenever `web/`
 changes, or a plain build embeds whatever bundle is sitting there.
 
 Lefthook is the gate; there is no CI. Pre-commit runs gofmt/goimports,
@@ -190,6 +191,19 @@ resource mutations targeting itself. Build to a temp path, `mv` it over the
 artifact, then `launchctl kickstart -k
 gui/$(id -u)/com.fragments-engine.cerberus`.
 
+**`DaemonUnreachableError` means the request was never delivered.** It is not
+"the daemon looks down" — it is the token that licenses a caller to re-run an
+operation in-process, so returning it for a post-delivery error silently
+re-runs a mutation that the daemon may already have executed, with the serving
+runtime's self-mutation guard bypassed because the retry never reaches the
+serving runtime. Deploying the daemon produces exactly that error. Only a dial
+failure qualifies (`requestNeverSent` in `internal/cerbapi/socket_client.go`);
+EOF, connection reset and deadlines do not. The other half of the invariant is
+in `cmd/cerberus/cmd_transport.go`: a mutation chooses its transport *before*
+sending — `resourceMutationSocket` — so the fallback decision is made while
+nothing is at stake. Reads may still attempt the daemon and fall back on
+failure.
+
 **Do not reintroduce `selfexec.WatchAndExit` in `cerberus mcp`** (see the
 comment in `cmd/cerberus/cmd_mcp.go`). Deploying the daemon replaces the binary
 on disk, so every running `cerberus mcp` child would notice and exit — wiping
@@ -213,14 +227,25 @@ names-only `missing_secrets` field came back as `["[REDACTED]"]`. The redactor
 has since learned to leave a non-token-shaped word after `Bearer` alone and to
 skip fields that carry names by construction.
 
-**Two live defects remain**, found by the capability audit and confirmed: the
-`assignment` rule eats the word following the error code `credential_missing:`
-— including the verb `reload` in a recovery instruction — and the `flag` rule
-eats the word after `X-API-Key`, because that internal hyphen satisfies its
-`--?` prefix. Neither is the `Bearer` case, which is genuinely fixed; these were
-layered on top of it. Note also that redaction has no owning capability: it sits
-on every surface's error path and therefore in no area's territory, which is why
-each area saw only the damage visible from where it stood. The rule that remains: **do not
+The sixth and seventh occurrences are also fixed: the `assignment` rule ate the
+word following the error code `credential_missing:` — including the verb
+`reload` in a recovery instruction — and the `flag` rule ate the word after
+`X-API-Key`, because that internal hyphen satisfied its `--?` prefix. The
+`assignment` rule now exempts Cerberus's own error codes (a name by
+construction, like `missing_secrets`) while still redacting the text behind
+them, and the `flag` rule requires a word boundary before the dash. Note that
+redaction has no owning capability: it sits on every surface's error path and
+therefore in no area's territory, which is why each area saw only the damage
+visible from where it stood.
+
+**Seven patches to the same regexes is the finding.** Each fix has been correct
+and none has been structural: `redact.Text` runs over rendered prose and
+re-derives, from a regex, a key/value structure the caller had in its hands and
+threw away. The structural answer is to redact at the value boundary — redact
+the credential where it is still a field, and let the message be assembled from
+already-safe parts — with `Text` kept only as a last-resort net over text
+Cerberus did not compose. That is a larger change than any one of these fixes;
+until it happens, expect an eighth. The rule that remains: **do not
 run redaction over a value that is a name by construction**, and if an error
 message carries a recovery instruction, add a test that it survives `redact.Text`
 intact. A safety net that eats the instruction is worse than no instruction.
@@ -248,13 +273,22 @@ hand-written** — it is byte-identical to what `cerberus install` emits from
 `launchdPlistTemplate` in `cmd/cerberus/cmd_install.go`, and that template
 declares no `EnvironmentVariables` at all.
 
-That makes the minimal-PATH problem above a property of the shipped installer
-rather than an artifact of this machine: **every `cerberus install` anywhere
-produces a daemon that cannot find `go`.** The inconsistency is visible in our
-own code — `internal/connector/local/launchd.go` emits `EnvironmentVariables`
-for managed resources, so Cerberus knows how to give a launchd job an
-environment and simply does not do it for its own daemon. The `DetectDocker`
-fallback paths fixed the Docker symptom; the general case stands.
+That made the minimal-PATH problem a property of the shipped installer rather
+than an artifact of this machine: every `cerberus install` produced a daemon
+that could not find `go`. `launchdPlistTemplate` now emits an
+`EnvironmentVariables` key carrying a `PATH` composed from the installing user's
+environment — `daemonLaunchPath` in `cmd/cerberus/cmd_install.go` — rather than
+hardcoding Homebrew paths that are wrong on Intel Macs and under MacPorts. Only
+`PATH` is carried: secrets do not travel in the environment, and copying the
+installing shell's whole environment into a persistent launchd job would do
+exactly that. Entries are filtered to absolute paths, and launchd's own four
+directories are kept as the tail.
+
+**The plist on this machine predates that fix**, so the running daemon still has
+the minimal `PATH` until it is reinstalled. Verify with
+`ps eww -o command= -p $(pgrep -f 'cerberus daemon')` rather than assuming, and
+keep writing connectors that resolve their tools explicitly and per call — the
+installer fix raises the floor, it does not remove the rule above.
 
 Verify before assuming — `cerberus resource list` and `cerberus project list`
 report what is actually registered.

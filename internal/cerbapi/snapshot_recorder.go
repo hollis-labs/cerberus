@@ -72,7 +72,7 @@ type SnapshotRecorder struct {
 	logger *slog.Logger
 	take   SnapshotFunc
 
-	mu       sync.RWMutex
+	mu        sync.RWMutex
 	snapshots []OverviewSnapshot
 }
 
