@@ -224,3 +224,27 @@ func TestProbeRerunsFactoryEachCall(t *testing.T) {
 		t.Fatalf("Probe still failing after the connector became available: %v", err)
 	}
 }
+
+// BuiltInIDs is the set a plugin may not claim, so it must see every way a
+// connector reaches the registry — instance, lazy factory, or definition only.
+// A connector registered as a factory that BuiltInIDs missed would be
+// shadowable by a plugin.
+func TestBuiltInIDsCoversEveryRegistrationShape(t *testing.T) {
+	r := NewRegistry()
+	r.Register(&stubConnector{id: "local"})
+	r.RegisterFactory(contract.Definition{ID: "github"}, func(context.Context) (contract.Connector, error) {
+		return &stubConnector{id: "github"}, nil
+	})
+	r.RegisterDefinition(contract.Definition{ID: "cloudflare"})
+
+	ids := r.BuiltInIDs()
+	want := []string{"cloudflare", "github", "local"}
+	if len(ids) != len(want) {
+		t.Fatalf("BuiltInIDs = %v, want %v", ids, want)
+	}
+	for i, id := range want {
+		if ids[i] != id {
+			t.Fatalf("BuiltInIDs = %v, want %v (sorted)", ids, want)
+		}
+	}
+}

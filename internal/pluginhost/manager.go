@@ -3,7 +3,10 @@ package pluginhost
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 // Installer is the install side of the plugin host. The initial manager keeps
@@ -34,6 +37,8 @@ type Manager struct {
 	launcher  Launcher
 	policy    TrustPolicy
 	hostInfo  SDKHostInfo
+	secrets   SecretResolver
+	warn      func(string)
 
 	installed map[string]InstalledPlugin
 	running   map[string]*loadedPlugin
@@ -44,10 +49,34 @@ type loadedPlugin struct {
 	process Process
 	init    SDKInitResult
 	load    SDKLoadResult
+
+	// missingSecrets names the required credentials that were absent when this
+	// plugin was loaded. Names only — resolved values live in the subprocess.
+	missingSecrets []string
 }
 
-func NewManager(installer Installer, launcher Launcher, policy TrustPolicy, hostVersion string) *Manager {
-	return &Manager{
+// ManagerOption configures a Manager. The constructor stays positional for the
+// four things a manager cannot work without; everything optional arrives here
+// so adding a host capability does not touch every call site.
+type ManagerOption func(*Manager)
+
+// WithSecretResolver gives the manager the secret provider the built-in
+// connectors resolve through. Without it a plugin is handed no credentials at
+// all, which is what the host did before WP-7 and what the tests that do not
+// care about secrets still get.
+func WithSecretResolver(resolver SecretResolver) ManagerOption {
+	return func(m *Manager) { m.secrets = resolver }
+}
+
+// WithLoadWarning receives one line per non-fatal problem found while loading a
+// plugin — a declared credential that would not resolve, most of all. Lines
+// carry secret names and redacted errors, never a value.
+func WithLoadWarning(warn func(string)) ManagerOption {
+	return func(m *Manager) { m.warn = warn }
+}
+
+func NewManager(installer Installer, launcher Launcher, policy TrustPolicy, hostVersion string, opts ...ManagerOption) *Manager {
+	m := &Manager{
 		installer: installer,
 		launcher:  launcher,
 		policy:    policy,
@@ -58,6 +87,10 @@ func NewManager(installer Installer, launcher Launcher, policy TrustPolicy, host
 		installed: make(map[string]InstalledPlugin),
 		running:   make(map[string]*loadedPlugin),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 var _ Host = (*Manager)(nil)
@@ -97,15 +130,26 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		return err
 	}
 
+	// The plugin's declared credentials are resolved host-side and travel in
+	// the Init config map. They deliberately do not travel in the environment:
+	// a subprocess inherits ambient env, so an env-carried credential would
+	// reach every plugin rather than the one that declared it.
+	resolved := resolvePluginSecrets(ctx, m.secrets, plugin)
+	m.reportSecretProblems(id, resolved)
+
 	initResult, err := process.Init(ctx, SDKInitParams{
 		PluginDir: plugin.Path,
-		Config:    map[string]string{},
+		Config:    resolved.Config,
 		LogLevel:  "info",
 		HostInfo:  m.hostInfo,
 	})
 	if err != nil {
 		_ = process.Close()
-		return fmt.Errorf("plugin %q init: %w", id, err)
+		// Redacted, not wrapped: this error text originates in the plugin, and
+		// the payload it just received carries credentials. A plugin that
+		// echoes its init params into an error must not launder them into the
+		// daemon log.
+		return fmt.Errorf("plugin %q init: %s", id, redact.Text(err.Error()))
 	}
 	if initResult.Protocol != SDKProtocolVersion {
 		_ = process.Close()
@@ -119,12 +163,42 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	}
 
 	m.running[id] = &loadedPlugin{
-		plugin:  plugin,
-		process: process,
-		init:    initResult,
-		load:    loadResult,
+		plugin:         plugin,
+		process:        process,
+		init:           initResult,
+		load:           loadResult,
+		missingSecrets: resolved.MissingRequired,
 	}
 	return nil
+}
+
+// reportSecretProblems surfaces a credential that would not resolve without
+// failing the load. Callers see it on stderr at load time and again, actionably,
+// on the first operation that fails.
+func (m *Manager) reportSecretProblems(id string, resolved resolvedSecrets) {
+	if m.warn == nil {
+		return
+	}
+	for _, problem := range resolved.Problems {
+		m.warn(fmt.Sprintf("plugin %q credential lookup failed: %s", id, problem))
+	}
+	if len(resolved.MissingRequired) > 0 {
+		m.warn(fmt.Sprintf(
+			"plugin %q loaded without required credential %s; operations needing it will fail with credential_missing",
+			id, strings.Join(resolved.MissingRequired, ", ")))
+	}
+}
+
+// MissingSecrets names the required credentials a loaded plugin did not
+// receive. Empty for a plugin that is not loaded.
+func (m *Manager) MissingSecrets(id string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	lp, ok := m.running[id]
+	if !ok {
+		return nil
+	}
+	return append([]string(nil), lp.missingSecrets...)
 }
 
 func (m *Manager) Unload(ctx context.Context, id string) error {
@@ -185,6 +259,17 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 
 	result, err := lp.process.CallTool(ctx, MCPRequestFromOperation(args))
 	if err != nil {
+		// A plugin that loaded without a declared credential gets its failures
+		// explained rather than pre-empted: operations that do not need the
+		// secret keep working, and the one that 401s says which credential is
+		// missing and how to supply it.
+		if len(lp.missingSecrets) > 0 {
+			return OperationResult{}, &MissingSecretsError{
+				Connector: args.Connector,
+				Secrets:   append([]string(nil), lp.missingSecrets...),
+				Err:       err,
+			}
+		}
 		return OperationResult{}, fmt.Errorf("plugin %q tool %q: %w", args.Connector, args.Operation, err)
 	}
 	return OperationResultFromMCP(args, result)

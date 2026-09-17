@@ -19,6 +19,7 @@ import (
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/hollis-labs/cerberus/pkg/resource"
 	gmcp "github.com/hollis-labs/go-mcp/server"
@@ -168,12 +169,16 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if s.managedPlugins != nil && s.managedPlugins.Loaded(args.Connector) {
 		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing managed plugin connector %s.%s", args.Connector, args.Operation))
 		gmcp.NotifyProgress(ctx, progressToken, 1, 2, "Executing managed plugin connector")
-		return s.managedPlugins.Execute(ctx, args.Connector, PluginConnectorExecArgs{
+		result, execErr := s.managedPlugins.Execute(ctx, args.Connector, PluginConnectorExecArgs{
 			Operation:    args.Operation,
 			Config:       args.Config,
 			DryRun:       args.DryRun,
 			Acknowledged: args.Acknowledged,
 		})
+		if execErr != nil {
+			return ExternalConnectorOperationResult{}, managedPluginExecuteError(args, execErr)
+		}
+		return result, nil
 	}
 	// An installed-but-unloaded plugin is only fatal when nothing else can serve
 	// the id. A plugin that shadows a built-in must not disable it: unloading
@@ -901,6 +906,19 @@ func dryRunPreview(args ExternalConnectorOperationArgs, summary string, target, 
 		preview.Warnings = append([]string(nil), warnings...)
 	}
 	return preview
+}
+
+// managedPluginExecuteError classifies a plugin operation failure. A plugin
+// failing for want of a credential its own manifest declares reports the same
+// `credential_missing` code a built-in connector does, so what docs/secrets.md
+// promises reads the same either side of the plugin boundary. Everything else
+// keeps the error the plugin lane already produced.
+func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) error {
+	var missing *pluginhost.MissingSecretsError
+	if errors.As(err, &missing) {
+		return externalConnectorError(args, ExternalConnectorCredentialMissing, err)
+	}
+	return err
 }
 
 func externalConnectorError(args ExternalConnectorOperationArgs, code ExternalConnectorErrorCode, err error) error {

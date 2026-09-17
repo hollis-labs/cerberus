@@ -494,7 +494,12 @@ func runDaemonBody() error {
 	if stateErr != nil {
 		return fmt.Errorf("resolve plugin connector state path: %w", stateErr)
 	}
-	managedPlugins, managedErr := cerbapi.NewManagedPluginConnectorService(version, os.Stderr, statePath)
+	// Plugins resolve their declared credentials through the same provider the
+	// built-in connectors use, so `connector-secrets.yaml` and `keychain://`
+	// mean the same thing either side of the plugin boundary.
+	managedPlugins, managedErr := cerbapi.NewManagedPluginConnectorService(version, os.Stderr, statePath,
+		cerbapi.WithManagedPluginSecrets(a.Secrets),
+		cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...))
 	if managedErr != nil {
 		return fmt.Errorf("initialize managed plugin connectors: %w", managedErr)
 	}
@@ -505,7 +510,8 @@ func runDaemonBody() error {
 		cerbapi.WithLocalConnector(a.Local),
 		cerbapi.WithResourceRuntimeService(a.Runtime),
 		cerbapi.WithExternalConnectorService(external),
-		cerbapi.WithPluginConnectorService(cerbapi.NewPluginConnectorService(version, os.Stderr)),
+		cerbapi.WithPluginConnectorService(cerbapi.NewPluginConnectorService(version, os.Stderr,
+			cerbapi.WithPluginConnectorSecrets(a.Secrets))),
 		cerbapi.WithManagedPluginConnectorService(managedPlugins),
 		cerbapi.WithInProcessLogger(logger),
 	)

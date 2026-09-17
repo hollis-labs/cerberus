@@ -122,10 +122,23 @@ func newConnectorRegistry(configPaths ...string) (*connector.Registry, domain.Se
 	if len(configPaths) > 0 && configPaths[0] != "" {
 		configPath = configPaths[0]
 	}
-	sec := secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"))
+	sec := ConnectorSecrets(configPath)
 	registry := connector.NewRegistry()
 	registerBuiltInConnectors(registry, sec)
 	return registry, sec
+}
+
+// ConnectorSecrets builds the credential provider every connector lane
+// resolves through: process env, then `connector-secrets.yaml` beside the
+// config, then the Cerberus keychain. Exported so the plugin host resolves a
+// plugin's declared secrets from the same place a built-in connector does,
+// rather than each plugin reimplementing the lookup.
+func ConnectorSecrets(configPaths ...string) domain.SecretProvider {
+	configPath := config.DefaultPath()
+	if len(configPaths) > 0 && configPaths[0] != "" {
+		configPath = configPaths[0]
+	}
+	return secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"))
 }
 
 func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretProvider) {

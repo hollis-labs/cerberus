@@ -69,6 +69,15 @@ func (k *KeychainProvider) Delete(_ context.Context, service, key string) error 
 	return nil
 }
 
+// EnvVarName builds the environment variable name a connector credential can
+// be supplied through: CERBERUS_<SERVICE>_<KEY>, uppercased with hyphens
+// replaced by underscores. It is exported so operator-facing "how do I supply
+// this credential" messages name the same variable the provider actually
+// reads, rather than a second formatter that can drift from it.
+func EnvVarName(service, key string) string {
+	return envVarName(service, key)
+}
+
 // envVarName builds the environment variable name: CERBERUS_<SERVICE>_<KEY>
 // with uppercase and hyphens replaced by underscores.
 func envVarName(service, key string) string {

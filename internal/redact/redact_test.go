@@ -118,3 +118,64 @@ func TestTextStillRedactsBearerTokens(t *testing.T) {
 		}
 	}
 }
+
+// missing_secrets answers "which credential is missing?". SensitiveKey matches
+// it on the word SECRET, so before the names-only allow-list the answer came
+// back as ["[REDACTED]"] and `managed list` could not tell an operator what to
+// supply.
+func TestMissingSecretsKeepsItsNames(t *testing.T) {
+	data, err := Marshal(map[string]any{
+		"id":              "contextforge",
+		"loaded":          true,
+		"missing_secrets": []string{"token", "api_key"},
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	for _, want := range []string{"token", "api_key"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("missing_secrets lost %q: %s", want, data)
+		}
+	}
+	if strings.Contains(string(data), Marker) {
+		t.Fatalf("a names-only field should not be redacted at all: %s", data)
+	}
+}
+
+// The allow-list must stay an allow-list: a sibling key that really can carry a
+// value is still redacted, and a names-only field nested under an already
+// hidden parent stays hidden.
+func TestNamesOnlyAllowListDoesNotWiden(t *testing.T) {
+	data, err := Marshal(map[string]any{
+		"missing_secrets": []string{"token"},
+		"api_token":       "sk-live-0123456789abcdef",
+		"credentials": map[string]any{
+			"missing_secrets": []string{"nested"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(data), "sk-live-0123456789abcdef") {
+		t.Fatalf("a real credential leaked: %s", data)
+	}
+	if strings.Contains(string(data), "nested") {
+		t.Fatalf("an inherited hide must still win: %s", data)
+	}
+	// Anchored on the field, not the bare word: "token" also appears in the
+	// api_token key name, which is never redacted.
+	if !strings.Contains(string(data), `"missing_secrets":["token"]`) {
+		t.Fatalf("the top-level names-only field was redacted: %s", data)
+	}
+}
+
+func TestNamesOnlyKey(t *testing.T) {
+	if !NamesOnlyKey("missing_secrets") || !NamesOnlyKey("Missing_Secrets") {
+		t.Fatal("missing_secrets should be names-only")
+	}
+	for _, key := range []string{"secrets", "api_token", "password", ""} {
+		if NamesOnlyKey(key) {
+			t.Fatalf("%q must not be treated as names-only", key)
+		}
+	}
+}

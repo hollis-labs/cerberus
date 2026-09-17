@@ -54,3 +54,49 @@ Namecheap's `client_ip` must match the address allowed by the account's API
 whitelist. An unresolved reference fails the operation without falling back to a
 different credential or reporting success. The Cerberus web UI can still manage
 unmapped keychain entries; there is no `cerberus secrets set` command.
+
+## Plugin credentials
+
+A plugin declares the credentials it needs in its manifest, under
+`config.secrets`, and the host resolves them through the chain above. It does
+not reach the store itself:
+
+```yaml
+cerberus:
+  connector:
+    config:
+      secrets:
+        - name: token
+          description: ContextForge admin JWT.
+          required: true
+```
+
+Cerberus looks each one up as `<plugin id>/<secret name>`, so
+`CERBERUS_CONTEXTFORGE_TOKEN`, a `contextforge: token:` entry in
+`connector-secrets.yaml` and `keychain://contextforge/token` all mean the same
+thing they would for a built-in connector. Resolved values reach the plugin in
+its SDK init config, keyed by the manifest secret name — a plugin declaring
+`token` reads `params.Config["token"]`, or `plugin.SecretFromConfig` from
+`pkg/plugin`.
+
+Three properties of that channel are deliberate:
+
+- **Credentials do not travel in the environment.** A subprocess inherits
+  ambient environment, so a credential there would reach every plugin rather
+  than the one that declared it. `pluginLaunchEnv()` is an allow-list with no
+  credential entries and must stay that way.
+- **A plugin receives only what its own manifest declares**, never the store,
+  and never another connector's secret.
+- **A missing credential does not fail the load.** The plugin starts, and the
+  operation that needed the credential fails with `credential_missing` naming
+  the variable that would supply it. Operations that do not need it keep
+  working — ContextForge's `get_health` is open, and is how you tell a down
+  tunnel from a down gateway.
+
+Values are resolved at load and handed over in `plugin/init`. Unlike a built-in
+connector, which resolves per call, a plugin does not see a credential added or
+rotated afterwards until it is reloaded:
+`cerberus connectors plugin managed load <id>`. `cerberus connectors plugin
+managed list` reports `missing_secrets` for a plugin that loaded without one —
+credential *names*, which is why `redact.NamesOnlyKey` exempts that field from
+redaction.
