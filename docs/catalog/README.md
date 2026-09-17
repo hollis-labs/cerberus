@@ -39,15 +39,38 @@ project-specific goes in `data`.
 | `tags` | Freeform, plus `cerberus` and `class:<class>` |
 | `relationships` | Ids this record depends on, implements, or supersedes |
 | `body` | Prose. For a `capability`, the body of its `systems/*.md`. |
+| `locus` | `core` · `plugin` · `vendor` — where the implementation lives |
 | `pointer_locator` | Where the thing actually lives — a path, or `docs/…` |
 | `data` | Class-specific payload, below |
+
+### `locus` — who builds it, and what breaks without them
+
+On every `capability` and `tool`:
+
+- **`core`** — compiled into the Cerberus binary. Ships and versions with it.
+- **`plugin`** — a standalone plugin, loaded at runtime, versioned separately.
+- **`vendor`** — not ours. A third-party binary we shell out to, an SDK we wrap,
+  or a sibling tool we depend on. Name it in `data.vendor`.
+
+This is orthogonal to `does_not_own`, and both are needed. `locus` answers *who
+builds this and what breaks if they change it*; `does_not_own` answers *what
+does this system deliberately refuse to do*. The Docker capability is `core` and
+still does not own container supervision — that is the resource lane. Recording
+only one of those answers half the question.
+
+`vendor` is the one that pays off later. It makes "what breaks if Docker Desktop
+is not installed" or "what depends on a v0.x SDK" a query rather than an
+investigation. Where a `core` capability leans on a vendor binary — Docker does,
+via the CLI — set `locus: core` and still list the dependency in
+`data.vendor`, because the failure mode belongs to the vendor even though the
+code is ours.
 
 ### `class: capability`
 
 A major system. Roughly one per thing you would name in a sentence describing
 Cerberus: resource supervision, the connector lane, the plugin lane, secrets.
 
-`data`: `{ owns, does_not_own, entry_points[], surfaces[], key_files[], adrs[] }`
+`data`: `{ owns, does_not_own, vendor[], entry_points[], surfaces[], key_files[], adrs[] }`
 
 `does_not_own` is not filler. Half the questions about a system are about its
 boundary, and a catalog that only records what something does answers the easy
@@ -57,7 +80,7 @@ half.
 
 One verb, command, connector operation or MCP tool. The leaves.
 
-`data`: `{ capability, invocation, surfaces[], destructive, verified }`
+`data`: `{ capability, invocation, surfaces[], destructive, verified, vendor[] }`
 
 `verified` is one of `live` (run against the real system), `test` (covered by
 tests only), `unverified`. Do not mark `live` for something only exercised

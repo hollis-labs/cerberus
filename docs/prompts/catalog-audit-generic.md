@@ -26,7 +26,15 @@ Fields the explorer reads; project-specific payload goes in `data`.
 
 `id` · `class` · `name` · `summary` · `state_field` · `state_label` ·
 `review_status` · `confidence_score` · `confidence_label` · `last_reviewed` ·
-`tags` · `relationships` · `body` · `pointer_locator` · `data`
+`tags` · `relationships` · `body` · `locus` · `pointer_locator` · `data`
+
+`locus` is `core` (built and shipped by this project) · `plugin` (ours, loaded
+separately) · `vendor` (not ours — a third-party binary, SDK or sibling tool;
+name it in `data.vendor`). It is orthogonal to `does_not_own`: `locus` says who
+builds it and what breaks when they change, `does_not_own` says what the system
+deliberately refuses to do. A `core` capability that shells out to a vendor
+binary is still `core` — list the dependency anyway, because the failure mode
+belongs to the vendor.
 
 Ids are stable and never renumbered: `<PROJ>-CAP-001`, `<PROJ>-GAP-014`.
 `state_label` is one of `shipped` · `partial` · `planned` · `deferred` ·
@@ -105,6 +113,48 @@ Ask these of every project. They are boring and they work.
   written down or was it reconstructed by someone who already knew?
 - Which capability exists on one surface but not the others?
 - What has never been run against the real thing?
+
+## Two passes, and the second is not a re-run
+
+Run this audit twice. The second pass takes the first pass's catalog as input
+and looks for what it missed. Do not re-audit from scratch — you will find the
+same things and gain false confidence.
+
+A first pass finds what the code advertises. It is systematically blind to
+absence: a capability nobody implemented has no file to read, and a surface
+where a verb is missing looks identical to one where it was never wanted. The
+second pass is aimed at exactly that blindness.
+
+**Techniques, in rough order of yield:**
+
+1. **Inverse sweep.** Walk the code and find what has no record. Every exported
+   operation, CLI command, MCP tool, API route and config key. Anything present
+   in the system and absent from the catalog is either a miss or a deliberate
+   omission — and if it is deliberate, it needs a record saying so.
+2. **Surface asymmetry.** For each capability, tabulate which surfaces expose it
+   — CLI, API, MCP, console. A verb on three surfaces and missing from the
+   fourth is a gap the first pass will have recorded as "shipped" because the
+   part it looked at worked.
+3. **Challenge every `verified: live`.** Re-run a sample. A claim that cannot be
+   reproduced is the highest-value finding in the whole exercise, because it
+   means the catalog is confidently wrong rather than merely incomplete.
+4. **Challenge low confidence.** Any record under `confidence_score: 0.7` is the
+   first pass telling you where it was unsure. Resolve or explain each one.
+5. **Whole missing capabilities.** Harder and more valuable than missing tools.
+   Ask the boring operational questions — backup, recovery, rotation, audit,
+   onboarding, upgrade, uninstall — and check whether each has a record at all.
+   An entire capability with no file to read is exactly what pass one cannot see.
+6. **Decisions with no record.** Mine git history, ADRs, plan documents and PR
+   discussions for choices that were made and never written down. A decision
+   recovered from a commit message is worth more than one restated from code.
+7. **Read the gap records adversarially.** Is each priority defensible? Is
+   anything marked `nice-to-have` that would actually block a new contributor on
+   day one?
+
+**Output of the second pass** is a diff, not a replacement: records added,
+records corrected, and claims withdrawn. State plainly what pass one got wrong.
+If the second pass adds nothing, say so — but examine whether it was run
+independently enough to be capable of disagreeing.
 
 ## Acceptance
 
