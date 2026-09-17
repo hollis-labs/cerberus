@@ -23,6 +23,13 @@ type ManagedPluginConnectorService struct {
 	hostVersion string
 	statePath   string
 	records     map[string]pluginConnectorPersistedEntry
+	warn        io.Writer
+
+	// unrestored holds entries whose plugin directory could not be restored at
+	// startup. They are kept so persist() does not silently drop a registration
+	// whose directory is temporarily absent — a rebuilt plugin comes back on the
+	// next restart instead of having to be reinstalled.
+	unrestored []pluginConnectorPersistedEntry
 }
 
 func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, statePath string) (*ManagedPluginConnectorService, error) {
@@ -39,6 +46,7 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 		hostVersion: hostVersion,
 		statePath:   statePath,
 		records:     make(map[string]pluginConnectorPersistedEntry),
+		warn:        stderr,
 	}
 	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
 		return nil, err
@@ -274,5 +282,15 @@ func (s *ManagedPluginConnectorService) persist() error {
 			Loaded:    record.Loaded,
 		})
 	}
+	state.Entries = append(state.Entries, s.unrestored...)
 	return writePluginConnectorState(s.statePath, state)
+}
+
+// warnf reports a non-fatal managed-plugin problem. Startup problems must be
+// visible without being fatal, so they go to the daemon's stderr log.
+func (s *ManagedPluginConnectorService) warnf(format string, args ...any) {
+	if s == nil || s.warn == nil {
+		return
+	}
+	fmt.Fprintf(s.warn, "cerberus: managed plugin: "+format+"\n", args...)
 }

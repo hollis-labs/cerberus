@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/digitalocean/godo"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
@@ -21,7 +22,6 @@ import (
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	"github.com/digitalocean/godo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1083,5 +1083,75 @@ func TestManagedPluginUninstallRemovesEntry(t *testing.T) {
 	}
 	if _, err := managed.Uninstall(context.Background(), "ssh"); err == nil {
 		t.Fatal("uninstalling an absent plugin should error")
+	}
+}
+
+// Deleting a plugin directory must not take the daemon down. Returning an error
+// from restore made the launchd job fail to start and KeepAlive crash-loop, so
+// `make clean` in a plugin repo — or a fresh clone with a gitignored dist/ —
+// bricked Cerberus entirely.
+func TestManagedPluginRestoreSkipsMissingDirectoryInsteadOfFailing(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	pluginDir := writeTestPluginDir(t, "ssh")
+
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: pluginDir,
+	}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+
+	// The plugin directory goes away, as `make clean` would do.
+	if rmErr := os.RemoveAll(pluginDir); rmErr != nil {
+		t.Fatalf("remove plugin dir: %v", rmErr)
+	}
+
+	var warnings strings.Builder
+	restored, err := NewManagedPluginConnectorService("test", &warnings, statePath)
+	if err != nil {
+		t.Fatalf("restore returned an error for a missing plugin directory: %v", err)
+	}
+	if restored.Installed("ssh") {
+		t.Fatal("a plugin whose directory is gone should not be registered")
+	}
+	if !strings.Contains(warnings.String(), "skipping plugin") {
+		t.Fatalf("missing plugin was skipped silently; warnings = %q", warnings.String())
+	}
+}
+
+// A registration is kept when its directory is temporarily absent, so a
+// rebuilt plugin returns on the next restart instead of needing reinstalling.
+func TestManagedPluginRestorePreservesUnrestorableEntries(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	pluginDir := writeTestPluginDir(t, "ssh")
+
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{PluginDir: pluginDir}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+	if rmErr := os.RemoveAll(pluginDir); rmErr != nil {
+		t.Fatalf("remove plugin dir: %v", rmErr)
+	}
+
+	restored, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	// Any persist must not drop the entry whose directory is missing.
+	if persistErr := restored.persist(); persistErr != nil {
+		t.Fatalf("persist: %v", persistErr)
+	}
+	state, err := readPluginConnectorState(statePath)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if len(state.Entries) != 1 || state.Entries[0].PluginDir != pluginDir {
+		t.Fatalf("registration was dropped; entries = %+v", state.Entries)
 	}
 }

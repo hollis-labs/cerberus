@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/digitalocean/godo"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/hollis-labs/cerberus/pkg/resource"
 	"github.com/hollis-labs/cerberus/pkg/secret"
-	"github.com/digitalocean/godo"
 )
 
 var _ contract.Connector = (*Connector)(nil)
