@@ -158,7 +158,16 @@ package needs a real write to prove itself, write to a scratch path under
 ```
 WP-0 plugin gaps           DONE
 WP-2 pkg/plugin promotion  DONE ──► WP-4 ContextForge  DONE ──► WP-7 DONE ──► WP-5 Azure
-WP-1 dry-run extraction    ──► WP-3 remote docker ──► WP-6 docker resources
+WP-1 dry-run extraction    ──► WP-3 remote docker DONE ──► WP-6 docker resources DONE
+                               (WP-1 was skipped, never blocking; still open)
+
+WP-8 ssh elevation         ──► WP-9 recursive transfer   completes the tools/ port
+WP-10 prove list_gateways      operator action; closes the ContextForge story
+
+Deferred Azure — cost reporting, Key Vault, Resource Graph. All three probed
+2026-09-17 and none is buildable yet: cost is RBACAccessDenied, no Key Vault
+exists, and Resource Graph returns the same two resources as list_resources
+because there is one visible subscription. Unlock conditions in WP-5.
 ```
 
 WP-1 and WP-2 are independent of each other and both unblock work downstream.
@@ -1045,4 +1054,132 @@ real JWT by either route and re-run to close this out.
 The daemon was not redeployed, so the running daemon still carries the old host.
 The managed lane differs from what was exercised only by the wiring line in
 `cmd_daemon.go`.
+
+---
+
+## WP-8 — Privilege elevation for `ssh exec`
+
+**Why:** `ssh exec` runs as the operator's own account. Every real deploy in
+`~/Projects/tools` needs root for at least one step — `docker load`,
+`systemctl`, writing under `/opt/agents` — and `lib/common.sh` has a dedicated
+`rsudo` for it. Without elevation, `ssh exec` covers inspection but not the
+deploys it was built toward.
+
+**Two things `tools/` already learned the hard way, both load-bearing:**
+
+- **sudo on muctlvaig requires a tty.** `rsudo` uses `ssh -t` for exactly this;
+  without it sudo refuses with "sorry, you must have a tty to run sudo". The Go
+  client must request a PTY on the session (`session.RequestPty`) when elevating.
+- **Arguments must be quoted individually.** `rsudo`'s comment records a real
+  bug: `"sudo $*"` joined arguments with spaces and threw the quoting away, so a
+  display name of `"GPT-5.6 Terra"` arrived as two arguments, shifted everything
+  after it, and SQL failed with `no such column: Terra`. Quote each argument for
+  the remote shell (`%q` per argument, as `rsudo` does).
+
+**Design constraints:**
+
+- Elevation is **opt-in per operation**, never implicit. A separate `elevate`
+  boolean in the config, not a flag that silently upgrades an existing call.
+- An elevated `exec` is destructive and already requires `--ack`. Keep that, and
+  say in the dry-run preview that the command runs as root — the preview is what
+  an operator reads before acknowledging.
+- **No password prompting, ever.** A Cerberus-started ssh has no interactive
+  terminal, so a sudo password prompt would hang until timeout with no
+  indication why. If sudo needs a password, fail fast and say so. Passwordless
+  sudo or nothing — that is an environment fact to report, not to work around.
+- Never log the command's output at a level that could carry a secret; elevated
+  commands are exactly where credentials appear.
+
+**Acceptance:** an elevated command runs on muctlvaig and reports its own
+`id` as root, or reports cleanly that sudo needs a password. An argument
+containing a space arrives as one argument — test it, that is the regression
+`tools/` paid for.
+
+---
+
+## WP-9 — Recursive directory transfer
+
+**Why:** `ssh put`/`get` move one file. A deploy moves a tree — `tools/`
+builds a tarball precisely because single-file transfer is not enough.
+
+### Transport decision, probed 2026-09-17
+
+**rsync is not an option for the primary target.**
+
+```
+$ cerberus ssh exec muctlvaig --ack -- 'command -v rsync || echo ABSENT'
+RSYNC ABSENT
+tar: tar (GNU tar) 1.35
+```
+
+Locally the machine has `openrsync` (macOS's BSD replacement, protocol 29), not
+GNU rsync. So an rsync-based design would depend on a binary that is missing at
+one end and old at the other.
+
+It would also break an architectural property worth keeping: **Cerberus shells
+out to nothing for SSH.** The connector is entirely in-process over
+`golang.org/x/crypto/ssh`. Shelling out to rsync would introduce a second SSH
+transport with different auth, different config resolution (`~/.ssh/config`) and
+different failure modes from the one the connector already uses.
+
+**Use `pkg/sftp`, already a dependency.** It has the primitives: `Walk`,
+`ReadDir`, `MkdirAll`, `Chtimes`. Recursion is ours to write, which is a real
+cost, but it keeps one transport, one auth path, and no remote dependency.
+
+**The tradeoff, stated honestly:** SFTP has no delta transfer and no
+compression. It copies every byte every time. That is fine for what this is for
+— compose files, env files, config directories, agent definitions — and wrong
+for shipping a 600MB image, which is why `tools/` tars and ships a single blob
+for that case. If a large tree shows up, add a tar-over-exec path
+(`tar czf - | ssh … tar xzf -`, GNU tar confirmed present on the target) as a
+second strategy rather than replacing this one.
+
+**Operations:** `put_dir` and `get_dir`, mirroring `put`/`get`. `put_dir` is
+destructive and dry-runnable; the preview should report file count and total
+bytes, because that is what an operator needs to decide whether to proceed.
+
+**Constraints:**
+
+- **Preserve mode**, as `put` does — an uploaded script must stay executable.
+- **Refuse to follow symlinks out of the tree.** A link to `/etc/shadow` inside
+  a synced directory must not exfiltrate it.
+- Honour context cancellation between files, not just within one — a cancelled
+  transfer over a dead VPN must stop promptly.
+- Temp-and-rename per file, matching `put`, so an interrupted sync does not
+  leave a half-written file in place of a good one.
+
+**Acceptance:** a directory with nested subdirectories, an executable script and
+a symlink round-trips to muctlvaig and back byte-identical, modes intact, with
+the symlink not followed outside the tree. Clean up what the test writes.
+
+---
+
+## WP-10 — Prove `list_gateways` against the real gateway
+
+**Small, and it closes the last open question in the ContextForge story.**
+
+`list_gateways`, `list_virtual_servers` and `list_tools` have never run against
+a real gateway. Their mapping is unit-tested against a fake, and `get_health`
+works live, but the credentialed path is unproven.
+
+Nothing is blocked on code. WP-7 shipped the host secret channel, so this is now
+an operator action plus a verification:
+
+1. Obtain a ContextForge JWT. Per `tools/`, the token lives in the gateway
+   container's environment on muctlvaig; `cburks` is not in the `docker` group
+   there, so it comes from whoever administers that host or from the CF admin UI
+   at `http://127.0.0.1:14444/admin/` through the tunnel.
+2. Store it: go-keyring service `cerberus`, key `contextforge/token` — or a
+   `keychain://` reference under `contextforge` in
+   `~/.cerberus/connector-secrets.yaml`.
+3. `cerberus connectors plugin managed load contextforge` to pick it up;
+   secrets resolve at load, not per call.
+4. Run the three read operations and confirm the DTOs carry no credential
+   material from a gateway that really has `authToken` set — the test asserts it
+   against a fake, and this is the chance to confirm it against the real thing.
+
+**Acceptance:** `list_gateways` returns the real upstream registrations, and
+`missing_secrets` is empty in `plugin managed list`. If any response carries a
+credential, that is a defect in the DTO allow-list and takes priority over
+everything else in this file.
 
