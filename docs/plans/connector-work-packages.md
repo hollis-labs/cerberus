@@ -653,39 +653,104 @@ only unless explicitly cleared to write.
 
 ---
 
-## WP-5 — Azure plugin
+## WP-5 — Azure plugin *(read and probe only)*
 
-**Depends on WP-2. Live verification blocked on the box being provisioned.**
+**Scope decided 2026-09-17, narrowed from the original lifecycle plan.**
 
-**Where:** `hollis-labs/cerberus-plugins`, directory `azure/`.
+Cerberus is not taking over management of work infrastructure. An infrastructure
+team administers the Azure estate; the goal here is a tool that helps, not a
+control plane that owns. So this package implements **read and probe
+operations only**. Write operations are documented below and deliberately not
+built — see "Locked paths".
 
-**Shape:** follow `internal/connector/digitalocean/` — `Backend` interface, SDK
-behind it, secret provider, typed operations, `resource.Server` type — packaged
-as a plugin the way WP-4 establishes.
+**Where:** `hollis-labs/cerberus-plugins`, directory `azure/`. Follow the
+ContextForge plugin as the reference: `Backend` interface, SDK behind it,
+secrets through the host channel, DTOs per ADR 0003.
 
-**Library:** `github.com/Azure/azure-sdk-for-go`, `armcompute` for VMs.
+**Library:** `github.com/Azure/azure-sdk-for-go`. `azidentity`'s
+`AzureCLICredential` already works with no configuration — verified against the
+live subscription 2026-09-17.
 
-**Operations:** `list_vms`, `get_vm`, `start_vm`, `deallocate_vm` (destructive),
-`create_vm` (destructive + dry-run), `delete_vm` (destructive + dry-run).
+### What the environment actually is — probed, not assumed
 
-**The Azure-specific distinction DigitalOcean does not have:** *stopped* and
-*deallocated* are different states, and only deallocated stops compute billing.
-A `stop_vm` that leaves the VM allocated is a trap. Name the operations so the
-billing-relevant one is the obvious choice, and say so in the descriptions.
+The reachable subscription is `MCA-subscription-qualitymgmt`
+(`1010d0a6-b5f9-4da3-99a2-4dd5cd3ea136`), and it is **not a compute
+subscription**. Its entire resource inventory is:
 
-**Auth:** `azidentity`. The `az` CLI is installed and configured locally, so
-`AzureCLICredential` is the path of least resistance for a first cut;
-`DefaultAzureCredential` chains it. Do not build a credential story beyond what
-the secret provider and `azidentity` already give you.
+```
+1  Microsoft.CognitiveServices/accounts            PCB-Drawings-Extraction (AIServices, S0)
+1  Microsoft.CognitiveServices/accounts/projects
+```
 
-Build and unit-test against a fake `Backend` before the box exists, and mark
-live verification as pending rather than faking a result.
+with one model deployment:
 
-**Capture for provisioning day:** add the operator's user to the `docker` group
-on that box. It is greenfield, so this is free there, and it is what makes WP-3
-work without sudo — unlike muctlvaig.
+```
+Name             Model            Version   Sku
+claude-sonnet-5  claude-sonnet-5  2         GlobalStandard
+```
 
----
+Registered providers are Storage, KeyVault, CognitiveServices, DocumentDB,
+Search, Web, CostManagement, insights. **`Microsoft.Compute` and
+`Microsoft.Network` are both NotRegistered.**
+
+So a VM-shaped connector would have nothing to talk to. Build for what is there.
+
+### Operations
+
+All read-only, none destructive, none needing `--ack`:
+
+1. `list_subscriptions` / `get_subscription` — id, name, state, tenant
+2. `list_resource_groups` — name, location
+3. `list_resources` — type, name, resource group; the inventory above
+4. `list_ai_accounts` — Cognitive Services / AI Services accounts: name, kind,
+   sku, endpoint
+5. `list_model_deployments` — deployment name, model, version, sku. This is the
+   operationally interesting one: it answers "what models can we actually call,
+   at what version" without opening the portal, and it is adjacent to the agent
+   work the rest of the portfolio is about.
+
+**Never return a key.** Cognitive Services accounts have listable keys; the
+account DTO exposes the endpoint and whether keys exist, never a value. ADR 0003
+applies — and here the vendor type will hand you keys if you ask, so do not ask.
+
+### Locked paths — document, do not implement
+
+These are the operations the original brief called for. They are blocked, and
+the block is not a code problem:
+
+| Operation | Blocked by |
+|---|---|
+| `list_vms`, `get_vm` | `Microsoft.Compute` NotRegistered — no VMs can exist |
+| `start_vm`, `deallocate_vm` | same, plus needs Virtual Machine Contributor |
+| `create_vm`, `delete_vm` | same, plus `Microsoft.Network`, plus Contributor on a resource group |
+
+**What would unlock them**, for whoever picks this up later:
+
+- An admin runs `az provider register -n Microsoft.Compute` and
+  `-n Microsoft.Network` at subscription scope. Requires subscription
+  Contributor or Owner; there is no narrower built-in role that grants only
+  registration. Verified failing 2026-09-17:
+  `AuthorizationFailed … does not have authorization to perform action
+  'Microsoft.Compute/register/action'`.
+- **Contributor scoped to one resource group** for VM management.
+  `Virtual Machine Contributor` alone is *not* sufficient to create a VM — it
+  does not cover the VNet, NIC and public IP a new VM attaches to. Scoping to a
+  single resource group is what makes it least-privilege, not picking narrower
+  role names.
+- Note the governance question rather than assuming it away: this is a shared
+  quality-management subscription. Putting a persistent billable VM in it is a
+  decision for whoever owns it, and a sandbox subscription would be the better
+  home.
+
+Write these in the plugin's README as "not implemented, here is why", so the
+next person finds the reason instead of the gap.
+
+### Acceptance
+
+`cerberus connectors plugin managed exec azure list_model_deployments` returns
+the `claude-sonnet-5` deployment above, live. Account DTOs carry no key
+material, with a test asserting it the way `contextforge/dto_test.go` does.
+Unit tests run against a fake `Backend` with no network.
 
 ## WP-6 — Make docker resources real, and stop misreporting unsupervised kinds — DONE 2026-09-17
 

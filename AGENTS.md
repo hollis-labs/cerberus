@@ -137,6 +137,21 @@ ContextForge's `get_health` is open and must keep working while `list_gateways`
 Cerberus serves itself and, since the secret channel namespaces by connector id,
 would be handed that connector's credentials.
 
+## Work infrastructure is read-only
+
+An infrastructure team administers the Adtran estate. Cerberus is a tool that
+helps operate it, **not a control plane that owns it.** Connectors targeting
+work resources implement read and probe operations; lifecycle and write
+operations are documented as locked, with what would unlock them, rather than
+built speculatively.
+
+This is a scope decision, not a permissions workaround. Where a write operation
+is genuinely wanted later, the ask goes to the team that owns the resource.
+
+The exceptions already in place are deliberate and narrow: the local dev
+services in `~/.cerberus/config.yaml`, and `muctlvaig` reached over SSH as the
+operator's own account.
+
 ## Boundaries
 
 **Never set `port: 0`.** `lsof -ti :0` returns arbitrary system PIDs, read as a
