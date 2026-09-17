@@ -138,6 +138,36 @@ func (r *Registry) IDs() []string {
 	return out
 }
 
+// BuiltInIDs returns every connector id this binary serves itself, whether it
+// was registered as an instance, a lazy factory, or a definition only. It is
+// the set a plugin may not claim: a plugin taking one of these ids shadows a
+// connector the control plane is built on.
+//
+// Derived rather than hardcoded so it shrinks on its own. When cloudflare moves
+// out to a plugin it stops being registered here, and a cloudflare plugin
+// becomes installable the same day.
+func (r *Registry) BuiltInIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	seen := make(map[string]bool, len(r.connectors)+len(r.factories)+len(r.definitions))
+	for id := range r.connectors {
+		seen[id] = true
+	}
+	for id := range r.factories {
+		seen[id] = true
+	}
+	for id := range r.definitions {
+		seen[id] = true
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Definitions returns discovery metadata for connectors that expose it.
 func (r *Registry) Definitions() []contract.Definition {
 	r.mu.RLock()
