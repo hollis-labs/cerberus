@@ -803,6 +803,9 @@ func summarizeRuntime(resources []cerbapi.ResourceHealth) overviewRuntimeDTO {
 	out := overviewRuntimeDTO{}
 	for _, resource := range resources {
 		status := strings.ToLower(resource.Status)
+		if status == cerbapi.UnsupervisedStatus {
+			continue
+		}
 		switch {
 		case resource.OperatorStopped || status == "stopped":
 			out.Stopped++
@@ -821,6 +824,12 @@ func summarizeResourceInfos(resources []cerbapi.ResourceInfo) overviewRuntimeDTO
 	out := overviewRuntimeDTO{}
 	for _, resource := range resources {
 		status := strings.ToLower(resource.Status)
+		// An unsupervised resource is not a workload this tally is counting.
+		// The default arm below is "stopped", so leaving it in would report a
+		// working ssh or docker handle as a stopped service.
+		if status == cerbapi.UnsupervisedStatus {
+			continue
+		}
 		switch {
 		case resource.OperatorStopped || status == "stopped":
 			out.Stopped++
