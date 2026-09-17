@@ -1226,7 +1226,12 @@ between files as well as within one. Those are the properties a general-purpose
 "copy a directory" helper tends not to have, and they are exactly what makes it
 safe to point at a real host.
 
-**Use `pkg/sftp`, already a dependency.** It has the primitives: `Walk`,
+**The sync logic is being built as a standalone library**,
+`hollis-labs/go-sftpsync` — see `docs/prompts/build-go-sftpsync.md`. WP-9 becomes
+a thin connector binding once it lands: resolve the target, call the library,
+map its result onto the operation response. Do not reimplement the walk here.
+
+**It is built on `pkg/sftp`, already a dependency.** It has the primitives: `Walk`,
 `ReadDir`, `MkdirAll`, `Chtimes`. Recursion is ours to write, which is a real
 cost, but it keeps one transport, one auth path, and no remote dependency.
 
