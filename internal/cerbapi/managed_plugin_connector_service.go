@@ -30,6 +30,7 @@ type ManagedPluginConnectorService struct {
 	statePath   string
 	records     map[string]pluginConnectorPersistedEntry
 	warn        io.Writer
+	reservedIDs []string
 
 	// unrestored holds entries whose plugin directory could not be restored at
 	// startup. They are kept so persist() does not silently drop a registration
@@ -42,7 +43,8 @@ type ManagedPluginConnectorService struct {
 type ManagedPluginOption func(*managedPluginConfig)
 
 type managedPluginConfig struct {
-	secrets pluginhost.SecretResolver
+	secrets     pluginhost.SecretResolver
+	reservedIDs []string
 }
 
 // WithManagedPluginSecrets hands the managed plugin host the same secret
@@ -51,6 +53,18 @@ type managedPluginConfig struct {
 // docs/secrets.md describes. Without it plugins load with no credentials.
 func WithManagedPluginSecrets(resolver pluginhost.SecretResolver) ManagedPluginOption {
 	return func(c *managedPluginConfig) { c.secrets = resolver }
+}
+
+// WithManagedPluginReservedIDs names the connector ids the host serves itself.
+// A plugin claiming one is refused at install rather than being allowed into
+// the inventory to shadow a built-in. Pass Registry.BuiltInIDs().
+//
+// Only the managed lane takes this. `connectors plugin exec` installs into a
+// throwaway host for one call and registers nothing, so it cannot shadow
+// anything — and refusing there would break the docker prototype that exists to
+// demonstrate plugin authoring against a built-in's shape.
+func WithManagedPluginReservedIDs(ids ...string) ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.reservedIDs = append(c.reservedIDs, ids...) }
 }
 
 func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, statePath string, opts ...ManagedPluginOption) (*ManagedPluginConnectorService, error) {
@@ -63,6 +77,7 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 		statePath:   statePath,
 		records:     make(map[string]pluginConnectorPersistedEntry),
 		warn:        stderr,
+		reservedIDs: cfg.reservedIDs,
 	}
 	service.manager = pluginhost.NewManager(
 		nil,
@@ -284,6 +299,7 @@ func (s *ManagedPluginConnectorService) install(pluginDir string, trust PluginCo
 		CatalogSigned: trust.CatalogSigned,
 		ArchiveSHA256: trust.ArchiveSHA256,
 		ArchiveSigned: trust.ArchiveSigned,
+		ReservedIDs:   s.reservedIDs,
 	}
 	installed, err := installer.Install(context.Background(), pluginDir)
 	if err != nil {

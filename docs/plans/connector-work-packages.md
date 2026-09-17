@@ -614,13 +614,33 @@ Two decisions worth knowing before building on this:
   `cerberus connectors plugin managed load <id>` to see a new one. `managed
   list` reports `missing_secrets` so that state is visible rather than inferred.
 
-One trap found live, worth remembering for any new operator-facing message:
+**A plugin may not claim a built-in's id.** `DirectoryInstaller.ReservedIDs`
+refuses the install, and the daemon fills it from `Registry.BuiltInIDs()` — the
+union of instances, factories and definitions, derived so the set shrinks on its
+own when `cloudflare` migrates out. WP-0's fallback stays as the safety net for
+an inventory registered before the guard existed: restore skips such an entry
+with a warning and keeps the registration rather than dropping it.
+
+Only the managed lane reserves ids. `connectors plugin exec` installs into a
+throwaway host for one call and registers nothing, so it cannot shadow anything
+— and refusing there would break `cerberus connectors write-plugin-prototype
+docker`, which exists to demonstrate authoring against a built-in's shape.
+
+Two traps found live, worth remembering for any new operator-facing message:
 **`redact.Text` eats its own guidance.** "missing credential token: set
 CERBERUS_X_TOKEN" parses as an assignment to a key named `token` and arrives as
 "missing credential token: [REDACTED] CERBERUS_X_TOKEN". Do not put an
 assignment separator after a word like token/secret/key in a message meant to
 instruct. `TestManagerLoadsWithoutRequiredSecret` asserts the message survives
 redaction.
+
+The second is the same rule one layer up: **`redact.Marshal` redacts a
+names-only field too.** `missing_secrets` matches `SensitiveKey` on the word
+SECRET, so the list of names an operator needs came back as `["[REDACTED]"]` —
+a field whose entire job is to answer "which one?" refusing to say which one.
+`redact.NamesOnlyKey` is the allow-list; add to it only for a field that is
+structurally incapable of holding a value, and note it suppresses a key's own
+contribution to hiding, never an inherited one.
 
 ### Verified live, and what was not
 
