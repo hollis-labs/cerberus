@@ -270,6 +270,35 @@ than per process, so one daemon can talk to several hosts.
 - Surface the target host in errors. "connection refused" with no host named is
   the failure mode to avoid.
 
+### Ground already covered, verified 2026-09-17
+
+**`CLIBackend.run` sets no `cmd.Env`**, so every `docker` invocation inherits the
+daemon's environment:
+
+```go
+cmd := exec.CommandContext(ctx, c.dockerPath, args...)
+```
+
+Setting a per-operation `DOCKER_HOST` means setting `cmd.Env` — and **`cmd.Env`
+replaces rather than extends**. `cmd.Env = []string{"DOCKER_HOST=…"}` would strip
+`HOME` and break docker's own config and credential lookup. Use
+`append(os.Environ(), "DOCKER_HOST="+host)`.
+
+**The daemon's environment has what `ssh://` needs**, which was not obvious:
+
+```
+HOME=/Users/cburks   USER=cburks   SSH_AUTH_SOCK=/private/tmp/com.apple.launchd…
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+```
+
+So `~/.ssh/config` is readable, the agent socket is present, and docker's ssh
+transport shells out to `/usr/bin/ssh`, which is on that minimal PATH. The
+daemon already reaches muctlvaig — `cerberus ssh status muctlvaig` returns
+`reachable: true` from the daemon, not just from a shell.
+
+Binary discovery is solved; `DetectDocker` and `CERBERUS_DOCKER_PATH` already
+landed. Do not re-litigate it.
+
 **Known constraint — verify, do not assume:** `cburks` is not in the `docker`
 group on muctlvaig. Confirmed 2026-09-16:
 
