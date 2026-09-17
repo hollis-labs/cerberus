@@ -2,11 +2,14 @@
 
 ## Status
 
-Accepted
+Accepted. Amended 2026-09-17 — see "How to write the mapping", added after the
+question came up of whether a Go DTO library should be adopted. The decision is
+unchanged; the amendment records how to implement it, and which tools not to
+reach for.
 
 ## Date
 
-2026-09-16
+2026-09-16 (amended 2026-09-17)
 
 ## Context
 
@@ -76,6 +79,72 @@ so output is safe to paste into a document.
 Each connector that returns credential-adjacent data carries a test asserting
 that a populated secret field does not appear in the serialized response.
 
+## How to write the mapping
+
+*Added 2026-09-17.*
+
+There is no standard Go DTO library, and that absence is not a gap to fill. The
+idiom is a plain struct with json tags plus an explicit mapping function — which
+is what the ContextForge and Azure connectors already do:
+
+```go
+type Gateway struct { ... }                        // the DTO: an allow-list
+func GatewayFromSDK(g *cf.Gateway) Gateway { ... }  // the mapping: the boundary
+```
+
+`encoding/json` covers serialization. The transformation half is hand-written,
+on purpose.
+
+### Do not use a reflection-based mapper for a boundary DTO
+
+`jinzhu/copier`, `dranikpg/dto-mapper` and similar map fields by name at
+runtime. The objection is specific rather than stylistic.
+
+This ADR's whole claim is that **the mapping function is the security boundary
+and should read like one.** A reflection mapper deletes that artifact. Exposure
+stops being something a reviewer sees in a diff and becomes a property of
+whether two field names happened to match. The allow-list may still hold — a DTO
+with only safe fields copies only safe fields — but the reviewable moment is
+gone, and this boundary exists precisely so that a vendor adding a credential
+field in a minor release cannot widen our output without someone noticing.
+
+**The boilerplate is the feature.** A mapping function is tedious to write once
+and cheap to review forever.
+
+`jmattheis/goverter` is the closest fit of the generators: it emits explicit
+mapping code at build time, so compile-time checking and a readable artifact
+both survive. But it is built for "map everything, report what is unmapped," and
+an allow-list DTO deliberately ignores most of the vendor type. Using it here
+means fighting the tool with ignore directives.
+
+`go-viper/mapstructure` is a different job entirely — `map[string]any` to
+struct, for decoding configuration. It is not a DTO mapper and should not be
+reached for as one.
+
+### Where a mapper is fine
+
+Not every DTO is a boundary. Internal reshaping with no credentials in scope —
+view models, response shaping, test fixtures — is where a generator earns its
+keep, and hand-writing fifty field assignments there is waste.
+
+**The rule: explicit mapping when the DTO exists to *exclude* something;
+codegen when it exists to *reshape* something.**
+
+### Why a vendor struct cannot be fixed in place
+
+An obvious-seeming alternative is to tag the offending fields `json:"-"` and
+return the vendor type. It does not work: the tags belong to the vendor, in
+their module, and change on their release schedule. That is the mechanical
+reason a separate type is required rather than a matter of taste.
+
+### For other projects
+
+The portable form of this, worth carrying wherever these DTOs are encouraged:
+
+> A type that crosses a trust boundary gets its own struct and its own mapping
+> function. Reflection-based mappers are fine for reshaping, never for
+> excluding.
+
 ## Implications
 
 ### For new connectors
@@ -131,3 +200,7 @@ boundary.
   instance of this, including the specific fields to drop.
 - `docs/secrets.md` — how a resource names a credential without carrying one.
   This ADR is the read path; that document is the write path.
+- Worked examples of the mapping as a boundary:
+  `contextforge/internal/cfplugin/dto.go` and `azure/internal/azplugin/dto.go`
+  in `hollis-labs/cerberus-plugins`, each with a test asserting that a fully
+  populated credential does not serialize.
