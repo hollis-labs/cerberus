@@ -83,6 +83,14 @@ the host derives tool names, so a plugin does not touch any of the five.
 - **Never log or return a secret value.** Follow the `probe-*` convention from
   `~/Projects/tools`: environment variable *names*, never values. Error paths go
   through `redact.Text`.
+- **Do not write the word "bearer" followed by a word in an error message.**
+  `redact.Text` rewrites `/(?i)\bBearer[ \t]+[a-z0-9._~+/=-]+/` to
+  `Bearer [REDACTED]` on every error path, and it cannot tell a credential from
+  prose. WP-4 hit this: a 401 message explaining that ContextForge accepts a
+  bearer JWT only reached the operator as "accepts a Bearer [REDACTED] only" —
+  the redactor destroyed the very instruction meant to fix the error. Word auth
+  guidance around the pattern ("requires a JWT"), and if the message matters,
+  assert in a test that it does not match the redaction regex.
 - **Return a Cerberus DTO, never a vendor SDK type** — see
   `docs/adr/0003-connector-response-dtos.md`. The DTO is an allow-list, so a
   vendor adding a credential field in a minor release cannot silently widen our
