@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -15,20 +17,68 @@ type CLIBackend struct {
 	dockerPath string
 }
 
-// DetectDocker returns the path to the docker binary and whether it was found.
-func DetectDocker() (string, bool) {
-	path, err := exec.LookPath("docker")
-	if err != nil {
-		return "", false
-	}
-	return path, true
+// DockerPathEnv overrides docker binary discovery entirely.
+const DockerPathEnv = "CERBERUS_DOCKER_PATH"
+
+// fallbackDockerPaths are searched when `docker` is not on PATH. The daemon is
+// started by launchd, which hands it PATH=/usr/bin:/bin:/usr/sbin:/sbin — so
+// Docker Desktop's CLI at /usr/local/bin/docker is invisible to it even though
+// it resolves fine in an interactive shell. Without these the connector fails
+// on a machine where docker plainly works.
+var fallbackDockerPaths = []string{
+	"/usr/local/bin/docker",
+	"/opt/homebrew/bin/docker",
+	"/usr/bin/docker",
+	"~/.docker/bin/docker",
+	"/Applications/Docker.app/Contents/Resources/bin/docker",
 }
 
-// NewCLIBackend creates a CLIBackend after verifying that docker is available in PATH.
+// DetectDocker returns the path to the docker binary and whether it was found.
+// PATH wins; the fallbacks only cover a caller whose PATH is not a user shell's.
+func DetectDocker() (string, bool) {
+	if override := strings.TrimSpace(os.Getenv(DockerPathEnv)); override != "" {
+		if executableFile(override) {
+			return override, true
+		}
+		return "", false
+	}
+	if path, err := exec.LookPath("docker"); err == nil {
+		return path, true
+	}
+	for _, candidate := range fallbackDockerPaths {
+		if strings.HasPrefix(candidate, "~/") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				continue
+			}
+			candidate = filepath.Join(home, candidate[2:])
+		}
+		if executableFile(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// executableFile reports whether path is a regular file with an execute bit.
+// A symlink is followed — Docker Desktop installs /usr/local/bin/docker as one.
+func executableFile(path string) bool {
+	// path is either a compiled-in fallback or the operator's own
+	// CERBERUS_DOCKER_PATH, same trust level as a config-supplied key file — it
+	// is never external input.
+	info, err := os.Stat(path) //nolint:gosec // operator-configured path, not external input
+
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return info.Mode().Perm()&0o111 != 0
+}
+
+// NewCLIBackend creates a CLIBackend after locating the docker CLI.
 func NewCLIBackend() (*CLIBackend, error) {
 	path, found := DetectDocker()
 	if !found {
-		return nil, fmt.Errorf("docker CLI not found in PATH")
+		return nil, ErrDockerNotFound
 	}
 	return &CLIBackend{dockerPath: path}, nil
 }

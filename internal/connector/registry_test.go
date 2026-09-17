@@ -171,3 +171,56 @@ func TestConnectorFactoryDoesNotCacheMissingOrRotatedCredentials(t *testing.T) {
 		t.Fatalf("lost operation context: %v", err)
 	}
 }
+
+// Probe must not be satisfied by registration alone. A registered factory that
+// cannot construct — a missing docker binary, an unset API token — is exactly
+// the case where Configured says yes and every real operation fails, which is
+// how the LIVE column came to disagree with reality.
+func TestProbeFailsForUnconstructableFactory(t *testing.T) {
+	r := NewRegistry()
+	def := contract.Definition{ID: "docker"}
+	wantErr := errors.New("docker CLI not found")
+	r.RegisterFactory(def, func(context.Context) (contract.Connector, error) {
+		return nil, wantErr
+	})
+
+	if !r.Configured("docker") {
+		t.Fatal("Configured should report a registered factory")
+	}
+	if err := r.Probe(context.Background(), "docker"); !errors.Is(err, wantErr) {
+		t.Fatalf("Probe error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestProbeSucceedsForConstructableFactory(t *testing.T) {
+	r := NewRegistry()
+	def := contract.Definition{ID: "docker"}
+	r.RegisterFactory(def, func(context.Context) (contract.Connector, error) {
+		return &stubConnector{id: "docker"}, nil
+	})
+
+	if err := r.Probe(context.Background(), "docker"); err != nil {
+		t.Fatalf("Probe returned %v, want nil", err)
+	}
+}
+
+// Each call reruns the factory, so a connector that becomes available later is
+// picked up without a daemon restart.
+func TestProbeRerunsFactoryEachCall(t *testing.T) {
+	r := NewRegistry()
+	available := false
+	r.RegisterFactory(contract.Definition{ID: "docker"}, func(context.Context) (contract.Connector, error) {
+		if !available {
+			return nil, errors.New("docker CLI not found")
+		}
+		return &stubConnector{id: "docker"}, nil
+	})
+
+	if err := r.Probe(context.Background(), "docker"); err == nil {
+		t.Fatal("Probe succeeded before the connector was available")
+	}
+	available = true
+	if err := r.Probe(context.Background(), "docker"); err != nil {
+		t.Fatalf("Probe still failing after the connector became available: %v", err)
+	}
+}

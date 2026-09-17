@@ -73,6 +73,8 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 		return decodePayload[*nc.DomainNameserverUpdate](raw)
 	case "ssh/exec":
 		return decodePayload[*ssh.ExecResult](raw)
+	case "ssh/put", "ssh/get":
+		return decodePayload[*ssh.TransferResult](raw)
 	case "docker/logs", "forge/get_deployment_script", "ssh/status", "docker/status", "digitalocean/status":
 		return decodePayload[string](raw)
 	default:

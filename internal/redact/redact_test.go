@@ -85,3 +85,36 @@ func TestKnownValuesAndErrors(t *testing.T) {
 		t.Fatal("reference was hidden")
 	}
 }
+
+// A safety net that eats the instruction is worse than no instruction: the
+// ContextForge plugin's 401 guidance came back as "accepts a Bearer [REDACTED]
+// only", which told the operator nothing about what to do.
+func TestTextKeepsBearerGuidanceReadable(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{"ContextForge accepts a Bearer JWT only", "ContextForge accepts a Bearer JWT only"},
+		{"use Bearer auth", "use Bearer auth"},
+		{"the gateway wants a Bearer token", "the gateway wants a Bearer token"},
+		{"supply Bearer credentials", "supply Bearer credentials"},
+	} {
+		if got := Text(tt.in); got != tt.want {
+			t.Errorf("Text(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// Loosening the rule must not let a real credential through.
+func TestTextStillRedactsBearerTokens(t *testing.T) {
+	for _, in := range []string{
+		"Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc-def",
+		"Bearer sk-ant-0123456789abcdef0123",
+		"Bearer abc123",                   // short, but not a word
+		"Bearer a1b2c3",                   // digits mixed in
+		"Bearer abcdefghijklmnopqrstuvwx", // 24 letters: long enough to be a token
+		"bearer CAFEBABEDEADBEEF0123",
+	} {
+		got := Text(in)
+		if !strings.Contains(got, Marker) {
+			t.Errorf("Text(%q) = %q, expected redaction", in, got)
+		}
+	}
+}

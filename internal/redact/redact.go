@@ -8,13 +8,14 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 const Marker = "[REDACTED]"
 
 var (
 	privateKey  = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`)
-	bearer      = regexp.MustCompile(`(?i)\bBearer[ \t]+[a-z0-9._~+/=-]+`)
+	bearer      = regexp.MustCompile(`(?i)\bBearer[ \t]+([a-z0-9._~+/=-]+)`)
 	providerKey = regexp.MustCompile(`\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16})\b`)
 	assignment  = regexp.MustCompile(`(?i)(["']?[a-z0-9_.-]*(?:api[_-]?key|token|secret|password|passwd|passcode|private[_-]?key|credentials?|authorization|cookie)[a-z0-9_.-]*["']?\s*(?:=>|=|:)\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;&<>]+)`)
 	flag        = regexp.MustCompile(`(?i)(--?[a-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|private[_-]?key|credentials?)[a-z0-9_-]*(?:=|[ \t]+))("[^"\n]*"|'[^'\n]*'|[^\s,;<>]+)`)
@@ -23,6 +24,32 @@ var (
 	plistArg    = regexp.MustCompile(`(?s)<string>(.*?)</string>`)
 	plistValue  = regexp.MustCompile(`(?s)(<key>([^<]+)</key>\s*<string>)(.*?)(</string>)`)
 )
+
+// looksLikeToken reports whether the text following "Bearer" is plausibly a
+// credential rather than an ordinary word.
+//
+// The rule exists because redacting everything after "Bearer" destroyed the
+// guidance that tells an operator what to do: "accepts a Bearer JWT only"
+// became "accepts a Bearer [REDACTED] only", and "use Bearer auth" became "use
+// Bearer [REDACTED]". A safety net that eats the instruction is worse than no
+// instruction.
+//
+// A credential is either long, or contains something other than letters —
+// digits, dots, dashes, underscores, base64 padding. Words like "JWT", "auth",
+// "token" and "credentials" are short and purely alphabetic and are left alone.
+// The realistic leak, `Authorization: Bearer <token>`, is matched here and is
+// additionally covered by the assignment rule on "authorization".
+func looksLikeToken(value string) bool {
+	if len(value) >= 20 {
+		return true
+	}
+	for _, r := range value {
+		if !unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
+}
 
 func IsReference(value string) bool {
 	return strings.HasPrefix(value, "keychain://") || strings.HasPrefix(value, "helper://")
@@ -74,7 +101,13 @@ func (r Redactor) Text(value string) string {
 	}
 	value = privateKey.ReplaceAllString(value, Marker)
 	value = providerKey.ReplaceAllString(value, Marker)
-	value = bearer.ReplaceAllString(value, "Bearer "+Marker)
+	value = bearer.ReplaceAllStringFunc(value, func(match string) string {
+		parts := bearer.FindStringSubmatch(match)
+		if !looksLikeToken(parts[1]) {
+			return match
+		}
+		return "Bearer " + Marker
+	})
 	value = userinfo.ReplaceAllString(value, "${1}"+Marker+"@")
 	for _, pattern := range []*regexp.Regexp{assignment, flag} {
 		value = pattern.ReplaceAllStringFunc(value, func(match string) string {
