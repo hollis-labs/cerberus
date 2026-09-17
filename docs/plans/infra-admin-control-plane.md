@@ -331,11 +331,23 @@ without sudo.
 On `go-contextforge`, behind a `Backend` interface, JWT from the existing
 secret provider (`keychain://`), configurable base URL.
 
-### 5. Azure connector
+### 5. Azure connector — DONE 2026-09-17, read and probe only
 
-On the DigitalOcean shape: `Backend` interface, SDK, secret provider, typed
-operations. Worth it primarily for VM start/stop — deallocated Azure VMs stop
-billing compute, so this is real cost control, not just convenience.
+Shipped as a plugin in `hollis-labs/cerberus-plugins` (`azure/`), on the
+DigitalOcean shape: `Backend` interface, SDK behind it, secrets through the host
+channel, DTOs per ADR 0003.
+
+**The premise of this item was wrong and probing killed it.** "Worth it
+primarily for VM start/stop" assumed a compute subscription. The only reachable
+subscription has `Microsoft.Compute` and `Microsoft.Network` both
+`NotRegistered`, so no VM can exist there to start or stop, and registering a
+provider needs subscription Contributor. What is actually there is one AI
+Services account and its model deployments — so that is what the connector
+reads. See WP-5 in `connector-work-packages.md` for the operations, the locked
+VM paths and what would unlock them.
+
+The cost-control argument still holds; it just has no target on this
+subscription. It belongs to whichever subscription the Azure dev box lands in.
 
 ### 6. Tunnels as managed resources — DONE 2026-09-16
 

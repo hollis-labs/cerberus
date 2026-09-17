@@ -157,7 +157,7 @@ package needs a real write to prove itself, write to a scratch path under
 
 ```
 WP-0 plugin gaps           DONE
-WP-2 pkg/plugin promotion  DONE ──► WP-4 ContextForge  DONE ──► WP-7 DONE ──► WP-5 Azure
+WP-2 pkg/plugin promotion  DONE ──► WP-4 ContextForge  DONE ──► WP-7 DONE ──► WP-5 Azure DONE
 WP-1 dry-run extraction    ──► WP-3 remote docker DONE ──► WP-6 docker resources DONE
                                (WP-1 was skipped, never blocking; still open)
 
@@ -662,7 +662,7 @@ only unless explicitly cleared to write.
 
 ---
 
-## WP-5 — Azure plugin *(read and probe only)*
+## WP-5 — Azure plugin *(read and probe only)* — DONE 2026-09-17
 
 **Scope decided 2026-09-17, narrowed from the original lifecycle plan.**
 
@@ -760,6 +760,93 @@ next person finds the reason instead of the gap.
 the `claude-sonnet-5` deployment above, live. Account DTOs carry no key
 material, with a test asserting it the way `contextforge/dto_test.go` does.
 Unit tests run against a fake `Backend` with no network.
+
+### What shipped
+
+`hollis-labs/cerberus-plugins`, directory `azure/` — the second plugin in that
+repo, so it also proves the layout generalises. Registered in the root
+`Makefile`, the CI matrix and the repo README.
+
+Six read-only operations: the five above, with `get_subscription` split out from
+`list_subscriptions` because they answer different questions. `get_subscription`
+with no argument resolves the subscription every other operation will act on,
+which is the cheapest way to confirm *which estate* Cerberus is reading before
+wondering why a resource is missing. `subscription_id` is accepted by every
+operation, so reading a second subscription needs no config change.
+
+Nothing is `Destructive` and nothing `SupportsDry`, and a test asserts that
+rather than leaving it to review — this connector's read-only scope is the whole
+point of the package, so it should fail a build, not a code review.
+
+The `Backend` interface returns Cerberus DTOs rather than vendor types, copying
+what WP-4 concluded: `arm*` appears in exactly two files and a connector
+operation *structurally cannot* return a credential-bearing struct.
+
+Authentication is the signed-in Azure CLI user by default — no stored credential
+at all. A service principal is supported through `tenant_id`/`client_id` config
+and a `client_secret` declared in the manifest and resolved by the host secret
+channel WP-7 built. A **half**-configured service principal is refused at load
+rather than falling back silently: reading the estate as an unexpected identity
+is worse than not reading it.
+
+### `az` is not on the daemon's PATH, and azidentity has no lever but PATH
+
+The one real trap in this package, and it is the `AGENTS.md` Docker-connector
+rule almost exactly.
+
+`AzureCLICredential` authenticates by shelling out to `az`. Verified on this
+machine: the daemon's environment is `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, a
+plugin subprocess inherits precisely that through `pluginLaunchEnv()`, and
+Homebrew's `az` is at `/opt/homebrew/bin/az`. So the credential that "works with
+no configuration" in a terminal fails under the daemon — which is where every
+real call happens.
+
+`AzureCLICredentialOptions` has no field for the binary's location. The only
+lever is `PATH`. The plugin therefore searches a fallback list and prepends the
+directory it finds to its own `PATH`, **on every credential build rather than
+once at boot**, and returns the failure rather than remembering it. Caching that
+one failure is what let the Docker connector report itself healthy for a
+daemon's lifetime.
+
+Anything else that grows an Azure operation inherits this: assume no developer
+tool is on `PATH`.
+
+### `managed load` does not restart a running plugin subprocess
+
+Rebuilding `dist/` and running `cerberus connectors plugin managed load azure`
+leaves the *already running* subprocess in place, so the next `exec` is served by
+the old binary. The symptom is an error message you just fixed coming back
+verbatim. `unload` then `load`.
+
+### Verified 2026-09-17
+
+Installed unsigned from `dist/azure`, loaded into the running daemon, and every
+operation executed live against `MCA-subscription-qualitymgmt`:
+
+- `list_model_deployments` returns the `claude-sonnet-5` GlobalStandard
+  deployment, version 2, capacity 5000 — the acceptance criterion, through the
+  daemon socket, which means the PATH repair above is exercised for real.
+- `list_subscriptions`, `get_subscription`, `list_resource_groups` (5 groups),
+  `list_resources` (the 2 resources above) and `list_ai_accounts` all return.
+- `managed health azure` → `azure cli credential reads subscription
+  MCA-subscription-qualitymgmt (1010d0a6…), state Enabled`.
+- `cerberus connectors list` shows `azure  server  yes  6`.
+- Error paths: an unknown account answers `no AI account named "nope" …
+  Accounts present: PCB-Drawings-Extraction`; a bad subscription answers
+  `not found (404, SubscriptionNotFound)` and points at `list_subscriptions`
+  rather than at a listing that needs a good subscription to run.
+- `Microsoft.Compute` and `Microsoft.Network` re-confirmed `NotRegistered`, so
+  the locked paths above are still locked.
+
+41 unit tests, all against a fake `Backend`; no test touches Azure. Among them:
+an account populated with every credential the vendor type can hold serializes
+none of them, and the recovery instructions in the error paths survive the two
+`redact.Text` patterns that have eaten guidance before.
+
+**Not verified:** the service principal path. No service principal exists to test
+against, and creating one is a write against a subscription we do not own. The
+code path is unit-tested for selection and refusal; its first live use will be
+its first live use.
 
 ## WP-6 — Make docker resources real, and stop misreporting unsupervised kinds — DONE 2026-09-17
 
