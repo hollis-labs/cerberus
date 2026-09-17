@@ -75,9 +75,18 @@ make lint        # go vet, golangci-lint, staticcheck, errcheck, govulncheck
 make typecheck   # web/ TypeScript
 ```
 
-Use `make all`, not `make build`, whenever `web/` changes: the console is
-`go:embed`-ed from `internal/webui/dist`, which is gitignored, so a plain build
-embeds whatever bundle is sitting there.
+**A fresh checkout does not compile.** `internal/webui/dist` is gitignored and
+`internal/webui/server.go` has `//go:embed all:dist`, which is a compile-time
+error when the pattern matches nothing:
+
+```
+internal/webui/server.go:27:12: pattern all:dist: no matching files found
+```
+
+So `go build`, `make test` and therefore lefthook's pre-push hook all fail on a
+clone until `make all` has produced the bundle once. Run `make all` first. After
+that the milder rule applies: use `make all`, not `make build`, whenever `web/`
+changes, or a plain build embeds whatever bundle is sitting there.
 
 Lefthook is the gate; there is no CI. Pre-commit runs gofmt/goimports,
 `golangci-lint --new` and `go vet` on staged Go, pre-push the full `go test`.
@@ -198,11 +207,20 @@ search locations, and per-call resolution over boot-time resolution.
 
 **Redaction runs over operator-facing error text, and it cannot read.**
 `redact.Text` rewrites anything that parses as a credential on every error path.
-It has eaten its own guidance four times: `Bearer JWT` became `Bearer
+It has eaten its own guidance six times: `Bearer JWT` became `Bearer
 [REDACTED]`, `set CERBERUS_..._TOKEN` was swallowed as an assignment, and a
 names-only `missing_secrets` field came back as `["[REDACTED]"]`. The redactor
 has since learned to leave a non-token-shaped word after `Bearer` alone and to
-skip fields that carry names by construction. The rule that remains: **do not
+skip fields that carry names by construction.
+
+**Two live defects remain**, found by the capability audit and confirmed: the
+`assignment` rule eats the word following the error code `credential_missing:`
+— including the verb `reload` in a recovery instruction — and the `flag` rule
+eats the word after `X-API-Key`, because that internal hyphen satisfies its
+`--?` prefix. Neither is the `Bearer` case, which is genuinely fixed; these were
+layered on top of it. Note also that redaction has no owning capability: it sits
+on every surface's error path and therefore in no area's territory, which is why
+each area saw only the damage visible from where it stood. The rule that remains: **do not
 run redaction over a value that is a name by construction**, and if an error
 message carries a recovery instruction, add a test that it survives `redact.Text`
 intact. A safety net that eats the instruction is worse than no instruction.
@@ -224,9 +242,19 @@ directory layout. `dir:` is a literal path with no interpolation or override,
 so **those descriptors are not registered and editing them changes nothing that
 runs here.** Treat them as templates, not as live configuration.
 
-The daemon itself is likewise not Cerberus-managed on this machine: it runs
-from a hand-written `~/Library/LaunchAgents/com.fragments-engine.cerberus.plist`
-with no `EnvironmentVariables`.
+The daemon itself is likewise not Cerberus-managed as a resource. It runs from
+`~/Library/LaunchAgents/com.fragments-engine.cerberus.plist`, which is **not
+hand-written** — it is byte-identical to what `cerberus install` emits from
+`launchdPlistTemplate` in `cmd/cerberus/cmd_install.go`, and that template
+declares no `EnvironmentVariables` at all.
+
+That makes the minimal-PATH problem above a property of the shipped installer
+rather than an artifact of this machine: **every `cerberus install` anywhere
+produces a daemon that cannot find `go`.** The inconsistency is visible in our
+own code — `internal/connector/local/launchd.go` emits `EnvironmentVariables`
+for managed resources, so Cerberus knows how to give a launchd job an
+environment and simply does not do it for its own daemon. The `DetectDocker`
+fallback paths fixed the Docker symptom; the general case stands.
 
 Verify before assuming — `cerberus resource list` and `cerberus project list`
 report what is actually registered.
