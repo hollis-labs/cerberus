@@ -65,6 +65,24 @@ func SensitiveKey(key string) bool {
 	return key == "TOKEN" || strings.HasSuffix(key, "TOKEN")
 }
 
+// namesOnlyKeys are fields whose values are credential *names*, never credential
+// values. They exist to tell an operator which credential is missing, and
+// SensitiveKey matches them on the very word that makes them useful:
+// "missing_secrets" contains SECRET, so a list of names came out as
+// ["[REDACTED]"] — an answer to "which one?" that refuses to say which one.
+//
+// Add a key here only when the field is structurally incapable of holding a
+// value. A field that *might* carry one belongs nowhere near this list.
+var namesOnlyKeys = map[string]bool{
+	"missing_secrets": true,
+}
+
+// NamesOnlyKey reports whether a JSON key carries credential names rather than
+// credential values, and so must survive redaction intact.
+func NamesOnlyKey(key string) bool {
+	return namesOnlyKeys[strings.ToLower(strings.TrimSpace(key))]
+}
+
 type Redactor struct{ values []string }
 
 // New also removes known credential values when they appear without a label.
@@ -263,7 +281,10 @@ func walk(value any, hide, schema bool) any {
 					}
 				}
 			}
-			v[key] = walk(item, hide || SensitiveKey(key), schema || strings.HasSuffix(key, "_schema"))
+			// A names-only key suppresses only its own contribution to hide.
+			// An inherited hide still wins: a names-only field nested under
+			// something already hidden stays hidden.
+			v[key] = walk(item, hide || (SensitiveKey(key) && !NamesOnlyKey(key)), schema || strings.HasSuffix(key, "_schema"))
 		}
 	case []any:
 		for i, item := range v {

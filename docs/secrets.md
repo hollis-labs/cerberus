@@ -97,4 +97,6 @@ Values are resolved at load and handed over in `plugin/init`. Unlike a built-in
 connector, which resolves per call, a plugin does not see a credential added or
 rotated afterwards until it is reloaded:
 `cerberus connectors plugin managed load <id>`. `cerberus connectors plugin
-managed list` reports `missing_secrets` for a plugin that loaded without one.
+managed list` reports `missing_secrets` for a plugin that loaded without one —
+credential *names*, which is why `redact.NamesOnlyKey` exempts that field from
+redaction.
