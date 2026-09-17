@@ -97,8 +97,13 @@ func (e *MissingSecretsError) Error() string {
 	for _, name := range e.Secrets {
 		envVars = append(envVars, secrets.EnvVarName(e.Connector, name))
 	}
+	// Worded to survive redact.Text, which runs over every operator-facing
+	// error. "credential token: set FOO" reads as an assignment to a key named
+	// "token" and comes out "credential token: [REDACTED] FOO" — the safety net
+	// eating the instruction it was protecting. An em dash is not an assignment
+	// separator, so the guidance arrives intact.
 	msg := fmt.Sprintf(
-		"plugin %q is missing required credential %s: set %s, or add a keychain:// reference under %q in ~/.cerberus/connector-secrets.yaml (see docs/secrets.md), then reload it with `cerberus connectors plugin managed load %s`",
+		"plugin %q loaded without the required credential %s — supply it through %s, or add a keychain:// reference under %q in ~/.cerberus/connector-secrets.yaml (see docs/secrets.md), then reload it with `cerberus connectors plugin managed load %s`",
 		e.Connector,
 		strings.Join(e.Secrets, ", "),
 		strings.Join(envVars, " or "),

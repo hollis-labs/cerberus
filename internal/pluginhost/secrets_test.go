@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -176,6 +177,17 @@ func TestManagerLoadsWithoutRequiredSecret(t *testing.T) {
 	for _, want := range []string{"CERBERUS_CONTEXTFORGE_TOKEN", "connector-secrets.yaml", "401 Unauthorized"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q should mention %q", err.Error(), want)
+		}
+	}
+
+	// Every operator-facing error runs through redact.Text. Phrased as
+	// "credential token: set FOO" it reads as an assignment and comes back
+	// "credential token: [REDACTED] FOO" — the safety net destroying the
+	// instruction. Guidance that cannot survive redaction is not guidance.
+	redacted := redact.Text(err.Error())
+	for _, want := range []string{"CERBERUS_CONTEXTFORGE_TOKEN", "keychain://", "connector-secrets.yaml"} {
+		if !strings.Contains(redacted, want) {
+			t.Fatalf("redaction mangled the guidance, leaving %q without %q", redacted, want)
 		}
 	}
 }

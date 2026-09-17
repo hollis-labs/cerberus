@@ -157,9 +157,8 @@ package needs a real write to prove itself, write to a scratch path under
 
 ```
 WP-0 plugin gaps           DONE
-WP-2 pkg/plugin promotion  DONE ──► WP-4 ContextForge  DONE ──► WP-7 ──► WP-5 Azure
+WP-2 pkg/plugin promotion  DONE ──► WP-4 ContextForge  DONE ──► WP-7 DONE ──► WP-5 Azure
 WP-1 dry-run extraction    ──► WP-3 remote docker ──► WP-6 docker resources
-WP-7 plugin secret channel (blocks WP-5; WP-4 proved the gap)
 ```
 
 WP-1 and WP-2 are independent of each other and both unblock work downstream.
@@ -543,9 +542,9 @@ errors; `cerberus docker logs <name>` still works for an undeclared container.
 
 ---
 
-## WP-7 — A host secret channel for plugins
+## WP-7 — A host secret channel for plugins — DONE 2026-09-16
 
-**Found by WP-4. Do this before WP-5.**
+**Found by WP-4. Done before WP-5, which now inherits a working channel.**
 
 **Why:** `docs/secrets.md` is the documented Cerberus secret story — a resource
 names a credential, `keychain://` or `helper://`, and the host resolves it. That
@@ -591,4 +590,58 @@ knows what to resolve without the plugin asking.
 live. A plugin whose secret is absent loads and reports `credential_missing`.
 
 **Do not:** widen `pluginLaunchEnv()` to carry credentials.
+
+### What shipped
+
+`Manager.Load` resolves the secrets a plugin's manifest declares, looking each
+one up as `<plugin id>/<secret name>` through `internal/app.ConnectorSecrets` —
+the same provider the built-in connectors resolve through — and hands the values
+to `plugin/init` keyed by the manifest secret name. `internal/pluginhost/
+secrets.go` is the whole channel. `pluginLaunchEnv()` is unchanged.
+
+Two decisions worth knowing before building on this:
+
+- **A missing secret does not pre-empt the operation, it explains the failure.**
+  The manifest maps secrets to the connector, not to an operation, so the host
+  cannot tell which operation needs which credential. Gating every operation
+  would have broken ContextForge's `get_health`, which is open and is the
+  fastest way to tell a down tunnel from a down gateway. Instead the host
+  records what it could not resolve, and classifies a *failed* operation on such
+  a plugin as `credential_missing` with the guidance attached.
+- **Values are resolved at load, not per call.** A built-in connector resolves
+  per operation, so a rotated credential takes effect immediately; a plugin gets
+  its config once, at `Init`, and needs
+  `cerberus connectors plugin managed load <id>` to see a new one. `managed
+  list` reports `missing_secrets` so that state is visible rather than inferred.
+
+One trap found live, worth remembering for any new operator-facing message:
+**`redact.Text` eats its own guidance.** "missing credential token: set
+CERBERUS_X_TOKEN" parses as an assignment to a key named `token` and arrives as
+"missing credential token: [REDACTED] CERBERUS_X_TOKEN". Do not put an
+assignment separator after a word like token/secret/key in a message meant to
+instruct. `TestManagerLoadsWithoutRequiredSecret` asserts the message survives
+redaction.
+
+### Verified live, and what was not
+
+Against the live gateway through the tunnel, with the CLI's one-shot plugin host
+(`cerberus connectors plugin exec`, which shares `pluginhost.Manager` with the
+daemon-managed lane):
+
+- `get_health` succeeds with no credential configured, and the host logs
+  `loaded without required credential token`.
+- With `CERBERUS_CONTEXTFORGE_TOKEN` set, that warning disappears — the plugin
+  received the value — and `list_gateways` reaches the gateway.
+- With none set, `list_gateways` fails `credential_missing` and the guidance
+  arrives intact through redaction.
+
+**`list_gateways` returning gateways is still unverified: there is no
+ContextForge admin JWT on this machine.** The keychain has no
+`contextforge/token` and there is no `~/.cerberus/connector-secrets.yaml`, so
+every live call 401s. The channel is proven; the credential is not. Supply a
+real JWT by either route and re-run to close this out.
+
+The daemon was not redeployed, so the running daemon still carries the old host.
+The managed lane differs from what was exercised only by the wiring line in
+`cmd_daemon.go`.
 
