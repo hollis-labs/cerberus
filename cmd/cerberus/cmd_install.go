@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,11 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <string>{{.HomeDir}}/.cerberus/logs/launchd-stdout.log</string>
     <key>StandardErrorPath</key>
     <string>{{.HomeDir}}/.cerberus/logs/launchd-stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{{.DaemonPath}}</string>
+    </dict>
 </dict>
 </plist>
 `
@@ -44,6 +50,52 @@ type launchdData struct {
 	BinaryPath string
 	WorkingDir string
 	HomeDir    string
+	DaemonPath string
+}
+
+// launchdBasePath is the PATH launchd hands a user agent that declares no
+// EnvironmentVariables of its own. Every entry is kept as the tail of the
+// composed PATH so the daemon can still find the system tools even if the
+// installing user's PATH is odd.
+const launchdBasePath = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+// daemonLaunchPath composes the PATH baked into the daemon's launchd job.
+//
+// Without an EnvironmentVariables key launchd gives the job only
+// launchdBasePath, and the daemon shells out: `go` for a resource build,
+// `docker` for the Docker connector. Neither lives in those four directories
+// on any normal Mac, which is how the Docker connector went silently dead —
+// the general case is that every `cerberus install` produced a daemon that
+// could not find its own toolchain.
+//
+// The PATH is composed from the installing user's environment rather than
+// hardcoded: /opt/homebrew is wrong on an Intel Mac, /usr/local/bin is wrong
+// under MacPorts, and neither is right for a toolchain in ~/.local/bin or
+// $GOBIN. Whatever resolved `cerberus install` is what the daemon gets.
+//
+// Only PATH is carried over. Secrets deliberately do not travel in the
+// environment (see AGENTS.md), and copying the installing shell's whole
+// environment into a persistent launchd job would do exactly that.
+//
+// Entries are filtered to absolute paths: a relative entry — "." or "" — in a
+// long-lived background job's PATH is a way to get arbitrary code run as the
+// operator, and it cannot mean anything useful to a daemon whose working
+// directory is fixed.
+func daemonLaunchPath(envPath string) string {
+	seen := make(map[string]bool)
+	var entries []string
+	add := func(candidates string) {
+		for _, entry := range filepath.SplitList(candidates) {
+			if entry == "" || !filepath.IsAbs(entry) || seen[entry] {
+				continue
+			}
+			seen[entry] = true
+			entries = append(entries, entry)
+		}
+	}
+	add(envPath)
+	add(launchdBasePath)
+	return strings.Join(entries, string(filepath.ListSeparator))
 }
 
 // resolveDaemonBinaryPath returns the absolute path of the cerberus binary that
@@ -117,6 +169,7 @@ var installCmd = &cobra.Command{
 			BinaryPath: binPath,
 			WorkingDir: workDir,
 			HomeDir:    home,
+			DaemonPath: html.EscapeString(daemonLaunchPath(os.Getenv("PATH"))),
 		}
 		if err := tmpl.Execute(f, data); err != nil {
 			f.Close() //nolint:errcheck

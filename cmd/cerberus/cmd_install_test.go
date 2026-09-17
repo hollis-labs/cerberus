@@ -2,9 +2,13 @@ package main
 
 import (
 	"errors"
+	"html"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+	"text/template"
 )
 
 func TestResolveDaemonBinaryPathReturnsExecutablePath(t *testing.T) {
@@ -53,5 +57,76 @@ func TestResolveDaemonBinaryPathPropagatesExecutableError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected error from executable() to propagate")
+	}
+}
+
+// Without an EnvironmentVariables key launchd gives the daemon only
+// /usr/bin:/bin:/usr/sbin:/sbin, where neither `go` nor `docker` lives. Every
+// install produced a daemon that could not run a build.
+func TestDaemonLaunchPathCarriesTheInstallingEnvironment(t *testing.T) {
+	got := daemonLaunchPath("/opt/homebrew/bin:/Users/me/go/bin")
+	want := "/opt/homebrew/bin:/Users/me/go/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	if got != want {
+		t.Fatalf("daemonLaunchPath:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// launchd's own entries are the tail, not the head: they are the fallback for
+// an odd install environment, not a preference over the user's toolchain.
+func TestDaemonLaunchPathAlwaysKeepsTheLaunchdBaseline(t *testing.T) {
+	for _, envPath := range []string{"", "/opt/homebrew/bin"} {
+		got := daemonLaunchPath(envPath)
+		for _, base := range []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"} {
+			if !slices.Contains(filepath.SplitList(got), base) {
+				t.Errorf("daemonLaunchPath(%q) = %q, missing baseline %s", envPath, got, base)
+			}
+		}
+	}
+}
+
+// A relative entry in a long-lived background job's PATH is a way to get
+// arbitrary code run as the operator; duplicates are just noise.
+func TestDaemonLaunchPathDropsRelativeAndDuplicateEntries(t *testing.T) {
+	got := daemonLaunchPath(".:/opt/homebrew/bin::relative/bin:/opt/homebrew/bin:/usr/bin")
+	want := "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	if got != want {
+		t.Fatalf("daemonLaunchPath:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// The plist is what launchd actually reads, so assert on the rendered
+// document rather than only on the composed string.
+func TestLaunchdPlistDeclaresDaemonPath(t *testing.T) {
+	tmpl, err := template.New("plist").Parse(launchdPlistTemplate)
+	if err != nil {
+		t.Fatalf("parse template: %v", err)
+	}
+	var out strings.Builder
+	err = tmpl.Execute(&out, launchdData{
+		BinaryPath: "/usr/local/bin/cerberus",
+		WorkingDir: "/Users/me",
+		HomeDir:    "/Users/me",
+		DaemonPath: html.EscapeString(daemonLaunchPath("/opt/homebrew/bin")),
+	})
+	if err != nil {
+		t.Fatalf("execute template: %v", err)
+	}
+	rendered := out.String()
+	for _, want := range []string{
+		"<key>EnvironmentVariables</key>",
+		"<key>PATH</key>",
+		"<string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered plist is missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+// A PATH entry containing an XML metacharacter must not produce a plist
+// launchd cannot parse — an unparseable plist is a daemon that never starts.
+func TestDaemonPathIsXMLEscaped(t *testing.T) {
+	if got := html.EscapeString(daemonLaunchPath("/opt/tools & more/bin")); !strings.Contains(got, "&amp;") {
+		t.Fatalf("expected escaped ampersand, got %q", got)
 	}
 }
