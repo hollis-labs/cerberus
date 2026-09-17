@@ -29,3 +29,35 @@ func OperationFromToolName(connectorID, toolName string, manifest contract.Manif
 	}
 	return contract.ManifestOperation{}, false
 }
+
+// SecretFromConfig reads a credential the host resolved on the plugin's behalf
+// out of the Init config map.
+//
+// The host resolves every secret a plugin's manifest declares — through the
+// same process-env / connector-secrets.yaml / keychain chain a built-in
+// connector uses — and passes the values in SDK init params, keyed by the
+// manifest secret name. A plugin declaring `token` reads it as
+// SecretFromConfig(params.Config, "token").
+//
+// Two properties of that channel a plugin can rely on:
+//
+//   - A plugin receives only the secrets its own manifest declares, never the
+//     operator's store.
+//   - Credentials do not travel in the environment. The host launches plugins
+//     with an allow-listed environment that carries none, because env is
+//     ambient and would reach every plugin rather than the one that asked.
+//
+// A secret that did not resolve is absent rather than empty-but-present, and
+// the plugin still loads. Report the failure from the operation that needed
+// it; the host adds the actionable "set CERBERUS_<ID>_<NAME>, or …" guidance
+// on the way out.
+//
+// Values arrive at Init and are not refreshed: an operator who adds or rotates
+// a credential reloads the plugin to pick it up.
+func SecretFromConfig(config map[string]string, name string) (string, bool) {
+	value, ok := config[name]
+	if !ok || value == "" {
+		return "", false
+	}
+	return value, true
+}

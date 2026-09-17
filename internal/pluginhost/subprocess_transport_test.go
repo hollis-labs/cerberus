@@ -14,9 +14,15 @@ import (
 	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
 )
 
-type sdkTestPlugin struct{}
+// sdkTestPlugin records the init config so a test can assert what actually
+// crossed the subprocess boundary — the only way to prove the host's secret
+// channel reaches a plugin rather than merely being assembled host-side.
+type sdkTestPlugin struct {
+	config map[string]string
+}
 
-func (sdkTestPlugin) Init(context.Context, sdksubprocess.InitParams) (sdksubprocess.InitResult, error) {
+func (p *sdkTestPlugin) Init(_ context.Context, params sdksubprocess.InitParams) (sdksubprocess.InitResult, error) {
+	p.config = params.Config
 	return sdksubprocess.InitResult{
 		ID:          "docker",
 		Name:        "Docker Test Plugin",
@@ -26,23 +32,24 @@ func (sdkTestPlugin) Init(context.Context, sdksubprocess.InitParams) (sdksubproc
 	}, nil
 }
 
-func (sdkTestPlugin) Load(context.Context) (sdksubprocess.LoadResult, error) {
+func (p *sdkTestPlugin) Load(context.Context) (sdksubprocess.LoadResult, error) {
 	return sdksubprocess.LoadResult{}, nil
 }
 
-func (sdkTestPlugin) Unload(context.Context) error { return nil }
+func (p *sdkTestPlugin) Unload(context.Context) error { return nil }
 
-func (sdkTestPlugin) Health(context.Context) (sdksubprocess.HealthStatus, error) {
+func (p *sdkTestPlugin) Health(context.Context) (sdksubprocess.HealthStatus, error) {
 	return sdksubprocess.HealthStatus{OK: true, Message: "ready"}, nil
 }
 
-func (sdkTestPlugin) MCPCallTool(_ context.Context, req sdksubprocess.MCPCallRequest) (sdksubprocess.MCPCallResult, error) {
+func (p *sdkTestPlugin) MCPCallTool(_ context.Context, req sdksubprocess.MCPCallRequest) (sdksubprocess.MCPCallResult, error) {
 	if strings.Contains(req.ToolName, "fail") {
 		return sdksubprocess.MCPCallResult{}, fmt.Errorf("tool failure")
 	}
 	content, err := json.Marshal(map[string]any{
-		"tool": req.ToolName,
-		"args": req.Arguments,
+		"tool":   req.ToolName,
+		"args":   req.Arguments,
+		"config": p.config,
 	})
 	if err != nil {
 		return sdksubprocess.MCPCallResult{}, err
@@ -54,7 +61,7 @@ func TestPluginSDKHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_PLUGINHOST_HELPER") != "1" {
 		return
 	}
-	if err := sdksubprocess.Serve(sdkTestPlugin{}); err != nil {
+	if err := sdksubprocess.Serve(&sdkTestPlugin{}); err != nil {
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -248,4 +255,89 @@ func linkSelfExecutable(t *testing.T, target string) error {
 		return nil
 	}
 	return os.Symlink(exe, target)
+}
+
+// End to end over the real subprocess protocol: a credential the host resolved
+// reaches the plugin in its init config, and nothing else does. Asserting on
+// the host-side params only would prove the map was built, not that it crossed.
+func TestManagerDeliversResolvedSecretsAcrossTheSubprocessBoundary(t *testing.T) {
+	pluginDir := t.TempDir()
+	if err := linkSelfExecutable(t, filepath.Join(pluginDir, "bin", "plugin-helper")); err != nil {
+		t.Fatalf("linkSelfExecutable: %v", err)
+	}
+
+	spec := testPluginSpec(Entrypoint{
+		Command: "bin/plugin-helper",
+		Args:    []string{"-test.run=TestPluginSDKHelperProcess"},
+	})
+	spec.Cerberus.Connector.Operations = []contract.ManifestOperation{
+		{Name: "logs", InputSchema: contract.ObjectSchema(map[string]any{})},
+	}
+	spec.Cerberus.Connector.Config = contract.ConfigSchema{
+		Secrets: []contract.SecretRequirement{{Name: "token", Required: true}},
+	}
+	writePluginYAMLFile(t, pluginDir, spec)
+
+	resolver := &fakeResolver{values: map[string]string{
+		"docker/token":       "resolved-jwt",
+		"cloudflare/api_key": "not-yours",
+	}}
+
+	manager := NewManager(
+		DirectoryInstaller{
+			Policy:        DefaultTrustPolicy(),
+			RequestedTier: TrustTierSigned,
+			CatalogSigned: true,
+			ArchiveSHA256: "abc",
+			ArchiveSigned: true,
+		},
+		SubprocessLauncher{
+			Transport: StdioTransportFactory{},
+			Env: append(os.Environ(),
+				"GO_WANT_PLUGINHOST_HELPER=1",
+			),
+		},
+		DefaultTrustPolicy(),
+		"test",
+		WithSecretResolver(resolver),
+	)
+
+	installed, err := manager.Install(context.Background(), pluginDir)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if loadErr := manager.Load(context.Background(), installed.ID); loadErr != nil {
+		t.Fatalf("Load: %v", loadErr)
+	}
+	defer func() { _ = manager.Unload(context.Background(), installed.ID) }()
+
+	// The launch environment must stay credential-free: env is ambient, so a
+	// credential there would reach every plugin, not the one that declared it.
+	for _, entry := range os.Environ() {
+		if strings.Contains(entry, "resolved-jwt") {
+			t.Fatal("the resolved credential leaked into the process environment")
+		}
+	}
+
+	result, err := manager.ExecuteOperation(context.Background(), OperationArgs{
+		Connector: "docker",
+		Operation: "logs",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteOperation: %v", err)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("Data = %#v", result.Data)
+	}
+	config, ok := data["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("config = %#v, want the init config the plugin received", data["config"])
+	}
+	if config["token"] != "resolved-jwt" {
+		t.Fatalf("config[token] = %#v, want the host-resolved value", config["token"])
+	}
+	if len(config) != 1 {
+		t.Fatalf("config = %#v, want only the declared secret", config)
+	}
 }

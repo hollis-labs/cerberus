@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -33,8 +34,17 @@ func writePluginYAMLFile(t *testing.T, dir string, spec PluginYAML) string {
 			"    version: "+spec.Cerberus.Connector.Version+"\n"+
 			"    resource_types:\n"+
 			"      - "+spec.Cerberus.Connector.ResourceTypes[0]+"\n"+
-			"    capabilities: {}\n"+
-			"    operations:\n"+
+			"    capabilities: {}\n")...)
+	if secrets := spec.Cerberus.Connector.Config.Secrets; len(secrets) > 0 {
+		data = append(data, []byte("    config:\n      secrets:\n")...)
+		for _, secret := range secrets {
+			data = append(data, []byte(
+				"        - name: "+secret.Name+"\n"+
+					"          required: "+strconv.FormatBool(secret.Required)+"\n")...)
+		}
+	}
+	data = append(data, []byte(
+		"    operations:\n"+
 			"      - name: "+spec.Cerberus.Connector.Operations[0].Name+"\n"+
 			"        input_schema:\n"+
 			"          type: object\n")...)
