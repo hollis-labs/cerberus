@@ -54,6 +54,12 @@ func OperationFromToolName(connectorID, toolName string, manifest contract.Manif
 //
 // Values arrive at Init and are not refreshed: an operator who adds or rotates
 // a credential reloads the plugin to pick it up.
+//
+// A plugin built on plugin-sdk can instead wrap the same map with
+// subprocess.NewConfigReader(params.Config) and read it through
+// ConfigReader.Secret, which additionally registers the value with the SDK
+// logger's redaction tracker. Prefer that where it is available; this helper is
+// for plugins that hold the map directly.
 func SecretFromConfig(config map[string]string, name string) (string, bool) {
 	value, ok := config[name]
 	if !ok || value == "" {
