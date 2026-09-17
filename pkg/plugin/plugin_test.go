@@ -29,3 +29,22 @@ func TestOperationFromToolName(t *testing.T) {
 		t.Fatal("expected no operation for an unknown tool name")
 	}
 }
+
+func TestSecretFromConfig(t *testing.T) {
+	config := map[string]string{"token": "jwt-value", "empty": ""}
+
+	if value, ok := SecretFromConfig(config, "token"); !ok || value != "jwt-value" {
+		t.Fatalf("SecretFromConfig(token) = %q, %v", value, ok)
+	}
+	// A secret the host could not resolve reads as absent, not as an empty
+	// credential a plugin might send to a provider.
+	if _, ok := SecretFromConfig(config, "empty"); ok {
+		t.Fatal("an empty value must read as absent")
+	}
+	if _, ok := SecretFromConfig(config, "missing"); ok {
+		t.Fatal("an undeclared secret must read as absent")
+	}
+	if _, ok := SecretFromConfig(nil, "token"); ok {
+		t.Fatal("a nil config must read as absent")
+	}
+}

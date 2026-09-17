@@ -16,6 +16,12 @@ type ManagedPluginConnectorState struct {
 	Path      string `json:"path"`
 	Loaded    bool   `json:"loaded"`
 	TrustTier string `json:"trust_tier,omitempty"`
+
+	// MissingSecrets names required credentials a loaded plugin did not
+	// receive. Reported so `managed list` is truthful about a plugin that is
+	// loaded but cannot authenticate, rather than leaving that to be
+	// discovered by the first failing operation. Names only.
+	MissingSecrets []string `json:"missing_secrets,omitempty"`
 }
 
 type ManagedPluginConnectorService struct {
@@ -24,6 +30,7 @@ type ManagedPluginConnectorService struct {
 	statePath   string
 	records     map[string]pluginConnectorPersistedEntry
 	warn        io.Writer
+	reservedIDs []string
 
 	// unrestored holds entries whose plugin directory could not be restored at
 	// startup. They are kept so persist() does not silently drop a registration
@@ -32,22 +39,57 @@ type ManagedPluginConnectorService struct {
 	unrestored []pluginConnectorPersistedEntry
 }
 
-func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, statePath string) (*ManagedPluginConnectorService, error) {
+// ManagedPluginOption configures optional managed-plugin host capabilities.
+type ManagedPluginOption func(*managedPluginConfig)
+
+type managedPluginConfig struct {
+	secrets     pluginhost.SecretResolver
+	reservedIDs []string
+}
+
+// WithManagedPluginSecrets hands the managed plugin host the same secret
+// provider the built-in connectors resolve through, so a plugin's declared
+// credentials come from `connector-secrets.yaml` and `keychain://` exactly as
+// docs/secrets.md describes. Without it plugins load with no credentials.
+func WithManagedPluginSecrets(resolver pluginhost.SecretResolver) ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.secrets = resolver }
+}
+
+// WithManagedPluginReservedIDs names the connector ids the host serves itself.
+// A plugin claiming one is refused at install rather than being allowed into
+// the inventory to shadow a built-in. Pass Registry.BuiltInIDs().
+//
+// Only the managed lane takes this. `connectors plugin exec` installs into a
+// throwaway host for one call and registers nothing, so it cannot shadow
+// anything — and refusing there would break the docker prototype that exists to
+// demonstrate plugin authoring against a built-in's shape.
+func WithManagedPluginReservedIDs(ids ...string) ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.reservedIDs = append(c.reservedIDs, ids...) }
+}
+
+func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, statePath string, opts ...ManagedPluginOption) (*ManagedPluginConnectorService, error) {
+	var cfg managedPluginConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	service := &ManagedPluginConnectorService{
-		manager: pluginhost.NewManager(
-			nil,
-			pluginhost.SubprocessLauncher{
-				Transport: pluginhost.StdioTransportFactory{Stderr: stderr},
-				Env:       pluginLaunchEnv(),
-			},
-			pluginhost.DefaultTrustPolicy(),
-			hostVersion,
-		),
 		hostVersion: hostVersion,
 		statePath:   statePath,
 		records:     make(map[string]pluginConnectorPersistedEntry),
 		warn:        stderr,
+		reservedIDs: cfg.reservedIDs,
 	}
+	service.manager = pluginhost.NewManager(
+		nil,
+		pluginhost.SubprocessLauncher{
+			Transport: pluginhost.StdioTransportFactory{Stderr: stderr},
+			Env:       pluginLaunchEnv(),
+		},
+		pluginhost.DefaultTrustPolicy(),
+		hostVersion,
+		pluginhost.WithSecretResolver(cfg.secrets),
+		pluginhost.WithLoadWarning(func(line string) { service.warnf("%s", line) }),
+	)
 	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
 		return nil, err
 	}
@@ -85,7 +127,7 @@ func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (Ma
 		return ManagedPluginConnectorState{}, err
 	}
 	installed, _ := s.manager.Installed(id)
-	state := managedState(installed, true)
+	state := s.state(installed, true)
 	if err := s.persist(); err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, err.Error()))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin load failed")
@@ -160,7 +202,7 @@ func (s *ManagedPluginConnectorService) List(context.Context) ([]ManagedPluginCo
 	plugins := s.manager.InstalledPlugins()
 	out := make([]ManagedPluginConnectorState, 0, len(plugins))
 	for _, plugin := range plugins {
-		out = append(out, managedState(plugin, s.manager.Loaded(plugin.ID)))
+		out = append(out, s.state(plugin, s.manager.Loaded(plugin.ID)))
 	}
 	return out, nil
 }
@@ -242,6 +284,14 @@ func managedState(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginC
 	}
 }
 
+func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginConnectorState {
+	out := managedState(plugin, loaded)
+	if loaded {
+		out.MissingSecrets = s.manager.MissingSecrets(plugin.ID)
+	}
+	return out
+}
+
 func (s *ManagedPluginConnectorService) install(pluginDir string, trust PluginConnectorTrustOptions) (pluginhost.InstalledPlugin, error) {
 	installer := pluginhost.DirectoryInstaller{
 		Policy:        pluginPolicy(pluginDir, trust),
@@ -249,6 +299,7 @@ func (s *ManagedPluginConnectorService) install(pluginDir string, trust PluginCo
 		CatalogSigned: trust.CatalogSigned,
 		ArchiveSHA256: trust.ArchiveSHA256,
 		ArchiveSigned: trust.ArchiveSigned,
+		ReservedIDs:   s.reservedIDs,
 	}
 	installed, err := installer.Install(context.Background(), pluginDir)
 	if err != nil {

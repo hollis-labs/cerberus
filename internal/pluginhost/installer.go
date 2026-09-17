@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	"gopkg.in/yaml.v3"
@@ -28,6 +29,23 @@ type DirectoryInstaller struct {
 	ArchiveSigned   bool
 	SandboxProfile  SandboxProfile
 	SandboxEnforced bool
+
+	// ReservedIDs are connector ids the host serves itself, which a plugin may
+	// not claim. Empty means nothing is reserved — pluginhost has no opinion
+	// about what a host has compiled in, so the caller supplies the set.
+	ReservedIDs []string
+}
+
+// ReservedIDError reports a plugin refused because its id is already served by
+// a built-in connector.
+type ReservedIDError struct {
+	ID string
+}
+
+func (e *ReservedIDError) Error() string {
+	return fmt.Sprintf(
+		"plugin id %q is a built-in connector and cannot be installed as a plugin: it would shadow the connector Cerberus serves itself. Rename the plugin, or remove the built-in first",
+		e.ID)
 }
 
 var _ Installer = DirectoryInstaller{}
@@ -46,6 +64,18 @@ func (i DirectoryInstaller) Install(ctx context.Context, source string) (Install
 	spec, err := ReadPluginYAML(pluginDir)
 	if err != nil {
 		return InstalledPlugin{}, err
+	}
+
+	// Checked before trust, hashing or any subprocess: a plugin that may not be
+	// installed at all should not have its signature evaluated first.
+	//
+	// WP-0 made an installed-but-unloaded plugin fall back to the built-in it
+	// shadowed, because unloading one left `cerberus docker ps` permanently
+	// broken. That is recovery for a state that should not be reachable —
+	// refusing the collision at install is the guard, and the fallback stays as
+	// the safety net for inventories registered before it existed.
+	if i.reserved(spec.ID) {
+		return InstalledPlugin{}, &ReservedIDError{ID: spec.ID}
 	}
 
 	policy := i.Policy
@@ -90,6 +120,15 @@ func (i DirectoryInstaller) Install(ctx context.Context, source string) (Install
 		Manifest:      spec.Cerberus.Connector,
 		ArchiveSHA256: archiveSHA,
 	}, nil
+}
+
+func (i DirectoryInstaller) reserved(id string) bool {
+	for _, reserved := range i.ReservedIDs {
+		if strings.EqualFold(strings.TrimSpace(reserved), id) {
+			return true
+		}
+	}
+	return false
 }
 
 // hashPluginEntrypoint returns the SHA-256 of the plugin's entrypoint binary.

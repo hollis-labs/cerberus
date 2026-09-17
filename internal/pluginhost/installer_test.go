@@ -2,8 +2,10 @@ package pluginhost
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -33,8 +35,17 @@ func writePluginYAMLFile(t *testing.T, dir string, spec PluginYAML) string {
 			"    version: "+spec.Cerberus.Connector.Version+"\n"+
 			"    resource_types:\n"+
 			"      - "+spec.Cerberus.Connector.ResourceTypes[0]+"\n"+
-			"    capabilities: {}\n"+
-			"    operations:\n"+
+			"    capabilities: {}\n")...)
+	if secrets := spec.Cerberus.Connector.Config.Secrets; len(secrets) > 0 {
+		data = append(data, []byte("    config:\n      secrets:\n")...)
+		for _, secret := range secrets {
+			data = append(data, []byte(
+				"        - name: "+secret.Name+"\n"+
+					"          required: "+strconv.FormatBool(secret.Required)+"\n")...)
+		}
+	}
+	data = append(data, []byte(
+		"    operations:\n"+
 			"      - name: "+spec.Cerberus.Connector.Operations[0].Name+"\n"+
 			"        input_schema:\n"+
 			"          type: object\n")...)
@@ -133,5 +144,84 @@ func TestDirectoryInstallerRejectsUnsignedPluginInDefaultPolicy(t *testing.T) {
 	_, err := installer.Install(context.Background(), pluginDir)
 	if err == nil || !strings.Contains(err.Error(), "signature") {
 		t.Fatalf("Install error = %v, want signature error", err)
+	}
+}
+
+// A plugin may not claim an id the host serves itself. WP-0's fallback exists
+// to recover from a shadow that already happened; this refuses the shadow.
+func TestDirectoryInstallerRefusesAReservedID(t *testing.T) {
+	pluginDir := t.TempDir()
+	writeExecutable(t, pluginDir, "bin/docker-plugin")
+	spec := testPluginSpec(Entrypoint{Command: "bin/docker-plugin"})
+	spec.ID = "ssh"
+	spec.Cerberus.Connector.ID = "ssh"
+	writePluginYAMLFile(t, pluginDir, spec)
+
+	installer := DirectoryInstaller{
+		Policy:        DefaultTrustPolicy(),
+		RequestedTier: TrustTierSigned,
+		CatalogSigned: true,
+		ArchiveSigned: true,
+		ReservedIDs:   []string{"local", "ssh", "docker", "github"},
+	}
+
+	_, err := installer.Install(context.Background(), pluginDir)
+	var reserved *ReservedIDError
+	if !errors.As(err, &reserved) {
+		t.Fatalf("Install error = %v, want a ReservedIDError", err)
+	}
+	if reserved.ID != "ssh" {
+		t.Fatalf("ReservedIDError.ID = %q, want ssh", reserved.ID)
+	}
+	if !strings.Contains(err.Error(), "shadow") {
+		t.Fatalf("error %q should say what the collision would do", err.Error())
+	}
+}
+
+// Case is not a way around it: ids route operations and are compared as names,
+// not as byte strings.
+func TestDirectoryInstallerReservedIDIgnoresCase(t *testing.T) {
+	pluginDir := t.TempDir()
+	writeExecutable(t, pluginDir, "bin/docker-plugin")
+	spec := testPluginSpec(Entrypoint{Command: "bin/docker-plugin"})
+	spec.ID = "SSH"
+	spec.Cerberus.Connector.ID = "SSH"
+	writePluginYAMLFile(t, pluginDir, spec)
+
+	installer := DirectoryInstaller{
+		Policy:        DefaultTrustPolicy(),
+		RequestedTier: TrustTierSigned,
+		CatalogSigned: true,
+		ArchiveSigned: true,
+		ReservedIDs:   []string{"ssh"},
+	}
+	if _, err := installer.Install(context.Background(), pluginDir); err == nil {
+		t.Fatal("a differently-cased built-in id must still be refused")
+	}
+}
+
+// An id nobody serves installs normally — the guard is a collision check, not a
+// gate on plugins in general.
+func TestDirectoryInstallerAllowsANonReservedID(t *testing.T) {
+	pluginDir := t.TempDir()
+	writeExecutable(t, pluginDir, "bin/docker-plugin")
+	spec := testPluginSpec(Entrypoint{Command: "bin/docker-plugin"})
+	spec.ID = "contextforge"
+	spec.Cerberus.Connector.ID = "contextforge"
+	writePluginYAMLFile(t, pluginDir, spec)
+
+	installer := DirectoryInstaller{
+		Policy:        DefaultTrustPolicy(),
+		RequestedTier: TrustTierSigned,
+		CatalogSigned: true,
+		ArchiveSigned: true,
+		ReservedIDs:   []string{"local", "ssh", "docker", "github"},
+	}
+	installed, err := installer.Install(context.Background(), pluginDir)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if installed.ID != "contextforge" {
+		t.Fatalf("ID = %q, want contextforge", installed.ID)
 	}
 }
