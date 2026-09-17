@@ -93,6 +93,14 @@ Three properties of that channel are deliberate:
   working — ContextForge's `get_health` is open, and is how you tell a down
   tunnel from a down gateway.
 
+A declared secret can also be genuinely optional, where its absence selects a
+different mechanism rather than degrading. The Azure plugin declares
+`client_secret` with `required: false`: supplied, it authenticates as that
+service principal; absent, it authenticates as the signed-in Azure CLI user and
+every operation works. What it refuses is the half-configured case — a tenant
+and client id with no secret — because falling back silently there would read
+the estate as an unexpected identity.
+
 Values are resolved at load and handed over in `plugin/init`. Unlike a built-in
 connector, which resolves per call, a plugin does not see a credential added or
 rotated afterwards until it is reloaded:
