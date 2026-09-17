@@ -29,6 +29,12 @@ type fakeDockerBackend struct {
 	started  string
 	logName  string
 	logLines int
+	target   dockerconn.Target
+}
+
+func (b *fakeDockerBackend) WithTarget(target dockerconn.Target) dockerconn.Backend {
+	b.target = target
+	return b
 }
 
 func (b *fakeDockerBackend) ListContainers(_ context.Context) ([]dockerconn.Container, error) {
@@ -302,6 +308,56 @@ func TestExternalConnectorServiceExecutesDockerOperation(t *testing.T) {
 	}
 	if backend.logName != "web" || backend.logLines != 12 {
 		t.Fatalf("logs called with %q/%d", backend.logName, backend.logLines)
+	}
+}
+
+func TestExternalConnectorServiceRoutesDockerOperationsToTheRequestedHost(t *testing.T) {
+	backend := &fakeDockerBackend{}
+	registry := connector.NewRegistry()
+	registry.Register(dockerconn.NewWithBackend(backend))
+	svc := NewExternalConnectorService(registry)
+
+	if _, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "docker",
+		Operation: "list_containers",
+		Config:    map[string]any{"host": "ssh://cburks@muctlvaig"},
+	}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if backend.target.Host != "ssh://cburks@muctlvaig" {
+		t.Fatalf("backend target = %#v, want the requested host", backend.target)
+	}
+
+	// Resolution is per call: the next operation must not inherit the last
+	// one's host just because the connector instance is shared.
+	backend.target = dockerconn.Target{}
+	if _, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "docker",
+		Operation: "list_containers",
+	}); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !backend.target.IsZero() {
+		t.Fatalf("a later call inherited %#v", backend.target)
+	}
+}
+
+func TestExternalConnectorServiceRejectsDockerHostAndContextTogether(t *testing.T) {
+	registry := connector.NewRegistry()
+	registry.Register(dockerconn.NewWithBackend(&fakeDockerBackend{}))
+	svc := NewExternalConnectorService(registry)
+
+	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "docker",
+		Operation: "list_containers",
+		Config:    map[string]any{"host": "ssh://muctlvaig", "context": "azure-dev"},
+	})
+	if err == nil {
+		t.Fatal("expected host and context together to be rejected")
+	}
+	var opErr *ExternalConnectorError
+	if !errors.As(err, &opErr) || opErr.Code != ExternalConnectorInvalidArgs {
+		t.Fatalf("err = %v, want %s", err, ExternalConnectorInvalidArgs)
 	}
 }
 

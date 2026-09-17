@@ -73,28 +73,37 @@ func (p *Plugin) MCPCallTool(ctx context.Context, req subprocess.MCPCallRequest)
 		return subprocess.MCPCallResult{}, fmt.Errorf("docker plugin is not loaded")
 	}
 
+	// The tool schemas come from dockerconn.Definition(), which advertises host
+	// selection on every operation, so the handler has to honor it or the
+	// schema lies.
+	target, err := dockerconn.TargetFromConfig(req.Arguments)
+	if err != nil {
+		return subprocess.MCPCallResult{}, err
+	}
+	connector := p.connector.WithTarget(target)
+
 	switch req.ToolName {
 	case plugin.ToolNameForOperation("docker", "list_containers"):
-		containers, err := p.connector.ListContainers(ctx)
+		containers, err := connector.ListContainers(ctx)
 		return marshalResult(containers, err)
 	case plugin.ToolNameForOperation("docker", "logs"):
 		name, err := requiredString(req.Arguments, "container")
 		if err != nil {
 			return subprocess.MCPCallResult{}, err
 		}
-		logs, err := p.connector.Logs(ctx, name, intArg(req.Arguments, "lines", 50))
+		logs, err := connector.Logs(ctx, name, intArg(req.Arguments, "lines", 50))
 		return marshalResult(logs, err)
 	case plugin.ToolNameForOperation("docker", "start"):
-		err := p.connector.Start(ctx, resourceFromArgs(req.Arguments))
+		err := connector.Start(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(nil, err)
 	case plugin.ToolNameForOperation("docker", "stop"):
-		err := p.connector.Stop(ctx, resourceFromArgs(req.Arguments))
+		err := connector.Stop(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(nil, err)
 	case plugin.ToolNameForOperation("docker", "destroy"):
-		err := p.connector.Destroy(ctx, resourceFromArgs(req.Arguments))
+		err := connector.Destroy(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(nil, err)
 	case plugin.ToolNameForOperation("docker", "status"):
-		state, err := p.connector.Status(ctx, resourceFromArgs(req.Arguments))
+		state, err := connector.Status(ctx, resourceFromArgs(req.Arguments))
 		return marshalResult(state, err)
 	default:
 		return subprocess.MCPCallResult{}, fmt.Errorf("unsupported tool %q", req.ToolName)

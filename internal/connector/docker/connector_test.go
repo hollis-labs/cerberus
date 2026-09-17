@@ -17,6 +17,12 @@ type fakeBackend struct {
 
 	container *Container
 	stack     *ComposeStack
+	target    Target
+}
+
+func (b *fakeBackend) WithTarget(target Target) Backend {
+	b.target = target
+	return b
 }
 
 func (b *fakeBackend) ListContainers(_ context.Context) ([]Container, error) {

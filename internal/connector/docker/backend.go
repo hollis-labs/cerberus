@@ -6,6 +6,12 @@ import "context"
 // Two implementations planned: CLIBackend (docker CLI) and APIBackend (Docker SDK).
 // Only CLIBackend is implemented to avoid heavy SDK dependencies.
 type Backend interface {
+	// WithTarget returns a Backend bound to the given Docker daemon, leaving
+	// the receiver unchanged. Host selection is per operation, so a single
+	// connector instance must be able to serve several hosts without any call
+	// mutating state another call can observe.
+	WithTarget(target Target) Backend
+
 	// ListContainers returns all running containers.
 	ListContainers(ctx context.Context) ([]Container, error)
 

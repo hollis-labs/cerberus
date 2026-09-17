@@ -249,9 +249,104 @@ needed**.
 result is demonstrably from that host. Permission failures name the host and
 suggest the `docker` group.
 
+### What shipped
+
+`docker.Target` (`internal/connector/docker/target.go`) carries `Host` and
+`Context`, is read out of each call's config by `TargetFromConfig`, and binds a
+copy of the backend via `Backend.WithTarget`. Selection is per operation, and
+`TestExternalConnectorServiceRoutesDockerOperationsToTheRequestedHost` asserts
+the next call does not inherit the last one's host. Setting `DOCKER_HOST` uses
+`append(os.Environ(), …)` as the brief warned; `--context` goes on as a global
+flag before the subcommand. Surface: `--host`/`-H` and `--context` on all four
+`cerberus docker` commands, `docker_host`/`docker_context` on the MCP tools, and
+`host`/`context` in every operation's input schema.
+
+Host and context are **refused together** rather than resolved. Verified
+against docker 24.0.2: an explicit `--context` silently wins over `DOCKER_HOST`
+and nothing says so, which for `destroy` is the worst possible place to be
+wrong.
+
+### The CLI will not tell you which host failed, or why
+
+The brief said "connection refused with no host named is the failure mode to
+avoid." It is worse than that. Every `ssh://` transport failure, whatever the
+cause and whatever the host, is reported as one line:
+
+```
+Cannot connect to the Docker daemon at http://docker.example.com. Is the docker daemon running?
+```
+
+`docker.example.com` is a placeholder the CLI substitutes — the same string for
+every host — and "is the docker daemon running?" is the wrong question when the
+daemon is running and refusing. The real cause reaches stderr **only at
+`--log-level debug`**, on a `commandconn (ssh):` line.
+
+So the connector turns debug logging on for `ssh://` targets only, and
+`failure.go` recovers the cause from it. Debug logging writes to stderr and
+leaves stdout — the JSON every parser here reads — untouched, and stderr is
+read only on a non-zero exit, so the success path pays nothing. `tcp://` and
+`unix://` report usable errors on their own and stay on default logging.
+
+Result against muctlvaig, where `cburks` is outside the `docker` group:
+
+```
+$ cerberus docker ps -H ssh://muctlvaig
+Error: docker ps: ssh://muctlvaig: cannot connect to the Docker daemon: failed to
+open the raw stream connection: dial unix /var/run/docker.sock: connect: permission
+denied — the account can reach the host but not its Docker socket; add the account
+to the docker group there (usermod -aG docker <user>, then reconnect) or run docker
+under sudo (exit status 1)
+```
+
+The host, the cause and the recovery, none of which the CLI gives up on its own.
+`TestSocketPermissionRecoverySurvivesRedaction` holds the AGENTS.md rule that
+`redact.Text` must not eat that instruction, and checks target hosts survive too.
+
+### Verified 2026-09-17
+
+muctlvaig is the negative case by design — the brief already established the
+account is not in its `docker` group, and the run above is that, end to end from
+the connector.
+
+For the positive case, `ssh://localhost` was **not** available (Remote Login is
+off on this machine; `ssh localhost` is connection-refused), so a throwaway
+Docker-in-Docker daemon on `tcp://127.0.0.1:12375` stood in as a genuinely
+separate daemon with its own container. Two daemons, two answers, one Cerberus:
+
+```
+$ cerberus docker ps --context desktop-linux     # 3 containers, incl. the dind one
+$ cerberus docker ps -H tcp://127.0.0.1:12375    # 1 container: wp3-proof
+$ cerberus docker down wp3-proof -H tcp://127.0.0.1:12375
+Container stopped: wp3-proof                     # default daemon unaffected
+$ cerberus docker logs wp3-proof --context desktop-linux
+Error: docker logs wp3-proof: docker context desktop-linux: Error response from
+       daemon: No such container: wp3-proof (exit status 1)
+```
+
+Read and write paths, both selectable, each answer demonstrably from the daemon
+that was asked. The same three cases went through `cerberus mcp` as
+`cerberus_docker_ps` with `docker_host`, over a daemon socket, so the payload
+and the error survive the transport. The dind container and image were removed
+afterwards; the live daemon was never touched.
+
+Two things worth knowing before repeating this:
+
+- **The CLI proxies to the running daemon whenever its socket answers**, so a
+  locally built binary tests nothing until you isolate it. `SocketPath()` derives
+  from `$HOME`, so a sandbox `HOME` forces in-process execution — and a daemon
+  needs a *short* one, because a unix socket path caps near 104 bytes.
+- **A sandbox `HOME` also breaks docker's own context lookup**, which is where
+  `desktop-linux` lives. `DOCKER_CONFIG=~/.docker` restores it — and that it
+  works at all is the `append(os.Environ(), …)` rule paying off in the open.
+
+**Not done, deliberately:** `cburks` is still outside the `docker` group on
+muctlvaig, and that is not ours to grant (see Open Questions in the control
+plane plan). Introspect ContextForge over HTTP there, as `tools/` does. The
+Azure box should add the user to the `docker` group at provisioning time.
+
 ---
 
-## WP-3 — Remote Docker over SSH *(core connector)*
+## WP-3 — Remote Docker over SSH *(core connector)* — DONE 2026-09-17
 
 **Why:** the same Docker operations should target a remote daemon, so one
 implementation serves both the Azure box and muctlvaig. No new connector, no new
@@ -316,6 +411,101 @@ that quietly proves nothing.
 **Acceptance:** an operation runs against a non-default Docker host and the
 result is demonstrably from that host. Permission failures name the host and
 suggest the `docker` group.
+
+### What shipped
+
+`docker.Target` (`internal/connector/docker/target.go`) carries `Host` and
+`Context`, is read out of each call's config by `TargetFromConfig`, and binds a
+copy of the backend via `Backend.WithTarget`. Selection is per operation, and
+`TestExternalConnectorServiceRoutesDockerOperationsToTheRequestedHost` asserts
+the next call does not inherit the last one's host. Setting `DOCKER_HOST` uses
+`append(os.Environ(), …)` as the brief warned; `--context` goes on as a global
+flag before the subcommand. Surface: `--host`/`-H` and `--context` on all four
+`cerberus docker` commands, `docker_host`/`docker_context` on the MCP tools, and
+`host`/`context` in every operation's input schema.
+
+Host and context are **refused together** rather than resolved. Verified
+against docker 24.0.2: an explicit `--context` silently wins over `DOCKER_HOST`
+and nothing says so, which for `destroy` is the worst possible place to be
+wrong.
+
+### The CLI will not tell you which host failed, or why
+
+The brief said "connection refused with no host named is the failure mode to
+avoid." It is worse than that. Every `ssh://` transport failure, whatever the
+cause and whatever the host, is reported as one line:
+
+```
+Cannot connect to the Docker daemon at http://docker.example.com. Is the docker daemon running?
+```
+
+`docker.example.com` is a placeholder the CLI substitutes — the same string for
+every host — and "is the docker daemon running?" is the wrong question when the
+daemon is running and refusing. The real cause reaches stderr **only at
+`--log-level debug`**, on a `commandconn (ssh):` line.
+
+So the connector turns debug logging on for `ssh://` targets only, and
+`failure.go` recovers the cause from it. Debug logging writes to stderr and
+leaves stdout — the JSON every parser here reads — untouched, and stderr is
+read only on a non-zero exit, so the success path pays nothing. `tcp://` and
+`unix://` report usable errors on their own and stay on default logging.
+
+Result against muctlvaig, where `cburks` is outside the `docker` group:
+
+```
+$ cerberus docker ps -H ssh://muctlvaig
+Error: docker ps: ssh://muctlvaig: cannot connect to the Docker daemon: failed to
+open the raw stream connection: dial unix /var/run/docker.sock: connect: permission
+denied — the account can reach the host but not its Docker socket; add the account
+to the docker group there (usermod -aG docker <user>, then reconnect) or run docker
+under sudo (exit status 1)
+```
+
+The host, the cause and the recovery, none of which the CLI gives up on its own.
+`TestSocketPermissionRecoverySurvivesRedaction` holds the AGENTS.md rule that
+`redact.Text` must not eat that instruction, and checks target hosts survive too.
+
+### Verified 2026-09-17
+
+muctlvaig is the negative case by design — the brief already established the
+account is not in its `docker` group, and the run above is that, end to end from
+the connector.
+
+For the positive case, `ssh://localhost` was **not** available (Remote Login is
+off on this machine; `ssh localhost` is connection-refused), so a throwaway
+Docker-in-Docker daemon on `tcp://127.0.0.1:12375` stood in as a genuinely
+separate daemon with its own container. Two daemons, two answers, one Cerberus:
+
+```
+$ cerberus docker ps --context desktop-linux     # 3 containers, incl. the dind one
+$ cerberus docker ps -H tcp://127.0.0.1:12375    # 1 container: wp3-proof
+$ cerberus docker down wp3-proof -H tcp://127.0.0.1:12375
+Container stopped: wp3-proof                     # default daemon unaffected
+$ cerberus docker logs wp3-proof --context desktop-linux
+Error: docker logs wp3-proof: docker context desktop-linux: Error response from
+       daemon: No such container: wp3-proof (exit status 1)
+```
+
+Read and write paths, both selectable, each answer demonstrably from the daemon
+that was asked. The same three cases went through `cerberus mcp` as
+`cerberus_docker_ps` with `docker_host`, over a daemon socket, so the payload
+and the error survive the transport. The dind container and image were removed
+afterwards; the live daemon was never touched.
+
+Two things worth knowing before repeating this:
+
+- **The CLI proxies to the running daemon whenever its socket answers**, so a
+  locally built binary tests nothing until you isolate it. `SocketPath()` derives
+  from `$HOME`, so a sandbox `HOME` forces in-process execution — and a daemon
+  needs a *short* one, because a unix socket path caps near 104 bytes.
+- **A sandbox `HOME` also breaks docker's own context lookup**, which is where
+  `desktop-linux` lives. `DOCKER_CONFIG=~/.docker` restores it — and that it
+  works at all is the `append(os.Environ(), …)` rule paying off in the open.
+
+**Not done, deliberately:** `cburks` is still outside the `docker` group on
+muctlvaig, and that is not ours to grant (see Open Questions in the control
+plane plan). Introspect ContextForge over HTTP there, as `tools/` does. The
+Azure box should add the user to the `docker` group at provisioning time.
 
 ---
 

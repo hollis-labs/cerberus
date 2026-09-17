@@ -44,6 +44,20 @@ func NewWithBackend(b Backend) *Connector {
 	return &Connector{backend: b}
 }
 
+// WithTarget returns a connector whose operations run against target, leaving
+// the receiver bound to whatever it was bound to before.
+//
+// Callers select the host per operation rather than per process: the admin lane
+// resolves this connector on every call and reads the target from that call's
+// config, so one daemon administers the Azure box and the work host without
+// either becoming a default the next call inherits.
+func (c *Connector) WithTarget(target Target) *Connector {
+	if target.IsZero() {
+		return c
+	}
+	return &Connector{backend: c.backend.WithTarget(target)}
+}
+
 func (c *Connector) ID() string              { return "docker" }
 func (c *Connector) ResourceTypes() []string { return []string{string(resource.Container)} }
 
@@ -81,13 +95,23 @@ func Definition() contract.Definition {
 					Type:        "string",
 					Description: "Docker Compose file path for compose-backed resources.",
 				},
+				{
+					Name:        "host",
+					Type:        "string",
+					Description: "Docker daemon to target, as a DOCKER_HOST value (ssh://user@host, tcp://host:2376, unix:///path). Defaults to the daemon's own environment.",
+				},
+				{
+					Name:        "context",
+					Type:        "string",
+					Description: "Docker context name to target, as `docker context ls` lists it. Mutually exclusive with host.",
+				},
 			},
 		},
 		Operations: []contract.Operation{
 			{
 				Name:        "list_containers",
 				Description: "List running Docker containers.",
-				InputSchema: contract.ObjectSchema(map[string]any{}),
+				InputSchema: contract.ObjectSchema(dockerTargetProperties()),
 			},
 			{
 				Name:        "start",
@@ -108,10 +132,10 @@ func Definition() contract.Definition {
 			{
 				Name:        "logs",
 				Description: "Read recent Docker container logs.",
-				InputSchema: contract.ObjectSchema(map[string]any{
+				InputSchema: contract.ObjectSchema(dockerTargetProperties(map[string]any{
 					"container": contract.StringSchema("Docker container name or ID."),
 					"lines":     contract.IntegerSchema("Number of log lines to return."),
-				}),
+				})),
 			},
 		},
 	}
@@ -281,10 +305,29 @@ func dockerComposeState(stack *ComposeStack) resource.State {
 }
 
 func dockerResourceInputSchema() map[string]any {
-	return contract.ObjectSchema(map[string]any{
+	return contract.ObjectSchema(dockerTargetProperties(map[string]any{
 		"container":    contract.StringSchema("Docker container name or ID."),
 		"compose_file": contract.StringSchema("Docker Compose file path."),
-	})
+	}))
+}
+
+// dockerTargetProperties adds host selection to an operation's input schema.
+//
+// Every operation accepts it, including the read-only ones: an operator asking
+// what is running on a remote host is the first thing they do, and a schema
+// that omits it there would be a surface where the same call means different
+// machines depending on which verb it is.
+func dockerTargetProperties(properties ...map[string]any) map[string]any {
+	merged := map[string]any{
+		"host":    contract.StringSchema("Docker daemon to target, as a DOCKER_HOST value (ssh://user@host, tcp://host:2376, unix:///path). Defaults to the daemon's own environment."),
+		"context": contract.StringSchema("Docker context name to target, as `docker context ls` lists it. Mutually exclusive with host."),
+	}
+	for _, set := range properties {
+		for key, value := range set {
+			merged[key] = value
+		}
+	}
+	return merged
 }
 
 // LogsJSON returns container logs as a JSON string (used by MCP tools).
