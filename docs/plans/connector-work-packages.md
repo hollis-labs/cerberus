@@ -112,10 +112,10 @@ package needs a real write to prove itself, write to a scratch path under
 ## Sequencing
 
 ```
-WP-0 plugin gaps          DONE
-WP-1 dry-run extraction   ──► WP-3 remote docker
-WP-2 pkg/plugin promotion DONE ──► WP-4 ContextForge ──► WP-5 Azure
-WP-6 container validation     (independent; needs a decision)
+WP-0 plugin gaps           DONE
+WP-2 pkg/plugin promotion  DONE ──► WP-4 ContextForge  DONE ──► WP-7 ──► WP-5 Azure
+WP-1 dry-run extraction    ──► WP-3 remote docker ──► WP-6 docker resources
+WP-7 plugin secret channel (blocks WP-5; WP-4 proved the gap)
 ```
 
 WP-1 and WP-2 are independent of each other and both unblock work downstream.
@@ -208,7 +208,48 @@ suggest the `docker` group.
 
 ---
 
-## WP-4 — ContextForge plugin *(first real plugin)*
+## WP-3 — Remote Docker over SSH *(core connector)*
+
+**Why:** the same Docker operations should target a remote daemon, so one
+implementation serves both the Azure box and muctlvaig. No new connector, no new
+SDK.
+
+**Do:** add host selection to the Docker connector — `DOCKER_HOST` (including
+`ssh://user@host`) and/or `docker context`, configurable per operation rather
+than per process, so one daemon can talk to several hosts.
+
+**Design notes:**
+- The CLI backend shells out to `docker`, which already understands
+  `DOCKER_HOST=ssh://`. Setting it on the `exec.Cmd` environment is likely the
+  whole feature. Confirm before building anything larger.
+- `DetectDocker()` and `CERBERUS_DOCKER_PATH` already landed; do not re-litigate
+  binary discovery.
+- Surface the target host in errors. "connection refused" with no host named is
+  the failure mode to avoid.
+
+**Known constraint — verify, do not assume:** `cburks` is not in the `docker`
+group on muctlvaig. Confirmed 2026-09-16:
+
+```
+$ cerberus ssh exec muctlvaig --ack -- 'id; docker ps'
+uid=12989(cburks) gid=11000(hsv-all) groups=11000(hsv-all),20922(muctlvaig)
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+```
+
+So **muctlvaig cannot be the happy-path test.** Use Docker Desktop locally over
+`ssh://localhost` if key auth to localhost is available, or document what could
+not be verified and why. A clear "blocked, here is the evidence" beats a test
+that quietly proves nothing.
+
+**Acceptance:** an operation runs against a non-default Docker host and the
+result is demonstrably from that host. Permission failures name the host and
+suggest the `docker` group.
+
+---
+
+---
+
+## WP-4 — ContextForge plugin *(first real plugin)* — DONE 2026-09-16
 
 **Depends on WP-2.**
 
@@ -331,6 +372,18 @@ A plugin imports `pkg/connector`, `pkg/resource`, `pkg/plugin` and
 something from `internal/`, that is a signal the authoring contract is missing a
 piece, not that the plugin should reach in.
 
+**Outcome:** shipped in `hollis-labs/cerberus-plugins` (`contextforge/`) with
+four read-only operations. `get_health` verified live through the tunnel;
+`list_gateways` is unproven because no ContextForge JWT exists on this machine —
+it returns an actionable 401 naming the keychain path. The `Backend` interface
+returns DTOs rather than vendor types, so `cf.*` is confined to two files and a
+connector *structurally cannot* return a credential-bearing struct — stronger
+than ADR 0003 required, and worth copying in WP-5.
+
+Two host gaps it exposed, both now handled: `redact.Text` ate the auth guidance
+in its own error message (fixed), and plugins have no host secret channel at all
+(WP-7).
+
 **Acceptance:** the plugin installs unsigned, loads, and
 `cerberus connectors plugin managed exec contextforge list_gateways` returns the
 real upstream registrations through the tunnel. Writes verified by `--dry-run`
@@ -372,24 +425,126 @@ work without sudo — unlike muctlvaig.
 
 ---
 
-## WP-6 — Reject container resources at validation
+## WP-6 — Make docker resources real, and stop misreporting unsupervised kinds
 
-**Status: needs a decision before starting.**
+**Decided 2026-09-16, replacing an earlier "reject `type: container`" plan.**
 
-A `type: container` / `connector: docker` resource passes `cerberus validate`
-and then fails on every runtime operation, because validation only checks that
-`type` and `connector` are non-empty while `resource_runtime_service.go` accepts
-local/process only.
+The original framing was wrong and the live config proves it. `muctlvaig` is
+`type: server` / `connector: ssh` — registered, listed, and deliberately not
+supervised:
 
 ```
-$ cerberus validate probe.cerberus.yaml     # type: container, connector: docker
-probe.cerberus.yaml: OK
+$ cerberus resource status muctlvaig
+Error: resource "muctlvaig" is server/ssh; status currently supports local
+       process resources only
+
+$ cerberus ssh exec muctlvaig --ack -- 'id'      # works
 ```
 
-**Reject** in registry validation with a message pointing at the connector
-operations, or **warn**. Leaning reject: a clean validation that cannot run is
-the worst of both worlds, and it will mislead exactly the newcomers the app is
-about to be shared with. Either way the message must name the alternative —
-container administration goes through `cerberus docker ...`, not a resource.
+So "validates clean, then fails every runtime operation" is equally true of a
+resource that works as intended. `cmd_ssh.go` calls `findResource` to pull
+`host`, `user` and `key_file` from config, which is exactly why
+`cerberus ssh exec muctlvaig` needs no connection details. A `type: container`
+resource is the same shape: a named handle for connector operations, not a
+supervised workload. Rejecting it would be inconsistent and would foreclose a
+useful pattern.
 
-**Do not start until the option is chosen.**
+The real defect is the opposite one.
+
+### 1. Docker's CLI ignores the registry
+
+Every other connector CLI resolves the resource; docker synthesizes one:
+
+```go
+// cmd_docker.go
+cfg := dockerResourceConfig(resourceID, composeFile)   // {id, name, container}
+```
+
+So `cerberus docker up web` cannot find a `compose_file` from config and `-f`
+must be passed every time. Make `docker up`/`down`/`logs` resolve through
+`findResource` the way ssh does, falling back to treating the argument as a
+literal container name when no resource matches — that keeps
+`cerberus docker logs <container>` working for containers that were never
+declared.
+
+This is what makes `type: container` resources worth declaring:
+
+```yaml
+- id: mtbf-monitor
+  type: container
+  connector: docker
+  config:
+    compose_file: /Users/cburks/Projects/mtbf-monitor/docker-compose.yml
+```
+
+→ `cerberus docker up mtbf-monitor`.
+
+### 2. The supervision lane misreports unsupervised kinds
+
+`resource status` on a server or container resource reads like a defect. It
+should say what is true: this kind is administered through its connector, not
+supervised. Name the command — `cerberus ssh …`, `cerberus docker …`. Same for
+the blank `STATUS` column in `resource list`; "unsupervised" beats an empty cell
+that looks like a probe failure.
+
+Optionally add a validation **warning** (never an error) noting that a
+container resource is admin-lane, not supervised.
+
+**Acceptance:** a `type: container` resource declared in config can be brought
+up and down by id with no `-f`; `resource status` on it explains rather than
+errors; `cerberus docker logs <name>` still works for an undeclared container.
+
+**Do not:** reject container resources, or widen
+`resource_runtime_service.go` to supervise them.
+
+---
+
+## WP-7 — A host secret channel for plugins
+
+**Found by WP-4. Do this before WP-5.**
+
+**Why:** `docs/secrets.md` is the documented Cerberus secret story — a resource
+names a credential, `keychain://` or `helper://`, and the host resolves it. That
+story is not true for plugins. The host hands a plugin nothing:
+
+```go
+// internal/pluginhost/manager.go
+Config:    map[string]string{},          // unconditionally empty
+```
+
+and `pluginLaunchEnv()` is a fixed allow-list with no credential entries. So the
+ContextForge plugin resolves its own JWT from the keychain. That works and keeps
+the value out of config, but it means every plugin reimplements secret
+resolution and `connector-secrets.yaml` never reaches a plugin at all.
+
+This is a contract gap, not a convenience gap: what we tell users about secrets
+is false for plugins.
+
+**Do:** resolve a plugin's declared secrets host-side and pass them over the
+existing `Init` config channel. The manifest already declares secrets —
+`contract.ConfigSchema.Secrets` carries name, description and env — so the host
+knows what to resolve without the plugin asking.
+
+**Design constraints, all of which matter:**
+
+- **Resolve from the same provider built-in connectors use**, so
+  `connector-secrets.yaml` and `keychain://` work identically either side of the
+  plugin boundary.
+- **Pass values through `Init`, not the environment.** The env allow-list exists
+  because a subprocess inherits ambient env; adding credentials to it would leak
+  them to every plugin rather than the one that declared the secret.
+- **A plugin receives only the secrets its own manifest declares.** Never the
+  whole store.
+- **Never log a resolved value**, including in the init payload on a debug path.
+  See `docs/adr/0003-connector-response-dtos.md` for the reasoning.
+- **A missing secret must not fail the load.** The plugin should start and its
+  operations should fail with the actionable `credential_missing` error the
+  built-in connectors already produce. This mirrors the lesson from the restore
+  bug: optional components must not be able to take the host down.
+
+**Acceptance:** the ContextForge plugin drops its own keychain lookup, declares
+`token` in its manifest, receives it from the host, and `list_gateways` runs
+live. A plugin whose secret is absent loads and reports `credential_missing`.
+
+**Do not:** widen `pluginLaunchEnv()` to carry credentials.
+
