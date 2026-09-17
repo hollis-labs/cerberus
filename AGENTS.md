@@ -45,7 +45,9 @@ Destructive connector operations require explicit operator acknowledgment
 - `docs/adr/0002-resource-only-local-workload-model.md` — why v2 is the only
   model, and what "frozen" means for `services:`.
 - `docs/adr/0003-connector-response-dtos.md` — why a connector operation returns
-  a Cerberus DTO and never a vendor SDK type. Read before writing one.
+  a Cerberus DTO and never a vendor SDK type, and how to write the mapping.
+  Short version: explicit mapping when the DTO exists to *exclude* something,
+  codegen when it exists to *reshape* something. Read before writing one.
 - `internal/cerbapi/resource_runtime_service.go` — the shared runtime service
   for supervised local workloads. Behavior changes belong here, not in a caller.
 - `internal/cerbapi/external_connector_service.go` — the imperative admin lane:
