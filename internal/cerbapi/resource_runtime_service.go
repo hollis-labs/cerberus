@@ -181,9 +181,15 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 			HasBuild:   hasBuildStrategyConfig(r.Config),
 			Tags:       append([]string(nil), r.Tags...),
 		}
-		if r.Type == string(domain.ResourceProcess) && r.Connector == "local" {
+		if SupervisedLocally(r.Type, r.Connector) {
 			row.spec, _ = localconn.SpecFromResourceConfig(r.Config)
 			info.OperatorStopped = pausectl.IsServicePaused(r.ID)
+		} else {
+			// Not a probe that failed — a kind this lane does not watch. Say
+			// so, and name what does operate it, so the row carries an answer
+			// instead of an empty cell.
+			info.Status = UnsupervisedStatus
+			info.RecommendedNextStep = UnsupervisedNextStep(r.ID, r.Connector)
 		}
 		row.info = info
 		rows = append(rows, row)

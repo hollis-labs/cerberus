@@ -48,8 +48,9 @@ socket.
 **Explicitly deferred:** letting `type: container` through
 `resource_runtime_service.go`. That service is hardcoded to local/process in
 roughly ten places. Changing it buys supervision we do not want. A
-container/docker resource currently *validates clean* and then fails on every
-runtime operation — see Open Questions for what to do about that trap.
+container/docker resource is a named handle for connector operations instead —
+`cerberus docker up <id>` resolves it, and supervision-lane verbs report it as
+`unsupervised` rather than erroring (WP-6, 2026-09-17).
 
 ## What we manage
 
@@ -382,12 +383,24 @@ It would unlock remote Docker administration there without sudo, which is a
 meaningful capability gain. It is also a privilege escalation on a corporate
 host and is not ours to grant. Needs whoever administers that box.
 
-### What to do about container resources validating clean but failing at runtime
+### ~~What to do about container resources validating clean but failing at runtime~~ — RESOLVED 2026-09-17
 
-A `type: container` / `connector: docker` resource passes `cerberus validate`
-today and then fails on every runtime operation. Options: reject it in registry
-validation with a message pointing at the connector operations, or warn. Leaning
-reject — a clean validation that cannot run is the worst of both.
+Neither reject nor warn. The framing was wrong, and the live config was the
+counterexample: `muctlvaig` is server/ssh, registered, listed, and deliberately
+not supervised — so "validates clean, then fails every runtime operation" was
+equally true of a resource working exactly as intended.
+
+A resource that is not local/process is a **named handle for connector
+operations**. The defect was the reporting, not the declaration:
+`cerberus docker` ignored the registry (so a compose resource needed `-f` every
+time), and the supervision lane answered a reasonable question with an error or
+a blank status cell.
+
+Both are fixed in WP-6. `cerberus docker up <id>` resolves the resource,
+supervision-lane verbs report `unsupervised` and name the connector commands
+that do operate it, and a validation warning was considered and skipped — it
+would fire on every correct declaration. Detail in WP-6 of
+`docs/plans/connector-work-packages.md`.
 
 ### Elevation model for `ssh.exec`
 

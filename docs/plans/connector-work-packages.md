@@ -687,7 +687,7 @@ work without sudo — unlike muctlvaig.
 
 ---
 
-## WP-6 — Make docker resources real, and stop misreporting unsupervised kinds
+## WP-6 — Make docker resources real, and stop misreporting unsupervised kinds — DONE 2026-09-17
 
 **Decided 2026-09-16, replacing an earlier "reject `type: container`" plan.**
 
@@ -758,6 +758,103 @@ errors; `cerberus docker logs <name>` still works for an undeclared container.
 
 **Do not:** reject container resources, or widen
 `resource_runtime_service.go` to supervise them.
+
+### What shipped
+
+**Docker resolves the registry.** `dockerOperationConfig` in `cmd_docker.go`
+looks the argument up through `registry.ResolveConfig` — the same registry
+`cerberus ssh` reads, reached via the existing `loadResource` path rather than
+by building an `app.App` — and falls back to a literal container name on a miss.
+An explicit `-f` or `--host` beats whatever the resource declared.
+
+Three cases, deliberately different:
+
+| Argument | Behaviour |
+|---|---|
+| a declared `connector: docker` resource | its config drives the operation |
+| no resource of that id | treated as a literal container name |
+| a resource on another connector | refused, naming that connector's commands |
+
+The third is the one worth arguing for. `cerberus docker up muctlvaig` on a
+server/ssh resource would otherwise fall through to the literal path, look for a
+container called `muctlvaig`, and fail with something unrelated to the mistake.
+
+A compose-only resource has no single log stream, so `docker logs <id>` on one
+says that and points at `docker ps`, rather than failing on a missing
+`container` field.
+
+**Unsupervised kinds report as `unsupervised`.** `internal/cerbapi/unsupervised.go`
+holds the vocabulary — `SupervisedLocally`, the status word, the reason, and the
+per-connector next step — so the CLI, the DTO and the console agree:
+
+- `resource status` on a server or container resource now **answers**, with the
+  kind, the connector and the commands that operate it.
+- The nine other supervision-lane verbs still refuse, but through
+  `UnsupervisedOperationError`, which names what to run instead. Nine messages
+  saying "supports local process resources only" next to a `status` that
+  explains would have been incoherent.
+- `resource list` prints `unsupervised` where the STATUS cell was blank. A blank
+  cell is indistinguishable from a probe that failed, which is exactly how a
+  working resource came to read as broken.
+- The console's runtime tally **skips** them. Its switch defaults to "stopped",
+  so leaving them in would have moved the misreport rather than fixed it.
+
+```
+$ cerberus resource status muctlvaig
+Status:      unsupervised
+Context:     server/ssh resources are administered through the ssh connector,
+             not supervised by the local runtime lane
+Next Step:   cerberus ssh status muctlvaig | cerberus ssh exec muctlvaig -- <command>
+
+$ cerberus resource deploy wp6-stack
+Error: deploy does not apply to "wp6-stack": container/docker resources are
+       administered through the docker connector, not supervised by the local
+       runtime lane; try: cerberus docker up wp6-stack | ...
+```
+
+### The optional validation warning, deliberately skipped
+
+The brief offered a validation **warning** on container resources. It is not
+worth having, and adding it would contradict this package's own thesis.
+
+WP-6 exists because a container resource is a *legitimate declaration*, the same
+shape as the server/ssh resource that has worked all along. A warning on every
+correct declaration is noise, and `cerberus validate` would start complaining
+about `muctlvaig` too or be inconsistent about which unsupervised kinds it
+minds. The information an operator actually needed — this is administered, not
+supervised, and here is the command — now lives where they look for it, in
+`status` and `list`.
+
+### Verified 2026-09-17
+
+Against a throwaway compose stack in a scratch config, so nothing touched the
+running `mtbf-monitor` stack:
+
+```
+$ cerberus docker up wp6-stack            # no -f
+Compose stack started: …/wp6/docker-compose.yml
+$ docker ps --filter name=wp6
+wp6-probe-1   alpine:3   Up Less than a second
+
+$ cerberus docker logs wp6-probe-1 --lines 3   # undeclared container, still works
+$ cerberus docker logs wp6-stack
+Error: resource "wp6-stack" declares a compose stack and no single container;
+       run `cerberus docker ps` and pass a container name from the stack
+
+$ cerberus docker up muctlvaig
+Error: resource "muctlvaig" is server/ssh, not a docker resource; try:
+       cerberus ssh status muctlvaig | cerberus ssh exec muctlvaig -- <command>
+
+$ cerberus resource list
+ID         TYPE       CONNECTOR  STATUS
+muctlvaig  server     ssh        unsupervised
+wp6-stack  container  docker     unsupervised
+
+$ cerberus docker down wp6-stack          # no -f; stack gone
+```
+
+The fixture was removed afterwards. `AGENTS.md` lost its "validates clean, then
+fails on every runtime operation" trap note, which this package makes false.
 
 ---
 
