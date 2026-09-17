@@ -82,8 +82,8 @@ Carry these in rather than rediscovering them. Verify anything you depend on.
   provider registered. Cost, Key Vault and Resource Graph are deferred with
   recorded unlock conditions.
 - Known missing, already briefed: privilege elevation for `ssh exec` (WP-8),
-  recursive directory transfer (WP-9), dry-run extraction (WP-1, skipped not
-  done).
+  dry-run extraction (WP-1, skipped not done). Recursive directory transfer
+  (WP-9) shipped 2026-09-17 as `ssh put_dir` / `get_dir`.
 
 ## Seed list — must-have gaps worth confirming or refuting
 

@@ -104,8 +104,44 @@ func NewCerberusSSHGetTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 	}
 }
 
-// runSSHTransfer backs both transfer tools; they differ only in direction and
-// in whether the operation needs an acknowledgment.
+// NewCerberusSSHPutDirTool creates the cerberus_ssh_put_dir tool.
+func NewCerberusSSHPutDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_ssh_put_dir",
+		Description: "Recursively upload a local directory tree to an SSH resource over SFTP, replacing remote files that already exist. Permission bits are carried and a symlink pointing outside the tree is refused. Every byte is copied every time — there is no delta transfer.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local directory to upload."},
+			"remote_path":  map[string]interface{}{"type": "string", "description": "Destination directory on the remote host."},
+			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only. Reports file count and total bytes without transferring."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
+		}, "resource_id", "local_path", "remote_path"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return runSSHTransfer(ctx, cfg, client, "put_dir", args,
+				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
+		},
+	}
+}
+
+// NewCerberusSSHGetDirTool creates the cerberus_ssh_get_dir tool.
+func NewCerberusSSHGetDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+	return Tool{
+		Name:        "cerberus_ssh_get_dir",
+		Description: "Recursively download a directory tree from an SSH resource over SFTP into a local directory.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+			"remote_path": map[string]interface{}{"type": "string", "description": "Directory to download from the remote host."},
+			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination directory."},
+		}, "resource_id", "remote_path", "local_path"),
+		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+			return runSSHTransfer(ctx, cfg, client, "get_dir", args, false, false)
+		},
+	}
+}
+
+// runSSHTransfer backs all four transfer tools; they differ only in direction,
+// in whether the transfer is recursive, and in whether the operation needs an
+// acknowledgment. All four take the same two path arguments.
 func runSSHTransfer(ctx context.Context, cfg *config.ConfigV2, client cerbapi.Client, operation string, args map[string]interface{}, dryRun, acknowledged bool) (string, error) {
 	res, err := findSSHResource(cfg, stringArg(args, "resource_id"))
 	if err != nil {

@@ -21,6 +21,14 @@ type Backend interface {
 	// truncating it, and returns the number of bytes written.
 	Get(ctx context.Context, remotePath, localPath string) (int64, error)
 
+	// PutDir recursively copies the localDir tree to remoteDir on the
+	// connected host, and reports what it moved.
+	PutDir(ctx context.Context, localDir, remoteDir string) (*DirTransferResult, error)
+
+	// GetDir recursively copies the remoteDir tree from the connected host to
+	// localDir, and reports what it moved.
+	GetDir(ctx context.Context, remoteDir, localDir string) (*DirTransferResult, error)
+
 	// Close terminates the SSH connection.
 	Close() error
 }

@@ -105,6 +105,8 @@ func buildCerberusMCPServer(socketClient cerbapi.Client, logger *slog.Logger) *m
 		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(cfg, socketClient))
 		srv.RegisterTool(mcp.NewCerberusSSHPutTool(cfg, socketClient))
 		srv.RegisterTool(mcp.NewCerberusSSHGetTool(cfg, socketClient))
+		srv.RegisterTool(mcp.NewCerberusSSHPutDirTool(cfg, socketClient))
+		srv.RegisterTool(mcp.NewCerberusSSHGetDirTool(cfg, socketClient))
 	}
 
 	srv.RegisterTool(mcp.NewCerberusDomainListTool(socketClient))

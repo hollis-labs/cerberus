@@ -472,6 +472,36 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 				"port":        intFromConfig(args.Config, "port", 22),
 				"remote_path": remotePath,
 			}, input, warnings...), true, nil
+		case "put_dir":
+			host, err := requiredString(args.Config, "host")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			localPath, err := requiredString(args.Config, "local_path")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			remotePath, err := requiredString(args.Config, "remote_path")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			// File count and total bytes are what an operator needs to decide
+			// whether to proceed: a preview that only named the two paths
+			// would not distinguish a compose directory from a build tree.
+			preview := sshconn.PreviewDirUpload(localPath)
+			return dryRunPreview(args, "Would upload a local directory tree over SFTP, replacing remote files that already exist.", map[string]any{
+				"host":        host,
+				"user":        stringFromConfig(args.Config, "user", "root"),
+				"port":        intFromConfig(args.Config, "port", 22),
+				"remote_path": remotePath,
+			}, map[string]any{
+				"local_path": localPath,
+				"files":      preview.Files,
+				"dirs":       preview.Dirs,
+				"symlinks":   preview.Symlinks,
+				"skipped":    preview.Skipped,
+				"bytes":      preview.Bytes,
+			}, preview.Warnings...), true, nil
 		case "stop":
 			host, err := requiredString(args.Config, "host")
 			if err != nil {
@@ -875,6 +905,28 @@ func (s *ExternalConnectorService) executeSSH(ctx context.Context, c contract.Co
 			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 		}
 		result, err := ssh.Get(ctx, &res, remotePath, localPath)
+		return externalConnectorResult(args, result), err
+	case "put_dir":
+		localPath, err := requiredString(args.Config, "local_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		remotePath, err := requiredString(args.Config, "remote_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		result, err := ssh.PutDir(ctx, &res, localPath, remotePath)
+		return externalConnectorResult(args, result), err
+	case "get_dir":
+		remotePath, err := requiredString(args.Config, "remote_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		localPath, err := requiredString(args.Config, "local_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		result, err := ssh.GetDir(ctx, &res, remotePath, localPath)
 		return externalConnectorResult(args, result), err
 	case "stop":
 		err := ssh.Stop(ctx, &res)

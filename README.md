@@ -172,6 +172,30 @@ names the commands that do operate it, and `resource list` shows the same in its
 STATUS column. The supervision verbs (`deploy`, `apply`, `reload`, …) do not
 apply to it and say so.
 
+SSH runs entirely in-process over `golang.org/x/crypto/ssh` — nothing shells out
+to `ssh`, `scp` or `rsync`, so there is one transport, one auth path and no
+remote dependency:
+
+```bash
+cerberus ssh status <resource-id>
+cerberus ssh exec <resource-id> -- 'systemctl status nginx' --ack
+cerberus ssh put <resource-id> ./app.env /opt/app/.env --ack
+cerberus ssh get <resource-id> /etc/nginx/nginx.conf ./nginx.conf
+cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --dry-run
+cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --ack
+cerberus ssh get-dir <resource-id> /opt/app/conf ./conf
+```
+
+`put-dir`/`get-dir` transfer a tree over SFTP. Permission bits are carried, so
+an uploaded script stays executable; each file lands on a temporary name and is
+renamed into place, so an interrupted sync leaves the previous file intact; and
+a symlink pointing outside the tree is refused rather than followed. `--dry-run`
+reports file count and total bytes without connecting.
+
+There is no delta transfer — every byte is copied every time. That fits compose
+files, env files, config directories and agent definitions, and is wrong for a
+large build tree; tar and ship a single blob for that.
+
 Mental model:
 
 - build source, sync the artifact, and activate it: `cerberus resource deploy <id>`
