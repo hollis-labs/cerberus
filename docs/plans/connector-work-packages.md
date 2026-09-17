@@ -1209,6 +1209,15 @@ out to nothing for SSH.** The connector is entirely in-process over
 transport with different auth, different config resolution (`~/.ssh/config`) and
 different failure modes from the one the connector already uses.
 
+**Library survey, 2026-09-17 — there is no good one, which is the finding.**
+`pkg/sftp`'s `Walk` is the ecosystem's standard answer and recursion is still
+yours to write. `bramvdbogaerde/go-scp` (v1.6.1) is tagged but speaks the SCP
+protocol, which OpenSSH has deprecated and now implements over SFTP anyway.
+`povsister/scp` supports recursion but has no tagged release. `melbahja/goph`
+wraps what we already have. So this is a genuine gap in the Go ecosystem, not a
+lookup failure — **which makes the sync logic a candidate to extract as an OSS
+library** once it has earned its keep here.
+
 **Use `pkg/sftp`, already a dependency.** It has the primitives: `Walk`,
 `ReadDir`, `MkdirAll`, `Chtimes`. Recursion is ours to write, which is a real
 cost, but it keeps one transport, one auth path, and no remote dependency.
