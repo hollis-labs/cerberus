@@ -11,7 +11,7 @@ import (
 
 // lockInfo is written into the lock file so other processes can inspect who holds it.
 type lockInfo struct {
-	PID       int       `json:"pid"`
+	PID        int       `json:"pid"`
 	AcquiredAt time.Time `json:"acquired_at"`
 }
 
