@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 
+	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/spf13/cobra"
 )
@@ -245,7 +247,8 @@ func runPluginExec(ctx context.Context, out io.Writer, pluginDir, operation stri
 }
 
 func pluginConnectorService() *cerbapi.PluginConnectorService {
-	return cerbapi.NewPluginConnectorService(version, nil)
+	return cerbapi.NewPluginConnectorService(version, os.Stderr,
+		cerbapi.WithPluginConnectorSecrets(app.ConnectorSecrets(cfgPath)))
 }
 
 func pluginTrust(trust pluginTrustOptions) cerbapi.PluginConnectorTrustOptions {

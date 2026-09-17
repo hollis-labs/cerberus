@@ -42,13 +42,29 @@ type PluginConnectorHealth struct {
 type PluginConnectorService struct {
 	hostVersion string
 	stderr      io.Writer
+	secrets     pluginhost.SecretResolver
 }
 
-func NewPluginConnectorService(hostVersion string, stderr io.Writer) *PluginConnectorService {
-	return &PluginConnectorService{
+// PluginConnectorOption configures the one-shot plugin host used by
+// `cerberus connectors plugin health|exec`.
+type PluginConnectorOption func(*PluginConnectorService)
+
+// WithPluginConnectorSecrets hands the one-shot plugin host the secret
+// provider built-in connectors resolve through, so an ad-hoc `plugin exec`
+// sees the same credentials the daemon-managed lane does.
+func WithPluginConnectorSecrets(resolver pluginhost.SecretResolver) PluginConnectorOption {
+	return func(s *PluginConnectorService) { s.secrets = resolver }
+}
+
+func NewPluginConnectorService(hostVersion string, stderr io.Writer, opts ...PluginConnectorOption) *PluginConnectorService {
+	service := &PluginConnectorService{
 		hostVersion: hostVersion,
 		stderr:      stderr,
 	}
+	for _, opt := range opts {
+		opt(service)
+	}
+	return service
 }
 
 func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {
@@ -131,6 +147,8 @@ func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir s
 		},
 		installer.Policy,
 		s.hostVersion,
+		pluginhost.WithSecretResolver(s.secrets),
+		pluginhost.WithLoadWarning(s.warn),
 	)
 
 	installed, err := manager.Install(ctx, pluginDir)
@@ -169,6 +187,20 @@ func requestedPluginTier(trust PluginConnectorTrustOptions) pluginhost.TrustTier
 	return pluginhost.TrustTierUnsigned
 }
 
+// warn reports a non-fatal plugin-host problem to the caller's stderr. Silence
+// is the fallback, never a panic: `plugin exec` runs with a nil writer from the
+// CLI.
+func (s *PluginConnectorService) warn(line string) {
+	if s == nil || s.stderr == nil {
+		return
+	}
+	fmt.Fprintf(s.stderr, "cerberus: plugin: %s\n", line)
+}
+
+// pluginLaunchEnv is the allow-list a plugin subprocess inherits. It carries no
+// credentials by design: env is ambient and would reach every plugin, so a
+// plugin's declared secrets travel in the Init config channel instead. Do not
+// widen this with credential entries.
 func pluginLaunchEnv() []string {
 	allowed := []string{
 		"PATH",

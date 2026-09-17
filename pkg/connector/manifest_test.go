@@ -94,3 +94,29 @@ func TestDefinitionFromManifestRoundTripsDiscoveryFields(t *testing.T) {
 		t.Fatalf("Config = %#v", roundTrip.Config)
 	}
 }
+
+// The host keys resolved secrets into the Init config map by secret name, so a
+// config field of the same name would make which value wins depend on map
+// ordering. Reject it at the manifest instead.
+func TestManifestRejectsSecretCollidingWithConfigField(t *testing.T) {
+	manifest := Manifest{
+		APIVersion:    ManifestAPIVersion,
+		Kind:          "Connector",
+		ID:            "contextforge",
+		Version:       "dev",
+		ResourceTypes: []string{"gateway"},
+		Config: ConfigSchema{
+			Fields:  []ConfigField{{Name: "token", Type: "string"}},
+			Secrets: []SecretRequirement{{Name: "token", Required: true}},
+		},
+		Operations: []ManifestOperation{{Name: "list_gateways"}},
+	}
+
+	err := manifest.Validate()
+	if err == nil {
+		t.Fatal("expected a validation error for a secret colliding with a config field")
+	}
+	if !strings.Contains(err.Error(), "collides with a config field") {
+		t.Fatalf("error %q should explain the collision", err.Error())
+	}
+}

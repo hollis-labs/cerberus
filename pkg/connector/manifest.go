@@ -141,6 +141,13 @@ func validateConfigSchema(schema ConfigSchema) []string {
 		if secret.Env == "" && !secret.Required {
 			problems = append(problems, fmt.Sprintf("secret %q should declare env fallback or required=true", secret.Name))
 		}
+		// The host resolves a plugin's declared secrets and hands them to the
+		// plugin in the Init config map keyed by secret name. A config field
+		// sharing that name would make which value wins depend on map ordering,
+		// so it is rejected at the manifest rather than discovered at runtime.
+		if secret.Name != "" && seenFields[secret.Name] {
+			problems = append(problems, fmt.Sprintf("secret %q collides with a config field of the same name", secret.Name))
+		}
 	}
 	return problems
 }
