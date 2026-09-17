@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/connector"
+	"github.com/hollis-labs/cerberus/internal/connector"
 )
 
 func TestRegisterBuiltInConnectorsRegistersDiscoveryMetadata(t *testing.T) {

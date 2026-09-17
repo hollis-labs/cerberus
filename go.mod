@@ -1,4 +1,4 @@
-module github.com/chrispian/cerberus
+module github.com/hollis-labs/cerberus
 
 go 1.26.3
 
@@ -10,7 +10,8 @@ require (
 	github.com/hollis-labs/go-apppaths v0.1.0
 	github.com/hollis-labs/go-mcp v0.2.0
 	github.com/hollis-labs/go-webui v0.1.0
-	github.com/hollis-labs/plugin-sdk v0.3.1
+	github.com/hollis-labs/plugin-sdk v0.4.0
+	github.com/pkg/sftp v1.13.11
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.57.0
@@ -31,6 +32,7 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

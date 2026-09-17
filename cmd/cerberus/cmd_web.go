@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/secrets"
-	"github.com/chrispian/cerberus/internal/webui"
+	"github.com/hollis-labs/cerberus/internal/secrets"
+	"github.com/hollis-labs/cerberus/internal/webui"
 	"github.com/spf13/cobra"
 )
 

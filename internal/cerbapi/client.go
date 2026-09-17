@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Client is the abstract interface every caller uses to drive Cerberus
@@ -57,6 +57,12 @@ type Client interface {
 	RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error)
 	// ListConnectors returns connector discovery metadata.
 	ListConnectors(ctx context.Context) ([]contract.Definition, error)
+
+	// ListLiveConnectors returns the IDs of connectors the serving process can
+	// construct right now. Liveness must come from the process that will run
+	// the operation: a CLI's own registry sees the user's shell PATH and
+	// credentials, which is not what the daemon has.
+	ListLiveConnectors(ctx context.Context) ([]string, error)
 	// ExecuteConnectorOperation runs a connector operation through the external connector service.
 	ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error)
 	// PluginHealth runs plugin install/load/health for a local plugin directory.
@@ -69,6 +75,10 @@ type Client interface {
 	LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
 	// UnloadManagedPlugin stops a loaded plugin by id.
 	UnloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
+
+	// UninstallManagedPlugin unloads a plugin if needed and removes it from the
+	// managed set and the persisted state.
+	UninstallManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
 	// ListManagedPlugins returns currently installed daemon-managed plugins.
 	ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error)
 	// ManagedPluginHealth returns health for a daemon-managed plugin by id.

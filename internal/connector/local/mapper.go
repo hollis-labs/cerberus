@@ -3,8 +3,8 @@ package local
 import (
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // ServiceDefToResource converts a v1 ServiceDef into a domain Resource.

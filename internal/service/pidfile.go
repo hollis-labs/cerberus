@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // CerberusVersion is the current version of Cerberus, embedded in PID meta files.

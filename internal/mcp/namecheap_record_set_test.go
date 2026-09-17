@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/connector"
-	nc "github.com/chrispian/cerberus/internal/connector/namecheap"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/connector"
+	nc "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 )
 
 type recordSetBackend struct {

@@ -3,7 +3,7 @@ package local
 import (
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // ProcessMode distinguishes the local runtime strategy for a process resource.

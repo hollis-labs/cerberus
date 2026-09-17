@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 func TestPortConflictRefusesActivationBeforeBuildOrRuntimeMutation(t *testing.T) {

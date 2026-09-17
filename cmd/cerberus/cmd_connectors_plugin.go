@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/spf13/cobra"
 )
 
@@ -128,6 +128,23 @@ var connectorsPluginManagedUnloadCmd = &cobra.Command{
 	},
 }
 
+var connectorsPluginManagedUninstallCmd = &cobra.Command{
+	Use:   "uninstall <plugin-id>",
+	Short: "Remove a daemon-managed plugin, unloading it first if needed",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newManagedPluginSocketClient()
+		if err != nil {
+			return err
+		}
+		out, err := client.UninstallManagedPlugin(cmd.Context(), args[0])
+		if err != nil {
+			return err
+		}
+		return writeJSON(cmd.OutOrStdout(), out)
+	},
+}
+
 var connectorsPluginManagedHealthCmd = &cobra.Command{
 	Use:   "health <plugin-id>",
 	Short: "Check health of a daemon-managed plugin",
@@ -185,6 +202,7 @@ func init() {
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedListCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedLoadCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedUnloadCmd)
+	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedUninstallCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedHealthCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedExecCmd)
 	connectorsPluginCmd.AddCommand(connectorsPluginHealthCmd)
@@ -197,7 +215,7 @@ func addPluginTrustFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&connectorsPluginTrust.devMode, "dev", false, "use developer trust mode for unsigned local plugins (requires devmode build)")
 	cmd.Flags().BoolVar(&connectorsPluginTrust.catalogSigned, "catalog-signed", false, "treat the local plugin source as catalog-signed")
 	cmd.Flags().BoolVar(&connectorsPluginTrust.archiveSigned, "archive-signed", false, "treat the local plugin source as archive-signed")
-	cmd.Flags().StringVar(&connectorsPluginTrust.archiveSHA256, "archive-sha256", "", "recorded archive sha256 for the plugin artifact")
+	cmd.Flags().StringVar(&connectorsPluginTrust.archiveSHA256, "archive-sha256", "", "override the archive sha256 instead of hashing the entrypoint (computed automatically when omitted)")
 }
 
 func runPluginHealth(ctx context.Context, out io.Writer, pluginDir string, trust pluginTrustOptions) error {

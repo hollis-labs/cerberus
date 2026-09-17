@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/pluginhost"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
 func TestPluginYAMLValidates(t *testing.T) {
@@ -33,7 +33,7 @@ func TestWritePrototypeWritesPluginYAML(t *testing.T) {
 		t.Fatalf("WritePrototype: %v", err)
 	}
 
-	path := filepath.Join(dir, pluginhost.PluginYAMLFilename)
+	path := filepath.Join(dir, plugin.PluginYAMLFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)

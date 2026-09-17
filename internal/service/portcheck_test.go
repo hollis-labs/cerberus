@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // listenOnPort opens a TCP listener on a random available port and returns

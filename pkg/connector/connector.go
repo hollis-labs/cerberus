@@ -3,7 +3,7 @@ package connector
 import (
 	"context"
 
-	"github.com/chrispian/cerberus/pkg/resource"
+	"github.com/hollis-labs/cerberus/pkg/resource"
 )
 
 // Connector manages resources of a specific type via a specific provider.

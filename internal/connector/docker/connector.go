@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	"github.com/chrispian/cerberus/pkg/resource"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/resource"
 )
 
 var _ contract.Connector = (*Connector)(nil)
@@ -18,11 +19,22 @@ type Connector struct {
 	backend Backend
 }
 
-// New creates a Docker connector. It uses the CLI backend (docker in PATH).
+// ErrDockerNotFound reports that the docker CLI could not be located. The
+// message names the fallbacks and the override because the usual cause is a
+// caller with a minimal PATH (a launchd-started daemon), not a missing Docker.
+var ErrDockerNotFound = fmt.Errorf(
+	"docker CLI not found on PATH or in any known install location (%s); "+
+		"set %s to the docker binary if it lives elsewhere",
+	strings.Join(fallbackDockerPaths, ", "), DockerPathEnv)
+
+// New creates a Docker connector using the CLI backend. It is called per
+// operation via the connector registry's factory, so docker becoming available
+// later — Docker Desktop starting, a PATH corrected — is picked up without a
+// daemon restart.
 func New() (*Connector, error) {
 	path, ok := DetectDocker()
 	if !ok {
-		return nil, fmt.Errorf("docker connector: docker CLI not found in PATH")
+		return nil, fmt.Errorf("docker connector: %w", ErrDockerNotFound)
 	}
 	return &Connector{backend: newCLIBackendWithPath(path)}, nil
 }

@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
 // newDeployTestCmd builds a throwaway cobra.Command with the same flag pair

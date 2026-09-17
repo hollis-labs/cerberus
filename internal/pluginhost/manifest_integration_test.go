@@ -3,9 +3,9 @@ package pluginhost
 import (
 	"testing"
 
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	ghconn "github.com/chrispian/cerberus/internal/connector/github"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func TestBuiltInConnectorDefinitionsGenerateValidManifests(t *testing.T) {

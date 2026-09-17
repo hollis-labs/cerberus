@@ -108,7 +108,7 @@ make all
 ## Option 4: `go install`
 
 ```sh
-go install github.com/chrispian/cerberus/cmd/cerberus@latest
+go install github.com/hollis-labs/cerberus/cmd/cerberus@latest
 ```
 
 This installs into one of:

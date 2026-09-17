@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/buildlock"
+	"github.com/hollis-labs/cerberus/internal/buildlock"
 )
 
 func TestBuildLockCoversStrategyAndNestedDeployment(t *testing.T) {

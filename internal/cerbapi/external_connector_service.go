@@ -5,21 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/connector"
-	cfconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
-	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	forgeconn "github.com/chrispian/cerberus/internal/connector/forge"
-	ghconn "github.com/chrispian/cerberus/internal/connector/github"
-	ncconn "github.com/chrispian/cerberus/internal/connector/namecheap"
-	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
-	contract "github.com/chrispian/cerberus/pkg/connector"
-	"github.com/chrispian/cerberus/pkg/resource"
+	"github.com/hollis-labs/cerberus/internal/connector"
+	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
+	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
+	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
+	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/resource"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -110,13 +111,22 @@ func (s *ExternalConnectorService) Definitions() []contract.Definition {
 }
 
 func (s *ExternalConnectorService) LiveDefinitions() []contract.Definition {
+	return s.LiveDefinitionsContext(context.Background())
+}
+
+// LiveDefinitionsContext returns the connectors that can actually be
+// constructed right now. It probes rather than checking registration: a
+// registered factory whose docker binary is missing, or whose API token is
+// unset, is not live. Probing costs a secret read per credentialed connector
+// and no network calls.
+func (s *ExternalConnectorService) LiveDefinitionsContext(ctx context.Context) []contract.Definition {
 	if s == nil {
 		return nil
 	}
 	defs := make(map[string]contract.Definition)
 	if s.registry != nil {
 		for _, def := range s.registry.Definitions() {
-			if s.registry.Configured(def.ID) {
+			if s.registry.Probe(ctx, def.ID) == nil {
 				defs[def.ID] = def
 			}
 		}
@@ -165,10 +175,18 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 			Acknowledged: args.Acknowledged,
 		})
 	}
+	// An installed-but-unloaded plugin is only fatal when nothing else can serve
+	// the id. A plugin that shadows a built-in must not disable it: unloading
+	// the plugin previously left `cerberus docker ps` permanently broken, with
+	// no uninstall command and hand-editing the state file as the only recovery.
 	if s.managedPlugins != nil && s.managedPlugins.Installed(args.Connector) && !s.managedPlugins.Loaded(args.Connector) {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: plugin connector is installed but not loaded", args.Connector, args.Operation))
-		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("plugin connector %q is installed but not loaded", args.Connector))
+		if s.registry == nil || !s.registry.Configured(args.Connector) {
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: plugin connector is installed but not loaded", args.Connector, args.Operation))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable,
+				fmt.Errorf("plugin connector %q is installed but not loaded; run `cerberus connectors plugin managed load %s`, or `... uninstall %s` to drop it", args.Connector, args.Connector, args.Connector))
+		}
+		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Plugin connector %q is installed but not loaded; using the built-in connector", args.Connector))
 	}
 	if s.registry == nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: connector registry is not configured", args.Connector, args.Operation))
@@ -417,6 +435,38 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 			}, map[string]any{
 				"command": command,
 			}), true, nil
+		case "put":
+			host, err := requiredString(args.Config, "host")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			localPath, err := requiredString(args.Config, "local_path")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			remotePath, err := requiredString(args.Config, "remote_path")
+			if err != nil {
+				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+			}
+			warnings := []string{}
+			info, statErr := os.Stat(localPath)
+			switch {
+			case statErr != nil:
+				warnings = append(warnings, fmt.Sprintf("local file %s cannot be read: %v", localPath, statErr))
+			case info.IsDir():
+				warnings = append(warnings, fmt.Sprintf("%s is a directory; ssh put transfers a single file", localPath))
+			}
+			input := map[string]any{"local_path": localPath}
+			if statErr == nil && !info.IsDir() {
+				input["bytes"] = info.Size()
+				input["mode"] = info.Mode().Perm().String()
+			}
+			return dryRunPreview(args, "Would upload a local file over SFTP, replacing the remote file if it exists.", map[string]any{
+				"host":        host,
+				"user":        stringFromConfig(args.Config, "user", "root"),
+				"port":        intFromConfig(args.Config, "port", 22),
+				"remote_path": remotePath,
+			}, input, warnings...), true, nil
 		case "stop":
 			host, err := requiredString(args.Config, "host")
 			if err != nil {
@@ -789,6 +839,28 @@ func (s *ExternalConnectorService) executeSSH(ctx context.Context, c contract.Co
 			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 		}
 		result, err := ssh.Exec(ctx, &res, command)
+		return externalConnectorResult(args, result), err
+	case "put":
+		localPath, err := requiredString(args.Config, "local_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		remotePath, err := requiredString(args.Config, "remote_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		result, err := ssh.Put(ctx, &res, localPath, remotePath)
+		return externalConnectorResult(args, result), err
+	case "get":
+		remotePath, err := requiredString(args.Config, "remote_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		localPath, err := requiredString(args.Config, "local_path")
+		if err != nil {
+			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		}
+		result, err := ssh.Get(ctx, &res, remotePath, localPath)
 		return externalConnectorResult(args, result), err
 	case "stop":
 		err := ssh.Stop(ctx, &res)

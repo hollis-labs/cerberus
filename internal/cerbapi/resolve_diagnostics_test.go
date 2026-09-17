@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/registry"
 )
 
 // writeRegistryFixture lays out a config.yaml plus a sibling registry

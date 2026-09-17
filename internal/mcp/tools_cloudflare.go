@@ -4,7 +4,7 @@ import (
 	"context"
 	"math"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
 // NewCerberusCloudflareZonesTool creates the cerberus_cloudflare_zones tool.

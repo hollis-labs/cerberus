@@ -13,13 +13,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/daemon"
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/pausectl"
-	"github.com/chrispian/cerberus/internal/registry"
-	"github.com/chrispian/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/config"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/daemon"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/pausectl"
+	"github.com/hollis-labs/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/secretref"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 

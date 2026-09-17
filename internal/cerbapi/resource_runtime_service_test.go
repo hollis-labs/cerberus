@@ -5,9 +5,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/pausectl"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/pausectl"
 )
 
 func TestResourceRuntimeStopPausesDevSessionUntilApply(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/hollis-labs/cerberus/internal/service"
 )
 
 // Signaler abstracts sending a signal to a PID. Production uses PosixSignaler

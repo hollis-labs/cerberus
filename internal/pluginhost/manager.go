@@ -196,6 +196,21 @@ func (m *Manager) RegisterInstalled(plugin InstalledPlugin) {
 	m.installed[plugin.ID] = plugin
 }
 
+// Remove drops an installed plugin from the registry. The caller unloads it
+// first; a still-running plugin is refused rather than silently orphaned.
+func (m *Manager) Remove(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, running := m.running[id]; running {
+		return fmt.Errorf("plugin %q is still loaded; unload it before removing", id)
+	}
+	if _, ok := m.installed[id]; !ok {
+		return fmt.Errorf("plugin %q is not installed", id)
+	}
+	delete(m.installed, id)
+	return nil
+}
+
 func (m *Manager) Installed(id string) (InstalledPlugin, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

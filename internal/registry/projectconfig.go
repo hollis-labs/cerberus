@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

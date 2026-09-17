@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -206,6 +206,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/pipelines", s.handlePipelines)
 	mux.HandleFunc("/pipelines/", s.handlePipelinesID)
 	mux.HandleFunc("/connectors", s.handleConnectors)
+	mux.HandleFunc("/connectors/live", s.handleConnectorsLive)
 	mux.HandleFunc("/connectors/", s.handleConnectorsID)
 	mux.HandleFunc("/plugins/connectors", s.handleManagedPluginConnectors)
 	mux.HandleFunc("/plugins/connectors/", s.handleManagedPluginConnectorsID)
@@ -522,6 +523,22 @@ func (s *SocketServer) handleConnectors(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, list)
 }
 
+func (s *SocketServer) handleConnectorsLive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	ids, err := s.client.ListLiveConnectors(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	writeJSON(w, http.StatusOK, ids)
+}
+
 func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -704,6 +721,22 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 			return
 		}
 		out, err := s.client.UnloadManagedPlugin(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	case "uninstall":
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.UninstallManagedPlugin(ctx, id)
+		}) {
+			return
+		}
+		out, err := s.client.UninstallManagedPlugin(r.Context(), id)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return

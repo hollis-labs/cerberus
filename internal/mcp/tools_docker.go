@@ -3,9 +3,9 @@ package mcp
 import (
 	"context"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
 // NewCerberusDockerPSTool creates the cerberus_docker_ps tool.

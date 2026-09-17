@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/chrispian/cerberus/internal/plugins/dockerplugin"
+	"github.com/hollis-labs/cerberus/internal/plugins/dockerplugin"
 	"github.com/hollis-labs/plugin-sdk/subprocess"
 )
 

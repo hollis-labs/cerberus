@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/configops"
-	"github.com/chrispian/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/configops"
+	"github.com/hollis-labs/cerberus/internal/registry"
 )
 
 type overviewResponse struct {

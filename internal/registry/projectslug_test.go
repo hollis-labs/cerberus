@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // The slug is the portfolio-wide join key: Cerberus's registry key, the

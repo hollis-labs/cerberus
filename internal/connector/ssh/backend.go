@@ -13,6 +13,14 @@ type Backend interface {
 	// Ping verifies the connection is alive by running a simple command.
 	Ping(ctx context.Context) error
 
+	// Put copies a local file to remotePath on the connected host, creating or
+	// truncating it, and returns the number of bytes written.
+	Put(ctx context.Context, localPath, remotePath string) (int64, error)
+
+	// Get copies remotePath from the connected host to localPath, creating or
+	// truncating it, and returns the number of bytes written.
+	Get(ctx context.Context, remotePath, localPath string) (int64, error)
+
 	// Close terminates the SSH connection.
 	Close() error
 }

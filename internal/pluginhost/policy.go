@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 type TrustMode string
@@ -13,6 +13,11 @@ type TrustMode string
 const (
 	TrustModeCatalogSigned TrustMode = "catalog_signed"
 	TrustModeDeveloper     TrustMode = "developer"
+	// TrustModeLocal accepts an unsigned plugin from a local directory. It is
+	// the supported path for plugins an operator installs themselves, and it
+	// does not require a devmode build. It records what actually happened:
+	// TrustTierUnsigned, never TrustTierSigned.
+	TrustModeLocal TrustMode = "local"
 )
 
 type TrustTier string
@@ -22,7 +27,11 @@ const (
 	TrustTierSigned      TrustTier = "signed"
 	TrustTierLocalDev    TrustTier = "local_dev"
 	TrustTierUnsignedDev TrustTier = "unsigned_dev"
-	TrustTierUntrusted   TrustTier = "untrusted"
+	// TrustTierUnsigned is an unsigned plugin the operator installed from a
+	// local path. Integrity is tracked by a host-computed entrypoint hash, so
+	// a binary that changes under us is detectable; provenance is not.
+	TrustTierUnsigned  TrustTier = "unsigned"
+	TrustTierUntrusted TrustTier = "untrusted"
 )
 
 type SandboxProfile string
@@ -49,6 +58,19 @@ func DefaultTrustPolicy() TrustPolicy {
 		RequireSignature:   true,
 		RequireArchiveHash: true,
 		RequireArchiveSig:  true,
+	}
+}
+
+// LocalTrustPolicy allows unsigned plugins from a local directory. Signatures
+// are not required; an archive hash still is, but the host computes it rather
+// than asking the operator to supply one.
+func LocalTrustPolicy() TrustPolicy {
+	return TrustPolicy{
+		Mode:               TrustModeLocal,
+		RequireSignature:   false,
+		RequireArchiveHash: true,
+		RequireArchiveSig:  false,
+		AllowUnsignedLocal: true,
 	}
 }
 
@@ -93,6 +115,15 @@ func (p TrustPolicy) ValidateInstall(check TrustCheck) (TrustDecision, error) {
 		return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q requested sandbox profile %q but sandbox is not enforced", check.Manifest.ID, check.SandboxProfile)
 	}
 	switch p.Mode {
+	case TrustModeLocal:
+		if !check.LocalPath {
+			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("local trust mode for plugin %q only allows local plugin paths", check.Manifest.ID)
+		}
+		// An operator who genuinely has signatures still gets credit for them.
+		if check.CatalogSigned && check.ArchiveSigned {
+			return TrustDecision{Tier: TrustTierSigned}, nil
+		}
+		return TrustDecision{Tier: TrustTierUnsigned}, nil
 	case "", TrustModeCatalogSigned:
 		if p.RequireSignature && !check.CatalogSigned {
 			return TrustDecision{Tier: TrustTierUntrusted}, fmt.Errorf("plugin %q requires a trusted catalog signature", check.Manifest.ID)
@@ -131,7 +162,15 @@ func (p TrustPolicy) ValidateInstall(check TrustCheck) (TrustDecision, error) {
 
 func OperationAllowed(tier TrustTier, op contract.ManifestOperation, acknowledged bool) error {
 	switch tier {
-	case TrustTierBuiltin, TrustTierSigned:
+	// TrustTierUnsigned sits with the trusted tiers rather than the dev tiers,
+	// and the distinction is deliberate: a signature attests to PROVENANCE,
+	// while the acknowledgment below attests to INTENT. An operator installing
+	// an unsigned plugin from a local path has established provenance out of
+	// band by building or vetting it themselves. Grouping it with the dev tiers
+	// would block every destructive operation, which would make the plugin lane
+	// read-only — and a read-only plugin lane cannot carry the provider
+	// integrations it exists for. Destructive operations still require --ack.
+	case TrustTierBuiltin, TrustTierSigned, TrustTierUnsigned:
 	case TrustTierLocalDev, TrustTierUnsignedDev:
 		if op.Destructive {
 			return fmt.Errorf("destructive operation %q is not agent-auto executable for %s plugins", op.Name, tier)

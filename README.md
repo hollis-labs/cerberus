@@ -51,7 +51,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Option 4: Install with `go install`
 
 ```sh
-go install github.com/chrispian/cerberus/cmd/cerberus@latest
+go install github.com/hollis-labs/cerberus/cmd/cerberus@latest
 ```
 
 ### First-time setup

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 func TestPipelineTransportUsesSharedRuntimeAndFreshConfig(t *testing.T) {

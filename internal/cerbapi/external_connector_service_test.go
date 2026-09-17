@@ -4,20 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/connector"
-	cfconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
-	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	forgeconn "github.com/chrispian/cerberus/internal/connector/forge"
-	ghconn "github.com/chrispian/cerberus/internal/connector/github"
-	ncconn "github.com/chrispian/cerberus/internal/connector/namecheap"
-	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
 	"github.com/digitalocean/godo"
+	"github.com/hollis-labs/cerberus/internal/connector"
+	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
+	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
+	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
+	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"gopkg.in/yaml.v3"
 )
 
 type fakeDockerBackend struct {
@@ -225,7 +230,11 @@ func (b *fakeForgeBackend) ExecuteSiteCommand(_ context.Context, serverID, siteI
 }
 
 type fakeSSHBackend struct {
-	command string
+	command    string
+	localPath  string
+	remotePath string
+	putCalls   int
+	getCalls   int
 }
 
 func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _ string, _ sshconn.HostKeyConfig) error {
@@ -235,6 +244,18 @@ func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _
 func (b *fakeSSHBackend) Exec(_ context.Context, command string) (*sshconn.ExecResult, error) {
 	b.command = command
 	return &sshconn.ExecResult{Stdout: "ok", ExitCode: 0}, nil
+}
+
+func (b *fakeSSHBackend) Put(_ context.Context, localPath, remotePath string) (int64, error) {
+	b.putCalls++
+	b.localPath, b.remotePath = localPath, remotePath
+	return 42, nil
+}
+
+func (b *fakeSSHBackend) Get(_ context.Context, remotePath, localPath string) (int64, error) {
+	b.getCalls++
+	b.localPath, b.remotePath = localPath, remotePath
+	return 7, nil
 }
 
 func (b *fakeSSHBackend) Ping(_ context.Context) error {
@@ -582,6 +603,140 @@ func TestExternalConnectorServiceExecutesSSHOperation(t *testing.T) {
 	}
 }
 
+func newSSHTestService(backend *fakeSSHBackend) *ExternalConnectorService {
+	registry := connector.NewRegistry()
+	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
+	return NewExternalConnectorService(registry)
+}
+
+func sshTransferConfig(extra map[string]any) map[string]any {
+	cfg := map[string]any{
+		"id":       "server-1",
+		"host":     "127.0.0.1",
+		"user":     "root",
+		"key_file": "/tmp/fake-key",
+	}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	return cfg
+}
+
+func TestExternalConnectorServiceExecutesSSHPut(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector:    "ssh",
+		Operation:    "put",
+		Acknowledged: true,
+		Config: sshTransferConfig(map[string]any{
+			"local_path":  "./docker-compose.yml",
+			"remote_path": "/opt/app/docker-compose.yml",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	transfer, ok := result.Data.(*sshconn.TransferResult)
+	if !ok {
+		t.Fatalf("Data = %#v, want ssh transfer result", result.Data)
+	}
+	if transfer.Bytes != 42 {
+		t.Fatalf("Bytes = %d, want 42", transfer.Bytes)
+	}
+	if backend.putCalls != 1 || backend.getCalls != 0 {
+		t.Fatalf("put=%d get=%d, want put=1 get=0", backend.putCalls, backend.getCalls)
+	}
+	if backend.localPath != "./docker-compose.yml" || backend.remotePath != "/opt/app/docker-compose.yml" {
+		t.Fatalf("backend paths = %q -> %q", backend.localPath, backend.remotePath)
+	}
+}
+
+// put overwrites a file on a real host, so it must be gated the same way exec
+// is. Without the ack an agent could replace a config with no confirmation.
+func TestExternalConnectorServiceSSHPutRequiresAcknowledgment(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "put",
+		Config: sshTransferConfig(map[string]any{
+			"local_path":  "./a",
+			"remote_path": "/opt/a",
+		}),
+	})
+	var connErr *ExternalConnectorError
+	if !errors.As(err, &connErr) {
+		t.Fatalf("err = %T, want ExternalConnectorError", err)
+	}
+	if connErr.Code != ExternalConnectorAckRequired {
+		t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorAckRequired)
+	}
+	if backend.putCalls != 0 {
+		t.Fatalf("put ran %d times despite a missing acknowledgment", backend.putCalls)
+	}
+}
+
+// get only reads, so it must NOT demand an ack — otherwise every read becomes
+// a confirmation prompt and the gate stops meaning anything.
+func TestExternalConnectorServiceSSHGetNeedsNoAcknowledgment(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	svc := newSSHTestService(backend)
+
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "get",
+		Config: sshTransferConfig(map[string]any{
+			"remote_path": "/etc/nginx/nginx.conf",
+			"local_path":  "./nginx.conf",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	transfer, ok := result.Data.(*sshconn.TransferResult)
+	if !ok || transfer.Bytes != 7 {
+		t.Fatalf("Data = %#v, want ssh transfer result of 7 bytes", result.Data)
+	}
+	if backend.getCalls != 1 {
+		t.Fatalf("getCalls = %d, want 1", backend.getCalls)
+	}
+}
+
+func TestExternalConnectorServiceSSHTransferRequiresPaths(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		operation string
+		config    map[string]any
+	}{
+		{"put without remote_path", "put", map[string]any{"local_path": "./a"}},
+		{"put without local_path", "put", map[string]any{"remote_path": "/opt/a"}},
+		{"get without local_path", "get", map[string]any{"remote_path": "/opt/a"}},
+		{"get without remote_path", "get", map[string]any{"local_path": "./a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &fakeSSHBackend{}
+			svc := newSSHTestService(backend)
+
+			_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+				Connector:    "ssh",
+				Operation:    tc.operation,
+				Acknowledged: true,
+				Config:       sshTransferConfig(tc.config),
+			})
+			var connErr *ExternalConnectorError
+			if !errors.As(err, &connErr) {
+				t.Fatalf("err = %T, want ExternalConnectorError", err)
+			}
+			if connErr.Code != ExternalConnectorInvalidArgs {
+				t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorInvalidArgs)
+			}
+		})
+	}
+}
+
 func TestExternalConnectorServiceUnavailableConnectorReturnsStructuredError(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.RegisterUnavailable("github", errors.New("missing token"))
@@ -788,5 +943,215 @@ func TestNamecheapWholeZoneReplacementIsExplicitAndAcknowledged(t *testing.T) {
 	delete(args.Config, "records")
 	if _, err := service.Execute(context.Background(), args); err == nil {
 		t.Fatal("missing authoritative records accepted")
+	}
+}
+
+// writeTestPluginDir creates a minimal installable plugin directory for the
+// given connector id. It is never loaded, so the entrypoint only has to exist
+// and be executable.
+func writeTestPluginDir(t *testing.T, id string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Owner-only, but still executable: the launcher rejects a non-executable
+	// entrypoint, and these tests install without ever loading.
+	if err := os.WriteFile(filepath.Join(dir, "bin", "plugin"), []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // an entrypoint must carry an execute bit; 0o700 is owner-only
+		t.Fatalf("write entrypoint: %v", err)
+	}
+
+	manifest := contract.ManifestFromDefinition(sshconn.Definition())
+	manifest.ID = id
+	spec := pluginhost.PluginYAMLFromManifest(manifest, pluginhost.Entrypoint{Command: "bin/plugin"})
+	spec.ID = id
+	data, err := yaml.Marshal(spec)
+	if err != nil {
+		t.Fatalf("marshal plugin.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, pluginhost.PluginYAMLFilename), data, 0o600); err != nil {
+		t.Fatalf("write plugin.yaml: %v", err)
+	}
+	return dir
+}
+
+// A plugin that shadows a built-in must not disable it when unloaded.
+// Previously `cerberus docker ps` stayed permanently broken after an unload,
+// with no uninstall command and hand-editing the state file as the only way out.
+func TestExternalConnectorServiceFallsBackToBuiltInWhenPluginNotLoaded(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	registry := connector.NewRegistry()
+	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
+
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+	if !managed.Installed("ssh") {
+		t.Fatal("plugin should be installed")
+	}
+	if managed.Loaded("ssh") {
+		t.Fatal("plugin should not be loaded")
+	}
+
+	svc := NewExternalConnectorService(registry, managed)
+	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "status",
+		Config:    sshTransferConfig(nil),
+	})
+	if err != nil {
+		t.Fatalf("execute fell through to an error instead of the built-in: %v", err)
+	}
+	if _, ok := result.Data.(string); !ok {
+		t.Fatalf("Data = %#v, want the built-in ssh status payload", result.Data)
+	}
+}
+
+// With no built-in to fall back to, an installed-but-unloaded plugin is still
+// an error — and the message should say how to recover.
+func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testing.T) {
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+
+	svc := NewExternalConnectorService(connector.NewRegistry(), managed)
+	_, err = svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+		Connector: "ssh",
+		Operation: "status",
+	})
+	if err == nil {
+		t.Fatal("expected an error with no built-in connector available")
+	}
+	if !strings.Contains(err.Error(), "uninstall") {
+		t.Fatalf("error %q should point at the recovery commands", err.Error())
+	}
+}
+
+// An unsigned local install must succeed with no signature flags and no
+// operator-supplied hash, and must record what really happened.
+func TestManagedPluginInstallUnsignedRecordsHonestTierAndHash(t *testing.T) {
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	state, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	})
+	if err != nil {
+		t.Fatalf("unsigned install failed: %v", err)
+	}
+	if state.TrustTier != string(pluginhost.TrustTierUnsigned) {
+		t.Fatalf("TrustTier = %q, want %q", state.TrustTier, pluginhost.TrustTierUnsigned)
+	}
+	installed, ok := managed.manager.Installed("ssh")
+	if !ok {
+		t.Fatal("plugin not registered")
+	}
+	if installed.ArchiveSHA256 == "" {
+		t.Fatal("host did not compute an archive hash")
+	}
+}
+
+func TestManagedPluginUninstallRemovesEntry(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: writeTestPluginDir(t, "ssh"),
+	}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if _, err := managed.Uninstall(context.Background(), "ssh"); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if managed.Installed("ssh") {
+		t.Fatal("plugin still installed after uninstall")
+	}
+	if _, err := managed.Uninstall(context.Background(), "ssh"); err == nil {
+		t.Fatal("uninstalling an absent plugin should error")
+	}
+}
+
+// Deleting a plugin directory must not take the daemon down. Returning an error
+// from restore made the launchd job fail to start and KeepAlive crash-loop, so
+// `make clean` in a plugin repo — or a fresh clone with a gitignored dist/ —
+// bricked Cerberus entirely.
+func TestManagedPluginRestoreSkipsMissingDirectoryInsteadOfFailing(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	pluginDir := writeTestPluginDir(t, "ssh")
+
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+		PluginDir: pluginDir,
+	}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+
+	// The plugin directory goes away, as `make clean` would do.
+	if rmErr := os.RemoveAll(pluginDir); rmErr != nil {
+		t.Fatalf("remove plugin dir: %v", rmErr)
+	}
+
+	var warnings strings.Builder
+	restored, err := NewManagedPluginConnectorService("test", &warnings, statePath)
+	if err != nil {
+		t.Fatalf("restore returned an error for a missing plugin directory: %v", err)
+	}
+	if restored.Installed("ssh") {
+		t.Fatal("a plugin whose directory is gone should not be registered")
+	}
+	if !strings.Contains(warnings.String(), "skipping plugin") {
+		t.Fatalf("missing plugin was skipped silently; warnings = %q", warnings.String())
+	}
+}
+
+// A registration is kept when its directory is temporarily absent, so a
+// rebuilt plugin returns on the next restart instead of needing reinstalling.
+func TestManagedPluginRestorePreservesUnrestorableEntries(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	pluginDir := writeTestPluginDir(t, "ssh")
+
+	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{PluginDir: pluginDir}); installErr != nil {
+		t.Fatalf("install: %v", installErr)
+	}
+	if rmErr := os.RemoveAll(pluginDir); rmErr != nil {
+		t.Fatalf("remove plugin dir: %v", rmErr)
+	}
+
+	restored, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	// Any persist must not drop the entry whose directory is missing.
+	if persistErr := restored.persist(); persistErr != nil {
+		t.Fatalf("persist: %v", persistErr)
+	}
+	state, err := readPluginConnectorState(statePath)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if len(state.Entries) != 1 || state.Entries[0].PluginDir != pluginDir {
+		t.Fatalf("registration was dropped; entries = %+v", state.Entries)
 	}
 }

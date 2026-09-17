@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -337,6 +337,14 @@ func (c *SocketClient) ListConnectors(ctx context.Context) ([]contract.Definitio
 	return out, nil
 }
 
+func (c *SocketClient) ListLiveConnectors(ctx context.Context) ([]string, error) {
+	var out []string
+	if err := c.doJSON(ctx, http.MethodGet, "/connectors/live", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *SocketClient) ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	var out ExternalConnectorOperationResult
 	err := c.executeConnectorOperation(ctx, args, &out)
@@ -411,6 +419,14 @@ func (c *SocketClient) LoadManagedPlugin(ctx context.Context, id string) (Manage
 func (c *SocketClient) UnloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
 	var out ManagedPluginConnectorState
 	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/unload", nil, &out); err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	return out, nil
+}
+
+func (c *SocketClient) UninstallManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	var out ManagedPluginConnectorState
+	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/uninstall", nil, &out); err != nil {
 		return ManagedPluginConnectorState{}, err
 	}
 	return out, nil

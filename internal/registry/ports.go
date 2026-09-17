@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 const duplicatePortField = "duplicate-port"

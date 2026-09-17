@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/chrispian/cerberus/internal/config"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/config"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 )
 
 // Severity classifies a validation issue. Errors block registration and

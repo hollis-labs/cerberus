@@ -27,9 +27,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/pipeline"
+	"github.com/hollis-labs/cerberus/internal/config"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/pipeline"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 

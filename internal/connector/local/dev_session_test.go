@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/service"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/service"
 )
 
 func TestDevSessionProcessHelper(t *testing.T) {

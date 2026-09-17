@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/connector"
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/connector"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -218,6 +218,9 @@ func (fakeSocketProgressClient) RunPipeline(ctx context.Context, _ string) (*cer
 func (fakeSocketProgressClient) ListConnectors(context.Context) ([]contract.Definition, error) {
 	return nil, errors.New("not implemented")
 }
+func (fakeSocketProgressClient) ListLiveConnectors(context.Context) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
 func (fakeSocketProgressClient) ExecuteConnectorOperation(ctx context.Context, args cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake connector operation started")
 	gmcp.NotifyProgress(ctx, "fake-connector", 1, 2, "running connector operation")
@@ -253,6 +256,13 @@ func (fakeSocketProgressClient) LoadManagedPlugin(ctx context.Context, id string
 	return cerbapi.ManagedPluginConnectorState{ID: id, Loaded: true, Version: "0.1.0"}, nil
 }
 func (fakeSocketProgressClient) UnloadManagedPlugin(ctx context.Context, id string) (cerbapi.ManagedPluginConnectorState, error) {
+	gmcp.NotifyMessage(ctx, "info", "fake managed plugin unload started")
+	gmcp.NotifyProgress(ctx, "fake-managed-unload", 1, 2, "unloading managed plugin")
+	gmcp.NotifyMessage(ctx, "info", "fake managed plugin unload completed")
+	return cerbapi.ManagedPluginConnectorState{ID: id, Loaded: false, Version: "0.1.0"}, nil
+}
+
+func (fakeSocketProgressClient) UninstallManagedPlugin(ctx context.Context, id string) (cerbapi.ManagedPluginConnectorState, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake managed plugin unload started")
 	gmcp.NotifyProgress(ctx, "fake-managed-unload", 1, 2, "unloading managed plugin")
 	gmcp.NotifyMessage(ctx, "info", "fake managed plugin unload completed")

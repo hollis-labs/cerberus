@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // HealthWait polls a URL until it returns 2xx or the timeout expires.

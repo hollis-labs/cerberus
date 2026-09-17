@@ -1,6 +1,6 @@
 package pipeline
 
-import "github.com/chrispian/cerberus/internal/domain"
+import "github.com/hollis-labs/cerberus/internal/domain"
 
 // Pipeline is a named sequence of stages, each containing actions.
 // Stages form a DAG via DependsOn — stages at the same level run in parallel.

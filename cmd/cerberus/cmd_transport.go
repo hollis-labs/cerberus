@@ -7,8 +7,8 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/chrispian/cerberus/internal/app"
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/app"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/spf13/cobra"
 )
 

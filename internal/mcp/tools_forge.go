@@ -3,7 +3,7 @@ package mcp
 import (
 	"context"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
 // NewCerberusForgeServersTool creates the cerberus_forge_servers tool.

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -145,18 +145,28 @@ func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir s
 	return manager, installed, nil
 }
 
+// pluginPolicy picks the trust policy for an install. Signature claims opt into
+// the signed path; everything else installs as an unsigned local plugin, which
+// is the supported default rather than an escape hatch. DevMode remains for the
+// stricter developer-roots policy in a devmode build.
 func pluginPolicy(pluginDir string, trust PluginConnectorTrustOptions) pluginhost.TrustPolicy {
 	if trust.DevMode {
 		return pluginhost.DeveloperTrustPolicy(pluginDir)
 	}
-	return pluginhost.DefaultTrustPolicy()
+	if trust.CatalogSigned || trust.ArchiveSigned {
+		return pluginhost.DefaultTrustPolicy()
+	}
+	return pluginhost.LocalTrustPolicy()
 }
 
 func requestedPluginTier(trust PluginConnectorTrustOptions) pluginhost.TrustTier {
 	if trust.DevMode {
 		return pluginhost.TrustTierUnsignedDev
 	}
-	return pluginhost.TrustTierSigned
+	if trust.CatalogSigned || trust.ArchiveSigned {
+		return pluginhost.TrustTierSigned
+	}
+	return pluginhost.TrustTierUnsigned
 }
 
 func pluginLaunchEnv() []string {

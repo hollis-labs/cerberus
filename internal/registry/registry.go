@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // Health status values for a registered entry.

@@ -1,96 +1,22 @@
 package pluginhost
 
 import (
-	"fmt"
-	"path/filepath"
-	"strings"
-
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
-type PluginYAML struct {
-	SchemaVersion string              `json:"schema_version" yaml:"schema_version"`
-	ID            string              `json:"id" yaml:"id"`
-	Version       string              `json:"version" yaml:"version"`
-	Protocol      string              `json:"protocol" yaml:"protocol"`
-	Runtime       string              `json:"runtime" yaml:"runtime"`
-	Entrypoint    Entrypoint          `json:"entrypoint" yaml:"entrypoint"`
-	Cerberus      CerberusPluginBlock `json:"cerberus" yaml:"cerberus"`
-}
+// The plugin descriptor is part of the public authoring contract: a plugin
+// module outside this repository must be able to build one without importing
+// internal/. It lives in pkg/plugin; these aliases keep the host side reading
+// as it did.
+type (
+	PluginYAML          = plugin.PluginYAML
+	Entrypoint          = plugin.Entrypoint
+	CerberusPluginBlock = plugin.CerberusPluginBlock
+)
 
-type Entrypoint struct {
-	Command string   `json:"command" yaml:"command"`
-	Args    []string `json:"args,omitempty" yaml:"args,omitempty"`
-}
-
-type CerberusPluginBlock struct {
-	Connector contract.Manifest `json:"connector" yaml:"connector"`
-}
-
+// PluginYAMLFromManifest builds the descriptor for a subprocess plugin serving
+// the given connector manifest.
 func PluginYAMLFromManifest(manifest contract.Manifest, entrypoint Entrypoint) PluginYAML {
-	return PluginYAML{
-		SchemaVersion: "1",
-		ID:            manifest.ID,
-		Version:       manifest.Version,
-		Protocol:      "plugin-sdk/subprocess",
-		Runtime:       "subprocess",
-		Entrypoint:    entrypoint,
-		Cerberus: CerberusPluginBlock{
-			Connector: manifest,
-		},
-	}
-}
-
-func (p PluginYAML) Validate(pluginDir string) error {
-	var problems []string
-	if p.SchemaVersion == "" {
-		problems = append(problems, "schema_version is required")
-	}
-	if p.ID == "" {
-		problems = append(problems, "id is required")
-	}
-	if p.Version == "" {
-		problems = append(problems, "version is required")
-	}
-	if p.Protocol != "plugin-sdk/subprocess" {
-		problems = append(problems, `protocol must be "plugin-sdk/subprocess"`)
-	}
-	if p.Runtime != "subprocess" {
-		problems = append(problems, `runtime must be "subprocess"`)
-	}
-	if err := p.Entrypoint.Validate(pluginDir); err != nil {
-		problems = append(problems, err.Error())
-	}
-	if err := p.Cerberus.Connector.Validate(); err != nil {
-		problems = append(problems, err.Error())
-	}
-	if p.Cerberus.Connector.ID != "" && p.ID != "" && p.Cerberus.Connector.ID != p.ID {
-		problems = append(problems, "plugin id must match cerberus connector id")
-	}
-	if len(problems) > 0 {
-		return fmt.Errorf("plugin.yaml %q invalid: %s", p.ID, strings.Join(problems, "; "))
-	}
-	return nil
-}
-
-func (e Entrypoint) Validate(pluginDir string) error {
-	if e.Command == "" {
-		return fmt.Errorf("entrypoint command is required")
-	}
-	if strings.ContainsAny(e.Command, " \t\n\r;&|`$<>") {
-		return fmt.Errorf("entrypoint command must be a single executable path, not a shell string")
-	}
-	if filepath.IsAbs(e.Command) {
-		return fmt.Errorf("entrypoint command must be relative to the plugin directory")
-	}
-	clean := filepath.Clean(e.Command)
-	if clean == "." || strings.HasPrefix(clean, "..") {
-		return fmt.Errorf("entrypoint command must stay inside the plugin directory")
-	}
-	for _, arg := range e.Args {
-		if strings.ContainsAny(arg, "\x00\n\r") {
-			return fmt.Errorf("entrypoint args cannot contain control separators")
-		}
-	}
-	return nil
+	return plugin.PluginYAMLFromManifest(manifest, entrypoint)
 }

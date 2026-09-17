@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
 // NewCerberusPipelineListTool creates the cerberus_pipeline_list tool.

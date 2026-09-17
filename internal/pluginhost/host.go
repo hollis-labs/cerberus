@@ -3,7 +3,7 @@ package pluginhost
 import (
 	"context"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Host is the narrow boundary Cerberus will adapt to plugin-sdk subprocesses.
@@ -24,6 +24,10 @@ type InstalledPlugin struct {
 	Trust    TrustDecision     `json:"trust"`
 	Spec     PluginYAML        `json:"spec"`
 	Manifest contract.Manifest `json:"manifest"`
+	// ArchiveSHA256 fingerprints the entrypoint binary as installed. Recorded
+	// so a plugin binary replaced underneath us is detectable even when the
+	// plugin is unsigned.
+	ArchiveSHA256 string `json:"archive_sha256,omitempty"`
 }
 
 type Health struct {

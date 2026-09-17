@@ -4,7 +4,7 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/chrispian/cerberus/internal/buildlock"
+	"github.com/hollis-labs/cerberus/internal/buildlock"
 )
 
 type buildLockContextKey struct{}

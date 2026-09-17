@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/chrispian/cerberus/internal/pluginhost"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -23,6 +23,13 @@ type ManagedPluginConnectorService struct {
 	hostVersion string
 	statePath   string
 	records     map[string]pluginConnectorPersistedEntry
+	warn        io.Writer
+
+	// unrestored holds entries whose plugin directory could not be restored at
+	// startup. They are kept so persist() does not silently drop a registration
+	// whose directory is temporarily absent — a rebuilt plugin comes back on the
+	// next restart instead of having to be reinstalled.
+	unrestored []pluginConnectorPersistedEntry
 }
 
 func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, statePath string) (*ManagedPluginConnectorService, error) {
@@ -39,6 +46,7 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 		hostVersion: hostVersion,
 		statePath:   statePath,
 		records:     make(map[string]pluginConnectorPersistedEntry),
+		warn:        stderr,
 	}
 	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
 		return nil, err
@@ -107,6 +115,45 @@ func (s *ManagedPluginConnectorService) Unload(ctx context.Context, id string) (
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin unloaded: %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin unloaded")
 	return state, nil
+}
+
+// Uninstall unloads the plugin if needed and drops it from the managed set and
+// the persisted state. Without it the only way to undo an install was editing
+// ~/.cerberus/plugin-connectors.json by hand.
+func (s *ManagedPluginConnectorService) Uninstall(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	progressToken := fmt.Sprintf("managed-plugin-uninstall:%s", id)
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Uninstalling managed plugin %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Uninstalling managed plugin")
+
+	installed, ok := s.manager.Installed(id)
+	if !ok {
+		err := fmt.Errorf("plugin %q is not installed", id)
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+		return ManagedPluginConnectorState{}, err
+	}
+	if s.manager.Loaded(id) {
+		if err := s.manager.Unload(ctx, id); err != nil {
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+			return ManagedPluginConnectorState{}, err
+		}
+	}
+	if err := s.manager.Remove(id); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+		return ManagedPluginConnectorState{}, err
+	}
+	delete(s.records, id)
+	if err := s.persist(); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+		return ManagedPluginConnectorState{}, err
+	}
+
+	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin uninstalled: %s", id))
+	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstalled")
+	return managedState(installed, false), nil
 }
 
 func (s *ManagedPluginConnectorService) List(context.Context) ([]ManagedPluginConnectorState, error) {
@@ -235,5 +282,15 @@ func (s *ManagedPluginConnectorService) persist() error {
 			Loaded:    record.Loaded,
 		})
 	}
+	state.Entries = append(state.Entries, s.unrestored...)
 	return writePluginConnectorState(s.statePath, state)
+}
+
+// warnf reports a non-fatal managed-plugin problem. Startup problems must be
+// visible without being fatal, so they go to the daemon's stderr log.
+func (s *ManagedPluginConnectorService) warnf(format string, args ...any) {
+	if s == nil || s.warn == nil {
+		return
+	}
+	fmt.Fprintf(s.warn, "cerberus: managed plugin: "+format+"\n", args...)
 }

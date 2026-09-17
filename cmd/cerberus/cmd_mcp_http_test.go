@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/config"
 	httptransport "github.com/hollis-labs/go-mcp/transport/http"
 )
 

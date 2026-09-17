@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 )
 
 // EnsureFresher is the narrow capability set EnsureFresh composes. Both

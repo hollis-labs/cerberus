@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
 )
 

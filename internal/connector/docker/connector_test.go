@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/domain"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 type fakeBackend struct {

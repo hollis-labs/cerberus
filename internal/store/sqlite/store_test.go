@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 func openTestStore(t *testing.T) *Store {

@@ -3,7 +3,7 @@ package mcp
 import (
 	"context"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
 func NewCerberusDropletListTool(client cerbapi.Client) Tool {

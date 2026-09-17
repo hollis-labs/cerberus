@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/spf13/cobra"
 )

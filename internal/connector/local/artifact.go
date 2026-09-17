@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 const artifactManifestName = "install-manifest.json"

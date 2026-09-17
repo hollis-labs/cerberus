@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	"github.com/spf13/cobra"
 )
 

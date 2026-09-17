@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/domain"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // Build runs a local process resource's build command synchronously.

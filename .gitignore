@@ -14,3 +14,4 @@ web/node_modules/
 
 # Source-tree build coordination (lock inode must persist).
 .cerberus-build.lock
+.DS_Store

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/chrispian/cerberus/internal/config"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/config"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // InProcessClient satisfies Client by driving the daemon's shared runtime
@@ -137,6 +137,19 @@ func (c *InProcessClient) ListConnectors(_ context.Context) ([]contract.Definiti
 	return c.external.Definitions(), nil
 }
 
+// ListLiveConnectors implements Client.
+func (c *InProcessClient) ListLiveConnectors(ctx context.Context) ([]string, error) {
+	if c.external == nil {
+		return nil, nil
+	}
+	defs := c.external.LiveDefinitionsContext(ctx)
+	ids := make([]string, 0, len(defs))
+	for _, def := range defs {
+		ids = append(ids, def.ID)
+	}
+	return ids, nil
+}
+
 // ExecuteConnectorOperation implements Client.
 func (c *InProcessClient) ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	if c.external == nil {
@@ -180,6 +193,13 @@ func (c *InProcessClient) UnloadManagedPlugin(ctx context.Context, id string) (M
 		return ManagedPluginConnectorState{}, errors.New("managed plugin connector service is not configured")
 	}
 	return c.managedPlugins.Unload(ctx, id)
+}
+
+func (c *InProcessClient) UninstallManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+	if c.managedPlugins == nil {
+		return ManagedPluginConnectorState{}, errors.New("managed plugin connector service is not configured")
+	}
+	return c.managedPlugins.Uninstall(ctx, id)
 }
 
 func (c *InProcessClient) ListManagedPlugins(ctx context.Context) ([]ManagedPluginConnectorState, error) {

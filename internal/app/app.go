@@ -8,22 +8,22 @@ import (
 
 	"github.com/hollis-labs/go-apppaths/paths"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/config"
-	"github.com/chrispian/cerberus/internal/connector"
-	cloudflareconn "github.com/chrispian/cerberus/internal/connector/cloudflare"
-	doconn "github.com/chrispian/cerberus/internal/connector/digitalocean"
-	dockerconn "github.com/chrispian/cerberus/internal/connector/docker"
-	forgeconn "github.com/chrispian/cerberus/internal/connector/forge"
-	githubconn "github.com/chrispian/cerberus/internal/connector/github"
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	namecheapconn "github.com/chrispian/cerberus/internal/connector/namecheap"
-	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
-	"github.com/chrispian/cerberus/internal/domain"
-	"github.com/chrispian/cerberus/internal/registry"
-	"github.com/chrispian/cerberus/internal/secrets"
-	"github.com/chrispian/cerberus/internal/store/sqlite"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/connector"
+	cloudflareconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
+	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
+	githubconn "github.com/hollis-labs/cerberus/internal/connector/github"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	namecheapconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/secrets"
+	"github.com/hollis-labs/cerberus/internal/store/sqlite"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // App is the central dependency container for Cerberus. It wires together
@@ -152,11 +152,13 @@ func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretPr
 	registry.RegisterFactory(namecheapconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
 		return namecheapconn.New(secrets.WithContext(ctx, sec))
 	})
-	if docker, err := dockerconn.New(); err == nil {
-		registry.Register(docker)
-	} else {
-		registry.RegisterUnavailable("docker", err)
-	}
+	// Docker resolves per call, like the credentialed connectors above. Eager
+	// registration cached a boot-time "docker CLI not found" for the daemon's
+	// whole lifetime, so starting Docker Desktop — or correcting the daemon's
+	// PATH — could not recover without a restart.
+	registry.RegisterFactory(dockerconn.Definition(), func(context.Context) (contract.Connector, error) {
+		return dockerconn.New()
+	})
 
 	registry.Register(sshconn.New(sec))
 }

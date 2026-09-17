@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/domain"
 	_ "modernc.org/sqlite" // SQLite driver registration
 )
 

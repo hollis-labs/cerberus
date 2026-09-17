@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func validManifest() contract.Manifest {
@@ -142,5 +142,96 @@ func TestOperationAllowedRejectsDevDestructive(t *testing.T) {
 	err := OperationAllowed(TrustTierLocalDev, op, true)
 	if err == nil || !strings.Contains(err.Error(), "not agent-auto executable") {
 		t.Fatalf("error = %v, want dev destructive rejection", err)
+	}
+}
+
+// Going unsigned must not mean recording everything as signed. A local install
+// with no signature claims is allowed, and the tier says what actually happened
+// so the persisted trust record stays honest.
+func TestLocalTrustPolicyAllowsUnsignedAndRecordsTier(t *testing.T) {
+	decision, err := LocalTrustPolicy().ValidateInstall(TrustCheck{
+		SourcePath:    "/plugins/contextforge",
+		ArchiveSHA256: "abc123",
+		LocalPath:     true,
+		RequestedTier: TrustTierUnsigned,
+		Manifest:      validManifest(),
+	})
+	if err != nil {
+		t.Fatalf("ValidateInstall returned %v, want nil", err)
+	}
+	if decision.Tier != TrustTierUnsigned {
+		t.Fatalf("Tier = %q, want %q", decision.Tier, TrustTierUnsigned)
+	}
+}
+
+// Real signatures still earn the signed tier, so adopting unsigned installs
+// does not throw away provenance for anyone who has it.
+func TestLocalTrustPolicyKeepsSignedTierWhenSignaturesPresent(t *testing.T) {
+	decision, err := LocalTrustPolicy().ValidateInstall(TrustCheck{
+		SourcePath:    "/plugins/contextforge",
+		CatalogSigned: true,
+		ArchiveSigned: true,
+		ArchiveSHA256: "abc123",
+		LocalPath:     true,
+		RequestedTier: TrustTierSigned,
+		Manifest:      validManifest(),
+	})
+	if err != nil {
+		t.Fatalf("ValidateInstall returned %v, want nil", err)
+	}
+	if decision.Tier != TrustTierSigned {
+		t.Fatalf("Tier = %q, want %q", decision.Tier, TrustTierSigned)
+	}
+}
+
+// Unsigned is a local-path affordance, not a blanket bypass.
+func TestLocalTrustPolicyRejectsNonLocalSource(t *testing.T) {
+	_, err := LocalTrustPolicy().ValidateInstall(TrustCheck{
+		SourcePath:    "https://example.com/plugin.tgz",
+		ArchiveSHA256: "abc123",
+		LocalPath:     false,
+		RequestedTier: TrustTierUnsigned,
+		Manifest:      validManifest(),
+	})
+	if err == nil {
+		t.Fatal("ValidateInstall accepted a non-local source in local trust mode")
+	}
+}
+
+// Unlike developer mode, local trust must work in an ordinary build — otherwise
+// the only way to install a local plugin is to falsely claim it is signed.
+func TestLocalTrustPolicyDoesNotRequireDevmodeBuild(t *testing.T) {
+	if DevModeEnabled {
+		t.Skip("this assertion is only meaningful in a non-devmode build")
+	}
+	if _, err := LocalTrustPolicy().ValidateInstall(TrustCheck{
+		SourcePath:    "/plugins/contextforge",
+		ArchiveSHA256: "abc123",
+		LocalPath:     true,
+		RequestedTier: TrustTierUnsigned,
+		Manifest:      validManifest(),
+	}); err != nil {
+		t.Fatalf("local trust mode failed in a non-devmode build: %v", err)
+	}
+}
+
+// An unsigned plugin must still be able to run destructive operations, or the
+// plugin lane is read-only and cannot host provider integrations. The
+// acknowledgment gate is what protects the operation, not the signature.
+func TestOperationAllowedUnsignedTierPermitsDestructiveWithAck(t *testing.T) {
+	op := contract.ManifestOperation{Name: "destroy", Destructive: true, RequiresAck: true}
+
+	if err := OperationAllowed(TrustTierUnsigned, op, true); err != nil {
+		t.Fatalf("acknowledged destructive op rejected for unsigned tier: %v", err)
+	}
+	if err := OperationAllowed(TrustTierUnsigned, op, false); err == nil {
+		t.Fatal("unacknowledged destructive op should be rejected")
+	}
+}
+
+func TestOperationAllowedUnsignedTierPermitsReads(t *testing.T) {
+	op := contract.ManifestOperation{Name: "list_containers"}
+	if err := OperationAllowed(TrustTierUnsigned, op, false); err != nil {
+		t.Fatalf("read op rejected for unsigned tier: %v", err)
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Registry holds all registered connectors, keyed by their ID.
@@ -104,6 +104,16 @@ func (r *Registry) Resolve(ctx context.Context, id string) (contract.Connector, 
 		err = fmt.Errorf("connector %q is not available", id)
 	}
 	return nil, err
+}
+
+// Probe reports whether a connector can be constructed right now. For a
+// factory connector this runs the factory, so "live" means "resolvable at this
+// moment" rather than merely "registered" — a missing docker binary or an unset
+// API token reads as not live. Callers that only need registration should use
+// Configured instead.
+func (r *Registry) Probe(ctx context.Context, id string) error {
+	_, err := r.Resolve(ctx, id)
+	return err
 }
 
 // List returns all registered connectors.

@@ -5,10 +5,10 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/chrispian/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	ncconn "github.com/chrispian/cerberus/internal/connector/namecheap"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	"github.com/spf13/cobra"
 )
 

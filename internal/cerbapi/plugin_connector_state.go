@@ -73,15 +73,23 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 	if err != nil {
 		return err
 	}
+	// A plugin that cannot be restored is skipped, never fatal. Returning an
+	// error here took the whole daemon down: the launchd job failed to start and
+	// KeepAlive crash-looped, so deleting a plugin directory — `make clean` in a
+	// plugin repo, or a fresh clone with a gitignored dist/ — bricked Cerberus
+	// entirely. A plugin is optional by definition and must not be able to take
+	// the host with it.
 	for _, entry := range state.Entries {
 		installed, err := service.install(entry.PluginDir, entry.Trust)
 		if err != nil {
-			return fmt.Errorf("restore plugin %q: %w", entry.PluginDir, err)
+			service.warnf("skipping plugin %q: %v\n  the registration is kept; reinstall or run `cerberus connectors plugin managed uninstall <id>` to drop it", entry.PluginDir, err)
+			service.unrestored = append(service.unrestored, entry)
+			continue
 		}
 		service.records[installed.ID] = entry
 		if entry.Loaded {
 			if err := service.manager.Load(ctx, installed.ID); err != nil {
-				return fmt.Errorf("restore load %q: %w", installed.ID, err)
+				service.warnf("plugin %q installed but failed to load: %v", installed.ID, err)
 			}
 		}
 	}

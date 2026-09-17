@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/configops"
+	"github.com/hollis-labs/cerberus/internal/configops"
 )
 
 func TestConfigMigrationIsRetired(t *testing.T) {

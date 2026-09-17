@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chrispian/cerberus/internal/pluginhost"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func TestPrintConnectorDefinitions(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	localconn "github.com/chrispian/cerberus/internal/connector/local"
-	"github.com/chrispian/cerberus/internal/domain"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // DriftScanInterval is how often the background scan recomputes artifact

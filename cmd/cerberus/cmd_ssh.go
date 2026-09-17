@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/chrispian/cerberus/internal/app"
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	sshconn "github.com/chrispian/cerberus/internal/connector/ssh"
-	"github.com/chrispian/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/app"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -162,6 +162,80 @@ var sshStopCmd = &cobra.Command{
 	},
 }
 
+// sshTransferCmd builds the put and get commands, which differ only in
+// argument order and which one needs an acknowledgment.
+func sshTransferCmd(operation, use, short, long string, destructive bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Long:  long,
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := app.NewWithOptions(appOptions())
+			if err != nil {
+				return fmt.Errorf("init app: %w", err)
+			}
+			defer a.Close() //nolint:errcheck
+
+			res, err := findResource(a, args[0])
+			if err != nil {
+				return err
+			}
+
+			cfg := sshConfig(res, "")
+			// put is <local> <remote>; get is <remote> <local>. Each reads in
+			// the direction the transfer runs, which is why the order differs.
+			if operation == "put" {
+				cfg["local_path"], cfg["remote_path"] = args[1], args[2]
+			} else {
+				cfg["remote_path"], cfg["local_path"] = args[1], args[2]
+			}
+
+			svc, closeFn, err := newExternalConnectorService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer closeFn()
+
+			result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+				Connector:    "ssh",
+				Operation:    operation,
+				Config:       cfg,
+				DryRun:       destructive && sshDryRun,
+				Acknowledged: sshAcknowledge,
+			})
+			if err != nil {
+				return err
+			}
+			if destructive && sshDryRun {
+				return writeJSON(cmd.OutOrStdout(), result.Data)
+			}
+			transfer, ok := result.Data.(*sshconn.TransferResult)
+			if !ok {
+				return fmt.Errorf("ssh %s: unexpected result type %T", operation, result.Data)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s → %s (%d bytes)\n",
+				transfer.LocalPath, transfer.RemotePath, transfer.Bytes)
+			return nil
+		},
+	}
+}
+
+var sshPutCmd = sshTransferCmd("put",
+	"put <resource-id> <local-path> <remote-path>",
+	"Upload a file to a remote host",
+	"Uploads a local file to the remote host over SFTP. The write lands on a\n"+
+		"temporary name and is renamed into place, so an interrupted transfer\n"+
+		"leaves the previous file intact rather than a truncated one.",
+	true)
+
+var sshGetCmd = sshTransferCmd("get",
+	"get <resource-id> <remote-path> <local-path>",
+	"Download a file from a remote host",
+	"Downloads a file from the remote host over SFTP. Read-only, so it needs no\n"+
+		"acknowledgment.",
+	false)
+
 // findResource looks up a resource by ID from the app's v2 config.
 func findResource(a *app.App, id string) (*domain.Resource, error) {
 	for _, r := range a.Config.Resources {
@@ -198,7 +272,11 @@ func init() {
 	sshExecCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge destructive remote execution")
 	sshStopCmd.Flags().BoolVar(&sshDryRun, "dry-run", false, "preview the remote shutdown without executing it")
 	sshStopCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge destructive remote execution")
+	sshPutCmd.Flags().BoolVar(&sshDryRun, "dry-run", false, "preview the upload without transferring")
+	sshPutCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge overwriting the remote file")
 	sshCmd.AddCommand(sshExecCmd)
 	sshCmd.AddCommand(sshStatusCmd)
 	sshCmd.AddCommand(sshStopCmd)
+	sshCmd.AddCommand(sshPutCmd)
+	sshCmd.AddCommand(sshGetCmd)
 }

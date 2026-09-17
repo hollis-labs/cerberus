@@ -6,7 +6,7 @@ import (
 
 	"github.com/hollis-labs/go-apppaths/paths"
 
-	"github.com/chrispian/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // hermeticPaths pins the four XDG roots into per-test temp dirs so

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chrispian/cerberus/internal/cerbapi"
-	"github.com/chrispian/cerberus/internal/connector"
-	"github.com/chrispian/cerberus/internal/pluginhost"
-	contract "github.com/chrispian/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/connector"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
 	"gopkg.in/yaml.v3"
 )
