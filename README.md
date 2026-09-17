@@ -129,6 +129,26 @@ cerberus domain nameservers set <domain> <ns1> <ns2> --ack
 cerberus dns list <domain>
 ```
 
+Docker operations run against the daemon's own Docker by default, or against
+another Docker host with `--host` (a `DOCKER_HOST` value) or `--context`
+(a name from `docker context ls`). The two are mutually exclusive, and the
+selection is per command — nothing is left pointing at a remote host
+afterwards:
+
+```bash
+cerberus docker ps
+cerberus docker ps --host ssh://user@host
+cerberus docker ps --context azure-dev
+cerberus docker logs <container> --host ssh://user@host --lines 100
+cerberus docker up <container> --host tcp://10.0.0.4:2376
+cerberus docker down <container> --host ssh://user@host
+```
+
+`ssh://` needs key auth to the host and an account that can reach the Docker
+socket there; an account outside the remote `docker` group gets an error naming
+the host and that recovery. The MCP tools take the same selection as
+`docker_host` and `docker_context`.
+
 Mental model:
 
 - build source, sync the artifact, and activate it: `cerberus resource deploy <id>`

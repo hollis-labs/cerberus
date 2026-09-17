@@ -12,12 +12,13 @@ import (
 func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_ps",
-		Description: "List running Docker containers.",
-		InputSchema: emptyObjectSchema(),
+		Description: "List running Docker containers, on this machine or on a remote Docker host.",
+		InputSchema: objectSchema(dockerTargetProperties(nil)),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
 				Operation: "list_containers",
+				Config:    dockerTargetConfig(args, nil),
 			})
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
@@ -32,8 +33,8 @@ func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_logs",
-		Description: "Get recent logs for a Docker container.",
-		InputSchema: objectSchema(map[string]interface{}{
+		Description: "Get recent logs for a Docker container, on this machine or on a remote Docker host.",
+		InputSchema: objectSchema(dockerTargetProperties(map[string]interface{}{
 			"container": map[string]interface{}{
 				"type":        "string",
 				"description": "Container name or ID.",
@@ -42,7 +43,7 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 				"type":        "integer",
 				"description": "Number of log lines to return. Default 50.",
 			},
-		}, "container"),
+		}), "container"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
 			container, _ := args["container"].(string)
 			lines := 50
@@ -53,10 +54,10 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
 				Operation: "logs",
-				Config: map[string]any{
+				Config: dockerTargetConfig(args, map[string]any{
 					"container": container,
 					"lines":     lines,
-				},
+				}),
 			})
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
@@ -79,11 +80,11 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_up",
-		Description: "Start a Docker container or Compose stack.",
+		Description: "Start a Docker container or Compose stack, on this machine or on a remote Docker host.",
 		InputSchema: map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": false,
-			"properties": map[string]interface{}{
+			"properties": dockerTargetProperties(map[string]interface{}{
 				"container_name": map[string]interface{}{
 					"type":        "string",
 					"description": "Container name to start.",
@@ -92,14 +93,14 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 					"type":        "string",
 					"description": "Compose file path to run with docker compose up -d.",
 				},
-			},
+			}),
 			"oneOf": []map[string]interface{}{
 				{"required": []string{"container_name"}},
 				{"required": []string{"compose_file"}},
 			},
 		},
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
-			cfg := map[string]any{}
+			cfg := dockerTargetConfig(args, map[string]any{})
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
 				cfg["compose_file"] = composeFile
 			}
@@ -133,11 +134,11 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_down",
-		Description: "Stop a Docker container or Compose stack.",
+		Description: "Stop a Docker container or Compose stack, on this machine or on a remote Docker host.",
 		InputSchema: map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": false,
-			"properties": map[string]interface{}{
+			"properties": dockerTargetProperties(map[string]interface{}{
 				"container_name": map[string]interface{}{
 					"type":        "string",
 					"description": "Container name to stop.",
@@ -146,14 +147,14 @@ func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 					"type":        "string",
 					"description": "Compose file path to run with docker compose down.",
 				},
-			},
+			}),
 			"oneOf": []map[string]interface{}{
 				{"required": []string{"container_name"}},
 				{"required": []string{"compose_file"}},
 			},
 		},
 		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
-			cfg := map[string]any{}
+			cfg := dockerTargetConfig(args, map[string]any{})
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
 				cfg["compose_file"] = composeFile
 			}
@@ -181,6 +182,47 @@ func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 			return marshalResult(lifecycleResult{Success: true, ServiceID: name, Message: "container stopped"}), nil
 		},
 	}
+}
+
+// dockerTargetProperties adds the remote-host parameters to a Docker tool's
+// input schema. They are named docker_host and docker_context rather than host
+// and context because an agent reading a tool list has no connector prefix to
+// disambiguate them from the container's own host.
+func dockerTargetProperties(properties map[string]interface{}) map[string]interface{} {
+	merged := map[string]interface{}{
+		"docker_host": map[string]interface{}{
+			"type":        "string",
+			"description": "Docker daemon to target, as a DOCKER_HOST value (ssh://user@host, tcp://host:2376). Omit for the Docker daemon on the machine running Cerberus.",
+		},
+		"docker_context": map[string]interface{}{
+			"type":        "string",
+			"description": "Docker context name to target. Mutually exclusive with docker_host.",
+		},
+	}
+	for key, value := range properties {
+		merged[key] = value
+	}
+	return merged
+}
+
+// dockerTargetConfig folds the remote-host tool arguments into an operation's
+// config under the connector's own key names.
+func dockerTargetConfig(args map[string]interface{}, cfg map[string]any) map[string]any {
+	host, _ := args["docker_host"].(string)
+	dockerContext, _ := args["docker_context"].(string)
+	if host == "" && dockerContext == "" {
+		return cfg
+	}
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	if host != "" {
+		cfg["host"] = host
+	}
+	if dockerContext != "" {
+		cfg["context"] = dockerContext
+	}
+	return cfg
 }
 
 func marshalConnectorData(data any) (string, error) {

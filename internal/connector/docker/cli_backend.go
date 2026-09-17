@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,14 @@ import (
 // CLIBackend implements Backend by shelling out to the docker CLI.
 type CLIBackend struct {
 	dockerPath string
+	target     Target
+}
+
+// WithTarget returns a copy of the backend bound to target.
+func (c *CLIBackend) WithTarget(target Target) Backend {
+	clone := *c
+	clone.target = target
+	return &clone
 }
 
 // DockerPathEnv overrides docker binary discovery entirely.
@@ -335,15 +344,51 @@ func composeServiceFromJSON(item composePSJSON) ComposeService {
 	}
 }
 
-// run executes a docker subcommand and returns its stdout bytes.
+// run executes a docker subcommand against c.target and returns its stdout bytes.
 func (c *CLIBackend) run(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, c.dockerPath, args...) //nolint:gosec
-	out, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok { //nolint:errorlint
-			return nil, fmt.Errorf("%w: %s", err, string(exitErr.Stderr))
-		}
-		return nil, err
+	cmd := exec.CommandContext(ctx, c.dockerPath, c.commandArgs(args)...) //nolint:gosec
+	if c.target.Host != "" {
+		// cmd.Env replaces the environment rather than extending it. Assigning
+		// DOCKER_HOST alone would strip HOME and SSH_AUTH_SOCK, breaking
+		// docker's own config and credential lookup and the ssh transport it
+		// shells out to — so the daemon's environment has to be carried over.
+		cmd.Env = append(os.Environ(), "DOCKER_HOST="+c.target.Host)
 	}
-	return out, nil
+
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil
+	}
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		if c.target.IsZero() {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%s: %w", c.target.Describe(), err)
+	}
+	reason := failureReason(exitErr.Stderr)
+	if c.target.IsZero() {
+		return nil, fmt.Errorf("%w: %s", err, reason)
+	}
+	return nil, fmt.Errorf("%s: %s (%w)", c.target.Describe(), reason, err)
+}
+
+// commandArgs prefixes the global flags the target needs onto a subcommand.
+func (c *CLIBackend) commandArgs(args []string) []string {
+	var global []string
+	if c.target.Context != "" {
+		global = append(global, "--context", c.target.Context)
+	}
+	if c.target.masksFailureCause() {
+		// Debug logging is the only channel that carries why an ssh:// dial
+		// failed. It writes to stderr and leaves stdout — the JSON every
+		// parser here reads — untouched, and stderr is only ever read on a
+		// non-zero exit, so this costs nothing on the success path.
+		global = append(global, "--log-level", "debug")
+	}
+	if len(global) == 0 {
+		return args
+	}
+	return append(global, args...)
 }

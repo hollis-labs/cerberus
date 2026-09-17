@@ -502,6 +502,15 @@ func (s *ExternalConnectorService) executeDocker(ctx context.Context, c contract
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("registered connector has type %T", c))
 	}
 
+	// Host selection is resolved here, per call, so the same operations reach a
+	// remote daemon without the connector — or the Cerberus daemon around it —
+	// holding a host between calls.
+	target, err := dockerconn.TargetFromConfig(args.Config)
+	if err != nil {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+	}
+	docker = docker.WithTarget(target)
+
 	switch args.Operation {
 	case "list_containers":
 		containers, err := docker.ListContainers(ctx)
