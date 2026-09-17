@@ -6,7 +6,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/config"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -74,13 +76,22 @@ var dockerLogsCmd = &cobra.Command{
 		}
 		defer closeFn()
 
+		cfg, err := dockerOperationConfig(cmd, args[0])
+		if err != nil {
+			return err
+		}
+		if cfg["container"] == nil {
+			// A resource that only names a compose file has no single log
+			// stream — the stack's containers carry their own names.
+			return fmt.Errorf("resource %q declares a compose stack and no single container; "+
+				"run `cerberus docker ps` and pass a container name from the stack", args[0])
+		}
+		cfg["lines"] = dockerLogsLines
+
 		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "docker",
 			Operation: "logs",
-			Config: dockerTargetConfig(cmd, map[string]any{
-				"container": args[0],
-				"lines":     dockerLogsLines,
-			}),
+			Config:    cfg,
 		})
 		if err != nil {
 			return err
@@ -107,8 +118,10 @@ var dockerUpCmd = &cobra.Command{
 		defer closeFn()
 
 		resourceID := args[0]
-		composeFile, _ := cmd.Flags().GetString("file")
-		cfg := dockerTargetConfig(cmd, dockerResourceConfig(resourceID, composeFile))
+		cfg, err := dockerOperationConfig(cmd, resourceID)
+		if err != nil {
+			return err
+		}
 
 		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "docker",
@@ -118,7 +131,7 @@ var dockerUpCmd = &cobra.Command{
 			return err
 		}
 
-		if composeFile != "" {
+		if composeFile := dockerComposeFileFromConfig(cfg); composeFile != "" {
 			fmt.Printf("Compose stack started: %s\n", composeFile)
 			return nil
 		}
@@ -139,8 +152,10 @@ var dockerDownCmd = &cobra.Command{
 		defer closeFn()
 
 		resourceID := args[0]
-		composeFile, _ := cmd.Flags().GetString("file")
-		cfg := dockerTargetConfig(cmd, dockerResourceConfig(resourceID, composeFile))
+		cfg, err := dockerOperationConfig(cmd, resourceID)
+		if err != nil {
+			return err
+		}
 
 		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "docker",
@@ -150,7 +165,7 @@ var dockerDownCmd = &cobra.Command{
 			return err
 		}
 
-		if composeFile != "" {
+		if composeFile := dockerComposeFileFromConfig(cfg); composeFile != "" {
 			fmt.Printf("Compose stack stopped: %s\n", composeFile)
 			return nil
 		}
@@ -182,16 +197,84 @@ func dockerTargetConfig(cmd *cobra.Command, cfg map[string]any) map[string]any {
 	return cfg
 }
 
-func dockerResourceConfig(resourceID, composeFile string) map[string]any {
-	cfg := map[string]any{
-		"id":        resourceID,
-		"name":      resourceID,
-		"container": resourceID,
+// dockerOperationConfig resolves the command's argument through the registry
+// the way `cerberus ssh` does, and falls back to treating it as a literal
+// container name.
+//
+// Resolving is what makes a `type: container` resource worth declaring: one
+// carrying `compose_file` comes up by id with no `-f`. The fallback is what
+// keeps `cerberus docker logs <container>` working for the containers nobody
+// declared, which is most of them.
+func dockerOperationConfig(cmd *cobra.Command, id string) (map[string]any, error) {
+	cfg := map[string]any{"id": id, "name": id, "container": id}
+
+	res, err := lookupDockerResource(cmd, id)
+	if err != nil {
+		return nil, err
 	}
-	if composeFile != "" {
+	if res != nil {
+		cfg = make(map[string]any, len(res.Config)+2)
+		for key, value := range res.Config {
+			cfg[key] = value
+		}
+		cfg["id"] = res.ID
+		cfg["name"] = firstNonEmpty(res.Name, res.ID)
+		// A resource that names a compose file operates as a stack; only a
+		// single-container resource needs a container name inferred for it.
+		if _, ok := cfg["container"]; !ok && cfg["compose_file"] == nil {
+			cfg["container"] = firstNonEmpty(res.Name, res.ID)
+		}
+	}
+
+	// An explicit -f beats whatever the resource declared.
+	if composeFile, flagErr := cmd.Flags().GetString("file"); flagErr == nil && composeFile != "" {
 		cfg["compose_file"] = composeFile
 	}
-	return cfg
+	return dockerTargetConfig(cmd, cfg), nil
+}
+
+// lookupDockerResource finds a declared docker resource by id. A miss is not an
+// error — that is the literal-container path. A resource declared against
+// another connector is, because `cerberus docker up muctlvaig` on a server/ssh
+// resource is a mistake worth naming rather than silently retrying as a
+// container of that name.
+func lookupDockerResource(cmd *cobra.Command, id string) (*config.ResourceDef, error) {
+	v2, err := registry.ResolveConfig(cfgPath)
+	if err != nil {
+		// Docker operations worked without any config before resources were
+		// resolvable, and an undeclared container must keep working now. Say
+		// what happened rather than failing or hiding it.
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not read config (%v); treating %q as a container name\n", err, id)
+		return nil, nil
+	}
+	for i := range v2.Resources {
+		if v2.Resources[i].ID != id {
+			continue
+		}
+		res := &v2.Resources[i]
+		if res.Connector != "docker" {
+			return nil, fmt.Errorf("resource %q is %s/%s, not a docker resource; try: %s",
+				res.ID, res.Type, res.Connector, cerbapi.UnsupervisedNextStep(res.ID, res.Connector))
+		}
+		return res, nil
+	}
+	return nil, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// dockerComposeFileFromConfig reports the compose file an operation resolved to,
+// so the CLI can describe what it actually did rather than what was typed.
+func dockerComposeFileFromConfig(cfg map[string]any) string {
+	value, _ := cfg["compose_file"].(string)
+	return value
 }
 
 func init() {

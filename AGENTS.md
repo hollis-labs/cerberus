@@ -94,9 +94,13 @@ Remote containers and remote hosts belong in the admin lane. Do not widen the
 supervision lane to reach them — see
 `docs/plans/infra-admin-control-plane.md`.
 
-Note the trap: a `type: container` resource currently passes `cerberus validate`
-and then fails on every runtime operation, because validation only checks that
-`type` and `connector` are non-empty.
+A resource that is not local/process is a **named handle for connector
+operations**, not a broken workload — `muctlvaig` is server/ssh and has always
+worked that way. Declaring `type: container` / `connector: docker` with a
+`compose_file` is the supported pattern: `cerberus docker up <id>` resolves it
+through the registry the way `cerberus ssh` does. Supervision-lane verbs report
+such a resource as `unsupervised` and name the connector commands that do
+operate it, rather than erroring or leaving a blank status.
 
 ## Core or plugin
 

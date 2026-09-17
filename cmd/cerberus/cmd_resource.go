@@ -143,8 +143,8 @@ var resourceInspectCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; inspect currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("inspect", res)
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
@@ -178,8 +178,8 @@ var resourceDoctorCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; doctor currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("doctor", res)
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
@@ -213,8 +213,8 @@ var resourceReloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; reload currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("reload", res)
 		}
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			out, reloadErr := client.ReloadResource(cmd.Context(), res.ID)
@@ -244,8 +244,8 @@ var resourceStopCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; stop currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("stop", res)
 		}
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
 			out, stopErr := client.StopResource(cmd.Context(), res.ID)
@@ -275,8 +275,8 @@ var resourceApplyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; apply currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("apply", res)
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
@@ -308,8 +308,8 @@ var resourceDeployCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; deploy currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("deploy", res)
 		}
 
 		deployOpts, err := resolveDeployFlags(cmd)
@@ -440,8 +440,10 @@ var resourceStatusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; status currently supports local process resources only", res.ID, res.Type, res.Connector)
+		// A server or container resource is a named handle for connector
+		// operations, not a broken workload. Answer the question.
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return renderResourceRuntimeStatus(cerbapi.NewUnsupervisedRuntimeStatus(res), resourceStatusOutput)
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
@@ -473,8 +475,8 @@ var resourceLogsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; logs currently support local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("logs", res)
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
@@ -514,8 +516,8 @@ var resourceSyncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; sync currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("sync", res)
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
@@ -547,8 +549,8 @@ var resourceRemoveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
-			return fmt.Errorf("resource %q is %s/%s; remove currently supports local process resources only", res.ID, res.Type, res.Connector)
+		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
+			return cerbapi.UnsupervisedOperationError("remove", res)
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {

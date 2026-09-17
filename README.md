@@ -149,6 +149,29 @@ socket there; an account outside the remote `docker` group gets an error naming
 the host and that recovery. The MCP tools take the same selection as
 `docker_host` and `docker_context`.
 
+`docker up`/`down`/`logs` resolve their argument through the registry, the way
+`cerberus ssh` does, so a declared container resource is operated by id:
+
+```yaml
+- id: mtbf-monitor
+  type: container
+  connector: docker
+  config:
+    compose_file: /Users/you/Projects/mtbf-monitor/docker-compose.yml
+```
+
+```bash
+cerberus docker up mtbf-monitor      # no -f needed
+cerberus docker down mtbf-monitor
+cerberus docker logs some-container  # undeclared containers still work
+```
+
+A `container` or `server` resource is a named handle for connector operations,
+not a supervised workload: `resource status` reports it as `unsupervised` and
+names the commands that do operate it, and `resource list` shows the same in its
+STATUS column. The supervision verbs (`deploy`, `apply`, `reload`, …) do not
+apply to it and say so.
+
 Mental model:
 
 - build source, sync the artifact, and activate it: `cerberus resource deploy <id>`
