@@ -79,7 +79,7 @@ What it establishes, and what it maps to:
 | `rput` / `scp` — push a file | `ssh.put` (done) |
 | `rsudo` — run as root, needs a tty | `ssh.exec` with elevation — missing |
 | `ssh_open` ControlMaster multiplexing | Native: one `*ssh.Client`, many sessions |
-| `docker load` / `docker ps` on the host | Remote docker via `DOCKER_HOST` |
+| `docker load` / `docker ps` on the host | Remote docker via `DOCKER_HOST` (done) |
 | `30-configure.sh`, `35-settings.sh` — API writes | App-specific connectors |
 | ContextForge gateway/server/tool admin | ContextForge connector |
 | `probe-*` — read-only, never prints a secret | Non-destructive operations |
@@ -171,8 +171,9 @@ subprocess launcher — stays in `internal/pluginhost` and stays unreachable.
 | ssh | status, exec, **put**, **get**, stop |
 | docker | ps, logs, start, stop, destroy |
 
-Gaps: no remote docker, no ContextForge, no Azure, no recursive transfer, no
-privilege elevation.
+Gaps: no ContextForge, no Azure, no recursive transfer, no privilege
+elevation. Remote docker landed 2026-09-17 as host selection on the existing
+docker operations rather than as new verbs.
 
 Work is broken into agent-sized packages in
 `docs/plans/connector-work-packages.md`.
@@ -286,11 +287,26 @@ This replaces `rput`/`scp` in `tools/lib/common.sh`. Still missing for a full
 `tools/` port: recursive directory transfer, and the `rsudo` elevation model
 (see Open Questions).
 
-### 3. Remote Docker
+### 3. Remote Docker — DONE 2026-09-17
 
 `DOCKER_HOST` / `docker context` support on the Docker connector, so the same
 operations target a remote daemon. Host-agnostic: one implementation serves
 both the Azure box and muctlvaig.
+
+Shipped as `docker.Target`, resolved per call from the operation's config:
+`--host`/`-H` and `--context` on every `cerberus docker` command,
+`docker_host`/`docker_context` on the MCP tools. Host and context are refused
+together rather than resolved, because the CLI resolves that conflict silently
+in favor of `--context`.
+
+The non-obvious half was the error text. The docker CLI reports **every**
+`ssh://` failure as `Cannot connect to the Docker daemon at
+http://docker.example.com` — a placeholder host, identical whichever machine was
+asked for, blaming a daemon that is usually running fine — and surfaces the real
+cause only at `--log-level debug`. The connector turns debug logging on for
+`ssh://` targets alone and recovers the cause from it, so a permission failure
+now names the host, the cause and the `docker` group. Full detail and the
+verification runs are in WP-3 of `docs/plans/connector-work-packages.md`.
 
 **Constraint on muctlvaig:** `cburks` is not in the `docker` group there —
 verified 2026-09-16:

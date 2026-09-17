@@ -21,6 +21,8 @@ type fakeBackend struct {
 	composeUp string
 }
 
+func (f *fakeBackend) WithTarget(dockerconn.Target) dockerconn.Backend { return f }
+
 func (f *fakeBackend) ListContainers(context.Context) ([]dockerconn.Container, error) {
 	return f.containers, nil
 }

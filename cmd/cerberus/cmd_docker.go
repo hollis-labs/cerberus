@@ -28,6 +28,7 @@ var dockerPSCmd = &cobra.Command{
 		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "docker",
 			Operation: "list_containers",
+			Config:    dockerTargetConfig(cmd, nil),
 		})
 		if err != nil {
 			return err
@@ -76,10 +77,10 @@ var dockerLogsCmd = &cobra.Command{
 		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "docker",
 			Operation: "logs",
-			Config: map[string]any{
+			Config: dockerTargetConfig(cmd, map[string]any{
 				"container": args[0],
 				"lines":     dockerLogsLines,
-			},
+			}),
 		})
 		if err != nil {
 			return err
@@ -107,7 +108,7 @@ var dockerUpCmd = &cobra.Command{
 
 		resourceID := args[0]
 		composeFile, _ := cmd.Flags().GetString("file")
-		cfg := dockerResourceConfig(resourceID, composeFile)
+		cfg := dockerTargetConfig(cmd, dockerResourceConfig(resourceID, composeFile))
 
 		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "docker",
@@ -139,7 +140,7 @@ var dockerDownCmd = &cobra.Command{
 
 		resourceID := args[0]
 		composeFile, _ := cmd.Flags().GetString("file")
-		cfg := dockerResourceConfig(resourceID, composeFile)
+		cfg := dockerTargetConfig(cmd, dockerResourceConfig(resourceID, composeFile))
 
 		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "docker",
@@ -159,6 +160,28 @@ var dockerDownCmd = &cobra.Command{
 	},
 }
 
+// dockerTargetConfig folds the --host/--context flags into an operation's
+// config. Host selection is a property of the call, not of the process, so it
+// travels in the payload rather than in the CLI's own environment — the
+// operation runs in the daemon, whose environment is not this shell's.
+func dockerTargetConfig(cmd *cobra.Command, cfg map[string]any) map[string]any {
+	host, _ := cmd.Flags().GetString("host")
+	dockerContext, _ := cmd.Flags().GetString("context")
+	if host == "" && dockerContext == "" {
+		return cfg
+	}
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	if host != "" {
+		cfg["host"] = host
+	}
+	if dockerContext != "" {
+		cfg["context"] = dockerContext
+	}
+	return cfg
+}
+
 func dockerResourceConfig(resourceID, composeFile string) map[string]any {
 	cfg := map[string]any{
 		"id":        resourceID,
@@ -175,8 +198,9 @@ func init() {
 	dockerLogsCmd.Flags().IntVar(&dockerLogsLines, "lines", 50, "number of log lines to show")
 	dockerUpCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode)")
 	dockerDownCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode)")
-	dockerCmd.AddCommand(dockerPSCmd)
-	dockerCmd.AddCommand(dockerLogsCmd)
-	dockerCmd.AddCommand(dockerUpCmd)
-	dockerCmd.AddCommand(dockerDownCmd)
+	for _, sub := range []*cobra.Command{dockerPSCmd, dockerLogsCmd, dockerUpCmd, dockerDownCmd} {
+		sub.Flags().StringP("host", "H", "", "Docker daemon to target as a DOCKER_HOST value (ssh://user@host, tcp://host:2376)")
+		sub.Flags().String("context", "", "Docker context name to target (mutually exclusive with --host)")
+		dockerCmd.AddCommand(sub)
+	}
 }
