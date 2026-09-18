@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.95
-confidence_label: "Rules read directly; both live defects reproduced against redact.Text during reconciliation"
-last_reviewed: "2026-09-17"
+confidence_label: "Rules read directly; all five defects, shipped and open, re-run against redact.Text on 2026-09-18"
+last_reviewed: "2026-09-18"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -41,6 +41,12 @@ relationships:
   - type: "relates_to"
     target: "CERB-GAP-447"
     note: "live defect in the flag rule"
+  - type: "relates_to"
+    target: "CERB-GAP-742"
+    note: "live defect in the assignment rule's one-word value capture"
+  - type: "relates_to"
+    target: "CERB-GAP-743"
+    note: "live defect in the assignment rule's one-word value capture"
 ---
 
 # Credential redaction
@@ -56,12 +62,13 @@ Three rules do the work. `assignment` matches a key containing `token`,
 `=` or `:`, and replaces what comes next. `flag` does the same for `--flag value`
 and `--flag=value`. A third pass removes known credential values that appear
 with no label at all. Two escape hatches exist: a short, purely alphabetic word
-after `Bearer` is left alone, and `NamesOnlyKey` exempts JSON fields whose values
-are credential *names* rather than values — which is how `missing_secrets`
-survives as `["token"]` instead of `["[REDACTED]"]`.
+after `Bearer` is left alone, and `NamesOnlyKey` exempts fields whose values are
+credential *names* rather than values — though that second hatch has one call
+site and it is inside the JSON walk, so `missing_secrets` survives as
+`["token"]` in a DTO and is still eaten in prose (CERB-GAP-743).
 
 Both escape hatches were added after the redactor ate its own guidance. That has
-now happened six times, and `AGENTS.md` records the rule the repository settled
+now happened nine times, and `AGENTS.md` records the rule the repository settled
 on: **do not run redaction over a value that is a name by construction**, and if
 an error carries a recovery instruction, add a test that it survives
 `redact.Text` intact — because a safety net that eats the instruction is worse
@@ -82,18 +89,28 @@ a cross-cutting system is invisible to every area that crosses it.
 
 ## State, and why it is `partial`
 
-The mechanism works — it redacts real credentials, and the two documented
-escape hatches hold. But two distinct rules are currently corrupting text that
-is prose by construction, on every surface, verified live:
+The two defects this record was opened with — `assignment` eating the word after
+the error code `credential_missing:` (CERB-GAP-273) and `flag` eating the word
+after `X-API-Key` (CERB-GAP-447) — shipped in #34, and both now hold when
+re-run against `redact.Text`. Three more were found on 2026-09-17, and they
+share the shape those fixes did not address: `assignment` captures a single
+whitespace-delimited word and calls it the value.
 
-- `assignment` matches the error *code* `credential_missing:` and eats the first
-  word of the cause (CERB-GAP-273), including the verb `reload` in a recovery
-  instruction.
-- `flag` matches `X-API-Key ` — the internal hyphen satisfies `--?` — and eats
-  the next word of a plugin manifest's documentation field (CERB-GAP-447).
+- `Authorization: Basic <base64>` comes out as `Authorization: [REDACTED]
+  <base64>` — the scheme redacted, the credential not, because `bearer` is the
+  only scheme-aware rule and nothing fires on `Basic` (CERB-GAP-742). This is
+  the first finding in this family that leaks a credential rather than
+  corrupting a sentence, and it changes what this record is about: the failure
+  mode is no longer only that the operator loses the instruction.
+- The names-only exemption never runs on prose, so the `missing_secrets` field
+  the exemption exists for is still redacted whenever it is rendered into an
+  error message instead of a DTO (CERB-GAP-743).
 
 A component whose failure mode is silently rewriting the operator's recovery
-instructions is not `shipped` while two such rewrites are live, however complete
-the code. The fix for both is narrow and the exclusion mechanism already exists;
-what is missing is the test discipline that would have caught them
-(CERB-GAP-274).
+instructions is not `shipped`, and one that can pass a credential through is
+further from it than when this record was written. Seven narrow fixes have each
+been correct and none has been structural; `AGENTS.md` already names the answer
+— redact at the value boundary, where the caller still holds the key and the
+value as separate things, and keep `Text` as a last-resort net over text
+Cerberus did not compose. What is still missing is the test discipline that
+would have caught any of them (CERB-GAP-274).
