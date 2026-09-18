@@ -214,10 +214,6 @@ two callers, so they cannot drift.
 
 ### WP-S1 — Audit the admin lane
 
-→ **Handoff: `docs/handoffs/wp-s1-audit-the-admin-lane.md`** — the executable
-brief, with every call site, the contract-enforcement mechanisms and the
-fail-closed split.
-
 **Why first:** it is the smallest change with the largest effect, and
 `LogAudit` already exists with no callers.
 
