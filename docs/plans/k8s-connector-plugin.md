@@ -64,30 +64,23 @@ Rejected, with reasons, so nobody re-opens these:
 - **`kubetail-org/kubeslim`, `castai/k8s-client-go`** — minimal clients that
   exist to dodge client-go's ~20MB+ binary tax. We are a subprocess, so we do
   not care about the tax, and neither implements `exec` credential plugins,
-  which is the one thing a corporate kubeconfig is most likely to need.
+  which is the one thing a managed cluster's kubeconfig is most likely to need.
 - **Shelling out to `kubectl -o json`** — has repo precedent (the Docker
   connector, `internal/connector/docker/cli_backend.go`) and costs 0 MB. It is a
   legitimate fallback if WP-K0 turns up an auth mode client-go cannot do, but it
   buys less here than it does for Docker: same PATH problem, no schema, and
   output shape that drifts between kubectl versions.
 
-## WP-K0 — Establish how the cluster authenticates — BLOCKING, operator action
+## WP-K0 — Establish how the target cluster authenticates — BLOCKING, operator action
 
 **Nothing downstream of WP-K1 can be finished without this answer**, and no
-amount of code guesses it. Ask whoever provisions the cluster:
+amount of code guesses it. Four questions go to whoever provisions the cluster:
+its kubeconfig shape, whether a non-interactive identity exists, what RBAC the
+connector will get, and whether the API server is reachable without a VPN.
 
-1. **What does a kubeconfig for this cluster look like?** Specifically, does the
-   user entry carry `exec:` (an external credential plugin — `kubelogin`, `az`,
-   `aws eks get-token`, `gke-gcloud-auth-plugin`), a static `token:`, or client
-   certificates?
-2. **Is there a non-interactive identity available?** A ServiceAccount token, a
-   workload identity, or a certificate — something that does not need a human at
-   a browser.
-3. **What RBAC will `cburks` have, and can we get a read-only role bound to a
-   ServiceAccount for Cerberus specifically?**
-4. **Is the API server reachable off-VPN?** If it is VPN-only like muctlvaig,
-   the same tunnel caveats apply and the connector must name the tunnel rather
-   than the cluster when a dial fails.
+Those questions are tracked outside this repo, with the reasoning for each, in
+the follow-up tracker. The short version is below, because the *consequences*
+belong in the plan even when the asks do not.
 
 ### Why this is the gate, and not a detail
 
@@ -106,15 +99,15 @@ branch:
 - **A credential plugin that wants a browser or an MFA prompt cannot run here.**
   A Cerberus-launched process has no TTY. This is why the SSH tunnel resources
   are deliberately `auto_start: false` and `auto_restart: false`, and why an
-  auto-retrying auth loop against a corporate endpoint is a good way to get an
-  account locked out. If the answer to (2) is "no", the honest outcome is that
-  the operator refreshes credentials out-of-band and the connector reports
-  `credential_missing` with `kubelogin` named as the recovery — not that we
-  build a retry.
+  auto-retrying auth loop against an SSO endpoint is a good way to get an
+  account locked out. Where no non-interactive identity exists, the honest
+  outcome is that the operator refreshes credentials out of band and the
+  connector reports `credential_missing` with the helper named as the recovery —
+  not that we build a retry.
 
-If the answer to (1) is a static ServiceAccount token, all of the above
-evaporates and even the minimal clients become viable. Record the answer in this
-file when it arrives.
+If the kubeconfig turns out to carry a static ServiceAccount token, all of the
+above evaporates and even the minimal clients become viable. Record the answer
+in this file when it arrives.
 
 ---
 
@@ -166,7 +159,8 @@ results and an agent's context window at once:
 So the DTO is an allow-list, exactly as `contextforge/internal/cfplugin/dto.go`
 is, and for the same reason. `PodDTO` is name, namespace, phase, ready count,
 restarts, node, age, owner — not a hundred fields of cluster internals. Follow
-the `probe-*` convention from `~/Projects/tools`: **names, never values.**
+the convention the rest of this repo's probe tooling follows: **names, never
+values.**
 `EnvNames []string`, never `Env`. For a Secret, emit name, namespace, type and
 `keys []string` — never `data`, not even truncated.
 
@@ -203,7 +197,7 @@ filesystem, never touching `Backend` — asserted by
 when authentication is the thing that is broken.
 
 `check_access` is WP-K0's question answered mechanically. Driven over the real
-JSON-RPC protocol against a kubeconfig in the shape a corporate cluster most
+JSON-RPC protocol against a kubeconfig in the shape a managed cluster most
 likely hands us:
 
 ```
@@ -376,8 +370,8 @@ workaround. `apply`, `delete`, `scale`, `rollout restart`, `cordon`, `drain`,
   which is a better preview than anything we would compose — and skipping the
   `dryRunPreview` case is what makes `--dry-run` demand `--ack`.
 
-A dev cluster on the Azure box is the natural first write target and does not
-need any of the above. The corporate cluster does.
+A disposable local or development cluster is the natural first write target and
+needs none of the above. A cluster someone else owns needs all of it.
 
 ---
 
@@ -410,7 +404,7 @@ right while there was no cluster to be careless with.
 
 **WP-K2, WP-K3 and WP-K4 are now verified against a real API server** — see
 "Verified against a real cluster" below. What remains genuinely blocked on the
-corporate cluster is narrow: the `exec` credential path (kind uses client
+target cluster is narrow: the `exec` credential path (kind uses client
 certificates, so the launchd-PATH rewrite is still only unit-tested), RBAC
 behaviour under a restricted role, and whatever the mapping gets wrong on
 objects we have not thought to create.
@@ -488,10 +482,10 @@ Both were silent wrong answers, and both are fixed with tests over both typings.
 
 - The **`exec` credential path** end to end. kind does not use one, so the
   PATH-rewrite and the interactive-mode refusal remain unit-tested only. This is
-  the piece most likely to matter on the corporate cluster and the reason WP-K0
+  the piece most likely to matter on a managed cluster, and the reason WP-K0
   still blocks.
-- **RBAC.** `cburks` is cluster-admin on kind, so every `describeError` branch
-  for a forbidden read is unit-tested against a synthesised error, not a real
+- **RBAC.** kind grants cluster-admin, so every `describeError` branch for a
+  forbidden read is unit-tested against a synthesised error rather than a real
   restricted role.
 - **`top`.** kind ships no metrics-server, so the operation is still unbuilt.
 
