@@ -1,7 +1,7 @@
 # Plan: Stop runtime staleness & finish the build_strategy migration
 
 **Status:** proposed (investigation complete 2026-05-25)
-**Origin:** app-b daemon-reload incident (`/Users/me/dev/archive/inbox/cerberus/2026-05-25-app-b-daemon-service-reload-registry-urn-compat.md`) + recurring "stale binary / frontend-backend out of sync" reports.
+**Origin:** app-b daemon-reload incident (`/Users/<other-user>/dev/archive/inbox/cerberus/2026-05-25-app-b-daemon-service-reload-registry-urn-compat.md`) + recurring "stale binary / frontend-backend out of sync" reports.
 **Related:** acme followups `project_config_forward_compat_unknown_fields`, `surface_skipped_configs_in_list_commands`, `webui_drift_status.selfexec_install_after_build_self_deploy`.
 
 ## Problem
