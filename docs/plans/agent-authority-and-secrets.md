@@ -160,9 +160,63 @@ Two observations worth recording:
    different policy (redact on egress rather than never emit), and different
    consumers.
 
+## Where enforcement goes: the interception layer
+
+Asked while scoping WP-S1, and the answer shapes WP-S2, WP-S5 and WP-S6, so it
+is recorded here rather than in one handoff.
+
+**Middleware already exists**, and more of it applies than it first appears:
+the daemon socket is **`net/http` over a unix listener**
+(`internal/cerbapi/socket_server.go`), not a hand-rolled protocol, and
+`SocketServer.wrap` already negotiates an API version header. `internal/webui`
+has `withLogging`. `cerberus mcp` re-dials the socket per tool call, so MCP
+traffic arrives as HTTP as well — one middleware on the socket server sees the
+CLI-over-socket, MCP and web-console paths.
+
+**Two layers, distinct jobs.** Getting this split wrong is the main way this
+work produces coverage that is not coverage.
+
+| Layer | Belongs there | Does not belong there |
+|---|---|---|
+| HTTP middleware | Caller identity into the context; the policy gate (WP-S5); the request-scoped redactor (WP-S2) | The audit record |
+| Service layer — `ExternalConnectorService.Execute`, the six resource mutators | The authoritative record: connector, operation, target, credential names, acknowledgment, dry-run, policy decision, outcome | Inferring who the caller was |
+
+Two reasons the record cannot live in middleware:
+
+- **It cannot see what the record needs.** Method, path and status do not include
+  the connector, the target host, which credentials resolved, or whether the
+  acknowledgment gate fired. A record built from method and path is a request
+  log, and `wrap` already writes one.
+- **It misses the in-process path.** `cmd_transport.go` hands the CLI a local
+  service and the CLI calls `Execute` directly, no HTTP involved. That path is
+  not an edge case — AGENTS.md's `DaemonUnreachableError` invariant exists so a
+  mutation can re-run in-process. Enforcement that covers everything except the
+  fallback is blind exactly when things are already going wrong.
+
+**So middleware earns its place, but for identity and policy rather than for
+the record.** Three things make it worth using:
+
+1. It is the one point per surface that knows which surface it is — the thing
+   the service layer structurally cannot know.
+2. WP-S5's policy gate lands there and covers every HTTP-delivered surface at
+   once, with the in-process path calling the same evaluator directly.
+3. WP-S2's request-scoped redactor is created there and lives in the context for
+   the whole request.
+
+**Two coverage traps to design around.** `mcp-http` has no middleware chain at
+all today, so a policy gate added only to the socket server would leave it
+uncovered — and it is the surface with no authentication either (WP-S8). And
+the in-process path has no middleware by construction, so anything placed in
+middleware needs a second, explicit call from the CLI root. One shared helper,
+two callers, so they cannot drift.
+
 ## Work packages
 
 ### WP-S1 — Audit the admin lane
+
+→ **Handoff: `docs/handoffs/wp-s1-audit-the-admin-lane.md`** — the executable
+brief, with every call site, the contract-enforcement mechanisms and the
+fail-closed split.
 
 **Why first:** it is the smallest change with the largest effect, and
 `LogAudit` already exists with no callers.
