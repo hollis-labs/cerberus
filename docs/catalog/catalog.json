@@ -13633,7 +13633,7 @@
       "state_field": "status",
       "state_label": "planned",
       "confidence_score": 1.0,
-      "confidence_label": "Field read at internal/cerbapi/plugin_connector_service.go:31; internal/mcp/namecheap_record_set_test.go passes acknowledged: true directly in the tool argument map",
+      "confidence_label": "Field read at internal/cerbapi/external_connector_service.go:61; internal/mcp/namecheap_record_set_test.go passes acknowledged: true directly in the tool argument map",
       "tags": [
         "security-boundary",
         "must-have",
@@ -13647,7 +13647,7 @@
         "priority:must-have"
       ],
       "locus": "core",
-      "pointer_locator": "internal/cerbapi/plugin_connector_service.go",
+      "pointer_locator": "internal/cerbapi/external_connector_service.go (ExternalConnectorOperationArgs.Acknowledged, line 61)",
       "body": "`ExternalConnectorOperationArgs.Acknowledged` is a field the caller populates, and the MCP tool path passes it through like any other argument. An agent driving Cerberus therefore satisfies the destructive gate by setting a boolean.\n\nThis is worth stating precisely rather than alarmingly. The gate does real work: a caller has to assert acknowledgment deliberately, which stops an accidental destructive call and makes the intent explicit in the request. What it does not do is require a person, and `AGENTS.md` and the CLI's `--ack` flag together read as though it does.\n\nDistinct from `CERB-GAP-286`, which is a bypass: there the managed-plugin branch returns before the gate is reached at all. This record is about a caller that does reach the gate. The two have different fixes and an audit trail wants both facts — whether acknowledgment was supplied, and whether the gate was reached.\n\nThe protocol already carries the missing half. MCP elicitation, present in the upstream SDK and unused here, asks the client's human a question mid-call — a gate the caller cannot satisfy for itself. Paired with operator-settable policy it becomes a real control; alone it only moves the decision.",
       "relationships": [
         {
@@ -13672,6 +13672,375 @@
         "blocked_by": [],
         "unlocks_when": "Operator-settable policy decides what needs approval and MCP elicitation delivers the ask to a human, so the gate is not satisfiable by the caller",
         "effort": "large"
+      }
+    },
+    {
+      "id": "CERB-GAP-839",
+      "class": "gap",
+      "name": "No handling of personal data anywhere on the egress path",
+      "summary": "Cerberus has no data classification, labelling or egress policy for personal data, while operations that return free-form text — resource logs, `ssh exec` output, `docker logs`, and a plugin's pod logs and cluster events — pass it verbatim into MCP tool results and therefore into a model provider's context.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.9,
+      "confidence_label": "Searched the repo for any classification, labelling or PII mechanism and found none; confirmed redact.SensitiveKey matches only token/key/secret-shaped names by calling it directly",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "security-boundary",
+        "privacy",
+        "egress",
+        "agent-safety",
+        "redaction",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/redact/ (the only egress filter Cerberus has, and it is credential-shaped)",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-700",
+          "note": "the only egress filter that exists, and it is the wrong shape for this"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-404",
+          "note": "every surface carries the same operation output, so the exposure is on all of them"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-630",
+          "note": "an audit trail of who read which logs is the other half of this"
+        }
+      ],
+      "body": "Cerberus has exactly one egress filter, `internal/redact`, and it is built to\nrecognise credentials. Nothing in the repo classifies, labels or filters\npersonal data: there is no data category on an operation, no field marking a\nresult as sensitive, and no policy an operator could set about where such a\nresult may go.\n\nThat would be a theoretical concern if operations returned structured DTOs\nonly. They do not. Several return free-form text produced by someone else's\nsystem:\n\n- `ResourceLogs` (`internal/cerbapi/socket_client.go:121`) returns whatever a\n  supervised process wrote to stdout and stderr.\n- `cerberus ssh exec` returns a remote command's output verbatim.\n- `cerberus docker logs` returns a container's log stream.\n- The Kubernetes connector plugin returns pod logs and cluster events, which\n  routinely carry usernames, email addresses, request payloads and customer\n  identifiers — that is what application logs are.\n\nThe reason this matters more here than in an ordinary operations tool is the\nagent surface. Every connector operation is reachable as an MCP tool, and an\nMCP tool result lands in an agent's context window and is transmitted to a\nmodel provider. So a pod log containing customer data leaves the estate as a\nside effect of an agent being asked to debug a pod, with no operator decision\nat the point of egress and no record that it happened.\n\n**This is deliberately not filed as a redaction gap, and it is not one.**\n`redact.Text` looks for things shaped like credentials; a person's name, an\nemail address in a log line or a customer id in a stack trace are not\ntoken-shaped and never will be. Widening the redactor to chase them would make\n`AGENTS.md`'s seven-patches finding worse, not better. It is filed against\n`CERB-CAP-700` only because that is the sole capability standing on the egress\npath — the absence of a data-handling capability to file it against is itself\nthe finding.\n\n`docs/plans/agent-authority-and-secrets.md` owns the remedy as WP-S7. The\nuseful first step is smaller than a classification system: mark which\noperations return third-party free text, since that set is short and known, and\ndecide per surface whether those results may reach an agent at all.\n\nAcceptance: operations that return free-form third-party text are identified as\na set; an operator can express a rule about where their results may go; and the\ndecision is recorded per call rather than assumed.",
+      "data": {
+        "capability": "CERB-CAP-700",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "WP-S7 lands a data-handling capability and operations carrying third-party free text are labelled as such",
+        "effort": "large"
+      }
+    },
+    {
+      "id": "CERB-GAP-840",
+      "class": "gap",
+      "name": "No event bus, so no plugin-facing hook surface",
+      "summary": "Cerberus has no internal event bus and no way for a plugin to observe or veto a host action; the SDK standardises an EventHandler interface and an ErrCancelled veto sentinel and Cerberus dispatches neither.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.95,
+      "confidence_label": "Searched internal/, cmd/ and pkg/ for EmitPreHook, EventHandler, MethodEvent, eventBus and Subscribe( — no production hits",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:nice-to-have",
+        "plugin",
+        "extensibility",
+        "policy",
+        "audit",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/pluginhost/ (no event dispatch exists)",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-301",
+          "note": "the lane that would carry the hooks"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-630",
+          "note": "an audit-sink plugin would subscribe to post-events rather than need its own mechanism"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-843",
+          "note": "a policy engine needs the same fan-out point"
+        }
+      ],
+      "body": "`plugin-sdk` standardises an `EventHandler` capability interface and\n`ErrCancelled`, the sentinel a pre-hook returns to veto an action. Cerberus\ndispatches neither, because it has nothing to dispatch from: there is no event\nbus, no publish point and no subscription registry anywhere in the host.\n\nThe consequence is that every extension point Cerberus might want has to be\ninvented separately. An operator who wants a company approval service, a\nchange-window check or an internal allow-list consulted before a destructive\noperation has no way to supply one short of patching the binary. An audit sink\nhas no way to observe operations without being wired into the service layer by\nhand.\n\nNanite, the other host built on the same SDK, already has this: `Host.EmitPreHook`\nemits to subscribed plugins and reports whether any cancelled, each hook bounded\nby a five-second timeout, over roughly twenty-five event types. So the mechanism\nis proven next door against the same contract.\n\nThe cost is real and should not be understated — an event bus is genuinely new\nmachinery, and this is the largest item in the plugin backlog. The argument for\nit is that it is not new cost so much as shared cost: WP-S1's audit export and\nWP-S5's policy gate each need a fan-out point, and building two is worse than\nbuilding one.\n\nOne design question to settle explicitly rather than inherit. A pre-hook that\ncan veto sits on the critical path of every operation it subscribes to, so a\nhook that times out during a destructive operation has to resolve to something.\nFail-open and fail-closed are both defensible and the choice should be made\ndeliberately, not by whichever the first implementation happens to do.\n\nSequence this after WP-S1, so the audit record exists for hook decisions to be\nrecorded in.",
+      "data": {
+        "capability": "CERB-CAP-301",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "An event bus exists with at least one pre-hook point, so WP-S5 policy and WP-S1 export share one mechanism",
+        "effort": "large"
+      }
+    },
+    {
+      "id": "CERB-GAP-841",
+      "class": "gap",
+      "name": "No opt-in gate on the agent tool surface",
+      "summary": "All 54 MCP tools are registered unconditionally with no per-tool or per-connector opt-in, so an operator cannot shrink what an agent can reach — and the fix for CERB-GAP-330 would put plugin operations on that surface automatically too.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.95,
+      "confidence_label": "Counted 54 unconditional srv.RegisterTool calls in cmd/cerberus/cmd_mcp.go; searched the repo for LoadType, toolFilter, enabledTools and allowTools and found no gating mechanism",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "plugin",
+        "mcp",
+        "agent-safety",
+        "blast-radius",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "cmd/cerberus/cmd_mcp.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-402",
+          "note": "the surface with no gate on it"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-330",
+          "note": "its fix generates the tools this record says need a gate"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-433",
+          "note": "the live evidence that plugin operations do not reach MCP today"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-838",
+          "note": "both are about what an agent can do without an operator in the loop"
+        }
+      ],
+      "body": "`cmd/cerberus/cmd_mcp.go` makes 54 unconditional `srv.RegisterTool` calls.\nThere is no allow-list, no configuration key and no environment variable that\nnarrows the set, so every agent that can reach `cerberus mcp` sees every tool,\nincluding the destructive ones.\n\n**A correction to the framing this record was opened with,** because the\ncatalog already had the contradicting evidence. The finding was reported as \"a\nplugin's operations reach the agent tool surface immediately\". For plugins that\nis not true today: `CERB-GAP-330` and `CERB-GAP-433` both verify live that no\nplugin operation has an MCP tool at all, and the ten operations Azure and\nContextForge expose are reachable from every surface except MCP. Recording the\nfinding as reported would have contradicted two verified records.\n\nThe gap is real; it lands in two other places.\n\n**Today it lands on the built-ins.** All 54 tools are always visible. An\noperator who wants an agent to have `cerberus_resource_list` but not\n`cerberus_droplet_destroy` has no way to express that short of not running the\nMCP server.\n\n**Tomorrow it lands on plugins.** `CERB-GAP-330`'s fix is to generate MCP tools\nfrom connector definitions rather than hand-write them. The moment that lands,\ninstalling a plugin puts its operations on the agent surface with no operator\nstep in between — which is when the reported framing becomes accurate. Adding\nthe gate before that lands is far cheaper than retrofitting it onto a\ngenerator, and it is the sequencing argument for doing this first.\n\nNanite's manifest carries `LoadType: auto | opt-in` plus per-tool\n`ToolOverrides`, so a plugin's tools stay hidden until an operator enables them.\nBorrowing the field name keeps the two manifests agreeing where they overlap.\n\nThis is the cheapest agent-safety mechanism available in either codebase: it\nneeds no new machinery, only a default and a place to record the operator's\nchoice.",
+      "data": {
+        "capability": "CERB-CAP-402",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "A tool is exposed to the agent surface only after an operator opts it in, and the default for a newly installed connector is hidden",
+        "effort": "small"
+      }
+    },
+    {
+      "id": "CERB-GAP-842",
+      "class": "gap",
+      "name": "DataDir and CacheDir are declared on the Init wire and never populated",
+      "summary": "SDKInitParams carries data_dir and cache_dir and nothing in the host ever assigns them, so a plugin gets empty strings, the SDK's ResolvedDataDir returns ErrNoDataDir, and plugin persistence is broken by omission rather than by decision.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "SDKInitParams fields read at internal/pluginhost/sdk_protocol.go:22-28; searched the repo for any `DataDir:` assignment and found none, so the host sends empty strings. The SDK-side ErrNoDataDir behaviour is taken from docs/plans/plugin-capability-audit.md, not verified against plugin-sdk here.",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "plugin",
+        "contract",
+        "persistence",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/pluginhost/sdk_protocol.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-301",
+          "note": "the host side of the contract"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-304",
+          "note": "the authoring contract a plugin author reads and reasonably believes"
+        }
+      ],
+      "body": "`SDKInitParams` in `internal/pluginhost/sdk_protocol.go` declares `DataDir`\nand `CacheDir` and sends them on every `Init`. Nothing in the repo ever assigns\neither field, so every plugin receives empty strings.\n\nOn the SDK side that is not a benign default. `ResolvedDataDir()` treats an\nempty data dir as `ErrNoDataDir`, and the SDK tells plugins to treat that as\nfatal for persistence — so a plugin that wants to cache a token's expiry, a\nresolved inventory or anything else across restarts finds the contract\nunavailable and is expected to give up.\n\nThe distinguishing feature of this gap is that it is a declared contract the\nhost simply does not honour. A plugin author reading the manifest and the SDK\nhas every reason to believe the directory will be there. Nothing warns them,\nnothing reports it, and the failure appears inside their plugin rather than in\nCerberus.\n\nIt is also the cheapest item in the plugin backlog. The install layout already\ngives every plugin a directory, so populating the two fields is a matter of\ndeciding the path and creating it — plausibly a few lines.\n\nAcceptance: a plugin's `Init` receives non-empty `data_dir` and `cache_dir`,\nthe directories exist and are writable, they are namespaced per plugin id, and\ntheir lifecycle on uninstall is stated rather than left to chance.",
+      "data": {
+        "capability": "CERB-CAP-301",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "The host assigns and creates a per-plugin data and cache directory before Init",
+        "effort": "small"
+      }
+    },
+    {
+      "id": "CERB-GAP-843",
+      "class": "gap",
+      "name": "No policy engine, so every gate on an operation is compiled in",
+      "summary": "What may run is decided by compiled-in trust tiers, a manifest's requires_ack flag and a caller-supplied boolean; an operator cannot author a rule about an operation, a target or a time without rebuilding the binary.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.9,
+      "confidence_label": "Searched internal/config and pkg/resource for any policy surface and found none; the three existing gates read directly in internal/pluginhost/policy.go and internal/cerbapi/external_connector_service.go:249",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "security-boundary",
+        "policy",
+        "agent-safety",
+        "acknowledgment",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/external_connector_service.go, internal/pluginhost/policy.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "the gate that exists, and the only one"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-306",
+          "note": "install-time trust, which is a different question from per-call authorisation"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-838",
+          "note": "that record is the defect; this is the mechanism whose absence causes it"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-840",
+          "note": "a plugin-supplied policy hook needs the event bus"
+        }
+      ],
+      "body": "Cerberus has three gates and an operator can change none of them.\n\n`TrustPolicy` decides at install time whether a plugin may run at all, from\nmodes and tiers defined in Go. A connector definition or plugin manifest marks\nan operation `destructive` and may set `requires_ack`. The request then carries\nan `Acknowledged` boolean. That is the whole authorisation surface, and all of\nit is either compiled in or declared by the thing being gated.\n\nSo there is no way for an operator to say any of the following, which are\nordinary things to want: `destroy_droplet` needs a second approver; nothing\nwrites to `muctlvaig` outside a change window; this connector is read-only when\nthe caller is an agent; a plugin from outside the organisation may not reach\nthe SSH connector at all.\n\n**Distinct from `CERB-CAP-306`,** which is sometimes read as covering this.\nTrust tiers answer *is this plugin allowed to run*, once, at install, based on\nprovenance. A policy engine answers *is this call allowed*, per invocation,\nbased on what is being done and to what. A plugin can be perfectly trusted and\nthe specific operation still be one an operator wants to stop.\n\n**Distinct from `CERB-GAP-838`,** and the two should be fixed together. That\nrecord says the acknowledgment gate is satisfied by the caller being gated. A\npolicy engine is precisely what turns that into a gate the caller cannot\nsatisfy for itself — 838 names the defect, this names the missing mechanism.\n\n`docs/plans/agent-authority-and-secrets.md` owns this as WP-S5, and the\nsequencing is already argued there: it consumes WP-S1's audit record, because a\npolicy decision is only meaningful if it is recorded, and it wants\n`CERB-GAP-840`'s fan-out point if operator-supplied rules are ever to arrive as\nplugins rather than as configuration.",
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "An operator can author a rule that denies or requires approval for an operation, and the decision is recorded on the audit record WP-S1 adds",
+        "effort": "large"
+      }
+    },
+    {
+      "id": "CERB-GAP-844",
+      "class": "gap",
+      "name": "No native vault backend; anything but the login keychain is a shell-out",
+      "summary": "internal/secretref understands keychain:// and helper:// only, so 1Password or Keeper is reachable solely by spawning a helper binary per resolution, despite both vendors shipping Go SDKs.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.9,
+      "confidence_label": "Scheme parsing read in internal/secretref; searched internal/ for onepassword, 1password and keeper and found no backend; helper:// shell-out shape confirmed in CERB-CAP-504's body against docs/secrets.md",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:nice-to-have",
+        "credentials",
+        "secrets",
+        "vendor",
+        "plugin-boundary",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/secretref/, internal/secrets/",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-504",
+          "note": "the credential chain this would extend"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-800",
+          "note": "the decision above this gap; refines rather than restates it"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-302",
+          "note": "a plugin's declared secrets resolve through the same chain"
+        }
+      ],
+      "body": "`internal/secretref` parses exactly two schemes:\n\n    keychain://<service>/<key>\n    helper://<helper>/<authority>/<path>\n\nThe first is the macOS login keychain. The second shells out —\n`<helper> resolve keychain://<authority>/<path>` — and is the only route to any\nother store. There is no 1Password backend, no Keeper backend and no interface\na backend could be registered through, though both vendors ship Go SDKs.\n\nThe shell-out is not free, and its failure modes are the ones `AGENTS.md`\nalready warns about elsewhere. The helper has to be found on the daemon's\n`PATH`, which launchd keeps minimal — the same trap that produced the Docker\nconnector outage. A vault that wants an interactive unlock cannot get one from\na TTY-less daemon. And the helper's exit status has to be mapped back into a\nCerberus error before an operator sees anything useful.\n\n**This refines `CERB-DEC-800` rather than restating it.** That record captures\nthe decision: the direction ranks four credential delivery modes and Cerberus\nimplements the last one. This is the capability gap sitting underneath that\ndecision — the ranked-second mode, having a credential tool launch the process\nwith temporary material, has no native implementation either, so the ranking\ndescribes a preference the code cannot currently act on at any level but the\nbottom.\n\nPriority is `nice-to-have` deliberately, and the reason belongs in the record.\n`helper://` works. A native backend means a vendor SDK in `go.mod`, and\n`AGENTS.md`'s \"Core or plugin\" rule says a vendor SDK is the signal you are in\nthe wrong lane. The honest shape of this gap is therefore not \"add 1Password\nsupport\" but \"the credential chain has no extension point, so the one thing\nthat should be a plugin cannot be one\". That is the piece worth building\nfirst.",
+      "data": {
+        "capability": "CERB-CAP-504",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "The credential chain takes a registered backend, so a vault integration can ship as a plugin instead of a shell-out",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "CERB-GAP-845",
+      "class": "gap",
+      "name": "A plugin call has no deadline and a plugin process has no resource limit",
+      "summary": "RPCProcess.CallTool passes the caller's context through with no timeout and no rlimit, cgroup or memory cap is applied to a plugin subprocess, so a plugin that never returns holds its caller indefinitely.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.95,
+      "confidence_label": "CallTool read at internal/pluginhost/subprocess_transport.go:145 — it forwards ctx with no WithTimeout; searched the repo for Setrlimit, rlimit and cgroup with no hits; the only bound is defaultProcessCloseTimeout = 3s at subprocess_transport.go:14, which governs shutdown",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "plugin",
+        "reliability",
+        "daemon",
+        "availability",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/pluginhost/subprocess_transport.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-333",
+          "note": "the crashed case; this is the hung case, and neither detects the other"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-301",
+          "note": "the lane that spawns the subprocess"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-306",
+          "note": "trust tiers gate what a plugin may call, never how long it may take"
+        }
+      ],
+      "body": "`RPCProcess.CallTool` forwards the caller's context to `p.call` and sets no\ndeadline of its own. Nothing else does either: there is no `rlimit`, no cgroup,\nno memory cap and no CPU bound on a plugin subprocess. The single timeout in\nthe transport is `defaultProcessCloseTimeout`, three seconds, and it governs\nshutdown rather than a call.\n\nSo a plugin that hangs holds whatever called it for as long as the caller's\ncontext lives. Over the daemon socket that is an HTTP request that never\ncompletes; from `cerberus mcp` it is an agent tool call that never returns, on\na surface where the agent's own retry behaviour then becomes part of the\nfailure. A plugin does not have to be malicious to do this — one blocking on a\nTCP connect to a host behind a down tunnel is enough, which is a configuration\nthis estate has on purpose.\n\n**Adjacent to but distinct from `CERB-GAP-333`, and the distinction is the\npoint of recording it separately.** That record covers a plugin child *dying*\nundetected: the manager keeps a dead handle and `managed list` reports\n`loaded: true` forever. This one is the opposite failure. The process is alive,\nanswers a liveness check, looks healthy in `managed list`, and simply never\nreplies to the call. A supervisor that notices exits does not notice this, and\na per-call deadline does not notice a crash. Both fixes are needed and neither\nsubsumes the other.\n\nThe deadline half is small and independent — a configurable per-call timeout\nwith a sensible default, surfaced as a distinct error so an operator can tell a\nhung plugin from a failing operation. Resource limits are a larger and more\nplatform-specific question and should not hold up the timeout.",
+      "data": {
+        "capability": "CERB-CAP-301",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "A plugin call carries a deadline with a default, and a timed-out call is reported distinctly from an operation failure",
+        "effort": "small"
       }
     },
     {
