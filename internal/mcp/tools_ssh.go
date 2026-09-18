@@ -20,7 +20,11 @@ func NewCerberusSSHExecTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "resource_id", "command"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID := stringArg(args, "resource_id")
 			command := stringArg(args, "command")
 			res, err := findSSHResource(cfg, resourceID)
@@ -50,7 +54,8 @@ func NewCerberusSSHStatusTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
 		}, "resource_id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID := stringArg(args, "resource_id")
 			res, err := findSSHResource(cfg, resourceID)
 			if err != nil {
@@ -81,7 +86,11 @@ func NewCerberusSSHPutTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "resource_id", "local_path", "remote_path"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, cfg, client, "put", args,
 				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},
@@ -98,7 +107,8 @@ func NewCerberusSSHGetTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 			"remote_path": map[string]interface{}{"type": "string", "description": "File to download from the remote host."},
 			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination path."},
 		}, "resource_id", "remote_path", "local_path"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, cfg, client, "get", args, false, false)
 		},
 	}
@@ -116,7 +126,11 @@ func NewCerberusSSHPutDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only. Reports file count and total bytes without transferring."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "resource_id", "local_path", "remote_path"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, cfg, client, "put_dir", args,
 				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},
@@ -133,7 +147,8 @@ func NewCerberusSSHGetDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 			"remote_path": map[string]interface{}{"type": "string", "description": "Directory to download from the remote host."},
 			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination directory."},
 		}, "resource_id", "remote_path", "local_path"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, cfg, client, "get_dir", args, false, false)
 		},
 	}

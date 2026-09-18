@@ -10,10 +10,11 @@ import (
 // NewCerberusDomainListTool creates the cerberus_domain_list tool.
 func NewCerberusDomainListTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_domain_list",
-		Description: "List Namecheap domains.",
-		InputSchema: emptyObjectSchema(),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Name:         "cerberus_domain_list",
+		Description:  "List Namecheap domains.",
+		InputSchema:  emptyObjectSchema(),
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "namecheap", "list_domains", nil, false, false)
 		},
 	}
@@ -27,7 +28,8 @@ func NewCerberusDomainStatusTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"domain": map[string]interface{}{"type": "string", "description": "Domain name, such as example.com."},
 		}, "domain"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "namecheap", "get_domain_status", map[string]any{"domain": stringArg(args, "domain")}, false, false)
 		},
 	}
@@ -41,7 +43,8 @@ func NewCerberusDNSListTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"domain": map[string]interface{}{"type": "string", "description": "Domain name, such as example.com."},
 		}, "domain"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "namecheap", "list_dns_records", map[string]any{"domain": stringArg(args, "domain")}, false, false)
 		},
 	}
@@ -62,7 +65,11 @@ func NewCerberusDNSCreateTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "domain", "type", "host", "value"),
-		Handler: func(_ context.Context, _ map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   false,
+		Handler: func(_ context.Context, _ map[string]interface{}) (any, error) {
 			return marshalResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()}), nil
 		},
 	}
@@ -79,7 +86,11 @@ func NewCerberusDNSDeleteTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "domain", "record_id"),
-		Handler: func(_ context.Context, _ map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(_ context.Context, _ map[string]interface{}) (any, error) {
 			return marshalResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()}), nil
 		},
 	}
@@ -101,7 +112,11 @@ func NewCerberusNameserversSetTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "domain", "nameservers"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			cfg := map[string]any{
 				"domain":      stringArg(args, "domain"),
 				"nameservers": args["nameservers"],
@@ -129,14 +144,23 @@ func NewCerberusDNSRecordSetTools(client cerbapi.Client) []Tool {
 			properties["dry_run"] = map[string]any{"type": "boolean", "description": "Preview without changing DNS or email routing."}
 			properties["acknowledged"] = map[string]any{"type": "boolean", "description": "Acknowledge replacing the full zone and explicitly setting email routing; omitted hosts are deleted."}
 		}
-		result = append(result, Tool{Name: "cerberus_" + operation, Description: op.Description, InputSchema: op.InputSchema, Handler: func(ctx context.Context, args map[string]any) (string, error) {
-			config := map[string]any{"domain": stringArg(args, "domain")}
-			if operation == "set_dns_record_set" {
-				config["email_type"] = stringArg(args, "email_type")
-				config["records"] = args["records"]
-			}
-			return executeConnectorMCP(ctx, client, "namecheap", operation, config, boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
-		}})
+		result = append(result, Tool{
+			Name:            "cerberus_" + operation,
+			Description:     op.Description,
+			InputSchema:     op.InputSchema,
+			ReadOnlyHint:    !op.Destructive,
+			DestructiveHint: op.Destructive,
+			IdempotentHint:  op.Destructive,
+			OpenWorldHint:   false,
+			Handler: func(ctx context.Context, args map[string]any) (any, error) {
+				config := map[string]any{"domain": stringArg(args, "domain")}
+				if operation == "set_dns_record_set" {
+					config["email_type"] = stringArg(args, "email_type")
+					config["records"] = args["records"]
+				}
+				return executeConnectorMCP(ctx, client, "namecheap", operation, config, boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
+			},
+		})
 	}
 	return result
 }

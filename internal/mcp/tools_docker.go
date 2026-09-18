@@ -11,10 +11,11 @@ import (
 // NewCerberusDockerPSTool creates the cerberus_docker_ps tool.
 func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_docker_ps",
-		Description: "List running Docker containers, on this machine or on a remote Docker host.",
-		InputSchema: objectSchema(dockerTargetProperties(nil)),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Name:         "cerberus_docker_ps",
+		Description:  "List running Docker containers, on this machine or on a remote Docker host.",
+		InputSchema:  objectSchema(dockerTargetProperties(nil)),
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
 				Operation: "list_containers",
@@ -44,7 +45,8 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 				"description": "Number of log lines to return. Default 50.",
 			},
 		}), "container"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			container, _ := args["container"].(string)
 			lines := 50
 			if l, ok := args["lines"].(float64); ok && l > 0 {
@@ -99,7 +101,11 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 				{"required": []string{"compose_file"}},
 			},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			cfg := dockerTargetConfig(args, map[string]any{})
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
 				cfg["compose_file"] = composeFile
@@ -153,7 +159,11 @@ func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 				{"required": []string{"compose_file"}},
 			},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			cfg := dockerTargetConfig(args, map[string]any{})
 			if composeFile, ok := args["compose_file"].(string); ok && composeFile != "" {
 				cfg["compose_file"] = composeFile

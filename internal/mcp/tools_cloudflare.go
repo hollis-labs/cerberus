@@ -10,10 +10,11 @@ import (
 // NewCerberusCloudflareZonesTool creates the cerberus_cloudflare_zones tool.
 func NewCerberusCloudflareZonesTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_cloudflare_zones",
-		Description: "List Cloudflare zones.",
-		InputSchema: emptyObjectSchema(),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Name:         "cerberus_cloudflare_zones",
+		Description:  "List Cloudflare zones.",
+		InputSchema:  emptyObjectSchema(),
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "cloudflare", "list_zones", nil, false, false)
 		},
 	}
@@ -31,7 +32,11 @@ func NewCerberusCloudflareZoneCreateTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "account_id", "name"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			cfg := map[string]any{
 				"account_id": stringArg(args, "account_id"),
 				"name":       stringArg(args, "name"),
@@ -52,7 +57,8 @@ func NewCerberusCloudflareDNSListTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"zone_id": map[string]interface{}{"type": "string", "description": "Cloudflare zone ID."},
 		}, "zone_id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "cloudflare", "list_dns_records", map[string]any{"zone_id": stringArg(args, "zone_id")}, false, false)
 		},
 	}
@@ -74,7 +80,11 @@ func NewCerberusCloudflareDNSCreateTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "zone_id", "type", "name", "content"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			cfg := map[string]any{
 				"zone_id": stringArg(args, "zone_id"),
 				"type":    stringArg(args, "type"),
@@ -113,7 +123,11 @@ func NewCerberusCloudflareDNSDeleteTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "zone_id", "record_id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "cloudflare", "delete_dns_record", map[string]any{
 				"zone_id":   stringArg(args, "zone_id"),
 				"record_id": stringArg(args, "record_id"),
