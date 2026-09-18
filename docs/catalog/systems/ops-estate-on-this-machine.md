@@ -61,11 +61,11 @@ machine.
 registered.** `cerberus.cerberus.yaml` and `infrastructure.cerberus.yaml` in
 this repo, plus one each in `hadron`, `nanite`, `tachyon`, `tangent`,
 `tesseract`, `tether` and `torque`. Every one carries at least one `dir:` under
-`/Users/chrispian`, a user that does not exist here. AGENTS.md is right that
+`/Users/<other-user>`, a user that does not exist here. AGENTS.md is right that
 they are templates rather than configuration, but slightly wrong about why in
 one case: `infrastructure.cerberus.yaml` uses the portable
 `dir: /opt/homebrew/var` for PostgreSQL and Jaeger and only fails on its third
-resource, which points at `/Users/chrispian/.cerberus/bin`. It is two thirds
+resource, which points at `/Users/<other-user>/.cerberus/bin`. It is two thirds
 portable, not wholly foreign.
 
 **Nothing here is artifact-backed.** Every resource reports `run_from:
@@ -77,7 +77,7 @@ checks all apply only to `os_service`. `doctor` on this machine is a one-line
 restatement of `status`.
 
 One reassuring negative: for this audit, source and binary agree. The installed
-`/Users/cburks/go/bin/cerberus` reports commit `4ab19d0`, and `git diff
+`~/go/bin/cerberus` reports commit `4ab19d0`, and `git diff
 4ab19d0..HEAD -- '*.go'` in the audit worktree is empty — only documentation has
 moved since. The standing "changed source is not deployed source" caveat does
 not bite today, so behaviour observed live and behaviour read out of the code

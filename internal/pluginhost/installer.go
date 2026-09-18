@@ -86,8 +86,11 @@ func (i DirectoryInstaller) Install(ctx context.Context, source string) (Install
 	// Compute the entrypoint hash ourselves when the caller did not supply one.
 	// Requiring an operator to paste a sha256 of a binary they just built is
 	// friction that buys nothing — they are attesting to a file they control.
-	// Computing it here turns the requirement into something useful: a recorded
-	// fingerprint that makes a binary changing underneath us detectable.
+	// Computing it here satisfies RequireArchiveHash without that friction.
+	//
+	// It does not, today, make anything detectable. The value is recorded and
+	// never compared against a later hash of the same binary, so it is raw
+	// material for an integrity check rather than one. See CERB-GAP-336.
 	archiveSHA := i.ArchiveSHA256
 	if archiveSHA == "" {
 		archiveSHA, err = hashPluginEntrypoint(pluginDir, spec)

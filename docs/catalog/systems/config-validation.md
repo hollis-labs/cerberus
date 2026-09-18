@@ -81,7 +81,7 @@ configs in a scratch directory; every one below returned `OK` and exit 0:
 - No filesystem path is ever checked. A `dir`, `env_file`, `log_file` or
   `command[0]` that does not exist validates clean. `cerberus validate
   ./cerberus.cerberus.yaml` returns `OK` on this machine even though its every
-  `dir:` points at `/Users/chrispian/dev/hollis-labs/apps/cerberus`.
+  `dir:` points at `/Users/<other-user>/dev/hollis-labs/apps/cerberus`.
 - `type:` and `connector:` are checked for presence only, never against the set
   of connectors the binary actually has. `connector: totally-not-a-connector`
   validates clean.

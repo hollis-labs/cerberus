@@ -43,7 +43,7 @@ relationships:
 
 `cerberus` is a cobra command tree with 26 top-level commands, and it is the
 only surface that covers every capability Cerberus has. Verified against the
-installed binary at `/Users/cburks/go/bin/cerberus`, whose `--version` reports
+installed binary at `~/go/bin/cerberus`, whose `--version` reports
 `dev (commit 4ab19d0, built 2026-09-17T13:59:11Z)` — a commit that is an
 ancestor of the audited `HEAD`, differing only in `AGENTS.md`. So for this area
 source and binary agree, and a claim verified against one holds for the other.

@@ -77,7 +77,7 @@ It also owns capability that exists nowhere else:
 - **`/api/infra`, `/api/deployments`** — a provider/deployment-profile subsystem
   backed by `~/.cerberus/infra.yaml`. `internal/infra` is imported by exactly one
   file, `internal/webui/infra.go`. It also carries a hardcoded suggestion for
-  `/Users/chrispian/dev/sites/chrispian.dev`, another user's path, so on this
+  `/Users/<other-user>/dev/sites/<site>`, another user's path, so on this
   machine it returns empty.
 - **`/api/settings`**, **`/api/config/backups`**, **`/api/registry/register`**
   and **`/api/registry/deregister`** — config-adjacent operations with CLI

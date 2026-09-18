@@ -24,9 +24,9 @@ type InstalledPlugin struct {
 	Trust    TrustDecision     `json:"trust"`
 	Spec     PluginYAML        `json:"spec"`
 	Manifest contract.Manifest `json:"manifest"`
-	// ArchiveSHA256 fingerprints the entrypoint binary as installed. Recorded
-	// so a plugin binary replaced underneath us is detectable even when the
-	// plugin is unsigned.
+	// ArchiveSHA256 fingerprints the entrypoint binary as installed. It is
+	// recorded and never compared: no load path re-hashes the binary, so a
+	// plugin binary replaced underneath us is not detected. See CERB-GAP-336.
 	ArchiveSHA256 string `json:"archive_sha256,omitempty"`
 }
 

@@ -1,7 +1,7 @@
 # Plan: Stop runtime staleness & finish the build_strategy migration
 
 **Status:** proposed (investigation complete 2026-05-25)
-**Origin:** Tether daemon-reload incident (`/Users/chrispian/dev/agent-os/inbox/cerberus/2026-05-25-tether-daemon-service-reload-registry-urn-compat.md`) + recurring "stale binary / frontend-backend out of sync" reports.
+**Origin:** Tether daemon-reload incident (`/Users/<other-user>/dev/agent-os/inbox/cerberus/2026-05-25-tether-daemon-service-reload-registry-urn-compat.md`) + recurring "stale binary / frontend-backend out of sync" reports.
 **Related:** Vanta followups `project_config_forward_compat_unknown_fields`, `surface_skipped_configs_in_list_commands`, `webui_drift_status.selfexec_install_after_build_self_deploy`.
 
 ## Problem

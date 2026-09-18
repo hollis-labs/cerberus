@@ -64,7 +64,7 @@ expands `~` and `~/` in a resource's `dir`, `env_file`, `log_file`,
 for a resource whose connector is `local` and whose type is `process`. There is
 no `$VAR` interpolation and no per-machine override layer. That is why this
 repo's own `cerberus.cerberus.yaml` carries
-`dir: /Users/chrispian/dev/hollis-labs/apps/cerberus` and resolves nowhere on
+`dir: /Users/<other-user>/dev/hollis-labs/apps/cerberus` and resolves nowhere on
 this machine: the file is a template, not configuration.
 
 Every read is fresh. The registry holds no in-memory index and re-reads its

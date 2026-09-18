@@ -45,7 +45,7 @@ macOS-only and both use the deprecated `load`/`unload` verbs rather than
 
 AGENTS.md describes the plist on this machine as hand-written. It is byte-for-byte
 what `cerberus install` would have produced: same label, same
-`ProgramArguments` of `[/Users/cburks/go/bin/cerberus, daemon, --foreground]`,
+`ProgramArguments` of `[~/go/bin/cerberus, daemon, --foreground]`,
 same `WorkingDirectory` of the home directory, same `RunAtLoad`, `KeepAlive` and
 the two log paths. That distinction matters, because it relocates the cause of a
 known outage. The daemon gets launchd's minimal `PATH` of
