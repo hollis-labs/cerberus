@@ -38,7 +38,13 @@ func (l SubprocessLauncher) Launch(ctx context.Context, plugin InstalledPlugin) 
 
 	cmd := exec.CommandContext(ctx, commandPath, plugin.Spec.Entrypoint.Args...)
 	cmd.Dir = plugin.Path
-	cmd.Env = append([]string{}, l.Env...)
+
+	// The base environment carries no credential handle. Anything that does is
+	// unlocked by a capability the plugin declared and the host granted, so a
+	// plugin that asked for nothing is launched with nothing extra.
+	env := append([]string{}, l.Env...)
+	env = append(env, CapabilityEnv(plugin.Granted)...)
+	cmd.Env = env
 	return l.Transport.Start(ctx, cmd)
 }
 

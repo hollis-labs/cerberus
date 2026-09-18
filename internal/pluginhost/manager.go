@@ -125,6 +125,11 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		return fmt.Errorf("plugin launcher is not configured")
 	}
 
+	// Decided once, here, and used for both the environment the subprocess is
+	// launched with and the granted list it is told about. A plugin that
+	// declared nothing gets nothing.
+	plugin.Granted = GrantCapabilities(plugin.Spec.Capabilities)
+
 	process, err := m.launcher.Launch(ctx, plugin)
 	if err != nil {
 		return err
@@ -142,6 +147,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		Config:    resolved.Config,
 		LogLevel:  "info",
 		HostInfo:  m.hostInfo,
+		Granted:   plugin.Granted,
 	})
 	if err != nil {
 		_ = process.Close()

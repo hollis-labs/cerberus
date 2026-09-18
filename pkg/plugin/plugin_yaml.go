@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/plugin-sdk/subprocess"
 )
 
 // PluginYAMLFilename is the metadata file every plugin directory carries.
@@ -14,13 +15,28 @@ const PluginYAMLFilename = "plugin.yaml"
 // PluginYAML is the Cerberus-owned plugin descriptor. It pairs the subprocess
 // entrypoint with the connector manifest the host installs and routes against.
 type PluginYAML struct {
-	SchemaVersion string              `json:"schema_version" yaml:"schema_version"`
-	ID            string              `json:"id" yaml:"id"`
-	Version       string              `json:"version" yaml:"version"`
-	Protocol      string              `json:"protocol" yaml:"protocol"`
-	Runtime       string              `json:"runtime" yaml:"runtime"`
-	Entrypoint    Entrypoint          `json:"entrypoint" yaml:"entrypoint"`
-	Cerberus      CerberusPluginBlock `json:"cerberus" yaml:"cerberus"`
+	SchemaVersion string     `json:"schema_version" yaml:"schema_version"`
+	ID            string     `json:"id" yaml:"id"`
+	Version       string     `json:"version" yaml:"version"`
+	Protocol      string     `json:"protocol" yaml:"protocol"`
+	Runtime       string     `json:"runtime" yaml:"runtime"`
+	Entrypoint    Entrypoint `json:"entrypoint" yaml:"entrypoint"`
+
+	// Capabilities are the ambient host access this plugin asks for, in the
+	// host's vocabulary. They describe the *process*, not the connector, which
+	// is why they sit beside the entrypoint rather than inside the manifest.
+	//
+	// Declared here rather than requested in code so that what a plugin wants
+	// is reviewable before it runs. A plugin that declares nothing receives
+	// nothing: Cerberus's launch environment carries no credential handle by
+	// default, and an undeclared capability is not granted.
+	//
+	// The type is the SDK's, so the shape is the same one any host built on
+	// plugin-sdk embeds. The names are Cerberus's — see
+	// internal/pluginhost/capability.go for the vocabulary this host honors.
+	Capabilities []subprocess.CapabilityRequest `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+
+	Cerberus CerberusPluginBlock `json:"cerberus" yaml:"cerberus"`
 }
 
 // Entrypoint is the executable the host launches, relative to the plugin
