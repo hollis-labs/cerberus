@@ -61,6 +61,11 @@ Destructive connector operations require explicit operator acknowledgment
   `pkg/resource`; the host half stays in `internal/pluginhost`.
 - `internal/registry/` — discovery and validation of per-repo `*.cerberus.yaml`.
 - `docs/secrets.md` — how a resource names a credential without carrying one.
+- `docs/plans/agent-authority-and-secrets.md` — what an agent is allowed to do
+  with Cerberus's reach, what it may see, and what is recorded afterwards.
+  Read before adding a credential backend, a redaction rule, or anything that
+  gates an operation. It is also the honest inventory: there is no audit trail
+  today, and the acknowledgment gate is an intent gate rather than a human one.
 - `~/Projects/tools` — ~70 shell scripts that already administer the work host,
   with their failure modes documented in-line. This is the capability spec for
   what connectors should grow; promote proven behaviour rather than redesigning.
