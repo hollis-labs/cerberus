@@ -128,3 +128,62 @@ func TestSubprocessLauncherRejectsMissingTransport(t *testing.T) {
 		t.Fatalf("Launch error = %v, want transport error", err)
 	}
 }
+
+// The launcher must compose the base environment with whatever the grant
+// unlocks. Testing CapabilityEnv alone would pass even if the launcher never
+// called it, which is the bug that would put SSH_AUTH_SOCK back in front of
+// every plugin.
+func TestSubprocessLauncherAddsOnlyGrantedCapabilityEnv(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
+	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:2375")
+
+	newPlugin := func(dir string, granted []string) InstalledPlugin {
+		return InstalledPlugin{
+			ID:       "example",
+			Version:  "dev",
+			Path:     dir,
+			Trust:    TrustDecision{Tier: TrustTierSigned},
+			Spec:     testPluginSpec(Entrypoint{Command: "bin/example-plugin"}),
+			Manifest: validManifest(),
+			Granted:  granted,
+		}
+	}
+
+	t.Run("no grant means no credential handle", func(t *testing.T) {
+		dir := t.TempDir()
+		writeExecutable(t, dir, "bin/example-plugin")
+		transport := &fakeTransportFactory{}
+		launcher := SubprocessLauncher{Transport: transport, Env: []string{"PATH=/usr/bin"}}
+
+		if _, err := launcher.Launch(context.Background(), newPlugin(dir, nil)); err != nil {
+			t.Fatalf("Launch: %v", err)
+		}
+		for _, entry := range transport.cmd.Env {
+			if strings.HasPrefix(entry, "SSH_AUTH_SOCK=") || strings.HasPrefix(entry, "DOCKER_HOST=") {
+				t.Fatalf("ungranted plugin was launched with %q", entry)
+			}
+		}
+	})
+
+	t.Run("grant unlocks exactly its own variables", func(t *testing.T) {
+		dir := t.TempDir()
+		writeExecutable(t, dir, "bin/example-plugin")
+		transport := &fakeTransportFactory{}
+		launcher := SubprocessLauncher{Transport: transport, Env: []string{"PATH=/usr/bin"}}
+
+		plugin := newPlugin(dir, []string{CapabilitySSHAgent})
+		if _, err := launcher.Launch(context.Background(), plugin); err != nil {
+			t.Fatalf("Launch: %v", err)
+		}
+		joined := strings.Join(transport.cmd.Env, " ")
+		if !strings.Contains(joined, "PATH=/usr/bin") {
+			t.Errorf("base environment was lost: %v", transport.cmd.Env)
+		}
+		if !strings.Contains(joined, "SSH_AUTH_SOCK=/tmp/agent.sock") {
+			t.Errorf("granted capability did not reach the process: %v", transport.cmd.Env)
+		}
+		if strings.Contains(joined, "DOCKER_HOST=") {
+			t.Errorf("an ungranted capability's variable leaked: %v", transport.cmd.Env)
+		}
+	})
+}

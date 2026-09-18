@@ -153,6 +153,17 @@ never receives a secret it did not declare. Secrets deliberately do not travel
 in the environment — `pluginLaunchEnv()` is an allow-list and adding a
 credential to it would hand that value to every plugin, not the one that asked.
 
+**The same rule covers a credential *handle*, not only a credential.**
+`SSH_AUTH_SOCK` and the `DOCKER_*` variables used to sit in that allow-list, so
+every loaded plugin could authenticate as the operator to any host trusting
+their key and reach any configured Docker daemon, whether or not it had asked
+for anything. They are now capabilities a plugin declares in its `plugin.yaml`
+and the host grants — `ssh_agent` and `docker_socket`, defined in
+`internal/pluginhost/capability.go`. A plugin that declares nothing receives
+nothing, an unknown capability is refused at install, and `plugin managed list`
+reports what each plugin declared and what it holds. Anything with that
+character belongs in the capability vocabulary, not in the base allow-list.
+
 A missing credential is not fatal. The plugin loads, `plugin managed list`
 reports it under `missing_secrets`, and an operation that actually needed it
 fails as `credential_missing` with the recovery named. This matters concretely:
