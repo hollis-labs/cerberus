@@ -90,9 +90,8 @@ no persistent store for an audit trail to live in until something creates one.
 
 ## The planned remedy
 
-`docs/plans/agent-authority-and-secrets.md` owns this as WP-S1, and
-`docs/handoffs/wp-s1-audit-the-admin-lane.md` is the executable brief. Three
-decisions recorded there that constrain any implementation of this capability:
+`docs/plans/agent-authority-and-secrets.md` owns this as WP-S1. Three
+decisions recorded there constrain any implementation of this capability:
 
 The record is written at the **service layer**, not in HTTP middleware.
 `ExternalConnectorService.Execute` is the single chokepoint for every connector
