@@ -18938,13 +18938,13 @@
     {
       "id": "CERB-GAP-744",
       "class": "gap",
-      "name": "A stored credential the daemon cannot read is reported as not stored",
-      "summary": "KeychainProvider.Get maps ErrNotFound to an empty value with no error, so a plugin credential that exists and is readable in the operator's session still surfaces as missing_secrets with no way to tell the two cases apart.",
+      "name": "Reloading a managed plugin does not re-resolve its credentials",
+      "summary": "`plugin managed load` reports a freshly stored credential as still missing; only a daemon restart picks it up, so the recovery instruction the error prints names a command that cannot work.",
       "state_field": "status",
       "state_label": "planned",
       "review_status": "draft",
-      "confidence_score": 0.7,
-      "confidence_label": "Reproduced end to end; the daemon log distinguishes not-found from a lookup error, but the underlying cause is not yet isolated",
+      "confidence_score": 0.95,
+      "confidence_label": "Isolated by experiment: same keychain entry, missing before a daemon kickstart and resolved after it",
       "last_reviewed": "2026-09-18",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
@@ -18954,13 +18954,13 @@
         "cerberus",
         "class:gap",
         "credentials",
-        "keychain",
         "daemon",
         "plugin",
         "diagnostics",
         "observability",
         "locus:core",
-        "priority:must-have"
+        "priority:must-have",
+        "verified-reproduction"
       ],
       "relationships": [
         {
@@ -18979,13 +18979,13 @@
           "note": "ContextForge is the connector this was found on; its credentialed operations remain unrun"
         }
       ],
-      "body": "The documented recovery for a missing plugin credential does not work here, and\nthe failure is silent.\n\nReproduce: write the entry the way `internal/secrets.KeychainProvider` reads it\n— go-keyring, service `cerberus`, account `contextforge/token`, not\n`security add-generic-password` (see `docs/secrets.md`). Confirm it is readable:\n`security find-generic-password -s cerberus -a contextforge/token` returns rc=0\nand a `keyring.Get` from any process in the session returns the value. Then run\n`cerberus connectors plugin managed load contextforge` and observe\n`missing_secrets: [\"token\"]` anyway.\n\nThis is not missing wiring — `cmd/cerberus/cmd_daemon.go` passes\n`WithManagedPluginSecrets(a.Secrets)`. What narrows it is the daemon's own log:\n`~/.cerberus/logs/launchd-stderr.log` carries the\n`loaded without required credential token` line and no\n`credential lookup failed` line. Per `reportSecretProblems` in\n`internal/pluginhost/manager.go` a lookup that errored would emit the latter, so\n`keyring.Get` returned `ErrNotFound`, which `KeychainProvider.Get` deliberately\nmaps to `(\"\", nil)` — indistinguishable from nothing being stored.\n\nThe leading hypothesis is that the launchd-spawned daemon does not have the\nlogin keychain in its search domain and gets `errSecItemNotFound` for an entry\nthat plainly exists. The alternative — that `plugin managed load` returns a\ncached load rather than re-resolving — has not been excluded. Establish which\nbefore fixing it: a daemon restart with the entry in place separates them.\n\nTwo things want fixing whichever it is. The diagnostic must reach the operator:\n`resolvedSecrets.Problems` is collected and handed to `m.warn` and nowhere else,\nso the managed-plugin DTO that carries `missing_secrets` cannot say \"the store\nrefused\" — and the comment on that field already argues it should. And the error\nmessage must stop asserting a false cause: it currently tells an operator to\nstore a token at `keychain://contextforge/token` and reload, to an operator who\nhas just done exactly that.\n\nAcceptance: with a credential stored and readable, either the operation succeeds\nor `plugin managed list` reports why it could not be read, naming the store's\nown failure, rather than reporting it as absent. A resolver that returns an\nerror proves the reason reaches the DTO and not only `warn`.",
+      "body": "The documented recovery for a missing plugin credential names a command that\ndoes not do the thing it is named for.\n\nReproduce: write the entry the way `internal/secrets.KeychainProvider` reads it\n— go-keyring, service `cerberus`, account `contextforge/token`, not\n`security add-generic-password` (see `docs/secrets.md`). Run\n`cerberus connectors plugin managed load contextforge` and observe\n`missing_secrets: [\"token\"]` anyway. Then\n`launchctl kickstart -k gui/$(id -u)/com.fragments-engine.cerberus` and run\n`plugin managed list` again: `missing_secrets` is empty and the credential is\nhanded over — `list_tools` stops failing as `credential_missing` and starts\nfailing on whatever is actually wrong with the request.\n\nSame entry, same daemon binary, same session. The only variable is the restart,\nwhich rules out the more alarming hypothesis this record was opened with: the\nlaunchd-spawned daemon *can* read the login keychain. `keyring.Get` returns\n`ErrNotFound` before the restart because the reload path never asks it again.\n\nTwo things follow.\n\n**The error message is wrong, and confidently so.** It tells an operator to\nstore a token at `keychain://contextforge/token` \"and reload the plugin —\nCerberus resolves it and hands it over\", then names\n`cerberus connectors plugin managed load <id>` as the command. An operator who\ndoes exactly that sees no change and has every reason to conclude the credential\nis stored wrong. Either make reload re-resolve, or say a restart is required;\nthe present text is the one thing it must not be, which is plausible and false.\n\n**A credential that cannot be read is still indistinguishable from one that was\nnever stored.** `KeychainProvider.Get` maps `ErrNotFound` to `(\"\", nil)` by\ndesign, and `resolvedSecrets.Problems` — which would carry a store that refused\nto unlock — is handed to `m.warn` and nowhere else, so the managed-plugin DTO\ncannot report it. That was not the cause here, but nothing in the system would\nhave told us either way, and the comment on `Problems` already argues it should.\n\nAcceptance: storing a credential and reloading the plugin makes the next\noperation use it, without a daemon restart. Separately, a resolver that returns\nan error surfaces the reason in `plugin managed list` rather than only in the\ndaemon's launchd stderr log.",
       "data": {
         "capability": "CERB-CAP-302",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "Isolating whether the cause is keychain reachability or a cached load",
-        "effort": "medium"
+        "unlocks_when": "",
+        "effort": "small"
       }
     }
   ]
