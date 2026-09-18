@@ -3555,8 +3555,8 @@
       "state_label": "partial",
       "review_status": "draft",
       "confidence_score": 0.95,
-      "confidence_label": "gate and dry-run exercised live; log field inventory taken from the full 3050-line log",
-      "last_reviewed": "2026-09-17",
+      "confidence_label": "gate and dry-run exercised live; log field inventory taken from the full 3050-line log; remedy and its constraints recorded in WP-S1 on 2026-09-18",
+      "last_reviewed": "2026-09-18",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -3593,9 +3593,14 @@
         {
           "type": "relates_to",
           "target": "CERB-CAP-200"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-838",
+          "note": "the gate is satisfied by the caller being gated"
         }
       ],
-      "body": "The gate works, and it is strict. `cerberus ssh exec muctlvaig -- id -nG` with\nno flags exits 1 with `acknowledgment_required: destructive operation \"exec\"\nrequires operator acknowledgment`. Adding `--dry-run` alone returns a clean\npreview DTO naming the connector, operation, resolved target and the command\nthat would run, without executing it. That is the intended shape and it behaves\nas documented.\n\nWhat does not exist is any record of the acknowledgment. Cerberus logs socket\nrequests, and only socket requests: across the whole 3050-line log, every one of\nthe 2621 `daemon.socket.request` entries carries `time`, `level`, `msg`,\n`method` and `path`, and nothing else. The path is genuinely informative —\n`POST /connectors/digitalocean/operations/list_droplets`,\n`POST /resources/tunnel-muctlvaig/apply`,\n`POST /connectors/ssh/operations/exec` — so you can reconstruct which operation\nwas invoked and when. You cannot reconstruct anything else.\n\nPut concretely, against the question this record exists to answer. If a droplet\nwere destroyed through Cerberus, the log would contain one line reading\n`POST /connectors/digitalocean/operations/destroy_droplet` with a timestamp. It\nwould not contain the droplet id, because arguments are not logged. It would not\ncontain whether `--ack` was passed, because the flag is not logged. It would not\ncontain whether the call succeeded, because results are not logged. And it would\nnot contain who made it, because there is no caller identity in the record at\nall — no uid, no pid, no session, no indication of surface. A `--ack` arriving\nfrom an MCP tool call is byte-identical in the log to one typed by a human,\nwhich is the specific problem worth naming: agents are first-class callers here,\nand the acknowledgment gate treats an agent's acknowledgment as an operator's.\n\nThere is one vestige of an intent to do better. `internal/service/lifecycle_log.go`\nexports `LogAudit(operation, serviceID, reason, taskID, sessionID string)`,\ndocumented as capturing \"who requested the operation and why, so operators can\ntrace service disruptions back to the responsible agent/task\". It has no callers\nanywhere in the repo, and it drops its first argument: `operation` is accepted\nand never placed in the attribute list, so even a called `LogAudit` would record\na service, a reason and optional task and session ids without saying what was\ndone to it. The single `lifecycle.audit` line in the log, dated 2026-03-23\nagainst a long-gone `engine-api`, shows exactly that shape.\n\nThe SQLite store is not an alternative answer. `cerberus path` resolves\n`main-db` to\n`/Users/cburks/.local/share/cerberus/workspaces/default/main.db`, and that\ndirectory is empty: the database has never been created. There is no persistent\nstore on this machine for an audit trail to live in.",
+      "body": "The gate works, and it is strict. `cerberus ssh exec muctlvaig -- id -nG` with\nno flags exits 1 with `acknowledgment_required: destructive operation \"exec\"\nrequires operator acknowledgment`. Adding `--dry-run` alone returns a clean\npreview DTO naming the connector, operation, resolved target and the command\nthat would run, without executing it. That is the intended shape and it behaves\nas documented.\n\nWhat does not exist is any record of the acknowledgment. Cerberus logs socket\nrequests, and only socket requests: across the whole 3050-line log, every one of\nthe 2621 `daemon.socket.request` entries carries `time`, `level`, `msg`,\n`method` and `path`, and nothing else. The path is genuinely informative —\n`POST /connectors/digitalocean/operations/list_droplets`,\n`POST /resources/tunnel-muctlvaig/apply`,\n`POST /connectors/ssh/operations/exec` — so you can reconstruct which operation\nwas invoked and when. You cannot reconstruct anything else.\n\nPut concretely, against the question this record exists to answer. If a droplet\nwere destroyed through Cerberus, the log would contain one line reading\n`POST /connectors/digitalocean/operations/destroy_droplet` with a timestamp. It\nwould not contain the droplet id, because arguments are not logged. It would not\ncontain whether `--ack` was passed, because the flag is not logged. It would not\ncontain whether the call succeeded, because results are not logged. And it would\nnot contain who made it, because there is no caller identity in the record at\nall — no uid, no pid, no session, no indication of surface. A `--ack` arriving\nfrom an MCP tool call is byte-identical in the log to one typed by a human,\nwhich is the specific problem worth naming: agents are first-class callers here,\nand the acknowledgment gate treats an agent's acknowledgment as an operator's.\n\nThere is one vestige of an intent to do better. `internal/service/lifecycle_log.go`\nexports `LogAudit(operation, serviceID, reason, taskID, sessionID string)`,\ndocumented as capturing \"who requested the operation and why, so operators can\ntrace service disruptions back to the responsible agent/task\". It has no callers\nanywhere in the repo, and it drops its first argument: `operation` is accepted\nand never placed in the attribute list, so even a called `LogAudit` would record\na service, a reason and optional task and session ids without saying what was\ndone to it. The single `lifecycle.audit` line in the log, dated 2026-03-23\nagainst a long-gone `engine-api`, shows exactly that shape.\n\nThe SQLite store is not an alternative answer. `cerberus path` resolves\n`main-db` to\n`~/.local/share/cerberus/workspaces/default/main.db`, and on the machine\naudited that directory is empty: the database had never been created. There is\nno persistent store for an audit trail to live in until something creates one.\n\n## The planned remedy\n\n`docs/plans/agent-authority-and-secrets.md` owns this as WP-S1, and\n`docs/handoffs/wp-s1-audit-the-admin-lane.md` is the executable brief. Three\ndecisions recorded there that constrain any implementation of this capability:\n\nThe record is written at the **service layer**, not in HTTP middleware.\n`ExternalConnectorService.Execute` is the single chokepoint for every connector\noperation on every surface, whereas middleware sees method and path and misses\nthe in-process path `cmd_transport.go` hands the CLI — which is the path a\nmutation takes when the daemon is unreachable.\n\n**Caller identity has to be added to the socket wire**, which carries none\ntoday, or every daemon-delivered operation stays anonymous and an\nagent-driven destructive call remains indistinguishable from an operator's. The\nheader is self-reported by design: anything that can reach the socket can set\nit, so it attributes between our own surfaces and is not an authentication.\n\n**The record is a DTO** under ADR 0003. `ExternalConnectorOperationArgs.Config`\nis an untyped map carrying whatever the caller passed, so serialising the\nrequest wholesale would make the audit log the credential store nobody meant to\nbuild, with longer retention than the real one. Fields are allow-listed and\ncredentials appear as names only.",
       "locus": "core",
       "pointer_locator": "internal/cerbapi/external_connector_service.go",
       "data": {
@@ -13562,6 +13567,111 @@
         "blocked_by": [],
         "unlocks_when": "the SSH tools take a resource id and let the daemon resolve it, so registration is unconditional — or, short of that, a failed config load refuses to start the MCP server instead of serving a silently reduced tool set",
         "effort": "medium — a socket-side resolution for the ssh config, which the ssh CLI commands would share"
+      }
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "review_status": "draft",
+      "id": "CERB-GAP-837",
+      "class": "gap",
+      "name": "pluginLaunchEnv hands every plugin the operator's SSH agent",
+      "summary": "SSH_AUTH_SOCK, DOCKER_HOST and DOCKER_CONFIG are in the plugin launch allow-list, so any loaded plugin can authenticate as the operator to every host that trusts their key and reach any configured Docker daemon — regardless of what it declared.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.95,
+      "confidence_label": "Allow-list read directly at internal/cerbapi/plugin_connector_service.go; SSH_AUTH_SOCK, DOCKER_HOST and DOCKER_CONFIG all present; SensitiveKey checked against SSH_AUTH_SOCK and does not match",
+      "tags": [
+        "security-boundary",
+        "must-have",
+        "plugin",
+        "credentials",
+        "gap",
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/plugin_connector_service.go",
+      "body": "`pluginLaunchEnv()` carries a comment stating it \"carries no credentials by design\", and the allow-list includes `SSH_AUTH_SOCK`, `DOCKER_HOST` and `DOCKER_CONFIG`. An agent socket is not a credential-shaped string but it is a live credential handle: a plugin holding it can authenticate as the operator to every host that trusts their key, without ever seeing the key. Docker socket access is root-equivalent on most hosts.\n\nThese are present for a real reason — the Docker connector reaches a remote daemon over SSH and needs both. The defect is not that they are granted, it is that they are granted **ambiently, to every plugin, undeclared**. That is precisely the pattern `CERB-CAP-302` exists to avoid for secrets: a plugin declares what it needs, the host resolves only that, and nothing travels in the environment because the environment reaches everything.\n\nThis refines `CERB-GAP-334` rather than duplicating it. That record treats the credential-free property as true but untested, and proposes asserting that no entry satisfies `redact.SensitiveKey`. `SSH_AUTH_SOCK` does not satisfy `SensitiveKey` — it is neither token- nor key- nor secret-shaped — so that test would pass with the exposure intact. The property does not hold, so there is a defect to fix before there is a test to write.\n\nNeither host built on `plugin-sdk` has a capability declaration to hang this on, which is why the mechanism is proposed upstream rather than invented here. An interim fix needs no upstream change: gate the three variables behind a manifest opt-in and show what each plugin holds in `plugin managed list`.",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-302",
+          "note": "inverts this capability's guarantee for non-secret access"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-334",
+          "note": "that record's proposed SensitiveKey test would not catch this"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-301",
+          "note": "the lane that grants it"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-302",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "A plugin declares the ambient access it needs, the host grants only that, and plugin managed list reports what each plugin holds",
+        "effort": "medium"
+      }
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-18",
+      "review_status": "draft",
+      "id": "CERB-GAP-838",
+      "class": "gap",
+      "name": "The acknowledgment gate is satisfied by the caller that is being gated",
+      "summary": "acknowledged is an ordinary caller-supplied argument, so an MCP caller sets it exactly as it sets any other field — the destructive gate records deliberate intent but puts no human in the loop.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 1.0,
+      "confidence_label": "Field read at internal/cerbapi/plugin_connector_service.go:31; internal/mcp/namecheap_record_set_test.go passes acknowledged: true directly in the tool argument map",
+      "tags": [
+        "security-boundary",
+        "must-have",
+        "acknowledgment",
+        "audit",
+        "agent-safety",
+        "gap",
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/plugin_connector_service.go",
+      "body": "`ExternalConnectorOperationArgs.Acknowledged` is a field the caller populates, and the MCP tool path passes it through like any other argument. An agent driving Cerberus therefore satisfies the destructive gate by setting a boolean.\n\nThis is worth stating precisely rather than alarmingly. The gate does real work: a caller has to assert acknowledgment deliberately, which stops an accidental destructive call and makes the intent explicit in the request. What it does not do is require a person, and `AGENTS.md` and the CLI's `--ack` flag together read as though it does.\n\nDistinct from `CERB-GAP-286`, which is a bypass: there the managed-plugin branch returns before the gate is reached at all. This record is about a caller that does reach the gate. The two have different fixes and an audit trail wants both facts — whether acknowledgment was supplied, and whether the gate was reached.\n\nThe protocol already carries the missing half. MCP elicitation, present in the upstream SDK and unused here, asks the client's human a question mid-call — a gate the caller cannot satisfy for itself. Paired with operator-settable policy it becomes a real control; alone it only moves the decision.",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "the capability this qualifies"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-286",
+          "note": "the bypass variant; this record is the reached-gate variant"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-630",
+          "note": "an audit trail must record which of the two happened"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "Operator-settable policy decides what needs approval and MCP elicitation delivers the ask to a human, so the gate is not satisfiable by the caller",
+        "effort": "large"
       }
     },
     {
