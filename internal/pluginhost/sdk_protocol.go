@@ -25,6 +25,12 @@ type SDKInitParams struct {
 	Config    map[string]string `json:"config"`
 	LogLevel  string            `json:"log_level"`
 	HostInfo  SDKHostInfo       `json:"host_info"`
+
+	// Granted names the capabilities the host allowed, so a plugin can degrade
+	// instead of assuming it received what it asked for. Omitted when empty,
+	// which keeps the payload byte-identical to what a pre-capability host
+	// sent.
+	Granted []string `json:"granted,omitempty"`
 }
 
 type SDKHostInfo struct {

@@ -55,6 +55,29 @@ whitelist. An unresolved reference fails the operation without falling back to a
 different credential or reporting success. The Cerberus web UI can still manage
 unmapped keychain entries; there is no `cerberus secrets set` command.
 
+## Plugin capabilities
+
+A credential is not the only thing a plugin can be handed. An SSH agent socket
+or a Docker endpoint is a *handle* — not credential-shaped, and just as
+powerful. Those are declared, not ambient:
+
+```yaml
+capabilities:
+  - name: ssh_agent
+    reason: reaches remote hosts on the operator's behalf
+```
+
+`internal/pluginhost/capability.go` owns the vocabulary this host understands —
+`ssh_agent` (unlocks `SSH_AUTH_SOCK`) and `docker_socket` (unlocks the
+`DOCKER_*` set). A plugin that declares nothing receives neither. An unknown
+name is refused at install, and `cerberus connectors plugin managed list`
+reports what each plugin declared and what it was granted.
+
+Granting is currently on the strength of the manifest: a plugin that declares a
+capability receives it. That makes the request reviewable before the plugin
+runs and visible afterwards; it is not yet an operator approval of the specific
+grant.
+
 ## Plugin credentials
 
 A plugin declares the credentials it needs in its manifest, under

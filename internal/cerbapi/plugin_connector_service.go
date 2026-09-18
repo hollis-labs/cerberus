@@ -197,10 +197,19 @@ func (s *PluginConnectorService) warn(line string) {
 	fmt.Fprintf(s.stderr, "cerberus: plugin: %s\n", line)
 }
 
-// pluginLaunchEnv is the allow-list a plugin subprocess inherits. It carries no
-// credentials by design: env is ambient and would reach every plugin, so a
-// plugin's declared secrets travel in the Init config channel instead. Do not
-// widen this with credential entries.
+// pluginLaunchEnv is the base allow-list every plugin subprocess inherits. It
+// carries no credential and no credential *handle*: env is ambient and would
+// reach every plugin, so a plugin's declared secrets travel in the Init config
+// channel instead.
+//
+// Do not widen this with a credential entry, and note that "credential" here
+// includes a handle that is not credential-shaped. SSH_AUTH_SOCK and the
+// DOCKER_* variables used to live in this list, which meant every loaded plugin
+// could authenticate as the operator to any host trusting their key, and reach
+// any configured Docker daemon, whether or not it had asked for anything
+// (CERB-GAP-837). They are now unlocked by a declared capability instead — see
+// internal/pluginhost/capability.go. Anything with that character belongs
+// there, not here.
 func pluginLaunchEnv() []string {
 	allowed := []string{
 		"PATH",
@@ -212,11 +221,7 @@ func pluginLaunchEnv() []string {
 		"LOGNAME",
 		"LANG",
 		"LC_ALL",
-		"DOCKER_HOST",
-		"DOCKER_CONTEXT",
-		"DOCKER_CONFIG",
 		"XDG_RUNTIME_DIR",
-		"SSH_AUTH_SOCK",
 	}
 	envMap := make(map[string]bool, len(allowed))
 	for _, key := range allowed {

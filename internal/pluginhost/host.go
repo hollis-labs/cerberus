@@ -28,6 +28,12 @@ type InstalledPlugin struct {
 	// recorded and never compared: no load path re-hashes the binary, so a
 	// plugin binary replaced underneath us is not detected. See CERB-GAP-336.
 	ArchiveSHA256 string `json:"archive_sha256,omitempty"`
+
+	// Granted is what the host allowed of Spec.Capabilities, decided once at
+	// load and used for two things that must not disagree: the environment the
+	// subprocess is launched with, and the granted list the plugin is told
+	// about over Init. Computing it twice is how those two drift.
+	Granted []string `json:"granted,omitempty"`
 }
 
 type Health struct {
