@@ -287,10 +287,36 @@ func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...) //nolint:gosec // test helper executes fixed git subcommands against a temp repo
 	cmd.Dir = dir
+	// cmd.Dir does NOT win against GIT_DIR. Git exports GIT_DIR, GIT_WORK_TREE
+	// and GIT_INDEX_FILE into hook environments, and lefthook's pre-push runs
+	// `go test ./...` — so without this, every git call below operates on the
+	// developer's real repository instead of the temp one. That is not
+	// hypothetical: it rewrote this repo's user.name/user.email to the fixture
+	// identity and committed "initial" and "edit main.go" onto whatever branch
+	// was being pushed, the second of which deletes every tracked file because
+	// `commit -am` stages the absence of a temp fixture's files from the real
+	// work tree.
+	cmd.Env = gitScrubbedEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
+}
+
+// gitScrubbedEnv returns the environment with every GIT_* variable removed, so
+// a git subprocess is directed only by cmd.Dir. Dropping the whole prefix
+// rather than a known list because the set grows between git versions, and the
+// failure mode of missing one is silent corruption of the caller's repository.
+func gitScrubbedEnv() []string {
+	parent := os.Environ()
+	out := make([]string, 0, len(parent))
+	for _, entry := range parent {
+		if strings.HasPrefix(entry, "GIT_") {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 //nolint:gosec // executable fixtures and file paths are confined to t.TempDir
@@ -377,5 +403,50 @@ func TestSyncRepairsTamperedInstalledArtifact(t *testing.T) {
 	sourceHash, err := fileSHA256(src)
 	if err != nil || installedHash != sourceHash {
 		t.Fatal("repair did not restore artifact")
+	}
+}
+
+// A test that shells out to git must not be steerable by the environment it
+// inherits. Git exports GIT_DIR into hook environments and lefthook's pre-push
+// runs the suite, so an unscrubbed helper commits into the repository being
+// pushed. This asserts the helper ignores a hostile GIT_DIR rather than
+// trusting that no caller sets one.
+func TestRunGitIgnoresAmbientGitDir(t *testing.T) {
+	victim := t.TempDir()
+	runGit(t, victim, "init")
+	runGit(t, victim, "config", "user.email", "victim@example.com")
+	runGit(t, victim, "config", "user.name", "Victim")
+
+	// Point GIT_DIR at the victim, then operate somewhere else entirely.
+	t.Setenv("GIT_DIR", filepath.Join(victim, ".git"))
+	t.Setenv("GIT_WORK_TREE", victim)
+
+	work := t.TempDir()
+	runGit(t, work, "init")
+	runGit(t, work, "config", "user.email", "test@example.com")
+	runGit(t, work, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(work, "app"), []byte("v1"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	runGit(t, work, "add", "app")
+	runGit(t, work, "commit", "-m", "initial")
+
+	// The victim must be untouched: no commit, and its identity intact.
+	log := exec.Command("git", "log", "--oneline")
+	log.Dir = victim
+	log.Env = gitScrubbedEnv()
+	if out, err := log.CombinedOutput(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		t.Fatalf("the ambient GIT_DIR repository received commits: %s", out)
+	}
+
+	cfg := exec.Command("git", "config", "--get", "user.email")
+	cfg.Dir = victim
+	cfg.Env = gitScrubbedEnv()
+	out, err := cfg.CombinedOutput()
+	if err != nil {
+		t.Fatalf("read victim config: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "victim@example.com" {
+		t.Fatalf("the ambient GIT_DIR repository's identity was rewritten to %q", got)
 	}
 }
