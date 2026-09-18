@@ -17,7 +17,8 @@ func NewCerberusConnectorListTool(client cerbapi.Client) Tool {
 			"limit":  limitSchemaProp(),
 			"offset": offsetSchemaProp(),
 		}),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			defs, err := client.ListConnectors(ctx)
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
@@ -35,7 +36,8 @@ func NewCerberusConnectorDescribeTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"id": map[string]interface{}{"type": "string", "description": "Connector ID, such as docker, github, cloudflare, or ssh."},
 		}, "id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			id, _ := args["id"].(string)
 			if id == "" {
 				return marshalResult(lifecycleResult{Success: false, Error: `missing "id"`}), nil

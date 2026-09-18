@@ -312,10 +312,10 @@ projects:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id":"alpha"`) || !strings.Contains(out, `"id":"bravo"`) {
+	if !strings.Contains(out.(string), `"id":"alpha"`) || !strings.Contains(out.(string), `"id":"bravo"`) {
 		t.Fatalf("baseline missing expected projects: %s", out)
 	}
-	if strings.Contains(out, `"id":"charlie"`) {
+	if strings.Contains(out.(string), `"id":"charlie"`) {
 		t.Fatalf("baseline should not have charlie: %s", out)
 	}
 
@@ -337,10 +337,10 @@ projects:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id":"charlie"`) {
+	if !strings.Contains(out.(string), `"id":"charlie"`) {
 		t.Fatalf("post-edit: project_list did not pick up charlie: %s", out)
 	}
-	if strings.Contains(out, `"id":"alpha"`) {
+	if strings.Contains(out.(string), `"id":"alpha"`) {
 		t.Fatalf("post-edit: project_list still shows removed alpha (stale snapshot): %s", out)
 	}
 }
@@ -383,13 +383,13 @@ resources:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id": "volon-api"`) {
+	if !strings.Contains(out.(string), `"id": "volon-api"`) {
 		t.Fatalf("missing resource id: %s", out)
 	}
-	if !strings.Contains(out, `"mode": "os_service"`) {
+	if !strings.Contains(out.(string), `"mode": "os_service"`) {
 		t.Fatalf("missing mode: %s", out)
 	}
-	if !strings.Contains(out, `"supervisor": "launchd"`) {
+	if !strings.Contains(out.(string), `"supervisor": "launchd"`) {
 		t.Fatalf("missing supervisor: %s", out)
 	}
 }
@@ -407,7 +407,7 @@ func TestPipelineRunTool_ViaSocket_EmitsBridgeProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"demo-pipeline"`) {
+	if !strings.Contains(out.(string), `"demo-pipeline"`) {
 		t.Fatalf("output = %s, want demo-pipeline", out)
 	}
 	if len(notifications) < 2 {
@@ -438,7 +438,7 @@ func TestResourceDeployTool_ViaSocket_EmitsBridgeProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"success": true`) {
+	if !strings.Contains(out.(string), `"success": true`) {
 		t.Fatalf("output = %s, want success", out)
 	}
 	body, err := json.Marshal(notifications)
@@ -466,7 +466,7 @@ func TestResourceApplyTool_ViaSocket_EmitsBridgeProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"success": true`) {
+	if !strings.Contains(out.(string), `"success": true`) {
 		t.Fatalf("output = %s, want success", out)
 	}
 	body, err := json.Marshal(notifications)
@@ -494,7 +494,7 @@ func TestResourceSyncTool_ViaSocket_EmitsBridgeProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"success": true`) {
+	if !strings.Contains(out.(string), `"success": true`) {
 		t.Fatalf("output = %s, want success", out)
 	}
 	body, err := json.Marshal(notifications)
@@ -535,7 +535,7 @@ pipelines:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"pipeline_id":"smoke-pipeline"`) {
+	if !strings.Contains(out.(string), `"pipeline_id":"smoke-pipeline"`) {
 		t.Fatalf("output = %s, want smoke-pipeline result", out)
 	}
 	body, err := json.Marshal(notifications)
@@ -614,10 +614,10 @@ func TestConnectorListToolViaSocket(t *testing.T) {
 	}
 	// List tools return a compact-JSON budgeted envelope; assertion uses the
 	// no-space-after-colon format to match.
-	if !strings.Contains(out, `"id":"docker"`) {
+	if !strings.Contains(out.(string), `"id":"docker"`) {
 		t.Fatalf("missing docker connector definition: %s", out)
 	}
-	if !strings.Contains(out, `"resource_types"`) {
+	if !strings.Contains(out.(string), `"resource_types"`) {
 		t.Fatalf("missing resource types: %s", out)
 	}
 }
@@ -630,10 +630,10 @@ func TestConnectorDescribeToolViaSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"id": "docker"`) {
+	if !strings.Contains(out.(string), `"id": "docker"`) {
 		t.Fatalf("missing docker connector definition: %s", out)
 	}
-	if !strings.Contains(out, `"operations"`) {
+	if !strings.Contains(out.(string), `"operations"`) {
 		t.Fatalf("missing operations: %s", out)
 	}
 }

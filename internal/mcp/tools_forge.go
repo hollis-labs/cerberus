@@ -9,10 +9,11 @@ import (
 // NewCerberusForgeServersTool creates the cerberus_forge_servers tool.
 func NewCerberusForgeServersTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_forge_servers",
-		Description: "List Laravel Forge servers.",
-		InputSchema: emptyObjectSchema(),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Name:         "cerberus_forge_servers",
+		Description:  "List Laravel Forge servers.",
+		InputSchema:  emptyObjectSchema(),
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "forge", "list_servers", nil, false, false)
 		},
 	}
@@ -26,7 +27,8 @@ func NewCerberusForgeServerTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"server_id": map[string]interface{}{"type": "integer", "description": "Forge server ID."},
 		}, "server_id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "forge", "get_server", map[string]any{"server_id": intArg(args, "server_id", 0)}, false, false)
 		},
 	}
@@ -40,7 +42,8 @@ func NewCerberusForgeSitesTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"server_id": map[string]interface{}{"type": "integer", "description": "Forge server ID."},
 		}, "server_id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "forge", "list_sites", map[string]any{"server_id": intArg(args, "server_id", 0)}, false, false)
 		},
 	}
@@ -57,7 +60,11 @@ func NewCerberusForgeDeployTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "server_id", "site_id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "forge", "deploy_site", map[string]any{
 				"server_id": intArg(args, "server_id", 0),
 				"site_id":   intArg(args, "site_id", 0),
@@ -78,7 +85,11 @@ func NewCerberusForgeExecTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "server_id", "site_id", "command"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "forge", "exec_site_command", map[string]any{
 				"server_id": intArg(args, "server_id", 0),
 				"site_id":   intArg(args, "site_id", 0),

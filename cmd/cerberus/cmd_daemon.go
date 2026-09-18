@@ -639,7 +639,7 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusDropletStopTool(inProc))
 		srv.RegisterTool(mcp.NewCerberusDropletDestroyTool(inProc))
 
-		if err := srv.Run(); err != nil {
+		if err := srv.Run(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		}
 	}()

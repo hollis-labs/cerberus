@@ -46,7 +46,7 @@ func TestCloudflareMXPriorityReachesBackendThroughSocket(t *testing.T) {
 	}
 	for _, invalid := range []any{-1.0, 1.5, 65536.0, "10"} {
 		out, err := tool.Handler(context.Background(), map[string]any{"priority": invalid})
-		if err != nil || !strings.Contains(out, "priority must be an integer") {
+		if err != nil || !strings.Contains(out.(string), "priority must be an integer") {
 			t.Fatalf("bad validation: %s %v", out, err)
 		}
 	}

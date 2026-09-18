@@ -64,7 +64,7 @@ the operator to start one with 'cerberus daemon'.`,
 		// access fleet-wide. Each tool call already re-dials the daemon
 		// socket, so the in-memory subprocess survives daemon restarts on
 		// its own; the parent host can recycle children at its own cadence.
-		return srv.Run()
+		return srv.Run(cmd.Context())
 	},
 }
 

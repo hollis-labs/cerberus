@@ -11,10 +11,11 @@ import (
 // NewCerberusGithubStatusTool creates the cerberus_github_status tool.
 func NewCerberusGithubStatusTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_github_status",
-		Description: "Get a GitHub repository summary.",
-		InputSchema: githubRepoSchema(false),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Name:         "cerberus_github_status",
+		Description:  "Get a GitHub repository summary.",
+		InputSchema:  githubRepoSchema(false),
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			owner, _ := args["owner"].(string)
 			repo, _ := args["repo"].(string)
 			return executeGitHubMCP(ctx, client, "status", owner, repo, 0)
@@ -25,10 +26,11 @@ func NewCerberusGithubStatusTool(client cerbapi.Client) Tool {
 // NewCerberusGithubReleasesTool creates the cerberus_github_releases tool.
 func NewCerberusGithubReleasesTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_github_releases",
-		Description: "List recent releases for a GitHub repo.",
-		InputSchema: githubRepoSchema(true),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Name:         "cerberus_github_releases",
+		Description:  "List recent releases for a GitHub repo.",
+		InputSchema:  githubRepoSchema(true),
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			owner, _ := args["owner"].(string)
 			repo, _ := args["repo"].(string)
 			return executeGitHubMCP(ctx, client, "list_releases", owner, repo, intArg(args, "limit", 10))
@@ -39,10 +41,11 @@ func NewCerberusGithubReleasesTool(client cerbapi.Client) Tool {
 // NewCerberusGithubRunsTool creates the cerberus_github_runs tool.
 func NewCerberusGithubRunsTool(client cerbapi.Client) Tool {
 	return Tool{
-		Name:        "cerberus_github_runs",
-		Description: "List recent GitHub Actions runs for a repo.",
-		InputSchema: githubRepoSchema(true),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Name:         "cerberus_github_runs",
+		Description:  "List recent GitHub Actions runs for a repo.",
+		InputSchema:  githubRepoSchema(true),
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			owner, _ := args["owner"].(string)
 			repo, _ := args["repo"].(string)
 			return executeGitHubMCP(ctx, client, "list_workflow_runs", owner, repo, intArg(args, "limit", 10))

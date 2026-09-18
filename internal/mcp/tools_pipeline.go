@@ -18,7 +18,8 @@ func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 			"limit":  limitSchemaProp(),
 			"offset": offsetSchemaProp(),
 		}),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			list, err := client.ListPipelines(ctx)
 			if err != nil {
 				return "", err
@@ -47,7 +48,11 @@ func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 				"description": "Pipeline ID.",
 			},
 		}, "pipeline_id"),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  false,
+		OpenWorldHint:   false,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			pipelineID, _ := args["pipeline_id"].(string)
 			if pipelineID == "" {
 				return marshalResult(lifecycleResult{

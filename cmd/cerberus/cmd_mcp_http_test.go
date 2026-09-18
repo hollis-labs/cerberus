@@ -39,8 +39,10 @@ func TestCerberusMCPHTTPSmoke(t *testing.T) {
 	h := httptransport.NewHandler(srv, httptransport.HandlerOptions{})
 
 	t.Run("discover", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"d1","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2025-03-26"}}}`))
-		req.Header.Set("Accept", "application/json")
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"d1","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"cerberus-smoke-test","version":"0.0.0"},"io.modelcontextprotocol/clientCapabilities":{}}}}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("MCP-Protocol-Version", "2026-07-28")
 		req.Header.Set("Mcp-Method", "server/discover")
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -55,8 +57,8 @@ func TestCerberusMCPHTTPSmoke(t *testing.T) {
 
 	t.Run("tools list", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"l1","method":"tools/list","params":{}}`))
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Mcp-Method", "tools/list")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
 		req.Header.Set("MCP-Protocol-Version", "2025-03-26")
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -72,9 +74,8 @@ func TestCerberusMCPHTTPSmoke(t *testing.T) {
 
 	t.Run("pipeline run SSE", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"r1","method":"tools/call","params":{"name":"cerberus_pipeline_run","arguments":{"pipeline_id":"smoke-pipeline"}}}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream, application/json")
-		req.Header.Set("Mcp-Method", "tools/call")
-		req.Header.Set("Mcp-Name", "cerberus_pipeline_run")
 		req.Header.Set("MCP-Protocol-Version", "2025-03-26")
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)

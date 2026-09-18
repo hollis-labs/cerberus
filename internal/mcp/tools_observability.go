@@ -19,7 +19,8 @@ func NewCerberusHealthTool(client cerbapi.Client) Tool {
 				"description": "Optional resource ID filter.",
 			},
 		}),
-		Handler: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		ReadOnlyHint: true,
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			filterID, _ := args["resource_id"].(string)
 			h, err := client.Health(ctx, filterID)
 			if err != nil {
