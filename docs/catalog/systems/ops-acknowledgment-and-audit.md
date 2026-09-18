@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.95
-confidence_label: "gate and dry-run exercised live; log field inventory taken from the full 3050-line log"
-last_reviewed: "2026-09-17"
+confidence_label: "gate and dry-run exercised live; log field inventory taken from the full 3050-line log; remedy and its constraints recorded in WP-S1 on 2026-09-18"
+last_reviewed: "2026-09-18"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -35,6 +35,9 @@ relationships:
   - type: "relates_to"
     target: "CERB-GAP-648"
     note: "LogAudit drops its operation argument"
+  - type: "relates_to"
+    target: "CERB-GAP-838"
+    note: "the gate is satisfied by the caller being gated"
   - type: "relates_to"
     target: "CERB-CAP-200"
 ---
@@ -81,6 +84,30 @@ against a long-gone `engine-api`, shows exactly that shape.
 
 The SQLite store is not an alternative answer. `cerberus path` resolves
 `main-db` to
-`/Users/cburks/.local/share/cerberus/workspaces/default/main.db`, and that
-directory is empty: the database has never been created. There is no persistent
-store on this machine for an audit trail to live in.
+`~/.local/share/cerberus/workspaces/default/main.db`, and on the machine
+audited that directory is empty: the database had never been created. There is
+no persistent store for an audit trail to live in until something creates one.
+
+## The planned remedy
+
+`docs/plans/agent-authority-and-secrets.md` owns this as WP-S1, and
+`docs/handoffs/wp-s1-audit-the-admin-lane.md` is the executable brief. Three
+decisions recorded there that constrain any implementation of this capability:
+
+The record is written at the **service layer**, not in HTTP middleware.
+`ExternalConnectorService.Execute` is the single chokepoint for every connector
+operation on every surface, whereas middleware sees method and path and misses
+the in-process path `cmd_transport.go` hands the CLI — which is the path a
+mutation takes when the daemon is unreachable.
+
+**Caller identity has to be added to the socket wire**, which carries none
+today, or every daemon-delivered operation stays anonymous and an
+agent-driven destructive call remains indistinguishable from an operator's. The
+header is self-reported by design: anything that can reach the socket can set
+it, so it attributes between our own surfaces and is not an authentication.
+
+**The record is a DTO** under ADR 0003. `ExternalConnectorOperationArgs.Config`
+is an untyped map carrying whatever the caller passed, so serialising the
+request wholesale would make the audit log the credential store nobody meant to
+build, with longer retention than the real one. Fields are allow-listed and
+credentials appear as names only.
