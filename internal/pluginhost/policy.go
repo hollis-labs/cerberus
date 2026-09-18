@@ -28,8 +28,11 @@ const (
 	TrustTierLocalDev    TrustTier = "local_dev"
 	TrustTierUnsignedDev TrustTier = "unsigned_dev"
 	// TrustTierUnsigned is an unsigned plugin the operator installed from a
-	// local path. Integrity is tracked by a host-computed entrypoint hash, so
-	// a binary that changes under us is detectable; provenance is not.
+	// local path. Neither integrity nor provenance is tracked. A host-computed
+	// entrypoint hash is recorded at install time, but nothing ever reads it
+	// back: ValidateInstall below only asserts it is non-empty, and no load
+	// path re-hashes the binary to compare against it. A binary replaced
+	// underneath us is therefore not detectable. See CERB-GAP-336.
 	TrustTierUnsigned  TrustTier = "unsigned"
 	TrustTierUntrusted TrustTier = "untrusted"
 )

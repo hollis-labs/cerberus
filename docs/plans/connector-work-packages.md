@@ -392,7 +392,7 @@ replaces rather than extends**. `cmd.Env = []string{"DOCKER_HOST=…"}` would st
 **The daemon's environment has what `ssh://` needs**, which was not obvious:
 
 ```
-HOME=/Users/me   USER=operator   SSH_AUTH_SOCK=/private/tmp/com.apple.launchd…
+HOME=~   USER=operator   SSH_AUTH_SOCK=/private/tmp/com.apple.launchd…
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 ```
 
@@ -898,7 +898,7 @@ This is what makes `type: container` resources worth declaring:
   type: container
   connector: docker
   config:
-    compose_file: /Users/me/Projects/web-monitor/docker-compose.yml
+    compose_file: ~/Projects/web-monitor/docker-compose.yml
 ```
 
 → `cerberus docker up web-monitor`.
