@@ -73,7 +73,7 @@ was chosen on purpose.
 RPC's transport fails, `doJSON` and `doJSONStream` return
 `DaemonUnreachableError`, whose text is the recovery:
 
-    cerberus daemon not running at /Users/cburks/.cerberus/cerberus.sock;
+    cerberus daemon not running at ~/.cerberus/cerberus.sock;
     start with 'cerberus daemon' (dial unix …: connect: connection refused)
 
 Verified on 2026-09-17 that this string passes through `redact.Text`

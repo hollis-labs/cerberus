@@ -76,7 +76,7 @@ It defines:
 Register it with Cerberus:
 
 ```bash
-cerberus register /Users/chrispian/dev/hollis-labs/apps/cerberus/cerberus.cerberus.yaml
+cerberus register /Users/<other-user>/dev/hollis-labs/apps/cerberus/cerberus.cerberus.yaml
 ```
 
 Run the release pipeline:
@@ -104,7 +104,7 @@ pipelines:
       - name: verify
         actions:
           - type: shell
-            dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+            dir: /Users/<other-user>/dev/hollis-labs/apps/cerberus
             command: |
               git status --short
               go test ./cmd/cerberus
@@ -112,7 +112,7 @@ pipelines:
         depends_on: [verify]
         actions:
           - type: shell
-            dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+            dir: /Users/<other-user>/dev/hollis-labs/apps/cerberus
             command: |
               : "${VERSION:?set VERSION, for example VERSION=0.3.0-beta.1}"
               ./scripts/release-beta.sh
@@ -120,7 +120,7 @@ pipelines:
         depends_on: [package]
         actions:
           - type: shell
-            dir: /Users/chrispian/dev/hollis-labs/apps/cerberus
+            dir: /Users/<other-user>/dev/hollis-labs/apps/cerberus
             command: |
               : "${VERSION:?set VERSION, for example VERSION=0.3.0-beta.1}"
               ls -la dist

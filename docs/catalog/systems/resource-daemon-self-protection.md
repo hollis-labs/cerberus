@@ -43,7 +43,7 @@ Deploying the Cerberus daemon through its own socket restarts the daemon mid-ope
 
 The refusal is wired into `ReloadResource`, `StopResource`, `DeployResource`, `ApplyResource`, `SyncResource` and `RemoveResource`, and the error text is the recovery procedure: build to a temporary path, atomically move the binary over the daemon artifact, then `launchctl kickstart -k gui/<uid>/com.fragments-engine.cerberus` from an external terminal.
 
-On this machine the guard is armed — `XPC_SERVICE_NAME=com.fragments-engine.cerberus` is in the daemon's environment and the serving executable is `/Users/cburks/go/bin/cerberus` — but no registered resource is the daemon, so nothing here has ever triggered it. Note the secondary consequence of the executable test: any `dev_session` resource whose `command[0]` is the cerberus binary would also be refused, which is correct but broader than "the daemon resource".
+On this machine the guard is armed — `XPC_SERVICE_NAME=com.fragments-engine.cerberus` is in the daemon's environment and the serving executable is `~/go/bin/cerberus` — but no registered resource is the daemon, so nothing here has ever triggered it. Note the secondary consequence of the executable test: any `dev_session` resource whose `command[0]` is the cerberus binary would also be refused, which is correct but broader than "the daemon resource".
 
 ## What it owns
 

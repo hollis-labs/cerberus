@@ -47,8 +47,8 @@ validates that one file. Both work and both are read-only.
 
 The finding is what validation does not do. Every one of the nine
 `*.cerberus.yaml` descriptors in the estate validates `OK`, including all eight
-whose every `dir:` is under `/Users/chrispian` — a home directory that does not
-exist on this machine, as `ls -d /Users/chrispian` confirms. Validation is
+whose every `dir:` is under `/Users/<other-user>` — a home directory that does not
+exist on this machine, as `ls -d /Users/<other-user>` confirms. Validation is
 schema-only. It has a guard for the one value that has burned this project
 before, `port: 0`, held both by `findPIDByPort` and by
 `TestValidateProjectConfigPortZeroIsError`, but nothing checks that a declared
