@@ -188,7 +188,20 @@ Cerberus's manifest, and a prerequisite for any plugin catalog.
 
 ## Cerberus's own capability gaps
 
-From the same audit, independent of Nanite:
+From the same audit, independent of Nanite. **Catalog ids are cited where a
+record already exists** — most of these were already known, and this audit's
+contribution is mostly the cross-host framing rather than the findings
+themselves.
+
+**One correction this reconciliation forced.** An earlier draft of this document
+claimed the host-computed entrypoint hash makes "a plugin binary that changes
+underneath us detectable." It does not. `hashPluginEntrypoint` computes it,
+`installer.go` assigns it, and `policy.go` only ever checks that it is
+*non-empty* — it is never persisted and never compared against a later hash.
+`CERB-GAP-336` had this right before this audit did, and the claim came from the
+code comment at `internal/pluginhost/policy.go:31`, which overstates it in the
+same way. **The comment should be corrected too**, since it is the source a
+reader would trust.
 
 - **`SSH_AUTH_SOCK` is granted to every plugin**
   (`internal/cerbapi/plugin_connector_service.go`). The comment above the
@@ -198,15 +211,28 @@ From the same audit, independent of Nanite:
   the list too, and Docker socket access is root-equivalent on most hosts.
   These are present for a real reason — remote Docker over SSH needs them — but
   they are granted **ambiently, to every plugin, undeclared**, which is exactly
-  the pattern the manifest-declared secret channel exists to avoid.
-- **The sandbox is declared but unimplemented.** `SandboxEnforced` is never set
+  the pattern the manifest-declared secret channel exists to avoid
+  (`CERB-CAP-302`).
+
+  This refines rather than duplicates `CERB-GAP-334`, "No test asserts
+  pluginLaunchEnv() is credential-free". That record proposes asserting no entry
+  in the allow-list satisfies `redact.SensitiveKey` — and **`SSH_AUTH_SOCK` does
+  not satisfy it**, being neither token- nor key- nor secret-shaped. So the
+  proposed test would pass while the allow-list still hands every plugin a live
+  credential handle. The premise that the property merely lacks a test is
+  itself wrong: the property does not hold.
+- **The sandbox is declared but unimplemented** (`CERB-GAP-335`,
+  "Trust tiers constrain nothing reachable"). `SandboxEnforced` is never set
   true, and `internal/pluginhost/policy.go` refuses a plugin that requests a
   profile. Honest — it fails closed rather than pretending — but the capability
   is zero.
 - **No per-call deadline and no resource limits.** `CallTool` passes the
   caller's context through and nothing sets a timeout; there is no rlimit,
   cgroup or memory cap. Only a 3-second *close* timeout exists. A plugin that
-  hangs hangs the request.
+  hangs hangs the request. Adjacent to but distinct from `CERB-GAP-333`, which
+  covers a plugin child *dying* undetected rather than one that never returns.
+- **The entrypoint hash is computed and discarded** (`CERB-GAP-336`). See the
+  correction above.
 - **`DataDir` / `CacheDir` are never populated**, so the SDK's
   `ResolvedDataDir()` returns `ErrNoDataDir` — and the SDK tells plugins to
   treat that as fatal for persistence. A contract the host declares and does
@@ -232,6 +258,28 @@ the names mean and whether to grant them.
 
 This is proposed to the SDK rather than built here. See
 `docs/proposals/capability-declaration.md` in `hollis-labs/plugin-sdk`.
+
+## Where this lands in the catalog
+
+The capability catalog already carried most of the Cerberus-side findings, which
+is the catalog working as intended. Mapping, so the two do not drift:
+
+| Finding here | Catalog |
+|---|---|
+| No event bus, so no plugin-facing hook surface | no record — new |
+| No `LoadType`/opt-in equivalent | no record — new |
+| No host compatibility range or provenance metadata | partly `CERB-GAP-337` (no upgrade, rollback or version pinning) |
+| Ambient `SSH_AUTH_SOCK` grant | refines `CERB-GAP-334`; new record added |
+| Sandbox declared, unimplemented | `CERB-GAP-335` |
+| No per-call deadline / resource limits | adjacent to `CERB-GAP-333` |
+| Entrypoint hash discarded | `CERB-GAP-336` |
+| `DataDir` never populated | no record — new |
+| Plugin operations reach no MCP tool or CLI verb | `CERB-GAP-330`, `CERB-GAP-433` |
+| The plugin authoring contract has no stability guarantee | `CERB-GAP-340` — directly relevant to a host compat range |
+
+Two capability records frame the lane: `CERB-CAP-301` (plugin lane, partial) and
+`CERB-CAP-306` (trust policy and tiers, partial), with `CERB-CAP-302` (plugin
+secret channel) shipped and `CERB-CAP-304` (authoring contract) shipped.
 
 ## Options for Cerberus
 
