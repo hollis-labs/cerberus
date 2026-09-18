@@ -1,10 +1,93 @@
 # Cerberus by Hollis Labs
 
-Agent-first local infrastructure manager evolving toward a broader control plane. Cerberus now uses the v2 resource model across the CLI, daemon, HTTP/socket API, and MCP surface.
+Cerberus is a single-binary Go control plane for local infrastructure. It
+builds, deploys, supervises, and inspects the daemons, dev servers, and
+background services the Hollis Labs portfolio runs — over one runtime service
+that the CLI, daemon socket, HTTP API, web console, and MCP adapter all share.
+It owns execution and derived operational state, not the definitions a
+project writes about itself, the data it holds, or the credentials it needs.
 
-Cerberus is released as permissive open source under the MIT license. The
-public product identity is **Cerberus by Hollis Labs**. The repo, CLI, binary,
-and day-to-day docs primarily refer to it simply as **Cerberus**.
+> **Pre-release.** Cerberus ships real beta builds — a Homebrew tap, tagged
+> GitHub releases, checksummed tarballs — and runs in active internal use
+> across Hollis Labs: it's the control plane that deploys and supervises this
+> portfolio's own services, including the MCP surface an agent session may be
+> calling right now. It has no outside users yet, no compatibility
+> guarantees, and no support channel. Built in the open: interfaces and
+> behavior can still change without notice.
+
+## What it is today
+
+- **One resource model, four thin surfaces.** CLI, daemon/socket API, web
+  console, and MCP adapter all route through the same resource runtime
+  service (`internal/cerbapi/resource_runtime_service.go`) — none of them own
+  separate execution logic.
+- **Local process lifecycle.** `dev_session` for repo-local dev processes,
+  `os_service` for launchd-supervised background services, with artifact
+  staleness detection so a deploy can't silently ship a rebuild that never
+  reinstalled.
+- **DNS and domain operations.** Cloudflare zone/DNS management and Namecheap
+  domain/nameserver operations, with per-record edits deliberately disabled
+  where the provider's API can hide existing records and turn a read-modify-
+  write into silent data loss.
+- **An MCP server.** `cerberus mcp` (stdio) and `cerberus mcp-http` expose the
+  same resource, DNS, and droplet operations as tool calls — this is how
+  agents drive infrastructure without a human at a terminal.
+- **Early remote execution.** DigitalOcean droplets can already be provisioned
+  as Cerberus resources with SSH-based bootstrap, credential delivery, and
+  destroy guardrails.
+
+## Where it sits in the stack
+
+```
+   agents / operators     Claude Code, Nanite-hosted agents, human at the CLI
+         │
+    ┌───────────┐
+    │ Cerberus  │   build → deploy → supervise → inspect, one runtime service
+    └───────────┘
+         │
+   what it drives         launchd services, dev processes, Docker, DigitalOcean
+                           droplets, Cloudflare/Namecheap DNS
+```
+
+Cerberus is the ops layer underneath the rest of the portfolio: Nanite,
+Torque, Tesseract, Tether and the others run as Cerberus-supervised
+resources, but Cerberus doesn't know or care what they do — it only knows how
+to build, install, start, stop, and report on them.
+
+## Examples
+
+**Daily driver.** Chrispian ships changes to any portfolio service with
+`cerberus resource deploy <id>`, checks for build/install drift with
+`resource status`, and manages domain cutovers with `cerberus cloudflare` /
+`cerberus domain` — one CLI for every service in the portfolio, local or
+remote.
+
+**Agent-driven ops.** This session's `cerberus_resource_*`, `cerberus_dns_*`,
+and `cerberus_droplet_*` tools are Cerberus's MCP surface — an agent can
+deploy a fix, check whether a service is actually running the code it thinks
+it is, or cut a DNS record over, in the same tool-call vocabulary it uses for
+everything else.
+
+**Off-laptop execution.** A Claude Code or Codex session can run on a
+Cerberus-provisioned DigitalOcean droplet instead of the local machine —
+Cerberus handles provisioning, credential delivery over SSH, and teardown;
+session lifecycle stays Nanite's concern.
+
+## Roadmap
+
+- **Multi-provider remote infrastructure.** Provisioning via OpenTofu
+  (DigitalOcean now, Hetzner next) and configuration via Ansible, covering
+  containerized and plain hosts alike, with every operation verifying its own
+  effect instead of trusting a 2xx.
+- **Retiring the Forge dependency.** Moving deploy orchestration for
+  non-containerized apps fully onto the OpenTofu/Ansible path.
+- **Remote agent execution, past MVP.** Private networking (Tailscale/
+  WireGuard) and snapshot-based hibernate as fast-follows to the current
+  destroy-only DigitalOcean lane.
+
+## License
+
+Cerberus is available under the [MIT License](./LICENSE).
 
 ## Install
 
@@ -66,10 +149,6 @@ walkthrough, and release artifact details. Release packaging steps live in
 [docs/release/beta-release-process.md](docs/release/beta-release-process.md).
 For Cerberus releasing Cerberus, see
 [docs/release/self-release-via-pipeline.md](docs/release/self-release-via-pipeline.md).
-
-## License
-
-Cerberus is available under the [MIT License](./LICENSE).
 
 ## Usage
 
