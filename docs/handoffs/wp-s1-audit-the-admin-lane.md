@@ -7,10 +7,31 @@
 Take this whole package. It is one coherent change and splitting it produces a
 half-audited system, which is worse than none because it reads as coverage.
 
+## Catalog records this closes
+
+The capability catalog got here first, and these are the records to close and
+update rather than re-derive:
+
+| Record | What it says |
+|---|---|
+| `CERB-GAP-630` | *No audit trail of who ran what* — "Cerberus records that a socket request happened, and nothing else: no caller, no arguments, no result, no acknowledgment flag." This package **is** that gap. |
+| `CERB-GAP-648` | *LogAudit drops its operation argument* — the helper accepts an operation name and never records it. Fix while wiring it; do not wire a call to a function that discards the most important field. |
+| `CERB-CAP-604` | *Destructive-operation acknowledgment, and the absence of an audit trail* — `partial`. Update its state and body when this lands. |
+| `CERB-GAP-286` | *Plugin acknowledgment is enforced on a flag the plugin sets itself* — the managed-plugin branch returns **before** the lane's ack gate. Distinct from the caller-supplied problem below, and it means some destructive plugin operations never reach the gate at all. Worth recording in the audit trail regardless of which is fixed first. |
+| `CERB-GAP-274` | *The redaction-survival rule is remembered, not enforced* — directly relevant, because the audit record must not eat its own fields. |
+| `CERB-GAP-639` | *No read-only lane for remote exec* — context for why the ack gate carries so much weight today. |
+
+Update `docs/catalog/catalog.json` and
+`docs/catalog/systems/ops-acknowledgment-and-audit.md` in the same PR as the
+code. `docs/catalog/validate.py` enforces that the two agree, and a PR that
+changes a capability without touching the catalog is visible in review by
+design.
+
 ## Why this first
 
 `LogAudit(operation, serviceID, reason, taskID, sessionID)` exists in
-`internal/service/lifecycle_log.go:52` with **zero callers**. Nothing records
+`internal/service/lifecycle_log.go:52` with **zero callers** — and per
+`CERB-GAP-648`, it would drop the operation name even if it had one. Nothing records
 who asked for an operation, which credential it resolved, what it targeted, or
 what came back.
 
@@ -60,6 +81,22 @@ to get right.
 |---|---|---|
 | HTTP middleware (`SocketServer.wrap`, and a new chain for `mcp-http`) | Read caller identity off the request, put it in the `context.Context`. Later: host the policy gate (WP-S5) and the request-scoped redactor (WP-S2). | Write the audit record. |
 | Service layer (`ExternalConnectorService.Execute`, the six resource mutators) | Write the authoritative record: execution facts plus the caller identity from context. | Try to infer the caller. |
+
+### Two distinct defects in the same gate
+
+Worth separating, because they have different fixes and the catalog only had one
+of them:
+
+- **`CERB-GAP-286`** — the managed-plugin branch returns before the lane's ack
+  gate, so a manifest declaring an operation destructive with
+  `requires_ack: false` executes unacknowledged. A *bypass*.
+- **Not previously recorded** — `acknowledged` is a caller-supplied argument, so
+  a caller that reaches the gate satisfies it by setting a field. An *intent*
+  gate rather than a human one. New catalog record added by the reconciliation
+  that produced this section.
+
+Both belong in the audit record: whether acknowledgment was supplied, and
+whether the gate was even reached.
 
 ### The gap that decides whether this is real
 
