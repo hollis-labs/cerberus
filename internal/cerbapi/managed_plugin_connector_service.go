@@ -22,6 +22,13 @@ type ManagedPluginConnectorState struct {
 	// loaded but cannot authenticate, rather than leaving that to be
 	// discovered by the first failing operation. Names only.
 	MissingSecrets []string `json:"missing_secrets,omitempty"`
+
+	// Capabilities names the ambient host access this plugin declared, and
+	// Granted what it actually holds. Reported so an operator can answer "what
+	// can this plugin reach" by reading a list rather than by reading the
+	// launch code. Names only, like MissingSecrets.
+	Capabilities []string `json:"capabilities,omitempty"`
+	Granted      []string `json:"granted,omitempty"`
 }
 
 type ManagedPluginConnectorService struct {
@@ -275,13 +282,35 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 }
 
 func managedState(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginConnectorState {
-	return ManagedPluginConnectorState{
-		ID:        plugin.ID,
-		Version:   plugin.Version,
-		Path:      plugin.Path,
-		Loaded:    loaded,
-		TrustTier: string(plugin.Trust.Tier),
+	declared := make([]string, 0, len(plugin.Spec.Capabilities))
+	for _, req := range plugin.Spec.Capabilities {
+		declared = append(declared, req.Name)
 	}
+	// Both lists are reported, not just the grant: "asked for and did not get"
+	// is the interesting case, and a single list cannot say it.
+	return ManagedPluginConnectorState{
+		ID:           plugin.ID,
+		Version:      plugin.Version,
+		Path:         plugin.Path,
+		Loaded:       loaded,
+		TrustTier:    string(plugin.Trust.Tier),
+		Capabilities: declared,
+		// The grant is decided at load. For a plugin that is installed but not
+		// loaded, plugin.Granted is empty, so compute what it would receive —
+		// otherwise `managed list` shows a plugin asking for access and
+		// apparently holding none, which reads as a refusal rather than as
+		// "not started yet".
+		Granted: grantedOrPreview(plugin),
+	}
+}
+
+// grantedOrPreview reports the recorded grant, or what the grant would be for a
+// plugin that has not been loaded yet.
+func grantedOrPreview(plugin pluginhost.InstalledPlugin) []string {
+	if len(plugin.Granted) > 0 {
+		return plugin.Granted
+	}
+	return pluginhost.GrantCapabilities(plugin.Spec.Capabilities)
 }
 
 func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginConnectorState {

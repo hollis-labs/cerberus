@@ -170,6 +170,13 @@ func ReadPluginYAML(pluginDir string) (PluginYAML, error) {
 	if err := spec.Validate(pluginDir); err != nil {
 		return PluginYAML{}, err
 	}
+	// Refused at install rather than declined at load: a plugin asking for a
+	// capability this host does not have is an authoring mistake, and telling
+	// the operator now beats running it without the access and failing later
+	// in a way that looks like a bug.
+	if err := ValidateCapabilities(spec.Capabilities); err != nil {
+		return PluginYAML{}, fmt.Errorf("plugin %q: %w", spec.ID, err)
+	}
 	return spec, nil
 }
 
