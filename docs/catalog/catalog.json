@@ -3819,8 +3819,8 @@
       "state_label": "partial",
       "review_status": "reviewed",
       "confidence_score": 0.95,
-      "confidence_label": "Rules read directly; both live defects reproduced against redact.Text during reconciliation",
-      "last_reviewed": "2026-09-17",
+      "confidence_label": "Rules read directly; all five defects, shipped and open, re-run against redact.Text on 2026-09-18",
+      "last_reviewed": "2026-09-18",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -3835,7 +3835,7 @@
       ],
       "locus": "core",
       "pointer_locator": "internal/redact/redact.go",
-      "body": "`internal/redact` is the last thing that touches operator-facing text. Every\nerror, every DTO field and every log line that leaves the daemon for a human or\nan agent passes through `redact.Text`, which rewrites anything that parses as a\ncredential. It is a single pass with no context: it sees a string, not a\nsentence, and it cannot tell guidance from a secret.\n\nThree rules do the work. `assignment` matches a key containing `token`,\n`secret`, `password`, `credentials?`, `authorization` and friends followed by\n`=` or `:`, and replaces what comes next. `flag` does the same for `--flag value`\nand `--flag=value`. A third pass removes known credential values that appear\nwith no label at all. Two escape hatches exist: a short, purely alphabetic word\nafter `Bearer` is left alone, and `NamesOnlyKey` exempts JSON fields whose values\nare credential *names* rather than values — which is how `missing_secrets`\nsurvives as `[\"token\"]` instead of `[\"[REDACTED]\"]`.\n\nBoth escape hatches were added after the redactor ate its own guidance. That has\nnow happened six times, and `AGENTS.md` records the rule the repository settled\non: **do not run redaction over a value that is a name by construction**, and if\nan error carries a recovery instruction, add a test that it survives\n`redact.Text` intact — because a safety net that eats the instruction is worse\nthan no instruction.\n\n## Why this record exists\n\nNothing in the first audit pass owned this system. Six gap records across four\nindependent areas pointed at redaction, and two of them carried an unresolved\n`TBD` reference to \"the redaction capability, wherever it is catalogued\". It was\ncatalogued nowhere. Redaction is on every error path of every surface, so it\nbelongs to no single area's territory and each area recorded only the damage it\ncould see from where it stood.\n\nThat is a property of the fan-out, not of the code, and it is the clearest\nillustration in this catalog of what a per-area audit is structurally blind to:\na cross-cutting system is invisible to every area that crosses it.\n\n## State, and why it is `partial`\n\nThe mechanism works — it redacts real credentials, and the two documented\nescape hatches hold. But two distinct rules are currently corrupting text that\nis prose by construction, on every surface, verified live:\n\n- `assignment` matches the error *code* `credential_missing:` and eats the first\n  word of the cause (CERB-GAP-273), including the verb `reload` in a recovery\n  instruction.\n- `flag` matches `X-API-Key ` — the internal hyphen satisfies `--?` — and eats\n  the next word of a plugin manifest's documentation field (CERB-GAP-447).\n\nA component whose failure mode is silently rewriting the operator's recovery\ninstructions is not `shipped` while two such rewrites are live, however complete\nthe code. The fix for both is narrow and the exclusion mechanism already exists;\nwhat is missing is the test discipline that would have caught them\n(CERB-GAP-274).",
+      "body": "`internal/redact` is the last thing that touches operator-facing text. Every\nerror, every DTO field and every log line that leaves the daemon for a human or\nan agent passes through `redact.Text`, which rewrites anything that parses as a\ncredential. It is a single pass with no context: it sees a string, not a\nsentence, and it cannot tell guidance from a secret.\n\nThree rules do the work. `assignment` matches a key containing `token`,\n`secret`, `password`, `credentials?`, `authorization` and friends followed by\n`=` or `:`, and replaces what comes next. `flag` does the same for `--flag value`\nand `--flag=value`. A third pass removes known credential values that appear\nwith no label at all. Two escape hatches exist: a short, purely alphabetic word\nafter `Bearer` is left alone, and `NamesOnlyKey` exempts fields whose values are\ncredential *names* rather than values — though that second hatch has one call\nsite and it is inside the JSON walk, so `missing_secrets` survives as\n`[\"token\"]` in a DTO and is still eaten in prose (CERB-GAP-743).\n\nBoth escape hatches were added after the redactor ate its own guidance. That has\nnow happened nine times, and `AGENTS.md` records the rule the repository settled\non: **do not run redaction over a value that is a name by construction**, and if\nan error carries a recovery instruction, add a test that it survives\n`redact.Text` intact — because a safety net that eats the instruction is worse\nthan no instruction.\n\n## Why this record exists\n\nNothing in the first audit pass owned this system. Six gap records across four\nindependent areas pointed at redaction, and two of them carried an unresolved\n`TBD` reference to \"the redaction capability, wherever it is catalogued\". It was\ncatalogued nowhere. Redaction is on every error path of every surface, so it\nbelongs to no single area's territory and each area recorded only the damage it\ncould see from where it stood.\n\nThat is a property of the fan-out, not of the code, and it is the clearest\nillustration in this catalog of what a per-area audit is structurally blind to:\na cross-cutting system is invisible to every area that crosses it.\n\n## State, and why it is `partial`\n\nThe two defects this record was opened with — `assignment` eating the word after\nthe error code `credential_missing:` (CERB-GAP-273) and `flag` eating the word\nafter `X-API-Key` (CERB-GAP-447) — shipped in #34, and both now hold when\nre-run against `redact.Text`. Three more were found on 2026-09-17, and they\nshare the shape those fixes did not address: `assignment` captures a single\nwhitespace-delimited word and calls it the value.\n\n- `Authorization: Basic <base64>` comes out as `Authorization: [REDACTED]\n  <base64>` — the scheme redacted, the credential not, because `bearer` is the\n  only scheme-aware rule and nothing fires on `Basic` (CERB-GAP-742). This is\n  the first finding in this family that leaks a credential rather than\n  corrupting a sentence, and it changes what this record is about: the failure\n  mode is no longer only that the operator loses the instruction.\n- The names-only exemption never runs on prose, so the `missing_secrets` field\n  the exemption exists for is still redacted whenever it is rendered into an\n  error message instead of a DTO (CERB-GAP-743).\n\nA component whose failure mode is silently rewriting the operator's recovery\ninstructions is not `shipped`, and one that can pass a credential through is\nfurther from it than when this record was written. Seven narrow fixes have each\nbeen correct and none has been structural; `AGENTS.md` already names the answer\n— redact at the value boundary, where the caller still holds the key and the\nvalue as separate things, and keep `Text` as a last-resort net over text\nCerberus did not compose. What is still missing is the test discipline that\nwould have caught any of them (CERB-GAP-274).",
       "relationships": [
         {
           "type": "relates_to",
@@ -3866,6 +3866,16 @@
           "type": "relates_to",
           "target": "CERB-GAP-447",
           "note": "live defect in the flag rule"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-742",
+          "note": "live defect in the assignment rule's one-word value capture"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-743",
+          "note": "live defect in the assignment rule's one-word value capture"
         }
       ],
       "data": {
@@ -18824,6 +18834,158 @@
         "destructive": false,
         "verified": "test",
         "vendor": []
+      }
+    },
+    {
+      "id": "CERB-GAP-742",
+      "class": "gap",
+      "name": "Redaction passes `Authorization: Basic <credential>` through intact",
+      "summary": "The assignment rule captures one whitespace-delimited word, so it redacts the scheme and leaves the credential; `bearer` is the only scheme-aware rule and there is no `Basic` equivalent.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.95,
+      "confidence_label": "Reproduced directly against redact.Text; the base64 in the output decodes to the input credential",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-17",
+      "namespace": "cerberus",
+      "locus": "core",
+      "pointer_locator": "internal/redact/redact.go (the `assignment` and `bearer` rules)",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "redaction",
+        "security",
+        "credential-leak",
+        "errors",
+        "verified-reproduction",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "relationships": [
+        {
+          "type": "blocks",
+          "target": "CERB-CAP-700",
+          "note": "a redactor that passes a credential through is not partial in the same sense as one that eats guidance"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-404",
+          "note": "redaction sits on the error path of all five surfaces, so the leak is on all five"
+        }
+      ],
+      "body": "Every previous finding in this family has been the safety net eating the\nguidance it was meant to protect. This one is the inverse, and worse: a real\ncredential survives.\n\n    IN : Authorization: Basic Y2J1cmtzOnN1cGVyc2VjcmV0cGFzc3dvcmQ=\n    OUT: Authorization: [REDACTED] Y2J1cmtzOnN1cGVyc2VjcmV0cGFzc3dvcmQ=\n\nThe base64 decodes to `cburks:supersecretpassword`. The word `Basic` was\nredacted; the credential was not.\n\nThe mechanism is an interaction between two rules in `internal/redact/redact.go`.\n`bearer` covers `Bearer <token>` and nothing else. `assignment` matches the key\n`Authorization` and then takes `[^\\s,;&<>]+` as the value — one\nwhitespace-delimited word. For `Bearer <token>` that is harmless only because\n`bearer` already fired and rewrote the token first; confirm the ordering\ndependency by checking that `Authorization: Bearer eyJ…` yields\n`Authorization: [REDACTED] [REDACTED]` and that it is `bearer`, not\n`assignment`, doing the work. For `Basic <base64>` nothing fires first, so\n`assignment` redacts `Basic` and stops at the space.\n\nSo the shape `Authorization: <scheme> <credential>` is safe only for the one\nscheme that has a dedicated rule, and `Digest` and `Negotiate` are open too.\n\nThis reaches operators and agents. `redact.Text` runs on every connector error\npath, and a connector that echoes a failing request's headers into an error —\na normal thing to do — publishes the credential to CLI stdout, the daemon\nsocket response, `~/.cerberus/` logs, and MCP tool results, which land in an\nagent's context window and are then sent to a model provider.\n\nThe fix is to make the value side of an `Authorization`-like assignment consume\nthe rest of the value rather than its first word: an auth header's value is\nscheme-plus-credential and is one unit. Adding a `Basic` twin of the `bearer`\nrule closes this instance and leaves the next scheme open, so prefer the general\nfix. Acceptance: a table test over `Basic`, `Bearer`, `Digest` and a bare token\nasserting no credential material survives, with the existing `Bearer JWT` and\n`use Bearer auth` guidance cases still passing unredacted.",
+      "data": {
+        "capability": "CERB-CAP-700",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "The value-boundary redaction AGENTS.md describes would remove the rule interaction entirely",
+        "effort": "small"
+      }
+    },
+    {
+      "id": "CERB-GAP-743",
+      "class": "gap",
+      "name": "The names-only exemption is wired into the JSON walk only, not prose",
+      "summary": "`NamesOnlyKey` has one call site, inside redact.JSON's walk, so `missing_secrets` survives in a DTO and is still eaten when the same field is rendered into an error message.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.9,
+      "confidence_label": "Call sites enumerated; both the missing_secrets and the f-string case reproduced against redact.Text",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-17",
+      "namespace": "cerberus",
+      "locus": "core",
+      "pointer_locator": "internal/redact/redact.go (NamesOnlyKey, redactPairs)",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "redaction",
+        "errors",
+        "diagnostics",
+        "names-only",
+        "verified-reproduction",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "relationships": [
+        {
+          "type": "blocks",
+          "target": "CERB-CAP-700",
+          "note": "the documented escape hatch does not cover the path the error text actually takes"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-274",
+          "note": "the missing test discipline is what would have caught the gap between the two paths"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-302",
+          "note": "MissingSecretsError is the prose that carries missing_secrets to the operator"
+        }
+      ],
+      "body": "`AGENTS.md` says the redactor \"has since learned to … skip fields that carry\nnames by construction\", citing `missing_secrets` coming back as\n`[\"[REDACTED]\"]`. The fix is real but narrower than the sentence implies, and\nthe sentence is what a future contributor will trust.\n\n    IN : missing_secrets: [\"token\"]\n    OUT: missing_secrets: [REDACTED]\n\n`NamesOnlyKey` has exactly one call site — inside the JSON `walk` in\n`internal/redact/redact.go`. The prose path (`assignment` → `redactPairs`)\nconsults `isErrorCode` but never `NamesOnlyKey`, so the same field rendered into\na sentence is still eaten. That matters because `MissingSecretsError.Error()` in\n`internal/pluginhost/secrets.go` is prose, and the entire purpose of that error\nis to answer \"which credential?\"\n\nA second instance of the same root cause, found while reading a Python file over\n`cerberus ssh exec`:\n\n    IN : \"Authorization\": f\"Bearer {KEY}\",\n    OUT: \"Authorization\": [REDACTED] {KEY}\",\n\n`bearer` does not fire because `{KEY}` is not token-shaped, so `assignment`\ntakes the first word — `f\"Bearer` — and the rendered file is now wrong in a way\nthat would mislead anyone reading code through Cerberus. Note the shared shape\nwith CERB-GAP-742: one-word value capture.\n\nThe fix is to have the prose path consult `NamesOnlyKey` the way it already\nconsults `isErrorCode`, with the same recursion so a real assignment sitting\nbehind a names-only key is still redacted. `AGENTS.md`'s redaction section then\nneeds amending to say which paths the exemption covers. Acceptance:\n`missing_secrets: [\"token\"]` survives `redact.Text` intact, and a\n`MissingSecretsError` carrying two secret names round-trips with both readable.",
+      "data": {
+        "capability": "CERB-CAP-700",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "Fixed alongside CERB-GAP-742 if the value-boundary rewrite lands",
+        "effort": "small"
+      }
+    },
+    {
+      "id": "CERB-GAP-744",
+      "class": "gap",
+      "name": "A stored credential the daemon cannot read is reported as not stored",
+      "summary": "KeychainProvider.Get maps ErrNotFound to an empty value with no error, so a plugin credential that exists and is readable in the operator's session still surfaces as missing_secrets with no way to tell the two cases apart.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.7,
+      "confidence_label": "Reproduced end to end; the daemon log distinguishes not-found from a lookup error, but the underlying cause is not yet isolated",
+      "last_reviewed": "2026-09-18",
+      "created_at": "2026-09-17",
+      "namespace": "cerberus",
+      "locus": "core",
+      "pointer_locator": "internal/secrets/keychain.go, internal/pluginhost/secrets.go",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "credentials",
+        "keychain",
+        "daemon",
+        "plugin",
+        "diagnostics",
+        "observability",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "relationships": [
+        {
+          "type": "blocks",
+          "target": "CERB-CAP-302",
+          "note": "the documented recovery for a missing plugin credential does not work on this machine"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-504",
+          "note": "the keychain entry is the last link of the credential chain the plugin host resolves through"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-209",
+          "note": "ContextForge is the connector this was found on; its credentialed operations remain unrun"
+        }
+      ],
+      "body": "The documented recovery for a missing plugin credential does not work here, and\nthe failure is silent.\n\nReproduce: write the entry the way `internal/secrets.KeychainProvider` reads it\n— go-keyring, service `cerberus`, account `contextforge/token`, not\n`security add-generic-password` (see `docs/secrets.md`). Confirm it is readable:\n`security find-generic-password -s cerberus -a contextforge/token` returns rc=0\nand a `keyring.Get` from any process in the session returns the value. Then run\n`cerberus connectors plugin managed load contextforge` and observe\n`missing_secrets: [\"token\"]` anyway.\n\nThis is not missing wiring — `cmd/cerberus/cmd_daemon.go` passes\n`WithManagedPluginSecrets(a.Secrets)`. What narrows it is the daemon's own log:\n`~/.cerberus/logs/launchd-stderr.log` carries the\n`loaded without required credential token` line and no\n`credential lookup failed` line. Per `reportSecretProblems` in\n`internal/pluginhost/manager.go` a lookup that errored would emit the latter, so\n`keyring.Get` returned `ErrNotFound`, which `KeychainProvider.Get` deliberately\nmaps to `(\"\", nil)` — indistinguishable from nothing being stored.\n\nThe leading hypothesis is that the launchd-spawned daemon does not have the\nlogin keychain in its search domain and gets `errSecItemNotFound` for an entry\nthat plainly exists. The alternative — that `plugin managed load` returns a\ncached load rather than re-resolving — has not been excluded. Establish which\nbefore fixing it: a daemon restart with the entry in place separates them.\n\nTwo things want fixing whichever it is. The diagnostic must reach the operator:\n`resolvedSecrets.Problems` is collected and handed to `m.warn` and nowhere else,\nso the managed-plugin DTO that carries `missing_secrets` cannot say \"the store\nrefused\" — and the comment on that field already argues it should. And the error\nmessage must stop asserting a false cause: it currently tells an operator to\nstore a token at `keychain://contextforge/token` and reload, to an operator who\nhas just done exactly that.\n\nAcceptance: with a credential stored and readable, either the operation succeeds\nor `plugin managed list` reports why it could not be read, naming the store's\nown failure, rather than reporting it as absent. A resolver that returns an\nerror proves the reason reaches the DTO and not only `warn`.",
+      "data": {
+        "capability": "CERB-CAP-302",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "Isolating whether the cause is keychain reachability or a cached load",
+        "effort": "medium"
       }
     }
   ]
