@@ -65,6 +65,16 @@ Destructive connector operations require explicit operator acknowledgment
   with their failure modes documented in-line. This is the capability spec for
   what connectors should grow; promote proven behaviour rather than redesigning.
 
+`docs/handoffs/`, most of `docs/prompts/` (the Cerberus-specific ones —
+`catalog-audit-generic.md` moved separately, it's reusable), and
+`docs/validation/` were archived out of this repo to
+`~/dev/agent-os/archive/cerberus/` in a docs cleanup pass: resolved
+agent/operator handoffs, one-off task prompts, and a dated validation
+snapshot. Three superseded `docs/plans/` drafts (`beta-release-plan.md`,
+`cerberus-release-readiness-plan.md`, `gui-roadmap.md`) went the same way —
+the beta they planned already shipped. `docs/adr/` and the active
+`docs/plans/*` stay; they're still-read reference, not history.
+
 ## Commands
 
 ```bash
