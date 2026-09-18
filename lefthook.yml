@@ -47,6 +47,17 @@ pre-commit:
       skip:
         - run: "test ! -d ui && test ! -d web && test ! -d frontend"
 
+    # ── Catalog ───────────────────────────────────────────────────────
+    # Repo-specific, unlike everything above it. docs/catalog/catalog.json
+    # and docs/catalog/systems/*.md are one artefact in two formats, and
+    # validate.py is the only thing that enforces they agree. There is no CI,
+    # so this hook is the whole gate. ~70ms on the full catalog.
+
+    catalog-validate:
+      glob: "docs/catalog/**"
+      skip_empty: true
+      run: python3 docs/catalog/validate.py
+
 pre-push:
   commands:
 
