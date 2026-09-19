@@ -344,6 +344,61 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 	}
 }
 
+func TestLaunchdBackendApplyRefusesForeignPortConflict(t *testing.T) {
+	port, pid := foreignListener(t)
+
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	source := filepath.Join(workspace, "app")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+
+	label := "com.fragments-engine.cerberus.demo.app"
+	runner := &fakeCommandRunner{
+		out: map[string][]byte{
+			"launchctl print gui/501/" + label: []byte("Could not find service"),
+		},
+		err: map[string]error{
+			"launchctl print gui/501/" + label: errors.New("exit status 113"),
+		},
+	}
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{homeDir: func() (string, error) { return tmp, nil }, now: time.Now},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{
+		Mode:       ProcessModeOSService,
+		Supervisor: ProcessSupervisorLaunchd,
+		RunFrom:    ProcessRunFromArtifact,
+		Dir:        workspace,
+		Command:    []string{"./app", "serve"},
+		Port:       port,
+	}
+
+	_, err := backend.Apply(context.Background(), res, spec)
+	if err == nil {
+		t.Fatal("expected a port-conflict refusal")
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("port %d in use by external process", port)) {
+		t.Fatalf("expected external-port-conflict error, got %v", err)
+	}
+	for _, call := range runner.calls {
+		if call.name == "launchctl" && len(call.args) > 0 && (call.args[0] == "bootstrap" || call.args[0] == "kickstart") {
+			t.Fatalf("launchd was invoked despite the port conflict: %v", call)
+		}
+	}
+	if !processAlive(pid) {
+		t.Fatal("foreign listener was disturbed")
+	}
+}
+
 func TestLaunchdBackendApplyIncludesDiagnosticsOnBootstrapFailure(t *testing.T) {
 	tmp := t.TempDir()
 	workspace := filepath.Join(tmp, "workspace")

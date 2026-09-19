@@ -16,6 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/service"
 )
 
 const launchdProcessPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
@@ -121,6 +122,26 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 	loaded, state, err := b.loadedState(ctx, label)
 	if err != nil {
 		return ApplyResult{}, err
+	}
+
+	// launchd resources carry no Cerberus PID file, so a currently
+	// running/starting instance would misread its own listener as an
+	// external conflict. Only probe when we're not already presumed to hold
+	// the port ourselves — i.e. a first install or a restart from a
+	// stopped/failed state — so a redeploy's bootout-then-bootstrap of a
+	// port we already own isn't refused.
+	if spec.Port > 0 && state != domain.StateRunning && state != domain.StateStarting {
+		if conflict, conflictErr := service.CheckPortConflict(spec.Port, res.ID); conflictErr == nil && conflict != nil {
+			if conflict.CerberusManaged && conflict.ManagedServiceID == res.ID {
+				return ApplyResult{}, fmt.Errorf("already running on port %d (pid %d)", conflict.Port, conflict.PID)
+			}
+			if conflict.CerberusManaged {
+				return ApplyResult{}, fmt.Errorf("port %d in use by Cerberus service %q (pid %d)",
+					conflict.Port, conflict.ManagedServiceID, conflict.PID)
+			}
+			return ApplyResult{}, fmt.Errorf("port %d in use by external process %q (pid %d)",
+				conflict.Port, conflict.ProcessName, conflict.PID)
+		}
 	}
 
 	activationPending := false
