@@ -1,6 +1,10 @@
 package cerbapi
 
-import "context"
+import (
+	"context"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
+)
 
 // CallerSurface is where a request entered Cerberus. It decides which inputs
 // an operation accepts: a local-only input, such as an ad-hoc docker target,
@@ -31,6 +35,22 @@ const (
 )
 
 type callerSurfaceKey struct{}
+
+// BeginRequest is where a request enters Cerberus: it marks ctx with the
+// surface the request came through and gives it a request-scoped redactor
+// (redact.Scope), which credentials resolved on the request register with
+// and which its error and log paths render through. Every entry point calls
+// this rather than WithCallerSurface, so an entry point cannot mark a
+// surface and forget the scope.
+//
+// A ctx that already carries a scope keeps it. A path that never reaches
+// BeginRequest has no scope, and redact.ScopeFrom returns nil, which renders
+// as the regex net alone: forgetting it costs value redaction, never
+// redaction.
+func BeginRequest(ctx context.Context, surface CallerSurface) context.Context {
+	ctx, _ = redact.EnsureScope(WithCallerSurface(ctx, surface))
+	return ctx
+}
 
 // WithCallerSurface marks ctx as having entered through surface. A server
 // sets it once, at the edge, for every request it serves.

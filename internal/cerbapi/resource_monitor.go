@@ -159,8 +159,17 @@ func (m *ResourceMonitor) checkAllResources(ctx context.Context) {
 		if !shouldMonitorResource(res, spec) {
 			continue
 		}
-		m.checkResource(ctx, res, spec)
+		m.checkResource(monitorCheckContext(ctx), res, spec)
 	}
+}
+
+// monitorCheckContext begins one resource check as a request of its own: the
+// monitor acting on one resource, with its own redaction scope, so the scope
+// holds that check's credentials and does not grow for the daemon's
+// lifetime. The monitor's parent ctx never carries a scope, so every check
+// starts a fresh one.
+func monitorCheckContext(ctx context.Context) context.Context {
+	return BeginRequest(ctx, SurfaceMonitor)
 }
 
 func shouldMonitorResource(res config.ResourceDef, spec localconn.ProcessSpec) bool {
