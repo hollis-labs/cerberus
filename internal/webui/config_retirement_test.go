@@ -8,13 +8,13 @@ import (
 )
 
 func TestCentralizedMigrationEndpointsAreGone(t *testing.T) {
-	handler := mustNew(t, &fakeClient{}).Handler()
+	handler := mustNew(t, &fakeClient{}).Handler(testGuard())
 	token := sessionToken(t, handler)
 	for _, endpoint := range []struct{ method, path string }{
 		{http.MethodGet, "/api/config/migrate/preview"},
 		{http.MethodPost, "/api/config/migrate"},
 	} {
-		request := httptest.NewRequest(endpoint.method, endpoint.path, strings.NewReader("{}"))
+		request := newTestRequest(endpoint.method, endpoint.path, strings.NewReader("{}"))
 		request.Host = "127.0.0.1:9090"
 		request.Header.Set("X-Cerberus-Web-Token", token)
 		request.Header.Set("Content-Type", "application/json")
