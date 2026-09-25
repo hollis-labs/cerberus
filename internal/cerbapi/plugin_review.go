@@ -12,6 +12,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/policy"
 	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
@@ -30,6 +31,7 @@ type PluginReviewer struct {
 	logger      *slog.Logger
 	statePath   string
 	store       pluginhost.Store
+	policy      policy.Store
 	reservedIDs []string
 	now         func() time.Time
 }
@@ -46,6 +48,7 @@ func NewPluginReviewer(sink audit.Sink, statePath string, reservedIDs ...string)
 		logger:      slog.Default(),
 		statePath:   statePath,
 		store:       pluginStoreFor(statePath),
+		policy:      policyStoreFor(statePath),
 		reservedIDs: append(append([]string(nil), hostServedIDs...), reservedIDs...),
 		now:         time.Now,
 	}
@@ -74,10 +77,18 @@ type PendingReview struct {
 	AcceptedAt time.Time
 	Changes    []string
 
-	staged *pluginhost.Staged
-	dev    bool
-	source string
-	entry  *pluginConnectorPersistedEntry
+	// PolicyChange is what accepting does to the plugin's provider profile
+	// in the operator's working policy files (D7): its suggested rules,
+	// copied, inert until `cerberus policy apply`. Empty when nothing
+	// changes.
+	PolicyChange []string
+
+	staged       *pluginhost.Staged
+	dev          bool
+	source       string
+	entry        *pluginConnectorPersistedEntry
+	policyFile   *policy.File
+	policyTarget string
 }
 
 // Text is the review as the operator reads it: the diff first, when there
@@ -92,6 +103,12 @@ func (p *PendingReview) Text() string {
 		b.WriteString("\n")
 	}
 	b.WriteString(p.Review.Render())
+	if len(p.PolicyChange) > 0 {
+		b.WriteString("\nSuggested policy\n")
+		for _, line := range p.PolicyChange {
+			fmt.Fprintf(&b, "  %s\n", line)
+		}
+	}
 	return b.String()
 }
 
@@ -216,8 +233,8 @@ func (r *PluginReviewer) finishPrepare(p *PendingReview) error {
 	}
 	// A development install is reviewed in place, so its staged directory is
 	// its source, which is what the developer-root check is about.
-	policy := pluginPolicy(p.source, PluginInstallOptions{DevMode: p.dev})
-	decision, err := policy.ValidateInstall(pluginhost.InstallCheck{
+	installPolicy := pluginPolicy(p.source, PluginInstallOptions{DevMode: p.dev})
+	decision, err := installPolicy.ValidateInstall(pluginhost.InstallCheck{
 		SourcePath:       p.staged.Dir,
 		EntrypointSHA256: p.staged.EntrypointSHA256,
 		Manifest:         spec.Cerberus.Connector,
@@ -233,7 +250,65 @@ func (r *PluginReviewer) finishPrepare(p *PendingReview) error {
 	if p.Previous != nil {
 		p.Changes = pluginhost.Diff(*p.Previous, p.Review)
 	}
+	return r.preparePolicy(p)
+}
+
+// preparePolicy works out what accepting does to the plugin's provider
+// profile: its suggested rules become a working policy file, shown as a
+// diff against the one already there. The plugin's word is never applied
+// by itself; `cerberus policy apply` makes it live (Decision 10, I10).
+func (r *PluginReviewer) preparePolicy(p *PendingReview) error {
+	if r.policy.Dir == "" {
+		return nil
+	}
+	id := p.Review.ID
+	proposed := policy.FromSuggested(id, p.Review.SuggestedPolicy)
+	rel := filepath.Join("providers", id+".yaml")
+	existing, exists, err := r.policy.ReadWorking(rel)
+	if err != nil {
+		return fmt.Errorf("read the working policy file %s: %w", rel, err)
+	}
+	was, now := policy.RuleLines(existing), policy.RuleLines(proposed)
+	if strings.Join(was, "\n") == strings.Join(now, "\n") {
+		return nil
+	}
+	where := filepath.Join(r.policy.Dir, rel)
+	switch {
+	case !exists:
+		p.PolicyChange = append(p.PolicyChange, fmt.Sprintf("Accepting writes these %d suggested rule(s) to %s. It is a working file:", len(now), where),
+			"nothing is enforced until you review it and run `cerberus policy apply`.")
+		for _, line := range now {
+			p.PolicyChange = append(p.PolicyChange, "+ "+line)
+		}
+	default:
+		p.PolicyChange = append(p.PolicyChange, fmt.Sprintf("Accepting replaces the rules in %s (a working file; `cerberus policy apply` makes it live):", where))
+		p.PolicyChange = append(p.PolicyChange, lineDiff(was, now)...)
+	}
+	p.policyFile, p.policyTarget = &proposed, rel
 	return nil
+}
+
+func lineDiff(was, now []string) []string {
+	in := func(list []string, v string) bool {
+		for _, s := range list {
+			if s == v {
+				return true
+			}
+		}
+		return false
+	}
+	var out []string
+	for _, l := range was {
+		if !in(now, l) {
+			out = append(out, "- "+l)
+		}
+	}
+	for _, l := range now {
+		if !in(was, l) {
+			out = append(out, "+ "+l)
+		}
+	}
+	return out
 }
 
 // Discard drops a review that was not accepted.
@@ -299,6 +374,11 @@ func (r *PluginReviewer) Accept(ctx context.Context, p *PendingReview, typed str
 	if err != nil {
 		return ManagedPluginConnectorState{}, err
 	}
+	if p.policyFile != nil {
+		if err := r.policy.WriteWorking(p.policyTarget, *p.policyFile); err != nil {
+			return ManagedPluginConnectorState{}, fmt.Errorf("the review was accepted, but the suggested policy was not written to %s: %w", filepath.Join(r.policy.Dir, p.policyTarget), err)
+		}
+	}
 	// Superseded store copies go; the operator's own directories stay.
 	if previousDir != "" && previousDir != runDir && r.store.Owns(previousDir) {
 		_ = os.RemoveAll(previousDir)
@@ -331,4 +411,13 @@ func reviewVerb(kind string) string {
 	default:
 		return "install <dir>"
 	}
+}
+
+// policyStoreFor is the policy directory beside a state file: the daemon's
+// is ~/.cerberus/policy.
+func policyStoreFor(statePath string) policy.Store {
+	if statePath == "" {
+		return policy.Store{}
+	}
+	return policy.Store{Dir: filepath.Join(filepath.Dir(statePath), "policy")}
 }

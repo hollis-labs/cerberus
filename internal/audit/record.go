@@ -132,6 +132,11 @@ type Record struct {
 	// preview: the plugin's claim, which Cerberus cannot verify (Decision 7).
 	Preview string `json:"preview,omitempty"`
 
+	// Policy is what the policy decision point said about the operation. In
+	// P2 it is recorded and enforces nothing (shadow mode): would_block says
+	// what enforcement would do.
+	Policy *PolicyDecision `json:"policy,omitempty"`
+
 	// PluginReview is what an install review showed and what was accepted.
 	PluginReview *PluginReview `json:"plugin_review,omitempty"`
 
@@ -195,4 +200,22 @@ type PluginReview struct {
 	Source        string   `json:"source,omitempty"`
 	Gaps          []string `json:"gaps,omitempty"`
 	Changes       []string `json:"changes,omitempty"`
+}
+
+// PolicyDecision is a policy result as recorded: the decision, every rule
+// that matched, whether enforcement would stop the operation, and which
+// policy snapshot decided (its hash, "baseline", or "mismatch").
+type PolicyDecision struct {
+	Decision     string        `json:"decision"`
+	MatchedRules []MatchedRule `json:"matched_rules"`
+	WouldBlock   bool          `json:"would_block"`
+	Snapshot     string        `json:"snapshot"`
+	Shadow       bool          `json:"shadow"`
+}
+
+// MatchedRule is one rule behind a decision.
+type MatchedRule struct {
+	Rule     string `json:"rule"`
+	Decision string `json:"decision"`
+	Reason   string `json:"reason,omitempty"`
 }

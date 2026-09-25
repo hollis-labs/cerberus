@@ -69,6 +69,11 @@ func TestWebConnectorRefusalsKeepTheirStatusAndMessage(t *testing.T) {
 		cerbapi.ExternalConnectorAuditUnavailable:   http.StatusServiceUnavailable,
 		cerbapi.ExternalConnectorPluginChanged:      http.StatusConflict,
 		cerbapi.ExternalConnectorPrincipalRefused:   http.StatusForbidden,
+		cerbapi.ExternalConnectorPolicyDenied:       http.StatusForbidden,
+		cerbapi.ExternalConnectorApprovalRequired:   http.StatusPreconditionRequired,
+		cerbapi.ExternalConnectorApprovalPending:    http.StatusConflict,
+		cerbapi.ExternalConnectorApprovalExpired:    http.StatusConflict,
+		cerbapi.ExternalConnectorPlanStale:          http.StatusConflict,
 	}
 	for _, code := range cerbapi.ExternalConnectorErrorCodes() {
 		t.Run(string(code), func(t *testing.T) {
