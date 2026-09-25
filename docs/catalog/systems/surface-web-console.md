@@ -142,8 +142,9 @@ operation's `requires_ack` and shows its effect.
 
 **A deployment is confirmed against its plan.** The confirm dialog lists every
 command a profile run will execute and the directory it runs in, from
-`GET /api/deployments/{id}/plan` (CERB-TOOL-418). Credentials appear as
-`[vercel token]`. The run is not yet bound to the plan it showed
+`GET /api/deployments/{id}/plan` (CERB-TOOL-418). The Vercel token appears as
+`VERCEL_TOKEN=<vercel token>` and reaches the child only in its environment,
+never in argv or a shell string. The run is not yet bound to the plan it showed
 (CERB-GAP-853).
 
 The console marks every request as the `web` surface, so an in-process client

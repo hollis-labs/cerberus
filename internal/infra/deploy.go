@@ -61,16 +61,23 @@ type DeploymentPlan struct {
 }
 
 // deployStep is a planned step with what actually runs: a shell command, or
-// an argv. Either may carry a secret the displayed Command names instead.
+// an argv, plus environment added to the child's. A credential travels only
+// in env: argv and a shell string are visible to every local user through
+// ps, and a login shell's profile tracing would echo it.
 type deployStep struct {
 	display string
 	name    string
 	shell   string
 	argv    []string
+	env     []string
 	after   func(result *DeploymentRunResult, output string)
 }
 
-const vercelTokenPlaceholder = "[vercel token]" //nolint:gosec // the name shown in place of the token, never a value
+// vercelTokenDisplay is how a step shows the token it is handed. The
+// placeholder is a name, never a value, and it must survive redact.Text:
+// "--token [vercel token]" did not, because the flag rule read "[vercel" as
+// the token and the plan came back as "[REDACTED] token]".
+const vercelTokenDisplay = "VERCEL_TOKEN=<vercel token> " //nolint:gosec // the name shown in place of the token, never a value
 
 // PlanDeployment computes the steps RunDeployment would execute for profile,
 // without running any of them. It reads credentials only to know whether a
@@ -99,6 +106,10 @@ func PlanDeployment(ctx context.Context, secrets secret.Provider, profile Deploy
 
 func planVercel(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) ([]deployStep, string) {
 	token := secretValue(ctx, secrets, "vercel", "token")
+	var tokenEnv []string
+	if token != "" {
+		tokenEnv = []string{"VERCEL_TOKEN=" + token}
+	}
 	scope := profile.VercelScope
 	if scope == "" {
 		scope = secretValue(ctx, secrets, "vercel", "scope")
@@ -120,10 +131,9 @@ func planVercel(ctx context.Context, secrets secret.Provider, profile Deployment
 		}
 		display := strings.Join(argv, " ")
 		if token != "" {
-			argv = append(argv, "--token", token)
-			display += " --token " + vercelTokenPlaceholder
+			display = vercelTokenDisplay + display
 		}
-		steps = append(steps, deployStep{name: "link", display: display, argv: argv})
+		steps = append(steps, deployStep{name: "link", display: display, argv: argv, env: tokenEnv})
 	}
 
 	deployCommand := strings.TrimSpace(profile.DeployCommand)
@@ -135,19 +145,18 @@ func planVercel(ctx context.Context, secrets secret.Provider, profile Deployment
 		display += " --scope " + shellQuote(scope)
 		shell += " --scope " + shellQuote(scope)
 	}
-	if token != "" && !strings.Contains(deployCommand, "--token") {
-		display += " --token " + vercelTokenPlaceholder
-		shell += " --token " + shellQuote(token)
+	if token != "" {
+		display = vercelTokenDisplay + display
 	}
-	steps = append(steps, deployStep{name: "deploy", display: display, shell: shell, after: func(result *DeploymentRunResult, output string) {
+	steps = append(steps, deployStep{name: "deploy", display: display, shell: shell, env: tokenEnv, after: func(result *DeploymentRunResult, output string) {
 		result.DeploymentURL = extractDeploymentURL(output)
 	}})
 	return steps, ""
 }
 
 // RunDeployment executes profile's plan. Each step's recorded command is the
-// displayed one, so a credential passed on the command line never reaches
-// the result.
+// displayed one, and a credential reaches the child only through its
+// environment.
 func RunDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) (*DeploymentRunResult, error) {
 	result := &DeploymentRunResult{ProfileID: profile.ID, Provider: profile.Provider}
 	plan := PlanDeployment(ctx, secrets, profile)
@@ -164,6 +173,9 @@ func RunDeployment(ctx context.Context, secrets secret.Provider, profile Deploym
 			cmd = exec.CommandContext(ctx, step.argv[0], step.argv[1:]...) //nolint:gosec // as above
 		}
 		cmd.Dir = profile.RepoPath
+		if len(step.env) > 0 {
+			cmd.Env = append(os.Environ(), step.env...)
+		}
 		var after func(string)
 		if step.after != nil {
 			after = func(output string) { step.after(result, output) }
