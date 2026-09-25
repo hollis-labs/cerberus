@@ -255,7 +255,7 @@ func (c *Connector) ContainersJSON(ctx context.Context) (string, error) {
 }
 
 func dockerContainerName(res *resource.Resource) string {
-	for _, key := range []string{"container", "container_id", "container_name", "name"} {
+	for _, key := range ContainerKeys {
 		if value, ok := res.Config[key].(string); ok && value != "" {
 			return value
 		}
@@ -267,7 +267,7 @@ func dockerContainerName(res *resource.Resource) string {
 }
 
 func dockerComposeFile(res *resource.Resource) string {
-	for _, key := range []string{"compose_file", "composeFile", "file"} {
+	for _, key := range ComposeFileKeys {
 		if value, ok := res.Config[key].(string); ok && value != "" {
 			return value
 		}

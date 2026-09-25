@@ -3,6 +3,8 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -130,6 +132,9 @@ func TestDockerAdHocTargetsRefusedOverSocket(t *testing.T) {
 		{"docker_host", "tcp://10.0.0.9:2376"},
 		{"docker_context", "prod"},
 		{"compose_file", "/tmp/evil-compose.yml"},
+		{"composeFile", "/tmp/evil-compose.yml"},
+		{"file", "/tmp/evil-compose.yml"},
+		{"anything_else", "x"},
 	} {
 		t.Run(tc.field, func(t *testing.T) {
 			client, backend := dockerSocket(t)
@@ -188,4 +193,63 @@ func TestDockerRefusalsSurviveRedaction(t *testing.T) {
 			t.Errorf("redaction changed the refusal:\n got %q\nwant %q", got, raw)
 		}
 	}
+}
+
+// Every compose-file alias the connector reads is refused from a socket
+// caller, because the allow-list is built from the same table the connector
+// reads. This is the bypass that motivated the allow-list: {"file": ...} used
+// to pass a denylist and reach `compose -f`.
+func TestEveryComposeAliasIsRefused(t *testing.T) {
+	for _, key := range dockerconn.ComposeFileKeys {
+		err := RefuseAdHocDockerTarget(ExternalConnectorOperationArgs{
+			Connector: "docker", Operation: "start", Config: map[string]any{key: "/tmp/evil.yml"},
+		})
+		if err == nil || !strings.Contains(err.Error(), "refusing fields "+key) {
+			t.Errorf("compose alias %q: err = %v, want refused", key, err)
+		}
+	}
+	for _, key := range dockerconn.TargetKeys() {
+		if dockerCallerFields()[key] {
+			t.Errorf("target key %q is on the socket/web allow-list", key)
+		}
+	}
+}
+
+// Every config key the admin lane's docker path reads must be classified in
+// the connector's key table: an operation field (allowed from socket and web)
+// or a target (refused). A key read here but absent from the table fails, so
+// a new alias cannot slip past the allow-list unclassified.
+func TestDockerAdminLaneReadsOnlyClassifiedKeys(t *testing.T) {
+	src, err := os.ReadFile("external_connector_service.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	classified := dockerCallerFields()
+	for _, key := range dockerconn.TargetKeys() {
+		classified[key] = true
+	}
+	for _, fn := range []string{"func (s *ExternalConnectorService) executeDocker(", "func externalResource("} {
+		body := functionBody(t, string(src), fn)
+		for _, m := range regexp.MustCompile(`(?:requiredString|stringFromConfig|intFromConfig|boolFromConfig)\(args\.Config, "(\w+)"`).FindAllStringSubmatch(body, -1) {
+			if !classified[m[1]] {
+				t.Errorf("%s reads config key %q, which the docker key table does not classify", fn, m[1])
+			}
+		}
+		if strings.Contains(body, "args.Config[") {
+			t.Errorf("%s indexes args.Config directly; read through a helper so the key is checked here", fn)
+		}
+	}
+}
+
+func functionBody(t *testing.T, src, signature string) string {
+	t.Helper()
+	i := strings.Index(src, signature)
+	if i < 0 {
+		t.Fatalf("function %q not found", signature)
+	}
+	j := strings.Index(src[i:], "\n}\n")
+	if j < 0 {
+		t.Fatalf("end of %q not found", signature)
+	}
+	return src[i : i+j]
 }
