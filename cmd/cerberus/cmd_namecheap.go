@@ -104,7 +104,7 @@ var dnsCmd = &cobra.Command{
 	Long: `DNS record management via the Namecheap connector.
 
 Lists visible records on a domain you own through Namecheap. Per-record create/delete are disabled because getHosts can omit records. Use explicit set_dns_record_set for authoritative whole-zone replacement.
-For Cloudflare-managed zones, use 'cerberus cloudflare dns' instead.
+For Cloudflare-managed zones, use the cloudflare plugin: 'cerberus connectors exec cloudflare list_dns_records --arg zone_id=<zone-id>'.
 Records are addressed by record ID returned from 'dns list'.`,
 }
 

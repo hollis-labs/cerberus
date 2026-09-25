@@ -15,7 +15,6 @@ import (
 	"github.com/digitalocean/godo"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
-	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -24,6 +23,7 @@ import (
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/resource"
 	"gopkg.in/yaml.v3"
 )
 
@@ -133,41 +133,6 @@ func (b *fakeDigitalOceanBackend) GetDroplet(_ context.Context, id int) (*godo.D
 
 func (b *fakeDigitalOceanBackend) ListDroplets(_ context.Context) ([]godo.Droplet, error) {
 	return []godo.Droplet{{ID: 7, Name: "api", Status: "active"}}, nil
-}
-
-type fakeCloudflareBackend struct {
-	zoneID    string
-	accountID string
-	zoneName  string
-	zoneType  string
-}
-
-func (b *fakeCloudflareBackend) ListZones(_ context.Context) ([]cfconn.Zone, error) {
-	return []cfconn.Zone{{ID: "zone-1", Name: "example.com", Status: "active"}}, nil
-}
-
-func (b *fakeCloudflareBackend) CreateZone(_ context.Context, accountID, name, zoneType string) (*cfconn.Zone, error) {
-	b.accountID = accountID
-	b.zoneName = name
-	b.zoneType = zoneType
-	return &cfconn.Zone{ID: "zone-2", Name: name, Status: "pending", NameServers: []string{"ns1.cloudflare.com", "ns2.cloudflare.com"}}, nil
-}
-
-func (b *fakeCloudflareBackend) ListDNSRecords(_ context.Context, zoneID string) ([]cfconn.DNSRecord, error) {
-	b.zoneID = zoneID
-	return []cfconn.DNSRecord{{ID: "dns-1", Type: "A", Name: "www", Content: "1.2.3.4"}}, nil
-}
-
-func (b *fakeCloudflareBackend) CreateDNSRecord(_ context.Context, _ string, rec cfconn.DNSRecord) (*cfconn.DNSRecord, error) {
-	return &rec, nil
-}
-
-func (b *fakeCloudflareBackend) DeleteDNSRecord(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (b *fakeCloudflareBackend) ListTunnels(_ context.Context, _ string) ([]cfconn.Tunnel, error) {
-	return nil, nil
 }
 
 type fakeNamecheapBackend struct {
@@ -439,137 +404,57 @@ func TestExternalConnectorServiceExecutesGitHubOperation(t *testing.T) {
 	}
 }
 
-func TestExternalConnectorServiceExecutesCloudflareOperation(t *testing.T) {
-	backend := &fakeCloudflareBackend{}
-	registry := connector.NewRegistry()
-	registry.Register(cfconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
+// gateFakeConnector is a registered connector that declares one write and is
+// never meant to run: the acknowledgment gate stands between the caller and
+// its dispatch. It stands in for any real connector, so the gate's tests do
+// not depend on which providers are still compiled in.
+type gateFakeConnector struct{}
 
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "cloudflare",
-		Operation: "list_dns_records",
-		Config:    map[string]any{"zone_id": "zone-1"},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	records, ok := result.Data.([]cfconn.DNSRecord)
-	if !ok || len(records) != 1 || records[0].ID != "dns-1" {
-		t.Fatalf("Data = %#v, want cloudflare record slice", result.Data)
-	}
-	if backend.zoneID != "zone-1" {
-		t.Fatalf("zoneID = %q, want zone-1", backend.zoneID)
-	}
+func (gateFakeConnector) ID() string              { return "gatefake" }
+func (gateFakeConnector) ResourceTypes() []string { return []string{"server"} }
+func (gateFakeConnector) Create(context.Context, *resource.Resource) error {
+	return errors.New("dispatch reached")
 }
-
-func TestExternalConnectorServiceExecutesCloudflareZoneCreate(t *testing.T) {
-	backend := &fakeCloudflareBackend{}
-	registry := connector.NewRegistry()
-	registry.Register(cfconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector:    "cloudflare",
-		Operation:    "create_zone",
-		Acknowledged: true,
-		Config: map[string]any{
-			"account_id": "acct-1",
-			"name":       "chrispian.dev",
-			"type":       cfconn.ZoneTypeFull,
-		},
+func (gateFakeConnector) Start(context.Context, *resource.Resource) error {
+	return errors.New("dispatch reached")
+}
+func (gateFakeConnector) Stop(context.Context, *resource.Resource) error {
+	return errors.New("dispatch reached")
+}
+func (gateFakeConnector) Destroy(context.Context, *resource.Resource) error {
+	return errors.New("dispatch reached")
+}
+func (gateFakeConnector) Status(context.Context, *resource.Resource) (resource.State, error) {
+	return resource.StateUnknown, errors.New("dispatch reached")
+}
+func (gateFakeConnector) Capabilities() contract.Capabilities { return contract.Capabilities{} }
+func (gateFakeConnector) Definition() contract.Definition {
+	return contract.Finalize(contract.Definition{
+		ID: "gatefake", Version: "test", ResourceTypes: []string{"server"},
+		Operations: []contract.Operation{{
+			Name: "create_thing", Effect: contract.EffectWrite, Target: contract.TargetDescriptor{Kind: "gatefake.thing"},
+			Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone,
+			Inputs: []contract.Input{contract.RequiredField("name", contract.StringSchema("Thing name."))},
+		}},
 	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	zone, ok := result.Data.(*cfconn.Zone)
-	if !ok || zone.ID != "zone-2" || zone.Name != "chrispian.dev" {
-		t.Fatalf("Data = %#v, want created cloudflare zone", result.Data)
-	}
-	if backend.accountID != "acct-1" || backend.zoneName != "chrispian.dev" || backend.zoneType != cfconn.ZoneTypeFull {
-		t.Fatalf("backend = %+v", backend)
-	}
 }
 
 func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t *testing.T) {
-	backend := &fakeCloudflareBackend{}
 	registry := connector.NewRegistry()
-	registry.Register(cfconn.NewWithBackend(backend))
+	registry.Register(gateFakeConnector{})
 	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "cloudflare",
-		Operation: "create_dns_record",
-		Config: map[string]any{
-			"zone_id": "zone-1",
-			"type":    "A",
-			"name":    "www",
-			"content": "1.2.3.4",
-		},
+		Connector: "gatefake",
+		Operation: "create_thing",
+		Config:    map[string]any{"name": "a"},
 	})
 	var connErr *ExternalConnectorError
 	if !errors.As(err, &connErr) {
-		t.Fatalf("err = %T, want ExternalConnectorError", err)
+		t.Fatalf("err = %T %v, want ExternalConnectorError", err, err)
 	}
 	if connErr.Code != ExternalConnectorAckRequired {
 		t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorAckRequired)
-	}
-}
-
-func TestExternalConnectorServiceCloudflareZoneCreateDryRun(t *testing.T) {
-	registry := connector.NewRegistry()
-	registry.RegisterDefinition(cfconn.Definition())
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "cloudflare",
-		Operation: "create_zone",
-		DryRun:    true,
-		Config: map[string]any{
-			"account_id": "acct-1",
-			"name":       "chrispian.dev",
-		},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	preview, ok := result.Data.(ExternalConnectorDryRunPreview)
-	if !ok {
-		t.Fatalf("Data = %T, want ExternalConnectorDryRunPreview", result.Data)
-	}
-	if !preview.DryRun || preview.Target["account_id"] != "acct-1" || preview.Target["name"] != "chrispian.dev" {
-		t.Fatalf("preview = %#v", preview)
-	}
-	if preview.Input["type"] != cfconn.ZoneTypeFull {
-		t.Fatalf("preview input = %#v, want full zone type", preview.Input)
-	}
-}
-
-func TestExternalConnectorServiceDryRunPreviewBypassesAcknowledgment(t *testing.T) {
-	registry := connector.NewRegistry()
-	registry.RegisterDefinition(cfconn.Definition())
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "cloudflare",
-		Operation: "create_dns_record",
-		DryRun:    true,
-		Config: map[string]any{
-			"zone_id": "zone-1",
-			"type":    "A",
-			"name":    "www",
-			"content": "1.2.3.4",
-			"ttl":     300,
-		},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	preview, ok := result.Data.(ExternalConnectorDryRunPreview)
-	if !ok {
-		t.Fatalf("Data = %T, want ExternalConnectorDryRunPreview", result.Data)
-	}
-	if !preview.DryRun || preview.Target["zone_id"] != "zone-1" || preview.Input["ttl"] != 300 {
-		t.Fatalf("preview = %#v", preview)
 	}
 }
 

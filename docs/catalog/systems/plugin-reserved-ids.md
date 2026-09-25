@@ -52,12 +52,18 @@ secret named `token`. The guard is a credential boundary, not only a naming one.
 
 `pluginhost` has no opinion about what a host compiled in, so the caller
 supplies the set. The daemon fills it from `Registry.BuiltInIDs()`, the union of
-registered instances, factories and definitions, which on this machine is eight
-ids — `local`, `ssh`, `docker`, `github`, `cloudflare`, `digitalocean`, `forge`,
-`namecheap` — not the four `AGENTS.md` names. Derived rather than hardcoded is
-the point: when `cloudflare` migrates out to a plugin it stops being registered
-and a `cloudflare` plugin becomes installable the same day, with no guard to
-edit.
+registered instances, factories and definitions. Derived rather than hardcoded
+is the point, and it worked as intended: when `cloudflare` moved out to a plugin
+on 2026-09-25 it stopped being registered, and a `cloudflare` plugin became
+installable the same day with no guard to edit. The set is now `ssh`, `docker`,
+`github`, `digitalocean`, `forge` and `namecheap`.
+
+One id was never in it. `local` is served by the supervision lane, not the
+connector registry, so `BuiltInIDs` could not report it, and a plugin could
+claim the id `local` despite `AGENTS.md` naming it as reserved. The managed
+lane now always reserves the ids the host serves outside the registry
+(`hostServedIDs`, currently `local`) on top of whatever the daemon passes, and
+`TestManagedPluginInstallRefusesLocalWithoutBeingTold` holds it.
 
 Only the managed lane reserves. `connectors plugin exec` installs into a
 throwaway host for one call and registers nothing, so it cannot shadow anything

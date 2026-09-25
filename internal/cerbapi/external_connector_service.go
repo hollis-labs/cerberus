@@ -16,7 +16,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
-	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -350,8 +349,6 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 		err    error
 	)
 	switch args.Connector {
-	case "cloudflare":
-		result, err = s.executeCloudflare(ctx, c, args)
 	case "digitalocean":
 		result, err = s.executeDigitalOcean(ctx, c, args)
 	case "docker":
@@ -453,65 +450,6 @@ func (s *ExternalConnectorService) definitionFor(id string) (contract.Definition
 
 func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperationArgs) (ExternalConnectorDryRunPreview, bool, error) {
 	switch args.Connector {
-	case "cloudflare":
-		switch args.Operation {
-		case "create_zone":
-			accountID, err := requiredString(args.Config, "account_id")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			name, err := requiredString(args.Config, "name")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			zoneType := stringFromConfig(args.Config, "type", cfconn.ZoneTypeFull)
-			return dryRunPreview(args, "Would create a Cloudflare zone.", map[string]any{
-				"account_id": accountID,
-				"name":       name,
-			}, map[string]any{
-				"type": zoneType,
-			}), true, nil
-		case "create_dns_record":
-			zoneID, err := requiredString(args.Config, "zone_id")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			recordType, err := requiredString(args.Config, "type")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			name, err := requiredString(args.Config, "name")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			content, err := requiredString(args.Config, "content")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would create a Cloudflare DNS record.", map[string]any{
-				"zone_id": zoneID,
-				"name":    name,
-				"type":    recordType,
-			}, map[string]any{
-				"content":  content,
-				"ttl":      intFromConfig(args.Config, "ttl", 1),
-				"proxied":  boolFromConfig(args.Config, "proxied"),
-				"priority": intPointerFromConfig(args.Config, "priority"),
-			}), true, nil
-		case "delete_dns_record":
-			zoneID, err := requiredString(args.Config, "zone_id")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			recordID, err := requiredString(args.Config, "record_id")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would delete a Cloudflare DNS record.", map[string]any{
-				"zone_id":   zoneID,
-				"record_id": recordID,
-			}, nil), true, nil
-		}
 	case "namecheap":
 		switch args.Operation {
 		case "set_dns_record_set":
@@ -777,70 +715,6 @@ func (s *ExternalConnectorService) executeGitHub(ctx context.Context, c contract
 	case "list_workflow_runs":
 		runs, err := github.ListWorkflowRuns(ctx, owner, repo, intFromConfig(args.Config, "limit", 10))
 		return externalConnectorResult(args, runs), err
-	default:
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
-	}
-}
-
-func (s *ExternalConnectorService) executeCloudflare(ctx context.Context, c contract.Connector, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	cloudflare, ok := c.(*cfconn.Connector)
-	if !ok {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("registered connector has type %T", c))
-	}
-
-	switch args.Operation {
-	case "list_zones":
-		zones, err := cloudflare.ListZones(ctx)
-		return externalConnectorResult(args, zones), err
-	case "create_zone":
-		accountID, err := requiredString(args.Config, "account_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		name, err := requiredString(args.Config, "name")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		zone, err := cloudflare.CreateZone(ctx, accountID, name, stringFromConfig(args.Config, "type", cfconn.ZoneTypeFull))
-		if err != nil {
-			return externalConnectorResult(args, nil), err
-		}
-		return externalConnectorResult(args, zone), nil
-	case "list_dns_records":
-		zoneID, err := requiredString(args.Config, "zone_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		records, err := cloudflare.ListDNSRecords(ctx, zoneID)
-		return externalConnectorResult(args, records), err
-	case "create_dns_record":
-		zoneID, err := requiredString(args.Config, "zone_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		record, err := cloudflare.CreateDNSRecord(ctx, zoneID, cfconn.DNSRecord{
-			Type:     stringFromConfig(args.Config, "type", ""),
-			Name:     stringFromConfig(args.Config, "name", ""),
-			Content:  stringFromConfig(args.Config, "content", ""),
-			TTL:      intFromConfig(args.Config, "ttl", 1),
-			Proxied:  boolFromConfig(args.Config, "proxied"),
-			Priority: intPointerFromConfig(args.Config, "priority"),
-		})
-		if err != nil {
-			return externalConnectorResult(args, nil), err
-		}
-		return externalConnectorResult(args, record), nil
-	case "delete_dns_record":
-		zoneID, err := requiredString(args.Config, "zone_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		recordID, err := requiredString(args.Config, "record_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		err = cloudflare.DeleteDNSRecord(ctx, zoneID, recordID)
-		return externalConnectorResult(args, nil), err
 	default:
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}

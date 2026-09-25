@@ -25,8 +25,8 @@ project writes about itself, the data it holds, or the credentials it needs.
   `os_service` for launchd-supervised background services, with artifact
   staleness detection so a deploy can't silently ship a rebuild that never
   reinstalled.
-- **DNS and domain operations.** Cloudflare zone/DNS management and Namecheap
-  domain/nameserver operations, with per-record edits deliberately disabled
+- **DNS and domain operations.** Cloudflare zone/DNS management (through the
+  `cloudflare` plugin) and Namecheap domain/nameserver operations, with per-record edits deliberately disabled
   where the provider's API can hide existing records and turn a read-modify-
   write into silent data loss.
 - **An MCP server.** `cerberus mcp` (stdio) and `cerberus mcp-http` expose the
@@ -58,8 +58,8 @@ to build, install, start, stop, and report on them.
 
 **Daily driver.** Chrispian ships changes to any portfolio service with
 `cerberus resource deploy <id> --ack`, checks for build/install drift with
-`resource status`, and manages domain cutovers with `cerberus cloudflare` /
-`cerberus domain` — one CLI for every service in the portfolio, local or
+`resource status`, and manages domain cutovers with
+`cerberus connectors exec cloudflare …` / `cerberus domain` — one CLI for every service in the portfolio, local or
 remote.
 
 **Agent-driven ops.** This session's `cerberus_resource_*`, `cerberus_dns_*`,
@@ -205,13 +205,15 @@ cerberus resource remove <resource-id> --ack
 ```
 
 For external infra/domain operations, the current Namecheap and Cloudflare
-surfaces include:
+surfaces include the following. Cloudflare is a plugin (`hollis-labs/cerberus-plugins`),
+so its operations run through the generic `connectors exec` verb once it is
+installed with `cerberus connectors plugin managed install <dir>`:
 
 ```bash
-cerberus cloudflare zones
-cerberus cloudflare zones create <account-id> <domain> --type full --ack
-cerberus cloudflare dns list <zone-id>
-cerberus cloudflare dns create <zone-id> --type CNAME --name www --content example.vercel-dns.com --ack
+cerberus connectors exec cloudflare list_zones
+cerberus connectors exec cloudflare create_zone --arg account_id=<account-id> --arg name=<domain> --arg type=full --ack
+cerberus connectors exec cloudflare list_dns_records --arg zone_id=<zone-id>
+cerberus connectors exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=CNAME --arg name=www --arg content=example.vercel-dns.com --ack
 cerberus domain list
 cerberus domain status <domain>
 cerberus domain nameservers set <domain> <ns1> <ns2> --ack
@@ -456,8 +458,8 @@ Guidance:
 
 For registrar and DNS operations:
 
-- `cerberus cloudflare zones create` creates the Cloudflare zone that will own
-  DNS for a domain.
+- `cerberus connectors exec cloudflare create_zone` (the cloudflare plugin)
+  creates the Cloudflare zone that will own DNS for a domain.
 - `cerberus domain nameservers set` switches a Namecheap domain to a custom
   nameserver set such as Cloudflare's assigned nameservers.
 - `cerberus dns list` inspects the current Namecheap-hosted host records for a
