@@ -19,6 +19,8 @@ import (
 //   - operation_unsupported: no such operation here.
 //   - connector_unavailable, credential_missing: the connector cannot serve
 //     right now; the request may succeed once the operator fixes that.
+//   - operation_failed: the plugin ran the operation and it failed upstream.
+//     A bad gateway, not a fault in Cerberus.
 var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorInvalidArgs:        http.StatusBadRequest,
 	ExternalConnectorAckRequired:        http.StatusConflict,
@@ -26,6 +28,7 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorUnsupported:        http.StatusNotFound,
 	ExternalConnectorUnavailable:        http.StatusServiceUnavailable,
 	ExternalConnectorCredentialMissing:  http.StatusServiceUnavailable,
+	ExternalConnectorOperationFailed:    http.StatusBadGateway,
 }
 
 // ExternalConnectorHTTPStatus returns the status for err when it carries a
