@@ -52,6 +52,11 @@ type loadedPlugin struct {
 	// missingSecrets names the required credentials that were absent when this
 	// plugin was loaded. Names only — resolved values live in the subprocess.
 	missingSecrets []string
+
+	// redactor knows the credential values this host resolved for the plugin,
+	// so it can remove them from any text the plugin sends back. The values
+	// are fixed at load, so one redactor built then serves every request.
+	redactor redact.Redactor
 }
 
 // ManagerOption configures a Manager. The constructor stays positional for the
@@ -139,6 +144,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	// reach every plugin rather than the one that declared it.
 	resolved := resolvePluginSecrets(ctx, m.secrets, plugin)
 	m.reportSecretProblems(id, resolved)
+	redactor := resolved.redactor()
 
 	initResult, err := process.Init(ctx, SDKInitParams{
 		PluginDir: plugin.Path,
@@ -153,7 +159,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		// the payload it just received carries credentials. A plugin that
 		// echoes its init params into an error must not launder them into the
 		// daemon log.
-		return fmt.Errorf("plugin %q init: %s", id, redact.Text(err.Error()))
+		return fmt.Errorf("plugin %q init: %s", id, redactor.Text(err.Error()))
 	}
 	if initResult.Protocol != SDKProtocolVersion {
 		_ = process.Close()
@@ -163,7 +169,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	loadResult, err := process.Load(ctx)
 	if err != nil {
 		_ = process.Close()
-		return fmt.Errorf("plugin %q load: %w", id, err)
+		return fmt.Errorf("plugin %q load: %w", id, redactor.Error(err))
 	}
 
 	m.running[id] = &loadedPlugin{
@@ -172,6 +178,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		init:           initResult,
 		load:           loadResult,
 		missingSecrets: resolved.MissingRequired,
+		redactor:       redactor,
 	}
 	return nil
 }
@@ -217,10 +224,10 @@ func (m *Manager) Unload(ctx context.Context, id string) error {
 
 	if err := lp.process.Unload(ctx); err != nil {
 		_ = lp.process.Close()
-		return fmt.Errorf("plugin %q unload: %w", id, err)
+		return fmt.Errorf("plugin %q unload: %w", id, lp.redactor.Error(err))
 	}
 	if err := lp.process.Close(); err != nil {
-		return fmt.Errorf("plugin %q close: %w", id, err)
+		return fmt.Errorf("plugin %q close: %w", id, lp.redactor.Error(err))
 	}
 	return nil
 }
@@ -235,13 +242,13 @@ func (m *Manager) Health(ctx context.Context, id string) (Health, error) {
 	}
 	result, err := lp.process.Health(ctx)
 	if err != nil {
-		return Health{}, fmt.Errorf("plugin %q health: %w", id, err)
+		return Health{}, fmt.Errorf("plugin %q health: %w", id, lp.redactor.Error(err))
 	}
 	return Health{
 		ID:      id,
 		Loaded:  true,
 		Healthy: result.OK,
-		Message: result.Message,
+		Message: lp.redactor.Text(result.Message),
 	}, nil
 }
 
@@ -269,8 +276,13 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 		return OperationResult{}, fmt.Errorf("plugin %q operation %q: %w", args.Connector, args.Operation, ErrPreviewUnsupported)
 	}
 
+	// Everything the plugin sends back as text passes the value redactor
+	// before it can reach an error, a log line or an MCP notification. The
+	// plugin is expected to scrub its own credentials; this is the host's
+	// backstop for one that does not (I10).
 	result, err := lp.process.CallTool(ctx, MCPRequestFromOperation(args))
 	if err != nil {
+		err = lp.redactor.Error(err)
 		// A plugin that loaded without a declared credential gets its failures
 		// explained rather than pre-empted: operations that do not need the
 		// secret keep working, and the one that 401s says which credential is
@@ -284,7 +296,11 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 		}
 		return OperationResult{}, fmt.Errorf("plugin %q tool %q: %w", args.Connector, args.Operation, err)
 	}
-	return OperationResultFromMCP(args, result)
+	out, err := OperationResultFromMCP(args, result)
+	if err != nil {
+		return OperationResult{}, lp.redactor.Error(err)
+	}
+	return out, nil
 }
 
 func (m *Manager) RegisterInstalled(plugin InstalledPlugin) {

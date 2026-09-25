@@ -2,6 +2,8 @@ package cerbapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +38,10 @@ const (
 	// ExternalConnectorPreviewUnsupported is a dry run of an operation that
 	// has no preview. The operation is refused, never executed.
 	ExternalConnectorPreviewUnsupported ExternalConnectorErrorCode = "preview_unsupported"
+	// ExternalConnectorOperationFailed is a plugin operation that ran and
+	// failed for a reason the host did not classify. Coding it is what routes
+	// the plugin's own text through ExternalConnectorError's redaction.
+	ExternalConnectorOperationFailed ExternalConnectorErrorCode = "operation_failed"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -47,6 +53,7 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorInvalidArgs,
 	ExternalConnectorAckRequired,
 	ExternalConnectorPreviewUnsupported,
+	ExternalConnectorOperationFailed,
 }
 
 // ExternalConnectorErrorCodes returns the whole vocabulary, for tests on the
@@ -476,7 +483,7 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 				"image":  image,
 			}, map[string]any{
 				"ssh_keys":  args.Config["ssh_keys"],
-				"user_data": stringFromConfig(args.Config, "user_data", ""),
+				"user_data": userDataDigest(stringFromConfig(args.Config, "user_data", "")),
 			}), true, nil
 		case "stop", "destroy":
 			dropletID, err := requiredInt(args.Config, "droplet_id")
@@ -1042,7 +1049,23 @@ func dryRunPreview(args ExternalConnectorOperationArgs, summary string, target, 
 // failing for want of a credential its own manifest declares reports the same
 // `credential_missing` code a built-in connector does, so what docs/secrets.md
 // promises reads the same either side of the plugin boundary. Everything else
-// keeps the error the plugin lane already produced.
+// is coded operation_failed, so plugin-origin text never leaves uncoded and
+// unredacted.
+// userDataDigest describes cloud-init user_data without carrying it. The
+// script routinely holds credentials, and a preview lands in agent context and
+// logs, so it shows only enough to confirm which script would run: its size
+// and hash. Compare with `shasum -a 256 <file>` locally.
+func userDataDigest(userData string) map[string]any {
+	if userData == "" {
+		return map[string]any{"bytes": 0}
+	}
+	sum := sha256.Sum256([]byte(userData))
+	return map[string]any{
+		"bytes":  len(userData),
+		"sha256": hex.EncodeToString(sum[:]),
+	}
+}
+
 func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) error {
 	var coded *ExternalConnectorError
 	if errors.As(err, &coded) {
@@ -1061,7 +1084,7 @@ func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) e
 	if errors.Is(err, pluginhost.ErrOperationUndeclared) {
 		return externalConnectorError(args, ExternalConnectorUnsupported, err)
 	}
-	return err
+	return externalConnectorError(args, ExternalConnectorOperationFailed, err)
 }
 
 func externalConnectorError(args ExternalConnectorOperationArgs, code ExternalConnectorErrorCode, err error) error {
