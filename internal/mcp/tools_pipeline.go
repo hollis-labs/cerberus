@@ -48,8 +48,9 @@ func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 				"description": "Pipeline ID.",
 			},
 		}, "pipeline_id"),
+		// A pipeline stage can be a shell action (sh -c), so a run can do anything.
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  false,
 		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
