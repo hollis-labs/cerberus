@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,7 +44,8 @@ func startRefusingDaemon(t *testing.T, d refusingDaemon) *cerbapi.SocketClient {
 	}()
 	t.Cleanup(func() { cancel(); <-done })
 	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := os.Stat(path); err == nil {
+		if conn, err := net.Dial("unix", path); err == nil {
+			_ = conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,7 +64,8 @@ func startDaemonSocketWithPath(t *testing.T, cfgPath string) *cerbapi.SocketClie
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := os.Stat(sockPath); err == nil {
+		if conn, err := net.Dial("unix", sockPath); err == nil {
+			_ = conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {
@@ -101,7 +103,8 @@ func startDaemonSocketWithConnectors(t *testing.T) *cerbapi.SocketClient {
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := os.Stat(sockPath); err == nil {
+		if conn, err := net.Dial("unix", sockPath); err == nil {
+			_ = conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {
@@ -134,7 +137,8 @@ func startDaemonSocketWithClient(t *testing.T, client cerbapi.Client) *cerbapi.S
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := os.Stat(sockPath); err == nil {
+		if conn, err := net.Dial("unix", sockPath); err == nil {
+			_ = conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,7 +118,8 @@ func startAcceptanceSocket(t *testing.T, client cerbapi.Client) *cerbapi.SocketC
 	go func() { defer close(done); _ = srv.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
 	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := os.Stat(sock); err == nil {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			_ = conn.Close()
 			return cerbapi.NewSocketClient(sock)
 		}
 		if time.Now().After(deadline) {
