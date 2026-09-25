@@ -42,6 +42,10 @@ const (
 	// ExternalConnectorAuditUnavailable is an operation refused because its
 	// audit record could not be written (Decision 8). Nothing ran.
 	ExternalConnectorAuditUnavailable ExternalConnectorErrorCode = "audit_unavailable"
+	// ExternalConnectorPluginChanged is a plugin refused at load because its
+	// bundle no longer matches the one the operator accepted in review, or
+	// its host range excludes this Cerberus. Nothing was started.
+	ExternalConnectorPluginChanged ExternalConnectorErrorCode = "plugin_changed"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -55,6 +59,7 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorPreviewUnsupported,
 	ExternalConnectorOperationFailed,
 	ExternalConnectorAuditUnavailable,
+	ExternalConnectorPluginChanged,
 }
 
 // ExternalConnectorErrorCodes returns the whole vocabulary, for tests on the
@@ -212,6 +217,9 @@ func (s *ExternalConnectorService) auditSpec(args ExternalConnectorOperationArgs
 	// plugin's reaches the plugin, which holds its credentials.
 	if args.DryRun && (s.managedPlugins == nil || !s.managedPlugins.Loaded(args.Connector)) {
 		spec.credentials = nil
+	}
+	if args.DryRun && s.managedPlugins != nil && s.managedPlugins.Loaded(args.Connector) {
+		spec.preview = audit.PreviewPluginClaimed
 	}
 	return spec
 }
@@ -749,6 +757,9 @@ func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) e
 	}
 	if errors.Is(err, pluginhost.ErrNotLoaded) {
 		return externalConnectorError(args, ExternalConnectorUnavailable, err)
+	}
+	if errors.Is(err, pluginhost.ErrPluginChanged) {
+		return externalConnectorError(args, ExternalConnectorPluginChanged, err)
 	}
 	return externalConnectorError(args, ExternalConnectorOperationFailed, err)
 }

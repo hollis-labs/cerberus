@@ -106,6 +106,13 @@ type Record struct {
 	// plugin cannot write a record of its own.
 	PluginTelemetry *PluginTelemetry `json:"plugin_telemetry,omitempty"`
 
+	// Preview is plugin_claimed on a dry run a plugin served from its own
+	// preview: the plugin's claim, which Cerberus cannot verify (Decision 7).
+	Preview string `json:"preview,omitempty"`
+
+	// PluginReview is what an install review showed and what was accepted.
+	PluginReview *PluginReview `json:"plugin_review,omitempty"`
+
 	// Note explains a chain_start, file_start or chain_break record.
 	Note     string `json:"note,omitempty"`
 	PrevFile string `json:"prev_file,omitempty"`
@@ -150,4 +157,20 @@ type PluginEvent struct {
 	Kind    string `json:"kind,omitempty"`
 	Message string `json:"message,omitempty"`
 	Target  string `json:"target,omitempty"`
+}
+
+// PreviewPluginClaimed marks a dry run served by a plugin's own preview.
+const PreviewPluginClaimed = "plugin_claimed"
+
+// PluginReview is the record of a plugin install review: the digest of the
+// summary the operator was shown, so the record names exactly what was
+// accepted, the bundle it covers, its gaps, and for a re-review the changes
+// against the review accepted before.
+type PluginReview struct {
+	Kind          string   `json:"kind"`
+	SummarySHA256 string   `json:"summary_sha256"`
+	BundleDigest  string   `json:"bundle_digest"`
+	Source        string   `json:"source,omitempty"`
+	Gaps          []string `json:"gaps,omitempty"`
+	Changes       []string `json:"changes,omitempty"`
 }

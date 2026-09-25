@@ -2,12 +2,12 @@
 id: "CERB-CAP-306"
 class: "capability"
 name: "Plugin install origin and operation gate"
-summary: "Records how a plugin was installed, installed or dev, and gates every operation on that origin and the operation's destructive flag; it makes no trust claim, and the self-asserted signing tiers it replaced are gone."
+summary: "Records how a plugin was installed, installed or dev, and gates every operation on that origin, the operation's contract and, since P1-5, the review the operator accepted: the bundle digest and host range at load, and accepted previews for dry runs. It makes no trust claim."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.95
-confidence_label: "internal/pluginhost/policy.go, installer and plugin state re-read on main after P0 (#48 to #54)"
+confidence_label: "internal/pluginhost/policy.go, bundle.go and manager.go read on the P1-5 branch; CheckBundle and accepted-preview tests run"
 last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -33,13 +33,13 @@ relationships:
     note: "the tiers constrained nothing reachable; closed in PR #51"
   - type: "blocks"
     target: "CERB-GAP-336"
-    note: "the hash is reported but neither persisted nor compared"
+    note: "closed in P1-5: the bundle digest is compared on every load"
   - type: "relates_to"
     target: "CERB-DEC-815"
     note: "origin replaced the trust tiers"
   - type: "blocks"
     target: "CERB-GAP-848"
-    note: "the dev origin needs a devmode build"
+    note: "closed in P1-5: devmode-only, decided and documented"
 ---
 
 # Plugin install origin and operation gate
@@ -105,3 +105,26 @@ flags:
 - **Coded refusals:** acknowledgment, undeclared-operation and key-table
   refusals are coded for the admin lane, and a plugin that is not loaded is
   `connector_unavailable`.
+
+## Since P1-5
+
+The entrypoint hash is no longer half-wired. What load compares is the digest of
+the whole bundle, which covers the entrypoint: it is accepted in the install
+review, persisted as `bundle_digest`, and checked by `pluginhost.CheckBundle` on
+every load. A mismatch refuses the plugin as `plugin_changed` (CERB-GAP-336,
+closed). `entrypoint_sha256` stays as the audit record's fingerprint of the
+binary.
+
+Two new rules sit beside the origin. The first is the host range: a plugin may
+declare `cerberus.host: {min_contract, max_contract}`, and a host whose
+`pkg/plugin.ContractVersion` falls outside it refuses the plugin at install and at
+load. The second is Decision 7: `pluginhost.PreviewAccepted` lets a dry run skip
+acknowledgment when the operation declares a preview and the operator accepted
+it in the plugin's review. A plugin still pending review has accepted nothing.
+The real run always needs `--ack`, and every plugin dry run is recorded
+`plugin_claimed`.
+
+`--dev` keeps needing a devmode build. The install review decided that rather
+than widening it, and `docs/plugins.md` says so (CERB-GAP-848, closed). A dev
+install is reviewed and digest-checked like any other; it only runs from its
+source directory instead of a store copy.

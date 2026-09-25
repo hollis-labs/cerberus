@@ -74,10 +74,7 @@ func TestConnectorsCommandUsesDaemonManagedPluginInventory(t *testing.T) {
 	startManagedPluginSocketServer(t)
 
 	connectorsPluginDev = false
-	connectorsPluginManagedInstallCmd.SetContext(context.Background())
-	if err := connectorsPluginManagedInstallCmd.RunE(connectorsPluginManagedInstallCmd, []string{pluginDir}); err != nil {
-		t.Fatalf("install RunE: %v", err)
-	}
+	registerPendingPlugin(t, pluginDir, "docker")
 	connectorsPluginManagedLoadCmd.SetContext(context.Background())
 	if err := connectorsPluginManagedLoadCmd.RunE(connectorsPluginManagedLoadCmd, []string{"docker"}); err != nil {
 		t.Fatalf("load RunE: %v", err)
@@ -121,10 +118,7 @@ func TestConnectorsDescribeCommandUsesDaemonInventory(t *testing.T) {
 	startManagedPluginSocketServer(t)
 
 	connectorsPluginDev = false
-	connectorsPluginManagedInstallCmd.SetContext(context.Background())
-	if err := connectorsPluginManagedInstallCmd.RunE(connectorsPluginManagedInstallCmd, []string{pluginDir}); err != nil {
-		t.Fatalf("install RunE: %v", err)
-	}
+	registerPendingPlugin(t, pluginDir, "docker")
 	connectorsPluginManagedLoadCmd.SetContext(context.Background())
 	if err := connectorsPluginManagedLoadCmd.RunE(connectorsPluginManagedLoadCmd, []string{"docker"}); err != nil {
 		t.Fatalf("load RunE: %v", err)

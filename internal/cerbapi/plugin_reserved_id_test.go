@@ -23,7 +23,7 @@ func TestManagedPluginInstallRefusesABuiltInID(t *testing.T) {
 		t.Fatalf("managed plugin service: %v", err)
 	}
 
-	_, err = managed.Install(context.Background(), PluginConnectorHealthArgs{
+	_, err = managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: writeTestPluginDir(t, "ssh"),
 	})
 	var reserved *pluginhost.ReservedIDError
@@ -46,7 +46,7 @@ func TestManagedPluginInstallAllowsTheSameIDWhenNothingReservesIt(t *testing.T) 
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, installErr := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: writeTestPluginDir(t, "ssh"),
 	}); installErr != nil {
 		t.Fatalf("install: %v", installErr)
@@ -69,7 +69,7 @@ func TestManagedPluginRestoreSkipsAReservedIDWithoutFailing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, installErr := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
 	}); installErr != nil {
 		t.Fatalf("install: %v", installErr)
@@ -108,7 +108,7 @@ func TestManagedPluginInstallRefusesLocalWithoutBeingTold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	_, err = managed.Install(context.Background(), PluginConnectorHealthArgs{PluginDir: writeTestPluginDir(t, "local")})
+	_, err = managed.installForTest(context.Background(), PluginConnectorHealthArgs{PluginDir: writeTestPluginDir(t, "local")})
 	var reserved *pluginhost.ReservedIDError
 	if !errors.As(err, &reserved) || managed.Installed("local") {
 		t.Fatalf("Install error = %v, want local refused as reserved", err)

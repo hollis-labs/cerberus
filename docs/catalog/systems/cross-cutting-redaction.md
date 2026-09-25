@@ -135,3 +135,11 @@ and `known_hosts_file` values were checked against `redact.Marshal`.
 word after it, and `TestGateRefusalsSurviveRedaction` runs every error code,
 followed by a recovery sentence, through `redact.Text`. That is the discipline
 this record asks for, applied by hand. It is not yet a gate (CERB-GAP-274).
+
+## Since P1-5
+
+`plugin_changed` joined the error-code vocabulary and `redact.errorCodes` in the
+same change that introduced it. Its recovery sentence, which names
+`cerberus connectors plugin managed load <id> --accept-changes`, is tested to
+survive `redact.Text`, as are the retired-install refusal and the refusal of a
+review from a non-terminal.

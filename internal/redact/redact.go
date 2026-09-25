@@ -110,6 +110,7 @@ var errorCodes = map[string]bool{
 	"preview_unsupported":     true,
 	"operation_failed":        true,
 	"audit_unavailable":       true,
+	"plugin_changed":          true,
 }
 
 // isErrorCode reports whether an assignment rule's captured key is really a

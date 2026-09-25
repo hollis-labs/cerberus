@@ -349,7 +349,7 @@ func (f *fakeClient) ExecutePluginConnector(context.Context, cerbapi.PluginConne
 	return cerbapi.ExternalConnectorOperationResult{}, nil
 }
 
-func (f *fakeClient) InstallManagedPlugin(context.Context, cerbapi.PluginConnectorHealthArgs) (cerbapi.ManagedPluginConnectorState, error) {
+func (f *fakeClient) ReloadManagedPlugin(context.Context, string) (cerbapi.ManagedPluginConnectorState, error) {
 	f.mutations++
 	return cerbapi.ManagedPluginConnectorState{}, nil
 }

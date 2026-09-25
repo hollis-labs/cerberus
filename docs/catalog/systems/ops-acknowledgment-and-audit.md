@@ -273,3 +273,22 @@ first file opens with `file_start` only when a recorded prune removed the file
 it names.
 
 `LogAudit` is deleted (CERB-GAP-648).
+
+## Plugin reviews and claimed previews (P1-5)
+
+Plugin installs are recorded as reviews. An install, an upgrade, the one-time
+review of a plugin from before reviews, and an accepted change are `admin`
+events on connector `plugin`, with operations `install`, `upgrade`, `review` and
+`accept_changes`. Each carries `plugin_review`: the kind, the SHA-256 of the
+summary the operator was shown (`Review.SummaryDigest`), the bundle digest, the
+source, the gaps and, for a re-review, the diff. The intent is written before
+anything is copied or changed, so an unwritable log installs nothing. A
+confirmation that does not match the plugin id is recorded as refused,
+`acknowledgment_required`. The daemon's `reload` is recorded as `admin` like
+load and unload.
+
+Every dry run a plugin serves is recorded with `preview: plugin_claimed` (Decision
+7), on the admin lane and on the managed direct route. A reviewed plugin's dry
+run of an operation with an accepted preview no longer needs `--ack`, so this
+marker is what tells a reader that the preview was the plugin's claim
+(CERB-GAP-652).

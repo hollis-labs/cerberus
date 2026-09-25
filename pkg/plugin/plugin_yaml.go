@@ -46,9 +46,23 @@ type Entrypoint struct {
 	Args    []string `json:"args,omitempty" yaml:"args,omitempty"`
 }
 
-// CerberusPluginBlock carries the Cerberus-specific half of plugin.yaml.
+// CerberusPluginBlock carries the Cerberus-specific half of plugin.yaml: the
+// connector manifest, and the declarations the install review shows beside
+// it (docs/plans/live-systems-security-target.md, section 10). Every
+// declaration is the plugin's claim about itself. The host shows it, uses it
+// only to narrow what the plugin can reach, and never widens anything on it.
 type CerberusPluginBlock struct {
 	Connector contract.Manifest `json:"connector" yaml:"connector"`
+
+	// Host is the Cerberus contract range the plugin was built for. Enforced
+	// at install and at load.
+	Host HostRange `json:"host,omitzero" yaml:"host,omitempty"`
+	// SuggestedPolicy is shown at install and never applied (I10).
+	SuggestedPolicy []SuggestedRule `json:"suggested_policy,omitempty" yaml:"suggested_policy,omitempty"`
+	// Surfaces suggests MCP exposure and marks CLI-only operations.
+	Surfaces Surfaces `json:"surfaces,omitzero" yaml:"surfaces,omitempty"`
+	// Telemetry names the events each operation reports.
+	Telemetry []TelemetryDeclaration `json:"telemetry,omitempty" yaml:"telemetry,omitempty"`
 }
 
 // PluginYAMLFromManifest builds the descriptor for a subprocess plugin serving
@@ -91,6 +105,7 @@ func (p PluginYAML) Validate(pluginDir string) error {
 	if err := p.Cerberus.Connector.Validate(); err != nil {
 		problems = append(problems, err.Error())
 	}
+	problems = append(problems, p.Cerberus.validateDeclarations()...)
 	if p.Cerberus.Connector.ID != "" && p.ID != "" && p.Cerberus.Connector.ID != p.ID {
 		problems = append(problems, "plugin id must match cerberus connector id")
 	}

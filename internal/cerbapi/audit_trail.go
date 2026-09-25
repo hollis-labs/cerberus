@@ -39,6 +39,10 @@ type auditSpec struct {
 	// For a loaded plugin: its config and entrypoint fingerprints.
 	pluginConfigSHA256     string
 	pluginEntrypointSHA256 string
+	// preview is plugin_claimed for a dry run a plugin serves itself.
+	preview string
+	// review is an install review's record.
+	review *audit.PluginReview
 }
 
 // auditCall is one operation's pair of records.
@@ -80,6 +84,8 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 
 		PluginConfigSHA256:     spec.pluginConfigSHA256,
 		PluginEntrypointSHA256: spec.pluginEntrypointSHA256,
+		Preview:                spec.preview,
+		PluginReview:           spec.review,
 	}
 	call := &auditCall{sink: sink, logger: logger, start: time.Now(), intent: intent, spec: spec}
 	if _, err := sink.Write(intent); err != nil {

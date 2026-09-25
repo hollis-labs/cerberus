@@ -567,27 +567,11 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 		return
 	}
 	parts := strings.Split(rest, "/")
+	// Install by path is retired: installing is a review confirmed on the
+	// operator's terminal, which no socket caller can give. The route stays
+	// so an older CLI gets the reason rather than a routing 404.
 	if len(parts) == 1 && parts[0] == "install" {
-		if r.Method != http.MethodPost {
-			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		var args PluginConnectorHealthArgs
-		if err := decodeJSONBody(r, &args); err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
-			return s.client.InstallManagedPlugin(ctx, args)
-		}) {
-			return
-		}
-		out, err := s.client.InstallManagedPlugin(r.Context(), args)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSONError(w, http.StatusGone, PluginInstallRetired)
 		return
 	}
 	if len(parts) < 2 {
@@ -598,6 +582,22 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 	action := parts[1]
 
 	switch action {
+	case "reload":
+		if r.Method != http.MethodPost {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+			return s.client.ReloadManagedPlugin(ctx, id)
+		}) {
+			return
+		}
+		out, err := s.client.ReloadManagedPlugin(r.Context(), id)
+		if err != nil {
+			writeServiceError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
 	case "load":
 		if r.Method != http.MethodPost {
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -610,7 +610,7 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 		}
 		out, err := s.client.LoadManagedPlugin(r.Context(), id)
 		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
+			writeServiceError(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)

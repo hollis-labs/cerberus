@@ -21,6 +21,7 @@ import (
 const (
 	PluginDirRetired     = "running a plugin directory is not available over the socket or the web console; run `cerberus connectors plugin health <dir>` or `cerberus connectors plugin exec <dir> <operation>` in your shell, or address an installed plugin by id"
 	PluginDirNotAccepted = "plugin_dir is not accepted here: address the installed plugin by id; to run a directory, use `cerberus connectors plugin exec <dir> <operation>` in your shell"
+	PluginInstallRetired = "installing a plugin over the socket is retired: an install is a review you confirm in your terminal. Run `cerberus connectors plugin managed install <dir>` there"
 )
 
 // PluginInstallOptions are how a plugin is installed. There is no trust or
