@@ -148,7 +148,7 @@ that every code followed by a recovery sentence survives `redact.Text`.
 - Credential storage. It asks the secret provider and never writes one
 - MCP tool definitions for built-in connectors — those are hand-written in internal/mcp/tools_<x>.go
 - Acknowledgment for plugin connector operations, which the plugin lane's OperationAllowed enforces separately, on the same destructive flag
-- An audit trail. Nothing records who ran which destructive verb
+- The audit sink. Execute writes to it, but the log itself — storage, chain, verification — is internal/audit (CERB-CAP-604)
 
 ## Since P1 (PRs #57 and #60, and the P1-3 branch)
 
@@ -169,3 +169,9 @@ the socket with their code (`connectorErrorWire`), so every surface maps them
 through one status table. An error from past the gates that carries no code is
 `operation_failed`, 502. The P1-3 branch added JSON type and enum checks to the
 key table, swept over every declared operation.
+
+Since P1-4a, `Execute` is wrapped by the audit log (CERB-CAP-604). An intent
+record is written before step 1 and an outcome record on every exit. When the
+intent cannot be written, a non-read is refused as `audit_unavailable` and none
+of the steps run. The service takes its audit sink as a required constructor
+argument and is built outside tests only in `internal/app`.

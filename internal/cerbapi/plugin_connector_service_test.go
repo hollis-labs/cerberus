@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -68,7 +69,7 @@ func TestPluginConnectorServiceHealthInProcess(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "launched")
 	t.Setenv("GO_WANT_PLUGIN_CONNECTOR_API_HELPER", "1")
 	t.Setenv("GO_WANT_PLUGIN_LAUNCH_MARKER", marker)
-	health, err := NewPluginConnectorService("test", nil).Health(context.Background(), PluginConnectorHealthArgs{
+	health, err := NewPluginConnectorService(audit.NewMemory(), "test", nil).Health(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: helperPluginDir(t),
 	})
 	if err != nil {
@@ -272,7 +273,7 @@ func helperPluginDir(t *testing.T) string {
 func mustManagedPluginService(t *testing.T, statePath string) *ManagedPluginConnectorService {
 	t.Helper()
 
-	svc, err := NewManagedPluginConnectorService("test", nil, statePath)
+	svc, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", nil, statePath)
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}

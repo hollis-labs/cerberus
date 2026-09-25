@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -106,7 +107,7 @@ func connectorErrorCode(err error) ExternalConnectorErrorCode {
 // refused as preview_unsupported.
 func TestDryRunNeverExecutes(t *testing.T) {
 	var resolves int
-	svc := NewExternalConnectorService(resolveCountingRegistry(&resolves))
+	svc := NewExternalConnectorService(audit.NewMemory(), resolveCountingRegistry(&resolves))
 	svc.SetResourceLookup(sshTestLookup())
 
 	for _, def := range svc.Definitions() {
@@ -146,7 +147,7 @@ func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 	registry.Register(dockerconn.NewWithBackend(docker))
 	registry.Register(doconn.NewWithBackend(do))
 	registry.Register(forgeconn.NewWithBackend(forge))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	for _, def := range svc.Definitions() {
 		for _, op := range def.Operations {
@@ -168,7 +169,7 @@ func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 }
 
 func TestAckGateFailsClosedWithoutDefinition(t *testing.T) {
-	svc := NewExternalConnectorService(connector.NewRegistry())
+	svc := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry())
 	_, err := svc.declaredOperation(context.Background(), ExternalConnectorOperationArgs{Connector: "ghost", Operation: "wipe"})
 	if code := connectorErrorCode(err); code != ExternalConnectorUnsupported {
 		t.Fatalf("missing definition: err = %v, want operation_unsupported refusal", err)
@@ -178,7 +179,7 @@ func TestAckGateFailsClosedWithoutDefinition(t *testing.T) {
 func TestAckGateFailsClosedOnUndeclaredOperation(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(&fakeDockerBackend{}))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	// executeDocker dispatches "status", but the definition does not declare
 	// it, so the gate cannot say whether it is destructive.
@@ -191,7 +192,7 @@ func TestAckGateFailsClosedOnUndeclaredOperation(t *testing.T) {
 func TestAckGateStillRequiresAckForDeclaredDestructive(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(&fakeDockerBackend{}))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "docker", Operation: "destroy", Config: map[string]any{"container": "web"}})
 	if code := connectorErrorCode(err); code != ExternalConnectorAckRequired {
 		t.Fatalf("err = %v, want acknowledgment_required", err)
@@ -234,7 +235,7 @@ func TestGateRefusalsSurviveRedaction(t *testing.T) {
 		}
 	}
 
-	svc := NewExternalConnectorService(connector.NewRegistry())
+	svc := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry())
 	args := ExternalConnectorOperationArgs{Connector: "docker", Operation: "list_containers"}
 	for _, err := range []error{
 		previewUnsupportedError(args),

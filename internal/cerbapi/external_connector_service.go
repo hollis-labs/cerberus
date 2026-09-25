@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
@@ -44,6 +46,9 @@ const (
 	// is not a refusal and not a fault in Cerberus. Coding it is also what
 	// routes a plugin's own text through ExternalConnectorError's redaction.
 	ExternalConnectorOperationFailed ExternalConnectorErrorCode = "operation_failed"
+	// ExternalConnectorAuditUnavailable is an operation refused because its
+	// audit record could not be written (Decision 8). Nothing ran.
+	ExternalConnectorAuditUnavailable ExternalConnectorErrorCode = "audit_unavailable"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -56,6 +61,7 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorAckRequired,
 	ExternalConnectorPreviewUnsupported,
 	ExternalConnectorOperationFailed,
+	ExternalConnectorAuditUnavailable,
 }
 
 // ExternalConnectorErrorCodes returns the whole vocabulary, for tests on the
@@ -110,9 +116,18 @@ type ExternalConnectorService struct {
 	registry       *connector.Registry
 	managedPlugins *ManagedPluginConnectorService
 	resources      ResourceLookup
+	audit          audit.Sink
+	logger         *slog.Logger
 }
 
-func NewExternalConnectorService(registry *connector.Registry, managedPlugins ...*ManagedPluginConnectorService) *ExternalConnectorService {
+// NewExternalConnectorService constructs the admin lane. The audit sink is
+// required: every operation writes its intent and outcome to it, and there
+// is no silent no-op. Outside tests it is constructed only in internal/app,
+// which opens the real sink (TestServicesAreConstructedOnlyInApp).
+func NewExternalConnectorService(sink audit.Sink, registry *connector.Registry, managedPlugins ...*ManagedPluginConnectorService) *ExternalConnectorService {
+	if sink == nil {
+		panic("cerbapi: NewExternalConnectorService requires an audit sink")
+	}
 	var managed *ManagedPluginConnectorService
 	if len(managedPlugins) > 0 {
 		managed = managedPlugins[0]
@@ -120,6 +135,8 @@ func NewExternalConnectorService(registry *connector.Registry, managedPlugins ..
 	return &ExternalConnectorService{
 		registry:       registry,
 		managedPlugins: managed,
+		audit:          sink,
+		logger:         slog.Default(),
 	}
 }
 
@@ -170,7 +187,43 @@ func (s *ExternalConnectorService) LiveDefinitionsContext(ctx context.Context) [
 	return sortedDefinitions(defs)
 }
 
+// Execute runs one admin-lane operation. It writes the intent record before
+// anything else — before the contract gate, so a refusal is recorded too —
+// and the outcome record on every exit. When the intent cannot be written,
+// a non-read is refused and nothing runs (Decision 8).
 func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
+	if s == nil {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
+	}
+	call, err := beginAudit(ctx, s.audit, s.logger, s.auditSpec(args))
+	if err != nil {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
+	}
+	result, err := s.execute(ctx, args)
+	call.finish(err)
+	return result, err
+}
+
+// auditSpec describes a request for its records, from the contract when the
+// operation declares one. It checks nothing: the gates in execute do that.
+func (s *ExternalConnectorService) auditSpec(args ExternalConnectorOperationArgs) auditSpec {
+	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun}
+	if def, ok := s.definitionFor(args.Connector); ok {
+		spec.op, spec.known = def.Operation(args.Operation)
+		spec.credentials = credentialNames(def)
+	}
+	if s.managedPlugins != nil && s.managedPlugins.Loaded(args.Connector) {
+		spec.pluginConfigSHA256, spec.pluginEntrypointSHA256 = s.managedPlugins.fingerprints(args.Connector)
+	}
+	// A built-in's dry run is a host preview: nothing is resolved. A
+	// plugin's reaches the plugin, which holds its credentials.
+	if args.DryRun && (s.managedPlugins == nil || !s.managedPlugins.Loaded(args.Connector)) {
+		spec.credentials = nil
+	}
+	return spec
+}
+
+func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	progressToken := fmt.Sprintf("connector:%s:%s", args.Connector, args.Operation)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting connector operation %s.%s", args.Connector, args.Operation))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Validating connector operation")
@@ -241,7 +294,9 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if s.managedPlugins != nil && s.managedPlugins.Loaded(args.Connector) {
 		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing managed plugin connector %s.%s", args.Connector, args.Operation))
 		gmcp.NotifyProgress(ctx, progressToken, 1, 2, "Executing managed plugin connector")
-		result, execErr := s.managedPlugins.Execute(ctx, args.Connector, PluginConnectorExecArgs{
+		// The admin lane has written this call's records; the managed
+		// service's own entry point is for its direct route.
+		result, execErr := s.managedPlugins.execute(ctx, args.Connector, PluginConnectorExecArgs{
 			Operation:    args.Operation,
 			Config:       args.Config,
 			DryRun:       args.DryRun,

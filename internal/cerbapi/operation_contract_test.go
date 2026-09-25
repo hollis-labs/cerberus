@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -98,7 +99,7 @@ func TestBuiltinEffectClassification(t *testing.T) {
 // key, a missing required key, or a local-only key from a remote surface.
 func TestArgumentRefusalsNeverNeedACredential(t *testing.T) {
 	resolves := 0
-	svc := NewExternalConnectorService(resolveCountingRegistry(&resolves))
+	svc := NewExternalConnectorService(audit.NewMemory(), resolveCountingRegistry(&resolves))
 	svc.SetResourceLookup(sshTestLookup())
 	socket := WithCallerSurface(context.Background(), SurfaceSocket)
 
@@ -163,7 +164,7 @@ func hasRequirement(op contract.Operation) bool {
 // resolution, and a read goes on to resolve.
 func TestAckFollowsTheEffect(t *testing.T) {
 	resolves := 0
-	svc := NewExternalConnectorService(resolveCountingRegistry(&resolves))
+	svc := NewExternalConnectorService(audit.NewMemory(), resolveCountingRegistry(&resolves))
 	svc.SetResourceLookup(sshTestLookup())
 	for _, def := range svc.Definitions() {
 		for _, op := range def.Operations {
@@ -206,7 +207,7 @@ func TestLocalOnlyInputsFollowTheSurface(t *testing.T) {
 	}
 	registry := connector.NewRegistry()
 	registry.RegisterDefinition(dockerconn.Definition())
-	_, err := NewExternalConnectorService(registry).declaredOperation(context.Background(), args)
+	_, err := NewExternalConnectorService(audit.NewMemory(), registry).declaredOperation(context.Background(), args)
 	if code := connectorErrorCode(err); code != ExternalConnectorInvalidArgs || !strings.Contains(err.Error(), "refusing fields (host)") {
 		t.Fatalf("unmarked context: err = %v, want host refused", err)
 	}
@@ -217,7 +218,7 @@ func TestLocalOnlyInputsFollowTheSurface(t *testing.T) {
 func TestSocketMarksItsRequests(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(&fakeDockerBackend{}))
-	sock := startConnectorSocket(t, NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(registry))))
+	sock := startConnectorSocket(t, NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(audit.NewMemory(), registry))))
 	_, err := sock.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "docker", Operation: "list_containers", Config: map[string]any{"context": "prod"},
 	})
@@ -230,7 +231,7 @@ func TestSocketMarksItsRequests(t *testing.T) {
 func TestContractRefusalsSurviveRedaction(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(&fakeDockerBackend{}))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	socket := WithCallerSurface(context.Background(), SurfaceSocket)
 	var errs []error
 	for _, args := range []ExternalConnectorOperationArgs{
@@ -294,7 +295,7 @@ func (p *healthyPluginProcess) Close() error { return nil }
 // plugin: get_health, with the effect given (or none), and nothing else.
 func contextforgeFixture(t *testing.T, effect contract.Effect) (*ManagedPluginConnectorService, *healthyPluginProcess) {
 	t.Helper()
-	svc, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	svc, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}
@@ -324,7 +325,7 @@ func contextforgeFixture(t *testing.T, effect contract.Effect) (*ManagedPluginCo
 func TestContextForgeHealthNeedsNoAckOnceDeclaredRead(t *testing.T) {
 	routes := map[string]func(*ManagedPluginConnectorService) error{
 		"admin lane": func(svc *ManagedPluginConnectorService) error {
-			_, err := NewExternalConnectorService(connector.NewRegistry(), svc).Execute(context.Background(),
+			_, err := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry(), svc).Execute(context.Background(),
 				ExternalConnectorOperationArgs{Connector: "contextforge", Operation: "get_health"})
 			return err
 		},

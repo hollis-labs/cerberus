@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"path/filepath"
 	"strings"
@@ -54,7 +55,7 @@ func TestManagedPluginOtherFailuresAreNotReclassified(t *testing.T) {
 // one — a daemon that cannot reach the keychain still serves its plugins.
 func TestManagedPluginServiceAcceptsSecretResolver(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	svc, err := NewManagedPluginConnectorService("test", io.Discard, statePath,
+	svc, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, statePath,
 		WithManagedPluginSecrets(stubResolver{}))
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)

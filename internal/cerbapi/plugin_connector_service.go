@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -76,6 +79,7 @@ type PluginConnectorService struct {
 	stderr      io.Writer
 	secrets     pluginhost.SecretResolver
 	configPath  string
+	audit       audit.Sink
 }
 
 // PluginConnectorOption configures the one-shot plugin host used by
@@ -95,10 +99,17 @@ func WithPluginConnectorSecrets(resolver pluginhost.SecretResolver) PluginConnec
 	return func(s *PluginConnectorService) { s.secrets = resolver }
 }
 
-func NewPluginConnectorService(hostVersion string, stderr io.Writer, opts ...PluginConnectorOption) *PluginConnectorService {
+// NewPluginConnectorService constructs the one-shot plugin lane. The audit
+// sink is required: it launches the plugin in the directory it is given, and
+// both the health check and an operation are recorded.
+func NewPluginConnectorService(sink audit.Sink, hostVersion string, stderr io.Writer, opts ...PluginConnectorOption) *PluginConnectorService {
+	if sink == nil {
+		panic("cerbapi: NewPluginConnectorService requires an audit sink")
+	}
 	service := &PluginConnectorService{
 		hostVersion: hostVersion,
 		stderr:      stderr,
+		audit:       sink,
 	}
 	for _, opt := range opts {
 		opt(service)
@@ -106,7 +117,15 @@ func NewPluginConnectorService(hostVersion string, stderr io.Writer, opts ...Plu
 	return service
 }
 
-func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {
+// Health launches the plugin in a directory to check it. Launching runs the
+// plugin's code, so it is recorded as an admin call, and refused when its
+// record cannot be written.
+func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnectorHealthArgs) (_ PluginConnectorHealth, retErr error) {
+	call, err := beginAudit(ctx, s.audit, slog.Default(), auditSpec{connector: "plugin", operation: "health", op: pluginAdminOperation("health"), known: true, config: map[string]any{"plugin_dir": args.PluginDir}})
+	if err != nil {
+		return PluginConnectorHealth{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: "health"}, ExternalConnectorAuditUnavailable, err)
+	}
+	defer func() { call.finish(retErr) }()
 	progressToken := fmt.Sprintf("plugin-health:%s", args.PluginDir)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting plugin health check for %s", args.PluginDir))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
@@ -135,7 +154,17 @@ func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnecto
 	}, nil
 }
 
-func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+// Execute launches a plugin from a directory and runs one operation. Its
+// contract is unknown until the plugin is read, so the intent is recorded as
+// unclassified — which requires the record, failing closed.
+func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnectorExecArgs) (_ ExternalConnectorOperationResult, retErr error) {
+	call, err := beginAudit(ctx, s.audit, slog.Default(), auditSpec{connector: "plugin", operation: args.Operation,
+		op: contract.Operation{Target: contract.TargetDescriptor{Kind: "plugin", From: []string{"plugin_dir"}}}, config: withPluginDir(args.Config, args.PluginDir),
+		acknowledged: args.Acknowledged, dryRun: args.DryRun})
+	if err != nil {
+		return ExternalConnectorOperationResult{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: args.Operation}, ExternalConnectorAuditUnavailable, err)
+	}
+	defer func() { call.finish(retErr) }()
 	progressToken := fmt.Sprintf("plugin-exec:%s:%s", args.PluginDir, args.Operation)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting plugin operation %s for %s", args.Operation, args.PluginDir))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
@@ -258,5 +287,17 @@ func pluginLaunchEnv() []string {
 			out = append(out, entry)
 		}
 	}
+	return out
+}
+
+// withPluginDir is an operation's config with the directory it was launched
+// from, for its audit record: the directory identifies the target, and the
+// digest covers the arguments.
+func withPluginDir(config map[string]any, dir string) map[string]any {
+	out := make(map[string]any, len(config)+1)
+	for k, v := range config {
+		out[k] = v
+	}
+	out["plugin_dir"] = dir
 	return out
 }
