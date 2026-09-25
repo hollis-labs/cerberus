@@ -135,7 +135,9 @@ func NewCerberusDNSRecordSetTools(client cerbapi.Client) []Tool {
 		}
 		operation := op.Name
 		properties := op.InputSchema["properties"].(map[string]any)
-		if op.Destructive {
+		// Hints stay on the ack requirement until P1-3 derives every hint
+		// from the contract.
+		if op.RequiresAck {
 			properties["dry_run"] = map[string]any{"type": "boolean", "description": "Preview without changing DNS or email routing."}
 			properties["acknowledged"] = map[string]any{"type": "boolean", "description": "Acknowledge replacing the full zone and explicitly setting email routing; omitted hosts are deleted."}
 		}
@@ -143,9 +145,9 @@ func NewCerberusDNSRecordSetTools(client cerbapi.Client) []Tool {
 			Name:            "cerberus_" + operation,
 			Description:     op.Description,
 			InputSchema:     op.InputSchema,
-			ReadOnlyHint:    !op.Destructive,
-			DestructiveHint: op.Destructive,
-			IdempotentHint:  op.Destructive,
+			ReadOnlyHint:    !op.RequiresAck,
+			DestructiveHint: op.RequiresAck,
+			IdempotentHint:  op.RequiresAck,
 			OpenWorldHint:   false,
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				config := map[string]any{"domain": stringArg(args, "domain")}

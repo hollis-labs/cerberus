@@ -200,12 +200,13 @@ func init() {
 	serverCreateCmd.Flags().StringVar(&serverCreateUserData, "user-data", "", "cloud-init user-data")
 	serverCreateCmd.Flags().BoolVar(&serverDryRun, "dry-run", false, "preview the operation without executing it")
 
-	serverCreateCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the destructive create operation (billable; runs user-data)")
+	serverCreateCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the create operation (write; billable, runs user-data as root)")
 
+	serverStartCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the start operation (lifecycle)")
 	serverStopCmd.Flags().BoolVar(&serverDryRun, "dry-run", false, "preview the operation without executing it")
-	serverStopCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the destructive stop operation")
+	serverStopCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the stop operation (lifecycle: a hard power-off)")
 	serverDestroyCmd.Flags().BoolVar(&serverDryRun, "dry-run", false, "preview the operation without executing it")
-	serverDestroyCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge destructive destroy operation")
+	serverDestroyCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the destroy operation (destructive)")
 
 	serverCmd.AddCommand(serverListCmd)
 	serverCmd.AddCommand(serverShowCmd)

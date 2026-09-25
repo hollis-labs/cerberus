@@ -46,7 +46,7 @@ func dockerSocket(t *testing.T) (*SocketClient, *fakeDockerBackend) {
 func TestDockerUpByResourceIDOverSocket(t *testing.T) {
 	client, backend := dockerSocket(t)
 	if _, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "docker", Operation: "start", Config: map[string]any{"resource": "mtbf-monitor"},
+		Connector: "docker", Operation: "start", Acknowledged: true, Config: map[string]any{"resource": "mtbf-monitor"},
 	}); err != nil {
 		t.Fatalf("up by id: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestDockerUpByResourceIDOverSocket(t *testing.T) {
 	}
 
 	if _, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "docker", Operation: "stop", Config: map[string]any{"resource": "mtbf-monitor"},
+		Connector: "docker", Operation: "stop", Acknowledged: true, Config: map[string]any{"resource": "mtbf-monitor"},
 	}); err != nil {
 		t.Fatalf("down by id: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestDockerUpByResourceIDOverSocket(t *testing.T) {
 func TestDockerResourceHostComesFromTheDeclaration(t *testing.T) {
 	client, backend := dockerSocket(t)
 	if _, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "docker", Operation: "start", Config: map[string]any{"resource": "remote-stack"},
+		Connector: "docker", Operation: "start", Acknowledged: true, Config: map[string]any{"resource": "remote-stack"},
 	}); err != nil {
 		t.Fatalf("up by id: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestDockerResourceHostComesFromTheDeclaration(t *testing.T) {
 func TestDockerContainerResourceAndLiteralsOverSocket(t *testing.T) {
 	client, backend := dockerSocket(t)
 	if _, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "docker", Operation: "start", Config: map[string]any{"resource": "single"},
+		Connector: "docker", Operation: "start", Acknowledged: true, Config: map[string]any{"resource": "single"},
 	}); err != nil {
 		t.Fatalf("container resource: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestDockerContainerResourceAndLiteralsOverSocket(t *testing.T) {
 	}
 	// An undeclared container on the local daemon still works by name.
 	if _, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "docker", Operation: "start", Config: map[string]any{"container": "web", "id": "web", "name": "web"},
+		Connector: "docker", Operation: "start", Acknowledged: true, Config: map[string]any{"container": "web", "id": "web", "name": "web"},
 	}); err != nil {
 		t.Fatalf("literal container: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestDockerResourceMustBeADockerResource(t *testing.T) {
 	client, _ := dockerSocket(t)
 	for id, want := range map[string]string{"muctlvaig": "not a docker resource", "nope": `resource "nope" not found`} {
 		_, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
-			Connector: "docker", Operation: "start", Config: map[string]any{"resource": id},
+			Connector: "docker", Operation: "start", Acknowledged: true, Config: map[string]any{"resource": id},
 		})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s: err = %v, want %q", id, err, want)
@@ -143,9 +143,9 @@ func TestDockerAdHocTargetsRefusedOverSocket(t *testing.T) {
 				{"resource": "mtbf-monitor", tc.field: tc.value},
 			} {
 				_, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
-					Connector: "docker", Operation: "start", Config: cfg,
+					Connector: "docker", Operation: "start", Acknowledged: true, Config: cfg,
 				})
-				if err == nil || !strings.Contains(err.Error(), "refusing fields "+tc.field) || !strings.Contains(err.Error(), "resource=<id>") {
+				if err == nil || !strings.Contains(err.Error(), "refusing fields ("+tc.field+")") || !strings.Contains(err.Error(), "resource=<id>") {
 					t.Fatalf("cfg %v: err = %v, want a refusal naming %s", cfg, err, tc.field)
 				}
 			}
@@ -164,7 +164,7 @@ func TestDockerAdHocTargetsWorkInProcess(t *testing.T) {
 	svc := NewExternalConnectorService(registry)
 	svc.SetResourceLookup(dockerTestResources())
 	if _, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "docker", Operation: "start",
+		Connector: "docker", Operation: "start", Acknowledged: true,
 		Config: map[string]any{"resource": "mtbf-monitor", "compose_file": "/tmp/override.yml", "host": "ssh://ops@other"},
 	}); err != nil {
 		t.Fatalf("in-process ad-hoc: %v", err)
@@ -204,7 +204,7 @@ func TestEveryComposeAliasIsRefused(t *testing.T) {
 		err := RefuseAdHocDockerTarget(ExternalConnectorOperationArgs{
 			Connector: "docker", Operation: "start", Config: map[string]any{key: "/tmp/evil.yml"},
 		})
-		if err == nil || !strings.Contains(err.Error(), "refusing fields "+key) {
+		if err == nil || !strings.Contains(err.Error(), "refusing fields ("+key+")") {
 			t.Errorf("compose alias %q: err = %v, want refused", key, err)
 		}
 	}

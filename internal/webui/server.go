@@ -72,7 +72,16 @@ func (s *Server) Handler(guard *loopback.Guard) http.Handler {
 	}
 	s.guard = guard
 	mux := s.routes()
-	return s.withLogging(guard.Middleware(mux))
+	return s.withLogging(guard.Middleware(markWebSurface(mux)))
+}
+
+// markWebSurface marks every console request as the web surface, so a
+// service it reaches in-process refuses local-only inputs just as the daemon
+// would.
+func markWebSurface(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(cerbapi.WithCallerSurface(r.Context(), cerbapi.SurfaceWeb)))
+	})
 }
 
 // route is one registered API pattern. routeTable is the single list the mux
@@ -511,10 +520,6 @@ func (s *Server) handleConnectorByID(w http.ResponseWriter, r *http.Request) {
 	args.Operation = parts[2]
 	if args.Config == nil {
 		args.Config = map[string]any{}
-	}
-	if err := cerbapi.RefuseAdHocDockerTarget(args); err != nil {
-		writeClientError(w, err)
-		return
 	}
 	out, err := s.client.ExecuteConnectorOperation(r.Context(), args)
 	if err != nil {

@@ -64,7 +64,7 @@ func (c *Connector) Capabilities() contract.Capabilities {
 }
 
 func Definition() contract.Definition {
-	return contract.Definition{
+	return contract.Finalize(contract.Definition{
 		ID:            "cloudflare",
 		Version:       "builtin",
 		ResourceTypes: []string{string(resource.Domain)},
@@ -99,11 +99,24 @@ func Definition() contract.Definition {
 		Operations: []contract.Operation{
 			{
 				Name:        "list_zones",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "cloudflare.account"},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "List Cloudflare zones.",
 				InputSchema: contract.ObjectSchema(map[string]any{}),
 			},
 			{
 				Name:        "create_zone",
+				Effect:      contract.EffectWrite,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "cloudflare.account", From: []string{"account_id"}},
+				Preview:     contract.PreviewHost,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Create a Cloudflare zone in an account.",
 				Examples: []string{
 					"cerberus cloudflare zones create <account-id> chrispian.dev --type full --dry-run",
@@ -114,11 +127,15 @@ func Definition() contract.Definition {
 					"name":       contract.StringSchema("Zone name such as example.com."),
 					"type":       contract.StringSchema("Zone type: full or partial."),
 				}, "account_id", "name"),
-				Destructive: true,
-				SupportsDry: true,
 			},
 			{
 				Name:        "list_dns_records",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "cloudflare.zone", From: []string{"zone_id"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "List DNS records for a Cloudflare zone.",
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"zone_id": contract.StringSchema("Cloudflare zone ID."),
@@ -126,6 +143,13 @@ func Definition() contract.Definition {
 			},
 			{
 				Name:        "create_dns_record",
+				Effect:      contract.EffectWrite,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "cloudflare.zone", From: []string{"zone_id"}},
+				Preview:     contract.PreviewHost,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Create a DNS record in a Cloudflare zone.",
 				Examples: []string{
 					"cerberus cloudflare dns create <zone-id> --type A --name app --content 203.0.113.10 --ttl 300 --dry-run",
@@ -140,11 +164,15 @@ func Definition() contract.Definition {
 					"proxied":  map[string]any{"type": "boolean", "description": "Whether to proxy the record through Cloudflare."},
 					"priority": contract.IntegerSchema("Priority for MX records."),
 				}, "zone_id", "type", "name", "content"),
-				Destructive: true,
-				SupportsDry: true,
 			},
 			{
 				Name:        "delete_dns_record",
+				Effect:      contract.EffectDestructive,
+				Target:      contract.TargetDescriptor{Kind: "cloudflare.dns_record", From: []string{"zone_id", "record_id"}},
+				Preview:     contract.PreviewHost,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Delete a DNS record from a Cloudflare zone.",
 				Examples: []string{
 					"cerberus cloudflare dns delete <zone-id> <record-id> --dry-run",
@@ -154,11 +182,9 @@ func Definition() contract.Definition {
 					"zone_id":   contract.StringSchema("Cloudflare zone ID."),
 					"record_id": contract.StringSchema("Cloudflare DNS record ID."),
 				}, "zone_id", "record_id"),
-				Destructive: true,
-				SupportsDry: true,
 			},
 		},
-	}
+	})
 }
 
 func (c *Connector) Definition() contract.Definition {

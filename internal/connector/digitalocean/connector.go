@@ -106,7 +106,7 @@ func (c *Connector) Capabilities() contract.Capabilities {
 }
 
 func Definition() contract.Definition {
-	return contract.Definition{
+	return contract.Finalize(contract.Definition{
 		ID:            "digitalocean",
 		Version:       "builtin",
 		ResourceTypes: []string{string(resource.Server)},
@@ -137,11 +137,23 @@ func Definition() contract.Definition {
 		Operations: []contract.Operation{
 			{
 				Name:        "list_droplets",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "digitalocean.account"},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "List DigitalOcean droplets.",
 				InputSchema: contract.ObjectSchema(map[string]any{}),
 			},
 			{
 				Name:        "get_droplet",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "digitalocean.droplet", From: []string{"droplet_id"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Get detailed status for a droplet.",
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"droplet_id": contract.IntegerSchema("DigitalOcean droplet ID."),
@@ -149,7 +161,14 @@ func Definition() contract.Definition {
 			},
 			{
 				Name:        "create_droplet",
-				Description: "Create a new DigitalOcean droplet. Destructive: it is billable and runs the supplied cloud-init user_data as root.",
+				Effect:      contract.EffectWrite,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "digitalocean.account"},
+				Preview:     contract.PreviewHost,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostBillable,
+				LocalFS:     contract.LocalFSNone,
+				Description: "Create a new DigitalOcean droplet. It is billable and runs the supplied cloud-init user_data as root.",
 				Examples: []string{
 					"cerberus server create --name web-1 --region nyc3 --size s-1vcpu-1gb --image ubuntu-24-04-x64 --dry-run",
 					"cerberus server create --name web-1 --region nyc3 --size s-1vcpu-1gb --image ubuntu-24-04-x64 --ack",
@@ -162,11 +181,16 @@ func Definition() contract.Definition {
 					"ssh_keys":  map[string]any{"type": "array", "description": "SSH key fingerprints.", "items": map[string]any{"type": "string"}},
 					"user_data": contract.StringSchema("Cloud-init user-data."),
 				}, "name", "region", "size", "image"),
-				Destructive: true,
-				SupportsDry: true,
 			},
 			{
 				Name:        "start",
+				Effect:      contract.EffectLifecycle,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "digitalocean.droplet", From: []string{"droplet_id"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Power on a droplet.",
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"droplet_id": contract.IntegerSchema("DigitalOcean droplet ID."),
@@ -174,7 +198,14 @@ func Definition() contract.Definition {
 			},
 			{
 				Name:        "stop",
-				Description: "Power off a droplet. Destructive: a hard power-off takes down whatever it serves.",
+				Effect:      contract.EffectLifecycle,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "digitalocean.droplet", From: []string{"droplet_id"}},
+				Preview:     contract.PreviewHost,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
+				Description: "Power off a droplet. A hard power-off takes down whatever it serves.",
 				Examples: []string{
 					"cerberus server stop 123456 --dry-run",
 					"cerberus server stop 123456 --ack",
@@ -182,11 +213,15 @@ func Definition() contract.Definition {
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"droplet_id": contract.IntegerSchema("DigitalOcean droplet ID."),
 				}, "droplet_id"),
-				Destructive: true,
-				SupportsDry: true,
 			},
 			{
 				Name:        "destroy",
+				Effect:      contract.EffectDestructive,
+				Target:      contract.TargetDescriptor{Kind: "digitalocean.droplet", From: []string{"droplet_id"}},
+				Preview:     contract.PreviewHost,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Destroy a droplet permanently.",
 				Examples: []string{
 					"cerberus server destroy 123456 --dry-run",
@@ -195,18 +230,22 @@ func Definition() contract.Definition {
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"droplet_id": contract.IntegerSchema("DigitalOcean droplet ID."),
 				}, "droplet_id"),
-				Destructive: true,
-				SupportsDry: true,
 			},
 			{
 				Name:        "status",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "digitalocean.droplet", From: []string{"droplet_id"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Read normalized runtime state for a droplet.",
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"droplet_id": contract.IntegerSchema("DigitalOcean droplet ID."),
 				}, "droplet_id"),
 			},
 		},
-	}
+	})
 }
 
 func (c *Connector) Definition() contract.Definition {

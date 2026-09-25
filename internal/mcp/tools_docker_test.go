@@ -105,3 +105,29 @@ func TestDockerToolSchemasOfferNoAdHocTargets(t *testing.T) {
 		}
 	}
 }
+
+// Tools over operations that need acknowledgment advertise `acknowledged`
+// and forward it: docker up and down are lifecycle, and so is droplet start
+// (Decision 14).
+func TestLifecycleToolsForwardAcknowledged(t *testing.T) {
+	for _, tc := range []struct {
+		tool func(cerbapi.Client) Tool
+		args map[string]interface{}
+	}{
+		{NewCerberusDockerUpTool, map[string]interface{}{"container_name": "web"}},
+		{NewCerberusDockerDownTool, map[string]interface{}{"resource_id": "stack"}},
+		{NewCerberusDropletStartTool, map[string]interface{}{"droplet_id": float64(42)}},
+	} {
+		client := &capturingDockerClient{}
+		tool := tc.tool(client)
+		props, _ := tool.InputSchema.(map[string]interface{})["properties"].(map[string]interface{})
+		if _, ok := props["acknowledged"]; !ok {
+			t.Errorf("%s does not advertise acknowledged", tool.Name)
+		}
+		tc.args["acknowledged"] = true
+		_, _ = tool.Handler(context.Background(), tc.args)
+		if !client.args.Acknowledged {
+			t.Errorf("%s did not forward acknowledged", tool.Name)
+		}
+	}
+}

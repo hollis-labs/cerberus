@@ -60,7 +60,7 @@ func (c *Connector) Capabilities() contract.Capabilities {
 }
 
 func Definition() contract.Definition {
-	return contract.Definition{
+	return contract.Finalize(contract.Definition{
 		ID:            "github",
 		Version:       "builtin",
 		ResourceTypes: []string{string(resource.Repo)},
@@ -97,21 +97,39 @@ func Definition() contract.Definition {
 		Operations: []contract.Operation{
 			{
 				Name:        "status",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "github.repo", From: []string{"owner", "repo"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Read repository status.",
 				InputSchema: githubRepoInputSchema(),
 			},
 			{
 				Name:        "list_releases",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "github.repo", From: []string{"owner", "repo"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "List recent repository releases.",
 				InputSchema: githubRepoLimitInputSchema(),
 			},
 			{
 				Name:        "list_workflow_runs",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "github.repo", From: []string{"owner", "repo"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "List recent GitHub Actions workflow runs.",
 				InputSchema: githubRepoLimitInputSchema(),
 			},
 		},
-	}
+	})
 }
 
 func (c *Connector) Definition() contract.Definition {

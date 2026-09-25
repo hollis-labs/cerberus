@@ -113,7 +113,7 @@ func TestOperationAllowedInstalledDestructiveNeedsAck(t *testing.T) {
 	if err := OperationAllowed(OriginInstalled, op, true); err != nil {
 		t.Fatalf("acknowledged destructive op rejected: %v", err)
 	}
-	if err := OperationAllowed(OriginInstalled, contract.ManifestOperation{Name: "list"}, false); err != nil {
+	if err := OperationAllowed(OriginInstalled, contract.ManifestOperation{Name: "list", Effect: contract.EffectRead}, false); err != nil {
 		t.Fatalf("read op rejected: %v", err)
 	}
 }
@@ -126,14 +126,14 @@ func TestOperationAllowedRefusesDevDestructive(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "development (--dev) plugin") {
 		t.Fatalf("error = %v, want dev destructive refusal", err)
 	}
-	if err := OperationAllowed(OriginDev, contract.ManifestOperation{Name: "list"}, false); err != nil {
+	if err := OperationAllowed(OriginDev, contract.ManifestOperation{Name: "list", Effect: contract.EffectRead}, false); err != nil {
 		t.Fatalf("dev read op rejected: %v", err)
 	}
 }
 
 func TestOperationAllowedRefusesUnknownOrigin(t *testing.T) {
 	for _, origin := range []InstallOrigin{"", "signed", "unsigned"} {
-		if err := OperationAllowed(origin, contract.ManifestOperation{Name: "list"}, true); err == nil {
+		if err := OperationAllowed(origin, contract.ManifestOperation{Name: "list", Effect: contract.EffectRead}, true); err == nil {
 			t.Errorf("origin %q allowed", origin)
 		}
 	}

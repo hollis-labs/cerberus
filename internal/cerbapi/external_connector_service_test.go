@@ -516,6 +516,7 @@ func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t
 
 func TestExternalConnectorServiceCloudflareZoneCreateDryRun(t *testing.T) {
 	registry := connector.NewRegistry()
+	registry.RegisterDefinition(cfconn.Definition())
 	svc := NewExternalConnectorService(registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
@@ -544,6 +545,7 @@ func TestExternalConnectorServiceCloudflareZoneCreateDryRun(t *testing.T) {
 
 func TestExternalConnectorServiceDryRunPreviewBypassesAcknowledgment(t *testing.T) {
 	registry := connector.NewRegistry()
+	registry.RegisterDefinition(cfconn.Definition())
 	svc := NewExternalConnectorService(registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
@@ -966,7 +968,7 @@ func TestExternalConnectorServiceUnavailableConnectorReturnsStructuredError(t *t
 	registry.RegisterUnavailable("github", errors.New("missing token"))
 	svc := NewExternalConnectorService(registry)
 
-	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "github", Operation: "status"})
+	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "github", Operation: "status", Config: map[string]any{"owner": "o", "repo": "r"}})
 	var connErr *ExternalConnectorError
 	if !errors.As(err, &connErr) {
 		t.Fatalf("err = %T, want ExternalConnectorError", err)

@@ -156,7 +156,7 @@ func TestManagerLoadAndExecuteWithPluginSDKTransport(t *testing.T) {
 		Args:    []string{"-test.run=TestPluginSDKHelperProcess"},
 	})
 	spec.Cerberus.Connector.Operations = []contract.ManifestOperation{
-		{Name: "logs", InputSchema: contract.ObjectSchema(map[string]any{})},
+		{Name: "logs", Effect: contract.EffectReadSensitive, InputSchema: contract.ObjectSchema(map[string]any{})},
 	}
 	writePluginYAMLFile(t, pluginDir, spec)
 
@@ -266,7 +266,7 @@ func TestManagerDeliversResolvedSecretsAcrossTheSubprocessBoundary(t *testing.T)
 		Args:    []string{"-test.run=TestPluginSDKHelperProcess"},
 	})
 	spec.Cerberus.Connector.Operations = []contract.ManifestOperation{
-		{Name: "logs", InputSchema: contract.ObjectSchema(map[string]any{})},
+		{Name: "logs", Effect: contract.EffectReadSensitive, InputSchema: contract.ObjectSchema(map[string]any{})},
 	}
 	spec.Cerberus.Connector.Config = contract.ConfigSchema{
 		Secrets: []contract.SecretRequirement{{Name: "token", Required: true}},

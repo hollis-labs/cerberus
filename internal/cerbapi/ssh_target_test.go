@@ -101,7 +101,7 @@ func TestSSHOverridesRefusedOverSocket(t *testing.T) {
 				Connector: "ssh", Operation: "exec", Acknowledged: true,
 				Config: map[string]any{"id": "server-1", "command": "uptime", field.key: field.value},
 			})
-			if err == nil || !strings.Contains(err.Error(), "refusing fields "+field.key) || !strings.Contains(err.Error(), "configured resource id") {
+			if err == nil || !strings.Contains(err.Error(), "refusing fields ("+field.key+")") || !strings.Contains(err.Error(), "configured resource id") {
 				t.Fatalf("err = %v, want a refusal naming %s", err, field.key)
 			}
 			if backend.connects != 0 || backend.command != "" {
@@ -117,7 +117,7 @@ func TestSSHRequiresConfiguredSSHResource(t *testing.T) {
 		cfg  map[string]any
 		want string
 	}{
-		{map[string]any{"command": "uptime"}, "id is required"},
+		{map[string]any{"command": "uptime"}, "missing required fields (id)"},
 		{map[string]any{"id": "nope", "command": "uptime"}, `resource "nope" not found`},
 	} {
 		_, err := client.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
@@ -137,7 +137,11 @@ func TestSSHRefusalsSurviveRedaction(t *testing.T) {
 		{},
 		{"id": "nope"},
 	} {
-		_, err := svc.resolveSSHTarget(ExternalConnectorOperationArgs{Connector: "ssh", Operation: "exec", Config: cfg})
+		args := ExternalConnectorOperationArgs{Connector: "ssh", Operation: "exec", Config: cfg}
+		err := checkFromSurface(SurfaceInProcess, args)
+		if err == nil {
+			_, err = svc.resolveSSHTarget(args)
+		}
 		var connErr *ExternalConnectorError
 		if !errors.As(err, &connErr) {
 			t.Fatalf("not a connector error: %v", err)
