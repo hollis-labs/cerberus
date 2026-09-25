@@ -777,6 +777,21 @@ Rules:
   destructive or exec operation that nobody asked for. It is also the spelling
   P3's confirmation takes. This is recorded as an exception to section 13 on
   purpose. The operator may choose to relax it later.
+- **A second deliberate exception: the deny on `admin: owner` stays in every
+  posture.** Under `permissive` the built-in strictness steps aside: the
+  baseline, and the prod, unknown, shared and ad-hoc defaults. A target labeled
+  as administered by its owner is still not ours to change on our own say-so.
+  "Foot-gun yourself" covers what you let run on your own systems, not on
+  someone else's. Confirmed at P2-5b review.
+- **`cerberus posture set` owns `~/.cerberus/policy/posture.yaml`.** It writes
+  only that working file and applies it through the `policy apply` path. That
+  means showing the host-wide switches and sampled decisions that change,
+  requiring a typed confirmation, recording an `admin` audit entry, and
+  checking the snapshot hash on load, so a later `policy apply` keeps the
+  posture rather than reverting it. It refuses to run in three cases: another
+  working file declares a posture, the working files have unapplied changes
+  (which it would otherwise carry in unseen), or the applied snapshot fails
+  its hash check.
 - **The web console stays loopback-only in every posture** until it serves
   TLS. It has a login since P2-2, but over plain HTTP its session cookie would
   be readable on the network. `--insecure-listen` applies only to `mcp-http`,

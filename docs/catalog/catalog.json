@@ -22581,6 +22581,59 @@
       },
       "body": "`cerberus approvals show <id>` prints one approval as `approvals list` reads it: the operation and effect, the labelled target, the requester and when, the deciding rule and its reason, the channel, scope and expiry, the plan hash once P3-2 records one, the decision with the decider and the enrolled key it used, and when it was consumed (with the operation id) or revoked. A pending approval ends with the command that decides it, `cerberus approvals approve <id>`, which arrives with P3-4.",
       "id": "CERB-TOOL-871"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "class": "tool",
+      "name": "cerberus posture",
+      "summary": "Shows the applied posture and what it relaxes, and changes it on a terminal through the policy apply path: the global posture for the host-wide switches, or a scoped posture rule for policy evaluation.",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "tested against a temp policy store: terminal-only, flips shown, typed confirmation, audit record, refusals; host-wide switches wired in P2-5d/e",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "posture",
+        "policy",
+        "admin",
+        "locus:core",
+        "verified:test"
+      ],
+      "locus": "core",
+      "pointer_locator": "cmd/cerberus/cmd_posture.go",
+      "body": "`cerberus posture show` prints the applied posture (from the hash-checked snapshot), the host-wide switches the global posture sets, the posture rules, and what never relaxes: the audit log, credential redaction, the `--ack` gate and the deny on a target labeled `admin: owner`.\n\n`cerberus posture set <secure|permissive> [--scope key=value ...]` sets the global posture, or with `--scope` adds or replaces a posture rule; `cerberus posture reset [--scope ...]` returns to secure or removes one rule. Both run only on an interactive terminal. They write `~/.cerberus/policy/posture.yaml`, the working file the command owns, and apply through the `policy apply` path: the host-wide switches that change, the sampled decisions that flip, a typed confirmation, an `admin` audit record, and the snapshot hash checked on load. Nothing is written before the confirmation, and a failed apply puts the file back.\n\nThey refuse while another working file declares a posture, while the working files have unapplied changes (a posture change would otherwise carry them in unseen), and over a snapshot that fails its hash check. A scoped rule changes only policy evaluation, and a permissive one reaches only targets whose env and owner are declared.",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-400",
+          "note": "a verb of the CLI"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-811",
+          "note": "--insecure-listen waits for the posture; it arrives with P2-5e"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-TOOL-863",
+          "note": "status shows the posture it sets"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "destructive": false,
+        "invocation": "cerberus posture show|set|reset",
+        "surfaces": [
+          "cli"
+        ],
+        "vendor": [],
+        "verified": "test"
+      },
+      "id": "CERB-TOOL-875"
     }
   ]
 }
