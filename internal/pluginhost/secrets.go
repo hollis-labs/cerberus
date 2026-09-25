@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -34,6 +35,17 @@ type resolvedSecrets struct {
 	// Problems describes lookups that errored, redacted. A store that refuses
 	// to unlock is worth reporting; its error text is not worth trusting.
 	Problems []string
+}
+
+// redactor removes every resolved value from text, in the raw form and in
+// the escaped forms a value takes when a plugin puts it in a URL — which is
+// where a transport error echoes it back.
+func (r resolvedSecrets) redactor() redact.Redactor {
+	values := make([]string, 0, 3*len(r.Config))
+	for _, value := range r.Config {
+		values = append(values, value, url.QueryEscape(value), url.PathEscape(value))
+	}
+	return redact.New(values...)
 }
 
 // resolvePluginSecrets resolves exactly the secrets a plugin's own manifest

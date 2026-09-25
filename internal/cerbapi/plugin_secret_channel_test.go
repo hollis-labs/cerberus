@@ -34,17 +34,19 @@ func TestManagedPluginCredentialFailureReportsCredentialMissing(t *testing.T) {
 	}
 }
 
-// Every other plugin failure keeps the error the plugin lane produced;
-// classifying broadly would make credential_missing meaningless.
+// Every other plugin failure is coded operation_failed, never
+// credential_missing — classifying broadly would make that code meaningless —
+// and keeps the plugin's error in its chain.
 func TestManagedPluginOtherFailuresAreNotReclassified(t *testing.T) {
 	args := ExternalConnectorOperationArgs{Connector: "contextforge", Operation: "list_gateways"}
 	original := errors.New("gateway unreachable")
-	if got := managedPluginExecuteError(args, original); !errors.Is(got, original) {
-		t.Fatalf("error = %v, want the original error unchanged", got)
+	got := managedPluginExecuteError(args, original)
+	if !errors.Is(got, original) {
+		t.Fatalf("error = %v, want the original error in its chain", got)
 	}
 	var external *ExternalConnectorError
-	if errors.As(managedPluginExecuteError(args, original), &external) {
-		t.Fatal("a non-credential failure should not be wrapped as an ExternalConnectorError")
+	if !errors.As(got, &external) || external.Code != ExternalConnectorOperationFailed {
+		t.Fatalf("error = %v, want code %s", got, ExternalConnectorOperationFailed)
 	}
 }
 
