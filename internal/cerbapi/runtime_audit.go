@@ -48,12 +48,12 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 	opts := ApplyMutationOptions(options)
 	def := pipeline.Definition()
 	op, known := def.Operation(pipeline.OpRun)
-	call, err := beginAudit(ctx, s.audit, s.logger, auditSpec{
+	call, err := beginGated(ctx, s.audit, s.logger, auditSpec{
 		connector: def.ID, operation: pipeline.OpRun, op: op, known: known,
 		config: map[string]any{"id": id}, acknowledged: opts.Acknowledged,
 	})
 	if err != nil {
-		return nil, externalConnectorError(ExternalConnectorOperationArgs{Connector: def.ID, Operation: pipeline.OpRun}, ExternalConnectorAuditUnavailable, err)
+		return nil, err
 	}
 	out, err := s.runPipeline(ctx, id, options...)
 	call.finish(resultError(err, out != nil && !out.Success))
@@ -69,12 +69,12 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	}
 	def := localconn.Definition()
 	op, known := def.Operation(operation)
-	call, err := beginAudit(ctx, s.audit, s.logger, auditSpec{
+	call, err := beginGated(ctx, s.audit, s.logger, auditSpec{
 		connector: def.ID, operation: operation, op: op, known: known,
 		config: config, acknowledged: opts.Acknowledged, resources: s.ResourceDef,
 	})
 	if err != nil {
-		return nil, externalConnectorError(ExternalConnectorOperationArgs{Connector: def.ID, Operation: operation}, ExternalConnectorAuditUnavailable, err)
+		return nil, err
 	}
 	out, err := run(ctx, id, options...)
 	call.finish(resultError(err, out != nil && !out.Success))

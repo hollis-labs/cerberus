@@ -103,6 +103,10 @@ type ExternalConnectorError struct {
 	Operation string
 	Err       error
 
+	// Approval is approval_pending's machine-readable half: which approval,
+	// until when, and the command that decides it.
+	Approval *ApprovalRef
+
 	// rendered is set once the error has been rendered through the
 	// request's scope (scopeError), or rebuilt from a daemon that said it
 	// had been: its text is final, and an edge does not run the rules
@@ -242,9 +246,9 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	// A caller that did not begin a request still gets a scope here, so a
 	// credential resolved during this call is removed from its error.
 	ctx, scope := redact.EnsureScope(ctx)
-	call, err := beginAudit(ctx, s.audit, s.logger, s.auditSpec(args))
+	call, err := beginGated(ctx, s.audit, s.logger, s.auditSpec(args))
 	if err != nil {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
+		return ExternalConnectorOperationResult{}, err
 	}
 	result, err := s.execute(call.withTelemetry(ctx), args)
 	call.finish(err)

@@ -505,6 +505,23 @@ func runDaemonBody() error {
 		cerbapi.WithInProcessLogger(logger),
 	)
 
+	// The approval broker (P3-1): the daemon is its one writer. A store it
+	// cannot open leaves the daemon without one, so an operation that
+	// needs an approval is answered approval_pending with the reason
+	// rather than taking the daemon down.
+	if approvalsDir, dirErr := app.ApprovalsDir(); dirErr != nil {
+		logger.Warn("daemon.approvals.path_resolve_failed", "error", dirErr.Error())
+	} else if broker, brokerErr := cerbapi.NewBroker(app.AuditSink(), approvalsDir); brokerErr != nil {
+		logger.Warn("daemon.approvals.open_failed", "error", brokerErr.Error())
+	} else {
+		cerbapi.SetBroker(broker)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			broker.RunSweeper(ctx, time.Minute)
+		}()
+	}
+
 	// Start the overview snapshot recorder. Samples control-plane
 	// counters (resources, projects, running/attention/stopped, registry
 	// health, etc.) on a 1-minute tick and persists them to
