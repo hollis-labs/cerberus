@@ -230,6 +230,11 @@ func (r *Reloading) Authorize(req Request) Result {
 	return r.reloadIfChanged().Authorize(req)
 }
 
+// GlobalPosture implements PDP.
+func (r *Reloading) GlobalPosture() string {
+	return r.reloadIfChanged().GlobalPosture()
+}
+
 func (r *Reloading) reloadIfChanged() *Evaluator {
 	stamp := r.stampNow()
 	r.mu.Lock()

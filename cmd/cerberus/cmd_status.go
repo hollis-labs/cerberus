@@ -17,6 +17,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/policy"
 )
 
 var statusOutput string
@@ -30,7 +31,7 @@ var statusCmd = &cobra.Command{
 	Long: `Show the state an operator needs at a glance, read-only:
 
   daemon    running or not (details: cerberus daemon status)
-  posture   the enforcement posture; always "secure" until postures land
+  posture   secure or permissive, and any per-target posture rules
   you       the principal the daemon sees for this caller (cerberus whoami)
   plugins   installed managed plugins and how many are review_pending
   audit     whether the hash chain verifies, and the last record's time
@@ -53,17 +54,24 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
-// statusPosture is the placeholder until P2-5 lands postures: Cerberus's
-// behavior today is the secure default.
-const statusPosture = "secure"
+// currentPosture is the applied posture, from the hash-checked snapshot
+// (policy.Store.CurrentPosture); secure when nothing is applied or the
+// snapshot fails its check. Tests swap it.
+var currentPosture = func() policy.PostureSummary {
+	store, err := policyStore()
+	if err != nil {
+		return policy.PostureSummary{Global: policy.PostureSecure, Snapshot: policy.SnapshotBaseline}
+	}
+	return store.CurrentPosture()
+}
 
 type statusReport struct {
-	Daemon  statusDaemon   `json:"daemon"`
-	Posture string         `json:"posture"`
-	You     statusYou      `json:"you"`
-	Plugins statusPlugins  `json:"plugins"`
-	Audit   statusAudit    `json:"audit"`
-	Web     []statusWebApp `json:"web"`
+	Daemon  statusDaemon          `json:"daemon"`
+	Posture policy.PostureSummary `json:"posture"`
+	You     statusYou             `json:"you"`
+	Plugins statusPlugins         `json:"plugins"`
+	Audit   statusAudit           `json:"audit"`
+	Web     []statusWebApp        `json:"web"`
 }
 
 type statusDaemon struct {
@@ -96,7 +104,7 @@ type statusWebApp struct {
 }
 
 func gatherStatus(ctx context.Context) statusReport {
-	r := statusReport{Posture: statusPosture, Web: []statusWebApp{}}
+	r := statusReport{Posture: currentPosture(), Web: []statusWebApp{}}
 	r.Plugins.ReviewPending = []string{}
 
 	ready := false
@@ -249,7 +257,7 @@ func writeStatus(w io.Writer, r statusReport) error {
 	default:
 		line("daemon", "not running")
 	}
-	line("posture", "%s (postures are not configurable yet)", r.Posture)
+	line("posture", "%s", r.Posture)
 	if p := r.You.Principal; p != nil {
 		uid := "uid unverified"
 		if p.UIDVerified {

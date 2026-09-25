@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/policy"
 )
 
 var whoamiOutput string
@@ -29,7 +30,7 @@ approval, and nothing depends on it being unforgeable.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		local := cerbapi.DetectCLI()
-		out := whoamiReport{Local: local}
+		out := whoamiReport{Local: local, Posture: currentPosture()}
 		if client, err := newResourceSocketClient(); err == nil {
 			daemon, askErr := client.WhoAmI(cmd.Context())
 			var unreachable *cerbapi.DaemonUnreachableError
@@ -53,6 +54,8 @@ type whoamiReport struct {
 	Local      cerbapi.CLIClassification `json:"local"`
 	Daemon     *cerbapi.Principal        `json:"daemon,omitempty"`
 	DaemonNote string                    `json:"daemon_note,omitempty"`
+	// Posture is the applied posture a call from here is evaluated under.
+	Posture policy.PostureSummary `json:"posture"`
 }
 
 func writeWhoami(w io.Writer, r whoamiReport) error {
@@ -80,7 +83,11 @@ func writeWhoami(w io.Writer, r whoamiReport) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(w, "This is a label for default policy, never approval.")
+	posture := r.Posture.String()
+	if r.Posture.Global == "" {
+		posture = policy.PostureSecure
+	}
+	_, err = fmt.Fprintf(w, "Posture: %s\nThis is a label for default policy, never approval.\n", posture)
 	return err
 }
 

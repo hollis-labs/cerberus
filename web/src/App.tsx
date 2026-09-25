@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Boxes, Cable, Gauge, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
 import { ApiError, createRouter } from '@hollis-labs/sysop-ui/api'
-import { apiClient } from './api/client'
+import { apiClient, type PostureInfo } from './api/client'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
 import { OverviewPage } from './pages/overview'
@@ -45,7 +45,10 @@ const useRoute = createRouter({
   paths: { overview: '' },
 })
 
-type SessionState = { kind: 'checking' } | { kind: 'signed-out' } | { kind: 'signed-in'; token: string }
+type SessionState =
+  | { kind: 'checking' }
+  | { kind: 'signed-out' }
+  | { kind: 'signed-in'; token: string; posture?: PostureInfo }
 
 // The console needs a signed-in session (`cerberus web open`). Without one
 // every API route answers 401, so the app shows how to sign in instead.
@@ -56,7 +59,7 @@ export function App() {
     const controller = new AbortController()
     apiClient
       .getSession(controller.signal)
-      .then((info) => setSession({ kind: 'signed-in', token: info.action_token }))
+      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture }))
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) setSession({ kind: 'signed-out' })
       })
@@ -68,7 +71,7 @@ export function App() {
   const signOut = () => {
     void apiClient.logout(session.token).finally(() => setSession({ kind: 'signed-out' }))
   }
-  return <Console onSignOut={signOut} />
+  return <Console onSignOut={signOut} posture={session.posture} />
 }
 
 function SignedOut() {
@@ -85,7 +88,27 @@ function SignedOut() {
   )
 }
 
-function Console({ onSignOut }: { onSignOut: () => void }) {
+// PostureBadge names the posture in the header: quiet when secure, loud
+// when anything is permissive.
+function PostureBadge({ posture }: { posture?: PostureInfo }) {
+  const summary = posture?.summary ?? 'secure'
+  const permissive = posture?.permissive ?? false
+  return (
+    <span
+      data-testid="posture"
+      title={`Posture: ${summary}`}
+      className={
+        permissive
+          ? 'rounded border border-amber-500 bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-600'
+          : 'rounded border border-border px-2 py-0.5 text-xs text-text-muted'
+      }
+    >
+      {permissive ? `PERMISSIVE: ${summary}` : 'secure'}
+    </span>
+  )
+}
+
+function Console({ onSignOut, posture }: { onSignOut: () => void; posture?: PostureInfo }) {
   const { route, navigate } = useRoute()
 
   const nav: NavRailItem[] = [
@@ -179,7 +202,9 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
           }
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <PageHeader title={TITLES[route]} />
+          <PageHeader title={TITLES[route]}>
+            <PostureBadge posture={posture} />
+          </PageHeader>
           <main className="flex min-h-0 flex-1 flex-col">
             <RouteView route={route} />
           </main>

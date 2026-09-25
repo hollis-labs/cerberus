@@ -55,6 +55,7 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 			return fmt.Errorf("init web ui: %w", err)
 		}
 		webSrv.SetSessionLimits(0, webSessionIdle, 0)
+		webSrv.SetPosture(currentPosture)
 
 		ln, err := net.Listen("tcp", webListenAddr)
 		if err != nil {

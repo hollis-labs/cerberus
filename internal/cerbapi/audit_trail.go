@@ -94,8 +94,12 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 	// Shadow mode: every operation a gate covers is authorized and the
 	// decision recorded, and nothing about the outcome changes. The monitor
 	// is not an operation request and is not authorized (Decision 14).
+	// Every record carries the posture it happened under: the one its
+	// operation was evaluated with, or, for what nothing authorizes, the
+	// applied global posture.
+	intent.Posture = PolicyDecisionPoint().GlobalPosture()
 	if !spec.automation {
-		intent.Policy = shadowDecision(ctx, spec, resolved)
+		intent.Policy, intent.Posture = shadowDecision(ctx, spec, resolved)
 	}
 	call := &auditCall{sink: sink, logger: logger, start: time.Now(), intent: intent, spec: spec}
 	if _, err := sink.Write(intent); err != nil {

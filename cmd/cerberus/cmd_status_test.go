@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/policy"
 )
 
 type statusFakeDaemon struct {
@@ -106,7 +107,7 @@ func TestStatusReportsWebConsolesWithoutTheirKeys(t *testing.T) {
 		t.Fatalf("web = %+v", apps)
 	}
 	var text bytes.Buffer
-	report := statusReport{Posture: statusPosture, Web: apps}
+	report := statusReport{Posture: policy.PostureSummary{Global: policy.PostureSecure}, Web: apps}
 	_ = writeStatus(&text, report)
 	encoded, _ := json.Marshal(report)
 	if strings.Contains(text.String()+string(encoded), "SECRET-KEY-MATERIAL") {
@@ -119,7 +120,7 @@ func TestStatusTextIsCompact(t *testing.T) {
 	var out bytes.Buffer
 	err := writeStatus(&out, statusReport{
 		Daemon:  statusDaemon{Running: true, PID: 42},
-		Posture: statusPosture,
+		Posture: policy.PostureSummary{Global: policy.PostureSecure},
 		You:     statusYou{Principal: &cerbapi.Principal{Kind: cerbapi.PrincipalAgent, Via: cerbapi.ViaCLI, UID: 501, UIDVerified: true}},
 		Plugins: statusPlugins{Installed: 7, ReviewPending: []string{"forge"}},
 		Audit:   statusAudit{Intact: true, Records: 12, LastRecord: &last},

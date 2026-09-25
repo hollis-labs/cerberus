@@ -116,6 +116,11 @@ type Operation struct {
 	Output     OutputKind       `json:"output" yaml:"output"`
 	Cost       Cost             `json:"cost" yaml:"cost"`
 	LocalFS    LocalFS          `json:"local_fs" yaml:"local_fs"`
+	// EffectUndeclared marks an operation whose plugin manifest declares no
+	// effect, so Effect is the host's reading of the gap (exec). Policy
+	// reads it: under the permissive posture the gap is evaluated as write.
+	// The contract, and every gate derived from Effect, are unchanged.
+	EffectUndeclared bool `json:"effect_undeclared,omitempty" yaml:"effect_undeclared,omitempty"`
 
 	// Inputs is the operation's key table: every config key it accepts, and
 	// who may send it. The admin lane checks a caller's config against it
