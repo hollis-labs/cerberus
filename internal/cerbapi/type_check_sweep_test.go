@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -27,7 +28,7 @@ func wrongValue(schema map[string]any) any {
 // resolved. In-process, so local-only inputs reach the type check too.
 func TestTypeRefusalsNeverNeedACredential(t *testing.T) {
 	resolves := 0
-	svc := NewExternalConnectorService(resolveCountingRegistry(&resolves))
+	svc := NewExternalConnectorService(audit.NewMemory(), resolveCountingRegistry(&resolves))
 	svc.SetResourceLookup(sshTestLookup())
 	ctx := WithCallerSurface(context.Background(), SurfaceInProcess)
 	checked := 0

@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ func configuredManagedService(t *testing.T, body string) (*ManagedPluginConnecto
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	svc, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	svc, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}

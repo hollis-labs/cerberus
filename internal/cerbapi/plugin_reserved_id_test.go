@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // fallback so an installed-but-unloaded plugin stopped disabling the built-in
 // it shadowed; this refuses the shadow in the first place.
 func TestManagedPluginInstallRefusesABuiltInID(t *testing.T) {
-	managed, err := NewManagedPluginConnectorService("test", io.Discard,
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard,
 		filepath.Join(t.TempDir(), "state.json"),
 		WithManagedPluginReservedIDs("local", "ssh", "docker", "github"))
 	if err != nil {
@@ -40,7 +41,7 @@ func TestManagedPluginInstallRefusesABuiltInID(t *testing.T) {
 // The refusal is the guard doing its job, not installs being broken: the same
 // plugin installs when nothing reserves the id.
 func TestManagedPluginInstallAllowsTheSameIDWhenNothingReservesIt(t *testing.T) {
-	managed, err := NewManagedPluginConnectorService("test", io.Discard,
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard,
 		filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
@@ -64,7 +65,7 @@ func TestManagedPluginRestoreSkipsAReservedIDWithoutFailing(t *testing.T) {
 	pluginDir := writeTestPluginDir(t, "ssh")
 
 	// Installed before the guard: no reserved ids.
-	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, statePath)
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestManagedPluginRestoreSkipsAReservedIDWithoutFailing(t *testing.T) {
 	}
 
 	var warnings strings.Builder
-	restored, err := NewManagedPluginConnectorService("test", &warnings, statePath,
+	restored, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", &warnings, statePath,
 		WithManagedPluginReservedIDs("ssh"))
 	if err != nil {
 		t.Fatalf("restore failed instead of skipping a now-refused plugin: %v", err)

@@ -92,3 +92,9 @@ id and the load/unload toggle. There is no uninstall and no exec on the page. MC
 none of the 51 tools registered in `cmd/cerberus/cmd_mcp.go` touches a plugin,
 and there is no dynamic tool generation, so an agent cannot install, inspect,
 load or run a plugin.
+
+Since P1-4a, install, load, unload and uninstall each write an intent and an
+outcome to the audit log as `admin` calls on connector `plugin`, and an
+unwritable log refuses them (CERB-CAP-604). A managed exec on the direct route
+is recorded with the plugin's config and entrypoint fingerprints; the admin
+lane's call into a plugin is recorded once, by the admin lane.
