@@ -35,7 +35,6 @@ type Manager struct {
 	mu        sync.RWMutex
 	installer Installer
 	launcher  Launcher
-	policy    TrustPolicy
 	hostInfo  SDKHostInfo
 	secrets   SecretResolver
 	warn      func(string)
@@ -75,11 +74,10 @@ func WithLoadWarning(warn func(string)) ManagerOption {
 	return func(m *Manager) { m.warn = warn }
 }
 
-func NewManager(installer Installer, launcher Launcher, policy TrustPolicy, hostVersion string, opts ...ManagerOption) *Manager {
+func NewManager(installer Installer, launcher Launcher, hostVersion string, opts ...ManagerOption) *Manager {
 	m := &Manager{
 		installer: installer,
 		launcher:  launcher,
-		policy:    policy,
 		hostInfo: SDKHostInfo{
 			Version:  hostVersion,
 			Protocol: SDKProtocolVersion,
@@ -259,7 +257,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	if !ok {
 		return OperationResult{}, fmt.Errorf("plugin %q does not declare operation %q", args.Connector, args.Operation)
 	}
-	if err := OperationAllowed(lp.plugin.Trust.Tier, op, args.Acknowledged); err != nil {
+	if err := OperationAllowed(lp.plugin.Origin, op, args.Acknowledged); err != nil {
 		return OperationResult{}, err
 	}
 	// A dry run reaches the plugin only for an operation whose manifest

@@ -18,7 +18,7 @@ func loadedGateManager(t *testing.T, ops ...contract.ManifestOperation) (*Manage
 		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 		callResult: SDKMCPCallResult{Content: []byte(`{"ok":true}`)},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, DefaultTrustPolicy(), "test")
+	manager := NewManager(nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -49,7 +49,7 @@ func TestDestructiveOperationNeedsAckWhateverRequiresAckSays(t *testing.T) {
 }
 
 func TestOperationAllowedIgnoresRequiresAck(t *testing.T) {
-	for _, tier := range []TrustTier{TrustTierBuiltin, TrustTierSigned, TrustTierUnsigned} {
+	for _, tier := range []InstallOrigin{OriginInstalled, OriginInstalled, OriginInstalled} {
 		op := contract.ManifestOperation{Name: "wipe", Destructive: true, RequiresAck: false}
 		if err := OperationAllowed(tier, op, false); err == nil {
 			t.Errorf("%s: destructive op without ack allowed", tier)

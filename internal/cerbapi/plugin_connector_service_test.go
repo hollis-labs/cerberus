@@ -70,11 +70,6 @@ func TestPluginConnectorServiceHealthInProcess(t *testing.T) {
 	t.Setenv("GO_WANT_PLUGIN_LAUNCH_MARKER", marker)
 	health, err := NewPluginConnectorService("test", nil).Health(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: helperPluginDir(t),
-		Trust: PluginConnectorTrustOptions{
-			CatalogSigned: true,
-			ArchiveSigned: true,
-			ArchiveSHA256: "abc",
-		},
 	})
 	if err != nil {
 		t.Fatalf("Health: %v", err)
@@ -138,11 +133,6 @@ func TestManagedPluginConnectorLifecycleOverSocket(t *testing.T) {
 
 	installed, err := socketClient.InstallManagedPlugin(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
-		Trust: PluginConnectorTrustOptions{
-			CatalogSigned: true,
-			ArchiveSigned: true,
-			ArchiveSHA256: "abc",
-		},
 	})
 	if err != nil {
 		t.Fatalf("InstallManagedPlugin: %v", err)
@@ -204,11 +194,6 @@ func TestManagedPluginConnectorServiceRestoresPersistedState(t *testing.T) {
 	svc := mustManagedPluginService(t, statePath)
 	installed, err := svc.Install(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
-		Trust: PluginConnectorTrustOptions{
-			CatalogSigned: true,
-			ArchiveSigned: true,
-			ArchiveSHA256: "abc",
-		},
 	})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -220,12 +205,7 @@ func TestManagedPluginConnectorServiceRestoresPersistedState(t *testing.T) {
 		Entries: []pluginConnectorPersistedEntry{
 			{
 				PluginDir: pluginDir,
-				Trust: PluginConnectorTrustOptions{
-					CatalogSigned: true,
-					ArchiveSigned: true,
-					ArchiveSHA256: "abc",
-				},
-				Loaded: true,
+				Loaded:    true,
 			},
 		},
 	}); err != nil {

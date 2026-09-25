@@ -2,6 +2,8 @@ package pluginhost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -64,11 +66,7 @@ func TestDirectoryInstallerInstallsValidatedPlugin(t *testing.T) {
 	writePluginYAMLFile(t, pluginDir, spec)
 
 	installer := DirectoryInstaller{
-		Policy:        DefaultTrustPolicy(),
-		RequestedTier: TrustTierSigned,
-		CatalogSigned: true,
-		ArchiveSHA256: "abc",
-		ArchiveSigned: true,
+		Policy: LocalInstallPolicy(),
 	}
 
 	installed, err := installer.Install(context.Background(), pluginDir)
@@ -78,8 +76,8 @@ func TestDirectoryInstallerInstallsValidatedPlugin(t *testing.T) {
 	if installed.ID != spec.ID || installed.Path != pluginDir {
 		t.Fatalf("InstalledPlugin = %+v", installed)
 	}
-	if installed.Trust.Tier != TrustTierSigned {
-		t.Fatalf("Trust tier = %q, want %q", installed.Trust.Tier, TrustTierSigned)
+	if installed.Origin != OriginInstalled {
+		t.Fatalf("Origin = %q, want %q", installed.Origin, OriginInstalled)
 	}
 	if installed.Spec.Entrypoint.Command != "bin/docker-plugin" {
 		t.Fatalf("Entrypoint = %+v", installed.Spec.Entrypoint)
@@ -93,11 +91,7 @@ func TestDirectoryInstallerAcceptsPluginYAMLPath(t *testing.T) {
 	pluginYAMLPath := writePluginYAMLFile(t, pluginDir, spec)
 
 	installer := DirectoryInstaller{
-		Policy:        DefaultTrustPolicy(),
-		RequestedTier: TrustTierSigned,
-		CatalogSigned: true,
-		ArchiveSHA256: "abc",
-		ArchiveSigned: true,
+		Policy: LocalInstallPolicy(),
 	}
 
 	installed, err := installer.Install(context.Background(), pluginYAMLPath)
@@ -116,11 +110,7 @@ func TestDirectoryInstallerRejectsInvalidPluginYAML(t *testing.T) {
 	}
 
 	installer := DirectoryInstaller{
-		Policy:        DefaultTrustPolicy(),
-		RequestedTier: TrustTierSigned,
-		CatalogSigned: true,
-		ArchiveSHA256: "abc",
-		ArchiveSigned: true,
+		Policy: LocalInstallPolicy(),
 	}
 
 	_, err := installer.Install(context.Background(), pluginDir)
@@ -129,21 +119,25 @@ func TestDirectoryInstallerRejectsInvalidPluginYAML(t *testing.T) {
 	}
 }
 
-func TestDirectoryInstallerRejectsUnsignedPluginInDefaultPolicy(t *testing.T) {
+// The entrypoint fingerprint is always computed by the host from the binary
+// on disk; there is no way for a caller to state it.
+func TestDirectoryInstallerFingerprintsTheEntrypoint(t *testing.T) {
 	pluginDir := t.TempDir()
 	writeExecutable(t, pluginDir, "bin/docker-plugin")
 	spec := testPluginSpec(Entrypoint{Command: "bin/docker-plugin"})
 	writePluginYAMLFile(t, pluginDir, spec)
 
-	installer := DirectoryInstaller{
-		Policy:        DefaultTrustPolicy(),
-		ArchiveSHA256: "abc",
-		ArchiveSigned: true,
+	installed, err := DirectoryInstaller{Policy: LocalInstallPolicy()}.Install(context.Background(), pluginDir)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
 	}
-
-	_, err := installer.Install(context.Background(), pluginDir)
-	if err == nil || !strings.Contains(err.Error(), "signature") {
-		t.Fatalf("Install error = %v, want signature error", err)
+	data, err := os.ReadFile(filepath.Join(pluginDir, "bin/docker-plugin")) //nolint:gosec // the test's own TempDir
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	if installed.EntrypointSHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("EntrypointSHA256 = %q, want the sha256 of the entrypoint", installed.EntrypointSHA256)
 	}
 }
 
@@ -158,11 +152,8 @@ func TestDirectoryInstallerRefusesAReservedID(t *testing.T) {
 	writePluginYAMLFile(t, pluginDir, spec)
 
 	installer := DirectoryInstaller{
-		Policy:        DefaultTrustPolicy(),
-		RequestedTier: TrustTierSigned,
-		CatalogSigned: true,
-		ArchiveSigned: true,
-		ReservedIDs:   []string{"local", "ssh", "docker", "github"},
+		Policy:      LocalInstallPolicy(),
+		ReservedIDs: []string{"local", "ssh", "docker", "github"},
 	}
 
 	_, err := installer.Install(context.Background(), pluginDir)
@@ -189,11 +180,8 @@ func TestDirectoryInstallerReservedIDIgnoresCase(t *testing.T) {
 	writePluginYAMLFile(t, pluginDir, spec)
 
 	installer := DirectoryInstaller{
-		Policy:        DefaultTrustPolicy(),
-		RequestedTier: TrustTierSigned,
-		CatalogSigned: true,
-		ArchiveSigned: true,
-		ReservedIDs:   []string{"ssh"},
+		Policy:      LocalInstallPolicy(),
+		ReservedIDs: []string{"ssh"},
 	}
 	if _, err := installer.Install(context.Background(), pluginDir); err == nil {
 		t.Fatal("a differently-cased built-in id must still be refused")
@@ -211,11 +199,8 @@ func TestDirectoryInstallerAllowsANonReservedID(t *testing.T) {
 	writePluginYAMLFile(t, pluginDir, spec)
 
 	installer := DirectoryInstaller{
-		Policy:        DefaultTrustPolicy(),
-		RequestedTier: TrustTierSigned,
-		CatalogSigned: true,
-		ArchiveSigned: true,
-		ReservedIDs:   []string{"local", "ssh", "docker", "github"},
+		Policy:      LocalInstallPolicy(),
+		ReservedIDs: []string{"local", "ssh", "docker", "github"},
 	}
 	installed, err := installer.Install(context.Background(), pluginDir)
 	if err != nil {

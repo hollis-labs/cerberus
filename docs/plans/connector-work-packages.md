@@ -195,6 +195,12 @@ acknowledgment gate attests to intent. Grouping it with dev would block every
 destructive operation and leave a read-only plugin lane. Destructive operations
 still require `--ack`.
 
+*Superseded (P0-4):* the trust tiers and signing flags are gone. "Signed" was
+self-asserted and treated the same as unsigned, so it implied vetting that
+Cerberus does not do. A plugin now records an `origin` — `installed`, or `dev`
+for a development install whose destructive operations are refused — and an
+`entrypoint_sha256` fingerprint that is change detection, not trust.
+
 ---
 
 ## WP-1 — Extract per-connector dry-run previews
@@ -617,9 +623,8 @@ connection on 14444 means the former.
 
 **Secret:** JWT via the secret provider, `keychain://`. Never in config.
 
-**Install:** unsigned local is now the supported path —
-`cerberus connectors plugin managed install <dir>` with no trust flags, which
-records `trust_tier: unsigned`.
+**Install:** `cerberus connectors plugin managed install <dir>`, which records
+`origin: installed`. (Before P0-4 this recorded `trust_tier: unsigned`.)
 
 ### The `go.mod` an external plugin needs
 
