@@ -207,9 +207,7 @@ func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
 		"/api/deployments/chrispian-dev/delete",
 		"/api/deployments/chrispian-dev/run",
 		"/api/connectors/c1/operations/list",
-		"/api/plugins/connectors/health",
-		"/api/plugins/connectors/operations/list",
-		"/api/plugins/connectors/install",
+		// The plugin_dir routes are retired (410); see loopback_guard_test.go.
 		"/api/plugins/connectors/pl/load",
 		"/api/plugins/connectors/pl/unload",
 		"/api/plugins/connectors/pl/operations/list",

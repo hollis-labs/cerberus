@@ -87,6 +87,7 @@ func NewWithOptions(opts Options) (*App, error) {
 		cerbapi.WithResourceRuntimeConfigPath(opts.ConfigPath),
 	)
 	external := cerbapi.NewExternalConnectorService(registry)
+	external.SetResourceLookup(runtime.ResourceDef)
 
 	// Resolve the main database path via go-apppaths. Only cerberus.db moves
 	// onto the XDG layout (CW-20260517-0065); the rest of ~/.cerberus/ stays.
@@ -112,9 +113,24 @@ func NewWithOptions(opts Options) (*App, error) {
 	}, nil
 }
 
-func NewExternalConnectorService() *cerbapi.ExternalConnectorService {
-	registry, _ := newConnectorRegistry()
-	return cerbapi.NewExternalConnectorService(registry)
+// NewExternalConnectorService builds the in-process admin lane, resolving
+// resource ids (SSH targets) against the config at configPath, or the default
+// config when it is empty.
+func NewExternalConnectorService(configPath ...string) *cerbapi.ExternalConnectorService {
+	path := config.DefaultPath()
+	if len(configPath) > 0 && configPath[0] != "" {
+		path = configPath[0]
+	}
+	connectors, _ := newConnectorRegistry(path)
+	svc := cerbapi.NewExternalConnectorService(connectors)
+	svc.SetResourceLookup(func(id string) (*config.ResourceDef, bool) {
+		cfg, err := registry.ResolveConfig(path)
+		if err != nil {
+			return nil, false
+		}
+		return cerbapi.ConfigResourceLookup(cfg)(id)
+	})
+	return svc
 }
 
 func newConnectorRegistry(configPaths ...string) (*connector.Registry, domain.SecretProvider) {

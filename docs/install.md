@@ -165,9 +165,10 @@ Cerberus is a single binary with three long-running modes:
 They share `~/.cerberus/` and the same SQLite store.
 
 `cerberus web` and `cerberus mcp-http` are loopback-only. Neither
-authenticates its caller yet, so `--listen` must name a loopback address
-(`127.0.0.1`, `localhost` or `[::1]`, on any port) and either command refuses
-to start otherwise. Both also refuse a request whose `Host` header is not a
+authenticates its caller yet, so `--listen` must name `localhost` or a literal
+loopback IP (`127.0.0.1`, `[::1]`), on any port, and either command refuses to
+start otherwise. Other hostnames are refused even when they resolve to
+loopback. Both also refuse a request whose `Host` header is not a
 loopback name, which defeats DNS rebinding. An SSH local forward
 (`ssh -L 9000:127.0.0.1:4785 host`) works; a tunnel or reverse proxy that
 forwards a public hostname does not. For browser-based MCP clients,

@@ -504,14 +504,13 @@ func runDaemonBody() error {
 		return fmt.Errorf("initialize managed plugin connectors: %w", managedErr)
 	}
 	external := cerbapi.NewExternalConnectorService(a.Registry, managedPlugins)
+	external.SetResourceLookup(a.Runtime.ResourceDef)
 	inProc := cerbapi.NewInProcessClient(
 		cerbapi.WithConfigV2(a.Config),
 		cerbapi.WithConfigPath(cfgPath),
 		cerbapi.WithLocalConnector(a.Local),
 		cerbapi.WithResourceRuntimeService(a.Runtime),
 		cerbapi.WithExternalConnectorService(external),
-		cerbapi.WithPluginConnectorService(cerbapi.NewPluginConnectorService(version, os.Stderr,
-			cerbapi.WithPluginConnectorSecrets(a.Secrets))),
 		cerbapi.WithManagedPluginConnectorService(managedPlugins),
 		cerbapi.WithInProcessLogger(logger),
 	)
@@ -594,12 +593,12 @@ func runDaemonBody() error {
 		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(inProc))
 
 		// SSH tools
-		srv.RegisterTool(mcp.NewCerberusSSHExecTool(a.Config, inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(a.Config, inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHPutTool(a.Config, inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHGetTool(a.Config, inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHPutDirTool(a.Config, inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHGetDirTool(a.Config, inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHExecTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHPutTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHGetTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHPutDirTool(inProc))
+		srv.RegisterTool(mcp.NewCerberusSSHGetDirTool(inProc))
 
 		// Namecheap tools
 		srv.RegisterTool(mcp.NewCerberusDomainListTool(inProc))
