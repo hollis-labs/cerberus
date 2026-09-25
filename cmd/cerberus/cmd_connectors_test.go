@@ -92,7 +92,7 @@ func TestConnectorsCommandUsesDaemonManagedPluginInventory(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, want := range []string{"docker", "yes", "1"} {
+	for _, want := range []string{"docker", "yes", "2"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output missing %q:\n%s", want, got)
 		}
