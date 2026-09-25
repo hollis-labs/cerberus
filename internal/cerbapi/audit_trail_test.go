@@ -352,3 +352,35 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		}
 	}
 }
+
+// The console's plugin reload after a secret save is an unload and a load
+// through the client, on the request's web-surface context. Both are admin
+// lifecycle operations, and both are recorded as the web console's.
+func TestConsoleReloadIsAuditedAsWeb(t *testing.T) {
+	sink := audit.NewMemory()
+	managed := leakyManagedService(t)
+	managed.audit = sink
+	client := NewInProcessClient(WithManagedPluginConnectorService(managed))
+	ctx := WithCallerSurface(context.Background(), SurfaceWeb)
+
+	if _, err := client.UnloadManagedPlugin(ctx, "leaky"); err != nil {
+		t.Fatalf("unload: %v", err)
+	}
+	if _, err := client.LoadManagedPlugin(ctx, "leaky"); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, p := range pairs(t, sink.Records()) {
+		outcome := p[1]
+		if outcome.Connector != "plugin" || outcome.Target.Fields["id"] != "leaky" {
+			continue
+		}
+		if outcome.Effect != "admin" || outcome.Principal.Surface != string(SurfaceWeb) || outcome.OutcomeCode != "ok" {
+			t.Fatalf("%s record = %+v, want an admin outcome from the web surface", outcome.Operation, outcome)
+		}
+		seen[outcome.Operation] = true
+	}
+	if !seen["unload"] || !seen["load"] {
+		t.Fatalf("recorded %v, want both unload and load", seen)
+	}
+}

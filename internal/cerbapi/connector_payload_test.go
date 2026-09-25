@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	cf "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	do "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -31,10 +30,6 @@ func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {
 		connector, operation string
 		payload              any
 	}{
-		{"cloudflare", "list_zones", []cf.Zone{{ID: "zone", Name: "example.com"}}},
-		{"cloudflare", "create_zone", &cf.Zone{ID: "zone", Name: "example.com"}},
-		{"cloudflare", "list_dns_records", []cf.DNSRecord{{ID: "record", Type: "TXT", Content: "public value"}}},
-		{"cloudflare", "create_dns_record", &cf.DNSRecord{ID: "record", Type: "TXT", Content: "public value"}},
 		{"digitalocean", "list_droplets", []do.DropletStatus{{ID: 123, Name: "web", CreatedAt: timestamp}}},
 		{"digitalocean", "get_droplet", &do.DropletStatus{ID: 123, Name: "web", CreatedAt: timestamp}},
 		{"digitalocean", "create_droplet", &do.DropletStatus{ID: 123, Name: "web", CreatedAt: timestamp}},

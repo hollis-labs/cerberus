@@ -99,3 +99,18 @@ func TestManagedPluginRestoreSkipsAReservedIDWithoutFailing(t *testing.T) {
 		t.Fatalf("the registration was dropped; entries = %+v", state.Entries)
 	}
 }
+
+// local is served by the supervision lane, not the connector registry, so
+// Registry.BuiltInIDs never listed it and a plugin could claim it. It is
+// reserved whatever the daemon passes.
+func TestManagedPluginInstallRefusesLocalWithoutBeingTold(t *testing.T) {
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("managed plugin service: %v", err)
+	}
+	_, err = managed.Install(context.Background(), PluginConnectorHealthArgs{PluginDir: writeTestPluginDir(t, "local")})
+	var reserved *pluginhost.ReservedIDError
+	if !errors.As(err, &reserved) || managed.Installed("local") {
+		t.Fatalf("Install error = %v, want local refused as reserved", err)
+	}
+}

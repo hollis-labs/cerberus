@@ -11,7 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
-	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -25,7 +24,7 @@ import (
 
 func builtins() []contract.Definition {
 	defs := []contract.Definition{
-		cfconn.Definition(), doconn.Definition(), dockerconn.Definition(), forgeconn.Definition(),
+		doconn.Definition(), dockerconn.Definition(), forgeconn.Definition(),
 		ghconn.Definition(), ncconn.Definition(), sshconn.Definition(),
 	}
 	return append(defs, cerbapi.RuntimeDefinitions()...)
