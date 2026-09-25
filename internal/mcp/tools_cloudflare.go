@@ -135,22 +135,3 @@ func NewCerberusCloudflareDNSDeleteTool(client cerbapi.Client) Tool {
 		},
 	}
 }
-
-func executeConnectorMCP(ctx context.Context, client cerbapi.Client, connectorID, operation string, cfg map[string]any, dryRun, acknowledged bool) (any, error) {
-	result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
-		Connector:    connectorID,
-		Operation:    operation,
-		Config:       cfg,
-		DryRun:       dryRun,
-		Acknowledged: acknowledged,
-	})
-	if err != nil {
-		return toolResult(lifecycleResult{Success: false, Error: err.Error()})
-	}
-	return marshalConnectorData(result.Data)
-}
-
-func boolArg(args map[string]interface{}, key string) bool {
-	value, _ := args[key].(bool)
-	return value
-}
