@@ -32,7 +32,7 @@ func NewCerberusSSHExecTool(client cerbapi.Client) Tool {
 				Acknowledged: boolArg(args, "acknowledged"),
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			return marshalConnectorData(result.Data)
 		},
@@ -56,7 +56,7 @@ func NewCerberusSSHStatusTool(client cerbapi.Client) Tool {
 				Config:    sshToolConfig(resourceID, ""),
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			return marshalConnectorData(result.Data)
 		},
@@ -152,7 +152,7 @@ func NewCerberusSSHGetDirTool(client cerbapi.Client) Tool {
 // runSSHTransfer backs all four transfer tools; they differ only in direction,
 // in whether the transfer is recursive, and in whether the operation needs an
 // acknowledgment. All four take the same two path arguments.
-func runSSHTransfer(ctx context.Context, client cerbapi.Client, operation string, args map[string]interface{}, dryRun, acknowledged bool) (string, error) {
+func runSSHTransfer(ctx context.Context, client cerbapi.Client, operation string, args map[string]interface{}, dryRun, acknowledged bool) (any, error) {
 	opConfig := sshToolConfig(stringArg(args, "resource_id"), "")
 	opConfig["local_path"] = stringArg(args, "local_path")
 	opConfig["remote_path"] = stringArg(args, "remote_path")
@@ -165,7 +165,7 @@ func runSSHTransfer(ctx context.Context, client cerbapi.Client, operation string
 		Acknowledged: acknowledged,
 	})
 	if err != nil {
-		return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // tool failures travel in the result payload, not as Go errors
+		return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 	}
 	return marshalConnectorData(result.Data)
 }

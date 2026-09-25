@@ -90,10 +90,10 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			st, err := client.GetResourceRuntime(ctx, resourceID)
 			if err != nil {
@@ -123,10 +123,10 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			st, err := client.GetResourceInspect(ctx, resourceID)
 			if err != nil {
@@ -156,10 +156,10 @@ func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			st, err := client.GetResourceDoctor(ctx, resourceID)
 			if err != nil {
@@ -198,10 +198,10 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			lines := 50
 			if raw, ok := args["lines"].(float64); ok && raw > 0 {
@@ -239,20 +239,20 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			res, err := client.ReloadResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(lifecycleResult{
+			return toolResult(lifecycleResult{
 				Success: res.Success,
 				Message: res.Message,
 				Error:   res.Error,
-			}), nil
+			})
 		},
 	}
 }
@@ -275,20 +275,20 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			res, err := client.StopResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(lifecycleResult{
+			return toolResult(lifecycleResult{
 				Success: res.Success,
 				Message: res.Message,
 				Error:   res.Error,
-			}), nil
+			})
 		},
 	}
 }
@@ -311,16 +311,16 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			res, err := client.DeployResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(*res), nil
+			return toolResult(*res)
 		},
 	}
 }
@@ -347,15 +347,18 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			force, _ := args["force"].(bool)
 			res, err := cerbapi.EnsureFresh(ctx, client, resourceID, force)
 			if err != nil {
 				return "", err
+			}
+			if !res.Success {
+				return nil, toolFailure{message: res.Message, content: res}
 			}
 			data, mErr := redact.MarshalIndent(res, "", "  ")
 			if mErr != nil {
@@ -384,16 +387,16 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			res, err := client.ApplyResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(*res), nil
+			return toolResult(*res)
 		},
 	}
 }
@@ -416,20 +419,20 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			res, err := client.SyncResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(lifecycleResult{
+			return toolResult(lifecycleResult{
 				Success: res.Success,
 				Message: res.Message,
 				Error:   res.Error,
-			}), nil
+			})
 		},
 	}
 }
@@ -452,20 +455,20 @@ func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "resource_id is required",
-				}), nil
+				})
 			}
 			res, err := client.RemoveResource(ctx, resourceID)
 			if err != nil {
 				return "", err
 			}
-			return marshalResult(lifecycleResult{
+			return toolResult(lifecycleResult{
 				Success: res.Success,
 				Message: res.Message,
 				Error:   res.Error,
-			}), nil
+			})
 		},
 	}
 }

@@ -962,6 +962,7 @@ func TestExternalConnectorServiceSSHTransferRequiresPaths(t *testing.T) {
 
 func TestExternalConnectorServiceUnavailableConnectorReturnsStructuredError(t *testing.T) {
 	registry := connector.NewRegistry()
+	registry.RegisterDefinition(ghconn.Definition())
 	registry.RegisterUnavailable("github", errors.New("missing token"))
 	svc := NewExternalConnectorService(registry)
 

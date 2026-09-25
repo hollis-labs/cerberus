@@ -49,6 +49,12 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorPreviewUnsupported,
 }
 
+// ExternalConnectorErrorCodes returns the whole vocabulary, for tests on the
+// far side of a surface that must hold every code.
+func ExternalConnectorErrorCodes() []ExternalConnectorErrorCode {
+	return slices.Clone(externalConnectorErrorCodes)
+}
+
 type ExternalConnectorError struct {
 	Code      ExternalConnectorErrorCode
 	Connector string
@@ -246,17 +252,21 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
 
+	// The gate runs before Resolve. Resolving a connector reads its
+	// credential, and a refusal that depends on having one reports
+	// credential_missing for a call that was never going to run: an un-acked
+	// droplet stop said "no token" instead of "not acknowledged".
+	if err := s.requireAcknowledgment(args); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Acknowledgment required")
+		return ExternalConnectorOperationResult{}, err
+	}
 	c, resolveErr := s.registry.Resolve(ctx, args.Connector)
 	if resolveErr != nil {
 		err := resolveErr
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, unavailableCode(err), err)
-	}
-	if err := s.requireAcknowledgment(args); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
-		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Acknowledgment required")
-		return ExternalConnectorOperationResult{}, err
 	}
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing connector operation %s.%s", args.Connector, args.Operation))
 	gmcp.NotifyProgress(ctx, progressToken, 1, 2, "Executing connector operation")
@@ -1034,12 +1044,22 @@ func dryRunPreview(args ExternalConnectorOperationArgs, summary string, target, 
 // promises reads the same either side of the plugin boundary. Everything else
 // keeps the error the plugin lane already produced.
 func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) error {
+	var coded *ExternalConnectorError
+	if errors.As(err, &coded) {
+		return err
+	}
 	var missing *pluginhost.MissingSecretsError
 	if errors.As(err, &missing) {
 		return externalConnectorError(args, ExternalConnectorCredentialMissing, err)
 	}
 	if errors.Is(err, pluginhost.ErrPreviewUnsupported) {
 		return externalConnectorError(args, ExternalConnectorPreviewUnsupported, err)
+	}
+	if errors.Is(err, pluginhost.ErrAckRequired) {
+		return externalConnectorError(args, ExternalConnectorAckRequired, err)
+	}
+	if errors.Is(err, pluginhost.ErrOperationUndeclared) {
+		return externalConnectorError(args, ExternalConnectorUnsupported, err)
 	}
 	return err
 }
