@@ -2,7 +2,7 @@
 id: "CERB-CAP-604"
 class: "capability"
 name: "Destructive-operation acknowledgment, and the absence of an audit trail"
-summary: "Every destructive connector operation demands an explicit --ack, a dry run either previews or is refused without executing, and the gate fails closed on an undeclared operation, but nothing records who acknowledged what: the only trace is a method-and-path line with no caller, no arguments and no outcome."
+summary: "Every operation that is not a read \u2014 and any that writes the local filesystem \u2014 demands an explicit acknowledgment on every surface, checked before credentials or arguments resolve; a dry run previews or is refused; and nothing yet records who acknowledged what."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
@@ -51,8 +51,8 @@ relationships:
 # Destructive-operation acknowledgment, and the absence of an audit trail
 
 The gate works, and it is strict. `cerberus ssh exec <work-host> -- id -nG` with
-no flags exits 1 with `acknowledgment_required: destructive operation "exec"
-requires operator acknowledgment`. Adding `--dry-run` alone returns a clean
+no flags exits 1 with `acknowledgment_required: exec operation "exec"
+requires operator acknowledgment` (the wording names the effect since PR #60). Adding `--dry-run` alone returns a clean
 preview DTO naming the connector, operation, resolved target and the command
 that would run, without executing it. That is the intended shape and it behaves
 as documented.
@@ -127,3 +127,38 @@ is an untyped map carrying whatever the caller passed, so serialising the
 request wholesale would make the audit log the credential store nobody meant to
 build, with longer retention than the real one. Fields are allow-listed and
 credentials appear as names only.
+
+## Since P1 (PRs #60 and #63, and the P1-3 branch)
+
+**The gate follows the effect, not a flag** (CERB-DEC-816). Every operation's
+`requires_ack` is derived from its contract (CERB-CAP-212). It is true for
+`write`, `lifecycle`, `destructive`, `exec` and `admin`, and for any operation
+with `local_fs: writes`. `read` and `read_sensitive` need none. Operations that
+newly need `--ack`:
+
+- **CLI:** `server start` and `stop`, `docker up`, `down` and `destroy`,
+  `ssh get` and `get-dir`, `resource deploy`, `ensure-fresh`, `apply`, `reload`,
+  `stop`, `sync` and `remove`, and `pipeline run`.
+- **MCP:** `acknowledged` on the matching tools.
+- **Web console:** a confirm step, the only thing that sends `acknowledged`.
+- **Deploy profiles:** the console confirms a deployment-profile run against
+  the commands it will execute.
+
+**It runs before anything resolves.** Argument refusals (key table, required,
+one-of, JSON type) and the acknowledgment check come before credential
+resolution on the admin lane. The resource runtime gate comes before its locks
+and the resource lookup (`runtimeGate`). An unacknowledged call never depends on
+having a credential.
+
+**Refusals keep their code on every surface.** `acknowledgment_required` is 409
+on the socket and web, `isError` on MCP, and an error on the CLI. Uncoded
+execution failures are `operation_failed` (502), so a 500 still means a fault in
+Cerberus.
+
+**Supervision is not gated.** The resource monitor's `auto_restart` and
+health-driven restarts call the local connector directly and never meet the
+gate. `TestMonitorRestartNeverHitsTheGate` pins it.
+
+What this record is about is unchanged: the acknowledgment is still supplied by
+the caller being gated (CERB-GAP-838), and nothing records it until the audit
+log (P1-4).

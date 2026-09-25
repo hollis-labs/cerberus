@@ -9,50 +9,47 @@ import (
 
 // NewCerberusDomainListTool creates the cerberus_domain_list tool.
 func NewCerberusDomainListTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:         "cerberus_domain_list",
-		Description:  "List Namecheap domains.",
-		InputSchema:  emptyObjectSchema(),
-		ReadOnlyHint: true,
+	return contractTool(Tool{
+		Name:        "cerberus_domain_list",
+		Description: "List Namecheap domains.",
+		InputSchema: emptyObjectSchema(),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "namecheap", "list_domains", nil, false, false)
 		},
-	}
+	})
 }
 
 // NewCerberusDomainStatusTool creates the cerberus_domain_status tool.
 func NewCerberusDomainStatusTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_domain_status",
 		Description: "Get registration status and nameservers for a domain.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"domain": map[string]interface{}{"type": "string", "description": "Domain name, such as example.com."},
 		}, "domain"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "namecheap", "get_domain_status", map[string]any{"domain": stringArg(args, "domain")}, false, false)
 		},
-	}
+	})
 }
 
 // NewCerberusDNSListTool creates the cerberus_dns_list tool.
 func NewCerberusDNSListTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_dns_list",
 		Description: "List Namecheap DNS records for a domain.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"domain": map[string]interface{}{"type": "string", "description": "Domain name, such as example.com."},
 		}, "domain"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return executeConnectorMCP(ctx, client, "namecheap", "list_dns_records", map[string]any{"domain": stringArg(args, "domain")}, false, false)
 		},
-	}
+	})
 }
 
 // NewCerberusDNSCreateTool creates the cerberus_dns_create tool.
 func NewCerberusDNSCreateTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_dns_create",
 		Description: "Disabled: per-record Namecheap writes can silently delete hidden records. Use cerberus_set_dns_record_set with an authoritative whole-zone set.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -65,19 +62,15 @@ func NewCerberusDNSCreateTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "domain", "type", "host", "value"),
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  false,
-		OpenWorldHint:   false,
 		Handler: func(_ context.Context, _ map[string]interface{}) (any, error) {
 			return toolResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()})
 		},
-	}
+	})
 }
 
 // NewCerberusDNSDeleteTool creates the cerberus_dns_delete tool.
 func NewCerberusDNSDeleteTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_dns_delete",
 		Description: "Disabled: per-record Namecheap writes can silently delete hidden records. Use cerberus_set_dns_record_set with an authoritative whole-zone set.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -86,19 +79,15 @@ func NewCerberusDNSDeleteTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "domain", "record_id"),
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
 		Handler: func(_ context.Context, _ map[string]interface{}) (any, error) {
 			return toolResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()})
 		},
-	}
+	})
 }
 
 // NewCerberusNameserversSetTool creates the cerberus_nameservers_set tool.
 func NewCerberusNameserversSetTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_nameservers_set",
 		Description: "Set custom nameservers for a Namecheap domain.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -112,10 +101,6 @@ func NewCerberusNameserversSetTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "domain", "nameservers"),
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			cfg := map[string]any{
 				"domain":      stringArg(args, "domain"),
@@ -123,7 +108,7 @@ func NewCerberusNameserversSetTool(client cerbapi.Client) Tool {
 			}
 			return executeConnectorMCP(ctx, client, "namecheap", "set_custom_nameservers", cfg, boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},
-	}
+	})
 }
 
 // NewCerberusDNSRecordSetTools exposes the email-aware whole-zone operations.
@@ -135,20 +120,15 @@ func NewCerberusDNSRecordSetTools(client cerbapi.Client) []Tool {
 		}
 		operation := op.Name
 		properties := op.InputSchema["properties"].(map[string]any)
-		// Hints stay on the ack requirement until P1-3 derives every hint
-		// from the contract.
+		// An acknowledged operation takes the preview and ack arguments.
 		if op.RequiresAck {
 			properties["dry_run"] = map[string]any{"type": "boolean", "description": "Preview without changing DNS or email routing."}
 			properties["acknowledged"] = map[string]any{"type": "boolean", "description": "Acknowledge replacing the full zone and explicitly setting email routing; omitted hosts are deleted."}
 		}
-		result = append(result, Tool{
-			Name:            "cerberus_" + operation,
-			Description:     op.Description,
-			InputSchema:     op.InputSchema,
-			ReadOnlyHint:    !op.RequiresAck,
-			DestructiveHint: op.RequiresAck,
-			IdempotentHint:  op.RequiresAck,
-			OpenWorldHint:   false,
+		result = append(result, contractTool(Tool{
+			Name:        "cerberus_" + operation,
+			Description: op.Description,
+			InputSchema: op.InputSchema,
 			Handler: func(ctx context.Context, args map[string]any) (any, error) {
 				config := map[string]any{"domain": stringArg(args, "domain")}
 				if operation == "set_dns_record_set" {
@@ -157,7 +137,7 @@ func NewCerberusDNSRecordSetTools(client cerbapi.Client) []Tool {
 				}
 				return executeConnectorMCP(ctx, client, "namecheap", operation, config, boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 			},
-		})
+		}))
 	}
 	return result
 }

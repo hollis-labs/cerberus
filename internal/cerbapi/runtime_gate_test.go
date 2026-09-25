@@ -38,7 +38,14 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		"local.deploy": contract.EffectLifecycle, "local.apply": contract.EffectLifecycle,
 		"local.reload": contract.EffectLifecycle, "local.stop": contract.EffectLifecycle,
 		"local.sync": contract.EffectWrite, "local.remove": contract.EffectDestructive,
-		"pipeline.run": contract.EffectExec, "infra.run_profile": contract.EffectExec,
+		"local.ensure_fresh": contract.EffectLifecycle,
+		"pipeline.run":       contract.EffectExec, "infra.run_profile": contract.EffectExec,
+		// The reads the MCP tools serve. They change nothing and are not gated.
+		"local.list": contract.EffectRead, "local.status": contract.EffectRead, "local.inspect": contract.EffectRead,
+		"local.doctor": contract.EffectRead, "local.logs": contract.EffectReadSensitive,
+		"pipeline.list":   contract.EffectRead,
+		"cerberus.health": contract.EffectRead, "cerberus.project_list": contract.EffectRead,
+		"cerberus.connector_list": contract.EffectRead, "cerberus.connector_describe": contract.EffectRead,
 	}
 	seen := 0
 	for _, def := range RuntimeDefinitions() {
@@ -48,8 +55,8 @@ func TestRuntimeEffectClassification(t *testing.T) {
 			if got, ok := want[key]; !ok || op.Effect != got {
 				t.Errorf("%s: effect %s, want %s", key, op.Effect, want[key])
 			}
-			if !op.RequiresAck {
-				t.Errorf("%s does not require acknowledgment", key)
+			if op.RequiresAck != !op.Effect.ReadOnly() {
+				t.Errorf("%s: requires_ack %v for effect %s", key, op.RequiresAck, op.Effect)
 			}
 		}
 	}

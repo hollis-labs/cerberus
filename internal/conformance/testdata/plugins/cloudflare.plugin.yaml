@@ -1,0 +1,185 @@
+schema_version: "1"
+id: cloudflare
+version: 0.1.0
+protocol: plugin-sdk/subprocess
+runtime: subprocess
+entrypoint:
+    command: bin/cerberus-cloudflare-plugin
+cerberus:
+    connector:
+        api_version: cerberus.connector/v1
+        kind: Connector
+        id: cloudflare
+        version: 0.1.0
+        resource_types:
+            - domain
+        capabilities:
+            can_create: true
+            can_destroy: true
+            can_build: false
+            can_logs: false
+            can_health: false
+        config:
+            fields:
+                - name: zone_id
+                  type: string
+                  description: Cloudflare zone ID.
+                - name: account_id
+                  type: string
+                  description: Cloudflare account ID used for zone creation.
+            secrets:
+                - name: api_token
+                  description: Cloudflare API token. A token scoped to Zone Read and DNS Read is enough for the read operations.
+                  env: CERBERUS_CLOUDFLARE_API_TOKEN
+                  required: true
+        operations:
+            - name: list_zones
+              description: List Cloudflare zones.
+              examples:
+                - cerberus connectors plugin managed exec cloudflare list_zones
+              input_schema:
+                additionalProperties: false
+                properties: {}
+                type: object
+              effect: read
+              target:
+                kind: cloudflare.account
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+            - name: create_zone
+              description: Create a Cloudflare zone in an account.
+              examples:
+                - cerberus connectors plugin managed exec cloudflare create_zone --arg account_id=<account-id> --arg name=example.com --arg type=full --dry-run
+                - cerberus connectors plugin managed exec cloudflare create_zone --arg account_id=<account-id> --arg name=example.com --arg type=full --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    account_id:
+                        description: Cloudflare account ID.
+                        type: string
+                    name:
+                        description: Zone name such as example.com.
+                        type: string
+                    type:
+                        description: 'Zone type: full or partial.'
+                        type: string
+                required:
+                    - account_id
+                    - name
+                type: object
+              effect: write
+              reversible: true
+              target:
+                kind: cloudflare.account
+                from:
+                    - account_id
+              preview: plugin
+              output: structured
+              cost: none
+              local_fs: none
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+            - name: list_dns_records
+              description: List DNS records for a Cloudflare zone.
+              examples:
+                - cerberus connectors plugin managed exec cloudflare list_dns_records --arg zone_id=<zone-id>
+              input_schema:
+                additionalProperties: false
+                properties:
+                    zone_id:
+                        description: Cloudflare zone ID.
+                        type: string
+                required:
+                    - zone_id
+                type: object
+              effect: read
+              target:
+                kind: cloudflare.zone
+                from:
+                    - zone_id
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+            - name: create_dns_record
+              description: Create a DNS record in a Cloudflare zone.
+              examples:
+                - cerberus connectors plugin managed exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=A --arg name=app --arg content=203.0.113.10 --arg ttl=300 --dry-run
+                - cerberus connectors plugin managed exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=CNAME --arg name=www --arg content=app.example.com --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    content:
+                        description: DNS record content.
+                        type: string
+                    name:
+                        description: DNS record name.
+                        type: string
+                    priority:
+                        description: Priority for MX records.
+                        type: integer
+                    proxied:
+                        description: Whether to proxy the record through Cloudflare.
+                        type: boolean
+                    ttl:
+                        description: TTL in seconds.
+                        type: integer
+                    type:
+                        description: DNS record type.
+                        type: string
+                    zone_id:
+                        description: Cloudflare zone ID.
+                        type: string
+                required:
+                    - zone_id
+                    - type
+                    - name
+                    - content
+                type: object
+              effect: write
+              reversible: true
+              target:
+                kind: cloudflare.zone
+                from:
+                    - zone_id
+              preview: plugin
+              output: structured
+              cost: none
+              local_fs: none
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+            - name: delete_dns_record
+              description: Delete a DNS record from a Cloudflare zone.
+              examples:
+                - cerberus connectors plugin managed exec cloudflare delete_dns_record --arg zone_id=<zone-id> --arg record_id=<record-id> --dry-run
+                - cerberus connectors plugin managed exec cloudflare delete_dns_record --arg zone_id=<zone-id> --arg record_id=<record-id> --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    record_id:
+                        description: Cloudflare DNS record ID.
+                        type: string
+                    zone_id:
+                        description: Cloudflare zone ID.
+                        type: string
+                required:
+                    - zone_id
+                    - record_id
+                type: object
+              effect: destructive
+              target:
+                kind: cloudflare.dns_record
+                from:
+                    - zone_id
+                    - record_id
+              preview: plugin
+              output: structured
+              cost: none
+              local_fs: none
+              destructive: true
+              supports_dry: true
+              requires_ack: true
