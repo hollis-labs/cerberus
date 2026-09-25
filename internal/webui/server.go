@@ -82,12 +82,12 @@ func (s *Server) Handler(guard *loopback.Guard) http.Handler {
 	return s.withLogging(guard.Middleware(markWebSurface(mux)))
 }
 
-// markWebSurface marks every console request as the web surface, so a
+// markWebSurface begins every console request as the web surface, so a
 // service it reaches in-process refuses local-only inputs just as the daemon
-// would.
+// would, and the request has its own redaction scope.
 func markWebSurface(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r.WithContext(cerbapi.WithCallerSurface(r.Context(), cerbapi.SurfaceWeb)))
+		h.ServeHTTP(w, r.WithContext(cerbapi.BeginRequest(r.Context(), cerbapi.SurfaceWeb)))
 	})
 }
 

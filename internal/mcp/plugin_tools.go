@@ -156,7 +156,7 @@ func pluginTool(client cerbapi.Client, connectorID string, op contract.Operation
 			return executeConnectorMCP(ctx, client, connectorID, operation, cfg, boolArg(args, argDryRun), boolArg(args, argAcknowledged))
 		},
 	}
-	return WithHints(tool, op), nil
+	return withRequestScope(WithHints(tool, op)), nil
 }
 
 // ReservedToolNames is the set of names the hand-written tools occupy.

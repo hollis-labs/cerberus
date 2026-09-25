@@ -168,6 +168,20 @@ func WithScope(ctx context.Context, s *Scope) context.Context {
 	return context.WithValue(ctx, scopeKey{}, s)
 }
 
+// EnsureScope returns ctx carrying a scope, and that scope: the one ctx
+// already has, or a new one. A request has one scope, so an entry point
+// reached from inside another request — the web console's in-process
+// service, a CLI command that calls a helper that marks itself — joins the
+// scope it is already in instead of starting one that the outer render
+// edges cannot see.
+func EnsureScope(ctx context.Context) (context.Context, *Scope) {
+	if s := ScopeFrom(ctx); s != nil {
+		return ctx, s
+	}
+	s := NewScope()
+	return WithScope(ctx, s), s
+}
+
 // ScopeFrom returns ctx's scope, or nil — which renders as the regex net
 // alone — when there is none. Render with ScopeFrom(ctx).Text(msg).
 func ScopeFrom(ctx context.Context) *Scope {

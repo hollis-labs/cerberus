@@ -160,8 +160,17 @@ by name through `Unprotected`. A nil scope is the regex net alone, so a path
 that has no scope yet renders exactly as before. A scope never prints its
 values: `String`, `GoString` and `MarshalJSON` show a count.
 
-The scope has no callers yet. The request entry points create it, resolution
-registers into it and the render edges read it back in the PRs that follow.
+Every request entry point creates one through `cerbapi.BeginRequest`, which
+marks the caller surface and adds a scope in the same call, so an entry point
+cannot mark a surface and forget the scope. The five entry points are the socket
+server's `wrap`, which also serves `cerberus mcp` and mcp-http, the console's
+`markWebSurface`, the in-process CLI transport, each resource monitor check,
+and each MCP tool call, since an MCP server has no middleware chain and the
+daemon's stdio server runs tools in-process. A ctx that already has a scope
+keeps it, so nested entry points share one. An entry point that is bypassed
+leaves a nil scope, which renders as the regex net alone. Each entry point
+has a test for both halves. Resolution registers into the scope, and the
+render edges read it back, in the PRs that follow.
 The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
 `--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
 fixed by changing the placeholder rather than the rule.
