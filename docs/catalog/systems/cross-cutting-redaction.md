@@ -108,8 +108,10 @@ whitespace-delimited word and calls it the value.
 
 A component whose failure mode is silently rewriting the operator's recovery
 instructions is not `shipped`, and one that can pass a credential through is
-further from it than when this record was written. Seven narrow fixes have each
-been correct and none has been structural; `AGENTS.md` already names the answer
+further from it than when this record was written. Eight narrow fixes have each
+been correct and none has been structural (the latest, 2026-09-25, stopped
+`assignment` eating the word after a Go type-name prefix such as azidentity's
+`AzureCLICredential: ERROR:`); `AGENTS.md` already names the answer
 — redact at the value boundary, where the caller still holds the key and the
 value as separate things, and keep `Text` as a last-resort net over text
 Cerberus did not compose. What is still missing is the test discipline that

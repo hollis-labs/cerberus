@@ -1123,6 +1123,11 @@ func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) e
 	if errors.As(err, &coded) {
 		return err
 	}
+	// The plugin's own diagnosis first: it knows what failed.
+	var pluginCoded *pluginhost.CodedError
+	if errors.As(err, &pluginCoded) {
+		return externalConnectorError(args, ExternalConnectorErrorCode(pluginCoded.Code), err)
+	}
 	var missing *pluginhost.MissingSecretsError
 	if errors.As(err, &missing) {
 		return externalConnectorError(args, ExternalConnectorCredentialMissing, err)

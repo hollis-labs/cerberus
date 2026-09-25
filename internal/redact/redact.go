@@ -147,6 +147,28 @@ func FromEnv(env []string) Redactor {
 
 // redactPairs applies one key/value rule, replacing each captured value with
 // the marker.
+// typeNamePrefix is a Go error prefix: an UpperCamelCase type name of two or
+// more words, then a colon and whitespace, as fmt.Errorf("%s: %w") renders
+// it. azidentity writes "AzureCLICredential: ERROR: AADSTS50076: ...", and a
+// name that ends in Credential or Token satisfies the assignment rule, so the
+// message's first word was eaten as if it were the credential's value. A key
+// that is quoted, lower-case, one word, or joined with "=" is not this shape
+// and stays an assignment.
+var typeNamePrefix = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*:[ \t]+$`)
+
+// isTypeNamePrefix reports whether an assignment rule's match is a Go type
+// name introducing prose rather than a key introducing a value. Both halves
+// must agree: the key has the type-name shape, and what follows reads as the
+// start of a message — another prefix ("ERROR:", "AADSTS50076:") or an
+// ordinary word — not a token. A token-shaped value after such a name, as in
+// "ClientSecret: 8Q~kX...", is still redacted.
+func isTypeNamePrefix(key, value string) bool {
+	if !typeNamePrefix.MatchString(key) {
+		return false
+	}
+	return strings.HasSuffix(value, ":") || !looksLikeToken(value)
+}
+
 func redactPairs(pattern *regexp.Regexp, value string) string {
 	return pattern.ReplaceAllStringFunc(value, func(match string) string {
 		parts := pattern.FindStringSubmatch(match)
@@ -160,6 +182,11 @@ func redactPairs(pattern *regexp.Regexp, value string) string {
 			// same rule: a real assignment sitting behind the code — as in
 			// "credential_missing: API_KEY=..." — must not ride through on
 			// the exemption.
+			return parts[1] + redactPairs(pattern, parts[2])
+		}
+		if pattern == assignment && isTypeNamePrefix(parts[1], parts[2]) {
+			// Same hand-back as an error code: the word after the type name
+			// is prose, and anything assignment-shaped behind it is not.
 			return parts[1] + redactPairs(pattern, parts[2])
 		}
 		return parts[1] + Marker
