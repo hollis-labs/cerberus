@@ -250,7 +250,7 @@ func (c *InProcessClient) GetResourceDoctor(ctx context.Context, id string) (*Re
 }
 
 // DeployResource implements Client.
-func (c *InProcessClient) DeployResource(ctx context.Context, id string, opts ...DeployResourceOption) (*OpResult, error) {
+func (c *InProcessClient) DeployResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error) {
 	return c.runtime.DeployResource(ctx, id, opts...)
 }
 
@@ -262,28 +262,28 @@ func valueOrUnknown(v string) string {
 }
 
 // ReloadResource implements Client.
-func (c *InProcessClient) ReloadResource(ctx context.Context, id string) (*OpResult, error) {
-	return c.runtime.ReloadResource(ctx, id)
+func (c *InProcessClient) ReloadResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error) {
+	return c.runtime.ReloadResource(ctx, id, opts...)
 }
 
 // StopResource implements Client.
-func (c *InProcessClient) StopResource(ctx context.Context, id string) (*OpResult, error) {
-	return c.runtime.StopResource(ctx, id)
+func (c *InProcessClient) StopResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error) {
+	return c.runtime.StopResource(ctx, id, opts...)
 }
 
 // ApplyResource implements Client.
-func (c *InProcessClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
-	return c.runtime.ApplyResource(ctx, id)
+func (c *InProcessClient) ApplyResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error) {
+	return c.runtime.ApplyResource(ctx, id, opts...)
 }
 
 // SyncResource implements Client.
-func (c *InProcessClient) SyncResource(ctx context.Context, id string) (*OpResult, error) {
-	return c.runtime.SyncResource(ctx, id)
+func (c *InProcessClient) SyncResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error) {
+	return c.runtime.SyncResource(ctx, id, opts...)
 }
 
 // RemoveResource implements Client.
-func (c *InProcessClient) RemoveResource(ctx context.Context, id string) (*OpResult, error) {
-	return c.runtime.RemoveResource(ctx, id)
+func (c *InProcessClient) RemoveResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error) {
+	return c.runtime.RemoveResource(ctx, id, opts...)
 }
 
 // ListPipelines implements Client.
@@ -297,6 +297,6 @@ func (c *InProcessClient) GetPipeline(ctx context.Context, id string) (*Pipeline
 }
 
 // RunPipeline implements Client.
-func (c *InProcessClient) RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error) {
-	return c.runtime.RunPipeline(ctx, id)
+func (c *InProcessClient) RunPipeline(ctx context.Context, id string, opts ...MutationOption) (*PipelineRunResult, error) {
+	return c.runtime.RunPipeline(ctx, id, opts...)
 }

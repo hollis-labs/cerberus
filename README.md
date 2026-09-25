@@ -57,7 +57,7 @@ to build, install, start, stop, and report on them.
 ## Examples
 
 **Daily driver.** Chrispian ships changes to any portfolio service with
-`cerberus resource deploy <id>`, checks for build/install drift with
+`cerberus resource deploy <id> --ack`, checks for build/install drift with
 `resource status`, and manages domain cutovers with `cerberus cloudflare` /
 `cerberus domain` — one CLI for every service in the portfolio, local or
 remote.
@@ -196,12 +196,12 @@ cerberus resource status <resource-id>
 cerberus resource inspect <resource-id>
 cerberus resource doctor <resource-id>
 cerberus resource logs <resource-id>
-cerberus resource deploy <resource-id>
-cerberus resource apply <resource-id>
-cerberus resource reload <resource-id>
-cerberus resource sync <resource-id>
-cerberus resource stop <resource-id>
-cerberus resource remove <resource-id>
+cerberus resource deploy <resource-id> --ack
+cerberus resource apply <resource-id> --ack
+cerberus resource reload <resource-id> --ack
+cerberus resource sync <resource-id> --ack
+cerberus resource stop <resource-id> --ack
+cerberus resource remove <resource-id> --ack
 ```
 
 For external infra/domain operations, the current Namecheap and Cloudflare
@@ -317,20 +317,27 @@ large build tree; tar and ship a single blob for that.
 
 Mental model:
 
-- build source, sync the artifact, and activate it: `cerberus resource deploy <id>`
-- start or converge an already-built resource: `cerberus resource apply <id>`
-- restart the current installed service without building or syncing: `cerberus resource reload <id>`
+- build source, sync the artifact, and activate it: `cerberus resource deploy <id> --ack`
+- start or converge an already-built resource: `cerberus resource apply <id> --ack`
+- restart the current installed service without building or syncing: `cerberus resource reload <id> --ack`
 - inspect live runtime state: `cerberus resource status <id>`
 - inspect full runtime/install details: `cerberus resource inspect <id>`
 - diagnose a resource: `cerberus resource doctor <id>`
 - tail recent logs: `cerberus resource logs <id>`
-- sync artifact only: `cerberus resource sync <id>`
-- stop without deleting install state: `cerberus resource stop <id>`
-- uninstall runtime state: `cerberus resource remove <id>`
+- sync artifact only: `cerberus resource sync <id> --ack`
+- stop without deleting install state: `cerberus resource stop <id> --ack`
+- uninstall runtime state: `cerberus resource remove <id> --ack`
 
 `stop` is the non-destructive pause/stop path. `remove` is destructive for
 local `os_service` resources: it unloads the launch agent and removes the
 installed artifact tree.
+
+Every resource mutation and pipeline run needs acknowledgment: `--ack` on the
+CLI, `acknowledged: true` over MCP and the API, and a confirm step in the web
+console. `deploy`, `apply`, `reload` and `stop` are `lifecycle`, `sync` is a
+`write`, `remove` is `destructive`, and `pipeline run` is `exec` because a
+stage can run shell commands. The daemon's own supervision — `auto_restart`
+and health-driven restarts — is not an operation request and needs none.
 
 On macOS, `os_service` resources currently use `launchd`. Their runtime artifacts are installed under `~/.cerberus/apps/<project>/<resource>/...` before the launch agent is applied. `resource status` and `resource list` now surface artifact drift plus a recommended next action (`deploy`, `sync`, or `apply`) for artifact-backed services.
 
@@ -429,11 +436,11 @@ Typical `os_service` flow on macOS:
 ```bash
 cerberus resource list
 cerberus resource status volon-api
-cerberus resource deploy volon-api
+cerberus resource deploy volon-api --ack
 cerberus resource logs volon-api --stream stderr --lines 100
-cerberus resource reload volon-api
-cerberus resource stop volon-api
-cerberus resource remove volon-api
+cerberus resource reload volon-api --ack
+cerberus resource stop volon-api --ack
+cerberus resource remove volon-api --ack
 ```
 
 Guidance:
@@ -498,9 +505,9 @@ For normal lifecycle management, use the resource lane:
 
 ```bash
 cerberus resource status cerberus-daemon-service
-cerberus resource apply cerberus-daemon-service
-cerberus resource reload cerberus-daemon-service
-cerberus resource remove cerberus-daemon-service
+cerberus resource apply cerberus-daemon-service --ack
+cerberus resource reload cerberus-daemon-service --ack
+cerberus resource remove cerberus-daemon-service --ack
 ```
 
 `cerberus install` and `cerberus uninstall` remain as bootstrap and recovery helpers for the daemon launch agent when the socket-backed daemon is not available yet.

@@ -19,7 +19,7 @@ type fakeFreshener struct {
 func (f *fakeFreshener) GetResourceRuntime(_ context.Context, _ string) (*ResourceRuntimeStatus, error) {
 	return f.status, nil
 }
-func (f *fakeFreshener) DeployResource(_ context.Context, id string, _ ...DeployResourceOption) (*OpResult, error) {
+func (f *fakeFreshener) DeployResource(_ context.Context, id string, _ ...MutationOption) (*OpResult, error) {
 	if f.forbidMutation != nil {
 		f.forbidMutation.Fatal("unexpected deploy while activation needs verification")
 	}
@@ -27,14 +27,14 @@ func (f *fakeFreshener) DeployResource(_ context.Context, id string, _ ...Deploy
 	f.deployCalls++
 	return &OpResult{Success: true, ServiceID: id, Message: "deployed"}, nil
 }
-func (f *fakeFreshener) ApplyResource(_ context.Context, id string) (*OpResult, error) {
+func (f *fakeFreshener) ApplyResource(_ context.Context, id string, _ ...MutationOption) (*OpResult, error) {
 	if f.forbidMutation != nil {
 		f.forbidMutation.Fatal("unexpected apply while activation needs verification")
 	}
 	f.calls = append(f.calls, "apply")
 	return &OpResult{Success: true, ServiceID: id, Message: "applied"}, nil
 }
-func (f *fakeFreshener) SyncResource(_ context.Context, id string) (*OpResult, error) {
+func (f *fakeFreshener) SyncResource(_ context.Context, id string, _ ...MutationOption) (*OpResult, error) {
 	if f.forbidMutation != nil {
 		f.forbidMutation.Fatal("unexpected sync while activation needs verification")
 	}

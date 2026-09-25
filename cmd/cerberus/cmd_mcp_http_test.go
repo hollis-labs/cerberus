@@ -75,7 +75,7 @@ func TestCerberusMCPHTTPSmoke(t *testing.T) {
 	})
 
 	t.Run("pipeline run SSE", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"r1","method":"tools/call","params":{"name":"cerberus_pipeline_run","arguments":{"pipeline_id":"smoke-pipeline"}}}`))
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"r1","method":"tools/call","params":{"name":"cerberus_pipeline_run","arguments":{"pipeline_id":"smoke-pipeline","acknowledged":true}}}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream, application/json")
 		req.Header.Set("MCP-Protocol-Version", "2025-03-26")

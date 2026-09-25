@@ -590,7 +590,7 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 				add("daemon_lock_origin", "fail", fmt.Sprintf(
 					"daemon lock is held by a manual cerberus daemon (PID %d). "+
 						"This squats the launchd-managed service and causes the launchd job to crash-loop with exit 1. "+
-						"Kill the manual PID, then `cerberus resource reload %s`.",
+						"Kill the manual PID, then `cerberus resource reload %s --ack`.",
 					info.PID, daemon.CanonicalDaemonResourceID))
 			}
 		}
@@ -634,7 +634,10 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 	}, nil
 }
 
-func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string) (*OpResult, error) {
+func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	if err := resourceGate(ctx, localconn.OpReload, id, ApplyMutationOptions(options)); err != nil {
+		return nil, err
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
@@ -665,7 +668,10 @@ func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string) 
 	}, nil
 }
 
-func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string) (*OpResult, error) {
+func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	if err := resourceGate(ctx, localconn.OpStop, id, ApplyMutationOptions(options)); err != nil {
+		return nil, err
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
@@ -700,11 +706,14 @@ func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string) (*
 	}, nil
 }
 
-func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, options ...DeployResourceOption) (out *OpResult, opErr error) {
+func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, options ...MutationOption) (out *OpResult, opErr error) {
+	opts := ApplyMutationOptions(options)
+	if err := resourceGate(ctx, localconn.OpDeploy, id, opts); err != nil {
+		return nil, err
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
-	opts := ApplyDeployResourceOptions(options)
 	progressToken := fmt.Sprintf("resource:%s:deploy", id)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting deploy for resource %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 4, "Resolving resource")
@@ -875,7 +884,7 @@ func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, 
 // resolveInstallAfterBuild is the method-shaped entry point used by
 // DeployResource. It snapshots the live config and delegates to the pure
 // resolver so the precedence logic stays testable in isolation.
-func (s *ResourceRuntimeService) resolveInstallAfterBuild(rawCfg map[string]any, spec localconn.ProcessSpec, opts DeployResourceOpts) bool {
+func (s *ResourceRuntimeService) resolveInstallAfterBuild(rawCfg map[string]any, spec localconn.ProcessSpec, opts MutationOpts) bool {
 	return ResolveInstallAfterBuild(rawCfg, spec.InstallAfterBuild, s.snapshotConfig().InstallAfterBuildDefault(), opts.InstallAfterBuildOverride)
 }
 
@@ -917,7 +926,10 @@ func hasBuildStrategyConfig(cfg map[string]any) bool {
 	return kind != ""
 }
 
-func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (out *OpResult, opErr error) {
+func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string, options ...MutationOption) (out *OpResult, opErr error) {
+	if err := resourceGate(ctx, localconn.OpApply, id, ApplyMutationOptions(options)); err != nil {
+		return nil, err
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	progressToken := fmt.Sprintf("resource:%s:apply", id)
@@ -969,7 +981,7 @@ func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string) (
 		Activation: activation,
 		Success:    true,
 		ServiceID:  id,
-		Message:    localconn.FormatApplyResultMessage(id, spec, applyRes) + "; no build ran and source freshness was not checked; use cerberus resource deploy " + id + " after source changes",
+		Message:    localconn.FormatApplyResultMessage(id, spec, applyRes) + "; no build ran and source freshness was not checked; use cerberus resource deploy " + id + " --ack after source changes",
 	}, nil
 }
 
@@ -996,7 +1008,10 @@ func (s *ResourceRuntimeService) formatApplyError(id string, res *config.Resourc
 	return fmt.Sprintf("%s; %s", msg, inspectHint)
 }
 
-func (s *ResourceRuntimeService) SyncResource(ctx context.Context, id string) (*OpResult, error) {
+func (s *ResourceRuntimeService) SyncResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	if err := resourceGate(ctx, localconn.OpSync, id, ApplyMutationOptions(options)); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -1051,7 +1066,10 @@ func (s *ResourceRuntimeService) SyncResource(ctx context.Context, id string) (*
 	}, nil
 }
 
-func (s *ResourceRuntimeService) RemoveResource(ctx context.Context, id string) (*OpResult, error) {
+func (s *ResourceRuntimeService) RemoveResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	if err := resourceGate(ctx, localconn.OpRemove, id, ApplyMutationOptions(options)); err != nil {
+		return nil, err
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 

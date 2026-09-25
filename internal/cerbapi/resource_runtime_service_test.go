@@ -28,7 +28,7 @@ func TestResourceRuntimeStopPausesDevSessionUntilApply(t *testing.T) {
 	}
 	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
 
-	stopRes, err := svc.StopResource(context.Background(), "dev-api")
+	stopRes, err := svc.StopResource(context.Background(), "dev-api", WithAcknowledged(true))
 	if err != nil {
 		t.Fatalf("StopResource returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestResourceRuntimeStopPausesDevSessionUntilApply(t *testing.T) {
 		t.Fatalf("expected operator stopped doctor result, got %+v", doctor)
 	}
 
-	applyRes, err := svc.ApplyResource(context.Background(), "dev-api")
+	applyRes, err := svc.ApplyResource(context.Background(), "dev-api", WithAcknowledged(true))
 	if err != nil {
 		t.Fatalf("ApplyResource returned error: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestResourceRuntimeStopDoesNotPauseOSService(t *testing.T) {
 	}
 	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
 
-	stopRes, err := svc.StopResource(context.Background(), "service-api")
+	stopRes, err := svc.StopResource(context.Background(), "service-api", WithAcknowledged(true))
 	if err != nil {
 		t.Fatalf("StopResource returned error: %v", err)
 	}

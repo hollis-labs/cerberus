@@ -40,86 +40,143 @@ type GitStatus struct {
 	RemoteURL string   `json:"remote_url,omitempty"`
 }
 
-func RunDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) (*DeploymentRunResult, error) {
-	result := &DeploymentRunResult{
-		ProfileID: profile.ID,
-		Provider:  profile.Provider,
-	}
-	if profile.RepoPath == "" {
-		result.Error = "repo_path is required"
-		return result, nil
-	}
-	info, err := os.Stat(profile.RepoPath)
-	if err != nil || !info.IsDir() {
-		result.Error = fmt.Sprintf("repo path %q is not available", profile.RepoPath)
-		return result, nil
-	}
-
-	result.Git = inspectGitRepo(ctx, profile)
-
-	switch profile.Provider {
-	case "vercel":
-		runVercelDeployment(ctx, secrets, profile, result)
-	default:
-		result.Error = fmt.Sprintf("unsupported deployment provider %q", profile.Provider)
-	}
-	result.Success = result.Error == ""
-	return result, nil
+// PlannedStep is one command a deployment run executes, as the operator is
+// shown it before confirming. A secret never appears in it — only its name,
+// in brackets — so the plan is safe to display and to record.
+type PlannedStep struct {
+	Name    string `json:"name"`
+	Command string `json:"command"`
 }
 
-func runVercelDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile, result *DeploymentRunResult) {
+// DeploymentPlan is what running a profile will do: the steps, in order, and
+// the directory they run in. The run executes exactly these steps.
+type DeploymentPlan struct {
+	ProfileID string        `json:"profile_id"`
+	Provider  string        `json:"provider"`
+	RepoPath  string        `json:"repo_path"`
+	Steps     []PlannedStep `json:"steps"`
+	Error     string        `json:"error,omitempty"`
+
+	steps []deployStep
+}
+
+// deployStep is a planned step with what actually runs: a shell command, or
+// an argv. Either may carry a secret the displayed Command names instead.
+type deployStep struct {
+	display string
+	name    string
+	shell   string
+	argv    []string
+	after   func(result *DeploymentRunResult, output string)
+}
+
+const vercelTokenPlaceholder = "[vercel token]" //nolint:gosec // the name shown in place of the token, never a value
+
+// PlanDeployment computes the steps RunDeployment would execute for profile,
+// without running any of them. It reads credentials only to know whether a
+// flag will be passed; their values stay out of the plan.
+func PlanDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) *DeploymentPlan {
+	plan := &DeploymentPlan{ProfileID: profile.ID, Provider: profile.Provider, RepoPath: profile.RepoPath}
+	if profile.RepoPath == "" {
+		plan.Error = "repo_path is required"
+		return plan
+	}
+	if info, err := os.Stat(profile.RepoPath); err != nil || !info.IsDir() {
+		plan.Error = fmt.Sprintf("repo path %q is not available", profile.RepoPath)
+		return plan
+	}
+	switch profile.Provider {
+	case "vercel":
+		plan.steps, plan.Error = planVercel(ctx, secrets, profile)
+	default:
+		plan.Error = fmt.Sprintf("unsupported deployment provider %q", profile.Provider)
+	}
+	for _, step := range plan.steps {
+		plan.Steps = append(plan.Steps, PlannedStep{Name: step.name, Command: step.display})
+	}
+	return plan
+}
+
+func planVercel(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) ([]deployStep, string) {
 	token := secretValue(ctx, secrets, "vercel", "token")
 	scope := profile.VercelScope
 	if scope == "" {
 		scope = secretValue(ctx, secrets, "vercel", "scope")
 	}
-
+	var steps []deployStep
 	if profile.PreflightCommand != "" {
-		if !runShellStep(ctx, profile, result, "preflight", profile.PreflightCommand, nil) {
-			return
-		}
+		steps = append(steps, deployStep{name: "preflight", display: profile.PreflightCommand, shell: profile.PreflightCommand})
 	}
 	if profile.BuildCommand != "" {
-		if !runShellStep(ctx, profile, result, "build", profile.BuildCommand, nil) {
-			return
-		}
+		steps = append(steps, deployStep{name: "build", display: profile.BuildCommand, shell: profile.BuildCommand})
 	}
-
 	if !hasVercelLink(profile.RepoPath) {
 		if profile.VercelProject == "" {
-			result.Error = "vercel_project is required before first deploy when the repo is not linked"
-			return
+			return steps, "vercel_project is required before first deploy when the repo is not linked"
 		}
-		args := []string{"link", "--yes", "--project", profile.VercelProject}
+		argv := []string{"vercel", "link", "--yes", "--project", profile.VercelProject}
 		if scope != "" {
-			args = append(args, "--scope", scope)
+			argv = append(argv, "--scope", scope)
 		}
+		display := strings.Join(argv, " ")
 		if token != "" {
-			args = append(args, "--token", token)
+			argv = append(argv, "--token", token)
+			display += " --token " + vercelTokenPlaceholder
 		}
-		if !runCommandStep(ctx, profile, result, "link", "vercel", args...) {
-			return
-		}
+		steps = append(steps, deployStep{name: "link", display: display, argv: argv})
 	}
 
-	deployCommand := profile.DeployCommand
-	if strings.TrimSpace(deployCommand) == "" {
+	deployCommand := strings.TrimSpace(profile.DeployCommand)
+	if deployCommand == "" {
 		deployCommand = "vercel --prod --yes"
 	}
-	if token != "" || scope != "" {
-		deployCommand = strings.TrimSpace(deployCommand)
-		if scope != "" && !strings.Contains(deployCommand, "--scope") {
-			deployCommand += " --scope " + shellQuote(scope)
-		}
-		if token != "" && !strings.Contains(deployCommand, "--token") {
-			deployCommand += " --token " + shellQuote(token)
-		}
+	display, shell := deployCommand, deployCommand
+	if scope != "" && !strings.Contains(deployCommand, "--scope") {
+		display += " --scope " + shellQuote(scope)
+		shell += " --scope " + shellQuote(scope)
 	}
-	if !runShellStep(ctx, profile, result, "deploy", deployCommand, func(output string) {
+	if token != "" && !strings.Contains(deployCommand, "--token") {
+		display += " --token " + vercelTokenPlaceholder
+		shell += " --token " + shellQuote(token)
+	}
+	steps = append(steps, deployStep{name: "deploy", display: display, shell: shell, after: func(result *DeploymentRunResult, output string) {
 		result.DeploymentURL = extractDeploymentURL(output)
-	}) {
-		return
+	}})
+	return steps, ""
+}
+
+// RunDeployment executes profile's plan. Each step's recorded command is the
+// displayed one, so a credential passed on the command line never reaches
+// the result.
+func RunDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) (*DeploymentRunResult, error) {
+	result := &DeploymentRunResult{ProfileID: profile.ID, Provider: profile.Provider}
+	plan := PlanDeployment(ctx, secrets, profile)
+	if plan.Error != "" && len(plan.steps) == 0 {
+		result.Error = plan.Error
+		return result, nil
 	}
+	result.Git = inspectGitRepo(ctx, profile)
+	for _, step := range plan.steps {
+		var cmd *exec.Cmd
+		if step.shell != "" {
+			cmd = exec.CommandContext(ctx, "/bin/sh", "-lc", step.shell) //nolint:gosec // the operator's own profile, confirmed against its plan
+		} else {
+			cmd = exec.CommandContext(ctx, step.argv[0], step.argv[1:]...) //nolint:gosec // as above
+		}
+		cmd.Dir = profile.RepoPath
+		var after func(string)
+		if step.after != nil {
+			after = func(output string) { step.after(result, output) }
+		}
+		if !executeStep(result, step.name, step.display, cmd, after) {
+			break
+		}
+	}
+	if result.Error == "" {
+		result.Error = plan.Error
+	}
+	result.Success = result.Error == ""
+	return result, nil
 }
 
 func inspectGitRepo(ctx context.Context, profile DeploymentProfile) GitStatus {
@@ -150,18 +207,6 @@ func runGitOutput(ctx context.Context, cwd string, args ...string) string {
 func hasVercelLink(repoPath string) bool {
 	_, err := os.Stat(filepath.Join(repoPath, ".vercel", "project.json"))
 	return err == nil
-}
-
-func runShellStep(ctx context.Context, profile DeploymentProfile, result *DeploymentRunResult, name, command string, after func(string)) bool {
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-lc", command) //nolint:gosec
-	cmd.Dir = profile.RepoPath
-	return executeStep(result, name, command, cmd, after)
-}
-
-func runCommandStep(ctx context.Context, profile DeploymentProfile, result *DeploymentRunResult, name, bin string, args ...string) bool {
-	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec
-	cmd.Dir = profile.RepoPath
-	return executeStep(result, name, strings.Join(append([]string{bin}, args...), " "), cmd, nil)
 }
 
 func executeStep(result *DeploymentRunResult, name, command string, cmd *exec.Cmd, after func(string)) bool {

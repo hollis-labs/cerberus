@@ -163,7 +163,7 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 	}
 	if needsReload {
 		if out, err := b.bootstrapService(ctx, domainTarget, serviceTarget, plistPath); err != nil {
-			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s failed; service may be stopped, retry cerberus resource apply %s: %w%s", label, res.ID, err, formatLaunchdFailureDetails(out, layout))
+			return ApplyResult{}, fmt.Errorf("launchctl bootstrap %s failed; service may be stopped, retry cerberus resource apply %s --ack: %w%s", label, res.ID, err, formatLaunchdFailureDetails(out, layout))
 		}
 	}
 	if !needsReload && (state == domain.StateRunning || state == domain.StateStarting) {

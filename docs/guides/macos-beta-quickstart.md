@@ -79,8 +79,8 @@ If your config contains the v2 resource `cerberus-daemon-service`, prefer the re
 
 ```bash
 cerberus resource status cerberus-daemon-service
-cerberus resource apply cerberus-daemon-service
-cerberus resource reload cerberus-daemon-service
+cerberus resource apply cerberus-daemon-service --ack
+cerberus resource reload cerberus-daemon-service --ack
 ```
 
 Keep `cerberus install` and `cerberus uninstall` for bootstrap and recovery when the daemon socket is not available.
@@ -151,11 +151,11 @@ For an artifact-backed `os_service`:
 
 ```bash
 cerberus resource status my-api-uat
-cerberus resource deploy my-api-uat
+cerberus resource deploy my-api-uat --ack
 cerberus resource status my-api-uat
 cerberus resource logs my-api-uat --stream stderr --lines 100
-cerberus resource stop my-api-uat
-cerberus resource apply my-api-uat
+cerberus resource stop my-api-uat --ack
+cerberus resource apply my-api-uat --ack
 ```
 
 Use the lifecycle verbs precisely:

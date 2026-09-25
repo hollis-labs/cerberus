@@ -165,7 +165,8 @@ export interface PipelineInfo {
 export interface PipelineRunResult {
   success: boolean
   error?: string
-  raw?: number[]
+  // The pipeline result as JSON bytes, base64-encoded (a Go []byte on the wire).
+  raw?: string
 }
 
 export interface RegistryEntry {
@@ -318,7 +319,6 @@ export interface DeploymentProfile {
   preflight_command?: string
   build_command?: string
   deploy_command?: string
-  suggested?: boolean
 }
 
 export interface DeploymentRunStep {
@@ -349,7 +349,16 @@ export interface InfraResponse {
   state_path?: string
   providers: InfraProvider[]
   deployments: DeploymentProfile[]
-  suggestions?: DeploymentProfile[]
+  error?: string
+}
+
+// What running a deployment profile will execute, for the confirm step.
+// Credentials appear by name in brackets, never by value.
+export interface DeploymentPlan {
+  profile_id: string
+  provider: string
+  repo_path: string
+  steps: { name: string; command: string }[]
   error?: string
 }
 
@@ -448,8 +457,9 @@ export const apiClient = {
       query: { stream, lines },
     }),
   listPipelines: (signal?: AbortSignal) => http.get<PipelineInfo[]>('/api/pipelines', { signal }),
-  runPipeline: (id: string, token: string) =>
-    http.post<PipelineRunResult>(`/api/pipelines/${encodeURIComponent(id)}/run`, {} as JsonObject, {
+  // acknowledged is true only when the operator confirmed the run.
+  runPipeline: (id: string, token: string, acknowledged: boolean) =>
+    http.post<PipelineRunResult>(`/api/pipelines/${encodeURIComponent(id)}/run`, { acknowledged } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   listRegistry: (signal?: AbortSignal) => http.get<RegistryListResponse>('/api/registry', { signal }),
@@ -475,7 +485,8 @@ export const apiClient = {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   listDeployments: (signal?: AbortSignal) =>
-    http.get<{ deployments: DeploymentProfile[]; suggestions?: DeploymentProfile[]; state_path?: string }>('/api/deployments', { signal }),
+    http.get<{ deployments: DeploymentProfile[]; state_path?: string }>('/api/deployments', { signal }),
+  planDeployment: (id: string) => http.get<DeploymentPlan>(`/api/deployments/${encodeURIComponent(id)}/plan`),
   saveDeployment: (profile: DeploymentProfile, token: string) =>
     http.post<{ success: boolean }>('/api/deployments', profile as unknown as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
@@ -484,8 +495,9 @@ export const apiClient = {
     http.post<{ success: boolean }>(`/api/deployments/${encodeURIComponent(id)}/delete`, {} as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
-  runDeployment: (id: string, token: string) =>
-    http.post<DeploymentRunResult>(`/api/deployments/${encodeURIComponent(id)}/run`, {} as JsonObject, {
+  // acknowledged is true only when the operator confirmed the plan.
+  runDeployment: (id: string, token: string, acknowledged: boolean) =>
+    http.post<DeploymentRunResult>(`/api/deployments/${encodeURIComponent(id)}/run`, { acknowledged } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   runConnectorOperation: (id: string, operation: string, body: ConnectorOperationRequest, token: string) =>
@@ -503,8 +515,9 @@ export const apiClient = {
     http.post<ManagedPluginState>(`/api/plugins/connectors/${encodeURIComponent(id)}/unload`, {} as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
-  runResourceAction: (id: string, action: ResourceAction, token: string) =>
-    http.post<OpResult>(`/api/resources/${encodeURIComponent(id)}/${action}`, {} as JsonObject, {
+  // acknowledged is true only when the operator confirmed the action.
+  runResourceAction: (id: string, action: ResourceAction, token: string, acknowledged: boolean) =>
+    http.post<OpResult>(`/api/resources/${encodeURIComponent(id)}/${action}`, { acknowledged } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
 }

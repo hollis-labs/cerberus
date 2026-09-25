@@ -30,11 +30,11 @@ func TestDeployBuildsActivatesAndPreservesRunningProcessOnBuildFailure(t *testin
 	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
 	ctx := context.Background()
 	t.Cleanup(func() {
-		_, _ = svc.StopResource(ctx, id)
+		_, _ = svc.StopResource(ctx, id, WithAcknowledged(true))
 		_ = pausectl.ResumeService(id)
 		_ = service.RemovePIDFile(id)
 	})
-	first, err := svc.DeployResource(ctx, id)
+	first, err := svc.DeployResource(ctx, id, WithAcknowledged(true))
 	if err != nil || !first.Success || !first.BuildPerformed || first.Activation == nil || first.Activation.SHA256 == "" {
 		t.Fatalf("deploy lacked build/activation evidence: %+v %v", first, err)
 	}
@@ -42,7 +42,7 @@ func TestDeployBuildsActivatesAndPreservesRunningProcessOnBuildFailure(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := svc.DeployResource(ctx, id)
+	second, err := svc.DeployResource(ctx, id, WithAcknowledged(true))
 	if err != nil || !second.Success {
 		t.Fatalf("second deploy: %+v %v", second, err)
 	}
@@ -53,7 +53,7 @@ func TestDeployBuildsActivatesAndPreservesRunningProcessOnBuildFailure(t *testin
 	if err = os.WriteFile(makefile, []byte("build:\n\t@exit 2\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	failed, err := svc.DeployResource(ctx, id)
+	failed, err := svc.DeployResource(ctx, id, WithAcknowledged(true))
 	if err != nil || failed.Success || !strings.Contains(failed.Error, "build failed") {
 		t.Fatalf("build failure not reported: %+v %v", failed, err)
 	}
@@ -61,10 +61,10 @@ func TestDeployBuildsActivatesAndPreservesRunningProcessOnBuildFailure(t *testin
 	if err != nil || still != after {
 		t.Fatal("failed build disrupted running process")
 	}
-	if _, err = svc.StopResource(ctx, id); err != nil {
+	if _, err = svc.StopResource(ctx, id, WithAcknowledged(true)); err != nil {
 		t.Fatal(err)
 	}
-	applied, err := svc.ApplyResource(ctx, id)
+	applied, err := svc.ApplyResource(ctx, id, WithAcknowledged(true))
 	if err != nil || !applied.Success || applied.BuildPerformed || applied.Activation == nil || !strings.Contains(applied.Message, "no build ran") {
 		t.Fatalf("apply confused with deployment: %+v %v", applied, err)
 	}
