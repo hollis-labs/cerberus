@@ -2,13 +2,13 @@
 id: "CERB-CAP-400"
 class: "capability"
 name: "CLI surface"
-summary: "A 28-command cobra tree that is the only Cerberus surface covering every capability, mostly routed to the daemon socket but with three deliberate local-resolution exceptions."
+summary: "A 28-command cobra tree that is the only Cerberus surface covering every capability, mostly routed to the daemon socket but with a handful of deliberate in-process exceptions."
 state_field: "maturity"
 state_label: "shipped"
 review_status: "draft"
 confidence_score: 0.92
-confidence_label: "Command tree enumerated from the installed binary; routing read from source at the matching commit"
-last_reviewed: "2026-09-17"
+confidence_label: "Command tree enumerated from the installed binary at audit time; in-process routing re-read on main after P0 (#48 to #54)"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -37,6 +37,12 @@ relationships:
   - type: "blocks"
     target: "CERB-GAP-448"
     note: "resource show bypasses the daemon"
+  - type: "relates_to"
+    target: "CERB-GAP-846"
+    note: "the in-process exceptions keep free-form power"
+  - type: "blocks"
+    target: "CERB-GAP-852"
+    note: "refusals print the usage block first"
 ---
 
 # CLI surface
@@ -61,8 +67,8 @@ The tree is organised into three cobra groups plus ungrouped extras:
   `docker`, `domain`, `forge`, `github`, `server`, `ssh`.
 - **Ungrouped** — `mcp-http`, `run-secrets`, `completion`, `help`.
 
-Most commands route to the daemon over the unix socket. Three notable
-exceptions do not, and the difference matters:
+Most commands route to the daemon over the unix socket. These exceptions do
+not, and the difference matters:
 
 - `resource show` resolves the config locally through
   `registry.ResolveConfig(cfgPath)` and never asks the daemon, so it reports the
@@ -75,7 +81,18 @@ exceptions do not, and the difference matters:
   a connector reads `LIVE=yes` while every call against it fails.
 - `connectors plugin exec` / `plugin health` (without `managed`) install, load
   and run a plugin **in the calling process**, bypassing the daemon's plugin
-  host entirely. `connectors plugin managed …` is the daemon-hosted path.
+  host entirely. `connectors plugin managed …` is the daemon-hosted path. Since
+  PR #50 nothing else can run a plugin directory: the socket and web routes for
+  it answer 410.
+- `cerberus docker` with `--host`, `--context` or `-f` runs **in-process**,
+  because since PR #52 the socket refuses ad-hoc docker targets
+  (CERB-DEC-813).
+- An explicit `--config` forces connector verbs in-process (PR #50), so a
+  resource id is never resolved against a config other than the one the
+  operator named.
+
+Those in-process paths keep free-form power that no remote surface has, which
+is why in-process is not a trust boundary (CERB-GAP-846).
 
 The CLI is the only surface for daemon lifecycle (`daemon start|stop|restart|
 status`), launch-agent management (`install`, `uninstall`), layout introspection
