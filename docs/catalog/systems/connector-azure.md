@@ -8,11 +8,11 @@ state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.8
 confidence_label: "Plugin loads with no missing secrets, but this audit ran no Azure operation; locked paths are documented not built"
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "plugin"
-pointer_locator: "~/Projects-apps/cerberus-plugins/azure (plugin manifest)"
+pointer_locator: "hollis-labs/cerberus-plugins: azure/ (plugin manifest)"
 tags:
   - "ai-deployments"
   - "azure"
@@ -45,7 +45,8 @@ relationships:
 Azure is a plugin, not a built-in, and it is the worked example of the rule:
 a provider integration that carries a vendor SDK ships on its own schedule and
 is optional per user. It loads from
-`~/Projects-apps/cerberus-plugins/dist/azure`, at `trust_tier: unsigned`, v0.1.0,
+a build of the separate plugins repository, recorded at audit time as
+`trust_tier: unsigned` (since PR #51, `origin: installed`), v0.1.0,
 reporting no missing secrets — because the plugin's one declared secret, a
 service principal client secret, is genuinely optional: with no service
 principal configured it authenticates as the signed-in `az` CLI user.

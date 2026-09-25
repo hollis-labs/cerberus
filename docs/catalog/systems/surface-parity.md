@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.9
-confidence_label: "Operation lists from connectors describe against the running daemon; surface coverage cross-read from source and probed live where a listener existed"
-last_reviewed: "2026-09-17"
+confidence_label: "Operation lists from connectors describe at audit time; plugin rows and the generic route re-read on main after P0 (#48 to #54)"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -59,10 +59,10 @@ the CLI or for MCP.
 
 The reason is architectural, not accidental. The socket API has **one generic
 route** for connector operations, `POST /connectors/{id}/operations/{op}`,
-which takes an arbitrary config body and resolves built-in and plugin
-connectors alike. The console inherits it and drives it generically: the
+which takes a config body (limited to a resource id and operation fields for
+ssh and docker since P0) and resolves built-in and plugin connectors alike. The console inherits it and drives it generically: the
 Connectors page iterates `connector.operations` from the discovery metadata and
-renders a Run button, a JSON config box and dry-run/ack toggles for each. Both
+renders a Run button, a config input (a resource picker for ssh and docker) and dry-run/ack toggles for each. Both
 are mechanical, so a new connector operation reaches them for free.
 
 The CLI and MCP are the opposite. Every operation they expose is a hand-written
@@ -141,11 +141,12 @@ not the HTTP-API column.
 | connectors list / describe | Y | Y | Y | Y | Y |
 | **generic connector operation exec** | **n** | **Y** | **Y** | **n** | **Y** |
 | plugin managed list | Y | Y | Y | **n** | Y |
-| plugin managed install / load / unload | Y | Y | Y | **n** | Y |
+| plugin managed install (by path) | Y | Y | n (410) | **n** | n |
+| plugin managed load / unload | Y | Y | Y | **n** | Y |
 | plugin managed uninstall | Y | Y | Y | **n** | n |
 | plugin managed health | Y | Y | Y | **n** | Y |
 | plugin managed exec | Y | Y | Y | **n** | Y via connectors page |
-| plugin exec / health (in-process, unmanaged) | Y | n | n | n | n |
+| plugin exec / health (in-process, unmanaged) | Y | n (410) | n (410) | n | n |
 | write-plugin-prototype | Y | n | n | n | n |
 | validate / config validate | Y | n | Y | **n** | Y |
 | config resolve | n | n | Y | n | Y |
@@ -185,3 +186,14 @@ which is authoritative:
 The row above originally read `resource status / inspect / doctor / logs` as present on all five surfaces. That was wrong for two of the four verbs. The console's own HTTP API does serve `GET /api/resources/{id}/inspect` and `/doctor` — both are routed at `internal/webui/server.go:347-348` and both are covered in `server_test.go` — but `web/src/api/client.ts` has no method for either, so the console UI cannot reach them. The console serves two verbs its own interface never calls.
 
 The cause is the same one this record identifies for MCP: the supervision lane has no declared operation metadata to generate a surface from, so each surface carries a hand-maintained verb list — five of them — and they have drifted. The connector lane does not have this problem because `connectors.tsx` iterates discovery metadata.
+
+## Since P0
+
+PR #50 made the plugin rows above true in a stricter sense. The one-shot
+`plugin_dir` routes and web install-by-path now answer 410, so running a
+directory is CLI-only and installing one is CLI-plus-socket. The generic
+connector route is no longer free-form for ssh and docker (CERB-DEC-813), and
+the MCP ssh and docker tools accept only a resource id. `docker destroy` is
+still on neither the CLI nor MCP (CERB-GAP-272). The per-connector table
+predates `ssh put_dir` and `get_dir`, which are on the CLI and MCP, so ssh now
+declares seven operations rather than five.

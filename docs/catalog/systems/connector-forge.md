@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.8
-confidence_label: "No token on this machine and zero test files; the flag gaps are read from the definition"
-last_reviewed: "2026-09-17"
+confidence_label: "No token on the audit machine and zero test files in the package; flags re-read on main after P0 (#48 to #54)"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -32,7 +32,7 @@ relationships:
     note: "Last in the migration order, having no SDK to shed"
   - type: "blocks"
     target: "CERB-GAP-279"
-    note: "update_deployment_script writes what every future deploy runs and is not flagged destructive"
+    note: "update_deployment_script was not flagged destructive; closed in PR #49"
   - type: "blocks"
     target: "CERB-GAP-280"
     note: "Zero test files in the package that owns arbitrary remote command execution"
@@ -52,8 +52,11 @@ command, which is what an operator reads before acknowledging.
 arbitrary command inside a production site.
 
 `update_deployment_script` replaces the script that runs on *every future
-deploy* of that site, and is flagged neither destructive nor dry-runnable. It
-takes no `--ack` and offers no preview. It is also CLI-only —
+deploy* of that site. At audit time it was flagged neither destructive nor
+dry-runnable. PR #49 made it destructive, since the script is what `deploy_site`
+runs next, so `cerberus forge set-script` now demands the `--ack` it already
+bound. It still offers no preview; `--dry-run` returns `preview_unsupported` and
+runs nothing (CERB-GAP-279). It is also CLI-only —
 `cerberus forge set-script` — with no MCP tool, which limits the blast radius
 for an agent caller but not for a person. Its read counterpart,
 `get_deployment_script`, is likewise CLI-only.
@@ -66,14 +69,14 @@ the connector with no vendor SDK to shed, which is why it is last in the
 migration order to plugins — the 33MB Cloudflare win comes first — so the
 untested state is not something a migration will incidentally fix.
 
-There is no Forge token on this machine, `live` reads `no`, and nothing here was
-run.
+There was no Forge token on the audit machine, `live` read `no`, and nothing here
+was run.
 
 ## Owns
 
 - Forge server list and get
 - Site list per server
-- Deployment script read and replace
+- Deployment script read, and ack-gated replace
 - Triggering a site deployment
 - Running an arbitrary command inside a site
 
