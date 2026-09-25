@@ -65,10 +65,11 @@ type Client interface {
 	ListLiveConnectors(ctx context.Context) ([]string, error)
 	// ExecuteConnectorOperation runs a connector operation through the external connector service.
 	ExecuteConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error)
-	// PluginHealth runs plugin install/load/health for a local plugin directory.
-	PluginHealth(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error)
-	// ExecutePluginConnector runs a connector operation through a local plugin directory.
-	ExecutePluginConnector(ctx context.Context, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error)
+	// Running a plugin from a directory (PluginConnectorService) is deliberately
+	// not on this interface: it executes whatever entrypoint the path names, so
+	// it exists only in-process, in the operator's own shell
+	// (`cerberus connectors plugin health|exec <dir>`). Socket and web callers
+	// address an installed plugin by id.
 	// InstallManagedPlugin validates and registers a plugin directory with the daemon manager.
 	InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error)
 	// LoadManagedPlugin starts a previously installed plugin by id.

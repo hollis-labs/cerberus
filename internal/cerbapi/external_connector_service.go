@@ -94,6 +94,7 @@ type ExternalConnectorDryRunPreview struct {
 type ExternalConnectorService struct {
 	registry       *connector.Registry
 	managedPlugins *ManagedPluginConnectorService
+	resources      ResourceLookup
 }
 
 func NewExternalConnectorService(registry *connector.Registry, managedPlugins ...*ManagedPluginConnectorService) *ExternalConnectorService {
@@ -163,6 +164,17 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: connector registry is not configured", args.Connector, args.Operation))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector registry unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
+	}
+	// An SSH target is always a configured resource. Resolve it first, so a
+	// dry-run preview shows the target that would really be used.
+	if args.Connector == "ssh" {
+		resolved, err := s.resolveSSHTarget(args)
+		if err != nil {
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "SSH target refused")
+			return ExternalConnectorOperationResult{}, err
+		}
+		args = resolved
 	}
 	// Refuse before credential resolution, dry-run previews, or plugin dispatch.
 	if args.Connector == "namecheap" && (args.Operation == "create_dns_record" || args.Operation == "delete_dns_record") {

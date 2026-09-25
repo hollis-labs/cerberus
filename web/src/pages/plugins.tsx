@@ -1,17 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Button, Callout, EmptyState, SettingsField, SettingsGrid, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
+import { Button, Callout, EmptyState, SettingsField, SettingsGrid, SettingsPanel, SummaryCards } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type PluginHealth, type PluginTrustOptions } from '../api/client'
+import { apiClient, type PluginHealth } from '../api/client'
 
 export function PluginsPage() {
   const plugins = usePoll((signal) => apiClient.listManagedPlugins(signal), 5000)
   const [sessionToken, setSessionToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
-  const [installPath, setInstallPath] = useState('')
-  const [inspectPath, setInspectPath] = useState('')
-  const [devMode, setDevMode] = useState(true)
   const [healthByPlugin, setHealthByPlugin] = useState<Record<string, PluginHealth>>({})
-  const [previewHealth, setPreviewHealth] = useState<PluginHealth | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -60,34 +56,6 @@ export function PluginsPage() {
     { label: 'Healthy', value: items.filter((item) => healthByPlugin[item.id]?.healthy).length, accentColor: 'var(--color-warning)' },
   ]
 
-  async function install() {
-    if (!sessionToken || !installPath.trim() || busy) return
-    setBusy('install')
-    setError(null)
-    try {
-      await apiClient.installManagedPlugin(installPath.trim(), trust(devMode), sessionToken)
-      setInstallPath('')
-      await plugins.refetch()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function inspect() {
-    if (!sessionToken || !inspectPath.trim() || busy) return
-    setBusy('inspect')
-    setError(null)
-    try {
-      setPreviewHealth(await apiClient.checkPluginHealth(inspectPath.trim(), trust(devMode), sessionToken))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
-  }
-
   async function toggleLoad(id: string, loaded: boolean) {
     if (!sessionToken || busy) return
     setBusy(id)
@@ -131,43 +99,18 @@ export function PluginsPage() {
       <div className="space-y-4">
         {error && <Callout tone="danger" className="mx-4">{error}</Callout>}
 
-        <section className="grid gap-4 px-4 xl:grid-cols-2">
-          <SettingsPanel title="Install managed plugin">
-            <div className="space-y-3">
-              <input
-                value={installPath}
-                onChange={(event) => setInstallPath(event.target.value)}
-                placeholder="/absolute/path/to/plugin"
-                className="w-full border border-border bg-panel-2/60 px-3 py-2 text-sm text-text outline-none transition-colors focus:border-border-strong"
-              />
-              <label className="flex items-center gap-2 text-xs text-text-soft">
-                <input type="checkbox" checked={devMode} onChange={(event) => setDevMode(event.target.checked)} />
-                Developer trust policy
-              </label>
-              <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null || installPath.trim() === ''} onClick={() => void install()}>
-                {busy === 'install' ? 'Installing...' : 'Install'}
-              </Button>
-            </div>
-          </SettingsPanel>
-
-          <SettingsPanel title="Check plugin directory" className="border-b-0">
-            <div className="space-y-3">
-              <input
-                value={inspectPath}
-                onChange={(event) => setInspectPath(event.target.value)}
-                placeholder="/absolute/path/to/plugin"
-                className="w-full border border-border bg-panel-2/60 px-3 py-2 text-sm text-text outline-none transition-colors focus:border-border-strong"
-              />
-              <Button variant="outline" size="sm" disabled={!sessionToken || busy !== null || inspectPath.trim() === ''} onClick={() => void inspect()}>
-                {busy === 'inspect' ? 'Checking...' : 'Check health'}
-              </Button>
-              {previewHealth && (
-                <Textarea
-                  readOnly
-                  value={JSON.stringify(previewHealth, null, 2)}
-                  className="min-h-28 resize-y font-mono text-xs"
-                />
-              )}
+        {/*
+          Installing or inspecting a plugin directory runs code the directory
+          names, so the console does neither: a browser page must not be able
+          to choose code for the daemon to run. Install from a shell, then
+          load, unload and check the plugin here by id.
+        */}
+        <section className="px-4">
+          <SettingsPanel title="Install a plugin">
+            <div className="space-y-2 text-sm text-text-soft">
+              <p>Plugins are installed from your shell, not from the console. Then load it here.</p>
+              <pre className="overflow-x-auto border border-border bg-panel-2/60 px-3 py-2 font-mono text-xs text-text">cerberus connectors plugin managed install /absolute/path/to/plugin</pre>
+              <p>To try a plugin directory without installing it, run <code className="font-mono text-xs">cerberus connectors plugin health &lt;dir&gt;</code>.</p>
             </div>
           </SettingsPanel>
         </section>
@@ -176,7 +119,7 @@ export function PluginsPage() {
           <div className="border-b border-border-strong px-4 py-3 text-sm text-text-soft">Loading plugins...</div>
         ) : items.length === 0 ? (
           <div className="px-4 py-4">
-            <EmptyState variant="no-results" title="No managed plugins installed." description="Install a connector plugin directory to manage it from the daemon." />
+            <EmptyState variant="no-results" title="No managed plugins installed." description="Install one from your shell with cerberus connectors plugin managed install <dir>." />
           </div>
         ) : (
           items.map((plugin, index) => {
@@ -215,10 +158,6 @@ export function PluginsPage() {
       </div>
     </div>
   )
-}
-
-function trust(devMode: boolean): PluginTrustOptions {
-  return devMode ? { dev_mode: true } : {}
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

@@ -3,12 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
-	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
-	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/spf13/cobra"
 )
 
@@ -40,17 +39,6 @@ var sshExecCmd = &cobra.Command{
 			return fmt.Errorf("no command specified — use: cerberus ssh exec <resource-id> -- <command>")
 		}
 
-		a, err := app.NewWithOptions(appOptions())
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		res, err := findResource(a, resourceID)
-		if err != nil {
-			return err
-		}
-
 		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
@@ -59,7 +47,7 @@ var sshExecCmd = &cobra.Command{
 		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector:    "ssh",
 			Operation:    "exec",
-			Config:       sshConfig(res, command),
+			Config:       sshConfig(resourceID, command),
 			DryRun:       sshDryRun,
 			Acknowledged: sshAcknowledge,
 		})
@@ -94,17 +82,6 @@ var sshStatusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resourceID := args[0]
 
-		a, err := app.NewWithOptions(appOptions())
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-
-		res, err := findResource(a, resourceID)
-		if err != nil {
-			return err
-		}
-
 		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
@@ -113,7 +90,7 @@ var sshStatusCmd = &cobra.Command{
 		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector: "ssh",
 			Operation: "status",
-			Config:    sshConfig(res, ""),
+			Config:    sshConfig(resourceID, ""),
 		})
 		if err != nil {
 			return err
@@ -132,15 +109,6 @@ var sshStopCmd = &cobra.Command{
 	Short: "Shut down a remote host over SSH",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := app.NewWithOptions(appOptions())
-		if err != nil {
-			return fmt.Errorf("init app: %w", err)
-		}
-		defer a.Close() //nolint:errcheck
-		res, err := findResource(a, args[0])
-		if err != nil {
-			return err
-		}
 		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {
 			return err
@@ -149,7 +117,7 @@ var sshStopCmd = &cobra.Command{
 		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
 			Connector:    "ssh",
 			Operation:    "stop",
-			Config:       sshConfig(res, ""),
+			Config:       sshConfig(args[0], ""),
 			DryRun:       sshDryRun,
 			Acknowledged: sshAcknowledge,
 		})
@@ -172,24 +140,14 @@ func sshTransferCmd(operation, use, short, long string, destructive bool) *cobra
 		Long:  long,
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.NewWithOptions(appOptions())
-			if err != nil {
-				return fmt.Errorf("init app: %w", err)
-			}
-			defer a.Close() //nolint:errcheck
 
-			res, err := findResource(a, args[0])
-			if err != nil {
-				return err
-			}
-
-			cfg := sshConfig(res, "")
+			cfg := sshConfig(args[0], "")
 			// put is <local> <remote>; get is <remote> <local>. Each reads in
 			// the direction the transfer runs, which is why the order differs.
 			if operation == "put" {
-				cfg["local_path"], cfg["remote_path"] = args[1], args[2]
+				cfg["local_path"], cfg["remote_path"] = localPath(args[1]), args[2]
 			} else {
-				cfg["remote_path"], cfg["local_path"] = args[1], args[2]
+				cfg["remote_path"], cfg["local_path"] = args[1], localPath(args[2])
 			}
 
 			svc, closeFn, err := newExternalConnectorService(cmd.Context())
@@ -247,22 +205,12 @@ func sshDirTransferCmd(operation, use, short, long string, destructive bool) *co
 		Long:  long,
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.NewWithOptions(appOptions())
-			if err != nil {
-				return fmt.Errorf("init app: %w", err)
-			}
-			defer a.Close() //nolint:errcheck
 
-			res, err := findResource(a, args[0])
-			if err != nil {
-				return err
-			}
-
-			cfg := sshConfig(res, "")
+			cfg := sshConfig(args[0], "")
 			if operation == "put_dir" {
-				cfg["local_path"], cfg["remote_path"] = args[1], args[2]
+				cfg["local_path"], cfg["remote_path"] = localPath(args[1]), args[2]
 			} else {
-				cfg["remote_path"], cfg["local_path"] = args[1], args[2]
+				cfg["remote_path"], cfg["local_path"] = args[1], localPath(args[2])
 			}
 
 			svc, closeFn, err := newExternalConnectorService(cmd.Context())
@@ -345,31 +293,22 @@ var sshGetDirCmd = sshDirTransferCmd("get_dir",
 		"it needs no acknowledgment.",
 	false)
 
-// findResource looks up a resource by ID from the app's v2 config.
-func findResource(a *app.App, id string) (*domain.Resource, error) {
-	for _, r := range a.Config.Resources {
-		if r.ID == id {
-			return &domain.Resource{
-				ID:        r.ID,
-				Name:      r.Name,
-				Type:      domain.ResourceType(r.Type),
-				Connector: r.Connector,
-				Config:    r.Config,
-				Tags:      r.Tags,
-				DependsOn: r.DependsOn,
-			}, nil
-		}
+// localPath makes a local path absolute against this shell's working
+// directory. The transfer usually runs in the daemon, whose working directory
+// is not the operator's, so `./app.env` would otherwise name a different file.
+func localPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
 	}
-	return nil, fmt.Errorf("resource %q not found in config; run `cerberus resource list` to see available resources", id)
+	return p
 }
 
-func sshConfig(res *domain.Resource, command string) map[string]any {
-	cfg := make(map[string]any, len(res.Config)+3)
-	for key, value := range res.Config {
-		cfg[key] = value
-	}
-	cfg["id"] = res.ID
-	cfg["name"] = res.Name
+// sshConfig names the target by resource id and nothing else. Whoever runs
+// the operation — the daemon, or this process when there is none — resolves
+// the id against its config; connection settings are never sent, and the
+// socket refuses them.
+func sshConfig(resourceID, command string) map[string]any {
+	cfg := map[string]any{"id": resourceID}
 	if command != "" {
 		cfg["command"] = command
 	}

@@ -20,7 +20,6 @@ type InProcessClient struct {
 	logger         *slog.Logger
 	runtime        *ResourceRuntimeService
 	external       *ExternalConnectorService
-	plugins        *PluginConnectorService
 	managedPlugins *ManagedPluginConnectorService
 
 	// Construction options forwarded to the shared runtime.
@@ -47,15 +46,6 @@ func WithExternalConnectorService(external *ExternalConnectorService) InProcessO
 	return func(c *InProcessClient) {
 		if external != nil {
 			c.external = external
-		}
-	}
-}
-
-// WithPluginConnectorService injects the plugin-host-backed connector layer.
-func WithPluginConnectorService(plugins *PluginConnectorService) InProcessOption {
-	return func(c *InProcessClient) {
-		if plugins != nil {
-			c.plugins = plugins
 		}
 	}
 }
@@ -156,22 +146,6 @@ func (c *InProcessClient) ExecuteConnectorOperation(ctx context.Context, args Ex
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("external connector service is not configured"))
 	}
 	return c.external.Execute(ctx, args)
-}
-
-// PluginHealth implements Client.
-func (c *InProcessClient) PluginHealth(ctx context.Context, args PluginConnectorHealthArgs) (PluginConnectorHealth, error) {
-	if c.plugins == nil {
-		return PluginConnectorHealth{}, errors.New("plugin connector service is not configured")
-	}
-	return c.plugins.Health(ctx, args)
-}
-
-// ExecutePluginConnector implements Client.
-func (c *InProcessClient) ExecutePluginConnector(ctx context.Context, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
-	if c.plugins == nil {
-		return ExternalConnectorOperationResult{}, errors.New("plugin connector service is not configured")
-	}
-	return c.plugins.Execute(ctx, args)
 }
 
 func (c *InProcessClient) InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {

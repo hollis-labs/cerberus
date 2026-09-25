@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/digitalocean/godo"
+	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
@@ -247,9 +248,15 @@ type fakeSSHBackend struct {
 	getCalls    int
 	putDirCalls int
 	getDirCalls int
+	connects    int
+	connectHost string
+	connectKey  string
 }
 
-func (b *fakeSSHBackend) Connect(_ context.Context, _ string, _ int, _ string, _ string, _ sshconn.HostKeyConfig) error {
+func (b *fakeSSHBackend) Connect(_ context.Context, host string, _ int, _ string, keyFile string, _ sshconn.HostKeyConfig) error {
+	b.connects++
+	b.connectHost = host
+	b.connectKey = keyFile
 	return nil
 }
 
@@ -652,18 +659,13 @@ func TestExternalConnectorServiceExecutesSSHOperation(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
 	svc := NewExternalConnectorService(registry)
+	svc.SetResourceLookup(sshTestLookup())
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector:    "ssh",
 		Operation:    "exec",
 		Acknowledged: true,
-		Config: map[string]any{
-			"id":       "server-1",
-			"host":     "127.0.0.1",
-			"user":     "root",
-			"key_file": "/tmp/fake-key",
-			"command":  "uptime",
-		},
+		Config:       map[string]any{"id": "server-1", "command": "uptime"},
 	})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -680,16 +682,28 @@ func TestExternalConnectorServiceExecutesSSHOperation(t *testing.T) {
 func newSSHTestService(backend *fakeSSHBackend) *ExternalConnectorService {
 	registry := connector.NewRegistry()
 	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
-	return NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(registry)
+	svc.SetResourceLookup(sshTestLookup())
+	return svc
+}
+
+// sshTestLookup is the configured resource every SSH test targets by id.
+func sshTestLookup() ResourceLookup {
+	return ConfigResourceLookup(&config.ConfigV2{Version: 2, Resources: []config.ResourceDef{{
+		ID:        "server-1",
+		Name:      "Server 1",
+		Type:      "server",
+		Connector: "ssh",
+		Config: map[string]any{
+			"host":     "127.0.0.1",
+			"user":     "root",
+			"key_file": "/tmp/fake-key",
+		},
+	}}})
 }
 
 func sshTransferConfig(extra map[string]any) map[string]any {
-	cfg := map[string]any{
-		"id":       "server-1",
-		"host":     "127.0.0.1",
-		"user":     "root",
-		"key_file": "/tmp/fake-key",
-	}
+	cfg := map[string]any{"id": "server-1"}
 	for k, v := range extra {
 		cfg[k] = v
 	}
@@ -1203,6 +1217,7 @@ func TestExternalConnectorServiceFallsBackToBuiltInWhenPluginNotLoaded(t *testin
 	}
 
 	svc := NewExternalConnectorService(registry, managed)
+	svc.SetResourceLookup(sshTestLookup())
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "ssh",
 		Operation: "status",
@@ -1230,9 +1245,11 @@ func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testin
 	}
 
 	svc := NewExternalConnectorService(connector.NewRegistry(), managed)
+	svc.SetResourceLookup(sshTestLookup())
 	_, err = svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "ssh",
 		Operation: "status",
+		Config:    sshTransferConfig(nil),
 	})
 	if err == nil {
 		t.Fatal("expected an error with no built-in connector available")

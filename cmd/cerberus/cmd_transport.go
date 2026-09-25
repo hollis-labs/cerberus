@@ -47,14 +47,25 @@ func commandSocket(ctx context.Context) (*cerbapi.SocketClient, error) {
 }
 
 func newExternalConnectorService(ctx context.Context) (connectorExecutor, func(), error) {
-	client, err := commandSocket(ctx)
-	if err != nil {
-		return nil, nil, err
+	// A resource id is resolved by whoever runs the operation. An explicit
+	// --config names a config the daemon may not be serving, so it selects the
+	// in-process lane, where the id resolves against that config.
+	if !explicitConfig() {
+		client, err := commandSocket(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if client != nil {
+			return socketConnectorExecutor{client}, func() {}, nil
+		}
 	}
-	if client != nil {
-		return socketConnectorExecutor{client}, func() {}, nil
-	}
-	return app.NewExternalConnectorService(), func() {}, nil
+	return app.NewExternalConnectorService(cfgPath), func() {}, nil
+}
+
+// explicitConfig reports whether the operator passed --config.
+func explicitConfig() bool {
+	flag := rootCmd.PersistentFlags().Lookup("config")
+	return flag != nil && flag.Changed
 }
 
 type pipelineClient interface {

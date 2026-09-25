@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 // TestDNSRebindingIsRefused simulates a page on evil.example whose name has
@@ -97,21 +99,41 @@ var guardedRoutes = map[string][]string{
 		"/api/resources/app/apply", "/api/resources/app/deploy", "/api/resources/app/reload",
 		"/api/resources/app/stop", "/api/resources/app/sync", "/api/resources/app/remove",
 	},
-	"/api/pipelines/":                     {"/api/pipelines/p/run"},
-	"/api/registry/register":              {"/api/registry/register"},
-	"/api/registry/deregister":            {"/api/registry/deregister"},
-	"/api/config/migrate":                 {"/api/config/migrate"},
-	"/api/config/backups/restore":         {"/api/config/backups/restore"},
-	"/api/connectors/":                    {"/api/connectors/c/operations/op"},
-	"/api/infra/providers/":               {"/api/infra/providers/cloudflare"},
-	"/api/deployments":                    {"/api/deployments"},
-	"/api/deployments/":                   {"/api/deployments/d/delete", "/api/deployments/d/run"},
-	"/api/plugins/connectors/health":      {"/api/plugins/connectors/health"},
-	"/api/plugins/connectors/operations/": {"/api/plugins/connectors/operations/op"},
+	"/api/pipelines/":             {"/api/pipelines/p/run"},
+	"/api/registry/register":      {"/api/registry/register"},
+	"/api/registry/deregister":    {"/api/registry/deregister"},
+	"/api/config/migrate":         {"/api/config/migrate"},
+	"/api/config/backups/restore": {"/api/config/backups/restore"},
+	"/api/connectors/":            {"/api/connectors/c/operations/op"},
+	"/api/infra/providers/":       {"/api/infra/providers/cloudflare"},
+	"/api/deployments":            {"/api/deployments"},
+	"/api/deployments/":           {"/api/deployments/d/delete", "/api/deployments/d/run"},
 	"/api/plugins/connectors/": {
-		"/api/plugins/connectors/install", "/api/plugins/connectors/p/load",
+		"/api/plugins/connectors/p/load",
 		"/api/plugins/connectors/p/unload", "/api/plugins/connectors/p/operations/op",
 	},
+}
+
+// retiredRoutes answer 410 Gone to every request and do nothing: they used
+// to take a plugin_dir, which a browser must not be able to hand the daemon.
+// retiredPaths adds the one retired action under a live prefix.
+var retiredRoutes = map[string]bool{
+	"/api/plugins/connectors/health":      true,
+	"/api/plugins/connectors/operations/": true,
+}
+
+var retiredPaths = map[string]bool{"/api/plugins/connectors/install": true}
+
+func isRetired(path string) bool {
+	if retiredPaths[path] {
+		return true
+	}
+	for pattern := range retiredRoutes {
+		if path == pattern || (strings.HasSuffix(pattern, "/") && strings.HasPrefix(path, pattern)) {
+			return true
+		}
+	}
+	return false
 }
 
 var readOnlyRoutes = map[string]bool{
@@ -136,8 +158,14 @@ var actionWords = []string{
 func TestEveryRouteIsClassified(t *testing.T) {
 	for _, rt := range mustNew(t, &fakeClient{}).routeTable() {
 		_, guarded := guardedRoutes[rt.pattern]
-		if guarded == readOnlyRoutes[rt.pattern] {
-			t.Errorf("route %s must be listed in exactly one of guardedRoutes or readOnlyRoutes", rt.pattern)
+		n := 0
+		for _, in := range []bool{guarded, readOnlyRoutes[rt.pattern], retiredRoutes[rt.pattern]} {
+			if in {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("route %s must be listed in exactly one of guardedRoutes, readOnlyRoutes or retiredRoutes", rt.pattern)
 		}
 	}
 }
@@ -212,6 +240,7 @@ func TestNoUnguardedMutationUnderAnyRoute(t *testing.T) {
 			switch {
 			case rec.Code == http.StatusForbidden, rec.Code == http.StatusNotFound, rec.Code == http.StatusMethodNotAllowed:
 			case rec.Code == http.StatusTemporaryRedirect:
+			case rec.Code == http.StatusGone && isRetired(path):
 			case rec.Code == http.StatusBadRequest && path == "/api/resources/":
 			default:
 				t.Errorf("%s %s = %d without passing the guard; body=%s", method, path, rec.Code, rec.Body.String())
@@ -220,5 +249,45 @@ func TestNoUnguardedMutationUnderAnyRoute(t *testing.T) {
 	}
 	if client.calls() != 0 {
 		t.Errorf("client was called %d times without a passing guard", client.calls())
+	}
+}
+
+// TestPluginDirRoutesAreRetiredOnTheWeb: the console can no longer preview,
+// run or install a plugin directory, even with a valid token.
+func TestPluginDirRoutesAreRetiredOnTheWeb(t *testing.T) {
+	client := &fakeClient{}
+	handler := mustNew(t, client).Handler(testGuard())
+	token := sessionToken(t, handler)
+	for _, path := range []string{
+		"/api/plugins/connectors/health",
+		"/api/plugins/connectors/operations/logs",
+		"/api/plugins/connectors/install",
+	} {
+		req := newTestRequest(http.MethodPost, path, strings.NewReader(`{"plugin_dir":"/tmp/evil"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Cerberus-Web-Token", token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusGone || !strings.Contains(rec.Body.String(), "in your shell") {
+			t.Fatalf("POST %s = %d %s, want 410 naming the shell command", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	req := newTestRequest(http.MethodPost, "/api/plugins/connectors/p/operations/logs", strings.NewReader(`{"plugin_dir":"/tmp/evil"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Cerberus-Web-Token", token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "plugin_dir is not accepted here") {
+		t.Fatalf("managed exec with plugin_dir = %d %s, want 400 refusal", rec.Code, rec.Body.String())
+	}
+	if client.calls() != 0 {
+		t.Fatalf("client called %d times", client.calls())
+	}
+}
+
+func TestWebPluginInstallRefusalSurvivesRedaction(t *testing.T) {
+	if got := redact.Text(webPluginInstallRetired); got != webPluginInstallRetired {
+		t.Fatalf("redact.Text changed refusal:\n got %q\nwant %q", got, webPluginInstallRetired)
 	}
 }
