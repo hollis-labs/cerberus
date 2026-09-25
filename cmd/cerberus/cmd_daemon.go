@@ -390,6 +390,7 @@ func spawnDaemonChild(ctx context.Context) (int, error) {
 // server, wait for shutdown.
 func runDaemonBody() error {
 	service.InitLifecycleLog()
+	service.RedactDefaultLogger()
 	logger := service.GetLogger()
 
 	// Acquire the single-instance lock BEFORE doing anything else. This is

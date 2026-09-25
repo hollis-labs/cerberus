@@ -153,7 +153,7 @@ func (e *Executor) runLevel(ctx context.Context, stages []*Stage, env *domain.Pi
 // runStage executes all actions in a stage sequentially.
 func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineEnv) StageResult {
 	start := time.Now()
-	e.logger.Info("pipeline.stage.start", "stage", s.Name)
+	e.logger.InfoContext(ctx, "pipeline.stage.start", "stage", s.Name)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Stage %s started", s.Name))
 
 	for _, action := range s.Actions {
@@ -166,10 +166,10 @@ func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineE
 			}
 		}
 
-		e.logger.Info("pipeline.action.start", "stage", s.Name, "action", action.Name())
+		e.logger.InfoContext(ctx, "pipeline.action.start", "stage", s.Name, "action", action.Name())
 
 		if err := action.Execute(ctx, env); err != nil {
-			e.logger.Error("pipeline.action.failed", "stage", s.Name, "action", action.Name(), "error", err)
+			e.logger.ErrorContext(ctx, "pipeline.action.failed", "stage", s.Name, "action", action.Name(), "error", err)
 			return StageResult{
 				Name:     s.Name,
 				Status:   domain.StateFailed,
@@ -178,11 +178,11 @@ func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineE
 			}
 		}
 
-		e.logger.Info("pipeline.action.done", "stage", s.Name, "action", action.Name())
+		e.logger.InfoContext(ctx, "pipeline.action.done", "stage", s.Name, "action", action.Name())
 	}
 
 	duration := time.Since(start)
-	e.logger.Info("pipeline.stage.done", "stage", s.Name, "duration", duration)
+	e.logger.InfoContext(ctx, "pipeline.stage.done", "stage", s.Name, "duration", duration)
 
 	return StageResult{
 		Name:     s.Name,
@@ -206,9 +206,9 @@ func (e *Executor) rollback(ctx context.Context, completed []*Stage, env *domain
 		stage := completed[i]
 		for j := len(stage.Actions) - 1; j >= 0; j-- {
 			action := stage.Actions[j]
-			e.logger.Info("pipeline.rollback", "stage", stage.Name, "action", action.Name())
+			e.logger.InfoContext(ctx, "pipeline.rollback", "stage", stage.Name, "action", action.Name())
 			if err := action.Rollback(ctx, env); err != nil {
-				e.logger.Error("pipeline.rollback.error", "stage", stage.Name, "action", action.Name(), "error", err)
+				e.logger.ErrorContext(ctx, "pipeline.rollback.error", "stage", stage.Name, "action", action.Name(), "error", err)
 			}
 		}
 	}

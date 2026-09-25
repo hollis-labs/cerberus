@@ -186,8 +186,30 @@ Two leaks of the same kind were closed in the same change. The `secretref`
 helper's stderr is no longer copied into its error, which now names the
 command that shows it. A failed deploy credential lookup now stops the plan
 with a recovery sentence instead of deploying without the token. Both
-messages are tested to survive `redact.Text`. The render edges read the scope
-back in the next PR.
+messages are tested to survive `redact.Text`.
+
+The render edges read the scope back.
+
+- **HTTP.** `BeginHTTPRequest` hands the request's scope to its response
+  writer. The socket's and the console's JSON writers, and each envelope of
+  the progress stream, render through it, so no handler can skip it.
+- **Connector errors.** `ExternalConnectorService.Execute` wraps its error in
+  the scope before returning it. It also gives itself a scope when its caller
+  began no request.
+- **MCP tools.** Every served tool renders its result, its error, in each
+  shape go-mcp reads, and its mid-call notifications through its call's scope.
+  That closed the daemon's stdio server, whose tools return raw
+  `InProcessClient` text. Budgeted lists now go through the regex net as well.
+- **In-process CLI.** A connector result goes through the same scope, marshal
+  and decode round trip as a socket result, so `ssh exec` output and
+  `docker logs` are no longer printed raw.
+- **Logs.** `~/.cerberus/cerberus.log` is mode 0600, and a file created 0644
+  earlier is narrowed on open. Records go through `redact.Handler`, and the
+  daemon wraps slog's default logger in it too. The pipeline executor logs on
+  its request's context, so its stage failures lose that request's
+  credentials.
+
+Plugin text joins in S2-5.
 The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
 `--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
 fixed by changing the placeholder rather than the rule.

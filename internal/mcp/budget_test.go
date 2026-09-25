@@ -64,3 +64,12 @@ func TestBudgetedList(t *testing.T) {
 		t.Fatalf("nil slice should encode items as []: %s", out)
 	}
 }
+
+// A budgeted list goes through the regex net: on the daemon's stdio server
+// its items come from InProcessClient, which no server has redacted.
+func TestBudgetedListIsRedacted(t *testing.T) {
+	out := budgetedList("t", []map[string]string{{"name": "svc", "api_token": "abcdef1234567890"}}, nil, "%d")
+	if strings.Contains(out, "abcdef1234567890") || !strings.Contains(out, `"name":"svc"`) {
+		t.Fatalf("budgetedList = %s", out)
+	}
+}

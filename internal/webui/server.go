@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/loopback"
-	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -87,7 +86,7 @@ func (s *Server) Handler(guard *loopback.Guard) http.Handler {
 // would, and the request has its own redaction scope.
 func markWebSurface(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r.WithContext(cerbapi.BeginRequest(r.Context(), cerbapi.SurfaceWeb)))
+		h.ServeHTTP(cerbapi.BeginHTTPRequest(w, r, cerbapi.SurfaceWeb))
 	})
 }
 
@@ -334,7 +333,7 @@ func randomActionToken() (string, error) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	data, err := redact.Marshal(v)
+	data, err := cerbapi.ResponseScope(w).Marshal(v)
 	if err == nil {
 		_ = json.NewEncoder(w).Encode(json.RawMessage(data))
 	}
