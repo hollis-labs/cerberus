@@ -842,6 +842,24 @@ what it means for the design above.
     confirmation, plugin gap handling and the listen guard. The audit log and
     the DTO and redaction boundary stay on in every posture. Section 13.
 
+14. **P1 tightens the ack gate from `effect`, without waiting for P2.**
+    *Taken at the P1 cut.* Once an operation declares `effect`, acknowledgment
+    is required for `write`, `lifecycle`, `exec` and `admin` as well as
+    `destructive`. `read` and `read_sensitive` do not need it. This is stricter
+    than the Decision 11 baseline that P2 lands. P2's policy engine is where
+    human `lifecycle` on local `env: dev` targets goes back to needing no
+    prompt. Until then, `resource deploy`, `reload` and `stop` need `--ack`.
+    Internal supervision, meaning `auto_restart` and health-driven restarts, is
+    not an operation request and is not gated.
+15. **Audit retention: keep everything, rotate monthly.** One JSONL file per
+    calendar month, never deleted automatically. `cerberus audit prune --before
+    <date>` is an `admin` operation on a TTY and is itself audited.
+    `audit verify` checks the hash chain across file boundaries.
+16. **Within P1, the contract comes before the audit log**, so every audit
+    record carries `effect` from its first day. This refines the "audit before
+    policy" ordering in `agent-authority-and-secrets.md`; it does not reverse
+    it, and policy still waits for the audit log.
+
 ## Working backwards: a suggested phase shape
 
 This is for the task-cutting session, not a commitment. Each phase should leave
@@ -933,3 +951,88 @@ WP-S2 is independent and can land in any phase.
 - **Redaction.** P0 added four refusal families and needed no redaction rule
   change. Each carries a test that it survives `redact.Text`, and that is the
   default for every new error from here on.
+
+## P1 cut — 2026-09-25
+
+**Now is the window for breaking changes.** There is one user today, so P1
+prefers the correct shape over compatibility shims: rename, remove and
+tighten freely, and list each change in the PR's UAT table. The one exception
+is on-disk state. Existing `~/.cerberus` records must still load or migrate.
+
+Threads run one after another, one branch and PR each. Every thread keeps
+the P0 disciplines. Every new error code or refusal gets a test that it
+survives `redact.Text`. Enforcement tables are shared with discovery, and a
+drift test fails when they disagree. A refusal names what it refused.
+
+**P1-1: the operation contract.** `pkg/connector` gains the section 1 fields:
+`effect`, `reversible`, a target descriptor, `preview`, `output`, `cost` and
+`local_fs`. Every built-in operation declares them. Manifests carry them too,
+and `ManifestFromDefinition` copies them. `Destructive` and `RequiresAck` are
+derived from `effect`, and the ack gate follows Decision 14.
+
+Validation rejects an operation without `effect`. For plugins, the fallback is
+the one section 10 describes: an operation with no `effect` is treated as
+`exec`, so it needs ack, and the gap is reported. It is not refused at load,
+so existing plugins keep working until P1-6. The per-connector input key
+table (the first "Carried into P1" note) is part of the contract. It declares
+each operation's accepted caller fields and its target fields. The SSH
+allow-list and the docker allow-list both move onto it, with the caller's
+surface known at the point of the check. For every operation whose ack
+requirement changes, the PR lists the operation and its new
+`--ack`/`acknowledged` spelling on each surface.
+
+**P1-2: local, resource and pipeline operations join the contract.** These
+get `Definition()`s with effects, per Decision 11. The six resource mutators
+and pipeline run then pass through the same gate. The CLI gains `--ack`, MCP
+tools gain `acknowledged`, and the web console's actions gain a confirm step
+that sends it. `auto_restart` and the monitor stay ungated (Decision 14). The
+daemon self-mutation guard is unchanged.
+
+**P1-3: derived MCP hints, conformance and docker destroy.** Every
+`ReadOnlyHint`, `DestructiveHint` and `OpenWorldHint` is computed from the
+contract. A test fails on a hand-written hint literal. A conformance suite
+enumerates every built-in and plugin operation and asserts the contract is
+complete and consistent: effect, hints, ack and `local_fs`. `cerberus docker
+destroy <id> --ack` and a `cerberus_docker_destroy` tool are added, with their
+hints derived.
+
+**P1-4: the audit log (WP-S1 and section 9).** Two PRs.
+
+- **P1-4a covers the sink, the record and the admin lane.**
+  - Records are append-only JSONL under `~/.cerberus/audit/`: mode 0600,
+    hash-chained, one file per month (Decision 15).
+  - Each operation writes an intent record before it runs and an outcome
+    record after. The record is a DTO holding an args digest and credential
+    names, never values.
+  - A caller surface header is added to the socket, and the in-process path
+    sets the same context value through one shared helper. It is labelled as
+    self-reported. An in-process CLI call is recorded as a local principal,
+    never as the human.
+  - A non-read operation fails when the audit write fails. A read proceeds
+    with a warning (Decision 8).
+  - The sink is a required constructor dependency. A test classifies every
+    `Client` method as audited or read-only.
+- **P1-4b covers the resource mutators, pipelines, plugin telemetry
+  correlation and the CLI.** It adds `cerberus audit tail`, `query`, `verify`
+  and `prune`.
+
+**P1-5: the plugin declaration and install review (section 10).**
+- The manifest gains suggested policy, surfaces, telemetry and host range.
+- Install moves fully in-process, so the socket no longer records a path.
+  Install prints the review summary with its gaps and asks for a typed plugin
+  id on a TTY. It is an `admin` effect.
+- The entrypoint hash is compared on every load. On a mismatch the plugin is
+  refused and re-reviewed as a diff, and `--accept-changes` re-accepts it on a
+  TTY. This closes CERB-GAP-336.
+- Plugin operations reach MCP hidden until enabled.
+- Install, re-accept and upgrade events go to the audit log.
+- The install review doc decides the question of `--dev` in release builds.
+
+**P1-6: cerberus-plugins catch-up.** In that repo's own PRs, each plugin
+declares `effect` and the other contract fields for every operation, plus the
+section 10 declarations. The install review then shows no gaps for our own
+plugins.
+
+Deferred to P2 and later, unchanged: principal identity from peer
+credentials, target `env` and `owner`, `Authorize` and policy files,
+postures, approvals and elicitation.
