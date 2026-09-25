@@ -7,22 +7,25 @@ import (
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/config"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 )
 
 // ResourceLookup returns the configured resource with the given id, from
 // whichever config the serving process resolved.
 type ResourceLookup func(id string) (*config.ResourceDef, bool)
 
-// sshOperationFields are the only keys an SSH operation's Config may carry.
-// Everything that decides where and how to connect comes from the configured
-// resource named by id, so no caller can aim the daemon's SSH at a host, key
-// or trust setting the operator did not configure.
-var sshOperationFields = map[string]bool{
-	"id":          true,
-	"command":     true,
-	"local_path":  true,
-	"remote_path": true,
-}
+// sshOperationFields are the only keys an SSH operation's Config may carry,
+// from the ssh connector's table. Everything that decides where and how to
+// connect comes from the configured resource named by id, so no caller can aim
+// the daemon's SSH at a host, key or trust setting the operator did not
+// configure.
+var sshOperationFields = func() map[string]bool {
+	out := make(map[string]bool, len(sshconn.OperationFields))
+	for _, key := range sshconn.OperationFields {
+		out[key] = true
+	}
+	return out
+}()
 
 // SetResourceLookup gives the service the resources SSH operations resolve
 // against. Without one, SSH operations are refused.
