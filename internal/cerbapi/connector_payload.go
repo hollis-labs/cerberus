@@ -3,7 +3,6 @@ package cerbapi
 import (
 	"encoding/json"
 
-	cf "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	do "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -23,14 +22,6 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 		}
 	}
 	switch args.Connector + "/" + args.Operation {
-	case "cloudflare/list_zones":
-		return decodePayload[[]cf.Zone](raw)
-	case "cloudflare/create_zone":
-		return decodePayload[*cf.Zone](raw)
-	case "cloudflare/list_dns_records":
-		return decodePayload[[]cf.DNSRecord](raw)
-	case "cloudflare/create_dns_record":
-		return decodePayload[*cf.DNSRecord](raw)
 	case "digitalocean/list_droplets":
 		return decodePayload[[]do.DropletStatus](raw)
 	case "digitalocean/get_droplet":

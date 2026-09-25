@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
-	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -69,12 +68,6 @@ var toolOperations = map[string]opRef{
 	"cerberus_forge_sites":   {forgeconn.Definition, "list_sites"},
 	"cerberus_forge_deploy":  {forgeconn.Definition, "deploy_site"},
 	"cerberus_forge_exec":    {forgeconn.Definition, "exec_site_command"},
-
-	"cerberus_cloudflare_zones":       {cfconn.Definition, "list_zones"},
-	"cerberus_cloudflare_zone_create": {cfconn.Definition, "create_zone"},
-	"cerberus_cloudflare_dns_list":    {cfconn.Definition, "list_dns_records"},
-	"cerberus_cloudflare_dns_create":  {cfconn.Definition, "create_dns_record"},
-	"cerberus_cloudflare_dns_delete":  {cfconn.Definition, "delete_dns_record"},
 
 	"cerberus_docker_ps":      {dockerconn.Definition, "list_containers"},
 	"cerberus_docker_logs":    {dockerconn.Definition, "logs"},

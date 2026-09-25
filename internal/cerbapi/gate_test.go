@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
-	cfconn "github.com/hollis-labs/cerberus/internal/connector/cloudflare"
 	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
@@ -23,7 +22,6 @@ import (
 
 func builtinConnectorDefinitions() []contract.Definition {
 	return []contract.Definition{
-		cfconn.Definition(),
 		doconn.Definition(),
 		dockerconn.Definition(),
 		forgeconn.Definition(),

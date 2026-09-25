@@ -69,7 +69,7 @@ no rebuild of the host.
 | `ssh` | compiled | **Core** | Primitive: remote docker rides it, deploys and file transfer are built on it | `x/crypto`, `pkg/sftp` (already core) |
 | `docker` | compiled | **Core** | Primitive: shells out to the CLI, remote docker rides ssh | none |
 | `github` | compiled | **Core** | Cerberus's own release and pipeline story leans on it | `go-github` (7MB) |
-| `cloudflare` | compiled | **Plugin** | DNS provider, optional; the largest dependency win available | `cloudflare-go/v4` (33MB) |
+| `cloudflare` | **plugin** (2026-09-25) | **Plugin** | DNS provider, optional; the largest dependency win available. Measured on removal: a stripped build went 62.8MB → 23.6MB | `cloudflare-go/v4` (33MB source) |
 | `digitalocean` | compiled | **Plugin** | VPS provider, optional | `godo` (2.7MB) |
 | `forge` | compiled | **Plugin** | Laravel Forge, niche | none |
 | `namecheap` | compiled | **Plugin** | Registrar, optional | none |
