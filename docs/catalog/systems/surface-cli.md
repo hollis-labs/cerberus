@@ -28,12 +28,12 @@ relationships:
   - type: "depends_on"
     target: "CERB-CAP-401"
     note: "most commands are socket clients"
-  - type: "blocks"
+  - type: "relates_to"
     target: "CERB-GAP-436"
-    note: "no CLI command for the namecheap record-set operations"
-  - type: "blocks"
+    note: "the namecheap record-set operations, reachable through connectors exec"
+  - type: "relates_to"
     target: "CERB-GAP-437"
-    note: "no generic connector exec for built-ins"
+    note: "connectors exec, the generic connector verb"
   - type: "blocks"
     target: "CERB-GAP-448"
     note: "resource show bypasses the daemon"
@@ -100,12 +100,19 @@ status`), launch-agent management (`install`, `uninstall`), layout introspection
 and plugin scaffolding (`connectors write-plugin-prototype`). Those are
 genuinely local-process concerns and their absence elsewhere is not a gap.
 
-What *is* a gap is that the CLI has no generic escape hatch for built-in
-connector operations. `connectors plugin managed exec <id> <op>` runs any
-operation on a *plugin* connector; there is no equivalent for `ssh`, `docker`,
-`github`, `forge`, `cloudflare`, `namecheap` or `digitalocean`. Every built-in
-operation reachable from the CLI is reachable only through a hand-written
-subcommand, which is why `namecheap`'s `get_dns_record_set` and
-`set_dns_record_set` — the safe whole-zone replacement that `cerberus dns list`'s
-own help text tells the operator to use — have no CLI command at all.
+The generic escape hatch for connector operations is `connectors exec <id>
+<op>` (CERB-GAP-437, closed). It runs any operation on any connector, built-in
+or loaded plugin, through the admin lane (`ExternalConnectorService.Execute`),
+so dry-run, acknowledgment and redaction apply exactly as they do for a
+hand-written subcommand. Arguments are typed from the operation's input schema:
+`--arg k=v` is parsed as the declared integer, number or boolean, a repeated key
+builds an array, `--arg-json k=<JSON>` carries objects, and `--input <file|->`
+takes a whole argument object. An argument a closed schema does not declare is
+refused before anything is sent. `connectors plugin managed exec` is now the
+same command limited to installed plugins, and the one-shot `connectors plugin
+exec <dir>` types its arguments from the directory's `plugin.yaml`. That is
+also the CLI path to `namecheap`'s `get_dns_record_set` and `set_dns_record_set`
+(CERB-GAP-436), with the authoritative records passed as `--arg-json records=…`
+or `--input`. A generic verb is still a worse operator experience than a typed
+subcommand with real flags, which is why the everyday verbs keep theirs.
 

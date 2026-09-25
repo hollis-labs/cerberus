@@ -89,7 +89,7 @@ func TestRunPluginExec(t *testing.T) {
 	err := runPluginExec(context.Background(), &out, pluginDir, "logs", map[string]any{
 		"container": "web",
 		"lines":     "25",
-	}, false, false)
+	}, false, false, false)
 	if err != nil {
 		t.Fatalf("runPluginExec: %v", err)
 	}
@@ -104,16 +104,6 @@ func TestRunPluginExec(t *testing.T) {
 	data := payload["data"].(map[string]any)
 	if data["tool"] != "cerberus_docker_logs" {
 		t.Fatalf("tool payload = %#v", data)
-	}
-}
-
-func TestParsePluginArgs(t *testing.T) {
-	cfg, err := parsePluginArgs([]string{"container=web", "lines=25"})
-	if err != nil {
-		t.Fatalf("parsePluginArgs: %v", err)
-	}
-	if cfg["container"] != "web" || cfg["lines"] != "25" {
-		t.Fatalf("cfg = %#v", cfg)
 	}
 }
 
@@ -140,7 +130,18 @@ func helperPluginDir(t *testing.T) string {
 		Version:       "test",
 		ResourceTypes: []string{"container"},
 		Operations: []contract.ManifestOperation{
-			{Name: "logs", InputSchema: contract.ObjectSchema(map[string]any{})},
+			{Name: "logs", InputSchema: contract.ObjectSchema(map[string]any{
+				"container": contract.StringSchema("Container name."),
+				"lines":     contract.IntegerSchema("Lines to return."),
+			})},
+			// tail has no typed payload in the admin lane, which decodes a
+			// built-in id's known operations; logs would be decoded as the
+			// docker built-in's string. A real plugin cannot claim a
+			// built-in id, so only this fixture meets that.
+			{Name: "tail", InputSchema: contract.ObjectSchema(map[string]any{
+				"container": contract.StringSchema("Container name."),
+				"lines":     contract.IntegerSchema("Lines to return."),
+			})},
 		},
 	}, pluginhost.Entrypoint{
 		Command: "bin/plugin-helper",
@@ -157,20 +158,12 @@ func helperPluginDir(t *testing.T) string {
 	return dir
 }
 
-func TestParsePluginArgsRejectsInvalidItem(t *testing.T) {
-	_, err := parsePluginArgs([]string{"broken"})
-	if err == nil || !strings.Contains(err.Error(), "key=value") {
-		t.Fatalf("parsePluginArgs error = %v, want key=value", err)
-	}
-}
-
 func TestManagedPluginCommands(t *testing.T) {
 	t.Setenv("GO_WANT_CONNECTORS_PLUGIN_HELPER", "1")
 	pluginDir := helperPluginDir(t)
 	startManagedPluginSocketServer(t)
 
-	connectorsPluginArgs = nil
-	connectorsPluginDry = false
+	connectorsPluginManagedExecFlags = connectorExecFlags{}
 	connectorsPluginDev = false
 
 	var out bytes.Buffer
@@ -204,14 +197,33 @@ func TestManagedPluginCommands(t *testing.T) {
 	}
 
 	out.Reset()
-	connectorsPluginArgs = []string{"container=web"}
+	connectorsPluginManagedExecFlags = connectorExecFlags{args: []string{"container=web", "lines=25"}}
 	connectorsPluginManagedExecCmd.SetOut(&out)
 	connectorsPluginManagedExecCmd.SetContext(context.Background())
-	if err := connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"docker", "logs"}); err != nil {
+	if err := connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"docker", "tail"}); err != nil {
 		t.Fatalf("exec RunE: %v", err)
 	}
 	if !strings.Contains(out.String(), `"connector": "docker"`) {
 		t.Fatalf("exec output = %s", out.String())
+	}
+	// Typed by the manifest's schema on the way in, and routed through the
+	// admin lane, which reaches the plugin with the integer intact.
+	if !strings.Contains(out.String(), `"lines": 25`) {
+		t.Fatalf("exec output = %s, want lines typed as an integer", out.String())
+	}
+
+	// An argument the schema does not declare is refused before anything runs.
+	connectorsPluginManagedExecFlags = connectorExecFlags{args: []string{"container=web", "follow=true"}}
+	err := connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"docker", "tail"})
+	if err == nil || !strings.Contains(err.Error(), "unknown argument follow") {
+		t.Fatalf("exec with an undeclared argument: err = %v, want it refused", err)
+	}
+
+	// Managed exec is for installed plugins only.
+	connectorsPluginManagedExecFlags = connectorExecFlags{}
+	err = connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"ssh", "status"})
+	if err == nil || !strings.Contains(err.Error(), "not an installed plugin") {
+		t.Fatalf("exec on a non-plugin id: err = %v, want a refusal naming connectors exec", err)
 	}
 
 	out.Reset()
