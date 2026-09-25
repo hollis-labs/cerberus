@@ -3,11 +3,14 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
 	"gopkg.in/yaml.v3"
@@ -50,17 +53,22 @@ func TestPluginConnectorSDKHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_PLUGIN_CONNECTOR_API_HELPER") != "1" {
 		return
 	}
+	if marker := os.Getenv("GO_WANT_PLUGIN_LAUNCH_MARKER"); marker != "" {
+		_ = os.WriteFile(marker, []byte("launched"), 0o600) //nolint:gosec // test helper: the marker path is the test's own TempDir, passed through the env
+	}
 	if err := sdksubprocess.Serve(apiTestPlugin{}); err != nil {
 		os.Exit(1)
 	}
 	os.Exit(0)
 }
 
-func TestInProcessClientPluginHealth(t *testing.T) {
+// The directory lane stays available in-process, which is what
+// `cerberus connectors plugin health|exec <dir>` runs.
+func TestPluginConnectorServiceHealthInProcess(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "launched")
 	t.Setenv("GO_WANT_PLUGIN_CONNECTOR_API_HELPER", "1")
-	client := NewInProcessClient(WithPluginConnectorService(NewPluginConnectorService("test", nil)))
-
-	health, err := client.PluginHealth(context.Background(), PluginConnectorHealthArgs{
+	t.Setenv("GO_WANT_PLUGIN_LAUNCH_MARKER", marker)
+	health, err := NewPluginConnectorService("test", nil).Health(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: helperPluginDir(t),
 		Trust: PluginConnectorTrustOptions{
 			CatalogSigned: true,
@@ -69,34 +77,54 @@ func TestInProcessClientPluginHealth(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("PluginHealth: %v", err)
+		t.Fatalf("Health: %v", err)
 	}
 	if !health.Loaded || !health.Healthy || health.ID != "docker" {
 		t.Fatalf("health = %+v", health)
 	}
+	// The marker is how the socket test below proves nothing launched.
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("launch marker not written by an in-process launch: %v", err)
+	}
 }
 
-func TestSocketClientExecutesPluginConnector(t *testing.T) {
+// The socket no longer runs a plugin directory: both one-shot routes answer
+// 410 with the in-process alternative, and nothing is launched.
+func TestSocketRefusesPluginDirRoutes(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "launched")
 	t.Setenv("GO_WANT_PLUGIN_CONNECTOR_API_HELPER", "1")
-	client := NewInProcessClient(WithPluginConnectorService(NewPluginConnectorService("test", nil)))
-	socketClient := startConnectorSocket(t, client)
+	t.Setenv("GO_WANT_PLUGIN_LAUNCH_MARKER", marker)
+	socketClient := startConnectorSocket(t, NewInProcessClient())
 
-	result, err := socketClient.ExecutePluginConnector(context.Background(), PluginConnectorExecArgs{
-		PluginDir: helperPluginDir(t),
-		Operation: "logs",
-		Config:    map[string]any{"container": "web"},
-		Trust: PluginConnectorTrustOptions{
-			CatalogSigned: true,
-			ArchiveSigned: true,
-			ArchiveSHA256: "abc",
-		},
-	})
-	if err != nil {
-		t.Fatalf("ExecutePluginConnector: %v", err)
+	args := PluginConnectorExecArgs{PluginDir: helperPluginDir(t), Operation: "logs"}
+	for _, path := range []string{"/plugins/connectors/health", "/plugins/connectors/operations/logs"} {
+		var out map[string]any
+		err := socketClient.doJSONStream(context.Background(), http.MethodPost, path, args, &out)
+		if err == nil || !strings.Contains(err.Error(), "not available over the socket") {
+			t.Fatalf("POST %s err = %v, want the plugin-dir refusal", path, err)
+		}
 	}
-	data, ok := result.Data.(map[string]any)
-	if !ok || data["tool"] != "cerberus_docker_logs" {
-		t.Fatalf("result = %#v", result)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a plugin directory was launched over the socket")
+	}
+}
+
+func TestSocketManagedExecRefusesPluginDir(t *testing.T) {
+	socketClient := startConnectorSocket(t, NewInProcessClient())
+	_, err := socketClient.ExecuteManagedPlugin(context.Background(), "docker", PluginConnectorExecArgs{
+		PluginDir: "/tmp/anything",
+		Operation: "logs",
+	})
+	if err == nil || !strings.Contains(err.Error(), "plugin_dir is not accepted here") {
+		t.Fatalf("err = %v, want plugin_dir refusal", err)
+	}
+}
+
+func TestPluginDirRefusalsSurviveRedaction(t *testing.T) {
+	for _, msg := range []string{PluginDirRetired, PluginDirNotAccepted} {
+		if got := redact.Text(msg); got != msg {
+			t.Errorf("redact.Text changed refusal:\n got %q\nwant %q", got, msg)
+		}
 	}
 }
 

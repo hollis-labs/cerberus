@@ -407,13 +407,6 @@ export interface ConnectorOperationResult {
   data: unknown
 }
 
-export interface PluginTrustOptions {
-  dev_mode?: boolean
-  catalog_signed?: boolean
-  archive_signed?: boolean
-  archive_sha256?: string
-}
-
 export interface ManagedPluginState {
   id: string
   version: string
@@ -493,14 +486,6 @@ export const apiClient = {
   listManagedPlugins: (signal?: AbortSignal) => http.get<ManagedPluginState[]>('/api/plugins/connectors', { signal }),
   getManagedPluginHealth: (id: string, signal?: AbortSignal) =>
     http.get<PluginHealth>(`/api/plugins/connectors/${encodeURIComponent(id)}/health`, { signal }),
-  checkPluginHealth: (pluginDir: string, trust: PluginTrustOptions, token: string) =>
-    http.post<PluginHealth>('/api/plugins/connectors/health', { plugin_dir: pluginDir, trust } as unknown as JsonObject, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
-  installManagedPlugin: (pluginDir: string, trust: PluginTrustOptions, token: string) =>
-    http.post<ManagedPluginState>('/api/plugins/connectors/install', { plugin_dir: pluginDir, trust } as unknown as JsonObject, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
   loadManagedPlugin: (id: string, token: string) =>
     http.post<ManagedPluginState>(`/api/plugins/connectors/${encodeURIComponent(id)}/load`, {} as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },

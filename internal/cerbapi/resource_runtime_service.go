@@ -1346,6 +1346,15 @@ func containsTagFold(tags []string, target string) bool {
 	return false
 }
 
+// ResourceDef returns the configured resource with the given id from a fresh
+// resolve of the config tree. It is the daemon's ResourceLookup: connector
+// operations that name a resource by id resolve it here, against the config
+// the daemon is actually serving.
+func (s *ResourceRuntimeService) ResourceDef(id string) (*config.ResourceDef, bool) {
+	def := findResourceDef(s.snapshotConfig(), id)
+	return def, def != nil
+}
+
 func findResourceDef(cfg *config.ConfigV2, id string) *config.ResourceDef {
 	if cfg == nil {
 		return nil

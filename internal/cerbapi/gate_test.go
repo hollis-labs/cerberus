@@ -70,6 +70,22 @@ func sampleConfig(op contract.Operation) map[string]any {
 	return cfg
 }
 
+// sweepConfig is sampleConfig, except that an SSH operation names its
+// configured target by id, which is all the SSH lane accepts.
+func sweepConfig(connectorID string, op contract.Operation) map[string]any {
+	cfg := sampleConfig(op)
+	if connectorID != "ssh" {
+		return cfg
+	}
+	out := map[string]any{"id": "server-1"}
+	for key, value := range cfg {
+		if sshOperationFields[key] && key != "id" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 func connectorErrorCode(err error) ExternalConnectorErrorCode {
 	var connErr *ExternalConnectorError
 	if errors.As(err, &connErr) {
@@ -86,6 +102,7 @@ func connectorErrorCode(err error) ExternalConnectorErrorCode {
 func TestDryRunNeverExecutes(t *testing.T) {
 	var resolves int
 	svc := NewExternalConnectorService(resolveCountingRegistry(&resolves))
+	svc.SetResourceLookup(sshTestLookup())
 
 	for _, def := range svc.Definitions() {
 		for _, op := range def.Operations {
@@ -93,7 +110,7 @@ func TestDryRunNeverExecutes(t *testing.T) {
 			_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 				Connector:    def.ID,
 				Operation:    op.Name,
-				Config:       sampleConfig(op),
+				Config:       sweepConfig(def.ID, op),
 				DryRun:       true,
 				Acknowledged: true,
 			})
@@ -129,7 +146,7 @@ func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 	for _, def := range svc.Definitions() {
 		for _, op := range def.Operations {
 			_, _ = svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-				Connector: def.ID, Operation: op.Name, Config: sampleConfig(op), DryRun: true, Acknowledged: true,
+				Connector: def.ID, Operation: op.Name, Config: sweepConfig(def.ID, op), DryRun: true, Acknowledged: true,
 			})
 		}
 	}
