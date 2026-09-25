@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 )
 
 type tokenSecrets struct{ token string }
@@ -160,5 +161,31 @@ func TestPlanDeploymentStopsOnAFailedSecretLookup(t *testing.T) {
 	result, err := RunDeployment(context.Background(), failingSecrets{}, profile)
 	if err != nil || result.Success || len(result.Steps) != 0 || result.Error != want {
 		t.Fatalf("run = %+v, %v; want no steps and the lookup error", result, err)
+	}
+}
+
+// WP-S2 acceptance, deploy half: the Vercel token resolved for a deploy is
+// registered with the request's scope, so a step that echoes it — the CLI
+// printing its own argument, an error quoting the header it sent — does not
+// carry it into the result the console renders.
+func TestDeployOutputNeverShowsTheResolvedToken(t *testing.T) {
+	const token = "q7Zr2mXv9pLwK4tN" //nolint:gosec // a test sentinel, not a credential
+	provider := secrets.Registering(tokenSecrets{token}, nil)
+	ctx, scope := redact.EnsureScope(context.Background())
+	profile := DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: linkedRepo(t),
+		DeployCommand: `printf 'Error: token %s is not valid\n' "$VERCEL_TOKEN"; exit 1`}
+	result, err := RunDeployment(ctx, provider, profile)
+	if err != nil || result.Success {
+		t.Fatalf("run = %+v, %v; want the failing step", result, err)
+	}
+	if !strings.Contains(result.Steps[0].Output, token) {
+		t.Fatalf("precondition: the step should have echoed the token: %q", result.Steps[0].Output)
+	}
+	rendered, err := scope.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rendered), token) || !strings.Contains(string(rendered), redact.Marker) {
+		t.Fatalf("rendered result = %s", rendered)
 	}
 }
