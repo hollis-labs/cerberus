@@ -2,15 +2,12 @@ package mcp
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
-	"github.com/hollis-labs/cerberus/internal/config"
-	"github.com/hollis-labs/cerberus/internal/domain"
 )
 
 // NewCerberusSSHExecTool creates the cerberus_ssh_exec tool.
-func NewCerberusSSHExecTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+func NewCerberusSSHExecTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_exec",
 		Description: "Run a command on an SSH resource.",
@@ -27,14 +24,10 @@ func NewCerberusSSHExecTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID := stringArg(args, "resource_id")
 			command := stringArg(args, "command")
-			res, err := findSSHResource(cfg, resourceID)
-			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
-			}
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector:    "ssh",
 				Operation:    "exec",
-				Config:       sshToolConfig(res, command),
+				Config:       sshToolConfig(resourceID, command),
 				DryRun:       boolArg(args, "dry_run"),
 				Acknowledged: boolArg(args, "acknowledged"),
 			})
@@ -47,7 +40,7 @@ func NewCerberusSSHExecTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 }
 
 // NewCerberusSSHStatusTool creates the cerberus_ssh_status tool.
-func NewCerberusSSHStatusTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+func NewCerberusSSHStatusTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_status",
 		Description: "Check connectivity and host info for an SSH resource.",
@@ -57,14 +50,10 @@ func NewCerberusSSHStatusTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID := stringArg(args, "resource_id")
-			res, err := findSSHResource(cfg, resourceID)
-			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
-			}
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "ssh",
 				Operation: "status",
-				Config:    sshToolConfig(res, ""),
+				Config:    sshToolConfig(resourceID, ""),
 			})
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
@@ -75,7 +64,7 @@ func NewCerberusSSHStatusTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 }
 
 // NewCerberusSSHPutTool creates the cerberus_ssh_put tool.
-func NewCerberusSSHPutTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+func NewCerberusSSHPutTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_put",
 		Description: "Upload a local file to an SSH resource over SFTP, replacing the remote file if it exists.",
@@ -91,14 +80,14 @@ func NewCerberusSSHPutTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
-			return runSSHTransfer(ctx, cfg, client, "put", args,
+			return runSSHTransfer(ctx, client, "put", args,
 				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},
 	}
 }
 
 // NewCerberusSSHGetTool creates the cerberus_ssh_get tool.
-func NewCerberusSSHGetTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+func NewCerberusSSHGetTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_get",
 		Description: "Download a file from an SSH resource over SFTP, overwriting local_path if it exists.",
@@ -112,13 +101,13 @@ func NewCerberusSSHGetTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
-			return runSSHTransfer(ctx, cfg, client, "get", args, false, false)
+			return runSSHTransfer(ctx, client, "get", args, false, false)
 		},
 	}
 }
 
 // NewCerberusSSHPutDirTool creates the cerberus_ssh_put_dir tool.
-func NewCerberusSSHPutDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+func NewCerberusSSHPutDirTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_put_dir",
 		Description: "Recursively upload a local directory tree to an SSH resource over SFTP, replacing remote files that already exist. Permission bits are carried and a symlink pointing outside the tree is refused. Every byte is copied every time — there is no delta transfer.",
@@ -134,14 +123,14 @@ func NewCerberusSSHPutDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
-			return runSSHTransfer(ctx, cfg, client, "put_dir", args,
+			return runSSHTransfer(ctx, client, "put_dir", args,
 				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},
 	}
 }
 
 // NewCerberusSSHGetDirTool creates the cerberus_ssh_get_dir tool.
-func NewCerberusSSHGetDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
+func NewCerberusSSHGetDirTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_get_dir",
 		Description: "Recursively download a directory tree from an SSH resource over SFTP into a local directory, overwriting local files that already exist.",
@@ -155,7 +144,7 @@ func NewCerberusSSHGetDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
-			return runSSHTransfer(ctx, cfg, client, "get_dir", args, false, false)
+			return runSSHTransfer(ctx, client, "get_dir", args, false, false)
 		},
 	}
 }
@@ -163,12 +152,8 @@ func NewCerberusSSHGetDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 // runSSHTransfer backs all four transfer tools; they differ only in direction,
 // in whether the transfer is recursive, and in whether the operation needs an
 // acknowledgment. All four take the same two path arguments.
-func runSSHTransfer(ctx context.Context, cfg *config.ConfigV2, client cerbapi.Client, operation string, args map[string]interface{}, dryRun, acknowledged bool) (string, error) {
-	res, err := findSSHResource(cfg, stringArg(args, "resource_id"))
-	if err != nil {
-		return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // tool failures travel in the result payload, not as Go errors
-	}
-	opConfig := sshToolConfig(res, "")
+func runSSHTransfer(ctx context.Context, client cerbapi.Client, operation string, args map[string]interface{}, dryRun, acknowledged bool) (string, error) {
+	opConfig := sshToolConfig(stringArg(args, "resource_id"), "")
 	opConfig["local_path"] = stringArg(args, "local_path")
 	opConfig["remote_path"] = stringArg(args, "remote_path")
 
@@ -185,31 +170,12 @@ func runSSHTransfer(ctx context.Context, cfg *config.ConfigV2, client cerbapi.Cl
 	return marshalConnectorData(result.Data)
 }
 
-// findSSHResource looks up a resource by ID from the config and converts it to a domain.Resource.
-func findSSHResource(cfg *config.ConfigV2, id string) (*domain.Resource, error) {
-	for _, r := range cfg.Resources {
-		if r.ID == id {
-			return &domain.Resource{
-				ID:        r.ID,
-				Name:      r.Name,
-				Type:      domain.ResourceType(r.Type),
-				Connector: r.Connector,
-				Config:    r.Config,
-				Tags:      r.Tags,
-				DependsOn: r.DependsOn,
-			}, nil
-		}
-	}
-	return nil, fmt.Errorf("resource %q not found", id)
-}
-
-func sshToolConfig(res *domain.Resource, command string) map[string]any {
-	cfg := make(map[string]any, len(res.Config)+3)
-	for key, value := range res.Config {
-		cfg[key] = value
-	}
-	cfg["id"] = res.ID
-	cfg["name"] = res.Name
+// sshToolConfig names the target by resource id only. The process serving
+// the call resolves the id against its own config — so a resource registered
+// after this MCP subprocess started is still reachable — and refuses any
+// connection field an agent tries to add.
+func sshToolConfig(resourceID, command string) map[string]any {
+	cfg := map[string]any{"id": resourceID}
 	if command != "" {
 		cfg["command"] = command
 	}

@@ -94,20 +94,14 @@ func buildCerberusMCPServer(socketClient cerbapi.Client, logger *slog.Logger) *m
 	srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusGithubRunsTool(socketClient))
 
-	cfg, cfgErr := loadUnifiedForTools(cfgPath)
-	if cfgErr != nil {
-		logger.Warn("client.mcp.config_load_failed",
-			"path", cfgPath,
-			"error", cfgErr.Error(),
-			"message", "SSH tools will be unavailable; daemon-routed tools still work")
-	} else {
-		srv.RegisterTool(mcp.NewCerberusSSHExecTool(cfg, socketClient))
-		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(cfg, socketClient))
-		srv.RegisterTool(mcp.NewCerberusSSHPutTool(cfg, socketClient))
-		srv.RegisterTool(mcp.NewCerberusSSHGetTool(cfg, socketClient))
-		srv.RegisterTool(mcp.NewCerberusSSHPutDirTool(cfg, socketClient))
-		srv.RegisterTool(mcp.NewCerberusSSHGetDirTool(cfg, socketClient))
-	}
+	// SSH tools send a resource id and the daemon resolves it, so they need no
+	// config of their own and see resources registered after this started.
+	srv.RegisterTool(mcp.NewCerberusSSHExecTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusSSHStatusTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusSSHPutTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusSSHGetTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusSSHPutDirTool(socketClient))
+	srv.RegisterTool(mcp.NewCerberusSSHGetDirTool(socketClient))
 
 	srv.RegisterTool(mcp.NewCerberusDomainListTool(socketClient))
 	srv.RegisterTool(mcp.NewCerberusDomainStatusTool(socketClient))

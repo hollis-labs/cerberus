@@ -210,8 +210,8 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/connectors/", s.handleConnectorsID)
 	mux.HandleFunc("/plugins/connectors", s.handleManagedPluginConnectors)
 	mux.HandleFunc("/plugins/connectors/", s.handleManagedPluginConnectorsID)
-	mux.HandleFunc("/plugins/connectors/health", s.handlePluginConnectorsHealth)
-	mux.HandleFunc("/plugins/connectors/operations/", s.handlePluginConnectorsOperations)
+	mux.HandleFunc("/plugins/connectors/health", s.handlePluginDirRetired)
+	mux.HandleFunc("/plugins/connectors/operations/", s.handlePluginDirRetired)
 
 	return mux
 }
@@ -590,56 +590,12 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *SocketServer) handlePluginConnectorsHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	var args PluginConnectorHealthArgs
-	if err := decodeJSONBody(r, &args); err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
-		return s.client.PluginHealth(ctx, args)
-	}) {
-		return
-	}
-	out, err := s.client.PluginHealth(r.Context(), args)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-func (s *SocketServer) handlePluginConnectorsOperations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	operation := strings.TrimPrefix(r.URL.Path, "/plugins/connectors/operations/")
-	if operation == "" || operation == r.URL.Path {
-		writeJSONError(w, http.StatusNotFound, "expected /plugins/connectors/operations/{operation}")
-		return
-	}
-	var args PluginConnectorExecArgs
-	if err := decodeJSONBody(r, &args); err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	args.Operation = operation
-	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
-		return s.client.ExecutePluginConnector(ctx, args)
-	}) {
-		return
-	}
-	out, err := s.client.ExecutePluginConnector(r.Context(), args)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+// handlePluginDirRetired answers the two retired one-shot routes,
+// /plugins/connectors/health and /plugins/connectors/operations/, which used
+// to install, load and run whatever directory plugin_dir named. They stay
+// registered so a caller gets the reason rather than a routing 404.
+func (s *SocketServer) handlePluginDirRetired(w http.ResponseWriter, _ *http.Request) {
+	writeJSONError(w, http.StatusGone, PluginDirRetired)
 }
 
 func (s *SocketServer) handleManagedPluginConnectors(w http.ResponseWriter, r *http.Request) {
@@ -761,6 +717,10 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 		var args PluginConnectorExecArgs
 		if err := decodeJSONBody(r, &args); err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if args.PluginDir != "" {
+			writeJSONError(w, http.StatusBadRequest, PluginDirNotAccepted)
 			return
 		}
 		args.Operation = parts[2]

@@ -114,8 +114,8 @@ func (s *Server) routeTable() []route {
 		{"/api/deployments", s.handleDeployments},
 		{"/api/deployments/", s.handleDeploymentByID},
 		{"/api/plugins/connectors", s.handleManagedPlugins},
-		{"/api/plugins/connectors/health", s.handlePluginHealth},
-		{"/api/plugins/connectors/operations/", s.handlePluginOperations},
+		{"/api/plugins/connectors/health", s.handlePluginDirRetired},
+		{"/api/plugins/connectors/operations/", s.handlePluginDirRetired},
 		{"/api/plugins/connectors/", s.handleManagedPluginByID},
 	}
 }
@@ -386,9 +386,9 @@ func decodeJSONBody(r *http.Request, dst any) error {
 //	GET  /api/connectors
 //	POST /api/connectors/{id}/operations/{op}      guarded
 //	GET  /api/plugins/connectors
-//	POST /api/plugins/connectors/health            guarded
-//	POST /api/plugins/connectors/operations/{op}   guarded
-//	POST /api/plugins/connectors/install           guarded
+//	POST /api/plugins/connectors/health            retired (410): took a plugin_dir
+//	POST /api/plugins/connectors/operations/{op}   retired (410): took a plugin_dir
+//	POST /api/plugins/connectors/install           retired (410): install from the CLI
 //	POST /api/plugins/connectors/{id}/load         guarded
 //	POST /api/plugins/connectors/{id}/unload       guarded
 //	GET  /api/plugins/connectors/{id}/health
@@ -534,55 +534,18 @@ func (s *Server) handleManagedPlugins(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-func (s *Server) handlePluginHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.allowStateChangingRequest(r) {
-		writeError(w, http.StatusForbidden, "state-changing request rejected")
-		return
-	}
-	var args cerbapi.PluginConnectorHealthArgs
-	if err := decodeJSONBody(r, &args); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	out, err := s.client.PluginHealth(r.Context(), args)
-	if err != nil {
-		writeClientError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+// handlePluginDirRetired answers the retired routes that took a plugin_dir:
+// /api/plugins/connectors/health previewed a directory by installing, loading
+// and running its entrypoint, and /api/plugins/connectors/operations/ ran an
+// operation from one. Neither is available from a browser.
+func (s *Server) handlePluginDirRetired(w http.ResponseWriter, _ *http.Request) {
+	writeError(w, http.StatusGone, cerbapi.PluginDirRetired)
 }
 
-func (s *Server) handlePluginOperations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	operation := strings.TrimPrefix(r.URL.Path, "/api/plugins/connectors/operations/")
-	if operation == "" || strings.Contains(operation, "/") {
-		writeError(w, http.StatusNotFound, "expected POST /api/plugins/connectors/operations/{operation}")
-		return
-	}
-	if !s.allowStateChangingRequest(r) {
-		writeError(w, http.StatusForbidden, "state-changing request rejected")
-		return
-	}
-	var args cerbapi.PluginConnectorExecArgs
-	if err := decodeJSONBody(r, &args); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	args.Operation = operation
-	out, err := s.client.ExecutePluginConnector(r.Context(), args)
-	if err != nil {
-		writeClientError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
+// webPluginInstallRetired replaces install-by-path. Registering a directory
+// from the browser would let anything driving the console choose code for the
+// daemon to run; the operator installs from their shell and loads it here.
+const webPluginInstallRetired = "installing a plugin by path is not available from the web console; run `cerberus connectors plugin managed install <dir>` in your shell, then load it here by id"
 
 func (s *Server) handleManagedPluginByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/plugins/connectors/")
@@ -592,27 +555,9 @@ func (s *Server) handleManagedPluginByID(w http.ResponseWriter, r *http.Request)
 	}
 	parts := strings.Split(rest, "/")
 
-	// install: POST /api/plugins/connectors/install (no resource id).
+	// install: POST /api/plugins/connectors/install (no resource id) is retired.
 	if len(parts) == 1 && parts[0] == "install" {
-		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		if !s.allowStateChangingRequest(r) {
-			writeError(w, http.StatusForbidden, "state-changing request rejected")
-			return
-		}
-		var args cerbapi.PluginConnectorHealthArgs
-		if err := decodeJSONBody(r, &args); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		out, err := s.client.InstallManagedPlugin(r.Context(), args)
-		if err != nil {
-			writeClientError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeError(w, http.StatusGone, webPluginInstallRetired)
 		return
 	}
 
@@ -674,6 +619,10 @@ func (s *Server) handleManagedPluginByID(w http.ResponseWriter, r *http.Request)
 		var args cerbapi.PluginConnectorExecArgs
 		if err := decodeJSONBody(r, &args); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if args.PluginDir != "" {
+			writeError(w, http.StatusBadRequest, cerbapi.PluginDirNotAccepted)
 			return
 		}
 		args.Operation = parts[2]

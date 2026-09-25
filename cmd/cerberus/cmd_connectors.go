@@ -91,7 +91,7 @@ type connectorDescription struct {
 }
 
 func connectorDefinitions(ctx context.Context) ([]contract.Definition, map[string]bool, error) {
-	local := app.NewExternalConnectorService()
+	local := app.NewExternalConnectorService(cfgPath)
 	localDefs := local.Definitions()
 	localLive := make(map[string]bool, len(localDefs))
 	for _, def := range localDefs {

@@ -162,9 +162,10 @@ cerberus --config /path/to/config.yaml  # use alternate config
 ```
 
 `cerberus web` and `cerberus mcp-http` are loopback-only. Neither
-authenticates its caller yet, so `--listen` must name a loopback address
-(`127.0.0.1`, `localhost` or `[::1]`, on any port) and either command refuses
-to start otherwise. Both also refuse a request whose `Host` header is not a
+authenticates its caller yet, so `--listen` must name `localhost` or a literal
+loopback IP (`127.0.0.1`, `[::1]`), on any port, and either command refuses to
+start otherwise. Other hostnames are refused even when they resolve to
+loopback. Both also refuse a request whose `Host` header is not a
 loopback name, which defeats DNS rebinding. An SSH local forward
 (`ssh -L 9000:127.0.0.1:4785 host`) works; a tunnel or reverse proxy that
 forwards a public hostname does not. For browser-based MCP clients,
@@ -277,6 +278,13 @@ cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --dry-run
 cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --ack
 cerberus ssh get-dir <resource-id> /opt/app/conf ./conf
 ```
+
+Every `ssh` verb names its target by resource id and nothing else: host, port,
+user, key and host-key settings live on the resource. Whoever runs the
+operation — the daemon, or the CLI itself when no daemon is running or
+`--config` is given — resolves the id against its config. Over the socket, the
+web console and MCP, a request that carries `host`, `key_file`,
+`allow_insecure_host_key` or any other connection field is refused.
 
 `put-dir`/`get-dir` transfer a tree over SFTP. Permission bits are carried, so
 an uploaded script stays executable; each file lands on a temporary name and is

@@ -11,6 +11,14 @@ import (
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
+// Refusals for a filesystem path arriving where only an installed plugin's id
+// is accepted. Running a directory executes its entrypoint, so it is offered
+// only in-process, from the operator's own shell.
+const (
+	PluginDirRetired     = "running a plugin directory is not available over the socket or the web console; run `cerberus connectors plugin health <dir>` or `cerberus connectors plugin exec <dir> <operation>` in your shell, or address an installed plugin by id"
+	PluginDirNotAccepted = "plugin_dir is not accepted here: address the installed plugin by id; to run a directory, use `cerberus connectors plugin exec <dir> <operation>` in your shell"
+)
+
 type PluginConnectorTrustOptions struct {
 	DevMode       bool   `json:"dev_mode,omitempty"`
 	CatalogSigned bool   `json:"catalog_signed,omitempty"`

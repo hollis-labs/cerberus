@@ -24,9 +24,9 @@ func TestToolHintsMatchWhatTheToolsDo(t *testing.T) {
 		{NewCerberusDropletStopTool(nil), false, true},
 		{NewCerberusDropletDestroyTool(nil), false, true},
 		{NewCerberusDropletStartTool(nil), false, false},
-		{NewCerberusSSHGetTool(nil, nil), false, true},
-		{NewCerberusSSHGetDirTool(nil, nil), false, true},
-		{NewCerberusSSHPutTool(nil, nil), false, true},
+		{NewCerberusSSHGetTool(nil), false, true},
+		{NewCerberusSSHGetDirTool(nil), false, true},
+		{NewCerberusSSHPutTool(nil), false, true},
 		// docker_down is compose stop / docker stop: nothing is removed.
 		{NewCerberusDockerDownTool(nil), false, false},
 	} {
