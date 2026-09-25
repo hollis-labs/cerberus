@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -37,15 +38,40 @@ type resolvedSecrets struct {
 	Problems []string
 }
 
+// minRedactedValueLength is the shortest resolved value the plugin redactor
+// will look for. The redactor matches anywhere in the text, so a short or
+// common value — a region, an IP octet, "true" — would be cut out of every
+// sentence that happens to contain it, recovery instructions included. A
+// credential worth protecting this way is longer than this.
+const minRedactedValueLength = 8
+
 // redactor removes every resolved value from text, in the raw form and in
 // the escaped forms a value takes when a plugin puts it in a URL — which is
-// where a transport error echoes it back.
-func (r resolvedSecrets) redactor() redact.Redactor {
-	values := make([]string, 0, 3*len(r.Config))
-	for _, value := range r.Config {
-		values = append(values, value, url.QueryEscape(value), url.PathEscape(value))
+// where a transport error echoes it back. It also names, never shows, the
+// secrets too short to redact safely, so the caller can say they are not
+// covered.
+func (r resolvedSecrets) redactor() (redact.Redactor, []string) {
+	names := make([]string, 0, len(r.Config))
+	for name := range r.Config {
+		names = append(names, name)
 	}
-	return redact.New(values...)
+	sort.Strings(names)
+
+	var values, unprotected []string
+	for _, name := range names {
+		value := r.Config[name]
+		if len(value) < minRedactedValueLength {
+			unprotected = append(unprotected, name)
+			continue
+		}
+		values = append(values, value)
+		for _, escaped := range []string{url.QueryEscape(value), url.PathEscape(value)} {
+			if escaped != value && !slices.Contains(values, escaped) {
+				values = append(values, escaped)
+			}
+		}
+	}
+	return redact.New(values...), unprotected
 }
 
 // resolvePluginSecrets resolves exactly the secrets a plugin's own manifest

@@ -24,7 +24,7 @@ type leakyProcess struct {
 }
 
 func (p *leakyProcess) leak() string {
-	return "upstream said " + p.token + " at https://api.example.test/?key=" + url.QueryEscape(p.token)
+	return "upstream said " + p.token + " at https://api.example.test/" + url.PathEscape(p.token) + "?key=" + url.QueryEscape(p.token)
 }
 
 func (p *leakyProcess) Init(_ context.Context, params SDKInitParams) (SDKInitResult, error) {
@@ -161,4 +161,82 @@ func TestManagerValueRedactionKeepsErrorChain(t *testing.T) {
 		t.Fatalf("errors.Is lost the plugin's error through redaction: %v", err)
 	}
 	assertNoSentinel(t, "wrapped error", err.Error())
+}
+
+// scriptedProcess fails every operation with a fixed message, so a test can
+// hold the exact text the plugin sent against what the caller received.
+type scriptedProcess struct {
+	recordingProcess
+	message string
+}
+
+func (p *scriptedProcess) CallTool(context.Context, SDKMCPCallRequest) (SDKMCPCallResult, error) {
+	return SDKMCPCallResult{}, errors.New(p.message)
+}
+
+func scriptedFailure(t *testing.T, token, message string) (string, []string) {
+	t.Helper()
+	resolver := &fakeResolver{values: map[string]string{"contextforge/token": token}}
+	var warnings []string
+	manager := NewManager(nil, fakeLauncher{process: &scriptedProcess{message: message}}, "test",
+		WithSecretResolver(resolver),
+		WithLoadWarning(func(line string) { warnings = append(warnings, line) }))
+	manager.RegisterInstalled(secretDeclaringPlugin())
+	if err := manager.Load(context.Background(), "contextforge"); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	_, err := manager.ExecuteOperation(context.Background(), OperationArgs{Connector: "contextforge", Operation: "list_gateways"})
+	if err == nil {
+		t.Fatal("ExecuteOperation succeeded, want the scripted failure")
+	}
+	return err.Error(), warnings
+}
+
+const recoveryInstruction = "reload it with `cerberus connectors plugin managed load contextforge` once the region is back"
+
+// A short resolved value is common text — a region, an octet, "true". Redacting
+// it everywhere would shred the message around it, so it is left alone, and
+// the operator is told, by name, that it is not covered.
+func TestPluginRedactorSkipsShortValues(t *testing.T) {
+	const short = "nyc3"
+	message := "region nyc3 is full; " + recoveryInstruction
+	got, warnings := scriptedFailure(t, short, message)
+	if !strings.Contains(got, message) {
+		t.Fatalf("a short resolved value mangled the plugin's message:\n got: %s\nwant it to contain: %s", got, message)
+	}
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, `plugin "contextforge" credential token is shorter than`) {
+		t.Fatalf("warnings = %q, want one naming the unprotected secret", warnings)
+	}
+	if strings.Contains(joined, short) {
+		t.Fatalf("the warning carries the value it is about: %q", warnings)
+	}
+}
+
+// A redacted credential takes only itself out of the message: the recovery
+// instruction next to it arrives intact.
+func TestPluginRedactorKeepsRecoveryInstruction(t *testing.T) {
+	message := "upstream said " + valueSentinel + " as " + url.QueryEscape(valueSentinel) + "; " + recoveryInstruction
+	got, warnings := scriptedFailure(t, valueSentinel, message)
+	assertNoSentinel(t, "scripted failure", got)
+	if !strings.Contains(got, recoveryInstruction) {
+		t.Fatalf("redaction ate the recovery instruction:\n%s", got)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %q, want none for a full-length credential", warnings)
+	}
+}
+
+// The escaped forms are only searched for when they differ from the raw one.
+func TestPluginRedactorDeduplicatesEscapedForms(t *testing.T) {
+	plain := resolvedSecrets{Config: map[string]string{"token": "plainvalue123"}}
+	escaped := resolvedSecrets{Config: map[string]string{"token": valueSentinel}}
+	if _, unprotected := plain.redactor(); len(unprotected) != 0 {
+		t.Fatalf("unprotected = %v, want none", unprotected)
+	}
+	r, _ := escaped.redactor()
+	text := strings.Join([]string{valueSentinel, url.QueryEscape(valueSentinel), url.PathEscape(valueSentinel)}, " | ")
+	if got := r.Text(text); strings.Contains(got, "SENTINEL") {
+		t.Fatalf("an escaped form survived: %s", got)
+	}
 }
