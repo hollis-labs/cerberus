@@ -168,27 +168,27 @@ Run these checks on a macOS machine from the released binary path.
 
    ```bash
    cerberus resource status <dev-resource-id>
-   cerberus resource apply <dev-resource-id>
+   cerberus resource apply <dev-resource-id> --ack
    cerberus resource logs <dev-resource-id>
-   cerberus resource stop <dev-resource-id>
+   cerberus resource stop <dev-resource-id> --ack
    ```
 
 4. Resource smoke for one macOS `os_service` artifact-backed resource:
 
    ```bash
    cerberus resource status <service-resource-id>
-   cerberus resource deploy <service-resource-id>
+   cerberus resource deploy <service-resource-id> --ack
    cerberus resource inspect <service-resource-id>
-   cerberus resource reload <service-resource-id>
+   cerberus resource reload <service-resource-id> --ack
    cerberus resource doctor <service-resource-id>
-   cerberus resource stop <service-resource-id>
-   cerberus resource apply <service-resource-id>
+   cerberus resource stop <service-resource-id> --ack
+   cerberus resource apply <service-resource-id> --ack
    ```
 
 5. Artifact freshness smoke:
 
    ```bash
-   cerberus resource sync <service-resource-id>
+   cerberus resource sync <service-resource-id> --ack
    cerberus resource status <service-resource-id>
    ```
 

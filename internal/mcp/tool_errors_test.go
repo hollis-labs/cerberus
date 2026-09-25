@@ -34,28 +34,28 @@ func refusedOp(verb string) *cerbapi.OpResult {
 	return &cerbapi.OpResult{Success: false, Error: verb + " refused: resource is unsupervised"}
 }
 
-func (refusingClient) StopResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (refusingClient) StopResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return refusedOp("stop"), nil
 }
-func (refusingClient) ReloadResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (refusingClient) ReloadResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return refusedOp("reload"), nil
 }
-func (refusingClient) DeployResource(context.Context, string, ...cerbapi.DeployResourceOption) (*cerbapi.OpResult, error) {
+func (refusingClient) DeployResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return refusedOp("deploy"), nil
 }
-func (refusingClient) ApplyResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (refusingClient) ApplyResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return refusedOp("apply"), nil
 }
-func (refusingClient) SyncResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (refusingClient) SyncResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return refusedOp("sync"), nil
 }
-func (refusingClient) RemoveResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (refusingClient) RemoveResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return refusedOp("remove"), nil
 }
 func (refusingClient) GetResourceRuntime(context.Context, string) (*cerbapi.ResourceRuntimeStatus, error) {
 	return nil, errors.New("resource not found: nope")
 }
-func (refusingClient) RunPipeline(context.Context, string) (*cerbapi.PipelineRunResult, error) {
+func (refusingClient) RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
 	return &cerbapi.PipelineRunResult{Success: false, Error: "pipeline stage smoke failed"}, nil
 }
 

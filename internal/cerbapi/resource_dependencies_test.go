@@ -42,11 +42,11 @@ func TestExplicitStartWarnsAboutUnavailableDependencies(t *testing.T) {
 	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
 	ctx := context.Background()
 	t.Cleanup(func() {
-		_, _ = svc.StopResource(ctx, id)
+		_, _ = svc.StopResource(ctx, id, WithAcknowledged(true))
 		_ = pausectl.ResumeService(id)
 		_ = service.RemovePIDFile(id)
 	})
-	result, err := svc.ApplyResource(ctx, id)
+	result, err := svc.ApplyResource(ctx, id, WithAcknowledged(true))
 	if err != nil || !result.Success {
 		t.Fatalf("explicit start was blocked: %+v %v", result, err)
 	}

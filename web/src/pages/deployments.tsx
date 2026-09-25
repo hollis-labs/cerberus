@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button, Callout, EmptyState, Input, Pill, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type DeploymentProfile, type DeploymentRunResult, type InfraProvider } from '../api/client'
+import { ActionConfirm, type PendingConfirm } from '../components/action-confirm'
 
 export function DeploymentsPage() {
   const infra = usePoll((signal) => apiClient.getInfra(signal), 5000)
@@ -13,6 +14,7 @@ export function DeploymentsPage() {
   const [secretDrafts, setSecretDrafts] = useState<Record<string, Record<string, string>>>({})
   const [runResults, setRunResults] = useState<Record<string, DeploymentRunResult>>({})
   const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState<PendingConfirm | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -36,7 +38,7 @@ export function DeploymentsPage() {
     })
     setProfileDrafts((current) => {
       const next = { ...current }
-      for (const profile of [...data.deployments, ...(data.suggestions ?? [])]) {
+      for (const profile of data.deployments) {
         next[profile.id] = { ...profile, ...(current[profile.id] ?? {}) }
       }
       return next
@@ -57,11 +59,9 @@ export function DeploymentsPage() {
 
   const providers = infra.data?.providers ?? []
   const deployments = infra.data?.deployments ?? []
-  const suggestions = infra.data?.suggestions ?? []
   const cards = [
     { label: 'Providers', value: providers.length, accentColor: 'var(--color-text)' },
     { label: 'Profiles', value: deployments.length, accentColor: 'var(--color-status-done)' },
-    { label: 'Suggestions', value: suggestions.length, accentColor: 'var(--color-warning)' },
     { label: 'Deployable now', value: deployments.filter((profile) => profile.provider === 'vercel').length, accentColor: 'var(--color-text)' },
   ]
 
@@ -113,12 +113,36 @@ export function DeploymentsPage() {
     }
   }
 
+  // Running a profile is exec, so it shows the plan — every command that will
+  // run — and sends the request, acknowledged, only from the confirm step.
+  async function confirmRun(profileID: string, name: string) {
+    if (!sessionToken || busy) return
+    setError(null)
+    try {
+      const plan = await apiClient.planDeployment(profileID)
+      if (plan.error && plan.steps.length === 0) {
+        setError(plan.error)
+        return
+      }
+      setPending({
+        verb: 'Run',
+        subject: name,
+        effect: 'exec',
+        commands: plan.steps.map((step) => `# ${step.name}\n${step.command}`),
+        cwd: plan.repo_path,
+        run: () => runProfile(profileID),
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function runProfile(profileID: string) {
     if (!sessionToken || busy) return
     setBusy(`run:${profileID}`)
     setError(null)
     try {
-      const result = await apiClient.runDeployment(profileID, sessionToken)
+      const result = await apiClient.runDeployment(profileID, sessionToken, true)
       setRunResults((current) => ({ ...current, [profileID]: result }))
       await infra.refetch()
     } catch (err) {
@@ -192,7 +216,7 @@ export function DeploymentsPage() {
 
         <SettingsPanel title="Deployment profiles" icon={<Rocket className="h-4 w-4" />} className="border-b-0">
           <div className="px-4 py-3">
-          {deployments.length === 0 && suggestions.length === 0 ? (
+          {deployments.length === 0 ? (
             <div className="text-sm text-text-soft">No deployment profiles yet.</div>
           ) : (
             <div className="space-y-4">
@@ -205,31 +229,15 @@ export function DeploymentsPage() {
                   onChange={(next) => setProfileDrafts((current) => ({ ...current, [profile.id]: next }))}
                   onSave={() => void saveProfile(profile.id)}
                   onDelete={() => void deleteProfile(profile.id)}
-                  onRun={() => void runProfile(profile.id)}
+                  onRun={() => void confirmRun(profile.id, profile.name || profile.id)}
                 />
               ))}
-              {suggestions.length > 0 && (
-                <div className="space-y-4">
-                  <div className="text-xs uppercase tracking-wide text-text-subtle">Suggested</div>
-                  {suggestions.map((profile) => (
-                    <DeploymentCard
-                      key={profile.id}
-                      profile={profileDrafts[profile.id] ?? profile}
-                      result={runResults[profile.id]}
-                      busy={busy}
-                      onChange={(next) => setProfileDrafts((current) => ({ ...current, [profile.id]: next }))}
-                      onSave={() => void saveProfile(profile.id)}
-                      onDelete={undefined}
-                      onRun={undefined}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
           )}
           </div>
         </SettingsPanel>
       </div>
+      <ActionConfirm pending={pending} busy={busy !== null} onClose={() => setPending(null)} />
     </div>
   )
 }
@@ -259,7 +267,6 @@ function DeploymentCard({
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-soft">
             <Pill tone="neutral">{profile.provider}</Pill>
             {profile.domain ? <Pill tone="success">{profile.domain}</Pill> : null}
-            {profile.suggested ? <Pill tone="warning">Suggested</Pill> : null}
           </div>
           <div className="mt-2 font-mono text-[11px] text-text-subtle">{profile.repo_path}</div>
         </div>
@@ -270,7 +277,7 @@ function DeploymentCard({
             </Button>
           )}
           <Button variant="outline" size="sm" disabled={busy !== null} onClick={onSave}>
-            {busy === `save:${profile.id}` ? 'Saving...' : profile.suggested ? 'Adopt' : 'Save'}
+            {busy === `save:${profile.id}` ? 'Saving...' : 'Save'}
           </Button>
           {onDelete && (
             <Button variant="outline" size="sm" disabled={busy !== null} onClick={onDelete}>

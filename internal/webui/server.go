@@ -248,7 +248,12 @@ func (s *Server) handleResourceByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "state-changing request rejected")
 			return
 		}
-		out, err := s.performAction(r.Context(), id, action)
+		opts, err := decodeMutationBody(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		out, err := s.performAction(r.Context(), id, action, opts...)
 		if err != nil {
 			writeClientError(w, err)
 			return
@@ -278,20 +283,34 @@ func (s *Server) allowStateChangingRequest(r *http.Request) bool {
 	return s.guard.OriginAllowed(origin)
 }
 
-func (s *Server) performAction(ctx context.Context, id, action string) (*cerbapi.OpResult, error) {
+// mutationBody is what the console sends with a resource action or a
+// pipeline run: the operator's acknowledgment, given in the confirm step.
+type mutationBody struct {
+	Acknowledged bool `json:"acknowledged"`
+}
+
+func decodeMutationBody(r *http.Request) ([]cerbapi.MutationOption, error) {
+	var body mutationBody
+	if err := decodeJSONBody(r, &body); err != nil {
+		return nil, err
+	}
+	return []cerbapi.MutationOption{cerbapi.WithAcknowledged(body.Acknowledged)}, nil
+}
+
+func (s *Server) performAction(ctx context.Context, id, action string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	switch action {
 	case "apply":
-		return s.client.ApplyResource(ctx, id)
+		return s.client.ApplyResource(ctx, id, opts...)
 	case "deploy":
-		return s.client.DeployResource(ctx, id)
+		return s.client.DeployResource(ctx, id, opts...)
 	case "reload":
-		return s.client.ReloadResource(ctx, id)
+		return s.client.ReloadResource(ctx, id, opts...)
 	case "stop":
-		return s.client.StopResource(ctx, id)
+		return s.client.StopResource(ctx, id, opts...)
 	case "sync":
-		return s.client.SyncResource(ctx, id)
+		return s.client.SyncResource(ctx, id, opts...)
 	case "remove":
-		return s.client.RemoveResource(ctx, id)
+		return s.client.RemoveResource(ctx, id, opts...)
 	default:
 		return nil, fmt.Errorf("unsupported action %q", action)
 	}
@@ -472,7 +491,12 @@ func (s *Server) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "state-changing request rejected")
 		return
 	}
-	out, err := s.client.RunPipeline(r.Context(), id)
+	opts, err := decodeMutationBody(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out, err := s.client.RunPipeline(r.Context(), id, opts...)
 	if err != nil {
 		writeClientError(w, err)
 		return

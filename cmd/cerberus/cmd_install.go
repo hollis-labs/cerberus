@@ -192,7 +192,7 @@ var installCmd = &cobra.Command{
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove the cerberus daemon launch agent",
-	Long:  "Unloads and removes the macOS launch agent for the Cerberus daemon label (`com.fragments-engine.cerberus`). If `cerberus-daemon-service` is present in the v2 resource lane, prefer `cerberus resource remove cerberus-daemon-service` for normal lifecycle management.",
+	Long:  "Unloads and removes the macOS launch agent for the Cerberus daemon label (`com.fragments-engine.cerberus`). If `cerberus-daemon-service` is present in the v2 resource lane, prefer `cerberus resource remove cerberus-daemon-service --ack` for normal lifecycle management.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("uninstall is currently supported on macOS only")

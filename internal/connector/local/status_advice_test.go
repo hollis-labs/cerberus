@@ -135,7 +135,7 @@ func TestRecommendedStatusAction(t *testing.T) {
 
 func TestRecommendedNextStepDeploy(t *testing.T) {
 	got := RecommendedNextStep("deploy", "repo state changed since the installed artifact was last synced")
-	want := "Run `cerberus resource deploy <resource-id>` to rebuild from the current repo state, sync the artifact, and activate it."
+	want := "Run `cerberus resource deploy <resource-id> --ack` to rebuild from the current repo state, sync the artifact, and activate it."
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

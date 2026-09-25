@@ -95,33 +95,46 @@ type OpResult struct {
 	Error          string                        `json:"error,omitempty"`
 }
 
-// DeployResourceOpts carries per-invocation overrides for DeployResource.
-// Construct with functional options (WithInstallAfterBuildOverride, etc.) and
-// pass through Client.DeployResource. Socket transport serializes these to the
-// /resources/{id}/deploy request body so daemon-routed CLIs see the same
-// precedence layering as in-process callers.
-type DeployResourceOpts struct {
+// MutationOpts carries the per-invocation options of a resource mutation or a
+// pipeline run: the caller's acknowledgment, and deploy's overrides.
+// Construct with functional options (WithAcknowledged,
+// WithInstallAfterBuildOverride) and pass them to the Client method. The
+// socket transport serializes them to the request body, so a daemon-routed
+// call carries exactly what an in-process one does.
+type MutationOpts struct {
+	// Acknowledged is the operator's acknowledgment of the operation. Every
+	// resource mutation and pipeline run requires it (Decision 14); it is
+	// passed explicitly per call, never inherited through a context, so a
+	// pipeline's acknowledgment cannot leak into anything it calls.
+	Acknowledged bool `json:"acknowledged,omitempty"`
+
 	// InstallAfterBuildOverride forces install_after_build behavior for this
 	// invocation when non-nil. Highest-precedence layer; corresponds to the
 	// --install-after-build / --no-install-after-build CLI flags.
 	InstallAfterBuildOverride *bool `json:"install_after_build_override,omitempty"`
 }
 
-// DeployResourceOption is a functional option for DeployResource.
-type DeployResourceOption func(*DeployResourceOpts)
+// MutationOption is a functional option for a resource mutation or a
+// pipeline run.
+type MutationOption func(*MutationOpts)
+
+// WithAcknowledged records the caller's acknowledgment for this call.
+func WithAcknowledged(v bool) MutationOption {
+	return func(o *MutationOpts) { o.Acknowledged = v }
+}
 
 // WithInstallAfterBuildOverride sets the per-invocation install_after_build
 // override. The value travels at the highest precedence in the resolver,
 // beating both the resource-level setting and the global default.
-func WithInstallAfterBuildOverride(v bool) DeployResourceOption {
-	return func(o *DeployResourceOpts) { o.InstallAfterBuildOverride = &v }
+func WithInstallAfterBuildOverride(v bool) MutationOption {
+	return func(o *MutationOpts) { o.InstallAfterBuildOverride = &v }
 }
 
-// ApplyDeployResourceOptions folds a slice of options into a value-typed opts
+// ApplyMutationOptions folds a slice of options into a value-typed opts
 // struct. Useful for callers that need to forward options over the socket
 // boundary where functional options can't survive.
-func ApplyDeployResourceOptions(options []DeployResourceOption) DeployResourceOpts {
-	var opts DeployResourceOpts
+func ApplyMutationOptions(options []MutationOption) MutationOpts {
+	var opts MutationOpts
 	for _, o := range options {
 		if o != nil {
 			o(&opts)

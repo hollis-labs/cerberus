@@ -70,9 +70,9 @@ Symptoms:
 
 Recovery:
 
-- If source changed and the resource has `build_strategy:`, run `cerberus resource deploy <resource-id>`.
-- If the workspace artifact is already correct and you only need to refresh the install layout, run `cerberus resource sync <resource-id>`, then `cerberus resource apply <resource-id>` when ready to activate it.
-- If the service should restart with the already-installed artifact, run `cerberus resource reload <resource-id>`.
+- If source changed and the resource has `build_strategy:`, run `cerberus resource deploy <resource-id> --ack`.
+- If the workspace artifact is already correct and you only need to refresh the install layout, run `cerberus resource sync <resource-id> --ack`, then `cerberus resource apply <resource-id> --ack` when ready to activate it.
+- If the service should restart with the already-installed artifact, run `cerberus resource reload <resource-id> --ack`.
 - Avoid PATH-only commands for artifact-backed services. `command[0]` should be a filesystem path such as `./bin/my-api`, not `my-api`.
 
 ## Missing Or Wrong Artifacts
@@ -120,14 +120,14 @@ Use the verb that matches the operator intent:
 
 | Intent | Command |
 | --- | --- |
-| Make running service match current source | `cerberus resource deploy <id>` |
-| Start or converge from an already-built artifact | `cerberus resource apply <id>` |
-| Restart the current installed service only | `cerberus resource reload <id>` |
-| Copy artifact without touching runtime backend | `cerberus resource sync <id>` |
-| Stop without deleting install state | `cerberus resource stop <id>` |
+| Make running service match current source | `cerberus resource deploy <id> --ack` |
+| Start or converge from an already-built artifact | `cerberus resource apply <id> --ack` |
+| Restart the current installed service only | `cerberus resource reload <id> --ack` |
+| Copy artifact without touching runtime backend | `cerberus resource sync <id> --ack` |
+| Stop without deleting install state | `cerberus resource stop <id> --ack` |
 | Read live state and next action | `cerberus resource status <id>` |
 | Diagnose install/runtime problems | `cerberus resource doctor <id>` |
 | Find paths, labels, logs, and command details | `cerberus resource inspect <id>` |
-| Uninstall runtime state | `cerberus resource remove <id>` |
+| Uninstall runtime state | `cerberus resource remove <id> --ack` |
 
 Use `stop` for non-destructive stop/pause intent. Do not treat `remove` as a synonym for stop.

@@ -12,9 +12,9 @@ import (
 // satisfy it, so EnsureFresh runs against either without knowing which.
 type EnsureFresher interface {
 	GetResourceRuntime(ctx context.Context, id string) (*ResourceRuntimeStatus, error)
-	DeployResource(ctx context.Context, id string, opts ...DeployResourceOption) (*OpResult, error)
-	ApplyResource(ctx context.Context, id string) (*OpResult, error)
-	SyncResource(ctx context.Context, id string) (*OpResult, error)
+	DeployResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
+	ApplyResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
+	SyncResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
 }
 
 // EnsureFreshResult records the action EnsureFresh chose and its outcome.
@@ -34,7 +34,9 @@ type EnsureFreshResult struct {
 
 // EnsureFresh reconciles built artifacts using runtime advice. Source edits
 // are not inspected: after editing code use force or DeployResource to build.
-func EnsureFresh(ctx context.Context, f EnsureFresher, id string, force bool, opts ...DeployResourceOption) (*EnsureFreshResult, error) {
+// opts go to whichever mutation it chooses, so the caller's acknowledgment
+// covers exactly that one call; EnsureFresh never acknowledges on its own.
+func EnsureFresh(ctx context.Context, f EnsureFresher, id string, force bool, opts ...MutationOption) (*EnsureFreshResult, error) {
 	if force {
 		op, err := f.DeployResource(ctx, id, opts...)
 		return ensureFreshResult(id, "deploy", "forced rebuild", op), err
@@ -50,10 +52,10 @@ func EnsureFresh(ctx context.Context, f EnsureFresher, id string, force bool, op
 		op, err := f.DeployResource(ctx, id, opts...)
 		return ensureFreshResult(id, "deploy", st.RecommendedReason, op), err
 	case "apply":
-		op, err := f.ApplyResource(ctx, id)
+		op, err := f.ApplyResource(ctx, id, opts...)
 		return ensureFreshResult(id, "apply", st.RecommendedReason, op), err
 	case "sync":
-		op, err := f.SyncResource(ctx, id)
+		op, err := f.SyncResource(ctx, id, opts...)
 		return ensureFreshResult(id, "sync", st.RecommendedReason, op), err
 	case "":
 		msg := "no built-binary drift detected; source freshness is not checked; use deploy or ensure-fresh --force after source changes"

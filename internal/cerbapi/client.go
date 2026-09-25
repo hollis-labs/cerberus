@@ -38,23 +38,23 @@ type Client interface {
 	GetResourceDoctor(ctx context.Context, id string) (*ResourceDoctor, error)
 	// DeployResource runs the declared build contract for a resource, then applies it.
 	// Variadic options carry per-invocation overrides (e.g. install_after_build).
-	DeployResource(ctx context.Context, id string, opts ...DeployResourceOption) (*OpResult, error)
+	DeployResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
 	// ApplyResource applies a specific resource through its runtime backend.
-	ApplyResource(ctx context.Context, id string) (*OpResult, error)
+	ApplyResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
 	// ReloadResource asks the runtime backend to restart or kickstart the current installed resource without reinstalling it.
-	ReloadResource(ctx context.Context, id string) (*OpResult, error)
+	ReloadResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
 	// StopResource stops a resource without removing install state.
-	StopResource(ctx context.Context, id string) (*OpResult, error)
+	StopResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
 	// SyncResource syncs installed runtime artifacts without applying the backend.
-	SyncResource(ctx context.Context, id string) (*OpResult, error)
+	SyncResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
 	// RemoveResource removes a specific resource from its runtime backend.
-	RemoveResource(ctx context.Context, id string) (*OpResult, error)
+	RemoveResource(ctx context.Context, id string, opts ...MutationOption) (*OpResult, error)
 	// ListPipelines returns pipeline-list output.
 	ListPipelines(ctx context.Context) ([]PipelineInfo, error)
 	// GetPipeline returns the definition and validation diagnostics, or nil if missing.
 	GetPipeline(ctx context.Context, id string) (*PipelineDetail, error)
 	// RunPipeline executes a pipeline and returns the raw result JSON.
-	RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error)
+	RunPipeline(ctx context.Context, id string, opts ...MutationOption) (*PipelineRunResult, error)
 	// ListConnectors returns connector discovery metadata.
 	ListConnectors(ctx context.Context) ([]contract.Definition, error)
 

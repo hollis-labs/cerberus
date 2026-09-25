@@ -74,7 +74,7 @@ func TestResolveDeployFlags(t *testing.T) {
 			if err != nil {
 				return
 			}
-			got := cerbapi.ApplyDeployResourceOptions(opts).InstallAfterBuildOverride
+			got := cerbapi.ApplyMutationOptions(opts).InstallAfterBuildOverride
 			switch {
 			case tc.wantOverride == nil && got != nil:
 				t.Fatalf("expected no override, got *%v", *got)

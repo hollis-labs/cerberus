@@ -439,8 +439,8 @@ Before migrating a project from legacy `services:` to v2 `resources:`:
 6. Add audience tags so operators and agents can filter resources safely.
 7. If artifact-backed, verify the artifact exists in the repo after build.
 8. Add the v2 `resource` entry.
-9. Run `cerberus resource sync <id>` if artifact-backed.
-10. Run `cerberus resource apply <id>`.
+9. Run `cerberus resource sync <id> --ack` if artifact-backed.
+10. Run `cerberus resource apply <id> --ack`.
 11. Verify with:
    - `cerberus resource status <id>`
    - `cerberus resource inspect <id>`

@@ -61,7 +61,8 @@ var pipelineRunCmd = &cobra.Command{
 		}
 		ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer cancel()
-		return runPipelineCommand(ctx, client, args[0], os.Stdout)
+		ack, _ := cmd.Flags().GetBool("ack")
+		return runPipelineCommand(ctx, client, args[0], os.Stdout, cerbapi.WithAcknowledged(ack))
 	},
 }
 
@@ -108,7 +109,7 @@ func printPipelineDetail(out io.Writer, detail *cerbapi.PipelineDetail) error {
 	return err
 }
 
-func runPipelineCommand(ctx context.Context, client pipelineClient, id string, out io.Writer) error {
+func runPipelineCommand(ctx context.Context, client pipelineClient, id string, out io.Writer, opts ...cerbapi.MutationOption) error {
 	detail, err := client.GetPipeline(ctx, id)
 	if err != nil {
 		return err
@@ -120,7 +121,7 @@ func runPipelineCommand(ctx context.Context, client pipelineClient, id string, o
 		return errors.New(detail.ValidationError)
 	}
 	fmt.Fprintf(out, "Running pipeline: %s (%s)\n", detail.Definition.Name, detail.Definition.ID)
-	result, err := client.RunPipeline(ctx, id)
+	result, err := client.RunPipeline(ctx, id, opts...)
 	if err != nil {
 		return err
 	}
@@ -160,6 +161,8 @@ func printPipelineExecution(out io.Writer, id string, result *cerbapi.PipelineEx
 
 func init() {
 	pipelineCmd.AddCommand(pipelineListCmd)
+	// A run is exec: a stage can be a shell action (Decision 11).
+	pipelineRunCmd.Flags().Bool("ack", false, "acknowledge the run; a pipeline stage can run shell commands, so every run requires it")
 	pipelineCmd.AddCommand(pipelineRunCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)
 }

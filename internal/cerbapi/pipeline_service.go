@@ -29,7 +29,13 @@ func (s *ResourceRuntimeService) ListPipelines(_ context.Context) ([]PipelineInf
 }
 
 // RunPipeline resolves and executes against the shared runtime connector.
-func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error) {
+func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, options ...MutationOption) (*PipelineRunResult, error) {
+	// One gate for the whole run: the stages call the local connector
+	// directly, so they are covered by this acknowledgment and never by one
+	// of their own.
+	if err := runtimeGate(ctx, pipeline.Definition(), pipeline.OpRun, map[string]any{"id": id}, ApplyMutationOptions(options)); err != nil {
+		return nil, err
+	}
 	cfg := s.snapshotConfig()
 	if cfg == nil {
 		return &PipelineRunResult{Success: false, Error: "no config available"}, nil
