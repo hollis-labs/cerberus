@@ -19,25 +19,48 @@ const (
 	PluginDirNotAccepted = "plugin_dir is not accepted here: address the installed plugin by id; to run a directory, use `cerberus connectors plugin exec <dir> <operation>` in your shell"
 )
 
-type PluginConnectorTrustOptions struct {
-	DevMode       bool   `json:"dev_mode,omitempty"`
-	CatalogSigned bool   `json:"catalog_signed,omitempty"`
-	ArchiveSigned bool   `json:"archive_signed,omitempty"`
-	ArchiveSHA256 string `json:"archive_sha256,omitempty"`
+// PluginInstallOptions are how a plugin is installed. There is no trust or
+// signing option: Cerberus does not vet plugins, so nothing a caller could
+// assert about a plugin changes what it may do. DevMode selects a development
+// install, which is a restriction (see pluginhost.OriginDev).
+type PluginInstallOptions struct {
+	DevMode bool `json:"dev_mode,omitempty"`
+}
+
+// legacyInstallOptions reads the "trust" object older CLIs sent and older
+// state files stored. Only dev_mode still means anything; catalog_signed,
+// archive_signed and archive_sha256 were self-asserted and are ignored.
+type legacyInstallOptions struct {
+	DevMode bool `json:"dev_mode,omitempty"`
+}
+
+func mergeLegacyOptions(options PluginInstallOptions, legacy *legacyInstallOptions) PluginInstallOptions {
+	if legacy != nil && legacy.DevMode {
+		options.DevMode = true
+	}
+	return options
 }
 
 type PluginConnectorHealthArgs struct {
-	PluginDir string                      `json:"plugin_dir"`
-	Trust     PluginConnectorTrustOptions `json:"trust"`
+	PluginDir string               `json:"plugin_dir"`
+	Options   PluginInstallOptions `json:"options"`
+	// LegacyTrust is the pre-P0-4 name for Options, read so an older CLI's
+	// --dev is not silently dropped. It is never written.
+	LegacyTrust *legacyInstallOptions `json:"trust,omitempty"`
+}
+
+// InstallOptions returns the options, folding in the legacy field.
+func (a PluginConnectorHealthArgs) InstallOptions() PluginInstallOptions {
+	return mergeLegacyOptions(a.Options, a.LegacyTrust)
 }
 
 type PluginConnectorExecArgs struct {
-	PluginDir    string                      `json:"plugin_dir"`
-	Operation    string                      `json:"operation"`
-	Config       map[string]any              `json:"config,omitempty"`
-	DryRun       bool                        `json:"dry_run,omitempty"`
-	Acknowledged bool                        `json:"acknowledged,omitempty"`
-	Trust        PluginConnectorTrustOptions `json:"trust"`
+	PluginDir    string               `json:"plugin_dir"`
+	Operation    string               `json:"operation"`
+	Config       map[string]any       `json:"config,omitempty"`
+	DryRun       bool                 `json:"dry_run,omitempty"`
+	Acknowledged bool                 `json:"acknowledged,omitempty"`
+	Options      PluginInstallOptions `json:"options"`
 }
 
 type PluginConnectorHealth struct {
@@ -79,7 +102,7 @@ func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnecto
 	progressToken := fmt.Sprintf("plugin-health:%s", args.PluginDir)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting plugin health check for %s", args.PluginDir))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
-	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.Trust)
+	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.InstallOptions())
 	if err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin health check failed for %s: %s", args.PluginDir, err.Error()))
 		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin health failed")
@@ -108,7 +131,7 @@ func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnect
 	progressToken := fmt.Sprintf("plugin-exec:%s:%s", args.PluginDir, args.Operation)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting plugin operation %s for %s", args.Operation, args.PluginDir))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
-	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.Trust)
+	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.Options)
 	if err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed for %s: %s", args.Operation, args.PluginDir, err.Error()))
 		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation failed")
@@ -138,14 +161,8 @@ func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnect
 	}, nil
 }
 
-func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir string, trust PluginConnectorTrustOptions) (*pluginhost.Manager, pluginhost.InstalledPlugin, error) {
-	installer := pluginhost.DirectoryInstaller{
-		Policy:        pluginPolicy(pluginDir, trust),
-		RequestedTier: requestedPluginTier(trust),
-		CatalogSigned: trust.CatalogSigned,
-		ArchiveSHA256: trust.ArchiveSHA256,
-		ArchiveSigned: trust.ArchiveSigned,
-	}
+func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir string, options PluginInstallOptions) (*pluginhost.Manager, pluginhost.InstalledPlugin, error) {
+	installer := pluginhost.DirectoryInstaller{Policy: pluginPolicy(pluginDir, options)}
 
 	manager := pluginhost.NewManager(
 		installer,
@@ -153,7 +170,6 @@ func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir s
 			Transport: pluginhost.StdioTransportFactory{Stderr: s.stderr},
 			Env:       pluginLaunchEnv(),
 		},
-		installer.Policy,
 		s.hostVersion,
 		pluginhost.WithSecretResolver(s.secrets),
 		pluginhost.WithLoadWarning(s.warn),
@@ -171,28 +187,13 @@ func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir s
 	return manager, installed, nil
 }
 
-// pluginPolicy picks the trust policy for an install. Signature claims opt into
-// the signed path; everything else installs as an unsigned local plugin, which
-// is the supported default rather than an escape hatch. DevMode remains for the
-// stricter developer-roots policy in a devmode build.
-func pluginPolicy(pluginDir string, trust PluginConnectorTrustOptions) pluginhost.TrustPolicy {
-	if trust.DevMode {
-		return pluginhost.DeveloperTrustPolicy(pluginDir)
+// pluginPolicy picks the install policy: a development install when DevMode
+// is set, a local install otherwise.
+func pluginPolicy(pluginDir string, options PluginInstallOptions) pluginhost.InstallPolicy {
+	if options.DevMode {
+		return pluginhost.DeveloperInstallPolicy(pluginDir)
 	}
-	if trust.CatalogSigned || trust.ArchiveSigned {
-		return pluginhost.DefaultTrustPolicy()
-	}
-	return pluginhost.LocalTrustPolicy()
-}
-
-func requestedPluginTier(trust PluginConnectorTrustOptions) pluginhost.TrustTier {
-	if trust.DevMode {
-		return pluginhost.TrustTierUnsignedDev
-	}
-	if trust.CatalogSigned || trust.ArchiveSigned {
-		return pluginhost.TrustTierSigned
-	}
-	return pluginhost.TrustTierUnsigned
+	return pluginhost.LocalInstallPolicy()
 }
 
 // warn reports a non-fatal plugin-host problem to the caller's stderr. Silence

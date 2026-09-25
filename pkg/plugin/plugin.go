@@ -9,7 +9,7 @@
 // deprecated and ignored for gating; keep setting it on destructive operations
 // for older hosts.
 //
-// The host side — the manager, installer, trust policy and subprocess
+// The host side — the manager, installer, install policy and subprocess
 // launcher — deliberately stays in internal/pluginhost. Those are host
 // decisions and must not be something a plugin can influence.
 package plugin

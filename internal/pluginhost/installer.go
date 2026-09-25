@@ -22,11 +22,7 @@ const PluginYAMLFilename = plugin.PluginYAMLFilename
 // validating the Cerberus-owned plugin.yaml metadata before any subprocess is
 // launched.
 type DirectoryInstaller struct {
-	Policy          TrustPolicy
-	RequestedTier   TrustTier
-	CatalogSigned   bool
-	ArchiveSHA256   string
-	ArchiveSigned   bool
+	Policy          InstallPolicy
 	SandboxProfile  SandboxProfile
 	SandboxEnforced bool
 
@@ -66,8 +62,8 @@ func (i DirectoryInstaller) Install(ctx context.Context, source string) (Install
 		return InstalledPlugin{}, err
 	}
 
-	// Checked before trust, hashing or any subprocess: a plugin that may not be
-	// installed at all should not have its signature evaluated first.
+	// Checked before hashing, policy or any subprocess: a plugin that may not
+	// be installed at all is refused first.
 	//
 	// WP-0 made an installed-but-unloaded plugin fall back to the built-in it
 	// shadowed, because unloading one left `cerberus docker ps` permanently
@@ -78,50 +74,33 @@ func (i DirectoryInstaller) Install(ctx context.Context, source string) (Install
 		return InstalledPlugin{}, &ReservedIDError{ID: spec.ID}
 	}
 
-	policy := i.Policy
-	if policy.isZero() {
-		policy = DefaultTrustPolicy()
+	// The host always computes the entrypoint fingerprint; a caller cannot
+	// supply one. It is change detection for later, not a trust signal, and
+	// nothing compares it yet (P1, CERB-GAP-336).
+	entrypointSHA, err := hashPluginEntrypoint(pluginDir, spec)
+	if err != nil {
+		return InstalledPlugin{}, err
 	}
 
-	// Compute the entrypoint hash ourselves when the caller did not supply one.
-	// Requiring an operator to paste a sha256 of a binary they just built is
-	// friction that buys nothing — they are attesting to a file they control.
-	// Computing it here satisfies RequireArchiveHash without that friction.
-	//
-	// It does not, today, make anything detectable. The value is recorded and
-	// never compared against a later hash of the same binary, so it is raw
-	// material for an integrity check rather than one. See CERB-GAP-336.
-	archiveSHA := i.ArchiveSHA256
-	if archiveSHA == "" {
-		archiveSHA, err = hashPluginEntrypoint(pluginDir, spec)
-		if err != nil {
-			return InstalledPlugin{}, err
-		}
-	}
-
-	decision, err := policy.ValidateInstall(TrustCheck{
-		SourcePath:      pluginDir,
-		CatalogSigned:   i.CatalogSigned,
-		ArchiveSHA256:   archiveSHA,
-		ArchiveSigned:   i.ArchiveSigned,
-		LocalPath:       true,
-		RequestedTier:   i.RequestedTier,
-		SandboxProfile:  i.SandboxProfile,
-		SandboxEnforced: i.SandboxEnforced,
-		Manifest:        spec.Cerberus.Connector,
+	decision, err := i.Policy.ValidateInstall(InstallCheck{
+		SourcePath:       pluginDir,
+		EntrypointSHA256: entrypointSHA,
+		SandboxProfile:   i.SandboxProfile,
+		SandboxEnforced:  i.SandboxEnforced,
+		Manifest:         spec.Cerberus.Connector,
 	})
 	if err != nil {
 		return InstalledPlugin{}, err
 	}
 
 	return InstalledPlugin{
-		ID:            spec.ID,
-		Version:       spec.Version,
-		Path:          pluginDir,
-		Trust:         decision,
-		Spec:          spec,
-		Manifest:      spec.Cerberus.Connector,
-		ArchiveSHA256: archiveSHA,
+		ID:               spec.ID,
+		Version:          spec.Version,
+		Path:             pluginDir,
+		Origin:           decision.Origin,
+		Spec:             spec,
+		Manifest:         spec.Cerberus.Connector,
+		EntrypointSHA256: entrypointSHA,
 	}, nil
 }
 
@@ -200,13 +179,4 @@ func resolvePluginDir(source string) (string, error) {
 		return "", fmt.Errorf("plugin source %q must be a directory or %s file", source, PluginYAMLFilename)
 	}
 	return filepath.Dir(path), nil
-}
-
-func (p TrustPolicy) isZero() bool {
-	return p.Mode == "" &&
-		!p.RequireSignature &&
-		!p.RequireArchiveHash &&
-		!p.RequireArchiveSig &&
-		!p.AllowUnsignedLocal &&
-		len(p.AllowedDeveloperRoots) == 0
 }
