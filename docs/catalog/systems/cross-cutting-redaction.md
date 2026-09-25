@@ -225,7 +225,14 @@ sentinel. With registration switched off, every surface leaks it.
 ssh, docker and local resolve no credential value, so they have no case. ssh
 resolves a key file's path, which is deliberately not registered. docker and
 local resolve nothing, and local's `FromEnv` coverage of env literals is
-unchanged. Plugin text joins in S2-5.
+unchanged.
+
+Plugins joined in S2-5. A plugin's credentials, resolved at load, merge into
+each operation's scope at `CallTool`. Its stderr reaches the daemon log
+redacted, a whole line at a time. A declared secret can say `kind: path` or
+`kind: name`, as ssh's key does, to be left alone. The built-in `Path` flag
+became that `Kind`. `TestPluginSuccessResultNeverCarriesItsCredential` is the
+plugin half of the acceptance test.
 The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
 `--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
 fixed by changing the placeholder rather than the rule.

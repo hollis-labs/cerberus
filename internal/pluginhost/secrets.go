@@ -3,8 +3,6 @@ package pluginhost
 import (
 	"context"
 	"fmt"
-	"net/url"
-	"slices"
 	"sort"
 	"strings"
 
@@ -31,6 +29,11 @@ type SecretResolver interface {
 type resolvedSecrets struct {
 	Config map[string]string
 
+	// NotCredentials names the resolved values the manifest declares as a
+	// path or a name. They reach the plugin like any other and are never
+	// value-redacted.
+	NotCredentials map[string]bool
+
 	// MissingRequired names declared-required secrets that resolved empty.
 	MissingRequired []string
 
@@ -39,18 +42,13 @@ type resolvedSecrets struct {
 	Problems []string
 }
 
-// minRedactedValueLength is the shortest resolved value the plugin redactor
-// will look for. The redactor matches anywhere in the text, so a short or
-// common value — a region, an IP octet, "true" — would be cut out of every
-// sentence that happens to contain it, recovery instructions included. A
-// credential worth protecting this way is longer than this.
-const minRedactedValueLength = 8
-
-// redactor removes every resolved value from text, in the raw form and in
-// the escaped forms a value takes when a plugin puts it in a URL — which is
-// where a transport error echoes it back. It also names, never shows, the
-// secrets too short to redact safely, so the caller can say they are not
-// covered.
+// redactor removes every resolved credential from text, in each form
+// redact.Forms gives it: raw, the escaped forms a value takes when a plugin
+// puts it in a URL — which is where a transport error echoes it back — and
+// its JSON escaping. A value the manifest declares as a path or a name is not
+// a credential and is left alone. The redactor also names, never shows, the
+// credentials too short to redact safely (under redact.MinValueLength), so
+// the caller can say they are not covered.
 func (r resolvedSecrets) redactor() (redact.Redactor, []string) {
 	names := make([]string, 0, len(r.Config))
 	for name := range r.Config {
@@ -60,17 +58,15 @@ func (r resolvedSecrets) redactor() (redact.Redactor, []string) {
 
 	var values, unprotected []string
 	for _, name := range names {
-		value := r.Config[name]
-		if len(value) < minRedactedValueLength {
+		if r.NotCredentials[name] {
+			continue
+		}
+		forms := redact.Forms(r.Config[name])
+		if forms == nil {
 			unprotected = append(unprotected, name)
 			continue
 		}
-		values = append(values, value)
-		for _, escaped := range []string{url.QueryEscape(value), url.PathEscape(value)} {
-			if escaped != value && !slices.Contains(values, escaped) {
-				values = append(values, escaped)
-			}
-		}
+		values = append(values, forms...)
 	}
 	return redact.New(values...), unprotected
 }
@@ -89,8 +85,16 @@ func (r resolvedSecrets) redactor() (redact.Redactor, []string) {
 // fails an operation, not a load — and an optional component that can take the
 // host down is the failure mode the managed-plugin restore bug already taught
 // us to avoid.
+//
+// Resolution is detached from the request scope of whoever asked for the
+// load. The values are the plugin's for its whole load lifetime, not that
+// request's: the plugin's own redactor holds them, and each operation merges
+// them into its own request's scope when it runs (CallTool). Registering them
+// here would also register the manifest's non-credentials, which the shared
+// provider cannot tell apart.
 func resolvePluginSecrets(ctx context.Context, resolver SecretResolver, plugin InstalledPlugin) resolvedSecrets {
-	out := resolvedSecrets{Config: make(map[string]string)}
+	ctx = redact.WithScope(ctx, nil)
+	out := resolvedSecrets{Config: make(map[string]string), NotCredentials: make(map[string]bool)}
 	for _, req := range plugin.Manifest.Config.Secrets {
 		if req.Name == "" {
 			continue
@@ -112,6 +116,9 @@ func resolvePluginSecrets(ctx context.Context, resolver SecretResolver, plugin I
 			continue
 		}
 		out.Config[req.Name] = value
+		if !req.IsCredential() {
+			out.NotCredentials[req.Name] = true
+		}
 	}
 	sort.Strings(out.MissingRequired)
 	return out

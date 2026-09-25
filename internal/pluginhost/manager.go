@@ -308,7 +308,7 @@ func (m *Manager) reportUnprotectedSecrets(id string, names []string) {
 	}
 	m.warn(fmt.Sprintf(
 		"plugin %q credential %s is shorter than %d bytes and is not redacted from the plugin's text",
-		id, strings.Join(names, ", "), minRedactedValueLength))
+		id, strings.Join(names, ", "), redact.MinValueLength))
 }
 
 // MissingSecrets names the required credentials a loaded plugin did not
@@ -405,6 +405,11 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	if collector != nil && lp.stderr != nil {
 		defer lp.stderr.attach(collector)()
 	}
+	// The plugin's credentials were resolved at load, before this request
+	// began, so they join its scope here: every surface that renders this
+	// operation's output — a success result included, which the plugin
+	// redactor below never sees — removes them.
+	redact.ScopeFrom(ctx).Merge(lp.redactor)
 	result, err := lp.process.CallTool(ctx, MCPRequestFromOperation(args))
 	if err == nil {
 		var events []pluginsdk.TelemetryEvent
