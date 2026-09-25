@@ -142,3 +142,18 @@ that decided it. When the daemon is up, it also prints the principal the daemon
 gives the same caller, with its verified uid (CERB-TOOL-419). Agent launchers
 set the marker (Decision 19), and `whoami` is how the operator checks that one
 did.
+
+`cerberus policy` (P2-4) is the operator's view of the policy decision point:
+- `explain <connector.op>` prints the decision and every matched rule, for a
+  `--target`, a principal kind (`--as`, default this terminal's
+  classification), a dry run or an ad hoc target. It evaluates the applied
+  snapshot, or the working files with `--working`, and shows the declared
+  posture.
+- `apply` runs only on a TTY. It samples every declared operation against
+  every registered resource of its connector, plus an unregistered and an ad
+  hoc target, for each principal kind, and prints the decisions that flip.
+  It writes `applied.yaml` and its hash only after the typed
+  `apply <shorthash>`, recorded as an `admin` event.
+- `report` groups the recorded `would_block` decisions from the audit log.
+
+Policy is never changed over the socket, the web console or MCP.

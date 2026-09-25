@@ -50,6 +50,25 @@ const (
 	// other than the daemon's, or one whose peer credentials could not be
 	// read. Nothing was served.
 	ExternalConnectorPrincipalRefused ExternalConnectorErrorCode = "principal_refused"
+
+	// The policy refusals, reserved in P2 and returned from P3 on, when
+	// enforcement lands. Distinct, because an agent that cannot tell "you
+	// may not" from "ask a human" retries the wrong thing (section 4). In
+	// shadow mode the decision is recorded and none of these is returned.
+	//
+	// ExternalConnectorPolicyDenied: policy does not allow the operation.
+	ExternalConnectorPolicyDenied ExternalConnectorErrorCode = "policy_denied"
+	// ExternalConnectorApprovalRequired: the operation needs an approval
+	// nobody has asked for yet.
+	ExternalConnectorApprovalRequired ExternalConnectorErrorCode = "approval_required"
+	// ExternalConnectorApprovalPending: an approval was asked for and has
+	// not been given.
+	ExternalConnectorApprovalPending ExternalConnectorErrorCode = "approval_pending"
+	// ExternalConnectorApprovalExpired: an approval was given and has lapsed.
+	ExternalConnectorApprovalExpired ExternalConnectorErrorCode = "approval_expired"
+	// ExternalConnectorPlanStale: the approved plan no longer matches what
+	// would run (I6).
+	ExternalConnectorPlanStale ExternalConnectorErrorCode = "plan_stale"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -65,6 +84,11 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorAuditUnavailable,
 	ExternalConnectorPluginChanged,
 	ExternalConnectorPrincipalRefused,
+	ExternalConnectorPolicyDenied,
+	ExternalConnectorApprovalRequired,
+	ExternalConnectorApprovalPending,
+	ExternalConnectorApprovalExpired,
+	ExternalConnectorPlanStale,
 }
 
 // ExternalConnectorErrorCodes returns the whole vocabulary, for tests on the

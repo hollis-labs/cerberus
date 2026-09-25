@@ -157,3 +157,19 @@ into the store. `managed list` reports `review_pending`, `bundle_digest`,
 directory, and is digest-checked on every load like any other, so a rebuild
 needs `--accept-changes`. The one-shot `connectors plugin exec|health <dir>` is
 unchanged: an unreviewed run in the operator's own process (CERB-GAP-846).
+
+**Suggested policy at review (P2-4).** Accepting an install review, an
+upgrade or a migration review also copies the plugin's `suggested_policy`
+into the operator's working policy file
+`~/.cerberus/policy/providers/<id>.yaml` (`preparePolicy` in
+`internal/cerbapi/plugin_review.go`, `policy.FromSuggested`):
+- `ack` becomes approve over `tty_confirm`;
+- `approval` becomes approve `out_of_band`;
+- `approval_for_agents` becomes approve for agents;
+- `deny` stays deny.
+
+The review shows the rules to be written, or a diff against the file already
+there, and the same typed plugin id confirms both the review and the copy. The
+file is a working file: nothing is enforced or even evaluated until
+`cerberus policy apply` makes it part of the applied snapshot. So the
+plugin's word never becomes policy by itself (I10, Decision 10).
