@@ -713,6 +713,13 @@ func decodeJSONBody(r *http.Request, dst interface{}) error {
 func writeJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	switch e := body.(type) {
+	case ErrorResponse:
+		e.markRendered(ResponseScope(w), e.Error)
+		body = e
+	case *ErrorResponse:
+		e.markRendered(ResponseScope(w), e.Error)
+	}
 	data, err := ResponseScope(w).MarshalIndent(body, "", "  ")
 	if err == nil {
 		_ = json.NewEncoder(w).Encode(json.RawMessage(data))
@@ -753,7 +760,9 @@ func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn f
 	})
 	result, err := fn(ctx)
 	if err != nil {
-		writeEnvelope(StreamEnvelope{Type: "error", Error: err.Error(), connectorErrorWire: connectorErrorWireFor(err)})
+		env := StreamEnvelope{Type: "error", Error: err.Error(), connectorErrorWire: connectorErrorWireFor(err)}
+		env.markRendered(scope, env.Error)
+		writeEnvelope(env)
 		return true
 	}
 	data, err := scope.Marshal(result)

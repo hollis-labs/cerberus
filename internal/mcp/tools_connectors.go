@@ -20,7 +20,7 @@ func NewCerberusConnectorListTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			defs, err := client.ListConnectors(ctx)
 			if err != nil {
-				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+				return connectorFailure(ctx, err)
 			}
 			return budgetedList("cerberus_connector_list", defs, args, "%d connectors total."), nil
 		},
@@ -42,7 +42,7 @@ func NewCerberusConnectorDescribeTool(client cerbapi.Client) Tool {
 			}
 			defs, err := client.ListConnectors(ctx)
 			if err != nil {
-				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+				return connectorFailure(ctx, err)
 			}
 			for _, def := range defs {
 				if def.ID != id {

@@ -39,14 +39,17 @@ func toolResult(r lifecycleResult) (any, error) {
 type toolFailure struct {
 	message string
 	content any
+	// scope is the call's, when the failure was rendered in it; nil renders
+	// through the regex net alone.
+	scope *redact.Scope
 }
 
-func (f toolFailure) Error() string { return redact.Text(f.message) }
+func (f toolFailure) Error() string { return f.scope.Text(f.message) }
 
 // ToolErrorContent returns the body already redacted: go-mcp marshals it
 // with encoding/json, which would skip Cerberus's redaction.
 func (f toolFailure) ToolErrorContent() any {
-	data, err := redact.Marshal(f.content)
+	data, err := f.scope.Marshal(f.content)
 	if err != nil {
 		data, _ = json.Marshal(map[string]any{"success": false, "error": f.Error()})
 	}

@@ -236,3 +236,27 @@ plugin half of the acceptance test.
 The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
 `--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
 fixed by changing the placeholder rather than the rule.
+
+**The Message/Detail split (S2-6).** Cerberus's own refusals are
+`redact.Guidance`, or `redact.Prose` for an error made where redact cannot be
+imported, such as `pkg/connector`'s key-table refusal. A `Renderer` renders
+itself once, where it is made: prose kept, a wrapped cause through the scope and
+the rules. `ExternalConnectorError` renders its head (connector, operation, code)
+without the rules, and its cause as a Renderer or through them. `scopeError`
+records the result in the request's rendered set. An edge that meets exactly
+that text again, which is all an edge ever does, only removes values: exact
+match, in-process, per request. On the socket, the daemon marks an error body
+or stream envelope `rendered: true` only when its text and detail are in that
+set. `daemonError` trusts a marked body as `PreRendered` and runs the rules over
+an unmarked one, so a CLI and a daemon on different versions fall back to the
+rules. `redact.ErrorText` is the scope-less edge's call, used by the CLI's
+`main` and by every MCP connector tool through `connectorFailure`.
+
+Eleven refusal sites are converted: ack, local-filesystem ack, preview
+unsupported, undeclared operation, the ssh input refusal and its hint, the
+runtime gate's three, the plugin host's ack, preview and input refusals, and
+`MissingSecretsError`'s recovery sentence. `TestConvertedRefusalsSurviveEveryLane`
+holds each one unchanged through the in-process CLI, the socket body and a
+socket client. `TestGuidanceTheNetWouldEatArrivesIntact` sends prose the rules
+provably eat through all three. `TestClientTrustsDaemonTextOnlyWhenMarked`
+covers both directions of version skew. This closes WP-S2.
