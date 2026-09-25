@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
-	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
@@ -22,7 +21,6 @@ import (
 
 func builtinConnectorDefinitions() []contract.Definition {
 	return []contract.Definition{
-		doconn.Definition(),
 		dockerconn.Definition(),
 		forgeconn.Definition(),
 		ghconn.Definition(),
@@ -139,11 +137,9 @@ func TestDryRunNeverExecutes(t *testing.T) {
 // the mutation.
 func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 	docker := &fakeDockerBackend{}
-	do := &fakeDigitalOceanBackend{}
 	forge := &fakeForgeBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(docker))
-	registry.Register(doconn.NewWithBackend(do))
 	registry.Register(forgeconn.NewWithBackend(forge))
 	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
@@ -157,9 +153,6 @@ func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 	// A dry run calls nothing on the backend, reads included.
 	if docker.started != "" || docker.logName != "" {
 		t.Errorf("docker backend called under dry run: %+v", docker)
-	}
-	if do.created != nil || do.dropletID != 0 {
-		t.Errorf("digitalocean backend called under dry run: %+v", do)
 	}
 	if forge.serverID != 0 || forge.siteID != 0 || forge.command != "" {
 		t.Errorf("forge backend called under dry run: %+v", forge)
@@ -202,8 +195,7 @@ func TestAckGateStillRequiresAckForDeclaredDestructive(t *testing.T) {
 func TestReclassifiedOperationsRequireAck(t *testing.T) {
 	for _, tc := range []struct{ connector, operation string }{
 		{"forge", "update_deployment_script"},
-		{"digitalocean", "create_droplet"},
-		{"digitalocean", "stop"},
+		{"docker", "stop"},
 	} {
 		found := false
 		for _, def := range builtinConnectorDefinitions() {

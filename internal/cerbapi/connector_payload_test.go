@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	do "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
 	gh "github.com/hollis-labs/cerberus/internal/connector/github"
@@ -30,9 +29,6 @@ func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {
 		connector, operation string
 		payload              any
 	}{
-		{"digitalocean", "list_droplets", []do.DropletStatus{{ID: 123, Name: "web", CreatedAt: timestamp}}},
-		{"digitalocean", "get_droplet", &do.DropletStatus{ID: 123, Name: "web", CreatedAt: timestamp}},
-		{"digitalocean", "create_droplet", &do.DropletStatus{ID: 123, Name: "web", CreatedAt: timestamp}},
 		{"docker", "list_containers", []docker.Container{{ID: "abc", Name: "web", State: "running"}}},
 		{"docker", "logs", "line one\nline two\n"},
 		{"forge", "list_servers", []forge.Server{{ID: 123, Name: "web"}}},

@@ -51,12 +51,6 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusDockerUpTool(client),
 		NewCerberusDockerDownTool(client),
 		NewCerberusDockerDestroyTool(client),
-		NewCerberusDropletListTool(client),
-		NewCerberusDropletGetTool(client),
-		NewCerberusDropletCreateTool(client),
-		NewCerberusDropletStartTool(client),
-		NewCerberusDropletStopTool(client),
-		NewCerberusDropletDestroyTool(client),
 	}
 	return append(tools, NewCerberusDNSRecordSetTools(client)...)
 }

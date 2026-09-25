@@ -2,8 +2,6 @@ package cerbapi
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +14,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
-	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
@@ -349,8 +346,6 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 		err    error
 	)
 	switch args.Connector {
-	case "digitalocean":
-		result, err = s.executeDigitalOcean(ctx, c, args)
 	case "docker":
 		result, err = s.executeDocker(ctx, c, args)
 	case "forge":
@@ -501,47 +496,6 @@ func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperation
 			}, map[string]any{
 				"command": command,
 			}), true, nil
-		}
-	case "digitalocean":
-		switch args.Operation {
-		case "create_droplet":
-			name, err := requiredString(args.Config, "name")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			region, err := requiredString(args.Config, "region")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			size, err := requiredString(args.Config, "size")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			image, err := requiredString(args.Config, "image")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would create a DigitalOcean droplet.", map[string]any{
-				"name":   name,
-				"region": region,
-				"size":   size,
-				"image":  image,
-			}, map[string]any{
-				"ssh_keys":  args.Config["ssh_keys"],
-				"user_data": userDataDigest(stringFromConfig(args.Config, "user_data", "")),
-			}), true, nil
-		case "stop", "destroy":
-			dropletID, err := requiredInt(args.Config, "droplet_id")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			summary := "Would power off a DigitalOcean droplet."
-			if args.Operation == "destroy" {
-				summary = "Would destroy a DigitalOcean droplet."
-			}
-			return dryRunPreview(args, summary, map[string]any{
-				"droplet_id": dropletID,
-			}, nil), true, nil
 		}
 	case "ssh":
 		switch args.Operation {
@@ -715,59 +669,6 @@ func (s *ExternalConnectorService) executeGitHub(ctx context.Context, c contract
 	case "list_workflow_runs":
 		runs, err := github.ListWorkflowRuns(ctx, owner, repo, intFromConfig(args.Config, "limit", 10))
 		return externalConnectorResult(args, runs), err
-	default:
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
-	}
-}
-
-func (s *ExternalConnectorService) executeDigitalOcean(ctx context.Context, c contract.Connector, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	digitalocean, ok := c.(*doconn.Connector)
-	if !ok {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("registered connector has type %T", c))
-	}
-
-	switch args.Operation {
-	case "list_droplets":
-		droplets, err := digitalocean.ListDroplets(ctx)
-		return externalConnectorResult(args, droplets), err
-	case "get_droplet":
-		dropletID, err := requiredInt(args.Config, "droplet_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		droplet, err := digitalocean.GetDroplet(ctx, dropletID)
-		return externalConnectorResult(args, droplet), err
-	case "create_droplet":
-		res := externalResource(args)
-		err := digitalocean.Create(ctx, &res)
-		if err != nil {
-			return externalConnectorResult(args, nil), err
-		}
-		dropletID, err := dropletIDFromConfig(res.Config)
-		if err != nil {
-			return externalConnectorResult(args, map[string]any{"droplet_id": res.Config["droplet_id"]}), nil
-		}
-		droplet, err := digitalocean.GetDroplet(ctx, dropletID)
-		if err != nil {
-			return externalConnectorResult(args, map[string]any{"droplet_id": dropletID}), nil
-		}
-		return externalConnectorResult(args, droplet), nil
-	case "start":
-		res := externalResource(args)
-		err := digitalocean.Start(ctx, &res)
-		return externalConnectorResult(args, nil), err
-	case "stop":
-		res := externalResource(args)
-		err := digitalocean.Stop(ctx, &res)
-		return externalConnectorResult(args, nil), err
-	case "destroy":
-		res := externalResource(args)
-		err := digitalocean.Destroy(ctx, &res)
-		return externalConnectorResult(args, nil), err
-	case "status":
-		res := externalResource(args)
-		state, err := digitalocean.Status(ctx, &res)
-		return externalConnectorResult(args, state), err
 	default:
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
@@ -1026,27 +927,6 @@ func dryRunPreview(args ExternalConnectorOperationArgs, summary string, target, 
 	return preview
 }
 
-// managedPluginExecuteError classifies a plugin operation failure. A plugin
-// failing for want of a credential its own manifest declares reports the same
-// `credential_missing` code a built-in connector does, so what docs/secrets.md
-// promises reads the same either side of the plugin boundary. Everything else
-// is coded operation_failed, so plugin-origin text never leaves uncoded and
-// unredacted.
-// userDataDigest describes cloud-init user_data without carrying it. The
-// script routinely holds credentials, and a preview lands in agent context and
-// logs, so it shows only enough to confirm which script would run: its size
-// and hash. Compare with `shasum -a 256 <file>` locally.
-func userDataDigest(userData string) map[string]any {
-	if userData == "" {
-		return map[string]any{"bytes": 0}
-	}
-	sum := sha256.Sum256([]byte(userData))
-	return map[string]any{
-		"bytes":  len(userData),
-		"sha256": hex.EncodeToString(sum[:]),
-	}
-}
-
 func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) error {
 	var coded *ExternalConnectorError
 	if errors.As(err, &coded) {
@@ -1219,18 +1099,6 @@ func requiredStringSlice(cfg map[string]any, key string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s must be a string array", key)
 	}
-}
-
-func dropletIDFromConfig(cfg map[string]any) (int, error) {
-	return requiredInt(cfg, "droplet_id")
-}
-
-func intPointerFromConfig(cfg map[string]any, key string) *int {
-	value := intFromConfig(cfg, key, -1)
-	if value < 0 {
-		return nil
-	}
-	return &value
 }
 
 func serverSiteIDs(cfg map[string]any) (int, int, error) {

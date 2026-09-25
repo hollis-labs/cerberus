@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
-	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -22,32 +21,33 @@ func (noSecrets) Set(context.Context, string, string, string) error   { return n
 func (noSecrets) Delete(context.Context, string, string) error        { return nil }
 
 // An acknowledgment refusal never depends on having a credential. With no
-// token and no ack, a destructive DigitalOcean operation is refused as
-// acknowledgment_required, and the connector — which is what reads the
-// token — is never constructed. With the ack, the same call reaches
-// resolution and reports the missing token.
+// ack, a write is refused as acknowledgment_required and the connector (the
+// part that would read the token) is never constructed. With the ack, the
+// same call reaches resolution and reports the missing token. The fixture is
+// gateFakeConnector's definition behind a factory that fails the way a
+// credentialed connector does without its token.
 func TestAckRefusalComesBeforeCredentialResolution(t *testing.T) {
 	resolves := 0
+	def := gateFakeConnector{}.Definition()
 	registry := connector.NewRegistry()
-	registry.RegisterFactory(doconn.Definition(), func(context.Context) (contract.Connector, error) {
+	registry.RegisterFactory(def, func(context.Context) (contract.Connector, error) {
 		resolves++
-		return doconn.New(noSecrets{})
+		return nil, errors.New("gatefake: no API token — set CERBERUS_GATEFAKE_API_TOKEN")
 	})
 	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
-	for _, op := range []string{"stop", "destroy", "create_droplet"} {
-		t.Run(op, func(t *testing.T) {
+	for _, op := range def.Operations {
+		t.Run(op.Name, func(t *testing.T) {
 			resolves = 0
-			declared, _ := doconn.Definition().Operation(op)
-			args := ExternalConnectorOperationArgs{Connector: "digitalocean", Operation: op, Config: sampleConfig(declared)}
+			args := ExternalConnectorOperationArgs{Connector: "gatefake", Operation: op.Name, Config: sampleConfig(op)}
 
 			_, err := svc.Execute(context.Background(), args)
 			var connErr *ExternalConnectorError
 			if !errors.As(err, &connErr) || connErr.Code != ExternalConnectorAckRequired {
-				t.Fatalf("un-acked %s: got %v, want acknowledgment_required", op, err)
+				t.Fatalf("un-acked %s: got %v, want acknowledgment_required", op.Name, err)
 			}
 			if resolves != 0 {
-				t.Fatalf("un-acked %s resolved the connector %d times", op, resolves)
+				t.Fatalf("un-acked %s resolved the connector %d times", op.Name, resolves)
 			}
 			if got := redact.Text(err.Error()); got != err.Error() {
 				t.Fatalf("refusal changed by redaction:\n got %q\nwant %q", got, err.Error())
@@ -56,7 +56,10 @@ func TestAckRefusalComesBeforeCredentialResolution(t *testing.T) {
 			args.Acknowledged = true
 			_, err = svc.Execute(context.Background(), args)
 			if !errors.As(err, &connErr) || connErr.Code != ExternalConnectorCredentialMissing {
-				t.Fatalf("acked %s: got %v, want credential_missing", op, err)
+				t.Fatalf("acked %s: got %v, want credential_missing", op.Name, err)
+			}
+			if resolves != 1 {
+				t.Fatalf("acked %s resolved %d times, want once", op.Name, resolves)
 			}
 		})
 	}

@@ -41,7 +41,7 @@ func runRoot(t *testing.T, args ...string) (string, error) {
 // A refusal is an operational error: the message says what to do, and a
 // usage block under it only buries that. Misuse still gets its usage.
 func TestRuntimeErrorsDoNotPrintUsage(t *testing.T) {
-	out, err := runRoot(t, "server", "stop", "42")
+	out, err := runRoot(t, "connectors", "exec", "docker", "stop", "--arg", "container=web")
 	if err == nil || !strings.Contains(err.Error(), "acknowledgment_required") {
 		t.Fatalf("err = %v, want the ack refusal", err)
 	}
@@ -49,7 +49,7 @@ func TestRuntimeErrorsDoNotPrintUsage(t *testing.T) {
 		t.Fatalf("usage printed under a runtime error:\n%s", out)
 	}
 
-	out, err = runRoot(t, "server", "stop")
+	out, err = runRoot(t, "connectors", "exec", "docker")
 	if err == nil || !strings.Contains(out, "Usage:") {
 		t.Fatalf("argument misuse lost its usage: err = %v\n%s", err, out)
 	}
@@ -59,7 +59,7 @@ func TestRuntimeErrorsDoNotPrintUsage(t *testing.T) {
 // --ack (Decision 14).
 func TestLifecycleVerbsOfferAck(t *testing.T) {
 	for _, path := range [][]string{
-		{"server", "start"}, {"server", "stop"}, {"docker", "up"}, {"docker", "down"},
+		{"docker", "up"}, {"docker", "down"}, {"connectors", "exec"},
 		{"ssh", "get"}, {"ssh", "get-dir"},
 		{"resource", "deploy"}, {"resource", "ensure-fresh"}, {"resource", "apply"}, {"resource", "reload"},
 		{"resource", "stop"}, {"resource", "sync"}, {"resource", "remove"}, {"pipeline", "run"},
