@@ -128,3 +128,23 @@ the daemon re-read that entry from the reviewed state file, and refuses a bundle
 that does not match its accepted digest as `plugin_changed` (409) without
 stopping the running plugin. Load and reload now answer with the coded error's
 status and keep the code on the wire.
+
+## Since P2-1
+
+Authorisation is no longer the file mode alone. Each connection's peer
+credentials are read from the kernel when it is accepted (`ConnContext` in
+`socket_server.go`). On darwin that is `LOCAL_PEERCRED` and `LOCAL_PEERPID`
+(`peercred_darwin.go`), on linux `SO_PEERCRED` (`peercred_linux.go`), and any
+other platform refuses (`peercred_other.go`). `checkPeer` refuses a request
+whose peer runs as another uid, or whose credentials cannot be read, as
+`principal_refused` (403), before any handler runs. That proves the local user,
+not human versus agent.
+
+A caller says who it is in `X-Cerberus-Principal`: kind, via, client, session
+and on_behalf_of, never a uid. `BeginHTTPRequest` reads it on the socket only,
+records it as self-reported and adds the peer's uid, marked verified. A missing
+claim is an agent via `unknown`, and a caller claiming `automation` is read as
+an agent, because only Cerberus itself is automation. `GET /whoami` answers
+with the principal the daemon gives the request, which is what
+`cerberus whoami` shows (CERB-TOOL-419). The principal is a label for default
+policy and never approval (CERB-GAP-859).

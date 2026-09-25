@@ -260,3 +260,12 @@ holds each one unchanged through the in-process CLI, the socket body and a
 socket client. `TestGuidanceTheNetWouldEatArrivesIntact` sends prose the rules
 provably eat through all three. `TestClientTrustsDaemonTextOnlyWhenMarked`
 covers both directions of version skew. This closes WP-S2.
+
+## Since P2-1
+
+`principal_refused` joins the error codes the assignment rule exempts. The
+socket's peer refusal is `redact.Guidance` (the unreadable-credentials case is
+`GuidanceWrap` over the kernel's error), so it is rendered once where it is
+made. It names its recovery ("run cerberus as that user"), and
+`TestSocketRefusesAnotherUser` holds that text intact through the socket
+client, and through `redact.Text` for a scope-less edge.

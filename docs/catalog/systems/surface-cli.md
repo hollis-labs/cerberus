@@ -130,3 +130,15 @@ and only from an interactive terminal: stdin and stdout must both be a TTY, so
 daemon to reload the plugin by id, or say the daemon picks it up at start when it
 is not running. The one-shot `plugin exec|health <dir>` is unchanged and
 unreviewed.
+
+## Since P2-1
+
+The root command classifies its own process before any subcommand runs
+(`PersistentPreRun` in `main.go`, `cerbapi.DetectCLI`). It is human only from
+an interactive terminal with no `CERBERUS_PRINCIPAL=agent`, and an agent
+otherwise. The claim rides on every socket request and on every in-process
+call's audit record. `cerberus whoami` prints the classification and the inputs
+that decided it. When the daemon is up, it also prints the principal the daemon
+gives the same caller, with its verified uid (CERB-TOOL-419). Agent launchers
+set the marker (Decision 19), and `whoami` is how the operator checks that one
+did.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -70,6 +71,7 @@ func TestConvertedRefusalsSurviveEveryLane(t *testing.T) {
 		"plugin missing secret": managedPluginExecuteError(args, &pluginhost.MissingSecretsError{Connector: "contextforge", Secrets: []string{"token"},
 			Err: errors.New("401 from the gateway")}),
 	}
+	sites["principal_refused"] = (&SocketServer{uid: os.Getuid()}).checkPeer(withPeer(context.Background(), peerCred{uid: os.Getuid() + 1}))
 	_, sites["ssh input refusal"] = sshSvc.declaredOperation(context.Background(),
 		ExternalConnectorOperationArgs{Connector: "ssh", Operation: "exec", Config: map[string]any{"host": "box", "command": "uptime"}})
 

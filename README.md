@@ -158,8 +158,17 @@ cerberus init         # create default config and exit
 cerberus install      # bootstrap the macOS launch agent for the daemon
 cerberus mcp          # stdio MCP server for local agent clients
 cerberus mcp-http     # HTTP MCP endpoint at http://127.0.0.1:4785/mcp by default
+cerberus whoami       # how Cerberus classifies this caller: human, agent or automation
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
+
+Every request carries a principal: human, agent or automation, plus the
+channel it came through, a client name and a uid. A CLI call is human only
+from an interactive terminal with no `CERBERUS_PRINCIPAL=agent` in its
+environment, and agent launchers should set that. MCP calls are agents. The
+daemon socket refuses a connection from any user but its own, checked through
+the kernel's peer credentials. The classification picks default policy and is
+never approval; `cerberus whoami` shows it and why.
 
 `cerberus web` and `cerberus mcp-http` are loopback-only. Neither
 authenticates its caller yet, so `--listen` must name `localhost` or a literal

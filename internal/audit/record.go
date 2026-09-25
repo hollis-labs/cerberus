@@ -39,14 +39,25 @@ const SchemaVersion = 1
 // P2 adds permissive.
 const PostureSecure = "secure"
 
-// Principal is who asked, as the serving process knows it. The surface is
-// self-reported (cerbapi.CallerSurface) and proves nothing: an in-process
-// CLI call is a local principal, never "the human".
+// Principal is who asked, as the serving process knows it
+// (cerbapi.Principal). It is a label for default policy and proves nothing
+// about a human: an agent with a shell can run the CLI as the user. Only
+// the uid can be established, and UIDVerified says when it was — the
+// socket's peer credentials, or the CLI's own process. Kind, Via and Client
+// are the caller's claim when SelfReported is set.
 type Principal struct {
-	// Kind is automation for Cerberus acting on its own — the resource
-	// monitor restarting a workload — and empty for a request from a caller.
-	Kind         string `json:"kind,omitempty"`
+	// Kind is human, agent or automation.
+	Kind string `json:"kind,omitempty"`
+	// Surface is the transport the request entered through (in_process,
+	// socket, web, monitor); Via is who is on the other end of it (cli,
+	// mcp_stdio, mcp_http, web, monitor, pipeline).
 	Surface      string `json:"surface"`
+	Via          string `json:"via,omitempty"`
+	UID          *int   `json:"uid,omitempty"`
+	UIDVerified  bool   `json:"uid_verified,omitempty"`
+	Client       string `json:"client,omitempty"`
+	Session      string `json:"session,omitempty"`
+	OnBehalfOf   string `json:"on_behalf_of,omitempty"`
 	SelfReported bool   `json:"self_reported"`
 }
 

@@ -49,7 +49,11 @@ a tunnel or reverse proxy that forwards a public hostname does not.`,
 		if err != nil {
 			return fmt.Errorf("resolve socket path: %w", err)
 		}
-		socketClient := cerbapi.NewSocketClient(sockPath, cerbapi.WithClientLogger(logger))
+		// An HTTP MCP endpoint serves agents. Several clients may share it,
+		// so the client is named per call, from the clientInfo each call
+		// carries.
+		socketClient := cerbapi.NewSocketClient(sockPath, cerbapi.WithClientLogger(logger),
+			cerbapi.WithPrincipalClaim(mcpPrincipal(cerbapi.ViaMCPHTTP, nil)))
 
 		pingCtx, cancel := context.WithTimeout(cmd.Context(), cerbapi.DialTimeout)
 		if pingErr := socketClient.Ping(pingCtx); pingErr != nil {
@@ -71,7 +75,7 @@ a tunnel or reverse proxy that forwards a public hostname does not.`,
 			return err
 		}
 
-		mcpServer := buildCerberusMCPServer(socketClient, logger)
+		mcpServer := buildCerberusMCPServer(socketClient)
 		startPluginToolSync(cmd.Context(), mcpServer, socketClient, logger)
 		httpServer := &http.Server{
 			Handler:           mcpHTTPHandler(mcpServer, mcpHTTPPath, guard),
