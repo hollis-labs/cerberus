@@ -205,3 +205,6 @@ Verified in headless Chrome over CDP on a scratch `HOME`:
 - a connector call made from the browser is audited as
   `{kind: human, via: web, session: …, uid_verified: true}`.
 
+The login separates the operator's account from everything else, not a person
+from an agent running as that account. Any same-uid process can mint a link,
+recorded as CERB-GAP-862.
