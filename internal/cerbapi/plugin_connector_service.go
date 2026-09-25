@@ -75,11 +75,18 @@ type PluginConnectorService struct {
 	hostVersion string
 	stderr      io.Writer
 	secrets     pluginhost.SecretResolver
+	configPath  string
 }
 
 // PluginConnectorOption configures the one-shot plugin host used by
 // `cerberus connectors plugin health|exec`.
 type PluginConnectorOption func(*PluginConnectorService)
+
+// WithPluginConnectorConfig names connector-config.yaml for the one-shot
+// host, so an ad-hoc `plugin exec` sees the same fields the managed lane does.
+func WithPluginConnectorConfig(path string) PluginConnectorOption {
+	return func(s *PluginConnectorService) { s.configPath = path }
+}
 
 // WithPluginConnectorSecrets hands the one-shot plugin host the secret
 // provider built-in connectors resolve through, so an ad-hoc `plugin exec`
@@ -173,6 +180,7 @@ func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir s
 		},
 		s.hostVersion,
 		pluginhost.WithSecretResolver(s.secrets),
+		pluginhost.WithConnectorConfig(connectorConfigLoader(s.configPath)),
 		pluginhost.WithLoadWarning(s.warn),
 	)
 
