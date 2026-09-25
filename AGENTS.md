@@ -175,16 +175,28 @@ ContextForge's `get_health` is open and must keep working while `list_gateways`
 Cerberus serves itself and, since the secret channel namespaces by connector id,
 would be handed that connector's credentials.
 
-## Work infrastructure is read-only
+## Work infrastructure is not ours to change on our own say-so
 
 An infrastructure team administers the Adtran estate. Cerberus is a tool that
-helps operate it, **not a control plane that owns it.** Connectors targeting
-work resources implement read and probe operations; lifecycle and write
-operations are documented as locked, with what would unlock them, rather than
-built speculatively.
+helps operate it, **not a control plane that owns it.** Where a write against a
+work resource is wanted, the ask goes to the team that owns that resource.
 
-This is a scope decision, not a permissions workaround. Where a write operation
-is genuinely wanted later, the ask goes to the team that owns the resource.
+That rule governs what **we do** to work resources. It does not govern what a
+connector **can do**. Cerberus is built in public, for operators whose estates
+look nothing like ours, so a connector may implement write operations whether
+or not any of our work targets will ever accept them. It implements them the
+way every write here is built: `Destructive` and `SupportsDry`, behind `--ack`,
+with a real preview. A connector that can write is not permission to write to a
+work resource.
+
+Today nothing stands between an acknowledged write and its target except
+`--ack` and the target's own access control, and `--ack` is an intent gate, not
+a human one. Per-target write policy, with a human approving where the target
+calls for it, is the planned answer; see "Human-in-the-loop is a policy file
+plus MCP elicitation" in `docs/plans/agent-authority-and-secrets.md`. Until then,
+let the credential be the policy: point a connector at a work target with an
+identity that cannot write — a read-only role on a work cluster — rather than
+relying on nobody passing `--ack`.
 
 The exceptions already in place are deliberate and narrow: the local dev
 services in `~/.cerberus/config.yaml`, and `muctlvaig` reached over SSH as the
