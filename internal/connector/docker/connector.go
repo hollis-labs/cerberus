@@ -110,32 +110,29 @@ func Definition() contract.Definition {
 		Operations: []contract.Operation{
 			{
 				Name:        "list_containers",
-				Description: "List running Docker containers.",
-				InputSchema: contract.ObjectSchema(dockerTargetProperties()),
+				Description: "List running Docker containers on the machine running Cerberus, or on a declared docker resource's daemon.",
+				InputSchema: operationSchema(ResourceKey),
 			},
 			{
 				Name:        "start",
 				Description: "Start a Docker container or compose stack.",
-				InputSchema: dockerResourceInputSchema(),
+				InputSchema: containerOperationSchema(),
 			},
 			{
 				Name:        "stop",
 				Description: "Stop a Docker container (docker stop) or compose stack (docker compose stop). Nothing is removed; removal is the destroy operation, which requires acknowledgment.",
-				InputSchema: dockerResourceInputSchema(),
+				InputSchema: containerOperationSchema(),
 			},
 			{
 				Name:        "destroy",
 				Description: "Remove a Docker container (docker rm) or tear down a compose stack (docker compose down, which removes its containers and networks).",
-				InputSchema: dockerResourceInputSchema(),
+				InputSchema: containerOperationSchema(),
 				Destructive: true,
 			},
 			{
 				Name:        "logs",
 				Description: "Read recent Docker container logs.",
-				InputSchema: contract.ObjectSchema(dockerTargetProperties(map[string]any{
-					"container": contract.StringSchema("Docker container name or ID."),
-					"lines":     contract.IntegerSchema("Number of log lines to return."),
-				})),
+				InputSchema: containerOperationSchema("lines"),
 			},
 		},
 	}
@@ -309,32 +306,6 @@ func dockerComposeState(stack *ComposeStack) resource.State {
 		return resource.StateStarting
 	}
 	return resource.StateStopped
-}
-
-func dockerResourceInputSchema() map[string]any {
-	return contract.ObjectSchema(dockerTargetProperties(map[string]any{
-		"container":    contract.StringSchema("Docker container name or ID."),
-		"compose_file": contract.StringSchema("Docker Compose file path."),
-	}))
-}
-
-// dockerTargetProperties adds host selection to an operation's input schema.
-//
-// Every operation accepts it, including the read-only ones: an operator asking
-// what is running on a remote host is the first thing they do, and a schema
-// that omits it there would be a surface where the same call means different
-// machines depending on which verb it is.
-func dockerTargetProperties(properties ...map[string]any) map[string]any {
-	merged := map[string]any{
-		"host":    contract.StringSchema("Docker daemon to target, as a DOCKER_HOST value (ssh://user@host, tcp://host:2376, unix:///path). Defaults to the daemon's own environment."),
-		"context": contract.StringSchema("Docker context name to target, as `docker context ls` lists it. Mutually exclusive with host."),
-	}
-	for _, set := range properties {
-		for key, value := range set {
-			merged[key] = value
-		}
-	}
-	return merged
 }
 
 // LogsJSON returns container logs as a JSON string (used by MCP tools).

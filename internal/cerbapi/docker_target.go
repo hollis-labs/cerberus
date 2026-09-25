@@ -21,11 +21,9 @@ import (
 // It is built from the connector's own key table, so a new alias is refused
 // until someone classifies it as an operation field.
 func dockerCallerFields() map[string]bool {
-	allowed := map[string]bool{"resource": true}
-	for _, keys := range [][]string{dockerconn.ContainerKeys, dockerconn.OperationKeys} {
-		for _, key := range keys {
-			allowed[key] = true
-		}
+	allowed := map[string]bool{}
+	for _, key := range dockerconn.CallerKeys() {
+		allowed[key] = true
 	}
 	return allowed
 }
@@ -59,7 +57,7 @@ func RefuseAdHocDockerTarget(args ExternalConnectorOperationArgs) error {
 // `-f` beats a resource's compose file on the CLI; RefuseAdHocDockerTarget has
 // already removed the target fields from socket and web callers.
 func (s *ExternalConnectorService) resolveDockerResource(args ExternalConnectorOperationArgs) (ExternalConnectorOperationArgs, error) {
-	id := stringFromConfig(args.Config, "resource", "")
+	id := stringFromConfig(args.Config, dockerconn.ResourceKey, "")
 	if id == "" {
 		return args, nil
 	}
@@ -79,7 +77,7 @@ func (s *ExternalConnectorService) resolveDockerResource(args ExternalConnectorO
 		merged[key] = value
 	}
 	for key, value := range args.Config {
-		if key != "resource" {
+		if key != dockerconn.ResourceKey {
 			merged[key] = value
 		}
 	}
