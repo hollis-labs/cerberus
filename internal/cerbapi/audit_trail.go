@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
@@ -31,6 +32,10 @@ type auditSpec struct {
 	// "<connector>/<name>". They are recorded on an outcome only when the
 	// call got as far as resolving them.
 	credentials []string
+	// automation marks Cerberus acting on its own. Its record is written but
+	// never gates the action: an unwritable log is logged, not a refusal.
+	automation bool
+	reason     string
 	// For a loaded plugin: its config and entrypoint fingerprints.
 	pluginConfigSHA256     string
 	pluginEntrypointSHA256 string
@@ -38,11 +43,14 @@ type auditSpec struct {
 
 // auditCall is one operation's pair of records.
 type auditCall struct {
-	sink   audit.Sink
-	logger *slog.Logger
-	start  time.Time
-	intent audit.Record
-	spec   auditSpec
+	// telemetry collects what a plugin reports for this call, for the
+	// outcome record. Set by withTelemetry on the plugin paths.
+	telemetry *pluginhost.Collector
+	sink      audit.Sink
+	logger    *slog.Logger
+	start     time.Time
+	intent    audit.Record
+	spec      auditSpec
 }
 
 // recordRequired reports whether an operation must not run without its
@@ -60,7 +68,8 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 	intent := audit.Record{
 		Kind:         audit.KindIntent,
 		OperationID:  audit.NewID(),
-		Principal:    audit.Principal{Surface: string(CallerSurfaceFrom(ctx)), SelfReported: true},
+		Principal:    principalFor(ctx, spec),
+		Reason:       spec.reason,
 		Connector:    spec.connector,
 		Operation:    spec.operation,
 		Effect:       string(spec.op.Effect),
@@ -74,7 +83,7 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 	}
 	call := &auditCall{sink: sink, logger: logger, start: time.Now(), intent: intent, spec: spec}
 	if _, err := sink.Write(intent); err != nil {
-		if spec.recordRequired() {
+		if spec.recordRequired() && !spec.automation {
 			return nil, fmt.Errorf("the audit log could not be written, so this %s operation was refused and nothing ran; fix the audit directory (~/.cerberus/audit) and retry: %w", effectName(spec), err)
 		}
 		logger.Error("audit.write_failed", "kind", audit.KindIntent, "connector", spec.connector, "operation", spec.operation,
@@ -82,6 +91,18 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 		call.intent.OperationID = "" // nothing to correlate the outcome with
 	}
 	return call, nil
+}
+
+// principalFor is who asked, as far as the serving process knows: the
+// self-reported surface, and automation when Cerberus acted on its own.
+func principalFor(ctx context.Context, spec auditSpec) audit.Principal {
+	p := audit.Principal{Surface: string(CallerSurfaceFrom(ctx)), SelfReported: true}
+	if spec.automation {
+		p.Kind = audit.PrincipalAutomation
+		p.Surface = string(SurfaceMonitor)
+		p.SelfReported = false
+	}
+	return p
 }
 
 func effectName(spec auditSpec) string {
@@ -109,6 +130,9 @@ func (c *auditCall) finish(err error) {
 		outcome.Decision = audit.DecisionRefused
 	} else if !c.spec.dryRun || len(c.spec.credentials) > 0 {
 		outcome.CredentialNames = c.spec.credentials
+	}
+	if t := c.telemetry.Snapshot(); !t.Empty() {
+		outcome.PluginTelemetry = auditTelemetry(t)
 	}
 	if _, werr := c.sink.Write(outcome); werr != nil {
 		c.logger.Error("audit.write_failed", "kind", audit.KindOutcome, "operation_id", c.intent.OperationID,
@@ -162,4 +186,22 @@ func credentialNames(def contract.Definition) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// withTelemetry gives a plugin call a collector, so what the plugin reports
+// during it lands on this call's outcome record.
+func (c *auditCall) withTelemetry(ctx context.Context) context.Context {
+	if c == nil {
+		return ctx
+	}
+	ctx, c.telemetry = pluginhost.WithTelemetry(ctx)
+	return ctx
+}
+
+func auditTelemetry(t pluginhost.Telemetry) *audit.PluginTelemetry {
+	out := &audit.PluginTelemetry{Stderr: t.Stderr, SharedStderr: t.SharedStderr, Truncated: t.Truncated}
+	for _, e := range t.Events {
+		out.Events = append(out.Events, audit.PluginEvent{Kind: e.Kind, Message: e.Message, Target: e.Target})
+	}
+	return out
 }

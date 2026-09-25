@@ -195,7 +195,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if err != nil {
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}
-	result, err := s.execute(ctx, args)
+	result, err := s.execute(call.withTelemetry(ctx), args)
 	call.finish(err)
 	return result, err
 }

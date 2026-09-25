@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
@@ -53,7 +54,7 @@ func (c *reloadingClient) LoadManagedPlugin(ctx context.Context, id string) (cer
 
 func saveProviderSecret(t *testing.T, client cerbapi.Client, provider, body string) map[string]any {
 	t.Helper()
-	srv, err := New(client, filepath.Join(t.TempDir(), "config.yaml"), &memorySecrets{values: map[string]string{}}, nil)
+	srv, err := New(client, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), &memorySecrets{values: map[string]string{}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

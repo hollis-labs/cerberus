@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/app"
 	"net"
 	"net/http"
 	"os/exec"
@@ -42,7 +43,7 @@ var webCmd = &cobra.Command{
 			return fmt.Errorf("connect daemon: %w (try `cerberus daemon status` to check; if not installed, run `cerberus install`)", err)
 		}
 
-		webSrv, err := webui.New(client, cfgPath, secrets.NewKeychainProvider(), nil)
+		webSrv, err := webui.New(client, app.AuditSink(), cfgPath, secrets.NewKeychainProvider(), nil)
 		if err != nil {
 			return fmt.Errorf("init web ui: %w", err)
 		}

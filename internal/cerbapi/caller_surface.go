@@ -24,6 +24,10 @@ const (
 	SurfaceSocket CallerSurface = "socket"
 	// SurfaceWeb is the web console.
 	SurfaceWeb CallerSurface = "web"
+	// SurfaceMonitor is the resource monitor: Cerberus restarting a
+	// crashed workload on its own. It is recorded as an automation
+	// principal and is never gated (Decision 14).
+	SurfaceMonitor CallerSurface = "monitor"
 )
 
 type callerSurfaceKey struct{}

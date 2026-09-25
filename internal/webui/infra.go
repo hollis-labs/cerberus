@@ -279,7 +279,7 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		result, err := cerbapi.RunDeploymentProfile(r.Context(), s.secrets, profile, opts...)
+		result, err := cerbapi.RunDeploymentProfile(r.Context(), s.audit, s.secrets, profile, opts...)
 		if err != nil {
 			writeClientError(w, err)
 			return

@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,7 @@ func TestDeployBuildsActivatesAndPreservesRunningProcessOnBuildFailure(t *testin
 		"dir": dir, "command": []string{"./app", "60"}, "log_file": filepath.Join(dir, "runtime.log"), "install_root": filepath.Join(dir, "install"),
 		"install_after_build": false, "build_strategy": map[string]any{"kind": "make_standard", "env_prefix": []string{"/usr/bin/env", "CERBERUS_PIN_TEST=22"}, "rules": map[string]any{"output": "./app"}},
 	}}}}
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
 	ctx := context.Background()
 	t.Cleanup(func() {
 		_, _ = svc.StopResource(ctx, id, WithAcknowledged(true))

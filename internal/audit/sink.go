@@ -1,7 +1,6 @@
 package audit
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -340,64 +339,96 @@ func hashRecord(rec Record) string {
 // contiguous sequence numbers, each record's prev_hash the previous record's
 // hash, each hash correct, and a file_start opening every file after the
 // first. A torn line is a problem unless a chain_break follows it.
+//
+// The first file opens with chain_start, unless earlier files were pruned:
+// then it opens with a file_start whose prev_file a recorded, successful
+// prune in the remaining chain removed, and the chain is checked from there.
+// Files that went missing without such a record are a break.
 func Verify(dir string) error {
 	files, err := monthFiles(dir)
 	if err != nil {
 		return err
 	}
+	type line struct {
+		file string
+		rec  Record
+		ok   bool
+	}
+	var lines []line
+	var all []Record
+	for _, file := range files {
+		name := filepath.Base(file)
+		if err := scanFile(file, func(rec Record, ok bool) {
+			lines = append(lines, line{file: name, rec: rec, ok: ok})
+			if ok {
+				all = append(all, rec)
+			}
+		}); err != nil {
+			return err
+		}
+	}
+	pruned := prunedFiles(all)
+
 	var problems []string
 	var seq uint64
 	last := ""
-	for i, file := range files {
-		f, err := os.Open(file) //nolint:gosec // the audit directory's own file
-		if err != nil {
-			return err
-		}
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
-		first, tornPending := true, false
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(bytes.TrimSpace(line)) == 0 {
-				continue
+	current, tornPending, first := "", false, true
+	for idx, l := range lines {
+		if l.file != current {
+			if tornPending {
+				problems = append(problems, current+": ends in a torn line")
 			}
-			var rec Record
-			if err := json.Unmarshal(line, &rec); err != nil {
-				tornPending = true
-				continue
-			}
-			name := filepath.Base(file)
-			if first {
-				switch {
-				case i == 0 && rec.Kind != KindChainStart:
-					problems = append(problems, name+": the first file does not open with chain_start")
-				case i > 0 && rec.Kind != KindFileStart:
-					problems = append(problems, name+": does not open with file_start")
+			current, tornPending = l.file, false
+			opened := false
+		opening:
+			for _, next := range lines[idx:] {
+				if next.file != current {
+					break
 				}
+				if next.ok {
+					opened = true
+					rec := next.rec
+					switch {
+					case first && rec.Kind == KindChainStart:
+					case first && rec.Kind == KindFileStart && pruned[rec.PrevFile]:
+						seq, last = rec.Seq-1, rec.PrevHash
+					case first && rec.Kind == KindFileStart:
+						problems = append(problems, fmt.Sprintf("%s: opens with file_start after %s, which no recorded prune removed", current, rec.PrevFile))
+						seq, last = rec.Seq-1, rec.PrevHash
+					case first:
+						problems = append(problems, current+": the first file does not open with chain_start")
+					case rec.Kind != KindFileStart:
+						problems = append(problems, current+": does not open with file_start")
+					}
+					break opening
+				}
+			}
+			if opened {
 				first = false
 			}
-			if tornPending && rec.Kind != KindChainBreak {
-				problems = append(problems, fmt.Sprintf("%s: a torn line before seq %d is not followed by chain_break", name, rec.Seq))
-			}
-			tornPending = false
-			if rec.Seq != seq+1 {
-				problems = append(problems, fmt.Sprintf("%s: seq %d follows %d", name, rec.Seq, seq))
-			}
-			if rec.PrevHash != last {
-				problems = append(problems, fmt.Sprintf("%s: seq %d does not chain to the previous record", name, rec.Seq))
-			}
-			if hashRecord(rec) != rec.Hash {
-				problems = append(problems, fmt.Sprintf("%s: seq %d hash does not match its content", name, rec.Seq))
-			}
-			seq, last = rec.Seq, rec.Hash
 		}
-		_ = f.Close()
-		if err := scanner.Err(); err != nil {
-			return err
+		if !l.ok {
+			tornPending = true
+			continue
 		}
-		if tornPending {
-			problems = append(problems, filepath.Base(file)+": ends in a torn line")
+		rec := l.rec
+		if tornPending && rec.Kind != KindChainBreak {
+			problems = append(problems, fmt.Sprintf("%s: a torn line before seq %d is not followed by chain_break", l.file, rec.Seq))
 		}
+		tornPending = false
+		if rec.Seq != seq+1 {
+			problems = append(problems, fmt.Sprintf("%s: seq %d follows %d", l.file, rec.Seq, seq))
+		}
+		if rec.PrevHash != last {
+			problems = append(problems, fmt.Sprintf("%s: seq %d does not chain to the previous record", l.file, rec.Seq))
+		}
+		if hashRecord(rec) != rec.Hash {
+			problems = append(problems, fmt.Sprintf("%s: seq %d hash does not match its content", l.file, rec.Seq))
+		}
+		seq, last = rec.Seq, rec.Hash
+	}
+	if tornPending {
+		problems = append(problems, current+": ends in a torn line")
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("audit chain: %d problem(s): %s", len(problems), joinProblems(problems))

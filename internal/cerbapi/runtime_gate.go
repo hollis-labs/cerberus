@@ -3,6 +3,9 @@ package cerbapi
 import (
 	"context"
 	"fmt"
+	"log/slog"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/infra"
@@ -23,11 +26,29 @@ func RuntimeDefinitions() []contract.Definition {
 // gate. It is exec — the profile's commands run in a shell — so it needs the
 // caller's acknowledgment, which the console gives from a confirm step that
 // shows the plan (infra.PlanDeployment) it is about to run.
-func RunDeploymentProfile(ctx context.Context, secrets secret.Provider, profile infra.DeploymentProfile, options ...MutationOption) (*infra.DeploymentRunResult, error) {
-	if err := runtimeGate(ctx, infra.Definition(), infra.OpRunProfile, map[string]any{"id": profile.ID}, ApplyMutationOptions(options)); err != nil {
-		return nil, err
+//
+// It is recorded like every operation: an intent before the gate and an
+// outcome after, under the caller's audit sink.
+func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Provider, profile infra.DeploymentProfile, options ...MutationOption) (*infra.DeploymentRunResult, error) {
+	opts := ApplyMutationOptions(options)
+	def := infra.Definition()
+	op, known := def.Operation(infra.OpRunProfile)
+	call, err := beginAudit(ctx, sink, slog.Default(), auditSpec{
+		connector: def.ID, operation: infra.OpRunProfile, op: op, known: known,
+		config: map[string]any{"id": profile.ID}, acknowledged: opts.Acknowledged,
+		// The run reads the Vercel token and scope to pass on the command line.
+		credentials: []string{"vercel/scope", "vercel/token"},
+	})
+	if err != nil {
+		return nil, externalConnectorError(ExternalConnectorOperationArgs{Connector: def.ID, Operation: infra.OpRunProfile}, ExternalConnectorAuditUnavailable, err)
 	}
-	return infra.RunDeployment(ctx, secrets, profile)
+	if gateErr := runtimeGate(ctx, def, infra.OpRunProfile, map[string]any{"id": profile.ID}, opts); gateErr != nil {
+		call.finish(gateErr)
+		return nil, gateErr
+	}
+	result, err := infra.RunDeployment(ctx, secrets, profile)
+	call.finish(resultError(err, result != nil && !result.Success))
+	return result, err
 }
 
 // runtimeGate is the contract gate for a resource mutation or a pipeline run:

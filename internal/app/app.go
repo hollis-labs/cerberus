@@ -82,7 +82,7 @@ func NewWithOptions(opts Options) (*App, error) {
 	local := localconn.New()
 	registry.Register(local)
 
-	runtime := cerbapi.NewResourceRuntimeService(
+	runtime := cerbapi.NewResourceRuntimeService(AuditSink(),
 		cerbapi.WithResourceRuntimeLogger(nil),
 		cerbapi.WithResourceRuntimeLocalConnector(local),
 		cerbapi.WithResourceRuntimeConfigV2(v2),
@@ -189,6 +189,17 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 	external := cerbapi.NewExternalConnectorService(AuditSink(), a.Registry, managed)
 	external.SetResourceLookup(a.Runtime.ResourceDef)
 	return managed, external, nil
+}
+
+// NewResourceRuntimeService builds the in-process supervision lane for the
+// CLI, over the config at configPath (the default when empty), writing to
+// this process's audit sink. cfg, when non-nil, is an already-resolved config.
+func NewResourceRuntimeService(configPath string, cfg *config.ConfigV2) *cerbapi.ResourceRuntimeService {
+	opts := []cerbapi.ResourceRuntimeOption{cerbapi.WithResourceRuntimeConfigPath(configPath)}
+	if cfg != nil {
+		opts = append(opts, cerbapi.WithResourceRuntimeConfigV2(cfg))
+	}
+	return cerbapi.NewResourceRuntimeService(AuditSink(), opts...)
 }
 
 // NewPluginConnectorService builds the one-shot plugin lane (`connectors

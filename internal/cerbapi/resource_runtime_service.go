@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -29,6 +30,7 @@ import (
 type ResourceRuntimeService struct {
 	local  *localconn.Connector
 	logger *slog.Logger
+	audit  audit.Sink
 
 	cfgPath string
 
@@ -94,8 +96,14 @@ func WithResourceRuntimeLogger(logger *slog.Logger) ResourceRuntimeOption {
 	}
 }
 
-func NewResourceRuntimeService(opts ...ResourceRuntimeOption) *ResourceRuntimeService {
-	s := &ResourceRuntimeService{logger: slog.Default()}
+// NewResourceRuntimeService constructs the supervision lane. The audit sink
+// is required: every resource mutation, pipeline run and monitor restart is
+// recorded. Outside tests it is constructed only in internal/app.
+func NewResourceRuntimeService(sink audit.Sink, opts ...ResourceRuntimeOption) *ResourceRuntimeService {
+	if sink == nil {
+		panic("cerbapi: NewResourceRuntimeService requires an audit sink")
+	}
+	s := &ResourceRuntimeService{logger: slog.Default(), audit: sink}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -634,7 +642,7 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 	}, nil
 }
 
-func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+func (s *ResourceRuntimeService) reloadResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
 	if err := resourceGate(ctx, localconn.OpReload, id, ApplyMutationOptions(options)); err != nil {
 		return nil, err
 	}
@@ -668,7 +676,7 @@ func (s *ResourceRuntimeService) ReloadResource(ctx context.Context, id string, 
 	}, nil
 }
 
-func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+func (s *ResourceRuntimeService) stopResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
 	if err := resourceGate(ctx, localconn.OpStop, id, ApplyMutationOptions(options)); err != nil {
 		return nil, err
 	}
@@ -706,7 +714,7 @@ func (s *ResourceRuntimeService) StopResource(ctx context.Context, id string, op
 	}, nil
 }
 
-func (s *ResourceRuntimeService) DeployResource(ctx context.Context, id string, options ...MutationOption) (out *OpResult, opErr error) {
+func (s *ResourceRuntimeService) deployResource(ctx context.Context, id string, options ...MutationOption) (out *OpResult, opErr error) {
 	opts := ApplyMutationOptions(options)
 	if err := resourceGate(ctx, localconn.OpDeploy, id, opts); err != nil {
 		return nil, err
@@ -926,7 +934,7 @@ func hasBuildStrategyConfig(cfg map[string]any) bool {
 	return kind != ""
 }
 
-func (s *ResourceRuntimeService) ApplyResource(ctx context.Context, id string, options ...MutationOption) (out *OpResult, opErr error) {
+func (s *ResourceRuntimeService) applyResource(ctx context.Context, id string, options ...MutationOption) (out *OpResult, opErr error) {
 	if err := resourceGate(ctx, localconn.OpApply, id, ApplyMutationOptions(options)); err != nil {
 		return nil, err
 	}
@@ -1008,7 +1016,7 @@ func (s *ResourceRuntimeService) formatApplyError(id string, res *config.Resourc
 	return fmt.Sprintf("%s; %s", msg, inspectHint)
 }
 
-func (s *ResourceRuntimeService) SyncResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+func (s *ResourceRuntimeService) syncResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
 	if err := resourceGate(ctx, localconn.OpSync, id, ApplyMutationOptions(options)); err != nil {
 		return nil, err
 	}
@@ -1066,7 +1074,7 @@ func (s *ResourceRuntimeService) SyncResource(ctx context.Context, id string, op
 	}, nil
 }
 
-func (s *ResourceRuntimeService) RemoveResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+func (s *ResourceRuntimeService) removeResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
 	if err := resourceGate(ctx, localconn.OpRemove, id, ApplyMutationOptions(options)); err != nil {
 		return nil, err
 	}

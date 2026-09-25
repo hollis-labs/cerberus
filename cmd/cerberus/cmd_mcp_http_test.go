@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func TestCerberusMCPHTTPSmoke(t *testing.T) {
 		},
 	}
 
-	client := cerbapi.NewInProcessClient(cerbapi.WithConfigV2(cfg))
+	client := cerbapi.NewInProcessClient(cerbapi.WithConfigV2(cfg), cerbapi.WithInProcessAudit(audit.NewMemory()))
 	srv := buildCerberusMCPServer(client, slog.Default())
 	h := mcpHTTPHandler(srv, "/mcp", loopback.NewGuard("127.0.0.1", "4785"))
 

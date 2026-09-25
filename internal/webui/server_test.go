@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ func newTestRequest(method, target string, body io.Reader) *http.Request {
 
 func mustNew(t *testing.T, client cerbapi.Client) *Server {
 	t.Helper()
-	srv, err := New(client, "", nil, nil)
+	srv, err := New(client, audit.NewMemory(), "", nil, nil)
 	if err != nil {
 		t.Fatalf("webui.New: %v", err)
 	}

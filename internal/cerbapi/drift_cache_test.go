@@ -1,6 +1,7 @@
 package cerbapi
 
 import (
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"log/slog"
 	"testing"
@@ -48,14 +49,14 @@ func TestDriftCacheLookupExpired(t *testing.T) {
 }
 
 func TestRuntimeLookupDriftWithoutCache(t *testing.T) {
-	s := NewResourceRuntimeService()
+	s := NewResourceRuntimeService(audit.NewMemory())
 	if _, ok := s.lookupDrift("anything"); ok {
 		t.Fatal("lookupDrift should miss when no drift cache is attached")
 	}
 }
 
 func TestRuntimeLookupDriftWithCache(t *testing.T) {
-	s := NewResourceRuntimeService()
+	s := NewResourceRuntimeService(audit.NewMemory())
 	d := newTestDriftCache()
 	d.entries["api"] = driftEntry{installed: true, stale: true, staleReason: "source_changed", updatedAt: time.Now()}
 	s.AttachDriftCache(d)

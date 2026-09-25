@@ -69,6 +69,11 @@ func (f StdioTransportFactory) Start(ctx context.Context, cmd *exec.Cmd) (Proces
 			cmd.Stderr = io.Discard
 		}
 	}
+	// A manager that correlates stderr with operations passes a tap in the
+	// launch context. The tap forwards every byte to where it was going.
+	if tap := stderrTapFrom(ctx); tap != nil {
+		cmd.Stderr = tap.wrap(cmd.Stderr)
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start plugin process: %w", err)
 	}
