@@ -247,6 +247,14 @@ acknowledgment. Decision 8 holds: an unwritable log refuses them as
 console is constructed with the sink. Every `cerbapi.Client` method is now
 classified audited or read-only; none is pending.
 
+**Every attempt is recorded, whichever surface it came from.** The CLI used
+to refuse a mutation or pipeline run on an id its own config lookup did not
+find, or on a resource the supervision lane does not operate, before the call
+reached the runtime, so the attempt left no record, although the same call over
+the socket or MCP did. The CLI now sends it to the runtime, which refuses and
+records it; the local lookup rides along as a `hint:` line on the refusal
+(`cmd/cerberus/cmd_resource.go` `mutationHint`, and `runPipelineCommand`).
+
 **Automation is recorded, never gated.** The resource monitor's restarts
 write an intent and an outcome with principal kind `automation`, surface
 `monitor`, not self-reported, and a `reason` naming what it saw and the
