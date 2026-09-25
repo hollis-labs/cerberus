@@ -311,14 +311,24 @@ error, which is exactly where `Text` is the only net there is: value-boundary
 redaction protects the values Cerberus resolved, not the grammar of someone
 else's message.
 
-**Nine casualties, eight of them patched in the same regexes, is the finding.** Each fix has been correct
+The tenth was a placeholder Cerberus wrote itself. The Vercel deploy plan showed
+its token as `--token [vercel token]`, and the `flag` rule read `[vercel` as the
+token, so every plan the console showed came back as `--token [REDACTED]
+token]`. It was fixed by changing the placeholder to `VERCEL_TOKEN=<vercel
+token>`, not the rule, and a test holds the displayed command unchanged through
+`Text`.
+
+**Ten casualties, eight of them patched in the same regexes, is the finding.** Each fix has been correct
 and none has been structural: `redact.Text` runs over rendered prose and
 re-derives, from a regex, a key/value structure the caller had in its hands and
 threw away. The structural answer is to redact at the value boundary — redact
 the credential where it is still a field, and let the message be assembled from
 already-safe parts — with `Text` kept only as a last-resort net over text
-Cerberus did not compose. That is a larger change than any one of these fixes;
-until it happens, expect a tenth. The rule that remains: **do not
+Cerberus did not compose. That work is WP-S2: a request-scoped `redact.Scope`,
+carried in ctx, that credentials are registered with where they are resolved
+and that every error and log path renders through, followed by a split of
+operator-facing errors into Cerberus's own prose, which `Text` never runs over,
+and vendor detail, which it does. Until that split lands, expect an eleventh. The rule that remains: **do not
 run redaction over a value that is a name by construction**, and if an error
 message carries a recovery instruction, add a test that it survives `redact.Text`
 intact. A safety net that eats the instruction is worse than no instruction.

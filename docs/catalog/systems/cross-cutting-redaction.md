@@ -143,3 +143,25 @@ same change that introduced it. Its recovery sentence, which names
 `cerberus connectors plugin managed load <id> --accept-changes`, is tested to
 survive `redact.Text`, as are the retired-install refusal and the refusal of a
 review from a non-terminal.
+
+## Since WP-S2
+
+WP-S2 is the structural fix. Its first piece is `redact.Scope`
+(`internal/redact/scope.go`): a request's value redactor, carried in ctx
+through `WithScope` and `ScopeFrom`. A credential is registered with `Add`
+where it is resolved, while it is still a value, and `Text`, `Error` and
+`Marshal` remove every registered value, in raw and URL-escaped form, before
+the regex net runs. That removes a credential from a vendor SDK's message even
+when the SDK gives it no label, which no rule can do.
+
+It shares the plugin host's rules: a value under `MinValueLength` (8 bytes) is
+not matched, because it would be cut out of ordinary words, and it is reported
+by name through `Unprotected`. A nil scope is the regex net alone, so a path
+that has no scope yet renders exactly as before. A scope never prints its
+values: `String`, `GoString` and `MarshalJSON` show a count.
+
+The scope has no callers yet. The request entry points create it, resolution
+registers into it and the render edges read it back in the PRs that follow.
+The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
+`--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
+fixed by changing the placeholder rather than the rule.
