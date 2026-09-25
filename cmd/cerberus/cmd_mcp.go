@@ -53,6 +53,7 @@ the operator to start one with 'cerberus daemon'.`,
 		cancel()
 
 		srv := buildCerberusMCPServer(socketClient, logger)
+		startPluginToolSync(cmd.Context(), srv, socketClient, logger)
 
 		// CW-20260519-0053: selfexec.WatchAndExit removed. CERB-4 added it
 		// so a binary swap triggered respawn-on-next-tool-call, assuming the
@@ -66,6 +67,16 @@ the operator to start one with 'cerberus daemon'.`,
 		// its own; the parent host can recycle children at its own cadence.
 		return srv.Run(cmd.Context())
 	},
+}
+
+// startPluginToolSync serves the generated tools for the plugin operations the
+// operator exposed in connector-config.yaml, refreshed every
+// mcp.PluginToolRefreshInterval so a load, unload or config change reaches the
+// client (via tools/list_changed) without restarting anything.
+func startPluginToolSync(ctx context.Context, srv *mcp.Server, client cerbapi.Client, logger *slog.Logger) {
+	mcp.ServePluginTools(ctx, srv, client, func(format string, args ...any) {
+		logger.Info("client.mcp.plugin_tools", "message", fmt.Sprintf(format, args...))
+	})
 }
 
 func buildCerberusMCPServer(socketClient cerbapi.Client, logger *slog.Logger) *mcp.Server {

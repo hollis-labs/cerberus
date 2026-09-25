@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/connector"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	cerbplugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
 	"gopkg.in/yaml.v3"
 )
@@ -42,6 +44,9 @@ func (commandTestPlugin) Health(context.Context) (sdksubprocess.HealthStatus, er
 }
 
 func (commandTestPlugin) MCPCallTool(_ context.Context, req sdksubprocess.MCPCallRequest) (sdksubprocess.MCPCallResult, error) {
+	if req.ToolName == "cerberus_docker_fail" {
+		return cerbplugin.ErrorResult(cerbplugin.ErrorUnavailable, "upstream is down"), nil
+	}
 	data, err := json.Marshal(map[string]any{
 		"tool": req.ToolName,
 		"args": req.Arguments,
@@ -138,6 +143,7 @@ func helperPluginDir(t *testing.T) string {
 			// built-in id's known operations; logs would be decoded as the
 			// docker built-in's string. A real plugin cannot claim a
 			// built-in id, so only this fixture meets that.
+			{Name: "fail", Effect: contract.EffectRead, InputSchema: contract.ObjectSchema(map[string]any{})},
 			{Name: "tail", Effect: contract.EffectReadSensitive, InputSchema: contract.ObjectSchema(map[string]any{
 				"container": contract.StringSchema("Container name."),
 				"lines":     contract.IntegerSchema("Lines to return."),
@@ -310,4 +316,18 @@ func TestRetiredPluginSigningFlagsAreRejected(t *testing.T) {
 		}
 	}
 	rootCmd.SetArgs(nil)
+}
+
+// The one-shot `plugin exec <dir>` reports a plugin's own error code the way
+// the admin lane does, instead of printing the message without it.
+func TestRunPluginExecReportsThePluginErrorCode(t *testing.T) {
+	t.Setenv("GO_WANT_CONNECTORS_PLUGIN_HELPER", "1")
+	err := runPluginExec(context.Background(), io.Discard, helperPluginDir(t), "fail", map[string]any{}, false, false, false)
+	var coded *cerbapi.ExternalConnectorError
+	if !errors.As(err, &coded) || coded.Code != cerbapi.ExternalConnectorUnavailable {
+		t.Fatalf("err = %v, want connector_unavailable", err)
+	}
+	if !strings.Contains(err.Error(), "docker fail: connector_unavailable: upstream is down") {
+		t.Fatalf("the code or message was lost: %v", err)
+	}
 }

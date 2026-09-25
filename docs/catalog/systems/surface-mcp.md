@@ -2,7 +2,7 @@
 id: "CERB-CAP-402"
 class: "capability"
 name: "MCP adapter"
-summary: "56 MCP tools from one registry (mcp.AllTools), served over stdio, HTTP and the daemon's own stdio server, every one annotated from its operation's contract rather than by hand; plugin operations and the plugin lifecycle still have no tools."
+summary: "56 MCP tools from one registry (mcp.AllTools), served over stdio, HTTP and the daemon's own stdio server, every one annotated from its operation's contract rather than by hand; plugin operations reach MCP as generated tools once the operator exposes them in connector-config.yaml, and the plugin lifecycle still has no tools."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
@@ -37,9 +37,9 @@ relationships:
   - type: "blocks"
     target: "CERB-GAP-432"
     note: "no plugin lifecycle tools"
-  - type: "blocks"
+  - type: "relates_to"
     target: "CERB-GAP-433"
-    note: "no plugin connector operation tools"
+    note: "plugin operation tools, now generated from the manifest"
   - type: "blocks"
     target: "CERB-GAP-434"
     note: "no generic connector operation tool"
@@ -105,6 +105,21 @@ The mechanism to do it properly is already in the repo and already works.
 filters to two names, and derives the tool name, description and input schema
 mechanically from the connector metadata, adding `dry_run` and `acknowledged`
 when the operation is destructive. It is applied to 2 of 48 operations.
+
+**Plugin operations are now generated** (CERB-GAP-433, 2026-09-25). A loaded
+plugin's operation gets an MCP tool only when the operator lists it under
+`<plugin id>: mcp: expose:` in `~/.cerberus/connector-config.yaml`, so exposure
+is default-deny and installing a plugin never widens the agent tool surface by
+itself. The generated tool is named `cerberus_<plugin>_<op>`. It takes the
+manifest's input schema plus `dry_run` and `acknowledged` where the contract
+calls for them, gets its hints from `contract.HintsFor` on the effective
+contract (so a gap reads as exec), and runs through the admin lane. It is
+refused if its name would shadow a hand-written tool, or if the manifest
+declares an argument the host adds itself. `mcp.ServePluginTools` reconciles
+the served list with the daemon every 15 seconds on all three servers. The
+SDK sends `notifications/tools/list_changed` on each change, which a client
+receives when it subscribed at connect, and it can do so because the
+hand-written tools make the server advertise `tools.listChanged`.
 
 MCP is also the only surface with two capabilities of its own: a response budget
 (`limit`/`offset` with a 25-item cap and a `{items,count,total,truncated,hint}`

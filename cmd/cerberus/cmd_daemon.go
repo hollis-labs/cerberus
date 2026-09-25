@@ -574,6 +574,9 @@ func runDaemonBody() error {
 		for _, tool := range mcp.AllTools(inProc) {
 			srv.RegisterTool(tool)
 		}
+		mcp.ServePluginTools(ctx, srv, inProc, func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "mcp: "+format+"\n", args...)
+		})
 
 		if err := srv.Run(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)

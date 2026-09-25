@@ -71,8 +71,10 @@ a tunnel or reverse proxy that forwards a public hostname does not.`,
 			return err
 		}
 
+		mcpServer := buildCerberusMCPServer(socketClient, logger)
+		startPluginToolSync(cmd.Context(), mcpServer, socketClient, logger)
 		httpServer := &http.Server{
-			Handler:           mcpHTTPHandler(buildCerberusMCPServer(socketClient, logger), mcpHTTPPath, guard),
+			Handler:           mcpHTTPHandler(mcpServer, mcpHTTPPath, guard),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 
