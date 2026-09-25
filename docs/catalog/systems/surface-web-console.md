@@ -157,3 +157,51 @@ self-reported, and nothing the browser sends is read as a claim. The console
 passes that label on to the daemon, which verifies the uid of the web process,
 not of whoever is at the browser. The label becomes real when P2-2 adds a login
 (CERB-GAP-442).
+
+## Since P2-2 (Decision 20)
+
+**The console has a login.** `cerberus web` prints and opens a one-time URL.
+`cerberus web open` mints another from the key the running console keeps at
+`~/.cerberus/web/login-<listen>.key`, mode 0600 in a 0700 directory and removed
+on shutdown. A token is an expiry, a nonce and an HMAC under that per-process
+key. It is good for two minutes and one use. `GET /login` checks it, spends the
+nonce, and sets `cerberus_session` (`HttpOnly`, `SameSite=Strict`, `Path=/`),
+then answers 303 to `/` with `Cache-Control: no-store` and
+`Referrer-Policy: no-referrer`, so the token leaves the address bar.
+
+Every `/api/` route needs a live session, and one without answers 401
+`login_required` with the command that signs in. A session ends after 30 minutes
+idle (`--session-idle`), after twelve hours in any case, on
+`POST /api/logout`, or when `cerberus web` exits, because keys, nonces and
+sessions live only in memory. The SPA shows a sign-in screen on 401 and has a
+Sign out control.
+
+**The action token stays, per session.** `GET /api/session` serves a token
+only to a signed-in session, and each session has its own. A state-changing
+request needs the cookie *and* that session's token, as well as the JSON content
+type and the Host and Origin guards. The cookie alone is not enough, for two
+reasons. `SameSite` treats every port on `127.0.0.1` as one site, so a page
+served by any other local web app is same-site and would carry the cookie. And
+the Origin check passes a request that sends no `Origin`. The per-session token
+is readable only by a page that can read `/api/session` as that session, which
+same-origin policy confines to the console itself.
+
+**The principal is the session.** A signed-in request carries
+`kind: human, via: web, session: <public id>`. The id is never the cookie's
+value. It reaches the daemon's audit record through the socket client's
+principal claim, and the daemon adds the verified uid of the console process.
+
+Verified in headless Chrome over CDP on a scratch `HOME`:
+
+- signed out, the page shows the sign-in screen and `/api/session` is 401;
+- the link signs in, and the cookie is `HttpOnly` and `Strict`, invisible to
+  `document.cookie`;
+- a reused link is refused;
+- a POST without the session token is 403;
+- Sign out clears the cookie and returns to the sign-in screen;
+- a `cerberus web open` link signs in;
+- after restarting `cerberus web`, the old session and the old link are both
+  refused, and the key file is gone;
+- a connector call made from the browser is audited as
+  `{kind: human, via: web, session: …, uid_verified: true}`.
+

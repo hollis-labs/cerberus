@@ -1,6 +1,8 @@
-import { Boxes, Cable, Gauge, LayoutDashboard, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Boxes, Cable, Gauge, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
-import { createRouter } from '@hollis-labs/sysop-ui/api'
+import { ApiError, createRouter } from '@hollis-labs/sysop-ui/api'
+import { apiClient } from './api/client'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
 import { OverviewPage } from './pages/overview'
@@ -43,7 +45,47 @@ const useRoute = createRouter({
   paths: { overview: '' },
 })
 
+type SessionState = { kind: 'checking' } | { kind: 'signed-out' } | { kind: 'signed-in'; token: string }
+
+// The console needs a signed-in session (`cerberus web open`). Without one
+// every API route answers 401, so the app shows how to sign in instead.
 export function App() {
+  const [session, setSession] = useState<SessionState>({ kind: 'checking' })
+
+  useEffect(() => {
+    const controller = new AbortController()
+    apiClient
+      .getSession(controller.signal)
+      .then((info) => setSession({ kind: 'signed-in', token: info.action_token }))
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) setSession({ kind: 'signed-out' })
+      })
+    return () => controller.abort()
+  }, [])
+
+  if (session.kind === 'checking') return null
+  if (session.kind === 'signed-out') return <SignedOut />
+  const signOut = () => {
+    void apiClient.logout(session.token).finally(() => setSession({ kind: 'signed-out' }))
+  }
+  return <Console onSignOut={signOut} />
+}
+
+function SignedOut() {
+  return (
+    <div className="flex h-dvh w-dvw items-center justify-center bg-bg text-text">
+      <div className="max-w-md space-y-3 rounded-lg border border-border p-6" data-testid="signed-out">
+        <h1 className="text-lg font-semibold">Sign in to Cerberus</h1>
+        <p className="text-sm text-text-muted">
+          Run <code className="font-mono">cerberus web open</code> in a terminal on this machine. It prints and opens a
+          one-time sign-in link, good for two minutes.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function Console({ onSignOut }: { onSignOut: () => void }) {
   const { route, navigate } = useRoute()
 
   const nav: NavRailItem[] = [
@@ -120,7 +162,21 @@ export function App() {
           items={nav}
           logo={<Server className="h-4 w-4" />}
           logoLabel="Cerberus"
-          footerExtra={<ThemeSwitcher />}
+          footerExtra={
+            <>
+              <ThemeSwitcher />
+              <button
+                type="button"
+                aria-label="Sign out"
+                title="Sign out"
+                data-testid="sign-out"
+                onClick={onSignOut}
+                className="rounded p-2 text-text-muted hover:text-text"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </>
+          }
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <PageHeader title={TITLES[route]} />

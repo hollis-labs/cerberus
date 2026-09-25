@@ -19,7 +19,7 @@ import (
 // message; with it, the call reaches the runtime.
 func TestWebRuntimeActionsNeedTheConfirmStep(t *testing.T) {
 	runtime := cerbapi.NewResourceRuntimeService(audit.NewMemory(), cerbapi.WithResourceRuntimeConfigV2(&config.ConfigV2{}))
-	handler := mustNew(t, cerbapi.NewInProcessClient(cerbapi.WithResourceRuntimeService(runtime))).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, cerbapi.NewInProcessClient(cerbapi.WithResourceRuntimeService(runtime))), testGuard())
 	token := sessionToken(t, handler)
 	post := func(path, body string) *httptest.ResponseRecorder {
 		req := newTestRequest(http.MethodPost, path, strings.NewReader(body))
@@ -67,7 +67,7 @@ func TestWebDeploymentRunConfirmsAgainstThePlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := srv.Handler(testGuard())
+	handler := signedIn(t, srv, testGuard())
 	token := sessionToken(t, handler)
 
 	rec := httptest.NewRecorder()

@@ -99,7 +99,7 @@ func TestRegistryEndpointReportsSkippedAndWarned(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	srv.Handler(testGuard()).ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/registry", nil))
+	signedIn(t, srv, testGuard()).ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/registry", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}

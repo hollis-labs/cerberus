@@ -58,7 +58,7 @@ func saveProviderSecret(t *testing.T, client cerbapi.Client, provider, body stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := srv.Handler(testGuard())
+	handler := signedIn(t, srv, testGuard())
 	req := newTestRequest(http.MethodPost, "/api/infra/providers/"+provider, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Cerberus-Web-Token", sessionToken(t, handler))
@@ -152,7 +152,7 @@ func TestConsoleSavesNamecheapClientIPWhereThePluginReadsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := srv.Handler(testGuard())
+	handler := signedIn(t, srv, testGuard())
 	req := newTestRequest(http.MethodPost, "/api/infra/providers/namecheap", strings.NewReader(`{"secrets":{"client_ip":"203.0.113.7"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Cerberus-Web-Token", sessionToken(t, handler))
