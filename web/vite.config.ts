@@ -36,7 +36,20 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:4783',
+      // The console only accepts a mutation whose Origin exactly matches one
+      // of its own loopback origins, and the dev server's origin is not one of
+      // them. Present the console's origin instead. Host stays localhost:5173,
+      // which the console accepts because it checks the name, not the port.
+      '/api': {
+        target: 'http://127.0.0.1:4783',
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            if (proxyReq.getHeader('origin')) {
+              proxyReq.setHeader('origin', 'http://127.0.0.1:4783')
+            }
+          })
+        },
+      },
     },
   },
 })

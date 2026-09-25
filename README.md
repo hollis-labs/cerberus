@@ -161,6 +161,15 @@ cerberus mcp-http     # HTTP MCP endpoint at http://127.0.0.1:4785/mcp by defaul
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
 
+`cerberus web` and `cerberus mcp-http` are loopback-only. Neither
+authenticates its caller yet, so `--listen` must name a loopback address
+(`127.0.0.1`, `localhost` or `[::1]`, on any port) and either command refuses
+to start otherwise. Both also refuse a request whose `Host` header is not a
+loopback name, which defeats DNS rebinding. An SSH local forward
+(`ssh -L 9000:127.0.0.1:4785 host`) works; a tunnel or reverse proxy that
+forwards a public hostname does not. For browser-based MCP clients,
+`mcp-http --allow-origin` adds exact origins to the loopback set.
+
 ## Runtime Models
 
 Cerberus now has one local runtime lane:
