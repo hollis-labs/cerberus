@@ -148,3 +148,12 @@ an agent, because only Cerberus itself is automation. `GET /whoami` answers
 with the principal the daemon gives the request, which is what
 `cerberus whoami` shows (CERB-TOOL-419). The principal is a label for default
 policy and never approval (CERB-GAP-859).
+
+## Since P3-1
+
+`GET /approvals` and `GET /approvals/{id}` read the daemon's approval broker
+(`SocketClient.ListApprovals`, `GetApproval`). They are reads; deciding an
+approval arrives in P3-4 and never over a surface an agent can drive. A coded
+`approval_pending` carries `{id, expires_at, approve_with}` on the error wire
+(`connectorErrorWire.Approval`), so a client rebuilds it with
+`errors.As`.

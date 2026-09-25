@@ -22,8 +22,12 @@ import (
 )
 
 func auditedDockerService(sink audit.Sink) *ExternalConnectorService {
+	return auditedDockerServiceWith(sink, &fakeDockerBackend{})
+}
+
+func auditedDockerServiceWith(sink audit.Sink, backend *fakeDockerBackend) *ExternalConnectorService {
 	registry := connector.NewRegistry()
-	registry.Register(dockerconn.NewWithBackend(&fakeDockerBackend{}))
+	registry.Register(dockerconn.NewWithBackend(backend))
 	return NewExternalConnectorService(sink, registry)
 }
 

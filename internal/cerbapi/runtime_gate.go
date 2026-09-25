@@ -33,14 +33,14 @@ func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.P
 	opts := ApplyMutationOptions(options)
 	def := infra.Definition()
 	op, known := def.Operation(infra.OpRunProfile)
-	call, err := beginAudit(ctx, sink, slog.Default(), auditSpec{
+	call, err := beginGated(ctx, sink, slog.Default(), auditSpec{
 		connector: def.ID, operation: infra.OpRunProfile, op: op, known: known,
 		config: map[string]any{"id": profile.ID}, acknowledged: opts.Acknowledged,
 		// The run reads the Vercel token and scope to pass on the command line.
 		credentials: []string{"vercel/scope", "vercel/token"},
 	})
 	if err != nil {
-		return nil, externalConnectorError(ExternalConnectorOperationArgs{Connector: def.ID, Operation: infra.OpRunProfile}, ExternalConnectorAuditUnavailable, err)
+		return nil, err
 	}
 	if gateErr := runtimeGate(ctx, def, infra.OpRunProfile, map[string]any{"id": profile.ID}, opts); gateErr != nil {
 		call.finish(gateErr)

@@ -30,6 +30,15 @@ const (
 	KindIntent = "intent"
 	// KindOutcome is written after it, on every exit.
 	KindOutcome = "outcome"
+
+	// The approval broker's records, one per transition (P3-1). Each names
+	// the approval, and a consumed one links to the intent of the operation
+	// it let through by operation_id.
+	KindApprovalRequested = "approval_requested"
+	KindApprovalDecided   = "approval_decided"
+	KindApprovalExpired   = "approval_expired"
+	KindApprovalConsumed  = "approval_consumed"
+	KindApprovalRevoked   = "approval_revoked"
 )
 
 // SchemaVersion is the record format version.
@@ -138,6 +147,9 @@ type Record struct {
 	// what enforcement would do.
 	Policy *PolicyDecision `json:"policy,omitempty"`
 
+	// Approval is the approval a broker record is about.
+	Approval *ApprovalRef `json:"approval,omitempty"`
+
 	// PluginReview is what an install review showed and what was accepted.
 	PluginReview *PluginReview `json:"plugin_review,omitempty"`
 
@@ -219,4 +231,19 @@ type MatchedRule struct {
 	Rule     string `json:"rule"`
 	Decision string `json:"decision"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+// ApprovalRef is an approval as a broker record names it.
+type ApprovalRef struct {
+	ID        string    `json:"id"`
+	Status    string    `json:"status"`
+	Channel   string    `json:"channel,omitempty"`
+	Scope     string    `json:"scope,omitempty"`
+	Rule      string    `json:"rule,omitempty"`
+	PlanHash  string    `json:"plan_hash,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+	// DecidedBy and KeyFingerprint are a decision's: who, and with which
+	// enrolled key when it was out of band.
+	DecidedBy      *Principal `json:"decided_by,omitempty"`
+	KeyFingerprint string     `json:"key_fingerprint,omitempty"`
 }

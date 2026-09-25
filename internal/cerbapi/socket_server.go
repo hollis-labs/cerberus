@@ -222,6 +222,8 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ping", s.handlePing)
 	mux.HandleFunc("/whoami", s.handleWhoAmI)
+	mux.HandleFunc("/approvals", s.handleApprovals)
+	mux.HandleFunc("/approvals/", s.handleApprovals)
 
 	// /project, /resource, /pipeline list + run — active v2 surface.
 	mux.HandleFunc("/projects", s.handleProjects)
@@ -860,4 +862,30 @@ func (s *SocketServer) handleWhoAmI(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := PrincipalFrom(r.Context())
 	writeJSON(w, http.StatusOK, p)
+}
+
+// handleApprovals answers GET /approvals and GET /approvals/{id} from the
+// daemon's broker. Read-only: deciding an approval is P3-4, and never over
+// a surface an agent can drive.
+func (s *SocketServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	broker := ProcessBroker()
+	if broker == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "this daemon has no approval broker; see its log for why the approvals store did not open")
+		return
+	}
+	id := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/approvals"), "/")
+	if id == "" {
+		writeJSON(w, http.StatusOK, ApprovalList{Approvals: broker.List(), Problems: broker.Problems()})
+		return
+	}
+	a, ok := broker.Get(id)
+	if !ok {
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("no approval %q", id))
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
 }

@@ -328,7 +328,7 @@ func (r *PluginReviewer) Accept(ctx context.Context, p *PendingReview, typed str
 		return ManagedPluginConnectorState{}, err
 	}
 	review := p.Review
-	call, err := beginAudit(ctx, r.audit, r.logger, auditSpec{
+	call, err := beginGated(ctx, r.audit, r.logger, auditSpec{
 		connector: "plugin", operation: p.Kind, op: pluginAdminOperation(p.Kind), known: true,
 		config:       map[string]any{"id": review.ID, "plugin_dir": review.Source},
 		acknowledged: strings.TrimSpace(typed) == review.ID,
@@ -339,7 +339,7 @@ func (r *PluginReviewer) Accept(ctx context.Context, p *PendingReview, typed str
 	})
 	if err != nil {
 		r.Discard(p)
-		return ManagedPluginConnectorState{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: p.Kind}, ExternalConnectorAuditUnavailable, err)
+		return ManagedPluginConnectorState{}, err
 	}
 	defer func() { call.finish(retErr) }()
 	if strings.TrimSpace(typed) != review.ID {

@@ -405,9 +405,9 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 			spec.credentials = credentialNames(def)
 		}
 	}
-	call, err := beginAudit(ctx, s.audit, s.logger, spec)
+	call, err := beginGated(ctx, s.audit, s.logger, spec)
 	if err != nil {
-		return ExternalConnectorOperationResult{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: id, Operation: args.Operation}, ExternalConnectorAuditUnavailable, err)
+		return ExternalConnectorOperationResult{}, err
 	}
 	result, err := s.execute(call.withTelemetry(ctx), id, args)
 	call.finish(err)
@@ -603,9 +603,9 @@ func pluginAdminOperation(name string) contract.Operation {
 // a read, so an unwritable log refuses the call.
 func (s *ManagedPluginConnectorService) beginAdmin(ctx context.Context, operation string, target map[string]any) (*auditCall, error) {
 	spec := auditSpec{connector: "plugin", operation: operation, op: pluginAdminOperation(operation), known: true, config: target}
-	call, err := beginAudit(ctx, s.audit, s.logger, spec)
+	call, err := beginGated(ctx, s.audit, s.logger, spec)
 	if err != nil {
-		return nil, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: operation}, ExternalConnectorAuditUnavailable, err)
+		return nil, err
 	}
 	return call, nil
 }
