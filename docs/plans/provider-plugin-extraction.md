@@ -27,6 +27,7 @@ connector verb is actually added"), `live-systems-security-target.md`
 | 11 | Plugin dry runs needing `--ack` | **Kept until P1-5.** `pluginhost.OperationAllowed` gates ack before dry-run, so a plugin that ignored `dry_run` cannot execute an unacknowledged write. It comes off with P1-5's accepted-preview declaration ("the install review comes before plugin dry runs lose `--ack`"). |
 | 12 | Gate test fixtures | When a built-in is removed, the gate tests that used it move onto a fake connector, not onto the next real one. |
 | 13 | Error vocabulary | `operation_failed` (502) is the one code for an operation that ran and failed upstream, for plugins (H0) and built-ins (P1-1) alike. |
+| 14 | Plugin settings (H2b) | Declared config fields were never delivered to a plugin (the host handed `Init` only secrets). They now come from an operator-edited `~/.cerberus/connector-config.yaml`, keyed `<plugin id>: {fields: {...}, mcp: {expose: [...]}}`. Cerberus never writes it. Undeclared fields and operations, wrong types and secret references refuse the load and are named in `managed list`. It is also H3's MCP exposure switch. |
 
 ## Status
 
@@ -34,8 +35,9 @@ connector verb is actually added"), `live-systems-security-target.md`
 |---|---|---|---|
 | H0 | cerberus #58 | Plugin value redaction, `operation_failed`, redacted notifications, DO `user_data` digest | merged |
 | A1 | cerberus-plugins #4 | `cloudflare` plugin | merged. **Not installed as a managed plugin anywhere until H4**; the id is the built-in's. |
-| H1 | cerberus | Shared MCP helpers, `cerberus connectors exec` with typed args, `managed exec` through the admin lane | this PR |
-| H3 | cerberus | MCP generator | waits for P1-3 |
+| H1 | cerberus #59 | Shared MCP helpers, `cerberus connectors exec` with typed args, `managed exec` through the admin lane | merged |
+| H2b | cerberus | `connector-config.yaml`: plugin fields delivered, MCP exposure switch | this PR |
+| H3 | cerberus | MCP generator, reading `mcp.expose` from H2b's loader | after H2b |
 | H4 | cerberus | Remove the cloudflare built-in | waits for P1-1 and H3. Its UAT table carries A1's tightened behaviour: real-path validation of `create_dns_record`, bad numbers rejected, a `{deleted, zone_id, record_id}` delete result, and a health check with no network call |
 | — | both | digitalocean, then namecheap, then forge | after H4 |
 

@@ -499,6 +499,7 @@ func runDaemonBody() error {
 	// mean the same thing either side of the plugin boundary.
 	managedPlugins, managedErr := cerbapi.NewManagedPluginConnectorService(version, os.Stderr, statePath,
 		cerbapi.WithManagedPluginSecrets(a.Secrets),
+		cerbapi.WithManagedPluginConnectorConfig(app.ConnectorConfigPath(cfgPath)),
 		cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...))
 	if managedErr != nil {
 		return fmt.Errorf("initialize managed plugin connectors: %w", managedErr)

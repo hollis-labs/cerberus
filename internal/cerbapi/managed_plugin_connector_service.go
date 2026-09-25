@@ -43,6 +43,18 @@ type ManagedPluginConnectorState struct {
 	// Always present, as [] when there are none, so "no gaps" is something a
 	// reader can see rather than infer from a missing field.
 	ContractGaps []string `json:"contract_gaps"`
+
+	// ConfigFields names the connector-config.yaml fields a loaded plugin
+	// received, MCPExpose the operations whose MCP tools it serves, and
+	// ConfigSHA256 the file version it read. Names and a fingerprint only;
+	// values are the operator's to read in the file. Always present, as []
+	// when empty, so "nothing exposed" is visible rather than inferred.
+	ConfigFields []string `json:"config_fields"`
+	MCPExpose    []string `json:"mcp_expose"`
+	ConfigSHA256 string   `json:"config_sha256,omitempty"`
+	// ConfigProblems is why the plugin's settings were refused, which is why
+	// it is not loaded. Always present, as [] when there are none.
+	ConfigProblems []string `json:"config_problems"`
 }
 
 type ManagedPluginConnectorService struct {
@@ -66,6 +78,14 @@ type ManagedPluginOption func(*managedPluginConfig)
 type managedPluginConfig struct {
 	secrets     pluginhost.SecretResolver
 	reservedIDs []string
+	configPath  string
+}
+
+// WithManagedPluginConnectorConfig names connector-config.yaml, the
+// operator-owned file of plugin fields and MCP exposure. It is read on every
+// load, so `managed load` after an edit picks the change up.
+func WithManagedPluginConnectorConfig(path string) ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.configPath = path }
 }
 
 // WithManagedPluginSecrets hands the managed plugin host the same secret
@@ -108,6 +128,7 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 		},
 		hostVersion,
 		pluginhost.WithSecretResolver(cfg.secrets),
+		pluginhost.WithConnectorConfig(connectorConfigLoader(cfg.configPath)),
 		pluginhost.WithLoadWarning(func(line string) { service.warnf("%s", line) }),
 	)
 	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
@@ -334,8 +355,31 @@ func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin,
 	out := managedState(plugin, loaded)
 	if loaded {
 		out.MissingSecrets = s.manager.MissingSecrets(plugin.ID)
+		if settings, ok := s.manager.Settings(plugin.ID); ok {
+			out.ConfigFields = settings.Fields
+			out.MCPExpose = settings.Expose
+			out.ConfigSHA256 = settings.SHA256
+		}
+	}
+	out.ConfigProblems = s.manager.ConfigProblems(plugin.ID)
+	if out.ConfigFields == nil {
+		out.ConfigFields = []string{}
+	}
+	if out.MCPExpose == nil {
+		out.MCPExpose = []string{}
+	}
+	if out.ConfigProblems == nil {
+		out.ConfigProblems = []string{}
 	}
 	return out
+}
+
+// connectorConfigLoader reads connector-config.yaml afresh on each call. No
+// path means no file: no fields, nothing exposed.
+func connectorConfigLoader(path string) func() (pluginhost.ConnectorConfig, error) {
+	return func() (pluginhost.ConnectorConfig, error) {
+		return pluginhost.LoadConnectorConfig(path)
+	}
 }
 
 func (s *ManagedPluginConnectorService) install(pluginDir string, options PluginInstallOptions) (pluginhost.InstalledPlugin, error) {
