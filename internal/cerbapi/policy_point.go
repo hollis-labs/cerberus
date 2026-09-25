@@ -41,6 +41,7 @@ func policyRequest(ctx context.Context, spec auditSpec, t target.Target) policy.
 	r := policy.Request{Connector: spec.connector, Operation: spec.operation, Target: t}
 	if spec.known {
 		r.Effect = spec.op.Effect
+		r.EffectUndeclared = spec.op.EffectUndeclared
 	}
 	// A dry run counts as the plan step only where there is a preview.
 	r.DryRun = spec.dryRun && spec.op.Preview != contract.PreviewNone
@@ -51,15 +52,20 @@ func policyRequest(ctx context.Context, spec auditSpec, t target.Target) policy.
 }
 
 // shadowDecision authorizes the operation and returns the result for its
-// record. In P2 nothing reads it to decide: it is recorded, never enforced.
-func shadowDecision(ctx context.Context, spec auditSpec, t target.Target) *audit.PolicyDecision {
+// record, and the posture it was evaluated under. In P2 nothing reads it to
+// decide: it is recorded, never enforced.
+func shadowDecision(ctx context.Context, spec auditSpec, t target.Target) (*audit.PolicyDecision, string) {
 	res := PolicyDecisionPoint().Authorize(policyRequest(ctx, spec, t))
 	out := &audit.PolicyDecision{Decision: string(res.Decision), WouldBlock: res.WouldBlock, Snapshot: res.Snapshot, Shadow: true,
 		MatchedRules: make([]audit.MatchedRule, 0, len(res.Matched))}
 	for _, m := range res.Matched {
 		out.MatchedRules = append(out.MatchedRules, audit.MatchedRule{Rule: m.Rule, Decision: string(m.Decision), Reason: m.Reason})
 	}
-	return out
+	posture := res.Posture
+	if posture == "" {
+		posture = policy.PostureSecure
+	}
+	return out, posture
 }
 
 // PolicySnapshotChanged is the outcome code of a policy load that found the

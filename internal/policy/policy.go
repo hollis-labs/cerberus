@@ -63,6 +63,10 @@ type Request struct {
 	Operation string
 	// Effect is the operation's effect class; empty is unknown.
 	Effect contract.Effect
+	// EffectUndeclared marks a plugin operation whose manifest declares no
+	// effect, so Effect is the host's reading of the gap: exec under the
+	// secure posture, write under permissive (section 13's plugin-gap row).
+	EffectUndeclared bool
 	// DryRun is a preview request for an operation that has one.
 	DryRun bool
 	Target target.Target
@@ -96,6 +100,8 @@ type Result struct {
 	// "baseline" when none is applied, or "mismatch" when the applied file
 	// no longer matches its recorded hash.
 	Snapshot string `json:"snapshot"`
+	// Posture is the posture this operation was evaluated under (PostureFor).
+	Posture string `json:"posture"`
 }
 
 // Reason is the most restrictive match's reason, for a refusal.
@@ -112,6 +118,9 @@ func (r Result) Reason() string {
 // evaluator (Cedar) can replace this one behind it (Decision 1).
 type PDP interface {
 	Authorize(Request) Result
+	// GlobalPosture is the applied posture for what has no target: the
+	// host-wide switches, and records of operations nothing authorized.
+	GlobalPosture() string
 }
 
 // combine applies the one combining rule: the most restrictive match wins.

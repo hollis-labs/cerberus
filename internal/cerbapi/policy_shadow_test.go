@@ -14,6 +14,8 @@ import (
 // denyAll is a decision point that would refuse everything.
 type denyAll struct{}
 
+func (denyAll) GlobalPosture() string { return policy.PostureSecure }
+
 func (denyAll) Authorize(policy.Request) policy.Result {
 	return policy.Result{Decision: policy.Deny, WouldBlock: true, Snapshot: "test-deny-all",
 		Matched: []policy.Match{{Rule: "test.deny-all", Decision: policy.Deny, Reason: "denies everything"}}}

@@ -98,16 +98,16 @@ var policyExplainCmd = &cobra.Command{
 			}
 		}
 		t := target.Resolve(connectorID, op.Target.Kind, policyExplainFlags.target, labels, policyExplainFlags.adhoc)
-		req := policy.Request{Connector: connectorID, Operation: operation, Effect: op.Effect, Target: t,
+		req := policy.Request{Connector: connectorID, Operation: operation, Effect: op.Effect, EffectUndeclared: op.EffectUndeclared, Target: t,
 			DryRun: policyExplainFlags.dryRun && op.Preview != contract.PreviewNone, Principal: policy.Principal{Kind: kind}}
 		pdp, source, err := explainPDP(policyExplainFlags.working)
 		if err != nil {
 			return err
 		}
 		res := pdp.Authorize(req)
-		posture, postureRules := "secure", []int(nil)
+		posture, postureRules := res.Posture, []int(nil)
 		if ev, ok := pdp.(*policy.Evaluator); ok {
-			posture, postureRules = ev.File().PostureFor(req)
+			_, postureRules = ev.File().PostureFor(req)
 		}
 		if policyExplainFlags.output == outputFormatJSON {
 			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules})
@@ -115,7 +115,11 @@ var policyExplainCmd = &cobra.Command{
 		if err = writeExplain(cmd.OutOrStdout(), req, res, source); err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "\nPosture:  %s (declared; postures take effect in a later release)\n", posture)
+		why := "the global posture"
+		if len(postureRules) > 0 {
+			why = fmt.Sprintf("posture_rules%v", postureRules)
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "\nPosture:  %s, from %s (evaluated in shadow, like every decision above)\n", posture, why)
 		return err
 	},
 }

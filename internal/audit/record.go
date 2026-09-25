@@ -35,8 +35,9 @@ const (
 // SchemaVersion is the record format version.
 const SchemaVersion = 1
 
-// PostureSecure is the posture recorded on every record; the only one until
-// P2 adds permissive.
+// PostureSecure is the default posture, recorded when nothing says
+// otherwise. Records made through the admin lane carry the posture their
+// operation was evaluated under (policy.PostureFor), secure or permissive.
 const PostureSecure = "secure"
 
 // Principal is who asked, as the serving process knows it
