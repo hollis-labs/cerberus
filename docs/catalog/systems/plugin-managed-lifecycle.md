@@ -95,9 +95,10 @@ load or run a plugin.
 
 Since P1-4a, install, load, unload and uninstall each write an intent and an
 outcome to the audit log as `admin` calls on connector `plugin`, and an
-unwritable log refuses them (CERB-CAP-604). A managed exec on the direct route
-is recorded with the plugin's config and entrypoint fingerprints; the admin
-lane's call into a plugin is recorded once, by the admin lane.
+unwritable log refuses them (CERB-CAP-604). A plugin operation is recorded once,
+by the admin lane, with the plugin's config and entrypoint fingerprints. The CLI
+verb that called the direct route, `managed exec`, was retired on 2026-09-25;
+`connectors exec` goes through the admin lane.
 
 Since P1-4b the outcome also carries what the plugin reported for that call:
 events it returned under `cerberus_telemetry`, which the host strips from the

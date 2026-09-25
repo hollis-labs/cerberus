@@ -145,11 +145,22 @@ Cerberus's own release and pipeline story leans on it. Everything else that
 talks to a provider is a plugin: optional per user, its own release schedule,
 loaded at runtime without rebuilding the host.
 
-Our plugins live in `hollis-labs/cerberus-plugins`; third-party plugins are
-standalone repos. `cloudflare` moved out first (its SDK was most of the binary:
-removing it took a stripped build from 62.8MB to 23.6MB), then `digitalocean`
-(21.8MB), then `namecheap` and `forge`. No provider connector is compiled in
-any more (`docs/plans/provider-plugin-extraction.md`). Do not add one.
+**That is the whole core: `local`, `ssh`, `docker`, `github`.** Every provider
+connector is a plugin. Ours live in `hollis-labs/cerberus-plugins`
+(`cloudflare`, `digitalocean`, `namecheap`, `forge`, `contextforge`, `azure`,
+`kubernetes`), and third-party plugins are standalone repos. The four providers
+that used to be compiled in moved out in 2026-09
+(`docs/plans/provider-plugin-extraction.md`), taking a stripped build from
+62.8MB to 21.7MB with no provider SDK left in the host.
+
+A plugin's operations reach every surface without host code. On the CLI,
+`cerberus connectors exec <id> <op>` runs any operation, built-in or plugin,
+with arguments typed from its schema. On MCP, a plugin operation is a generated
+tool, `cerberus_<id>_<op>`, served only when the operator lists it under
+`<id>: mcp: expose:` in `~/.cerberus/connector-config.yaml`; nothing is exposed
+by default. On the API and in the console, it is the generic connector route.
+Each call goes through `ExternalConnectorService.Execute`, the one path that
+gates, refuses and audits.
 
 **A new provider integration is a plugin, not a built-in.** If you are about to
 add a vendor SDK to `go.mod` for a connector, that is the signal you are in the
@@ -182,7 +193,9 @@ ContextForge's `get_health` is open and must keep working while `list_gateways`
 **Built-in connector ids are reserved.** A plugin claiming `ssh`, `docker`,
 `local` or `github` is refused at install — it would shadow the connector
 Cerberus serves itself and, since the secret channel namespaces by connector id,
-would be handed that connector's credentials.
+would be handed that connector's credentials. The set comes from
+`Registry.BuiltInIDs()`, plus `local`, which the supervision lane serves outside
+the registry and so is reserved explicitly (`hostServedIDs`).
 
 ## Work infrastructure is not ours to change on our own say-so
 
