@@ -358,92 +358,8 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
-	case "deploy":
-		if r.Method != http.MethodPost {
-			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		deployOpts, decodeErr := decodeDeployOptions(r.Body)
-		if decodeErr != nil {
-			writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
-			return
-		}
-		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
-			return s.client.DeployResource(ctx, id, deployOpts...)
-		}) {
-			return
-		}
-		res, err := s.client.DeployResource(r.Context(), id, deployOpts...)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	case "apply":
-		if r.Method != http.MethodPost {
-			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
-			return s.client.ApplyResource(ctx, id)
-		}) {
-			return
-		}
-		res, err := s.client.ApplyResource(r.Context(), id)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	case "reload":
-		if r.Method != http.MethodPost {
-			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		res, err := s.client.ReloadResource(r.Context(), id)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	case "stop":
-		if r.Method != http.MethodPost {
-			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		res, err := s.client.StopResource(r.Context(), id)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	case "sync":
-		if r.Method != http.MethodPost {
-			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
-			return s.client.SyncResource(ctx, id)
-		}) {
-			return
-		}
-		res, err := s.client.SyncResource(r.Context(), id)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
-	case "remove":
-		if r.Method != http.MethodPost {
-			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		res, err := s.client.RemoveResource(r.Context(), id)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
+	case "deploy", "apply", "reload", "stop", "sync", "remove":
+		s.handleResourceMutation(w, r, id, action)
 	default:
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown resource action %q", action))
 	}
@@ -494,14 +410,60 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	opts, decodeErr := decodeMutationOptions(r.Body)
+	if decodeErr != nil {
+		writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
+		return
+	}
 	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
-		return s.client.RunPipeline(ctx, id)
+		return s.client.RunPipeline(ctx, id, opts...)
 	}) {
 		return
 	}
-	res, err := s.client.RunPipeline(r.Context(), id)
+	res, err := s.client.RunPipeline(r.Context(), id, opts...)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		writeServiceError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// resourceMutations are the resource verbs the socket serves, and whether
+// each streams progress.
+var resourceMutations = map[string]struct {
+	stream bool
+	call   func(Client, context.Context, string, ...MutationOption) (*OpResult, error)
+}{
+	"deploy": {true, Client.DeployResource},
+	"apply":  {true, Client.ApplyResource},
+	"reload": {false, Client.ReloadResource},
+	"stop":   {false, Client.StopResource},
+	"sync":   {true, Client.SyncResource},
+	"remove": {false, Client.RemoveResource},
+}
+
+// handleResourceMutation serves one resource mutation. Its options —
+// the caller's acknowledgment among them — come from the request body, and a
+// refusal keeps its code and status.
+func (s *SocketServer) handleResourceMutation(w http.ResponseWriter, r *http.Request, id, action string) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	mutation := resourceMutations[action]
+	opts, decodeErr := decodeMutationOptions(r.Body)
+	if decodeErr != nil {
+		writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
+		return
+	}
+	if mutation.stream && s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
+		return mutation.call(s.client, ctx, id, opts...)
+	}) {
+		return
+	}
+	res, err := mutation.call(s.client, r.Context(), id, opts...)
+	if err != nil {
+		writeServiceError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -810,25 +772,25 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, ErrorResponse{Success: false, Error: msg})
 }
 
-// decodeDeployOptions parses a DeployResource request body into a slice of
-// functional options. Empty body is valid and yields no overrides — that
-// matches the historical contract older clients depend on.
-func decodeDeployOptions(body io.Reader) ([]DeployResourceOption, error) {
+// decodeMutationOptions parses a mutation's request body into options. An
+// empty body is valid and yields none — which carries no acknowledgment, so
+// a gated operation is refused.
+func decodeMutationOptions(body io.Reader) ([]MutationOption, error) {
 	if body == nil {
 		return nil, nil
 	}
-	data, err := io.ReadAll(body)
+	data, err := io.ReadAll(io.LimitReader(body, 1<<20))
 	if err != nil {
-		return nil, fmt.Errorf("read deploy body: %w", err)
+		return nil, fmt.Errorf("read mutation body: %w", err)
 	}
 	if len(data) == 0 {
 		return nil, nil
 	}
-	var opts DeployResourceOpts
+	var opts MutationOpts
 	if err := json.Unmarshal(data, &opts); err != nil {
-		return nil, fmt.Errorf("decode deploy body: %w", err)
+		return nil, fmt.Errorf("decode mutation body: %w", err)
 	}
-	var options []DeployResourceOption
+	options := []MutationOption{WithAcknowledged(opts.Acknowledged)}
 	if opts.InstallAfterBuildOverride != nil {
 		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))
 	}

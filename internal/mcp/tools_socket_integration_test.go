@@ -172,37 +172,37 @@ func (fakeSocketProgressClient) GetResourceInspect(context.Context, string) (*ce
 func (fakeSocketProgressClient) GetResourceDoctor(context.Context, string) (*cerbapi.ResourceDoctor, error) {
 	return nil, errors.New("not implemented")
 }
-func (fakeSocketProgressClient) DeployResource(ctx context.Context, _ string, _ ...cerbapi.DeployResourceOption) (*cerbapi.OpResult, error) {
+func (fakeSocketProgressClient) DeployResource(ctx context.Context, _ string, _ ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake deploy started")
 	gmcp.NotifyProgress(ctx, "fake-deploy", 1, 2, "deploying")
 	gmcp.NotifyMessage(ctx, "info", "fake deploy completed")
 	return &cerbapi.OpResult{Success: true, ServiceID: "demo", Message: "deployed"}, nil
 }
-func (fakeSocketProgressClient) ApplyResource(ctx context.Context, _ string) (*cerbapi.OpResult, error) {
+func (fakeSocketProgressClient) ApplyResource(ctx context.Context, _ string, _ ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake apply started")
 	gmcp.NotifyProgress(ctx, "fake-apply", 1, 2, "applying")
 	gmcp.NotifyMessage(ctx, "info", "fake apply completed")
 	return &cerbapi.OpResult{Success: true, ServiceID: "demo", Message: "applied"}, nil
 }
-func (fakeSocketProgressClient) ReloadResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (fakeSocketProgressClient) ReloadResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return nil, errors.New("not implemented")
 }
-func (fakeSocketProgressClient) StopResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (fakeSocketProgressClient) StopResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return nil, errors.New("not implemented")
 }
-func (fakeSocketProgressClient) SyncResource(ctx context.Context, _ string) (*cerbapi.OpResult, error) {
+func (fakeSocketProgressClient) SyncResource(ctx context.Context, _ string, _ ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake sync started")
 	gmcp.NotifyProgress(ctx, "fake-sync", 1, 2, "syncing")
 	gmcp.NotifyMessage(ctx, "info", "fake sync completed")
 	return &cerbapi.OpResult{Success: true, ServiceID: "demo", Message: "synced"}, nil
 }
-func (fakeSocketProgressClient) RemoveResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (fakeSocketProgressClient) RemoveResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	return nil, errors.New("not implemented")
 }
 func (fakeSocketProgressClient) ListPipelines(context.Context) ([]cerbapi.PipelineInfo, error) {
 	return nil, errors.New("not implemented")
 }
-func (fakeSocketProgressClient) RunPipeline(ctx context.Context, _ string) (*cerbapi.PipelineRunResult, error) {
+func (fakeSocketProgressClient) RunPipeline(ctx context.Context, _ string, _ ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake pipeline started")
 	gmcp.NotifyProgress(ctx, "fake-pipeline", 1, 2, "running")
 	gmcp.NotifyMessage(ctx, "info", "fake pipeline completed")
@@ -531,7 +531,7 @@ pipelines:
 		notifications = append(notifications, n)
 	})
 
-	out, err := tool.Handler(ctx, map[string]interface{}{"pipeline_id": "smoke-pipeline"})
+	out, err := tool.Handler(ctx, map[string]interface{}{"pipeline_id": "smoke-pipeline", "acknowledged": true})
 	if err != nil {
 		t.Fatal(err)
 	}

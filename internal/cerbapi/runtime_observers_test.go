@@ -19,7 +19,10 @@ func TestRuntimeObserversDoNotWaitBehindBuild(t *testing.T) {
 	}}}}
 	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
 	done := make(chan struct{})
-	go func() { defer close(done); _, _ = svc.DeployResource(context.Background(), "building") }()
+	go func() {
+		defer close(done)
+		_, _ = svc.DeployResource(context.Background(), "building", WithAcknowledged(true))
+	}()
 	t.Cleanup(func() { _ = os.WriteFile(filepath.Join(dir, "release"), nil, 0600); <-done })
 	deadline := time.Now().Add(3 * time.Second)
 	for {

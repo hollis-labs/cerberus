@@ -50,7 +50,7 @@ the config fails schema validation.`,
 			fmt.Println("\nregistration is declarative — nothing is built or running yet.")
 			fmt.Println("build and activate each resource with:")
 			for _, id := range resourceIDs {
-				fmt.Printf("  cerberus resource deploy %s\n", id)
+				fmt.Printf("  cerberus resource deploy %s --ack\n", id)
 			}
 		}
 		return nil

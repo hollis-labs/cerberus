@@ -22,7 +22,7 @@ func (f fixturePipelineClient) ListPipelines(context.Context) ([]cerbapi.Pipelin
 func (f fixturePipelineClient) GetPipeline(context.Context, string) (*cerbapi.PipelineDetail, error) {
 	return f.detail, nil
 }
-func (f fixturePipelineClient) RunPipeline(context.Context, string) (*cerbapi.PipelineRunResult, error) {
+func (f fixturePipelineClient) RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
 	if f.runErr != nil {
 		return nil, f.runErr
 	}

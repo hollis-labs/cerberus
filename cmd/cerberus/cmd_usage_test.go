@@ -61,6 +61,8 @@ func TestLifecycleVerbsOfferAck(t *testing.T) {
 	for _, path := range [][]string{
 		{"server", "start"}, {"server", "stop"}, {"docker", "up"}, {"docker", "down"},
 		{"ssh", "get"}, {"ssh", "get-dir"},
+		{"resource", "deploy"}, {"resource", "ensure-fresh"}, {"resource", "apply"}, {"resource", "reload"},
+		{"resource", "stop"}, {"resource", "sync"}, {"resource", "remove"}, {"pipeline", "run"},
 	} {
 		cmd, _, err := rootCmd.Find(path)
 		if err != nil {

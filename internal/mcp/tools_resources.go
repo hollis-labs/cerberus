@@ -225,7 +225,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:            "cerberus_resource_reload",
-		Description:     "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh with force=true instead.",
+		Description:     "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh with force=true instead. Requires acknowledged=true.",
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  true,
@@ -234,6 +234,10 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 			"resource_id": map[string]interface{}{
 				"type":        "string",
 				"description": "Resource ID.",
+			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the operation. Required: every resource mutation needs it.",
 			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
@@ -244,7 +248,7 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.ReloadResource(ctx, resourceID)
+			res, err := client.ReloadResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}
@@ -261,7 +265,7 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:            "cerberus_resource_stop",
-		Description:     "Stop a resource without uninstalling it. Use remove for uninstall.",
+		Description:     "Stop a resource without uninstalling it. Use remove for uninstall. Requires acknowledged=true.",
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  true,
@@ -270,6 +274,10 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 			"resource_id": map[string]interface{}{
 				"type":        "string",
 				"description": "Resource ID.",
+			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the operation. Required: every resource mutation needs it.",
 			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
@@ -280,7 +288,7 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.StopResource(ctx, resourceID)
+			res, err := client.StopResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}
@@ -297,7 +305,7 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:            "cerberus_resource_deploy",
-		Description:     "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. This is the default action after editing source. ensure_fresh requires force=true to guarantee a rebuild.",
+		Description:     "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. This is the default action after editing source. ensure_fresh requires force=true to guarantee a rebuild. Requires acknowledged=true.",
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  true,
@@ -306,6 +314,10 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 			"resource_id": map[string]interface{}{
 				"type":        "string",
 				"description": "Resource ID.",
+			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the operation. Required: every resource mutation needs it.",
 			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
@@ -316,7 +328,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.DeployResource(ctx, resourceID)
+			res, err := client.DeployResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}
@@ -329,7 +341,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:            "cerberus_resource_ensure_fresh",
-		Description:     "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift. Unconfirmed activation returns success=false without restarting; follow the verification guidance before retrying.",
+		Description:     "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift. Unconfirmed activation returns success=false without restarting; follow the verification guidance before retrying. Requires acknowledged=true.",
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  true,
@@ -343,6 +355,10 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 				"type":        "boolean",
 				"description": "Always rebuild, install and activate. Required after source edits in ANY runtime mode; default false only checks built-binary drift.",
 			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the operation. Required: every resource mutation needs it.",
+			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
@@ -353,7 +369,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 				})
 			}
 			force, _ := args["force"].(bool)
-			res, err := cerbapi.EnsureFresh(ctx, client, resourceID, force)
+			res, err := cerbapi.EnsureFresh(ctx, client, resourceID, force, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}
@@ -373,7 +389,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:            "cerberus_resource_apply",
-		Description:     "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh with force=true) so it rebuilds first.",
+		Description:     "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh with force=true) so it rebuilds first. Requires acknowledged=true.",
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  true,
@@ -382,6 +398,10 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 			"resource_id": map[string]interface{}{
 				"type":        "string",
 				"description": "Resource ID.",
+			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the operation. Required: every resource mutation needs it.",
 			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
@@ -392,7 +412,7 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.ApplyResource(ctx, resourceID)
+			res, err := client.ApplyResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}
@@ -405,7 +425,7 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:            "cerberus_resource_sync",
-		Description:     "Sync installed artifacts without applying the runtime backend.",
+		Description:     "Sync installed artifacts without applying the runtime backend. Requires acknowledged=true.",
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  true,
@@ -414,6 +434,10 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 			"resource_id": map[string]interface{}{
 				"type":        "string",
 				"description": "Resource ID.",
+			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the operation. Required: every resource mutation needs it.",
 			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
@@ -424,7 +448,7 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.SyncResource(ctx, resourceID)
+			res, err := client.SyncResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}
@@ -441,7 +465,7 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:            "cerberus_resource_remove",
-		Description:     "Uninstall a resource and remove installed artifacts. Use stop to pause only.",
+		Description:     "Uninstall a resource and remove installed artifacts. Use stop to pause only. Requires acknowledged=true.",
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  true,
@@ -450,6 +474,10 @@ func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 			"resource_id": map[string]interface{}{
 				"type":        "string",
 				"description": "Resource ID.",
+			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the operation. Required: every resource mutation needs it.",
 			},
 		}, "resource_id"),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
@@ -460,7 +488,7 @@ func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.RemoveResource(ctx, resourceID)
+			res, err := client.RemoveResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}

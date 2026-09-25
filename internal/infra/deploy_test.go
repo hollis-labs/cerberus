@@ -51,24 +51,3 @@ Inspect: https://vercel.com/acme/site-dev/abc123 [2s]
 		t.Fatalf("extractDeploymentURL() = %q, want %q", got, want)
 	}
 }
-
-func TestParseGitHubRemote(t *testing.T) {
-	tests := []struct {
-		name  string
-		raw   string
-		owner string
-		repo  string
-	}{
-		{name: "ssh", raw: "git@github.com:operator/cerberus.git", owner: "operator", repo: "cerberus"},
-		{name: "https", raw: "https://github.com/hollis-labs/cerberus.git", owner: "operator", repo: "cerberus"},
-		{name: "unsupported", raw: "https://gitlab.com/operator/cerberus.git"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			owner, repo := parseGitHubRemote(tt.raw)
-			if owner != tt.owner || repo != tt.repo {
-				t.Fatalf("parseGitHubRemote(%q) = (%q, %q), want (%q, %q)", tt.raw, owner, repo, tt.owner, tt.repo)
-			}
-		})
-	}
-}

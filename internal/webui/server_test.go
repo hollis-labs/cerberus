@@ -283,35 +283,35 @@ func (f *fakeClient) GetResourceDoctor(context.Context, string) (*cerbapi.Resour
 	return &cerbapi.ResourceDoctor{}, nil
 }
 
-func (f *fakeClient) DeployResource(context.Context, string, ...cerbapi.DeployResourceOption) (*cerbapi.OpResult, error) {
+func (f *fakeClient) DeployResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	f.mutations++
 	f.deployCalls++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
-func (f *fakeClient) ApplyResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (f *fakeClient) ApplyResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	f.mutations++
 	f.applyCalls++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
-func (f *fakeClient) ReloadResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (f *fakeClient) ReloadResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	f.mutations++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
-func (f *fakeClient) StopResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (f *fakeClient) StopResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	f.mutations++
 	f.stopCalls++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
-func (f *fakeClient) SyncResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (f *fakeClient) SyncResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	f.mutations++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
-func (f *fakeClient) RemoveResource(context.Context, string) (*cerbapi.OpResult, error) {
+func (f *fakeClient) RemoveResource(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
 	f.mutations++
 	return &cerbapi.OpResult{Success: true}, nil
 }
@@ -320,7 +320,7 @@ func (f *fakeClient) ListPipelines(context.Context) ([]cerbapi.PipelineInfo, err
 	return nil, nil
 }
 
-func (f *fakeClient) RunPipeline(context.Context, string) (*cerbapi.PipelineRunResult, error) {
+func (f *fakeClient) RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
 	f.mutations++
 	return &cerbapi.PipelineRunResult{}, nil
 }

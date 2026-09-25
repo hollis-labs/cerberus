@@ -46,16 +46,16 @@ func RecommendedNextStep(action, reason string) string {
 		return "Run `cerberus resource inspect <resource-id>` and verify the running executable against the installed artifact before retrying activation. A running PID alone does not confirm the installed image; use apply only when another activation is needed."
 	case "apply":
 		if reason == "installed artifact is missing" {
-			return "Run `cerberus resource apply <resource-id>` to install the artifact and load the service."
+			return "Run `cerberus resource apply <resource-id> --ack` to install the artifact and load the service."
 		}
 		if reason != "" {
-			return "Run `cerberus resource apply <resource-id>` to sync the current artifact and reload the service."
+			return "Run `cerberus resource apply <resource-id> --ack` to sync the current artifact and reload the service."
 		}
-		return "Run `cerberus resource apply <resource-id>`."
+		return "Run `cerberus resource apply <resource-id> --ack`."
 	case "sync":
-		return "Run `cerberus resource sync <resource-id>` to update the installed artifact without touching the running service, then apply when you are ready to reload it."
+		return "Run `cerberus resource sync <resource-id> --ack` to update the installed artifact without touching the running service, then apply when you are ready to reload it."
 	case "deploy":
-		return "Run `cerberus resource deploy <resource-id>` to rebuild from the current repo state, sync the artifact, and activate it."
+		return "Run `cerberus resource deploy <resource-id> --ack` to rebuild from the current repo state, sync the artifact, and activate it."
 	case "":
 		return ""
 	default:

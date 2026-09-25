@@ -133,3 +133,72 @@ func TestLifecycleToolsForwardAcknowledged(t *testing.T) {
 		}
 	}
 }
+
+// capturingRuntimeClient records the options each runtime mutation receives.
+type capturingRuntimeClient struct {
+	fakeSocketProgressClient
+	acked map[string]bool
+}
+
+func (c *capturingRuntimeClient) record(name string, opts []cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	c.acked[name] = cerbapi.ApplyMutationOptions(opts).Acknowledged
+	return &cerbapi.OpResult{Success: true}, nil
+}
+func (c *capturingRuntimeClient) ReloadResource(_ context.Context, _ string, o ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	return c.record("reload", o)
+}
+func (c *capturingRuntimeClient) StopResource(_ context.Context, _ string, o ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	return c.record("stop", o)
+}
+func (c *capturingRuntimeClient) DeployResource(_ context.Context, _ string, o ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	return c.record("deploy", o)
+}
+func (c *capturingRuntimeClient) ApplyResource(_ context.Context, _ string, o ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	return c.record("apply", o)
+}
+func (c *capturingRuntimeClient) SyncResource(_ context.Context, _ string, o ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	return c.record("sync", o)
+}
+func (c *capturingRuntimeClient) RemoveResource(_ context.Context, _ string, o ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	return c.record("remove", o)
+}
+func (c *capturingRuntimeClient) RunPipeline(_ context.Context, _ string, o ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
+	c.acked["pipeline"] = cerbapi.ApplyMutationOptions(o).Acknowledged
+	return &cerbapi.PipelineRunResult{Success: true}, nil
+}
+
+// Every resource mutation tool and pipeline run advertises acknowledged and
+// forwards exactly what the agent sent.
+func TestRuntimeToolsForwardAcknowledged(t *testing.T) {
+	for _, tc := range []struct {
+		tool func(cerbapi.Client) Tool
+		key  string
+		args map[string]interface{}
+	}{
+		{NewCerberusResourceReloadTool, "reload", map[string]interface{}{"resource_id": "svc"}},
+		{NewCerberusResourceStopTool, "stop", map[string]interface{}{"resource_id": "svc"}},
+		{NewCerberusResourceDeployTool, "deploy", map[string]interface{}{"resource_id": "svc"}},
+		{NewCerberusResourceEnsureFreshTool, "deploy", map[string]interface{}{"resource_id": "svc", "force": true}},
+		{NewCerberusResourceApplyTool, "apply", map[string]interface{}{"resource_id": "svc"}},
+		{NewCerberusResourceSyncTool, "sync", map[string]interface{}{"resource_id": "svc"}},
+		{NewCerberusResourceRemoveTool, "remove", map[string]interface{}{"resource_id": "svc"}},
+		{NewCerberusPipelineRunTool, "pipeline", map[string]interface{}{"pipeline_id": "p"}},
+	} {
+		for _, ack := range []bool{false, true} {
+			client := &capturingRuntimeClient{acked: map[string]bool{}}
+			tool := tc.tool(client)
+			props, _ := tool.InputSchema.(map[string]interface{})["properties"].(map[string]interface{})
+			if _, ok := props["acknowledged"]; !ok {
+				t.Errorf("%s does not advertise acknowledged", tool.Name)
+			}
+			args := map[string]interface{}{"acknowledged": ack}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			_, _ = tool.Handler(context.Background(), args)
+			if got, ok := client.acked[tc.key]; !ok || got != ack {
+				t.Errorf("%s acknowledged=%v forwarded %v (called %v)", tool.Name, ack, got, ok)
+			}
+		}
+	}
+}
