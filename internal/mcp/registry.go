@@ -35,12 +35,6 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusSSHGetTool(client),
 		NewCerberusSSHPutDirTool(client),
 		NewCerberusSSHGetDirTool(client),
-		NewCerberusDomainListTool(client),
-		NewCerberusDomainStatusTool(client),
-		NewCerberusNameserversSetTool(client),
-		NewCerberusDNSListTool(client),
-		NewCerberusDNSCreateTool(client),
-		NewCerberusDNSDeleteTool(client),
 		NewCerberusForgeServersTool(client),
 		NewCerberusForgeServerTool(client),
 		NewCerberusForgeSitesTool(client),
@@ -52,5 +46,5 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusDockerDownTool(client),
 		NewCerberusDockerDestroyTool(client),
 	}
-	return append(tools, NewCerberusDNSRecordSetTools(client)...)
+	return tools
 }

@@ -89,10 +89,9 @@ does not have.
 The asymmetries run in both directions, which is why a per-surface audit misses
 them:
 
-- **MCP-only:** `namecheap`'s `get_dns_record_set` and `set_dns_record_set` have
-  MCP tools and no CLI command — and `cerberus dns list`'s own help tells the
-  operator to "use explicit set_dns_record_set" for authoritative whole-zone
-  replacement. The response budget and progress notifications are also MCP-only.
+- **MCP-only:** the response budget and progress notifications. (`namecheap`'s
+  record-set operations were MCP-only until `connectors exec` and the plugin
+  move gave every connector operation the same CLI verb.)
 - **CLI-only:** `ssh stop`, `forge get_deployment_script`,
   `forge update_deployment_script`, `resource show`, `project show`, daemon
   lifecycle, `run-secrets`, `path`, `init`, `write-plugin-prototype`, and the

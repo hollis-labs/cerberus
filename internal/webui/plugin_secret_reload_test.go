@@ -128,3 +128,37 @@ func TestConsoleSecretSaveReportsAFailedReload(t *testing.T) {
 		t.Fatalf("response = %v", resp)
 	}
 }
+
+// The console's Namecheap client IP goes where the namecheap plugin reads it:
+// the secret chain as namecheap/client_ip. It used to be saved as a field in
+// infra.yaml, which nothing read, so the plugin fell back to 127.0.0.1.
+func TestConsoleSavesNamecheapClientIPWhereThePluginReadsIt(t *testing.T) {
+	spec := providerCatalog()["namecheap"]
+	for _, field := range spec.Fields {
+		if field.Name == "client_ip" {
+			t.Fatal("client_ip is a namecheap field again; the plugin resolves it as a secret")
+		}
+	}
+	found := false
+	for _, secret := range spec.Secrets {
+		found = found || secret.Name == "client_ip"
+	}
+	if !found {
+		t.Fatal("namecheap has no client_ip secret in the console catalog")
+	}
+
+	secrets := &memorySecrets{values: map[string]string{}}
+	srv, err := New(&reloadingClient{fakeClient: &fakeClient{}}, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), secrets, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := srv.Handler(testGuard())
+	req := newTestRequest(http.MethodPost, "/api/infra/providers/namecheap", strings.NewReader(`{"secrets":{"client_ip":"203.0.113.7"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Cerberus-Web-Token", sessionToken(t, handler))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || secrets.values["namecheap/client_ip"] != "203.0.113.7" {
+		t.Fatalf("status %d, stored %v; want namecheap/client_ip in the secret store", rec.Code, secrets.values)
+	}
+}

@@ -100,7 +100,6 @@ func TestToolRefusalsSetIsError(t *testing.T) {
 		{NewCerberusDockerPSTool(client), map[string]any{}, ackRefusal},
 		{NewCerberusGithubStatusTool(client), map[string]any{"owner": "o", "repo": "r"}, ackRefusal},
 		// Refusals the tool makes itself, before reaching the serving process.
-		{NewCerberusDNSCreateTool(client), map[string]any{"domain": "example.com"}, "per-record create/delete is disabled"},
 		{NewCerberusConnectorDescribeTool(client), map[string]any{"id": ""}, `missing \"id\"`},
 		// Resource and pipeline verbs whose OpResult reports failure.
 		{NewCerberusResourceStopTool(client), map[string]any{"resource_id": "svc"}, "stop refused"},

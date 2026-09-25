@@ -405,13 +405,16 @@ func providerCatalog() map[string]providerSpec {
 		},
 		"namecheap": {
 			Label: "Namecheap",
-			Fields: []infraProviderFieldDTO{
-				{Name: "client_ip", Label: "Client IP", Description: "Client IP allowed for Namecheap API access."},
-			},
+			// client_ip is stored with the credentials, not as a field: the
+			// namecheap plugin resolves it as namecheap/client_ip through the
+			// secret chain, exactly like api_key. It used to be saved to
+			// infra.yaml, which nothing read, so an IP entered here never
+			// reached the connector and it fell back to 127.0.0.1.
 			Secrets: []infraProviderSecretDTO{
 				{Name: "api_user", Label: "API user", Description: "Namecheap API user."},
 				{Name: "api_key", Label: "API key", Description: "Namecheap API key."},
 				{Name: "username", Label: "Username", Description: "Namecheap account username."},
+				{Name: "client_ip", Label: "Client IP", Description: "The IP address on the account's Namecheap API allow-list. Without it the plugin sends 127.0.0.1."},
 			},
 		},
 		"git": {

@@ -9,7 +9,6 @@ import (
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
 	gh "github.com/hollis-labs/cerberus/internal/connector/github"
-	nc "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
@@ -39,12 +38,6 @@ func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {
 		{"github", "status", &gh.RepoStatus{Owner: "org", Repo: "repo", UpdatedAt: timestamp}},
 		{"github", "list_releases", []gh.Release{{TagName: "v1", PublishedAt: timestamp}}},
 		{"github", "list_workflow_runs", []gh.WorkflowRun{{ID: 9007199254740993, Name: "Build", CreatedAt: timestamp}}},
-		{"namecheap", "list_domains", []nc.Domain{{Name: "example.com", AutoRenew: true}}},
-		{"namecheap", "get_domain_status", &nc.DomainStatus{Domain: "example.com", Registered: true, NameServers: []string{"ns1.example.com"}}},
-		{"namecheap", "list_dns_records", []nc.DNSRecord{{ID: 123, Type: "MX", Host: "@", Value: "mail.example.com", MXPref: 10}}},
-		{"namecheap", "get_dns_record_set", &nc.DNSRecordSet{EmailType: "MX", Records: []nc.DNSRecord{}}},
-		{"namecheap", "set_dns_record_set", nc.DNSRecordSet{EmailType: "NONE", Records: []nc.DNSRecord{}}},
-		{"namecheap", "set_custom_nameservers", &nc.DomainNameserverUpdate{Domain: "example.com", Updated: true}},
 		{"ssh", "exec", &ssh.ExecResult{Stdout: "hello\n", ExitCode: 7}},
 		{"ssh", "status", `{"state":"running"}`},
 		{"ssh", "put_dir", &ssh.DirTransferResult{Direction: "upload", LocalPath: "./deploy", RemotePath: "/opt/app/deploy", Files: 2, Dirs: 1, Bytes: 4096, DurationMS: 12, Entries: []ssh.DirTransferEntry{{Path: ".", Action: "dir", Mode: "-rwxr-xr-x"}, {Path: "run.sh", Action: "file", Mode: "-rwxr-xr-x", Size: 4096}}}},

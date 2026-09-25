@@ -12,7 +12,6 @@ import (
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
-	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -24,7 +23,6 @@ func builtinConnectorDefinitions() []contract.Definition {
 		dockerconn.Definition(),
 		forgeconn.Definition(),
 		ghconn.Definition(),
-		ncconn.Definition(),
 		sshconn.Definition(),
 	}
 }
@@ -119,7 +117,7 @@ func TestDryRunNeverExecutes(t *testing.T) {
 			code := connectorErrorCode(err)
 			switch {
 			case code == ExternalConnectorUnsupported:
-				// Refused outright before previews (namecheap per-record writes).
+				// Refused outright before any preview is looked for.
 			case op.SupportsDry && code == ExternalConnectorPreviewUnsupported:
 				t.Errorf("%s declares supports_dry but has no preview", name)
 			case !op.SupportsDry && code != ExternalConnectorPreviewUnsupported:
