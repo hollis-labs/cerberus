@@ -2,9 +2,7 @@ package webui
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/loopback"
 
@@ -44,13 +43,13 @@ func mustSubDist() fs.FS {
 }
 
 type Server struct {
-	audit       audit.Sink
-	client      cerbapi.Client
-	configPath  string
-	secrets     secretpkg.Provider
-	logger      *slog.Logger
-	actionToken string
-	guard       *loopback.Guard
+	audit      audit.Sink
+	client     cerbapi.Client
+	configPath string
+	secrets    secretpkg.Provider
+	logger     *slog.Logger
+	sessions   *sessionStore
+	guard      *loopback.Guard
 }
 
 // New constructs the console. The audit sink is required: operations the
@@ -62,23 +61,37 @@ func New(client cerbapi.Client, sink audit.Sink, configPath string, secrets secr
 	if logger == nil {
 		logger = slog.Default()
 	}
-	token, err := randomActionToken()
+	sessions, err := newSessionStore()
 	if err != nil {
 		return nil, err
 	}
-	return &Server{client: client, audit: sink, configPath: configPath, secrets: secrets, logger: logger, actionToken: token}, nil
+	return &Server{client: client, audit: sink, configPath: configPath, secrets: secrets, logger: logger, sessions: sessions}, nil
 }
 
-// Handler returns the web UI handler behind guard's Host and Origin checks.
-// guard is required: the UI has no authentication beyond the action token,
-// and that token is handed to any request /api/session accepts.
+// SetSessionLimits overrides how long a sign-in link, an idle session and a
+// session at all last. A zero leaves that limit at its default.
+func (s *Server) SetSessionLimits(loginTTL, idle, maxAge time.Duration) {
+	if loginTTL > 0 {
+		s.sessions.loginTTL = loginTTL
+	}
+	if idle > 0 {
+		s.sessions.idle = idle
+	}
+	if maxAge > 0 {
+		s.sessions.max = maxAge
+	}
+}
+
+// Handler returns the web UI handler: guard's Host and Origin checks first,
+// then a signed-in session for every /api/ request (session.go). guard is
+// required.
 func (s *Server) Handler(guard *loopback.Guard) http.Handler {
 	if guard == nil {
 		panic("webui: Handler requires a loopback guard")
 	}
 	s.guard = guard
 	mux := s.routes()
-	return s.withLogging(guard.Middleware(markWebSurface(mux)))
+	return s.withLogging(guard.Middleware(markWebSurface(s.requireSession(mux))))
 }
 
 // markWebSurface begins every console request as the web surface, so a
@@ -101,6 +114,7 @@ type route struct {
 func (s *Server) routeTable() []route {
 	return []route{
 		{"/api/session", s.handleSession},
+		{"/api/logout", s.handleLogout},
 		{"/api/resources", s.handleResources},
 		{"/api/resources/", s.handleResourceByID},
 		// Full cerbapi.Client domain (CW-20260517-0039). Handlers stay thin
@@ -140,6 +154,9 @@ func (s *Server) routes() *http.ServeMux {
 	for _, rt := range s.routeTable() {
 		mux.HandleFunc(rt.pattern, rt.handler)
 	}
+	// Outside /api/ and so outside requireSession: this is where a session
+	// starts. It spends a one-time token, which is its own guard.
+	mux.HandleFunc("/login", s.handleLogin)
 	mux.Handle("/", gowebui.Handler(gowebui.Config{FS: distFS, BasePath: "/"}))
 	return mux
 }
@@ -158,10 +175,14 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	// This authenticated UI bootstrap intentionally delivers a credential,
-	// unlike diagnostic responses. Keep it out of the redaction path.
+	// Only a signed-in session reaches here (requireSession), and it gets
+	// its own action token — the per-session half of the CSRF check on
+	// every state-changing request. It is a credential by design, so it
+	// stays out of the redaction path.
+	sess := webSession(r.Context())
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]string{"action_token": s.actionToken})
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]string{"action_token": sess.actionToken, "session": sess.ID})
 }
 
 func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
@@ -274,7 +295,12 @@ func (s *Server) allowStateChangingRequest(r *http.Request) bool {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return false
 	}
-	if r.Header.Get("X-Cerberus-Web-Token") != s.actionToken {
+	// The session cookie says who; the session's own token, which only a
+	// page that read /api/session as that session can send, says the
+	// request came from the console and not from another page the browser
+	// holds the cookie for.
+	sess := webSession(r.Context())
+	if sess == nil || !sameToken(r.Header.Get("X-Cerberus-Web-Token"), sess.actionToken) {
 		return false
 	}
 	// Compare against the guard's allowed set, never against r.Host: under
@@ -320,14 +346,6 @@ func (s *Server) performAction(ctx context.Context, id, action string, opts ...c
 	default:
 		return nil, fmt.Errorf("unsupported action %q", action)
 	}
-}
-
-func randomActionToken() (string, error) {
-	var raw [32]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", fmt.Errorf("generate web action token: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

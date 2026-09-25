@@ -19,7 +19,7 @@ func TestConsoleNeverShowsAResolvedCredential(t *testing.T) {
 	api := sentinel.GitHubAPI(t)
 	sink := audit.NewMemory()
 	svc := cerbapi.NewExternalConnectorService(sink, sentinel.Registry(t, sentinel.Provider(), api.URL))
-	handler := mustNew(t, cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc), cerbapi.WithInProcessAudit(sink))).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc), cerbapi.WithInProcessAudit(sink))), testGuard())
 
 	req := newTestRequest(http.MethodPost, "/api/connectors/github/operations/status",
 		strings.NewReader(`{"config":{"owner":"hollis-labs","repo":"cerberus"}}`))

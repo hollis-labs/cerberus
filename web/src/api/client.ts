@@ -2,8 +2,11 @@ import { createApiClient, type JsonObject } from '@hollis-labs/sysop-ui/api'
 
 const http = createApiClient({ baseUrl: '' })
 
+// SessionInfo is served only to a signed-in session: its own action token,
+// and its public id.
 export interface SessionInfo {
   action_token: string
+  session?: string
 }
 
 export interface OverviewInfo {
@@ -444,6 +447,10 @@ export type ResourceAction = 'apply' | 'deploy' | 'reload' | 'stop' | 'sync' | '
 
 export const apiClient = {
   getSession: (signal?: AbortSignal) => http.get<SessionInfo>('/api/session', { signal }),
+  logout: (token: string) =>
+    http.post<{ success: boolean }>('/api/logout', {} as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
   getOverview: (signal?: AbortSignal) => http.get<OverviewInfo>('/api/overview', { signal }),
   getInfra: (signal?: AbortSignal) => http.get<InfraResponse>('/api/infra', { signal }),
   getSettings: (signal?: AbortSignal) => http.get<SettingsInfo>('/api/settings', { signal }),
