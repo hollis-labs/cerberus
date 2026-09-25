@@ -739,6 +739,48 @@ Rules:
   `secure` everywhere else is a normal configuration, and probably the most
   useful one. Scoping works through the same target matching as policy.
 
+**Settled at the P2-5 design review (2026-09-25).**
+
+- **Where it lives.** The posture is a section of the applied policy
+  snapshot (P2-4), not a file of its own. `cerberus posture set` is a TTY
+  front end over the same apply path. It shows what flips, needs a typed
+  confirmation, and is audited as `admin`. The snapshot's hash is checked on
+  load. A separate file would be one more decision the operator's uid can
+  rewrite unseen (CERB-GAP-857's class).
+- **Two layers.** A global `posture:` governs the host-wide rows of the table,
+  the ones with no target: plugin install confirmation, a changed plugin hash,
+  `--insecure-listen` and MCP exposure. `posture_rules`, matched on target
+  labels as policy is, govern only target-scoped evaluation: the policy baseline
+  and plugin gap handling. A scoped `permissive` never relaxes a host-wide row.
+  Only the global posture does.
+- **Scoping stays strict.** A scoped match never matches an `unknown` or
+  unlabelled target (Decision 17), or an ad-hoc one.
+- **What is real in P2.** The host-wide relaxations loosen gates that are
+  already enforced, and they take effect when opted into. The policy-baseline
+  relaxation is evaluated in shadow mode, like the rest of P2-4, and
+  `would_block` is computed under the active posture until P3 enforces it.
+- **A deliberate exception: `--ack` stays in every posture.** The table calls
+  `permissive` fully open, but the acknowledgment gate (Decision 14) is not
+  relaxed by it. The gate is a statement of intent, not a policy decision: it
+  costs a human one flag. Without it, a single call from an agent could run a
+  destructive or exec operation that nobody asked for. It is also the spelling
+  P3's confirmation takes. This is recorded as an exception to section 13 on
+  purpose. The operator may choose to relax it later.
+- **The web console stays loopback-only in every posture** until it serves
+  TLS. It has a login since P2-2, but over plain HTTP its session cookie would
+  be readable on the network. `--insecure-listen` applies only to `mcp-http`,
+  under a global `permissive`. It prints a loud warning at start and writes an
+  audit record.
+- **Visible where an operator or an agent looks.** The posture goes in every
+  audit record (a `posture` field), in `cerberus status`, in `cerberus
+  whoami`, in the console header, and in the MCP server's `instructions` at
+  connect. It does not go into each error's text, which would be noise and
+  would compete with the rendered guidance. A posture line joins the MCP
+  tools/list_changed cycle only if the SDK makes that cheap.
+- **Plugin gap handling is an evaluation input.** Treating an unclassified
+  plugin operation as `write` under `permissive` changes how policy classifies
+  it. It does not change the plugin's declared contract or the `--ack` gate.
+
 ## Mapping to existing work
 
 | Target area | Existing work | New here |
@@ -840,7 +882,9 @@ what it means for the design above.
 13. **Secure by default, fully open by opt-in.** Two postures, `secure` and
     `permissive`, scopable per target. `permissive` relaxes policy, install
     confirmation, plugin gap handling and the listen guard. The audit log and
-    the DTO and redaction boundary stay on in every posture. Section 13.
+    the DTO and redaction boundary stay on in every posture. Section 13. The
+    `--ack` gate also stays, as a deliberate exception, and so does the web
+    console's loopback bind until TLS. See "Settled at the P2-5 design review".
 
 14. **P1 tightens the ack gate from `effect`, without waiting for P2.**
     *Taken at the P1 cut.* Once an operation declares `effect`, acknowledgment
