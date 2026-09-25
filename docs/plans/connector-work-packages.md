@@ -80,14 +80,17 @@ no rebuild of the host.
 shared CI and release. Separate repos buy independent tagging we do not need
 yet; three repos for two plugins is overhead.
 
-**Do not migrate the four existing connectors yet.** They work today, and moving
-them is cost with no feature benefit — and it would be migrating onto a lane
-that has never carried a plugin authored as a plugin from day one. Build
-ContextForge first, learn what authoring actually feels like, then migrate
-starting with `cloudflare` where the 33MB payoff is. Forge and Namecheap have no
-SDK to shed, so they are last.
+**The four compiled-in connectors have migrated — done 2026-09-25.** The plan
+was to build ContextForge first, learn what authoring feels like, then migrate
+starting with `cloudflare` where the payoff was largest, with Forge and
+Namecheap last because they had no SDK to shed. That is what happened, in
+`docs/plans/provider-plugin-extraction.md` (H0 to H7, A1 to A4). The core is now
+`local`, `ssh`, `docker` and `github`, and nothing else.
 
-For reference, the binary is currently ~81MB.
+Binary size, stripped: 62.8MB before (88.1MB unstripped), 21.7MB after (31.6MB
+unstripped). Nearly all of it was `cloudflare-go/v4`, whose generated types
+weighed far more in type metadata and line tables than their symbols. The
+earlier "~81MB" note predates both.
 
 ## How a connector verb is actually added
 

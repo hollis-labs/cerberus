@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 
@@ -181,52 +180,17 @@ var connectorsPluginManagedHealthCmd = &cobra.Command{
 	},
 }
 
-var connectorsPluginManagedExecFlags connectorExecFlags
-
-// managed exec is `connectors exec` restricted to installed plugins. It goes
-// through the daemon's admin lane rather than calling the plugin directly, so
-// dry-run, acknowledgment and redaction are the ones every other connector
-// operation gets.
-var connectorsPluginManagedExecCmd = &cobra.Command{
-	Use:   "exec <plugin-id> <operation>",
-	Short: "Execute an operation through a daemon-managed loaded plugin",
-	Long: `Execute an operation on a daemon-managed plugin. This is
-'cerberus connectors exec' limited to installed plugins, with the same typed
---arg, --arg-json and --input flags.`,
-	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := newManagedPluginSocketClient()
-		if err != nil {
-			return err
-		}
-		plugins, err := client.ListManagedPlugins(cmd.Context())
-		if err != nil {
-			return err
-		}
-		if !slices.ContainsFunc(plugins, func(p cerbapi.ManagedPluginConnectorState) bool { return p.ID == args[0] }) {
-			return fmt.Errorf("%q is not an installed plugin; run `cerberus connectors plugin managed list`, or use `cerberus connectors exec` for a built-in connector", args[0])
-		}
-		defs, err := client.ListConnectors(cmd.Context())
-		if err != nil {
-			return err
-		}
-		return runConnectorExec(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(), socketConnectorExecutor{client}, defs, args[0], args[1], connectorsPluginManagedExecFlags)
-	},
-}
-
 func init() {
 	addPluginInstallFlags(connectorsPluginHealthCmd)
 	addPluginInstallFlags(connectorsPluginExecCmd)
 	addPluginInstallFlags(connectorsPluginManagedInstallCmd)
 	connectorsPluginExecFlags.register(connectorsPluginExecCmd)
-	connectorsPluginManagedExecFlags.register(connectorsPluginManagedExecCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedInstallCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedListCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedLoadCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedUnloadCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedUninstallCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedHealthCmd)
-	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedExecCmd)
 	connectorsPluginCmd.AddCommand(connectorsPluginHealthCmd)
 	connectorsPluginCmd.AddCommand(connectorsPluginExecCmd)
 	connectorsPluginCmd.AddCommand(connectorsPluginManagedCmd)

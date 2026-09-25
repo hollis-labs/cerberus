@@ -170,7 +170,7 @@ func TestManagedPluginCommands(t *testing.T) {
 	pluginDir := helperPluginDir(t)
 	startManagedPluginSocketServer(t)
 
-	connectorsPluginManagedExecFlags = connectorExecFlags{}
+	connectorsExecFlags = connectorExecFlags{}
 	connectorsPluginDev = false
 
 	var out bytes.Buffer
@@ -203,11 +203,14 @@ func TestManagedPluginCommands(t *testing.T) {
 		t.Fatalf("health output = %s", out.String())
 	}
 
+	// A managed plugin's operation runs through `connectors exec`, the one
+	// connector verb (`managed exec` is retired), over the daemon socket.
 	out.Reset()
-	connectorsPluginManagedExecFlags = connectorExecFlags{args: []string{"container=web", "lines=25"}}
-	connectorsPluginManagedExecCmd.SetOut(&out)
-	connectorsPluginManagedExecCmd.SetContext(context.Background())
-	if err := connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"docker", "tail"}); err != nil {
+	connectorsExecFlags = connectorExecFlags{args: []string{"container=web", "lines=25"}}
+	connectorsExecCmd.SetOut(&out)
+	connectorsExecCmd.SetErr(io.Discard)
+	connectorsExecCmd.SetContext(context.Background())
+	if err := connectorsExecCmd.RunE(connectorsExecCmd, []string{"docker", "tail"}); err != nil {
 		t.Fatalf("exec RunE: %v", err)
 	}
 	if !strings.Contains(out.String(), `"connector": "docker"`) {
@@ -219,18 +222,18 @@ func TestManagedPluginCommands(t *testing.T) {
 		t.Fatalf("exec output = %s, want lines typed as an integer", out.String())
 	}
 
-	// An argument the schema does not declare is refused before anything runs.
-	connectorsPluginManagedExecFlags = connectorExecFlags{args: []string{"container=web", "follow=true"}}
-	err := connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"docker", "tail"})
+	// An argument the schema does not declare is refused, by the daemon's
+	// admin lane, which records the attempt; the CLI only hints.
+	connectorsExecFlags = connectorExecFlags{args: []string{"container=web", "follow=true"}}
+	err := connectorsExecCmd.RunE(connectorsExecCmd, []string{"docker", "tail"})
 	if err == nil || !strings.Contains(err.Error(), "refusing fields (follow)") {
 		t.Fatalf("exec with an undeclared argument: err = %v, want it refused", err)
 	}
+	connectorsExecFlags = connectorExecFlags{}
 
-	// Managed exec is for installed plugins only.
-	connectorsPluginManagedExecFlags = connectorExecFlags{}
-	err = connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"ssh", "status"})
-	if err == nil || !strings.Contains(err.Error(), "not an installed plugin") {
-		t.Fatalf("exec on a non-plugin id: err = %v, want a refusal naming connectors exec", err)
+	// managed exec is retired, with no tombstone.
+	if cmd, _, err := rootCmd.Find([]string{"connectors", "plugin", "managed", "exec"}); err == nil && cmd.Name() == "exec" {
+		t.Fatal("`connectors plugin managed exec` still exists; connectors exec replaces it")
 	}
 
 	out.Reset()

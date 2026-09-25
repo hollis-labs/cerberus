@@ -36,7 +36,7 @@ cerberus:
             - name: list_zones
               description: List Cloudflare zones.
               examples:
-                - cerberus connectors plugin managed exec cloudflare list_zones
+                - cerberus connectors exec cloudflare list_zones
               input_schema:
                 additionalProperties: false
                 properties: {}
@@ -51,8 +51,8 @@ cerberus:
             - name: create_zone
               description: Create a Cloudflare zone in an account.
               examples:
-                - cerberus connectors plugin managed exec cloudflare create_zone --arg account_id=<account-id> --arg name=example.com --arg type=full --dry-run
-                - cerberus connectors plugin managed exec cloudflare create_zone --arg account_id=<account-id> --arg name=example.com --arg type=full --ack
+                - cerberus connectors exec cloudflare create_zone --arg account_id=<account-id> --arg name=example.com --arg type=full --dry-run
+                - cerberus connectors exec cloudflare create_zone --arg account_id=<account-id> --arg name=example.com --arg type=full --ack
               input_schema:
                 additionalProperties: false
                 properties:
@@ -85,7 +85,7 @@ cerberus:
             - name: list_dns_records
               description: List DNS records for a Cloudflare zone.
               examples:
-                - cerberus connectors plugin managed exec cloudflare list_dns_records --arg zone_id=<zone-id>
+                - cerberus connectors exec cloudflare list_dns_records --arg zone_id=<zone-id>
               input_schema:
                 additionalProperties: false
                 properties:
@@ -107,8 +107,8 @@ cerberus:
             - name: create_dns_record
               description: Create a DNS record in a Cloudflare zone.
               examples:
-                - cerberus connectors plugin managed exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=A --arg name=app --arg content=203.0.113.10 --arg ttl=300 --dry-run
-                - cerberus connectors plugin managed exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=CNAME --arg name=www --arg content=app.example.com --ack
+                - cerberus connectors exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=A --arg name=app --arg content=203.0.113.10 --arg ttl=300 --dry-run
+                - cerberus connectors exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=CNAME --arg name=www --arg content=app.example.com --ack
               input_schema:
                 additionalProperties: false
                 properties:
@@ -155,8 +155,8 @@ cerberus:
             - name: delete_dns_record
               description: Delete a DNS record from a Cloudflare zone.
               examples:
-                - cerberus connectors plugin managed exec cloudflare delete_dns_record --arg zone_id=<zone-id> --arg record_id=<record-id> --dry-run
-                - cerberus connectors plugin managed exec cloudflare delete_dns_record --arg zone_id=<zone-id> --arg record_id=<record-id> --ack
+                - cerberus connectors exec cloudflare delete_dns_record --arg zone_id=<zone-id> --arg record_id=<record-id> --dry-run
+                - cerberus connectors exec cloudflare delete_dns_record --arg zone_id=<zone-id> --arg record_id=<record-id> --ack
               input_schema:
                 additionalProperties: false
                 properties:
