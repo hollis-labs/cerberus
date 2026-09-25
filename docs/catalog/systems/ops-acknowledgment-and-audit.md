@@ -349,3 +349,34 @@ The admin lane, the runtime mutators and the monitor's restarts resolve against
 their process's config; a pipeline run does not (CERB-GAP-861). Nothing is
 decided on the labels yet: the policy engine evaluates them in shadow mode in
 P2-4, and enforcement arrives with approvals in P3.
+
+## Policy decisions in the record (P2-4)
+
+Every operation a gate covers is now authorized by the policy decision point,
+and the decision is recorded. `beginAudit` calls `shadowDecision`
+(`internal/cerbapi/policy_point.go`) for every spec that is not the monitor's
+automation, so the admin lane, the runtime mutators, pipeline runs,
+deploy-profile runs, both plugin routes and the plugin and policy admin
+events are all covered by one call (I1).
+
+The intent carries `policy: {decision, matched_rules, would_block, snapshot,
+shadow}`, and the outcome copies it:
+- `matched_rules` lists every rule that matched with its decision and
+  reason, so the decision can be explained from the record alone.
+- `snapshot` is the applied policy's hash, `baseline` when nothing is
+  applied, or `mismatch` when the applied file failed its hash check and the
+  baseline decided.
+
+**Shadow mode changes nothing.** The decision is recorded and not read. No
+refusal comes from it, and the ack gate is still the gate.
+`TestShadowPolicyNeverChangesAnOutcome` drives every gated lane under a
+decision point that denies everything and finds the results, errors and
+outcome codes identical to the baseline run's. `cerberus policy report`
+groups the recorded `would_block` decisions, and that grouping is the list to
+work through before P3 enforces.
+
+A policy load that finds the applied snapshot changed writes a `policy load`
+intent and outcome with code `policy_snapshot_changed`, naming both hashes
+(`RecordPolicyLoad`). `cerberus policy apply` is itself an `admin` event
+recorded before the snapshot is written, with the new hash and the number of
+sampled decisions that flip.

@@ -24,6 +24,9 @@ import (
 //   - plugin_changed: the plugin is not the bundle the operator reviewed;
 //     it conflicts with the accepted review until re-accepted on a TTY.
 //   - principal_refused: the socket caller is not the daemon's own user.
+//   - policy_denied, approval_required, approval_pending, approval_expired,
+//     plan_stale: reserved for P3 policy enforcement, returned by nothing
+//     yet.
 //   - operation_failed: the request passed every gate and the provider, the
 //     plugin or the tool behind the connector failed it. 502, so a 500 still
 //     means a fault in Cerberus itself.
@@ -38,6 +41,12 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorAuditUnavailable:   http.StatusServiceUnavailable,
 	ExternalConnectorPluginChanged:      http.StatusConflict,
 	ExternalConnectorPrincipalRefused:   http.StatusForbidden,
+	// Reserved for P3 enforcement; nothing returns these yet.
+	ExternalConnectorPolicyDenied:     http.StatusForbidden,
+	ExternalConnectorApprovalRequired: http.StatusPreconditionRequired,
+	ExternalConnectorApprovalPending:  http.StatusConflict,
+	ExternalConnectorApprovalExpired:  http.StatusConflict,
+	ExternalConnectorPlanStale:        http.StatusConflict,
 }
 
 // ExternalConnectorHTTPStatus returns the status for err when it carries a

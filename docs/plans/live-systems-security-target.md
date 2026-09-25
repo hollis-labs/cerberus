@@ -276,6 +276,17 @@ general to specific:
 3. **Target rules**, matched on target id, env, owner and tags.
 4. **Principal rules**, matched on kind, client and session.
 
+*Amended at P2-4:* human `write` and `lifecycle` are `approve`, not `allow`.
+This example was written before the operator chose to tighten now:
+Decision 14 already requires acknowledgment for every non-read, and a human's
+approval is met by the TTY confirmation that replaces `--ack` (Decision 3), so
+the baseline matches today's gate rather than loosening it. The one exception
+is Decision 11, human `lifecycle` on a local `env: dev` target. Because the
+most restrictive match wins, that exception is built into the baseline
+(`builtin.local-dev-lifecycle`), not written as a target rule: an `allow` rule
+can never lower a stricter match. For the same reason, the baseline is the
+only layer a policy file can loosen.
+
 **Evaluation: the most restrictive match wins.** The order is
 `deny > approve > dry_run_only > allow`. There is no rule ordering to get
 wrong, and a decision can be explained by listing every rule that matched.
@@ -291,8 +302,8 @@ baseline:
   by_effect:
     read:           { human: allow, agent: allow }
     read_sensitive: { human: allow, agent: approve, approval: { scope: session, ttl: 1h } }
-    write:          { human: allow, agent: approve }
-    lifecycle:      { human: allow, agent: approve }
+    write:          { human: approve, agent: approve }
+    lifecycle:      { human: approve, agent: approve }   # human on local env: dev is allow (Decision 11)
     destructive:    { human: approve, agent: approve }
     exec:           { human: approve, agent: approve }
     admin:          { human: approve, agent: deny }

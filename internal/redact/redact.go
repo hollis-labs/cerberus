@@ -112,6 +112,11 @@ var errorCodes = map[string]bool{
 	"audit_unavailable":       true,
 	"plugin_changed":          true,
 	"principal_refused":       true,
+	"policy_denied":           true,
+	"approval_required":       true,
+	"approval_pending":        true,
+	"approval_expired":        true,
+	"plan_stale":              true,
 }
 
 // isErrorCode reports whether an assignment rule's captured key is really a

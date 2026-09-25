@@ -269,3 +269,12 @@ socket's peer refusal is `redact.Guidance` (the unreadable-credentials case is
 made. It names its recovery ("run cerberus as that user"), and
 `TestSocketRefusesAnotherUser` holds that text intact through the socket
 client, and through `redact.Text` for a scope-less edge.
+
+## Since P2-4
+
+The policy refusal codes are reserved in the vocabulary and the assignment
+rule's exempt list: `policy_denied` (403), `approval_required` (428), and
+`approval_pending`, `approval_expired` and `plan_stale` (409). Nothing returns
+them yet. They are held by the same every-code tests as the rest, so they
+survive redaction when P3 starts returning them. `cerberus policy apply`'s
+non-TTY refusal has its own survival test.

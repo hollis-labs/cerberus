@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,8 @@ import (
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/store/sqlite"
@@ -155,7 +158,41 @@ func AuditSink() audit.Sink {
 		}
 		auditSink = audit.Unavailable{Err: err}
 	})
+	policyOnce.Do(installPolicy)
 	return auditSink
+}
+
+var policyOnce sync.Once
+
+// installPolicy installs the decision point every gated operation in this
+// process is authorized against: the applied snapshot under
+// ~/.cerberus/policy, reloaded when `cerberus policy apply` changes it, and
+// the baseline when nothing is applied or the snapshot fails its hash check
+// (recorded as policy_snapshot_changed). It is installed with the audit
+// sink because every service is built with that sink, so no service can be
+// built without it. P2 records its decisions and enforces nothing.
+func installPolicy() {
+	dir, err := PolicyDir()
+	if err != nil {
+		return
+	}
+	cerbapi.SetPolicyDecisionPoint(policy.NewReloading(policy.Store{Dir: dir}, func(status policy.LoadStatus) {
+		if err := cerbapi.RecordPolicyLoad(auditSink, status); err != nil {
+			slog.Default().Error("policy.load_record_failed", "error", redact.Text(err.Error()))
+		}
+		if status.Mismatch() {
+			slog.Default().Warn("policy.snapshot_changed", "problem", status.Problem, "consequence", "the baseline decides until `cerberus policy apply` runs again")
+		}
+	}))
+}
+
+// PolicyDir is ~/.cerberus/policy.
+func PolicyDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cerberus", "policy"), nil
 }
 
 // AuditDir is ~/.cerberus/audit.
