@@ -124,6 +124,29 @@ every operation works. What it refuses is the half-configured case — a tenant
 and client id with no secret — because falling back silently there would read
 the estate as an unexpected identity.
 
+A declared secret is a credential unless it says otherwise. Some values are
+kept beside credentials and read through the same chain but are not secret: a
+key file's path, a team slug, an account user name, an allow-listed IP. Declare
+those with `kind`:
+
+```yaml
+      secrets:
+        - name: api_key
+          required: true
+        - name: username
+          kind: name       # an account name the operation's output shows
+        - name: key_file
+          kind: path       # a path to a credential file, not the credential
+```
+
+`kind` is `credential` (the default), `path` or `name`, and anything else is
+refused at install. The host value-redacts every credential it resolved for a
+plugin from all text that plugin produces: errors, stderr, telemetry, and, merged
+into each operation's request scope, its successful results on every surface.
+It leaves a `path` or a `name` alone, because redacting one cuts it out of the
+very message that has to show it. Built-in connectors declare the same field;
+ssh's per-resource key is `kind: path`.
+
 Values are resolved at load and handed over in `plugin/init`. Unlike a built-in
 connector, which resolves per call, a plugin does not see a credential added or
 rotated afterwards until it is reloaded:

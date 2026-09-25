@@ -118,8 +118,8 @@ func (c *Collector) addStderr(line string, shared bool, r redact.Redactor) {
 }
 
 // stderrTap sits between a plugin's stderr and wherever it was going. It
-// passes every byte through unchanged, and hands each complete line to the
-// collectors of the calls running at that moment. With more than one call in
+// passes each complete line on through the plugin's redactor, and hands it
+// to the collectors of the calls running at that moment. With more than one call in
 // flight a line cannot be attributed to one of them, so each gets it, marked
 // shared.
 type stderrTap struct {
@@ -188,12 +188,24 @@ func (t *stderrTap) Write(p []byte) (int, error) {
 	t.mu.Unlock()
 
 	shared := len(collectors) > 1
+	var out bytes.Buffer
 	for _, line := range lines {
 		for _, c := range collectors {
 			c.addStderr(line, shared, r)
 		}
+		out.WriteString(r.Text(line))
+		out.WriteByte('\n')
 	}
-	return next.Write(p)
+	// What goes on is whole lines, redacted: the plugin's stderr reaches
+	// the daemon's stderr log, and a raw passthrough carried whatever the
+	// plugin printed. A partial line waits for the rest of it, so a
+	// credential split across two writes is still matched whole.
+	if out.Len() > 0 {
+		if _, err := next.Write(out.Bytes()); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
 }
 
 type stderrTapKey struct{}

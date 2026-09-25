@@ -242,8 +242,10 @@ func newConnectorRegistry(configPaths ...string) (*connector.Registry, domain.Se
 //
 // Every value it resolves is registered with the request's redaction scope
 // (WP-S2), except a value that is not a credential: a secret a built-in
-// connector declares as a path, and the non-credential values the console
-// keeps beside credentials (nonCredentialSecrets).
+// connector declares with a non-credential Kind, and the non-credential
+// values the console keeps beside credentials (nonCredentialSecrets). A
+// plugin's secrets are registered by the plugin host, which reads the
+// plugin's own manifest.
 func ConnectorSecrets(configPaths ...string) domain.SecretProvider {
 	configPath := config.DefaultPath()
 	if len(configPaths) > 0 && configPaths[0] != "" {
@@ -263,18 +265,19 @@ var nonCredentialSecrets = map[string]bool{"vercel/scope": true}
 // notACredential reports the values ConnectorSecrets resolves without
 // registering them for value redaction.
 func notACredential(service, key string) bool {
-	return builtInPathSecret(service, key) || nonCredentialSecrets[service+"/"+key]
+	return builtInNonCredential(service, key) || nonCredentialSecrets[service+"/"+key]
 }
 
-// builtInPathSecrets is, per built-in connector id, the secrets its
-// definition declares as a path (contract.SecretRequirement.Path). It is read
-// from the definitions, not listed here, so a connector that declares a new
-// path secret is exempt without this file changing.
-var builtInPathSecrets = func() map[string]map[string]bool {
+// builtInNonCredentials is, per built-in connector id, the secrets its
+// definition declares as something other than a credential
+// (contract.SecretRequirement.Kind). It is read from the definitions, not
+// listed here, so a connector that declares a new one is exempt without this
+// file changing.
+var builtInNonCredentials = func() map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	for _, def := range []contract.Definition{dockerconn.Definition(), githubconn.Definition(), sshconn.Definition()} {
 		for _, req := range def.Config.Secrets {
-			if req.Path {
+			if !req.IsCredential() {
 				if out[def.ID] == nil {
 					out[def.ID] = map[string]bool{}
 				}
@@ -285,12 +288,13 @@ var builtInPathSecrets = func() map[string]map[string]bool {
 	return out
 }()
 
-// builtInPathSecret reports whether service/key is a path secret. A built-in
-// connector resolves under its id, or "<id>/<resource-id>" for a secret held
-// per resource (ssh/<resource-id>/key).
-func builtInPathSecret(service, key string) bool {
+// builtInNonCredential reports whether service/key is a built-in secret
+// declared as a non-credential. A built-in connector resolves under its id,
+// or "<id>/<resource-id>" for a secret held per resource
+// (ssh/<resource-id>/key).
+func builtInNonCredential(service, key string) bool {
 	id, _, _ := strings.Cut(service, "/")
-	return builtInPathSecrets[id][key]
+	return builtInNonCredentials[id][key]
 }
 
 // ConnectorConfigPath is connector-config.yaml beside the global config: the

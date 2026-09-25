@@ -97,3 +97,19 @@ it with `cerberus connectors plugin managed load <id>`" — and
 nothing. The instruction succeeds and does nothing; the working recovery is
 `unload` then `load`, which `docs/plans/connector-work-packages.md` records and
 neither the error text nor `docs/secrets.md` does.
+
+## Since WP-S2
+
+A declared secret carries a `kind`: `credential` (the default), `path` or
+`name`. An unknown kind is refused by `Manifest.Validate`. The plugin redactor
+is built from credentials only. It uses `redact.Forms`, the expansion the
+request scope uses, with the same 8-byte floor, so a team slug or a key file's
+path a plugin keeps beside its token stays in the output that names it.
+
+Resolution at load is detached from the loading request's scope, because the
+values belong to the plugin for its load lifetime. Each operation merges the
+plugin's credentials into its own request scope at `CallTool`, so a successful
+result that echoes a credential is removed on every surface that renders it.
+The plugin redactor, which only runs over failures, never saw that case. The
+plugin's stderr is forwarded to the daemon's stderr as whole lines through the
+redactor, not as raw bytes.
