@@ -80,7 +80,6 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 		Connector:    spec.connector,
 		Operation:    spec.operation,
 		Effect:       string(spec.op.Effect),
-		Target:       auditTarget(spec),
 		ArgsDigest:   sink.Digest(spec.config),
 		Acknowledged: spec.acknowledged,
 		DryRun:       spec.dryRun,
@@ -89,6 +88,14 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 		PluginEntrypointSHA256: spec.pluginEntrypointSHA256,
 		Preview:                spec.preview,
 		PluginReview:           spec.review,
+	}
+	var resolved target.Target
+	intent.Target, resolved = auditTarget(spec)
+	// Shadow mode: every operation a gate covers is authorized and the
+	// decision recorded, and nothing about the outcome changes. The monitor
+	// is not an operation request and is not authorized (Decision 14).
+	if !spec.automation {
+		intent.Policy = shadowDecision(ctx, spec, resolved)
 	}
 	call := &auditCall{sink: sink, logger: logger, start: time.Now(), intent: intent, spec: spec}
 	if _, err := sink.Write(intent); err != nil {
@@ -181,7 +188,7 @@ func outcomeCode(err error) string {
 
 // auditTarget records the values of the fields the contract says identify
 // the target. No other argument value is recorded.
-func auditTarget(spec auditSpec) audit.Target {
+func auditTarget(spec auditSpec) (audit.Target, target.Target) {
 	t := audit.Target{Kind: spec.op.Target.Kind}
 	id := ""
 	for _, field := range spec.op.Target.From {
@@ -200,7 +207,7 @@ func auditTarget(spec auditSpec) audit.Target {
 	resolved := resolveTarget(spec, id)
 	t.Resource, t.Env, t.Owner, t.Admin, t.Adhoc = resolved.Resource, string(resolved.Env), resolved.Owner, resolved.AdminFor, resolved.Adhoc
 	t.Tags = resolved.Tags
-	return t
+	return t, resolved
 }
 
 // resolveTarget labels an operation's target (target.Resolve): from the
