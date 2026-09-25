@@ -235,11 +235,20 @@ cerberus docker down <container> --host ssh://user@host
 
 `ssh://` needs key auth to the host and an account that can reach the Docker
 socket there; an account outside the remote `docker` group gets an error naming
-the host and that recovery. The MCP tools take the same selection as
-`docker_host` and `docker_context`.
+the host and that recovery.
+
+The ad-hoc `--host`, `--context` and `-f` flags run in your shell, not through
+the daemon, and are not available to agents or the web console. A compose file
+chooses images, commands and bind mounts, so it is code execution on whichever
+daemon runs it. Over the socket, the console and MCP, a docker operation names
+a declared resource (below) or a container on the local daemon. A request
+carrying `host`, `context` or `compose_file` is refused by name. To let an
+agent operate a remote daemon or a stack, declare it as a resource; its
+`host`/`context` and `compose_file` then come from the declaration.
 
 `docker up`/`down`/`logs` resolve their argument through the registry, the way
-`cerberus ssh` does, so a declared container resource is operated by id:
+`cerberus ssh` does, so a declared container resource is operated by id — from
+the CLI, and from MCP as `resource_id` on `cerberus_docker_up`/`_down`:
 
 ```yaml
 - id: mtbf-monitor

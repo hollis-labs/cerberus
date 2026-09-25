@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/spf13/cobra"
 )
 
@@ -59,36 +60,30 @@ func dockerTestCommand(t *testing.T, withFileFlag bool) *cobra.Command {
 func TestDockerOperationConfigResolvesADeclaredComposeResource(t *testing.T) {
 	cmd := dockerTestCommand(t, true)
 
-	cfg, err := dockerOperationConfig(cmd, "mtbf-monitor")
+	cfg, res, err := dockerOperationConfig(cmd, "mtbf-monitor")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	// This is the point of declaring the resource: up by id, no -f.
-	if cfg["compose_file"] != "/Users/cburks/Projects/mtbf-monitor/docker-compose.yml" {
-		t.Fatalf("compose_file = %#v, want the declared path", cfg["compose_file"])
+	// This is the point of declaring the resource: up by id, no -f. The id is
+	// all that travels; whoever runs the operation resolves the compose file,
+	// so it never crosses the socket as a free-form field.
+	if len(cfg) != 1 || cfg["resource"] != "mtbf-monitor" {
+		t.Fatalf("cfg = %#v, want only resource=mtbf-monitor", cfg)
 	}
-	if cfg["id"] != "mtbf-monitor" || cfg["name"] != "MTBF Monitor" {
-		t.Fatalf("identity not carried over: %#v", cfg)
-	}
-	// A stack has no single container, and inventing one would send `start`
-	// down the container path instead of compose.
-	if _, ok := cfg["container"]; ok {
-		t.Fatalf("compose resource gained a container name: %#v", cfg["container"])
+	if got := dockerComposeFile(cfg, res); got != "/Users/cburks/Projects/mtbf-monitor/docker-compose.yml" {
+		t.Fatalf("reported compose file = %q, want the declared path", got)
 	}
 }
 
 func TestDockerOperationConfigResolvesADeclaredContainerResource(t *testing.T) {
 	cmd := dockerTestCommand(t, true)
 
-	cfg, err := dockerOperationConfig(cmd, "single")
+	cfg, _, err := dockerOperationConfig(cmd, "single")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if cfg["container"] != "nginx-router" {
-		t.Fatalf("container = %#v, want the declared name", cfg["container"])
-	}
-	if _, ok := cfg["compose_file"]; ok {
-		t.Fatalf("container resource gained a compose file: %#v", cfg)
+	if len(cfg) != 1 || cfg["resource"] != "single" {
+		t.Fatalf("cfg = %#v, want only resource=single", cfg)
 	}
 }
 
@@ -97,7 +92,7 @@ func TestDockerOperationConfigFallsBackToALiteralContainerName(t *testing.T) {
 
 	// Most containers are never declared. `cerberus docker logs <container>`
 	// has to keep working for them.
-	cfg, err := dockerOperationConfig(cmd, "mtbf-monitor-app-1")
+	cfg, _, err := dockerOperationConfig(cmd, "mtbf-monitor-app-1")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -109,7 +104,7 @@ func TestDockerOperationConfigFallsBackToALiteralContainerName(t *testing.T) {
 func TestDockerOperationConfigRefusesAResourceFromAnotherConnector(t *testing.T) {
 	cmd := dockerTestCommand(t, true)
 
-	_, err := dockerOperationConfig(cmd, "muctlvaig")
+	_, _, err := dockerOperationConfig(cmd, "muctlvaig")
 	if err == nil {
 		t.Fatal("expected a server/ssh resource to be refused by a docker command")
 	}
@@ -129,9 +124,15 @@ func TestDockerOperationConfigLetsFlagsBeatTheDeclaration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := dockerOperationConfig(cmd, "mtbf-monitor")
+	cfg, _, err := dockerOperationConfig(cmd, "mtbf-monitor")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
+	}
+	if cfg["resource"] != "mtbf-monitor" {
+		t.Fatalf("resource = %#v, want mtbf-monitor", cfg["resource"])
+	}
+	if !adHocDockerFlags(cmd) {
+		t.Fatal("-f and --host must mark the command as ad-hoc, so it runs in-process")
 	}
 	if cfg["compose_file"] != "/tmp/override-compose.yml" {
 		t.Fatalf("compose_file = %#v, want the -f override", cfg["compose_file"])
@@ -156,7 +157,7 @@ func TestDockerOperationConfigSurvivesAnUnreadableConfig(t *testing.T) {
 	cmd.Flags().StringP("host", "H", "", "")
 	cmd.Flags().String("context", "", "")
 
-	cfg, err := dockerOperationConfig(cmd, "some-container")
+	cfg, _, err := dockerOperationConfig(cmd, "some-container")
 	if err != nil {
 		t.Fatalf("an unreadable config must not break an undeclared container: %v", err)
 	}
@@ -165,5 +166,31 @@ func TestDockerOperationConfigSurvivesAnUnreadableConfig(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "could not read config") {
 		t.Errorf("the config problem was hidden rather than reported: %q", stderr.String())
+	}
+}
+
+// Any of --host, --context or -f runs the command in this process: the socket
+// refuses ad-hoc docker targets, so sending them there would only fail.
+func TestAdHocDockerFlagsForceInProcess(t *testing.T) {
+	for _, flag := range []struct{ name, value string }{
+		{"host", "ssh://ops@remote"},
+		{"context", "azure-dev"},
+		{"file", "/tmp/stack.yml"},
+	} {
+		cmd := dockerTestCommand(t, true)
+		if err := cmd.Flags().Set(flag.name, flag.value); err != nil {
+			t.Fatal(err)
+		}
+		svc, closeFn, err := newDockerConnectorService(cmd)
+		if err != nil {
+			t.Fatalf("--%s: %v", flag.name, err)
+		}
+		closeFn()
+		if _, ok := svc.(*cerbapi.ExternalConnectorService); !ok {
+			t.Fatalf("--%s: executor = %T, want the in-process service", flag.name, svc)
+		}
+	}
+	if adHocDockerFlags(dockerTestCommand(t, true)) {
+		t.Fatal("no flags must not count as ad-hoc")
 	}
 }
