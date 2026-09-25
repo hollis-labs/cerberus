@@ -126,11 +126,6 @@ func NewCerberusNameserversSetTool(client cerbapi.Client) Tool {
 	}
 }
 
-func stringArg(args map[string]interface{}, key string) string {
-	value, _ := args[key].(string)
-	return value
-}
-
 // NewCerberusDNSRecordSetTools exposes the email-aware whole-zone operations.
 func NewCerberusDNSRecordSetTools(client cerbapi.Client) []Tool {
 	var result []Tool

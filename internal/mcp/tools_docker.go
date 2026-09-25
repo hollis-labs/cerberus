@@ -3,8 +3,6 @@ package mcp
 import (
 	"context"
 
-	"github.com/hollis-labs/cerberus/internal/redact"
-
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 )
 
@@ -152,18 +150,4 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 			return toolResult(lifecycleResult{Success: true, ServiceID: container, Message: "container " + verb})
 		},
 	}
-}
-
-func marshalConnectorData(data any) (string, error) {
-	if text, ok := data.(string); ok {
-		return redact.Text(text), nil
-	}
-	if data == nil {
-		return marshalResult(lifecycleResult{Success: true}), nil
-	}
-	out, err := redact.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
 }

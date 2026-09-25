@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
+	"slices"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/spf13/cobra"
 )
 
@@ -19,10 +21,7 @@ var (
 	// only): the plugin must live under its own directory as a developer
 	// root, and its destructive operations are refused. There are no trust or
 	// signing flags; Cerberus does not vet plugins.
-	connectorsPluginDev  bool
-	connectorsPluginArgs []string
-	connectorsPluginDry  bool
-	connectorsPluginAck  bool
+	connectorsPluginDev bool
 )
 
 var connectorsPluginCmd = &cobra.Command{
@@ -43,14 +42,29 @@ var connectorsPluginExecCmd = &cobra.Command{
 	Use:   "exec <plugin-dir> <operation>",
 	Short: "Install, load, and execute a connector plugin operation",
 	Args:  cobra.ExactArgs(2),
+	Long: `Install a plugin directory into a throwaway host, load it, run one
+operation, and unload it. Arguments are typed from the operation's input
+schema in the directory's plugin.yaml, exactly as 'cerberus connectors exec'
+types them.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		parsedArgs, err := parsePluginArgs(connectorsPluginArgs)
+		spec, err := pluginhost.ReadPluginYAML(args[0])
 		if err != nil {
 			return err
 		}
-		return runPluginExec(cmd.Context(), cmd.OutOrStdout(), args[0], args[1], parsedArgs, connectorsPluginDry, connectorsPluginDev)
+		def := contract.DefinitionFromManifest(spec.Cerberus.Connector)
+		op, err := findConnectorOperation([]contract.Definition{def}, def.ID, args[1])
+		if err != nil {
+			return err
+		}
+		cfg, err := connectorExecConfig(op, connectorsPluginExecFlags, cmd.InOrStdin())
+		if err != nil {
+			return fmt.Errorf("%s %s: %w", def.ID, args[1], err)
+		}
+		return runPluginExec(cmd.Context(), cmd.OutOrStdout(), args[0], args[1], cfg, connectorsPluginExecFlags.dryRun, connectorsPluginExecFlags.ack, connectorsPluginDev)
 	},
 }
+
+var connectorsPluginExecFlags connectorExecFlags
 
 var connectorsPluginManagedCmd = &cobra.Command{
 	Use:   "managed",
@@ -161,29 +175,36 @@ var connectorsPluginManagedHealthCmd = &cobra.Command{
 	},
 }
 
+var connectorsPluginManagedExecFlags connectorExecFlags
+
+// managed exec is `connectors exec` restricted to installed plugins. It goes
+// through the daemon's admin lane rather than calling the plugin directly, so
+// dry-run, acknowledgment and redaction are the ones every other connector
+// operation gets.
 var connectorsPluginManagedExecCmd = &cobra.Command{
 	Use:   "exec <plugin-id> <operation>",
 	Short: "Execute an operation through a daemon-managed loaded plugin",
-	Args:  cobra.ExactArgs(2),
+	Long: `Execute an operation on a daemon-managed plugin. This is
+'cerberus connectors exec' limited to installed plugins, with the same typed
+--arg, --arg-json and --input flags.`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		client, err := newManagedPluginSocketClient()
 		if err != nil {
 			return err
 		}
-		parsedArgs, err := parsePluginArgs(connectorsPluginArgs)
+		plugins, err := client.ListManagedPlugins(cmd.Context())
 		if err != nil {
 			return err
 		}
-		out, err := client.ExecuteManagedPlugin(cmd.Context(), args[0], cerbapi.PluginConnectorExecArgs{
-			Operation:    args[1],
-			Config:       parsedArgs,
-			DryRun:       connectorsPluginDry,
-			Acknowledged: connectorsPluginAck,
-		})
+		if !slices.ContainsFunc(plugins, func(p cerbapi.ManagedPluginConnectorState) bool { return p.ID == args[0] }) {
+			return fmt.Errorf("%q is not an installed plugin; run `cerberus connectors plugin managed list`, or use `cerberus connectors exec` for a built-in connector", args[0])
+		}
+		defs, err := client.ListConnectors(cmd.Context())
 		if err != nil {
 			return err
 		}
-		return writeJSON(cmd.OutOrStdout(), out)
+		return runConnectorExec(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), socketConnectorExecutor{client}, defs, args[0], args[1], connectorsPluginManagedExecFlags)
 	},
 }
 
@@ -191,12 +212,8 @@ func init() {
 	addPluginInstallFlags(connectorsPluginHealthCmd)
 	addPluginInstallFlags(connectorsPluginExecCmd)
 	addPluginInstallFlags(connectorsPluginManagedInstallCmd)
-	connectorsPluginExecCmd.Flags().StringArrayVar(&connectorsPluginArgs, "arg", nil, "operation argument in key=value form")
-	connectorsPluginExecCmd.Flags().BoolVar(&connectorsPluginDry, "dry-run", false, "request dry-run execution when supported")
-	connectorsPluginExecCmd.Flags().BoolVar(&connectorsPluginAck, "ack", false, "acknowledge destructive plugin operation")
-	connectorsPluginManagedExecCmd.Flags().StringArrayVar(&connectorsPluginArgs, "arg", nil, "operation argument in key=value form")
-	connectorsPluginManagedExecCmd.Flags().BoolVar(&connectorsPluginDry, "dry-run", false, "request dry-run execution when supported")
-	connectorsPluginManagedExecCmd.Flags().BoolVar(&connectorsPluginAck, "ack", false, "acknowledge destructive plugin operation")
+	connectorsPluginExecFlags.register(connectorsPluginExecCmd)
+	connectorsPluginManagedExecFlags.register(connectorsPluginManagedExecCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedInstallCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedListCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedLoadCmd)
@@ -225,13 +242,13 @@ func runPluginHealth(ctx context.Context, out io.Writer, pluginDir string, dev b
 	return writeJSON(out, health)
 }
 
-func runPluginExec(ctx context.Context, out io.Writer, pluginDir, operation string, cfg map[string]any, dryRun bool, dev bool) error {
+func runPluginExec(ctx context.Context, out io.Writer, pluginDir, operation string, cfg map[string]any, dryRun, ack, dev bool) error {
 	result, err := pluginConnectorService().Execute(ctx, cerbapi.PluginConnectorExecArgs{
 		PluginDir:    pluginDir,
 		Operation:    operation,
 		Config:       cfg,
 		DryRun:       dryRun,
-		Acknowledged: connectorsPluginAck,
+		Acknowledged: ack,
 		Options:      pluginInstallOptions(dev),
 	})
 	if err != nil {
@@ -255,18 +272,6 @@ func newManagedPluginSocketClient() (*cerbapi.SocketClient, error) {
 		return nil, err
 	}
 	return cerbapi.NewSocketClient(path), nil
-}
-
-func parsePluginArgs(items []string) (map[string]any, error) {
-	cfg := make(map[string]any, len(items))
-	for _, item := range items {
-		key, value, ok := strings.Cut(item, "=")
-		if !ok || key == "" {
-			return nil, fmt.Errorf("invalid --arg %q, want key=value", item)
-		}
-		cfg[key] = value
-	}
-	return cfg, nil
 }
 
 func writeJSON(out io.Writer, value any) error {
