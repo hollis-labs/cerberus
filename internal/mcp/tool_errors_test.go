@@ -98,8 +98,6 @@ func TestToolRefusalsSetIsError(t *testing.T) {
 		{NewCerberusSSHGetTool(client), map[string]any{"resource_id": "box", "remote_path": "/a", "local_path": "/tmp/a"}, ackRefusal},
 		{NewCerberusDockerDownTool(client), map[string]any{"resource_id": "stack"}, ackRefusal},
 		{NewCerberusDockerPSTool(client), map[string]any{}, ackRefusal},
-		{NewCerberusDropletStopTool(client), map[string]any{"droplet_id": 42}, ackRefusal},
-		{NewCerberusDropletCreateTool(client), map[string]any{"name": "n", "region": "r", "size": "s", "image": "i"}, ackRefusal},
 		{NewCerberusGithubStatusTool(client), map[string]any{"owner": "o", "repo": "r"}, ackRefusal},
 		// Refusals the tool makes itself, before reaching the serving process.
 		{NewCerberusDNSCreateTool(client), map[string]any{"domain": "example.com"}, "per-record create/delete is disabled"},

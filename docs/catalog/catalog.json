@@ -1185,12 +1185,12 @@
       "id": "CERB-CAP-205",
       "class": "capability",
       "name": "DigitalOcean connector",
-      "summary": "Lists, creates and manages the power state of DigitalOcean droplets through godo; since P0 create, stop and destroy are all destructive and ack-gated.",
+      "summary": "Lists, creates and manages the power state of DigitalOcean droplets as the digitalocean plugin in hollis-labs/cerberus-plugins; no longer compiled in.",
       "state_field": "maturity",
       "state_label": "partial",
       "review_status": "reviewed",
-      "confidence_score": 0.88,
-      "confidence_label": "No token on the audit machine; flags and CLI --ack re-read on main after P0 (#48 to #54) and counted from connectors describe",
+      "confidence_score": 0.82,
+      "confidence_label": "Fake-backend, pagination, DTO and scrubber tests in the plugin; no DigitalOcean token on this machine, so live reads wait for the operator's UAT",
       "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
@@ -1198,42 +1198,36 @@
         "cerberus",
         "class:capability",
         "connector",
-        "destructive-flags",
         "digitalocean",
         "droplet",
-        "migrating-to-plugin",
-        "locus:core"
+        "plugin",
+        "locus:plugin"
       ],
       "relationships": [
         {
           "type": "implements",
           "target": "CERB-CAP-200",
-          "note": "Compiled in today, scheduled to migrate out"
+          "note": "A plugin connector since 2026-09-25, reached through the admin lane"
         },
         {
           "type": "relates_to",
           "target": "CERB-DEC-291",
-          "note": "One of the four that will migrate later"
+          "note": "The second of the four to migrate"
         },
         {
-          "type": "blocks",
+          "type": "relates_to",
           "target": "CERB-GAP-270",
-          "note": "droplet start advertised dry_run over MCP with no preview behind it; since PR #49 that dry run is refused"
-        },
-        {
-          "type": "blocks",
-          "target": "CERB-GAP-279",
-          "note": "create_droplet and stop were not flagged destructive; closed in PR #49"
+          "note": "droplet start takes no dry run; the plugin refuses one, coded invalid_args"
         },
         {
           "type": "relates_to",
           "target": "CERB-GAP-281",
-          "note": "Returns godo types rather than a Cerberus DTO"
+          "note": "The plugin returns Cerberus DTOs; godo is confined to one file"
         }
       ],
-      "body": "> Lists, creates and manages the power state of DigitalOcean droplets through godo; since P0 create, stop and destroy are all destructive and ack-gated.\n\nSeven operations, the widest lifecycle surface in the lane: `list_droplets`,\n`get_droplet`, `create_droplet`, `start`, `stop`, `destroy`, `status`. At audit\ntime it was where the lane's flag discipline was weakest, and the flags are the\nonly thing the enforcement points read.\n\nPR #49 applied the house rule from `docs/plans/connector-work-packages.md`\n(\"anything that writes, replaces, deletes or reboots gets `Destructive: true`\").\n`create_droplet` is destructive because it is billable and runs the supplied\ncloud-init `user_data` as root. `stop` is destructive because a hard power-off\ntakes down whatever the droplet serves. Both keep their previews. `cerberus\nserver create` and `cerberus server stop` gained `--ack`, and `--dry-run` on\neither still needs none. The MCP tools `cerberus_droplet_create` and\n`cerberus_droplet_stop` carry `DestructiveHint: true`, and create gained an\n`acknowledged` argument (CERB-GAP-279).\n\n`start` stays non-destructive, because powering on is reversible. It has no\npreview, yet the MCP tool `cerberus_droplet_start` shares a lifecycle helper\nwith stop and destroy and so still advertises a `dry_run` parameter described\nas \"Preview only\". Until PR #49 the admin lane's dry-run branch fell through when\nit found no preview case, and with no gate on a non-destructive operation,\n`cerberus_droplet_start {droplet_id, dry_run: true}` booted the droplet. It now\nreturns `preview_unsupported` and runs nothing (CERB-GAP-270).\n\nThe connector otherwise follows the house pattern well: the godo client sits\nbehind a `Backend` interface, the credential comes from the secret provider\nrather than a config field, and its tests exercise the lifecycle against a fake.\nIt returns `godo` types rather than Cerberus DTOs, which ADR 0003 schedules for\nmigration rather than immediate rewrite. There was no DigitalOcean token on the\naudit machine, so `live` read `no` and no operation here was run.\n\n## Owns\n\n- Droplet list and get\n- Droplet creation from region, size, image, SSH keys and user_data\n- Droplet power on, and ack-gated power off and destroy\n- Mapping droplet power state onto a Cerberus resource state\n- A godo client behind a Backend interface\n\n## Does not own\n\n- Anything else in the DigitalOcean product surface: no volumes, no load balancers, no DNS, no Kubernetes\n- Supervision of what runs on a droplet — that is ssh and docker against it afterwards\n- Cost. Nothing warns that create_droplet starts billing",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "> Lists, creates and manages the power state of DigitalOcean droplets as the digitalocean plugin in hollis-labs/cerberus-plugins; no longer compiled in.\n\nSeven operations. `list_droplets`, `get_droplet` and `status` are `read`,\n`create_droplet` is `write` with `cost: billable`, `start` and `stop` are\n`lifecycle`, and `destroy` is `destructive`. Everything except the reads needs\nacknowledgment. `start` needs it for the first time: before P1-1 it was not\nflagged at all.\n\nSince 2026-09-25 this is a plugin, not a built-in\n(`docs/plans/provider-plugin-extraction.md`, H5). The id and the secret name are\nunchanged, so `CERBERUS_DIGITALOCEAN_API_TOKEN`, a `digitalocean: api_token:`\nentry in `connector-secrets.yaml` and `keychain://digitalocean/api_token`\nresolve exactly as before. Removing it took `godo` and hashicorp's\n`go-retryablehttp`/`go-cleanhttp` out of the binary: 23.7MB → 21.8MB stripped.\n\nWhat changed for a caller:\n\n- **CLI.** `cerberus server …` is gone, with no tombstone.\n  `cerberus connectors exec digitalocean <op>` runs any operation.\n- **MCP.** The hand-written `cerberus_droplet_*` tools are gone. The generated\n  tools are `cerberus_digitalocean_<op>`, served for the operations the\n  operator lists under `digitalocean: mcp: expose:` in `connector-config.yaml`.\n- **list_droplets** reads every page, 200 at a time up to 100 pages. The\n  built-in read one page of 100 and silently dropped the rest. It returns\n  `{droplets, truncated}`, with `truncated: true` when the cap cut the list\n  short, so a capped list is never presented as complete.\n- **Previews.** `create_droplet`'s dry run shows `user_data` as\n  `{bytes, sha256}`, never its content, because cloud-init routinely carries\n  credentials. `start` has no preview, and a dry run of it is refused.\n- **Tighter than the built-in.** `droplet_id` must be a positive whole\n  number, `create_droplet` requires `name`, `start`, `stop` and `destroy`\n  return `{droplet_id, action}` rather than null, and health makes no network\n  call.\n\n## Owns\n\n- Droplet list, get, create, start, stop, destroy and status\n- The godo client, confined to one file behind a DTO-returning backend\n\n## Does not own\n\n- Volumes, snapshots, networking, DNS, or anything else in the DigitalOcean API\n- Provisioning beyond a single create call. OpenTofu is the roadmap for that\n- A place in the Cerberus binary",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "owns": [
           "Droplet list and get",
@@ -5123,7 +5117,7 @@
           "note": "Last, having no SDK to shed"
         }
       ],
-      "body": "The rule is that a provider integration is a plugin. Four provider connectors\nare compiled in anyway, and that is a decision rather than an inconsistency —\nwith a sequence attached.\n\n**Do not migrate them yet.** They work, and moving them is cost with no feature\nbenefit. The stronger reason is sequencing: migrating them first would have\nmeant moving working code onto a lane that had never carried a plugin authored\nas one from day one. ContextForge was built first precisely to learn what\nauthoring feels like, and it found real gaps in the lane — the host secret\nchannel among them — that a migration would have hit while also carrying the\nrisk of regressing something that already worked.\n\n**The order follows the payoff.** `cloudflare-go/v4` is 33MB, the largest\ndependency win available in the binary, so cloudflare goes first. `godo` is\n2.7MB, so digitalocean follows. Forge and Namecheap have no vendor SDK at all —\nboth are hand-written HTTP clients — so they are last, and their migration buys\nmodularity rather than size.\n\n**And no fifth is added.** This is the part with teeth, because the natural\nreading of \"four are compiled in\" is that compiling one in is an available\noption. It is not. The four are legacy with a migration plan; the rule for\nanything new is the plugin lane.\n\nThere is a mechanism backing the decision rather than only a note.\n`Registry.BuiltInIDs` is derived from what is actually registered rather than\nhardcoded, and it is the set a plugin may not claim — so when cloudflare moves\nout it stops being reserved on its own, and a cloudflare plugin becomes\ninstallable the same day. The reservation shrinks by itself as the migration\nhappens.\n\n**Under way since 2026-09-25.** The deferral ended with `docs/plans/provider-plugin-extraction.md`. `cloudflare` moved first, as ordered here, and a stripped build fell from 62.8MB to 23.6MB, far more than the SDK's symbol sizes predicted. The reserved-id set shrank by itself, as designed. `digitalocean`, `namecheap` and `forge` follow in that order; their plugins are built, and each built-in is removed once the one before it is live.",
+      "body": "The rule is that a provider integration is a plugin. Four provider connectors\nare compiled in anyway, and that is a decision rather than an inconsistency —\nwith a sequence attached.\n\n**Do not migrate them yet.** They work, and moving them is cost with no feature\nbenefit. The stronger reason is sequencing: migrating them first would have\nmeant moving working code onto a lane that had never carried a plugin authored\nas one from day one. ContextForge was built first precisely to learn what\nauthoring feels like, and it found real gaps in the lane — the host secret\nchannel among them — that a migration would have hit while also carrying the\nrisk of regressing something that already worked.\n\n**The order follows the payoff.** `cloudflare-go/v4` is 33MB, the largest\ndependency win available in the binary, so cloudflare goes first. `godo` is\n2.7MB, so digitalocean follows. Forge and Namecheap have no vendor SDK at all —\nboth are hand-written HTTP clients — so they are last, and their migration buys\nmodularity rather than size.\n\n**And no fifth is added.** This is the part with teeth, because the natural\nreading of \"four are compiled in\" is that compiling one in is an available\noption. It is not. The four are legacy with a migration plan; the rule for\nanything new is the plugin lane.\n\nThere is a mechanism backing the decision rather than only a note.\n`Registry.BuiltInIDs` is derived from what is actually registered rather than\nhardcoded, and it is the set a plugin may not claim — so when cloudflare moves\nout it stops being reserved on its own, and a cloudflare plugin becomes\ninstallable the same day. The reservation shrinks by itself as the migration\nhappens.\n\n**Under way since 2026-09-25.** The deferral ended with `docs/plans/provider-plugin-extraction.md`. `cloudflare` moved first, as ordered here, and a stripped build fell from 62.8MB to 23.6MB, far more than the SDK's symbol sizes predicted. The reserved-id set shrank by itself, as designed. `digitalocean`, `namecheap` and `forge` follow in that order; their plugins are built, and each built-in is removed once the one before it is live.\n\n**digitalocean followed on 2026-09-25**, taking `godo` and two hashicorp HTTP modules out of the binary (23.7MB → 21.8MB stripped). `namecheap` and `forge` remain.",
       "locus": "core",
       "pointer_locator": "docs/plans/connector-work-packages.md",
       "data": {
@@ -16189,7 +16183,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.8,
       "confidence_label": "No DigitalOcean token on this machine; package tests exercise a fake backend",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16198,7 +16192,7 @@
         "connector",
         "digitalocean",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16208,9 +16202,9 @@
           "note": "An operation of the digitalocean connector"
         }
       ],
-      "body": "Lists the droplets the API token can see, returning godo types rather than a Cerberus DTO.\n\nReachable as `cerberus server list` and as the MCP tool `cerberus_droplet_list`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No DigitalOcean token on this machine; package tests exercise a fake backend.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "Lists the droplets the API token can see, returning godo types rather than a Cerberus DTO.\n\nReachable as `cerberus server list` and as the MCP tool `cerberus_droplet_list`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No DigitalOcean token on this machine; package tests exercise a fake backend.\n\n**A plugin operation since 2026-09-25.** Served by the digitalocean plugin, not the binary: `cerberus connectors exec digitalocean list_droplets` on the CLI, and the generated MCP tool `cerberus_digitalocean_list_droplets` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-205",
         "invocation": "cerberus server list",
@@ -16240,7 +16234,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.8,
       "confidence_label": "No DigitalOcean token on this machine; package tests exercise a fake backend",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16249,7 +16243,7 @@
         "connector",
         "digitalocean",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16259,9 +16253,9 @@
           "note": "An operation of the digitalocean connector"
         }
       ],
-      "body": "Reports one droplet by id.\n\nReachable as `cerberus server show <droplet-id>` and as the MCP tool `cerberus_droplet_get`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No DigitalOcean token on this machine; package tests exercise a fake backend.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "Reports one droplet by id.\n\nReachable as `cerberus server show <droplet-id>` and as the MCP tool `cerberus_droplet_get`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No DigitalOcean token on this machine; package tests exercise a fake backend.\n\n**A plugin operation since 2026-09-25.** Served by the digitalocean plugin, not the binary: `cerberus connectors exec digitalocean get_droplet` on the CLI, and the generated MCP tool `cerberus_digitalocean_get_droplet` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-205",
         "invocation": "cerberus server show <droplet-id>",
@@ -16301,7 +16295,7 @@
         "digitalocean",
         "dry-run",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16312,9 +16306,9 @@
           "note": "An operation of the digitalocean connector"
         }
       ],
-      "body": "Creates a billable droplet from region, size, image, SSH keys and user_data.\n\nReachable as `cerberus server create [--dry-run|--ack]` and as the MCP tool `cerberus_droplet_create`.\n\nDeclared destructive since PR #49, because it is billable and runs the supplied cloud-init `user_data` as root. The admin lane refuses it without an acknowledgment. `--dry-run` returns a preview and needs no `--ack`. The MCP tool carries `DestructiveHint: true` and gained an `acknowledged` argument (CERB-GAP-279).\n\nUnverified. Never run, because it would create a billable resource.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "Creates a billable droplet from region, size, image, SSH keys and user_data.\n\nReachable as `cerberus server create [--dry-run|--ack]` and as the MCP tool `cerberus_droplet_create`.\n\nDeclared destructive since PR #49, because it is billable and runs the supplied cloud-init `user_data` as root. The admin lane refuses it without an acknowledgment. `--dry-run` returns a preview and needs no `--ack`. The MCP tool carries `DestructiveHint: true` and gained an `acknowledged` argument (CERB-GAP-279).\n\nUnverified. Never run, because it would create a billable resource.\n\n**A plugin operation since 2026-09-25.** Served by the digitalocean plugin, not the binary: `cerberus connectors exec digitalocean create_droplet` on the CLI, and the generated MCP tool `cerberus_digitalocean_create_droplet` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-205",
         "invocation": "cerberus server create [--dry-run|--ack]",
@@ -16353,7 +16347,7 @@
         "connector",
         "digitalocean",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16363,9 +16357,9 @@
           "note": "An operation of the digitalocean connector"
         }
       ],
-      "body": "Powers a droplet on. Not destructive and has no dry-run preview case, yet the MCP tool advertises a dry_run parameter. Since PR #49 that parameter is refused as `preview_unsupported` and nothing runs; before, it booted the droplet (CERB-GAP-270).\n\nReachable as `cerberus server start <droplet-id>` and as the MCP tool `cerberus_droplet_start`.\n\nNeither destructive nor dry-runnable. Powering on is reversible, which is the stated reason it is not gated.\n\nUnverified. No token to run it; the missing preview case is read directly from dryRunPreview.\n\n**Needs acknowledgment since PR #60** (lifecycle): `cerberus server start <id> --ack`, `acknowledged: true` on `cerberus_droplet_start`.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "Powers a droplet on. Not destructive and has no dry-run preview case, yet the MCP tool advertises a dry_run parameter. Since PR #49 that parameter is refused as `preview_unsupported` and nothing runs; before, it booted the droplet (CERB-GAP-270).\n\nReachable as `cerberus server start <droplet-id>` and as the MCP tool `cerberus_droplet_start`.\n\nNeither destructive nor dry-runnable. Powering on is reversible, which is the stated reason it is not gated.\n\nUnverified. No token to run it; the missing preview case is read directly from dryRunPreview.\n\n**Needs acknowledgment since PR #60** (lifecycle): `cerberus server start <id> --ack`, `acknowledged: true` on `cerberus_droplet_start`.\n\n**A plugin operation since 2026-09-25.** Served by the digitalocean plugin, not the binary: `cerberus connectors exec digitalocean start` on the CLI, and the generated MCP tool `cerberus_digitalocean_start` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-205",
         "invocation": "cerberus server start <droplet-id>",
@@ -16406,7 +16400,7 @@
         "digitalocean",
         "dry-run",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16417,9 +16411,9 @@
           "note": "An operation of the digitalocean connector"
         }
       ],
-      "body": "Powers a droplet off.\n\nReachable as `cerberus server stop <droplet-id> [--dry-run|--ack]` and as the MCP tool `cerberus_droplet_stop`.\n\nDeclared destructive since PR #49: a hard power-off takes down whatever the droplet serves. The admin lane refuses it without an acknowledgment, `--dry-run` returns a preview, and the MCP tool carries `DestructiveHint: true` (CERB-GAP-279).\n\nUnverified. No token on the audit machine; flags read from the connector definition.\n\nClassified `lifecycle` by the PR #60 contract (a hard power-off, reversible by start); still needs `--ack`.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "Powers a droplet off.\n\nReachable as `cerberus server stop <droplet-id> [--dry-run|--ack]` and as the MCP tool `cerberus_droplet_stop`.\n\nDeclared destructive since PR #49: a hard power-off takes down whatever the droplet serves. The admin lane refuses it without an acknowledgment, `--dry-run` returns a preview, and the MCP tool carries `DestructiveHint: true` (CERB-GAP-279).\n\nUnverified. No token on the audit machine; flags read from the connector definition.\n\nClassified `lifecycle` by the PR #60 contract (a hard power-off, reversible by start); still needs `--ack`.\n\n**A plugin operation since 2026-09-25.** Served by the digitalocean plugin, not the binary: `cerberus connectors exec digitalocean stop` on the CLI, and the generated MCP tool `cerberus_digitalocean_stop` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-205",
         "invocation": "cerberus server stop <droplet-id> [--dry-run|--ack]",
@@ -16450,7 +16444,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.85,
       "confidence_label": "Never run; the audit forbids --ack and there is no token",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16460,7 +16454,7 @@
         "digitalocean",
         "dry-run",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16471,9 +16465,9 @@
           "note": "An operation of the digitalocean connector"
         }
       ],
-      "body": "Destroys a droplet. The only DigitalOcean operation flagged destructive, so the only one that requires --ack.\n\nReachable as `cerberus server destroy <droplet-id> [--dry-run|--ack]` and as the MCP tool `cerberus_droplet_destroy`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. Never run; the audit forbids --ack and there is no token.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "Destroys a droplet. The only DigitalOcean operation flagged destructive, so the only one that requires --ack.\n\nReachable as `cerberus server destroy <droplet-id> [--dry-run|--ack]` and as the MCP tool `cerberus_droplet_destroy`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. Never run; the audit forbids --ack and there is no token.\n\n**A plugin operation since 2026-09-25.** Served by the digitalocean plugin, not the binary: `cerberus connectors exec digitalocean destroy` on the CLI, and the generated MCP tool `cerberus_digitalocean_destroy` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-205",
         "invocation": "cerberus server destroy <droplet-id> [--dry-run|--ack]",
@@ -16503,7 +16497,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.8,
       "confidence_label": "Declared in the definition but no CLI or MCP surface reaches it; no token to test",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16512,7 +16506,7 @@
         "connector",
         "digitalocean",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16522,9 +16516,9 @@
           "note": "An operation of the digitalocean connector"
         }
       ],
-      "body": "Maps a droplet's power state onto a Cerberus resource state.\n\nReachable from no CLI command and no MCP tool — only by a hand-built call on the daemon socket with `connector=digitalocean`, `operation=status`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. Declared in the definition but no CLI or MCP surface reaches it; no token to test.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/digitalocean/connector.go",
+      "body": "Maps a droplet's power state onto a Cerberus resource state.\n\nReachable from no CLI command and no MCP tool — only by a hand-built call on the daemon socket with `connector=digitalocean`, `operation=status`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. Declared in the definition but no CLI or MCP surface reaches it; no token to test.\n\n**A plugin operation since 2026-09-25.** Served by the digitalocean plugin, not the binary: `cerberus connectors exec digitalocean status` on the CLI, and the generated MCP tool `cerberus_digitalocean_status` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-205",
         "invocation": "daemon socket only: connector=digitalocean operation=status",

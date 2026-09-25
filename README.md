@@ -33,8 +33,8 @@ project writes about itself, the data it holds, or the credentials it needs.
   same resource, DNS, and droplet operations as tool calls — this is how
   agents drive infrastructure without a human at a terminal.
 - **Early remote execution.** DigitalOcean droplets can already be provisioned
-  as Cerberus resources with SSH-based bootstrap, credential delivery, and
-  destroy guardrails.
+  (through the `digitalocean` plugin) with SSH-based bootstrap, credential
+  delivery, and destroy guardrails.
 
 ## Where it sits in the stack
 
@@ -63,7 +63,7 @@ to build, install, start, stop, and report on them.
 remote.
 
 **Agent-driven ops.** This session's `cerberus_resource_*`, `cerberus_dns_*`,
-and `cerberus_droplet_*` tools are Cerberus's MCP surface — an agent can
+and plugin tools such as `cerberus_digitalocean_*` are Cerberus's MCP surface — an agent can
 deploy a fix, check whether a service is actually running the code it thinks
 it is, or cut a DNS record over, in the same tool-call vocabulary it uses for
 everything else.

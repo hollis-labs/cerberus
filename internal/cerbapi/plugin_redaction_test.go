@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
-	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
@@ -162,45 +161,5 @@ func TestOperationFailedCodeSurvivesRedaction(t *testing.T) {
 		errors.New("reload the plugin and retry"))
 	if got := err.Error(); !strings.Contains(got, "operation_failed: reload the plugin and retry") {
 		t.Fatalf("redaction ate the code or its message: %q", got)
-	}
-}
-
-// A dry-run preview of create_droplet lands in agent context and logs. Its
-// cloud-init user_data routinely carries credentials, so the preview describes
-// the script by size and hash and never carries it.
-func TestDigitalOceanCreateDropletPreviewNeverCarriesUserData(t *testing.T) {
-	const userData = "#cloud-config\nwrite_files:\n  - content: SENTINEL-USER-DATA-5b1d\n"
-	registry := connector.NewRegistry()
-	registry.RegisterDefinition(doconn.Definition())
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "digitalocean",
-		Operation: "create_droplet",
-		DryRun:    true,
-		Config: map[string]any{
-			"name": "web-1", "region": "nyc3", "size": "s-1vcpu-1gb", "image": "ubuntu-24-04-x64",
-			"user_data": userData,
-		},
-	})
-	if err != nil {
-		t.Fatalf("dry run: %v", err)
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if strings.Contains(string(encoded), "SENTINEL-USER-DATA-5b1d") || strings.Contains(string(encoded), "cloud-config") {
-		t.Fatalf("preview carries the user_data content:\n%s", encoded)
-	}
-	preview := result.Data.(ExternalConnectorDryRunPreview)
-	digest, ok := preview.Input["user_data"].(map[string]any)
-	if !ok {
-		t.Fatalf("user_data = %#v, want a size and hash", preview.Input["user_data"])
-	}
-	if digest["bytes"] != len(userData) {
-		t.Fatalf("bytes = %v, want %d", digest["bytes"], len(userData))
-	}
-	if sum, _ := digest["sha256"].(string); len(sum) != 64 {
-		t.Fatalf("sha256 = %v, want a hex digest", digest["sha256"])
 	}
 }

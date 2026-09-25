@@ -107,8 +107,8 @@ func TestDockerToolSchemasOfferNoAdHocTargets(t *testing.T) {
 }
 
 // Tools over operations that need acknowledgment advertise `acknowledged`
-// and forward it: docker up and down are lifecycle, and so is droplet start
-// (Decision 14); ssh get and get_dir write to the local filesystem.
+// and forward it: docker up and down are lifecycle (Decision 14); ssh get and
+// get_dir write to the local filesystem.
 func TestLifecycleToolsForwardAcknowledged(t *testing.T) {
 	for _, tc := range []struct {
 		tool func(cerbapi.Client) Tool
@@ -116,7 +116,6 @@ func TestLifecycleToolsForwardAcknowledged(t *testing.T) {
 	}{
 		{NewCerberusDockerUpTool, map[string]interface{}{"container_name": "web"}},
 		{NewCerberusDockerDownTool, map[string]interface{}{"resource_id": "stack"}},
-		{NewCerberusDropletStartTool, map[string]interface{}{"droplet_id": float64(42)}},
 		{NewCerberusSSHGetTool, map[string]interface{}{"resource_id": "box", "remote_path": "/a", "local_path": "/tmp/a"}},
 		{NewCerberusSSHGetDirTool, map[string]interface{}{"resource_id": "box", "remote_path": "/a", "local_path": "/tmp/a"}},
 	} {
