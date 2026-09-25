@@ -65,7 +65,7 @@ this document looked at `origin/main` `dfb73f4` and cerberus-plugins `a2a277b`.
 | Policy | **None.** | |
 | HITL | **None.** No elicitation anywhere. | |
 | Caller identity | **None.** The daemon cannot tell CLI, MCP, web or another local process apart. | No identity in context |
-| Audit | **None.** `LogAudit` has zero callers and drops its `operation` argument. The socket logs method and path only. | `internal/service/lifecycle_log.go:52` |
+| Audit | **None** as of `dfb73f4`. *Since then, P1-4 (#67, #71) records every operation to a hash-chained append-only log; `LogAudit` was removed.* The socket logs method and path only. | `internal/audit/` |
 | Redaction | **Regex net.** `redact.New` (value boundary) has one caller. | `namecheap/client.go:346` |
 | Surface auth | **Weak.** Socket is 0600 with no peer check. Web and mcp-http are loopback by default, but `--listen` is unguarded. | see Fix first |
 | Plugin trust | **Self-asserted.** "Signed" is a caller flag. The entrypoint hash is recorded and never compared. No per-call timeout. No sandbox. | `policy.go`, `installer.go`, `subprocess_transport.go:14` |
