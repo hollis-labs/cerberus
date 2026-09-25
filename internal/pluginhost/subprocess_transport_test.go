@@ -162,11 +162,7 @@ func TestManagerLoadAndExecuteWithPluginSDKTransport(t *testing.T) {
 
 	manager := NewManager(
 		DirectoryInstaller{
-			Policy:        DefaultTrustPolicy(),
-			RequestedTier: TrustTierSigned,
-			CatalogSigned: true,
-			ArchiveSHA256: "abc",
-			ArchiveSigned: true,
+			Policy: LocalInstallPolicy(),
 		},
 		SubprocessLauncher{
 			Transport: StdioTransportFactory{},
@@ -174,7 +170,6 @@ func TestManagerLoadAndExecuteWithPluginSDKTransport(t *testing.T) {
 				"GO_WANT_PLUGINHOST_HELPER=1",
 			),
 		},
-		DefaultTrustPolicy(),
 		"test",
 	)
 
@@ -182,8 +177,8 @@ func TestManagerLoadAndExecuteWithPluginSDKTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if installed.Trust.Tier != TrustTierSigned {
-		t.Fatalf("Trust tier = %q, want %q", installed.Trust.Tier, TrustTierSigned)
+	if installed.Origin != OriginInstalled {
+		t.Fatalf("Origin = %q, want %q", installed.Origin, OriginInstalled)
 	}
 	if err := manager.Load(context.Background(), installed.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -285,11 +280,7 @@ func TestManagerDeliversResolvedSecretsAcrossTheSubprocessBoundary(t *testing.T)
 
 	manager := NewManager(
 		DirectoryInstaller{
-			Policy:        DefaultTrustPolicy(),
-			RequestedTier: TrustTierSigned,
-			CatalogSigned: true,
-			ArchiveSHA256: "abc",
-			ArchiveSigned: true,
+			Policy: LocalInstallPolicy(),
 		},
 		SubprocessLauncher{
 			Transport: StdioTransportFactory{},
@@ -297,7 +288,6 @@ func TestManagerDeliversResolvedSecretsAcrossTheSubprocessBoundary(t *testing.T)
 				"GO_WANT_PLUGINHOST_HELPER=1",
 			),
 		},
-		DefaultTrustPolicy(),
 		"test",
 		WithSecretResolver(resolver),
 	)

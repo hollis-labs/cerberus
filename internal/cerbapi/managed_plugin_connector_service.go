@@ -11,11 +11,17 @@ import (
 )
 
 type ManagedPluginConnectorState struct {
-	ID        string `json:"id"`
-	Version   string `json:"version"`
-	Path      string `json:"path"`
-	Loaded    bool   `json:"loaded"`
-	TrustTier string `json:"trust_tier,omitempty"`
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	Path    string `json:"path"`
+	Loaded  bool   `json:"loaded"`
+	// Origin is how the plugin was installed: "installed", or "dev" for a
+	// development install whose destructive operations are refused. It is not
+	// a trust level.
+	Origin string `json:"origin,omitempty"`
+	// EntrypointSHA256 fingerprints the entrypoint as installed. Change
+	// detection for later, not a trust signal; nothing compares it yet (P1).
+	EntrypointSHA256 string `json:"entrypoint_sha256,omitempty"`
 
 	// MissingSecrets names required credentials a loaded plugin did not
 	// receive. Reported so `managed list` is truthful about a plugin that is
@@ -92,7 +98,6 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 			Transport: pluginhost.StdioTransportFactory{Stderr: stderr},
 			Env:       pluginLaunchEnv(),
 		},
-		pluginhost.DefaultTrustPolicy(),
 		hostVersion,
 		pluginhost.WithSecretResolver(cfg.secrets),
 		pluginhost.WithLoadWarning(func(line string) { service.warnf("%s", line) }),
@@ -107,7 +112,7 @@ func (s *ManagedPluginConnectorService) Install(ctx context.Context, args Plugin
 	progressToken := fmt.Sprintf("managed-plugin-install:%s", args.PluginDir)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Installing managed plugin from %s", args.PluginDir))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Installing managed plugin")
-	installed, err := s.install(args.PluginDir, args.Trust)
+	installed, err := s.install(args.PluginDir, args.InstallOptions())
 	if err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", args.PluginDir, err.Error()))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin install failed")
@@ -289,12 +294,13 @@ func managedState(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginC
 	// Both lists are reported, not just the grant: "asked for and did not get"
 	// is the interesting case, and a single list cannot say it.
 	return ManagedPluginConnectorState{
-		ID:           plugin.ID,
-		Version:      plugin.Version,
-		Path:         plugin.Path,
-		Loaded:       loaded,
-		TrustTier:    string(plugin.Trust.Tier),
-		Capabilities: declared,
+		ID:               plugin.ID,
+		Version:          plugin.Version,
+		Path:             plugin.Path,
+		Loaded:           loaded,
+		Origin:           string(plugin.Origin),
+		EntrypointSHA256: plugin.EntrypointSHA256,
+		Capabilities:     declared,
 		// The grant is decided at load. For a plugin that is installed but not
 		// loaded, plugin.Granted is empty, so compute what it would receive —
 		// otherwise `managed list` shows a plugin asking for access and
@@ -321,14 +327,10 @@ func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin,
 	return out
 }
 
-func (s *ManagedPluginConnectorService) install(pluginDir string, trust PluginConnectorTrustOptions) (pluginhost.InstalledPlugin, error) {
+func (s *ManagedPluginConnectorService) install(pluginDir string, options PluginInstallOptions) (pluginhost.InstalledPlugin, error) {
 	installer := pluginhost.DirectoryInstaller{
-		Policy:        pluginPolicy(pluginDir, trust),
-		RequestedTier: requestedPluginTier(trust),
-		CatalogSigned: trust.CatalogSigned,
-		ArchiveSHA256: trust.ArchiveSHA256,
-		ArchiveSigned: trust.ArchiveSigned,
-		ReservedIDs:   s.reservedIDs,
+		Policy:      pluginPolicy(pluginDir, options),
+		ReservedIDs: s.reservedIDs,
 	}
 	installed, err := installer.Install(context.Background(), pluginDir)
 	if err != nil {
@@ -337,7 +339,7 @@ func (s *ManagedPluginConnectorService) install(pluginDir string, trust PluginCo
 	s.manager.RegisterInstalled(installed)
 	s.records[installed.ID] = pluginConnectorPersistedEntry{
 		PluginDir: pluginDir,
-		Trust:     trust,
+		Options:   options,
 		Loaded:    s.manager.Loaded(installed.ID),
 	}
 	return installed, nil
@@ -358,7 +360,7 @@ func (s *ManagedPluginConnectorService) persist() error {
 		s.records[plugin.ID] = record
 		state.Entries = append(state.Entries, pluginConnectorPersistedEntry{
 			PluginDir: record.PluginDir,
-			Trust:     record.Trust,
+			Options:   record.Options,
 			Loaded:    record.Loaded,
 		})
 	}

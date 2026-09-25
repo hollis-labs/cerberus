@@ -63,7 +63,7 @@ func validInstalledPlugin() InstalledPlugin {
 		ID:      "docker",
 		Version: "dev",
 		Path:    "/tmp/docker-plugin",
-		Trust:   TrustDecision{Tier: TrustTierSigned},
+		Origin:  OriginInstalled,
 		Spec:    testPluginSpec(Entrypoint{Command: "bin/docker-plugin"}),
 		Manifest: contract.Manifest{
 			APIVersion:    contract.ManifestAPIVersion,
@@ -84,7 +84,7 @@ func TestManagerInstallAndLoad(t *testing.T) {
 		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 		health:     SDKHealthResult{OK: true, Message: "ready"},
 	}
-	manager := NewManager(fakeInstaller{plugin: plugin}, fakeLauncher{process: process}, DefaultTrustPolicy(), "test")
+	manager := NewManager(fakeInstaller{plugin: plugin}, fakeLauncher{process: process}, "test")
 
 	installed, err := manager.Install(context.Background(), "local")
 	if err != nil {
@@ -112,7 +112,7 @@ func TestManagerExecuteOperation(t *testing.T) {
 		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 		callResult: SDKMCPCallResult{Content: []byte(`{"ok":true}`)},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, DefaultTrustPolicy(), "test")
+	manager := NewManager(nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -137,7 +137,7 @@ func TestManagerUnloadClosesProcess(t *testing.T) {
 	process := &fakeProcess{
 		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, DefaultTrustPolicy(), "test")
+	manager := NewManager(nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -155,7 +155,7 @@ func TestManagerLoadRejectsProtocolMismatch(t *testing.T) {
 	process := &fakeProcess{
 		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: 99},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, DefaultTrustPolicy(), "test")
+	manager := NewManager(nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 
 	err := manager.Load(context.Background(), plugin.ID)
@@ -164,16 +164,16 @@ func TestManagerLoadRejectsProtocolMismatch(t *testing.T) {
 	}
 }
 
-func TestManagerExecuteOperationRejectsUnsignedDevDestructive(t *testing.T) {
+func TestManagerExecuteOperationRejectsDevDestructive(t *testing.T) {
 	plugin := validInstalledPlugin()
-	plugin.Trust = TrustDecision{Tier: TrustTierUnsignedDev}
+	plugin.Origin = OriginDev
 	plugin.Manifest.Operations = []contract.ManifestOperation{
 		{Name: "destroy", Destructive: true, RequiresAck: true, InputSchema: contract.ObjectSchema(map[string]any{})},
 	}
 	process := &fakeProcess{
 		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, DefaultTrustPolicy(), "test")
+	manager := NewManager(nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -183,12 +183,12 @@ func TestManagerExecuteOperationRejectsUnsignedDevDestructive(t *testing.T) {
 		Connector: "docker",
 		Operation: "destroy",
 	})
-	if err == nil || !strings.Contains(err.Error(), "not agent-auto executable") {
-		t.Fatalf("ExecuteOperation error = %v, want trust-tier rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "development (--dev) plugin") {
+		t.Fatalf("ExecuteOperation error = %v, want dev-origin refusal", err)
 	}
 }
 
-func TestManagerExecuteOperationRequiresAcknowledgmentForSignedDestructive(t *testing.T) {
+func TestManagerExecuteOperationRequiresAcknowledgmentForInstalledDestructive(t *testing.T) {
 	plugin := validInstalledPlugin()
 	plugin.Manifest.Operations = []contract.ManifestOperation{
 		{Name: "destroy", Destructive: true, RequiresAck: true, InputSchema: contract.ObjectSchema(map[string]any{})},
@@ -196,7 +196,7 @@ func TestManagerExecuteOperationRequiresAcknowledgmentForSignedDestructive(t *te
 	process := &fakeProcess{
 		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, DefaultTrustPolicy(), "test")
+	manager := NewManager(nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)

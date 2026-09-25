@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,11 +67,7 @@ func TestRunPluginHealth(t *testing.T) {
 	pluginDir := helperPluginDir(t)
 	var out bytes.Buffer
 
-	err := runPluginHealth(context.Background(), &out, pluginDir, pluginTrustOptions{
-		catalogSigned: true,
-		archiveSigned: true,
-		archiveSHA256: "abc",
-	})
+	err := runPluginHealth(context.Background(), &out, pluginDir, false)
 	if err != nil {
 		t.Fatalf("runPluginHealth: %v", err)
 	}
@@ -92,11 +89,7 @@ func TestRunPluginExec(t *testing.T) {
 	err := runPluginExec(context.Background(), &out, pluginDir, "logs", map[string]any{
 		"container": "web",
 		"lines":     "25",
-	}, false, pluginTrustOptions{
-		catalogSigned: true,
-		archiveSigned: true,
-		archiveSHA256: "abc",
-	})
+	}, false, false)
 	if err != nil {
 		t.Fatalf("runPluginExec: %v", err)
 	}
@@ -178,11 +171,7 @@ func TestManagedPluginCommands(t *testing.T) {
 
 	connectorsPluginArgs = nil
 	connectorsPluginDry = false
-	connectorsPluginTrust = pluginTrustOptions{
-		catalogSigned: true,
-		archiveSigned: true,
-		archiveSHA256: "abc",
-	}
+	connectorsPluginDev = false
 
 	var out bytes.Buffer
 	connectorsPluginManagedInstallCmd.SetOut(&out)
@@ -288,4 +277,25 @@ func startManagedPluginSocketServer(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// The retired signing flags are gone, and an old invocation fails loudly with
+// cobra's unknown-flag error rather than being silently accepted.
+func TestRetiredPluginSigningFlagsAreRejected(t *testing.T) {
+	for _, flag := range []string{"--catalog-signed", "--archive-signed", "--archive-sha256=abc"} {
+		for _, args := range [][]string{
+			{"connectors", "plugin", "health", "/tmp/p", flag},
+			{"connectors", "plugin", "exec", "/tmp/p", "op", flag},
+			{"connectors", "plugin", "managed", "install", "/tmp/p", flag},
+		} {
+			rootCmd.SetArgs(args)
+			rootCmd.SetOut(io.Discard)
+			rootCmd.SetErr(io.Discard)
+			err := rootCmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+				t.Errorf("%v: err = %v, want unknown flag", args, err)
+			}
+		}
+	}
+	rootCmd.SetArgs(nil)
 }

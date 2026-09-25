@@ -13,9 +13,13 @@ type pluginConnectorPersistedState struct {
 }
 
 type pluginConnectorPersistedEntry struct {
-	PluginDir string                      `json:"plugin_dir"`
-	Trust     PluginConnectorTrustOptions `json:"trust"`
-	Loaded    bool                        `json:"loaded"`
+	PluginDir string               `json:"plugin_dir"`
+	Options   PluginInstallOptions `json:"options"`
+	Loaded    bool                 `json:"loaded"`
+	// LegacyTrust is the "trust" object written before P0-4. Only its
+	// dev_mode is honored; the signing fields it may carry are ignored. It
+	// is folded into Options on read and never written back.
+	LegacyTrust *legacyInstallOptions `json:"trust,omitempty"`
 }
 
 func PluginConnectorStatePath() (string, error) {
@@ -80,7 +84,9 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 	// entirely. A plugin is optional by definition and must not be able to take
 	// the host with it.
 	for _, entry := range state.Entries {
-		installed, err := service.install(entry.PluginDir, entry.Trust)
+		entry.Options = mergeLegacyOptions(entry.Options, entry.LegacyTrust)
+		entry.LegacyTrust = nil
+		installed, err := service.install(entry.PluginDir, entry.Options)
 		if err != nil {
 			service.warnf("skipping plugin %q: %v\n  the registration is kept; reinstall or run `cerberus connectors plugin managed uninstall <id>` to drop it", entry.PluginDir, err)
 			service.unrestored = append(service.unrestored, entry)

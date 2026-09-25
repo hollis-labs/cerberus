@@ -14,18 +14,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type pluginTrustOptions struct {
-	devMode       bool
-	catalogSigned bool
-	archiveSigned bool
-	archiveSHA256 string
-}
-
 var (
-	connectorsPluginTrust pluginTrustOptions
-	connectorsPluginArgs  []string
-	connectorsPluginDry   bool
-	connectorsPluginAck   bool
+	// connectorsPluginDev selects a development install (devmode builds
+	// only): the plugin must live under its own directory as a developer
+	// root, and its destructive operations are refused. There are no trust or
+	// signing flags; Cerberus does not vet plugins.
+	connectorsPluginDev  bool
+	connectorsPluginArgs []string
+	connectorsPluginDry  bool
+	connectorsPluginAck  bool
 )
 
 var connectorsPluginCmd = &cobra.Command{
@@ -38,7 +35,7 @@ var connectorsPluginHealthCmd = &cobra.Command{
 	Short: "Install, load, and health-check a plugin directory",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runPluginHealth(cmd.Context(), cmd.OutOrStdout(), args[0], connectorsPluginTrust)
+		return runPluginHealth(cmd.Context(), cmd.OutOrStdout(), args[0], connectorsPluginDev)
 	},
 }
 
@@ -51,7 +48,7 @@ var connectorsPluginExecCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return runPluginExec(cmd.Context(), cmd.OutOrStdout(), args[0], args[1], parsedArgs, connectorsPluginDry, connectorsPluginTrust)
+		return runPluginExec(cmd.Context(), cmd.OutOrStdout(), args[0], args[1], parsedArgs, connectorsPluginDry, connectorsPluginDev)
 	},
 }
 
@@ -71,7 +68,7 @@ var connectorsPluginManagedInstallCmd = &cobra.Command{
 		}
 		out, err := client.InstallManagedPlugin(cmd.Context(), cerbapi.PluginConnectorHealthArgs{
 			PluginDir: args[0],
-			Trust:     pluginTrust(connectorsPluginTrust),
+			Options:   pluginInstallOptions(connectorsPluginDev),
 		})
 		if err != nil {
 			return err
@@ -191,9 +188,9 @@ var connectorsPluginManagedExecCmd = &cobra.Command{
 }
 
 func init() {
-	addPluginTrustFlags(connectorsPluginHealthCmd)
-	addPluginTrustFlags(connectorsPluginExecCmd)
-	addPluginTrustFlags(connectorsPluginManagedInstallCmd)
+	addPluginInstallFlags(connectorsPluginHealthCmd)
+	addPluginInstallFlags(connectorsPluginExecCmd)
+	addPluginInstallFlags(connectorsPluginManagedInstallCmd)
 	connectorsPluginExecCmd.Flags().StringArrayVar(&connectorsPluginArgs, "arg", nil, "operation argument in key=value form")
 	connectorsPluginExecCmd.Flags().BoolVar(&connectorsPluginDry, "dry-run", false, "request dry-run execution when supported")
 	connectorsPluginExecCmd.Flags().BoolVar(&connectorsPluginAck, "ack", false, "acknowledge destructive plugin operation")
@@ -213,17 +210,14 @@ func init() {
 	connectorsCmd.AddCommand(connectorsPluginCmd)
 }
 
-func addPluginTrustFlags(cmd *cobra.Command) {
-	cmd.Flags().BoolVar(&connectorsPluginTrust.devMode, "dev", false, "use developer trust mode for unsigned local plugins (requires devmode build)")
-	cmd.Flags().BoolVar(&connectorsPluginTrust.catalogSigned, "catalog-signed", false, "treat the local plugin source as catalog-signed")
-	cmd.Flags().BoolVar(&connectorsPluginTrust.archiveSigned, "archive-signed", false, "treat the local plugin source as archive-signed")
-	cmd.Flags().StringVar(&connectorsPluginTrust.archiveSHA256, "archive-sha256", "", "override the archive sha256 instead of hashing the entrypoint (computed automatically when omitted)")
+func addPluginInstallFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&connectorsPluginDev, "dev", false, "development install: destructive operations are refused (requires a devmode build)")
 }
 
-func runPluginHealth(ctx context.Context, out io.Writer, pluginDir string, trust pluginTrustOptions) error {
+func runPluginHealth(ctx context.Context, out io.Writer, pluginDir string, dev bool) error {
 	health, err := pluginConnectorService().Health(ctx, cerbapi.PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
-		Trust:     pluginTrust(trust),
+		Options:   pluginInstallOptions(dev),
 	})
 	if err != nil {
 		return err
@@ -231,14 +225,14 @@ func runPluginHealth(ctx context.Context, out io.Writer, pluginDir string, trust
 	return writeJSON(out, health)
 }
 
-func runPluginExec(ctx context.Context, out io.Writer, pluginDir, operation string, cfg map[string]any, dryRun bool, trust pluginTrustOptions) error {
+func runPluginExec(ctx context.Context, out io.Writer, pluginDir, operation string, cfg map[string]any, dryRun bool, dev bool) error {
 	result, err := pluginConnectorService().Execute(ctx, cerbapi.PluginConnectorExecArgs{
 		PluginDir:    pluginDir,
 		Operation:    operation,
 		Config:       cfg,
 		DryRun:       dryRun,
 		Acknowledged: connectorsPluginAck,
-		Trust:        pluginTrust(trust),
+		Options:      pluginInstallOptions(dev),
 	})
 	if err != nil {
 		return err
@@ -251,13 +245,8 @@ func pluginConnectorService() *cerbapi.PluginConnectorService {
 		cerbapi.WithPluginConnectorSecrets(app.ConnectorSecrets(cfgPath)))
 }
 
-func pluginTrust(trust pluginTrustOptions) cerbapi.PluginConnectorTrustOptions {
-	return cerbapi.PluginConnectorTrustOptions{
-		DevMode:       trust.devMode,
-		CatalogSigned: trust.catalogSigned,
-		ArchiveSigned: trust.archiveSigned,
-		ArchiveSHA256: trust.archiveSHA256,
-	}
+func pluginInstallOptions(dev bool) cerbapi.PluginInstallOptions {
+	return cerbapi.PluginInstallOptions{DevMode: dev}
 }
 
 func newManagedPluginSocketClient() (*cerbapi.SocketClient, error) {

@@ -21,13 +21,14 @@ type InstalledPlugin struct {
 	ID       string            `json:"id"`
 	Version  string            `json:"version"`
 	Path     string            `json:"path"`
-	Trust    TrustDecision     `json:"trust"`
+	Origin   InstallOrigin     `json:"origin"`
 	Spec     PluginYAML        `json:"spec"`
 	Manifest contract.Manifest `json:"manifest"`
-	// ArchiveSHA256 fingerprints the entrypoint binary as installed. It is
-	// recorded and never compared: no load path re-hashes the binary, so a
-	// plugin binary replaced underneath us is not detected. See CERB-GAP-336.
-	ArchiveSHA256 string `json:"archive_sha256,omitempty"`
+	// EntrypointSHA256 fingerprints the entrypoint binary as installed, so a
+	// later check can tell whether it is still the binary that was installed.
+	// It is change detection, not a trust signal, and nothing compares it yet:
+	// a binary replaced underneath us is not detected (P1, CERB-GAP-336).
+	EntrypointSHA256 string `json:"entrypoint_sha256,omitempty"`
 
 	// Granted is what the host allowed of Spec.Capabilities, decided once at
 	// load and used for two things that must not disagree: the environment the
