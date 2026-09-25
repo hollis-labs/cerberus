@@ -4,14 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/loopback"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
+
+// testHost is the Host every test request carries unless a test is
+// exercising the guard itself; testGuard is built for its port.
+const testHost = "127.0.0.1:9090"
+
+func testGuard() *loopback.Guard { return loopback.NewGuard("127.0.0.1", "9090") }
+
+func newTestRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.Host = testHost
+	return req
+}
 
 func mustNew(t *testing.T, client cerbapi.Client) *Server {
 	t.Helper()
@@ -24,9 +38,9 @@ func mustNew(t *testing.T, client cerbapi.Client) *Server {
 
 func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := mustNew(t, client).Handler()
+	handler := mustNew(t, client).Handler(testGuard())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/resources/app/apply", nil)
+	req := newTestRequest(http.MethodPost, "/api/resources/app/apply", nil)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -37,7 +51,7 @@ func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 		t.Fatalf("apply should not be called without token")
 	}
 
-	sessionReq := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	sessionReq := newTestRequest(http.MethodGet, "/api/session", nil)
 	sessionRec := httptest.NewRecorder()
 	handler.ServeHTTP(sessionRec, sessionReq)
 	if sessionRec.Code != http.StatusOK {
@@ -53,7 +67,7 @@ func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 		t.Fatal("expected non-empty action token")
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/resources/app/apply", strings.NewReader("{}"))
+	req = newTestRequest(http.MethodPost, "/api/resources/app/apply", strings.NewReader("{}"))
 	req.Host = "127.0.0.1:9090"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://127.0.0.1:9090")
@@ -70,9 +84,9 @@ func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 
 func TestStateChangingResourceStopRequiresSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := mustNew(t, client).Handler()
+	handler := mustNew(t, client).Handler(testGuard())
 
-	sessionReq := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	sessionReq := newTestRequest(http.MethodGet, "/api/session", nil)
 	sessionRec := httptest.NewRecorder()
 	handler.ServeHTTP(sessionRec, sessionReq)
 	if sessionRec.Code != http.StatusOK {
@@ -85,7 +99,7 @@ func TestStateChangingResourceStopRequiresSessionToken(t *testing.T) {
 		t.Fatalf("decode session: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/resources/app/stop", strings.NewReader("{}"))
+	req := newTestRequest(http.MethodPost, "/api/resources/app/stop", strings.NewReader("{}"))
 	req.Host = "127.0.0.1:9090"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://127.0.0.1:9090")
@@ -107,10 +121,10 @@ func TestHandleResourcesReturnsServiceUnavailableForDaemonDialFailure(t *testing
 			Err:  errors.New("dial unix /tmp/cerberus.sock: connect: no such file or directory"),
 		},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+	req := newTestRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	mustNew(t, client).Handler().ServeHTTP(rec, req)
+	mustNew(t, client).Handler(testGuard()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -122,10 +136,10 @@ func TestHandleResourcesReturnsServiceUnavailableForDaemonDialFailure(t *testing
 
 func TestHandleResourcesReturnsServiceUnavailableForTimeout(t *testing.T) {
 	client := &fakeClient{listResourcesErr: context.DeadlineExceeded}
-	req := httptest.NewRequest(http.MethodGet, "/api/resources", nil)
+	req := newTestRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	mustNew(t, client).Handler().ServeHTTP(rec, req)
+	mustNew(t, client).Handler(testGuard()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -138,7 +152,7 @@ func TestHandleResourcesReturnsServiceUnavailableForTimeout(t *testing.T) {
 func sessionToken(t *testing.T, handler http.Handler) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/session", nil))
+	handler.ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/session", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("session status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -152,7 +166,7 @@ func sessionToken(t *testing.T, handler http.Handler) string {
 }
 
 func TestDomainReadEndpointsReachable(t *testing.T) {
-	handler := mustNew(t, &fakeClient{}).Handler()
+	handler := mustNew(t, &fakeClient{}).Handler(testGuard())
 	paths := []string{
 		"/api/settings",
 		"/api/health",
@@ -172,7 +186,7 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 	}
 	for _, p := range paths {
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		handler.ServeHTTP(rec, newTestRequest(http.MethodGet, p, nil))
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s status = %d, want %d; body=%s", p, rec.Code, http.StatusOK, rec.Body.String())
 		}
@@ -180,7 +194,7 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 }
 
 func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
-	handler := mustNew(t, &fakeClient{}).Handler()
+	handler := mustNew(t, &fakeClient{}).Handler(testGuard())
 	token := sessionToken(t, handler)
 	paths := []string{
 		"/api/resources/app/sync",
@@ -203,7 +217,7 @@ func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
 	for _, p := range paths {
 		// Without token: rejected.
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, p, strings.NewReader("{}"))
+		req := newTestRequest(http.MethodPost, p, strings.NewReader("{}"))
 		req.Header.Set("Content-Type", "application/json")
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
@@ -212,7 +226,7 @@ func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
 
 		// With token: allowed through to the client.
 		rec = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodPost, p, strings.NewReader("{}"))
+		req = newTestRequest(http.MethodPost, p, strings.NewReader("{}"))
 		req.Host = "127.0.0.1:9090"
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://127.0.0.1:9090")
@@ -227,8 +241,14 @@ func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
 type fakeClient struct {
 	applyCalls       int
 	stopCalls        int
+	deployCalls      int
+	mutations        int
 	listResourcesErr error
 }
+
+// calls counts every mutating client call, so a guard test can assert that
+// nothing ran.
+func (f *fakeClient) calls() int { return f.mutations }
 
 func (f *fakeClient) ResourceLogs(context.Context, string, int, string) (*cerbapi.LogLines, error) {
 	return &cerbapi.LogLines{}, nil
@@ -266,28 +286,35 @@ func (f *fakeClient) GetResourceDoctor(context.Context, string) (*cerbapi.Resour
 }
 
 func (f *fakeClient) DeployResource(context.Context, string, ...cerbapi.DeployResourceOption) (*cerbapi.OpResult, error) {
+	f.mutations++
+	f.deployCalls++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
 func (f *fakeClient) ApplyResource(context.Context, string) (*cerbapi.OpResult, error) {
+	f.mutations++
 	f.applyCalls++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
 func (f *fakeClient) ReloadResource(context.Context, string) (*cerbapi.OpResult, error) {
+	f.mutations++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
 func (f *fakeClient) StopResource(context.Context, string) (*cerbapi.OpResult, error) {
+	f.mutations++
 	f.stopCalls++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
 func (f *fakeClient) SyncResource(context.Context, string) (*cerbapi.OpResult, error) {
+	f.mutations++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
 func (f *fakeClient) RemoveResource(context.Context, string) (*cerbapi.OpResult, error) {
+	f.mutations++
 	return &cerbapi.OpResult{Success: true}, nil
 }
 
@@ -296,6 +323,7 @@ func (f *fakeClient) ListPipelines(context.Context) ([]cerbapi.PipelineInfo, err
 }
 
 func (f *fakeClient) RunPipeline(context.Context, string) (*cerbapi.PipelineRunResult, error) {
+	f.mutations++
 	return &cerbapi.PipelineRunResult{}, nil
 }
 
@@ -308,26 +336,32 @@ func (f *fakeClient) ListLiveConnectors(context.Context) ([]string, error) {
 }
 
 func (f *fakeClient) ExecuteConnectorOperation(context.Context, cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	f.mutations++
 	return cerbapi.ExternalConnectorOperationResult{}, nil
 }
 
 func (f *fakeClient) PluginHealth(context.Context, cerbapi.PluginConnectorHealthArgs) (cerbapi.PluginConnectorHealth, error) {
+	f.mutations++
 	return cerbapi.PluginConnectorHealth{}, nil
 }
 
 func (f *fakeClient) ExecutePluginConnector(context.Context, cerbapi.PluginConnectorExecArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	f.mutations++
 	return cerbapi.ExternalConnectorOperationResult{}, nil
 }
 
 func (f *fakeClient) InstallManagedPlugin(context.Context, cerbapi.PluginConnectorHealthArgs) (cerbapi.ManagedPluginConnectorState, error) {
+	f.mutations++
 	return cerbapi.ManagedPluginConnectorState{}, nil
 }
 
 func (f *fakeClient) LoadManagedPlugin(context.Context, string) (cerbapi.ManagedPluginConnectorState, error) {
+	f.mutations++
 	return cerbapi.ManagedPluginConnectorState{}, nil
 }
 
 func (f *fakeClient) UnloadManagedPlugin(context.Context, string) (cerbapi.ManagedPluginConnectorState, error) {
+	f.mutations++
 	return cerbapi.ManagedPluginConnectorState{}, nil
 }
 
@@ -344,6 +378,7 @@ func (f *fakeClient) ManagedPluginHealth(context.Context, string) (cerbapi.Plugi
 }
 
 func (f *fakeClient) ExecuteManagedPlugin(context.Context, string, cerbapi.PluginConnectorExecArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	f.mutations++
 	return cerbapi.ExternalConnectorOperationResult{}, nil
 }
 
