@@ -318,20 +318,47 @@ token]`. It was fixed by changing the placeholder to `VERCEL_TOKEN=<vercel
 token>`, not the rule, and a test holds the displayed command unchanged through
 `Text`.
 
-**Ten casualties, eight of them patched in the same regexes, is the finding.** Each fix has been correct
-and none has been structural: `redact.Text` runs over rendered prose and
-re-derives, from a regex, a key/value structure the caller had in its hands and
-threw away. The structural answer is to redact at the value boundary — redact
-the credential where it is still a field, and let the message be assembled from
-already-safe parts — with `Text` kept only as a last-resort net over text
-Cerberus did not compose. That work is WP-S2: a request-scoped `redact.Scope`,
-carried in ctx, that credentials are registered with where they are resolved
-and that every error and log path renders through, followed by a split of
-operator-facing errors into Cerberus's own prose, which `Text` never runs over,
-and vendor detail, which it does. Until that split lands, expect an eleventh. The rule that remains: **do not
-run redaction over a value that is a name by construction**, and if an error
-message carries a recovery instruction, add a test that it survives `redact.Text`
-intact. A safety net that eats the instruction is worse than no instruction.
+**Ten casualties, eight of them patched in the same regexes, was the finding**,
+and WP-S2 is the structural fix it called for. `redact.Text` ran over rendered
+prose and re-derived, from a regex, a key/value structure the caller had in its
+hands and threw away. Credentials are now redacted at the value boundary, and
+Cerberus's own messages are rendered once, from safe parts:
+
+- **Values.** Every request carries a `redact.Scope`. `cerbapi.BeginRequest` and
+  `BeginHTTPRequest` create it at each entry point. `app.ConnectorSecrets`
+  registers each credential it resolves, and a plugin's load-time credentials
+  merge in at `CallTool`. Every edge renders through the scope: the socket and
+  console writers (through the response writer), the progress stream,
+  `Execute`'s errors, MCP results, errors and notifications, the in-process CLI
+  and the logs. The scope removes a resolved credential wherever it appears,
+  with or without a label, whoever composed the message. This is the acceptance
+  test: `TestResolvedCredentialNeverReachesAnySurface`, with a real vendor SDK
+  echoing an unlabelled token.
+- **Prose.** Cerberus's own refusals are `redact.Guidance`, or `redact.Prose`
+  for text composed where redact cannot be imported. They are rendered once
+  where they are made: the prose kept, a wrapped cause through the scope and the
+  rules. A request remembers what it rendered, and an edge that meets exactly
+  that text again only removes values. A client trusts daemon text as final only
+  when the daemon marks the body `rendered: true`, so version skew falls back to
+  the rules rather than skipping them. `redact.ErrorText` is how an edge with no
+  scope, such as the CLI's `main`, shows an error.
+
+**What `redact.Text` still covers** is text Cerberus did not resolve or compose:
+vendor, remote and child output, the causes behind a Guidance, a credential a
+tool holds itself (gh's login, docker's config, a `vercel login` session), a
+plugin value under 8 bytes, and any path that has no scope. A secret with no
+label in that text still gets through, which is why the value boundary exists.
+A rule change can still eat vendor wording, but it can no longer eat an
+instruction written as Guidance.
+
+The rules that remain:
+
+- **Do not run redaction over a value that is a name by construction.** Declare
+  it: a secret that is a path or a name says `kind: path` or `kind: name`.
+- **Write a refusal or recovery instruction as `redact.Guidance`, with names as
+  its arguments**, never a provider's text. Add a test that it reaches the
+  operator intact on every lane, as `TestConvertedRefusalsSurviveEveryLane`
+  does. A safety net that eats the instruction is worse than no instruction.
 
 **A config that only exists on a branch is a config that disappears.**
 Registered configs are referenced by absolute path, so checking out a branch

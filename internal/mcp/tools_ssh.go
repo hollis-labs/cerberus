@@ -28,7 +28,7 @@ func NewCerberusSSHExecTool(client cerbapi.Client) Tool {
 				Acknowledged: boolArg(args, "acknowledged"),
 			})
 			if err != nil {
-				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+				return connectorFailure(ctx, err)
 			}
 			return marshalConnectorData(result.Data)
 		},
@@ -51,7 +51,7 @@ func NewCerberusSSHStatusTool(client cerbapi.Client) Tool {
 				Config:    sshToolConfig(resourceID, ""),
 			})
 			if err != nil {
-				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+				return connectorFailure(ctx, err)
 			}
 			return marshalConnectorData(result.Data)
 		},
@@ -150,7 +150,7 @@ func runSSHTransfer(ctx context.Context, client cerbapi.Client, operation string
 		Acknowledged: acknowledged,
 	})
 	if err != nil {
-		return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+		return connectorFailure(ctx, err)
 	}
 	return marshalConnectorData(result.Data)
 }

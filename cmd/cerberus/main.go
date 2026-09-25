@@ -34,7 +34,10 @@ func appOptions() app.Options {
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", redact.Text(err.Error()))
+		// A pre-rendered error — rendered where it was made, here or by a
+		// daemon that said so — keeps its prose; anything else gets the
+		// regex net.
+		fmt.Fprintln(os.Stderr, "Error:", redact.ErrorText(err))
 		os.Exit(1)
 	}
 }

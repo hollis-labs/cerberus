@@ -139,3 +139,47 @@ func TestServedToolOutputRendersThroughTheCallScope(t *testing.T) {
 		}
 	}
 }
+
+type erroringClient struct {
+	fakeSocketProgressClient
+	err error
+}
+
+func (c *erroringClient) ExecuteConnectorOperation(context.Context, cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	return cerbapi.ExternalConnectorOperationResult{}, c.err
+}
+
+type renderedErr struct{ text string }
+
+func (e renderedErr) Error() string     { return e.text }
+func (e renderedErr) PreRendered() bool { return true }
+
+// A connector refusal an MCP tool relays keeps its prose when it arrives
+// pre-rendered, in its text and its structured content; anything else gets
+// the rules.
+func TestConnectorToolRelaysRenderedGuidanceIntact(t *testing.T) {
+	const prose = "daemon: demo sync: operation_failed: the plugin rejected its token: rotated keys need a reload"
+	for name, tc := range map[string]struct {
+		err  error
+		keep bool
+	}{
+		"pre-rendered": {renderedErr{prose}, true},
+		"plain":        {errors.New(prose), false},
+	} {
+		tool := withRequestScope(NewCerberusDockerPSTool(&erroringClient{err: tc.err}))
+		_, err := tool.Handler(context.Background(), map[string]any{})
+		if err == nil {
+			t.Fatalf("%s: want the refusal", name)
+		}
+		var structured budget.StructuredError
+		if !errors.As(err, &structured) {
+			t.Fatalf("%s: not structured: %T", name, err)
+		}
+		content, _ := json.Marshal(structured.ToolErrorContent())
+		for where, got := range map[string]string{"text": err.Error(), "content": string(content)} {
+			if kept := strings.Contains(got, "rotated keys"); kept != tc.keep {
+				t.Errorf("%s %s = %q, want prose kept=%v", name, where, got, tc.keep)
+			}
+		}
+	}
+}
