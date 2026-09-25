@@ -117,6 +117,15 @@ value as separate things, and keep `Text` as a last-resort net over text
 Cerberus did not compose. What is still missing is the test discipline that
 would have caught any of them (CERB-GAP-274).
 
+**The eighth fix has a known residual.** A letters-only value of 19 characters
+or fewer after a multi-word UpperCamel key now passes `redact.Text`:
+`ClientSecret: someplainpassword` comes through intact, because the rule can
+no longer tell it from `AzureCLICredential: failed`. The per-plugin value
+redactor still removes it whenever the value was one the host resolved, and
+nothing removes it when it was not. That is the argument for the structural
+fix in one line: the value boundary knows which word is the secret, and a
+regex over prose never will.
+
 **P0 held the line without a rule change.** The P0 work (PRs #48 to #52) added
 four refusal families: the non-loopback `--listen` refusal, the retired
 `plugin_dir` routes, the SSH connection-field refusal and the docker ad-hoc
