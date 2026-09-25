@@ -103,7 +103,7 @@ func NewCerberusCloudflareDNSCreateTool(client cerbapi.Client) Tool {
 					priority, ok = float64(integer), true
 				}
 				if !ok || math.IsNaN(priority) || priority < 0 || priority > 65535 || math.Trunc(priority) != priority {
-					return marshalResult(lifecycleResult{Success: false, Error: "priority must be an integer between 0 and 65535"}), nil
+					return toolResult(lifecycleResult{Success: false, Error: "priority must be an integer between 0 and 65535"})
 				}
 				cfg["priority"] = int(priority)
 			}
@@ -136,7 +136,7 @@ func NewCerberusCloudflareDNSDeleteTool(client cerbapi.Client) Tool {
 	}
 }
 
-func executeConnectorMCP(ctx context.Context, client cerbapi.Client, connectorID, operation string, cfg map[string]any, dryRun, acknowledged bool) (string, error) {
+func executeConnectorMCP(ctx context.Context, client cerbapi.Client, connectorID, operation string, cfg map[string]any, dryRun, acknowledged bool) (any, error) {
 	result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 		Connector:    connectorID,
 		Operation:    operation,
@@ -145,7 +145,7 @@ func executeConnectorMCP(ctx context.Context, client cerbapi.Client, connectorID
 		Acknowledged: acknowledged,
 	})
 	if err != nil {
-		return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil
+		return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 	}
 	return marshalConnectorData(result.Data)
 }

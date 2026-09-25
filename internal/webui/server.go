@@ -305,37 +305,39 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+// writeError is the console's error body. The console's API client renders
+// `message`; `error` stays for callers that read the daemon's shape.
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]any{
-		"success": false,
-		"error":   msg,
-	})
+	writeErrorBody(w, status, msg, "")
 }
 
+func writeErrorBody(w http.ResponseWriter, status int, msg string, code cerbapi.ExternalConnectorErrorCode) {
+	body := map[string]any{
+		"success": false,
+		"error":   msg,
+		"message": msg,
+	}
+	if code != "" {
+		body["code"] = code
+	}
+	writeJSON(w, status, body)
+}
+
+// writeClientError maps a service error to a status. A connector refusal
+// reads its status from the table the socket server uses too, so the console
+// answers a refusal the way the daemon does rather than with a 500.
 func writeClientError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
-	msg := err.Error()
 	var connErr *cerbapi.ExternalConnectorError
 	switch {
 	case isDaemonUnavailable(err):
-		status = http.StatusServiceUnavailable
-		msg = "cerberus daemon unavailable or not responding; check 'cerberus daemon status'"
+		writeError(w, http.StatusServiceUnavailable, "cerberus daemon unavailable or not responding; check 'cerberus daemon status'")
 	case isTimeoutError(err):
-		status = http.StatusServiceUnavailable
-		msg = "cerberus daemon timed out while gathering resource state; check 'cerberus daemon status'"
+		writeError(w, http.StatusServiceUnavailable, "cerberus daemon timed out while gathering resource state; check 'cerberus daemon status'")
 	case errors.As(err, &connErr):
-		switch connErr.Code {
-		case cerbapi.ExternalConnectorInvalidArgs:
-			status = http.StatusBadRequest
-		case cerbapi.ExternalConnectorUnavailable, cerbapi.ExternalConnectorCredentialMissing:
-			status = http.StatusServiceUnavailable
-		case cerbapi.ExternalConnectorUnsupported:
-			status = http.StatusNotFound
-		case cerbapi.ExternalConnectorAckRequired:
-			status = http.StatusConflict
-		}
+		writeErrorBody(w, cerbapi.ExternalConnectorHTTPStatus(err, http.StatusInternalServerError), err.Error(), connErr.Code)
+	default:
+		writeError(w, http.StatusInternalServerError, err.Error())
 	}
-	writeError(w, status, msg)
 }
 
 func isDaemonUnavailable(err error) bool {

@@ -255,7 +255,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 
 	op, ok := OperationFromToolName(args.Connector, ToolNameForOperation(args.Connector, args.Operation), lp.plugin.Manifest)
 	if !ok {
-		return OperationResult{}, fmt.Errorf("plugin %q does not declare operation %q", args.Connector, args.Operation)
+		return OperationResult{}, fmt.Errorf("plugin %q: %w %q", args.Connector, ErrOperationUndeclared, args.Operation)
 	}
 	if err := OperationAllowed(lp.plugin.Origin, op, args.Acknowledged); err != nil {
 		return OperationResult{}, err

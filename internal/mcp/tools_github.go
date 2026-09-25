@@ -53,7 +53,7 @@ func NewCerberusGithubRunsTool(client cerbapi.Client) Tool {
 	}
 }
 
-func executeGitHubMCP(ctx context.Context, client cerbapi.Client, operation, owner, repo string, limit int) (string, error) {
+func executeGitHubMCP(ctx context.Context, client cerbapi.Client, operation, owner, repo string, limit int) (any, error) {
 	cfg := map[string]any{
 		"owner": owner,
 		"repo":  repo,
@@ -67,7 +67,7 @@ func executeGitHubMCP(ctx context.Context, client cerbapi.Client, operation, own
 		Config:    cfg,
 	})
 	if err != nil {
-		return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
+		return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 	}
 
 	data, err := redact.MarshalIndent(result.Data, "", "  ")

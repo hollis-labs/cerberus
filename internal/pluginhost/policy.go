@@ -91,6 +91,15 @@ func (p InstallPolicy) ValidateInstall(check InstallCheck) (InstallDecision, err
 	return InstallDecision{Origin: OriginDev}, nil
 }
 
+// ErrAckRequired is a destructive plugin operation called without
+// acknowledgment. The plugin is never called. The admin lane reports it as
+// acknowledgment_required.
+var ErrAckRequired = errors.New("requires operator acknowledgment")
+
+// ErrOperationUndeclared is a call to an operation the plugin's manifest does
+// not declare. The admin lane reports it as operation_unsupported.
+var ErrOperationUndeclared = errors.New("does not declare operation")
+
 // ErrPreviewUnsupported is a dry run of a plugin operation whose manifest does
 // not declare supports_dry. The plugin is never called. The text leads with
 // the same code the admin lane uses, so the one-shot plugin path, which
@@ -111,7 +120,7 @@ func OperationAllowed(origin InstallOrigin, op contract.ManifestOperation, ackno
 	// ANDed in here, which let a manifest declare destructive: true,
 	// requires_ack: false and opt out of the host's gate. It is metadata now.
 	if op.Destructive && !acknowledged {
-		return fmt.Errorf("destructive operation %q requires operator acknowledgment", op.Name)
+		return fmt.Errorf("destructive operation %q %w", op.Name, ErrAckRequired)
 	}
 	return nil
 }

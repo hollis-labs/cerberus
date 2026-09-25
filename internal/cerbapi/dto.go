@@ -203,6 +203,7 @@ type LogLines struct {
 type ErrorResponse struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error"`
+	connectorErrorWire
 }
 
 type StreamEnvelope struct {
@@ -210,6 +211,7 @@ type StreamEnvelope struct {
 	Notification *gmcp.Notification `json:"notification,omitempty"`
 	Result       json.RawMessage    `json:"result,omitempty"`
 	Error        string             `json:"error,omitempty"`
+	connectorErrorWire
 }
 
 // ResolveDiagnostics is the DTO for what registry resolution dropped or
