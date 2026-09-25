@@ -98,3 +98,9 @@ outcome to the audit log as `admin` calls on connector `plugin`, and an
 unwritable log refuses them (CERB-CAP-604). A managed exec on the direct route
 is recorded with the plugin's config and entrypoint fingerprints; the admin
 lane's call into a plugin is recorded once, by the admin lane.
+
+Since P1-4b the outcome also carries what the plugin reported for that call:
+events it returned under `cerberus_telemetry`, which the host strips from the
+result, and the stderr lines it wrote while the call ran. Both are bounded and
+redacted by the plugin's own value redactor. A plugin can enrich the host's
+record; it cannot write one.

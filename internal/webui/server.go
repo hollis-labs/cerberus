@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -44,6 +45,7 @@ func mustSubDist() fs.FS {
 }
 
 type Server struct {
+	audit       audit.Sink
 	client      cerbapi.Client
 	configPath  string
 	secrets     secretpkg.Provider
@@ -52,7 +54,12 @@ type Server struct {
 	guard       *loopback.Guard
 }
 
-func New(client cerbapi.Client, configPath string, secrets secretpkg.Provider, logger *slog.Logger) (*Server, error) {
+// New constructs the console. The audit sink is required: operations the
+// console runs itself — a deployment-profile run — are recorded to it.
+func New(client cerbapi.Client, sink audit.Sink, configPath string, secrets secretpkg.Provider, logger *slog.Logger) (*Server, error) {
+	if sink == nil {
+		return nil, errors.New("webui: New requires an audit sink")
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -60,7 +67,7 @@ func New(client cerbapi.Client, configPath string, secrets secretpkg.Provider, l
 	if err != nil {
 		return nil, err
 	}
-	return &Server{client: client, configPath: configPath, secrets: secrets, logger: logger, actionToken: token}, nil
+	return &Server{client: client, audit: sink, configPath: configPath, secrets: secrets, logger: logger, actionToken: token}, nil
 }
 
 // Handler returns the web UI handler behind guard's Host and Origin checks.

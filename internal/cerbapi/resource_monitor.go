@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -236,9 +237,23 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 		"attempt", m.failureCount[res.ID],
 		"max", maxAttempts)
 
+	// Supervision is never gated (Decision 14), but it is always recorded:
+	// an automation principal, with what the monitor saw as the reason. An
+	// unwritable log is logged and the restart goes ahead.
+	applyOp, _ := localconn.Definition().Operation(localconn.OpApply)
+	call, _ := beginAudit(ctx, m.runtime.audit, m.logger, auditSpec{
+		connector: "local", operation: localconn.OpApply, op: applyOp, known: true,
+		config: map[string]any{localconn.InputID: res.ID}, automation: true,
+		reason: fmt.Sprintf("auto_restart: the workload was %s; restart attempt %d of %d", state, m.failureCount[res.ID], maxAttempts),
+	})
 	m.runtime.opMu.Lock()
 	_, err = m.runtime.localConnector().Apply(ctx, dr)
 	m.runtime.opMu.Unlock()
+	if err != nil {
+		call.finish(externalConnectorError(ExternalConnectorOperationArgs{Connector: "local", Operation: localconn.OpApply}, ExternalConnectorOperationFailed, err))
+	} else {
+		call.finish(nil)
+	}
 	if err != nil {
 		m.lastError[res.ID] = err.Error()
 		m.logger.Warn("daemon.resource_monitor.restart_failed",

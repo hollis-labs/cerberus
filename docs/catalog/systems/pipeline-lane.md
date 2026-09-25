@@ -160,3 +160,8 @@ acknowledgment travels as an explicit option, never in a context, so it cannot
 leak into what the stages call (CERB-DEC-819). The P1-3 branch stopped the CLI
 printing `Running pipeline:` before a refusal. The console's pipelines page now
 decodes the run result, which arrives as base64 JSON.
+
+Since P1-4b a run is recorded in the audit log (CERB-CAP-604): one intent
+before the gate and one outcome after, with a run that reports failure
+recorded as `operation_failed`. An unwritable log refuses the run before the
+pipeline lock.

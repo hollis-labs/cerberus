@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func TestServingDaemonRefusesMutationBeforeBuildOrInstall(t *testing.T) {
 	} {
 		t.Run(identity.name, func(t *testing.T) {
 			identity.config["build_strategy"] = map[string]any{"kind": "must-not-build"}
-			runtime := NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{Resources: []config.ResourceDef{{ID: identity.id, Type: "process", Connector: "local", Config: identity.config}}}))
+			runtime := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{Resources: []config.ResourceDef{{ID: identity.id, Type: "process", Connector: "local", Config: identity.config}}}))
 			runtime.ProtectServingDaemon("/serving/cerberus", daemon.CanonicalDaemonServiceLabel)
 			resource := &domain.Resource{ID: identity.id, Config: identity.config}
 			spec, specErr := localconn.SpecFromResourceConfig(identity.config)

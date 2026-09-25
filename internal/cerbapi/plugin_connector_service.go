@@ -165,6 +165,7 @@ func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnect
 		return ExternalConnectorOperationResult{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: args.Operation}, ExternalConnectorAuditUnavailable, err)
 	}
 	defer func() { call.finish(retErr) }()
+	ctx = call.withTelemetry(ctx)
 	progressToken := fmt.Sprintf("plugin-exec:%s:%s", args.PluginDir, args.Operation)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting plugin operation %s for %s", args.Operation, args.PluginDir))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")

@@ -46,7 +46,7 @@ func startDaemonSocketWithPath(t *testing.T, cfgPath string) *cerbapi.SocketClie
 	t.Helper()
 	sockPath := shortSocketPath(t)
 
-	inProc := cerbapi.NewInProcessClient(cerbapi.WithConfigPath(cfgPath))
+	inProc := cerbapi.NewInProcessClient(cerbapi.WithConfigPath(cfgPath), cerbapi.WithInProcessAudit(audit.NewMemory()))
 	srv := cerbapi.NewSocketServer(inProc, sockPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

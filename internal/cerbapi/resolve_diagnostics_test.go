@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,7 +101,7 @@ func TestResolveDiagnosticsCountsSkippedAndWarned(t *testing.T) {
 		"futureapp": futureProjectConfig,
 		"brokenapp": brokenProjectConfig,
 	})
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigPath(cfgPath))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigPath(cfgPath))
 
 	diag, err := svc.ResolveDiagnostics(context.Background())
 	if err != nil {
@@ -131,7 +132,7 @@ func TestResolveDiagnosticsCountsSkippedAndWarned(t *testing.T) {
 
 func TestResolveDiagnosticsCleanTreeReportsNothing(t *testing.T) {
 	cfgPath := writeRegistryFixture(t, map[string]string{"cleanapp": cleanProjectConfig})
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigPath(cfgPath))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigPath(cfgPath))
 
 	diag, err := svc.ResolveDiagnostics(context.Background())
 	if err != nil {
@@ -146,7 +147,7 @@ func TestResolveDiagnosticsCleanTreeReportsNothing(t *testing.T) {
 // It must report clean rather than erroring, so the notice is simply
 // absent on that path instead of breaking the list.
 func TestResolveDiagnosticsInMemoryConfigReportsClean(t *testing.T) {
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{Version: 2}))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{Version: 2}))
 
 	diag, err := svc.ResolveDiagnostics(context.Background())
 	if err != nil {

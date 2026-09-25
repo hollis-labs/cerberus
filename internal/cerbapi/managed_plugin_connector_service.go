@@ -349,7 +349,7 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 	if err != nil {
 		return ExternalConnectorOperationResult{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: id, Operation: args.Operation}, ExternalConnectorAuditUnavailable, err)
 	}
-	result, err := s.execute(ctx, id, args)
+	result, err := s.execute(call.withTelemetry(ctx), id, args)
 	call.finish(err)
 	return result, err
 }

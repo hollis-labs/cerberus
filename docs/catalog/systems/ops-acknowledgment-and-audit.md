@@ -2,12 +2,12 @@
 id: "CERB-CAP-604"
 class: "capability"
 name: "Operation acknowledgment and the audit log"
-summary: "Every operation that is not a read \u2014 and any that writes the local filesystem \u2014 demands an explicit acknowledgment on every surface, checked before credentials or arguments resolve; a dry run previews or is refused; and since P1-4a the admin lane and the plugin paths record every call, intent and outcome, in an append-only hash-chained log."
+summary: "Every operation that is not a read \u2014 and any that writes the local filesystem \u2014 demands an explicit acknowledgment on every surface, checked before credentials or arguments resolve; a dry run previews or is refused; and every call on every lane, plus the monitor's restarts, is recorded as intent and outcome in an append-only hash-chained log that `cerberus audit` reads, verifies and prunes."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.95
-confidence_label: "gate and dry-run exercised live at audit time; P0 gate changes re-read on main after P0 (#48 to #54); log field inventory taken from the full 3050-line log; remedy recorded in WP-S1 on 2026-09-18"
+confidence_label: "gate and dry-run exercised live at audit time; P0 gate changes re-read on main after P0 (#48 to #54); log field inventory taken from the full 3050-line log; remedy recorded in WP-S1 on 2026-09-18; P1-4b runtime, monitor, telemetry and audit CLI tests read and run on the branch"
 last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -28,7 +28,7 @@ relationships:
     note: "how the audit log is stored"
   - type: "relates_to"
     target: "CERB-GAP-856"
-    note: "what the audit log does not cover yet"
+    note: "the resource lane, pipelines, profiles and audit CLI \u2014 closed in P1-4b"
   - type: "depends_on"
     target: "CERB-CAP-602"
     note: "the daemon log is the only candidate trail"
@@ -40,7 +40,7 @@ relationships:
     note: "no read-only exec lane below the ack gate"
   - type: "relates_to"
     target: "CERB-GAP-648"
-    note: "LogAudit drops its operation argument"
+    note: "LogAudit — deleted in P1-4b"
   - type: "relates_to"
     target: "CERB-GAP-838"
     note: "the gate is satisfied by the caller being gated"
@@ -234,6 +234,42 @@ classified as audited, read-only or pending, and a new method fails until it is
 classified. Test packages that reach the real sink point `HOME` at a scratch
 directory in `TestMain`.
 
-Not yet recorded: the resource mutators, pipeline runs and deploy-profile runs,
-and there is no audit CLI (`tail`, `query`, `verify`, `prune`) yet. Both are
-P1-4b (CERB-GAP-856).
+## The rest of the trail (P1-4b)
+
+**Everything that acts is recorded.** The resource mutators (`deploy`, `apply`,
+`reload`, `stop`, `sync`, `remove`) and pipeline runs are wrapped in
+`internal/cerbapi/runtime_audit.go`: an intent before the runtime gate, an
+outcome after, and an `OpResult` or pipeline result reporting failure is
+recorded as `operation_failed`. A pipeline run is one record, as it is one
+acknowledgment. Decision 8 holds: an unwritable log refuses them as
+`audit_unavailable` before the operation lock. A deploy-profile run
+(`RunDeploymentProfile`) is recorded with its credential names, and the web
+console is constructed with the sink. Every `cerbapi.Client` method is now
+classified audited or read-only; none is pending.
+
+**Automation is recorded, never gated.** The resource monitor's restarts
+write an intent and an outcome with principal kind `automation`, surface
+`monitor`, not self-reported, and a `reason` naming what it saw and the
+attempt count. An unwritable log does not stop a restart.
+
+**Plugins enrich, never write.** A plugin may return events under
+`cerberus_telemetry` in its result, which the host strips before the caller
+sees it, and the host tees the plugin's stderr to the calls in flight (lines
+written while two calls overlap are marked `shared_stderr`). Both are bounded
+— 32 events, 32 lines, 512 bytes a field, 8 KiB a record, with `truncated` set
+past that — run through the plugin's own value redactor, and attached by
+operation id to the host-written outcome as `plugin_telemetry`.
+
+**Reading it.** `cerberus audit` reads `~/.cerberus/audit` directly and needs
+no daemon. `tail` shows the latest records; `query` filters by connector,
+operation, surface, outcome (code or decision), target id and a time range;
+both print text or, with `-o json`, the records as written. `verify` checks the
+chain across month files and exits non-zero on any break other than a
+recorded `chain_break`. `prune --before <date>` is an admin operation: it runs
+only from an interactive terminal, asks for a typed confirmation, removes only
+whole month files and never the newest, and records its intent before removing
+anything — an unwritable log removes nothing. `verify` accepts a chain whose
+first file opens with `file_start` only when a recorded prune removed the file
+it names.
+
+`LogAudit` is deleted (CERB-GAP-648).

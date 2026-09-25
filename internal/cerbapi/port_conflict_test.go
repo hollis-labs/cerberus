@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ func TestPortConflictRefusesActivationBeforeBuildOrRuntimeMutation(t *testing.T)
 		{ID: "first", Project: "one", Type: "process", Connector: "local", Config: map[string]any{"port": 5173, "command": []string{"/bin/false"}, "build_strategy": map[string]any{"kind": "must-not-build"}}},
 		{ID: "second", Project: "two", Type: "process", Connector: "local", Config: map[string]any{"port": 5173}},
 	}}
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
 	operations := []func(context.Context, string, ...MutationOption) (*OpResult, error){svc.ApplyResource, svc.ReloadResource, svc.DeployResource}
 	for _, operation := range operations {
 		result, err := operation(context.Background(), "first", WithAcknowledged(true))

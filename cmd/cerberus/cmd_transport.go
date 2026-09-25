@@ -105,5 +105,13 @@ func newPipelineClient(cmd *cobra.Command) (pipelineClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init app: %w", err)
 	}
-	return cerbapi.NewResourceRuntimeService(cerbapi.WithResourceRuntimeConfigPath(cfgPath), cerbapi.WithResourceRuntimeConfigV2(cfg)), nil
+	return app.NewResourceRuntimeService(cfgPath, cfg), nil
+}
+
+// inProcessContext marks a call the CLI runs in its own process as the
+// in_process surface, for the gate and the audit record. It is harmless on a
+// call that goes to the daemon: the socket client does not send it, and the
+// socket server marks its own requests.
+func inProcessContext(ctx context.Context) context.Context {
+	return cerbapi.WithCallerSurface(ctx, cerbapi.SurfaceInProcess)
 }

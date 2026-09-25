@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,7 @@ func TestExplicitStartWarnsAboutUnavailableDependencies(t *testing.T) {
 		{ID: id, Type: "process", Connector: "local", DependsOn: []string{depID, "missing-dependency"}, Config: map[string]any{"command": []string{"/bin/sleep", "60"}, "log_file": filepath.Join(dir, "runtime.log")}},
 		{ID: depID, Type: "process", Connector: "local", Config: map[string]any{"command": []string{"/bin/sleep", "60"}}},
 	}}
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
 	ctx := context.Background()
 	t.Cleanup(func() {
 		_, _ = svc.StopResource(ctx, id, WithAcknowledged(true))

@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"log/slog"
 	"os"
@@ -15,7 +16,7 @@ import (
 func TestResourceMonitorRemovedResourceGetsFreshRetryBudget(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := &config.ConfigV2{}
-	m := NewResourceMonitor(NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg)), DefaultResourceMonitorConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewResourceMonitor(NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg)), DefaultResourceMonitorConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	m.failureCount["returning"] = 3
 	m.lastRestart["returning"] = time.Now()
 	m.lastError["returning"] = "old failure"
@@ -42,7 +43,7 @@ func TestResourceMonitorChecksAtBootBeforeFirstTick(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	marker := filepath.Join(t.TempDir(), "started")
 	cfg := &config.ConfigV2{Resources: []config.ResourceDef{{ID: "boot", Type: "process", Connector: "local", Config: map[string]any{"auto_restart": true, "command": []string{"/usr/bin/touch", marker}}}}}
-	m := NewResourceMonitor(NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg)), ResourceMonitorConfig{CheckInterval: time.Hour, DefaultMaxRestartAttempts: 3}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := NewResourceMonitor(NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg)), ResourceMonitorConfig{CheckInterval: time.Hour, DefaultMaxRestartAttempts: 3}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); _ = m.Run(ctx) }()
