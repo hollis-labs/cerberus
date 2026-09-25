@@ -39,7 +39,12 @@ type Manager struct {
 	launcher  Launcher
 	hostInfo  SDKHostInfo
 	secrets   SecretResolver
+	settings  func() (ConnectorConfig, error)
 	warn      func(string)
+
+	// configProblems holds why each plugin's settings were last refused, so
+	// a plugin that did not load can say why. Cleared by a successful load.
+	configProblems map[string][]string
 
 	installed map[string]InstalledPlugin
 	running   map[string]*loadedPlugin
@@ -54,6 +59,10 @@ type loadedPlugin struct {
 	// missingSecrets names the required credentials that were absent when this
 	// plugin was loaded. Names only — resolved values live in the subprocess.
 	missingSecrets []string
+
+	// settings is what connector-config.yaml gave this plugin at load:
+	// delivered field names, MCP exposure and the file's fingerprint.
+	settings ResolvedSettings
 
 	// redactor knows the credential values this host resolved for the plugin,
 	// so it can remove them from any text the plugin sends back. The values
@@ -74,6 +83,13 @@ func WithSecretResolver(resolver SecretResolver) ManagerOption {
 	return func(m *Manager) { m.secrets = resolver }
 }
 
+// WithConnectorConfig gives the manager the loader for connector-config.yaml.
+// It is called on every load, so a reload picks up an edited file. Without it
+// a plugin gets no fields and exposes nothing.
+func WithConnectorConfig(load func() (ConnectorConfig, error)) ManagerOption {
+	return func(m *Manager) { m.settings = load }
+}
+
 // WithLoadWarning receives one line per non-fatal problem found while loading a
 // plugin — a declared credential that would not resolve, most of all. Lines
 // carry secret names and redacted errors, never a value.
@@ -89,8 +105,9 @@ func NewManager(installer Installer, launcher Launcher, hostVersion string, opts
 			Version:  hostVersion,
 			Protocol: SDKProtocolVersion,
 		},
-		installed: make(map[string]InstalledPlugin),
-		running:   make(map[string]*loadedPlugin),
+		installed:      make(map[string]InstalledPlugin),
+		running:        make(map[string]*loadedPlugin),
+		configProblems: make(map[string][]string),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -130,6 +147,14 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		return fmt.Errorf("plugin launcher is not configured")
 	}
 
+	// Settings are checked before the subprocess starts. A problem refuses
+	// the load: a field meant to choose a target that was dropped would leave
+	// the plugin acting on its default instead, which is the worse failure.
+	settings, err := m.resolveSettings(plugin)
+	if err != nil {
+		return err
+	}
+
 	// Decided once, here, and used for both the environment the subprocess is
 	// launched with and the granted list it is told about. A plugin that
 	// declared nothing gets nothing.
@@ -149,9 +174,19 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	redactor, unprotected := resolved.redactor()
 	m.reportUnprotectedSecrets(id, unprotected)
 
+	// Fields travel beside the secrets. The manifest refuses a field and a
+	// secret with the same name, so neither can shadow the other.
+	initConfig := make(map[string]string, len(resolved.Config)+len(settings.Config))
+	for name, value := range settings.Config {
+		initConfig[name] = value
+	}
+	for name, value := range resolved.Config {
+		initConfig[name] = value
+	}
+
 	initResult, err := process.Init(ctx, SDKInitParams{
 		PluginDir: plugin.Path,
-		Config:    resolved.Config,
+		Config:    initConfig,
 		LogLevel:  "info",
 		HostInfo:  m.hostInfo,
 		Granted:   plugin.Granted,
@@ -181,9 +216,57 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		init:           initResult,
 		load:           loadResult,
 		missingSecrets: resolved.MissingRequired,
+		settings:       settings,
 		redactor:       redactor,
 	}
 	return nil
+}
+
+// resolveSettings reads connector-config.yaml for the plugin and checks it
+// against the manifest. Called with m.mu held.
+func (m *Manager) resolveSettings(plugin InstalledPlugin) (ResolvedSettings, error) {
+	cfg := ConnectorConfig{Entries: map[string]PluginSettings{}}
+	if m.settings != nil {
+		loaded, err := m.settings()
+		if err != nil {
+			m.configProblems[plugin.ID] = []string{err.Error()}
+			return ResolvedSettings{}, fmt.Errorf("plugin %q not loaded: %s is unreadable: %w", plugin.ID, ConnectorConfigFilename, err)
+		}
+		cfg = loaded
+	}
+	settings := cfg.ForPlugin(plugin)
+	if m.warn != nil {
+		for _, warning := range settings.Warnings {
+			m.warn(warning)
+		}
+	}
+	if len(settings.Problems) > 0 {
+		m.configProblems[plugin.ID] = append([]string(nil), settings.Problems...)
+		return ResolvedSettings{}, fmt.Errorf("plugin %q not loaded: its entry in %s is refused — %s",
+			plugin.ID, ConnectorConfigFilename, strings.Join(settings.Problems, "; "))
+	}
+	delete(m.configProblems, plugin.ID)
+	return settings, nil
+}
+
+// Settings reports what connector-config.yaml gave a loaded plugin. ok is
+// false for a plugin that is not loaded.
+func (m *Manager) Settings(id string) (ResolvedSettings, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	lp, ok := m.running[id]
+	if !ok {
+		return ResolvedSettings{}, false
+	}
+	return lp.settings, true
+}
+
+// ConfigProblems reports why a plugin's settings were last refused. Empty
+// once it loads.
+func (m *Manager) ConfigProblems(id string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]string(nil), m.configProblems[id]...)
 }
 
 // reportSecretProblems surfaces a credential that would not resolve without

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"os"
 	"path/filepath"
 
@@ -155,6 +156,17 @@ func ConnectorSecrets(configPaths ...string) domain.SecretProvider {
 		configPath = configPaths[0]
 	}
 	return secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"))
+}
+
+// ConnectorConfigPath is connector-config.yaml beside the global config: the
+// operator-owned file of plugin fields and MCP exposure. Cerberus reads it and
+// never writes it.
+func ConnectorConfigPath(configPaths ...string) string {
+	configPath := config.DefaultPath()
+	if len(configPaths) > 0 && configPaths[0] != "" {
+		configPath = configPaths[0]
+	}
+	return filepath.Join(filepath.Dir(configPath), pluginhost.ConnectorConfigFilename)
 }
 
 func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretProvider) {
