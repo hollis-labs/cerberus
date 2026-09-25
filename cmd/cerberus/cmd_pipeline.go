@@ -114,22 +114,25 @@ func runPipelineCommand(ctx context.Context, client pipelineClient, id string, o
 	if err != nil {
 		return err
 	}
-	if detail == nil {
-		return fmt.Errorf("pipeline %q not found in config", id)
-	}
-	if detail.ValidationError != "" {
-		return errors.New(detail.ValidationError)
+	// An unknown or invalid pipeline is still sent to the runtime, which
+	// refuses it and records the attempt; what the lookup found is a hint.
+	var hint error
+	switch {
+	case detail == nil:
+		hint = fmt.Errorf("pipeline %q not found in config; run `cerberus pipeline list` to see available pipelines", id)
+	case detail.ValidationError != "":
+		hint = errors.New(detail.ValidationError)
 	}
 	// The run is gated, so nothing is announced until it has been let
 	// through: a refused run prints only the refusal.
 	result, err := client.RunPipeline(ctx, id, opts...)
 	if err != nil {
-		return err
+		return withHint(err, hint)
+	}
+	if !result.Success {
+		return withHint(errors.New(result.Error), hint)
 	}
 	fmt.Fprintf(out, "Pipeline: %s (%s)\n", detail.Definition.Name, detail.Definition.ID)
-	if !result.Success {
-		return errors.New(result.Error)
-	}
 	execution, err := result.Execution()
 	if err != nil {
 		return fmt.Errorf("decode pipeline result: %w", err)

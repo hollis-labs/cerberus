@@ -210,29 +210,25 @@ var resourceReloadCmd = &cobra.Command{
 	Long:  "Asks the configured runtime backend to restart the current installed resource without syncing artifacts or rewriting service definitions. For launchd-backed os_service resources, this runs launchctl kickstart -k against the loaded service. IMPORTANT: reload does NOT rebuild or re-sync — it relaunches the existing (possibly stale) installed artifact. If your source changed, use `cerberus resource deploy` (or `ensure-fresh`), not reload.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := loadResource(args[0])
-		if err != nil {
-			return err
-		}
-		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
-			return cerbapi.UnsupervisedOperationError("reload", res)
-		}
+		// The runtime refuses an unknown or unsupervised id, so the attempt is
+		// recorded; the local lookup only adds a hint to that refusal.
+		id, hint := args[0], mutationHint("reload", args[0])
 		client, err := resourceMutationSocket(cmd.Context())
 		if err != nil {
 			return err
 		}
 		if client != nil {
-			out, reloadErr := client.ReloadResource(cmd.Context(), res.ID, ackOption(cmd))
+			out, reloadErr := client.ReloadResource(cmd.Context(), id, ackOption(cmd))
 			if reloadErr != nil {
-				return reloadErr
+				return withHint(reloadErr, hint)
 			}
-			return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
+			return withHint(printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", id)), hint)
 		}
-		out, err := newResourceRuntimeService().ReloadResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().ReloadResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
 		if err != nil {
-			return err
+			return withHint(err, hint)
 		}
-		return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
+		return withHint(printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", id)), hint)
 	},
 }
 
@@ -242,29 +238,25 @@ var resourceStopCmd = &cobra.Command{
 	Long:  "Stops a local process resource through its configured runtime backend without deleting installed artifacts or plist state. For dev_session resources, this also suppresses auto-restart until the resource is explicitly applied, deployed, or reloaded.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := loadResource(args[0])
-		if err != nil {
-			return err
-		}
-		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
-			return cerbapi.UnsupervisedOperationError("stop", res)
-		}
+		// The runtime refuses an unknown or unsupervised id, so the attempt is
+		// recorded; the local lookup only adds a hint to that refusal.
+		id, hint := args[0], mutationHint("stop", args[0])
 		client, err := resourceMutationSocket(cmd.Context())
 		if err != nil {
 			return err
 		}
 		if client != nil {
-			out, stopErr := client.StopResource(cmd.Context(), res.ID, ackOption(cmd))
+			out, stopErr := client.StopResource(cmd.Context(), id, ackOption(cmd))
 			if stopErr != nil {
-				return stopErr
+				return withHint(stopErr, hint)
 			}
-			return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
+			return withHint(printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", id)), hint)
 		}
-		out, err := newResourceRuntimeService().StopResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().StopResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
 		if err != nil {
-			return err
+			return withHint(err, hint)
 		}
-		return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
+		return withHint(printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", id)), hint)
 	},
 }
 
@@ -274,31 +266,27 @@ var resourceApplyCmd = &cobra.Command{
 	Long:  "Applies a local process resource using its configured runtime backend. For os_service resources on macOS, this syncs the currently-built artifact and updates the launch agent. It does not run the build command first; use `cerberus resource deploy` when source changes need to be built.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := loadResource(args[0])
-		if err != nil {
-			return err
-		}
-		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
-			return cerbapi.UnsupervisedOperationError("apply", res)
-		}
+		// The runtime refuses an unknown or unsupervised id, so the attempt is
+		// recorded; the local lookup only adds a hint to that refusal.
+		id, hint := args[0], mutationHint("apply", args[0])
 
 		client, err := resourceMutationSocket(cmd.Context())
 		if err != nil {
 			return err
 		}
 		if client != nil {
-			out, applyErr := client.ApplyResource(cmd.Context(), res.ID, ackOption(cmd))
+			out, applyErr := client.ApplyResource(cmd.Context(), id, ackOption(cmd))
 			if applyErr != nil {
-				return applyErr
+				return withHint(applyErr, hint)
 			}
-			return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
+			return withHint(printResourceOpResult(out, fmt.Sprintf("Applied resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().ApplyResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().ApplyResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
 		if err != nil {
-			return err
+			return withHint(err, hint)
 		}
-		return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
+		return withHint(printResourceOpResult(out, fmt.Sprintf("Applied resource %s", id)), hint)
 	},
 }
 
@@ -308,13 +296,9 @@ var resourceDeployCmd = &cobra.Command{
 	Long:  "Runs the resource's declared build contract first, then applies it through the configured runtime backend. Use this when the intent is source-to-runtime deployment: make the running service match the current source tree. For already-built artifacts, use `cerberus resource apply`. Pass --no-install-after-build to skip the post-build install step for this invocation (useful when bisecting build vs install failures).",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := loadResource(args[0])
-		if err != nil {
-			return err
-		}
-		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
-			return cerbapi.UnsupervisedOperationError("deploy", res)
-		}
+		// The runtime refuses an unknown or unsupervised id, so the attempt is
+		// recorded; the local lookup only adds a hint to that refusal.
+		id, hint := args[0], mutationHint("deploy", args[0])
 
 		deployOpts, err := resolveDeployFlags(cmd)
 		if err != nil {
@@ -327,18 +311,18 @@ var resourceDeployCmd = &cobra.Command{
 			return err
 		}
 		if socketClient != nil {
-			out, deployErr := socketClient.DeployResource(cmd.Context(), res.ID, deployOpts...)
+			out, deployErr := socketClient.DeployResource(cmd.Context(), id, deployOpts...)
 			if deployErr != nil {
-				return deployErr
+				return withHint(deployErr, hint)
 			}
-			return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
+			return withHint(printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().DeployResource(inProcessContext(cmd.Context()), res.ID, deployOpts...)
+		out, err := newResourceRuntimeService().DeployResource(inProcessContext(cmd.Context()), id, deployOpts...)
 		if err != nil {
-			return err
+			return withHint(err, hint)
 		}
-		return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
+		return withHint(printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", id)), hint)
 	},
 }
 
@@ -526,31 +510,27 @@ var resourceSyncCmd = &cobra.Command{
 	Long:  "Syncs installed runtime artifacts without applying the runtime backend. This is primarily useful for os_service resources using run_from=artifact when you want to copy the artifact now and activate it later.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := loadResource(args[0])
-		if err != nil {
-			return err
-		}
-		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
-			return cerbapi.UnsupervisedOperationError("sync", res)
-		}
+		// The runtime refuses an unknown or unsupervised id, so the attempt is
+		// recorded; the local lookup only adds a hint to that refusal.
+		id, hint := args[0], mutationHint("sync", args[0])
 
 		client, err := resourceMutationSocket(cmd.Context())
 		if err != nil {
 			return err
 		}
 		if client != nil {
-			out, syncErr := client.SyncResource(cmd.Context(), res.ID, ackOption(cmd))
+			out, syncErr := client.SyncResource(cmd.Context(), id, ackOption(cmd))
 			if syncErr != nil {
-				return syncErr
+				return withHint(syncErr, hint)
 			}
-			return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
+			return withHint(printResourceOpResult(out, fmt.Sprintf("Synced resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().SyncResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().SyncResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
 		if err != nil {
-			return err
+			return withHint(err, hint)
 		}
-		return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
+		return withHint(printResourceOpResult(out, fmt.Sprintf("Synced resource %s", id)), hint)
 	},
 }
 
@@ -560,32 +540,52 @@ var resourceRemoveCmd = &cobra.Command{
 	Long:  "Removes a local process resource from its configured runtime backend. For os_service resources on macOS, this unloads the launch agent and removes the installed artifact tree. Use stop, not remove, for non-destructive stop/pause intent.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := loadResource(args[0])
-		if err != nil {
-			return err
-		}
-		if !cerbapi.SupervisedLocally(res.Type, res.Connector) {
-			return cerbapi.UnsupervisedOperationError("remove", res)
-		}
+		// The runtime refuses an unknown or unsupervised id, so the attempt is
+		// recorded; the local lookup only adds a hint to that refusal.
+		id, hint := args[0], mutationHint("remove", args[0])
 
 		client, err := resourceMutationSocket(cmd.Context())
 		if err != nil {
 			return err
 		}
 		if client != nil {
-			out, removeErr := client.RemoveResource(cmd.Context(), res.ID, ackOption(cmd))
+			out, removeErr := client.RemoveResource(cmd.Context(), id, ackOption(cmd))
 			if removeErr != nil {
-				return removeErr
+				return withHint(removeErr, hint)
 			}
-			return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
+			return withHint(printResourceOpResult(out, fmt.Sprintf("Removed resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().RemoveResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().RemoveResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
 		if err != nil {
-			return err
+			return withHint(err, hint)
 		}
-		return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
+		return withHint(printResourceOpResult(out, fmt.Sprintf("Removed resource %s", id)), hint)
 	},
+}
+
+// mutationHint is what the CLI can say about a mutation's target from its
+// own view of the config: that the id is unknown, or that the resource is not
+// one the supervision lane operates. It is only a hint. The mutation is sent
+// to the runtime either way, which refuses it and records the attempt:
+// every mutation attempt is recorded, whichever surface it came from.
+func mutationHint(verb, id string) error {
+	res, err := loadResource(id)
+	switch {
+	case err != nil:
+		return err
+	case !cerbapi.SupervisedLocally(res.Type, res.Connector):
+		return cerbapi.UnsupervisedOperationError(verb, res)
+	}
+	return nil
+}
+
+// withHint adds the local hint to a refused mutation.
+func withHint(err, hint error) error {
+	if err == nil || hint == nil {
+		return err
+	}
+	return fmt.Errorf("%w\nhint: %s", err, hint.Error())
 }
 
 func loadResource(id string) (*config.ResourceDef, error) {
