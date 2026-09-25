@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/hollis-labs/cerberus/internal/audit"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,7 +35,7 @@ func TestCerberusMCPHTTPSmoke(t *testing.T) {
 	}
 
 	client := cerbapi.NewInProcessClient(cerbapi.WithConfigV2(cfg), cerbapi.WithInProcessAudit(audit.NewMemory()))
-	srv := buildCerberusMCPServer(client, slog.Default())
+	srv := buildCerberusMCPServer(client)
 	h := mcpHTTPHandler(srv, "/mcp", loopback.NewGuard("127.0.0.1", "4785"))
 
 	t.Run("discover", func(t *testing.T) {
@@ -115,7 +114,7 @@ func TestCerberusMCPHTTPSmoke(t *testing.T) {
 // its own Host, and must be refused before the MCP handler runs.
 func TestCerberusMCPHTTPLoopbackGuard(t *testing.T) {
 	client := cerbapi.NewInProcessClient(cerbapi.WithConfigV2(&config.ConfigV2{Version: 2}))
-	h := mcpHTTPHandler(buildCerberusMCPServer(client, slog.Default()), "/mcp", loopback.NewGuard("127.0.0.1", "4785"))
+	h := mcpHTTPHandler(buildCerberusMCPServer(client), "/mcp", loopback.NewGuard("127.0.0.1", "4785"))
 
 	toolsList := func(host, origin string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"l1","method":"tools/list","params":{}}`))
@@ -168,7 +167,7 @@ func TestCerberusMCPHTTPLoopbackGuard(t *testing.T) {
 
 	t.Run("allow-origin adds an exact origin", func(t *testing.T) {
 		g := loopback.NewGuard("127.0.0.1", "4785", "https://inspector.example")
-		h := mcpHTTPHandler(buildCerberusMCPServer(client, slog.Default()), "/mcp", g)
+		h := mcpHTTPHandler(buildCerberusMCPServer(client), "/mcp", g)
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"l1","method":"tools/list","params":{}}`))
 		req.Host = "127.0.0.1:4785"
 		req.Header.Set("Content-Type", "application/json")

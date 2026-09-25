@@ -167,3 +167,14 @@ sets `isError: true`, with the same redacted body. Every tool over an
 operation that needs acknowledgment takes `acknowledged`: the resource
 mutations, pipeline run, docker up/down/destroy, droplet start/stop/destroy,
 ssh get/get_dir and the existing writes.
+
+## Since P2-1
+
+`cerberus mcp` claims, for every tool call, an agent via `mcp_stdio`, named by
+the clientInfo in the call's `_meta`. Clients on the current protocol send it on
+every request. The fallbacks are one captured at a legacy initialize handshake,
+then `mcp-client` (`mcpPrincipal` in `cmd/cerberus/cmd_mcp.go`).
+`cerberus mcp-http` claims `mcp_http` the same way, and the daemon adds the uid
+from peer credentials. The daemon's own stdio MCP server labels its calls as an
+agent via `mcp_stdio`. They stay unmarked as a surface, so they are still
+remote (CERB-DEC-817).

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/hollis-labs/cerberus/internal/app"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
@@ -80,6 +82,15 @@ MIT licensed. Published by Hollis Labs.`,
 	// the message that says what to do.
 	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 		cmd.SilenceUsage = true
+		// Who this CLI process is, as a label for default policy: human
+		// only from an interactive terminal without CERBERUS_PRINCIPAL=agent
+		// (Decisions 9 and 19). It rides on every socket request as a
+		// self-reported claim; it is never approval.
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		cmd.SetContext(cerbapi.WithPrincipal(ctx, cerbapi.DetectCLI().Principal))
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()

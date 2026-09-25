@@ -35,6 +35,11 @@ type SocketServer struct {
 	path   string
 	logger *slog.Logger
 
+	// peerCreds reads a connection's peer credentials, and uid is the uid
+	// a peer must have. Tests replace the reader.
+	peerCreds func(net.Conn) peerCred
+	uid       int
+
 	// Lifecycle guards.
 	mu       sync.Mutex
 	listener net.Listener
@@ -76,6 +81,8 @@ func NewSocketServer(client Client, path string, opts ...SocketServerOption) *So
 		path:              path,
 		logger:            slog.Default(),
 		readHeaderTimeout: 5 * time.Second,
+		peerCreds:         kernelPeerCred,
+		uid:               os.Getuid(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -103,6 +110,11 @@ func (s *SocketServer) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Handler:           s.wrap(mux),
 		ReadHeaderTimeout: s.readHeaderTimeout,
+		// Each connection's peer credentials are read once, from the
+		// kernel, and every request on it is checked against them.
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			return withPeer(ctx, s.peerCreds(c))
+		},
 	}
 
 	s.mu.Lock()
@@ -186,8 +198,20 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set(APIHeaderName, APIVersion)
+		// The request begins first, so a refusal renders in its scope and
+		// is marked rendered like any other.
+		w, r = BeginHTTPRequest(w, r, SurfaceSocket)
+		// The socket is 0600, and the kernel's word on who connected is
+		// checked as well: a uid other than the daemon's is refused, and so
+		// is a connection whose peer cannot be read.
+		if err := s.checkPeer(r.Context()); err != nil {
+			err = scopeError(redact.ScopeFrom(r.Context()), err)
+			s.logger.Warn("daemon.socket.peer_refused", "method", r.Method, "path", r.URL.Path, "error", err.Error())
+			writeServiceError(w, http.StatusForbidden, err)
+			return
+		}
 		s.logger.Info("daemon.socket.request", "method", r.Method, "path", r.URL.Path)
-		h.ServeHTTP(BeginHTTPRequest(w, r, SurfaceSocket))
+		h.ServeHTTP(w, r)
 	})
 }
 
@@ -197,6 +221,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 	// /health — daemon + v2 resource health.
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ping", s.handlePing)
+	mux.HandleFunc("/whoami", s.handleWhoAmI)
 
 	// /project, /resource, /pipeline list + run — active v2 surface.
 	mux.HandleFunc("/projects", s.handleProjects)
@@ -805,4 +830,34 @@ func decodeMutationOptions(body io.Reader) ([]MutationOption, error) {
 		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))
 	}
 	return options, nil
+}
+
+// checkPeer refuses a request whose connection's peer is not the daemon's
+// own user, or cannot be read.
+func (s *SocketServer) checkPeer(ctx context.Context) error {
+	args := ExternalConnectorOperationArgs{Connector: "socket", Operation: "connect"}
+	peer, ok := peerFrom(ctx)
+	switch {
+	// Cerberus's own guidance, rendered once where it is made (S2-6); the
+	// uids are numbers the kernel reported, and the kernel's error is the
+	// only text that goes through the rules.
+	case !ok:
+		return externalConnectorError(args, ExternalConnectorPrincipalRefused, redact.Guidance("the connection's peer credentials were not read; refusing"))
+	case peer.err != nil:
+		return externalConnectorError(args, ExternalConnectorPrincipalRefused, redact.GuidanceWrap(peer.err, "the connection's peer credentials could not be read, so this daemon refuses it"))
+	case peer.uid != s.uid:
+		return externalConnectorError(args, ExternalConnectorPrincipalRefused, redact.Guidance("the connecting process runs as uid %d, and this daemon serves only its own user (uid %d); run cerberus as that user", peer.uid, s.uid))
+	}
+	return nil
+}
+
+// handleWhoAmI answers with the principal the daemon gives this request: the
+// caller's claim, marked self-reported, with the uid the kernel reported.
+func (s *SocketServer) handleWhoAmI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	p, _ := PrincipalFrom(r.Context())
+	writeJSON(w, http.StatusOK, p)
 }

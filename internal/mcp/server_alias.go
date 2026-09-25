@@ -6,8 +6,10 @@ type Tool = gmcp.Tool
 type ToolHandler = gmcp.ToolHandler
 type Server = gmcp.Server
 
-func NewServer(name, version string) *gmcp.Server {
-	return gmcp.NewServer(name, version)
+type Option = gmcp.Option
+
+func NewServer(name, version string, opts ...Option) *gmcp.Server {
+	return gmcp.NewServer(name, version, opts...)
 }
 
 func emptyObjectSchema() map[string]interface{} {
