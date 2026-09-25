@@ -70,7 +70,7 @@ func NewCerberusDNSCreateTool(client cerbapi.Client) Tool {
 		IdempotentHint:  false,
 		OpenWorldHint:   false,
 		Handler: func(_ context.Context, _ map[string]interface{}) (any, error) {
-			return marshalResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()}), nil
+			return toolResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()})
 		},
 	}
 }
@@ -91,7 +91,7 @@ func NewCerberusDNSDeleteTool(client cerbapi.Client) Tool {
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		Handler: func(_ context.Context, _ map[string]interface{}) (any, error) {
-			return marshalResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()}), nil
+			return toolResult(lifecycleResult{Success: false, Error: namecheap.ErrUnsafePerRecordWrite.Error()})
 		},
 	}
 }

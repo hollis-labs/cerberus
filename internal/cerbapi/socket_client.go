@@ -482,7 +482,7 @@ func (c *SocketClient) doJSON(ctx context.Context, method, path string, body int
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var errResp ErrorResponse
 		if jerr := json.Unmarshal(data, &errResp); jerr == nil && errResp.Error != "" {
-			return fmt.Errorf("daemon: %s", errResp.Error)
+			return daemonError(errResp.Error, errResp.connectorErrorWire)
 		}
 		return fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, string(data))
 	}
@@ -531,7 +531,7 @@ func (c *SocketClient) doJSONStream(ctx context.Context, method, path string, bo
 		}
 		var errResp ErrorResponse
 		if jerr := json.Unmarshal(data, &errResp); jerr == nil && errResp.Error != "" {
-			return fmt.Errorf("daemon: %s", errResp.Error)
+			return daemonError(errResp.Error, errResp.connectorErrorWire)
 		}
 		return fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, string(data))
 	}
@@ -560,7 +560,7 @@ func (c *SocketClient) doJSONStream(ctx context.Context, method, path string, bo
 			if env.Error == "" {
 				env.Error = "unknown daemon error"
 			}
-			return fmt.Errorf("daemon: %s", env.Error)
+			return daemonError(env.Error, env.connectorErrorWire)
 		default:
 			return fmt.Errorf("daemon: unknown stream envelope %q", env.Type)
 		}

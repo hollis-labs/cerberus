@@ -275,7 +275,9 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 	if err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin operation %s failed on %s: %s", args.Operation, id, err.Error()))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin operation failed")
-		return ExternalConnectorOperationResult{}, err
+		// Coded here, so the direct plugin route answers a refusal with the
+		// same code and status as the admin lane does.
+		return ExternalConnectorOperationResult{}, managedPluginExecuteError(ExternalConnectorOperationArgs{Connector: id, Operation: args.Operation}, err)
 	}
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin operation %s completed on %s", args.Operation, id))
 	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin operation completed")

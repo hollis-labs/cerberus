@@ -21,7 +21,7 @@ func NewCerberusConnectorListTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			defs, err := client.ListConnectors(ctx)
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			return budgetedList("cerberus_connector_list", defs, args, "%d connectors total."), nil
 		},
@@ -40,11 +40,11 @@ func NewCerberusConnectorDescribeTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			id, _ := args["id"].(string)
 			if id == "" {
-				return marshalResult(lifecycleResult{Success: false, Error: `missing "id"`}), nil
+				return toolResult(lifecycleResult{Success: false, Error: `missing "id"`})
 			}
 			defs, err := client.ListConnectors(ctx)
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			for _, def := range defs {
 				if def.ID != id {
@@ -56,7 +56,7 @@ func NewCerberusConnectorDescribeTool(client cerbapi.Client) Tool {
 				}
 				return string(data), nil
 			}
-			return marshalResult(lifecycleResult{Success: false, Error: "connector not found: " + id}), nil
+			return toolResult(lifecycleResult{Success: false, Error: "connector not found: " + id})
 		},
 	}
 }
