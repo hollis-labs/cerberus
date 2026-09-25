@@ -66,11 +66,13 @@ exactly as designed.
 
 **1. There is no audit trail, and there is already a function for one.**
 
-*Status 2026-09-25:* the admin lane, the plugin paths and plugin install,
-load and unload are audited (#67, P1-4a in
-`live-systems-security-target.md`). Resource mutators, pipelines, deploy
-profiles and the `cerberus audit` CLI are P1-4b. The text below describes
-the state before that.
+*Status 2026-09-25: done.* Every connector operation, plugin operation,
+plugin install, load and unload, resource mutation, pipeline run, deploy
+profile run and monitor restart is recorded to `~/.cerberus/audit/`. The
+log is append-only and hash-chained, and the `cerberus audit`
+tail/query/verify/prune commands read and manage it (#67 and #71, P1-4 in
+`live-systems-security-target.md`). `LogAudit` was removed as dead code. The
+text below describes the state before that.
 
 `LogAudit(operation, serviceID, reason, taskID, sessionID)` exists in
 `internal/service/lifecycle_log.go` with **zero callers**. Nothing records who
@@ -232,6 +234,9 @@ two callers, so they cannot drift.
 
 **Why first:** it is the smallest change with the largest effect, and
 `LogAudit` already exists with no callers.
+
+*Done 2026-09-25 (#67, #71). `LogAudit` was removed rather than wired: the
+audit record is a DTO written by the service layer, as this section says.*
 
 **Do:** record every connector operation — caller surface (CLI, socket, HTTP,
 MCP), connector, operation, target, whether it was destructive, whether
