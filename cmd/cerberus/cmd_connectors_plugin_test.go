@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -281,7 +282,8 @@ func startManagedPluginSocketServer(t *testing.T) {
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := os.Stat(socketPath); err == nil {
+		if conn, err := net.Dial("unix", socketPath); err == nil {
+			_ = conn.Close()
 			return
 		}
 		if time.Now().After(deadline) {
