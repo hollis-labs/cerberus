@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/loopback"
-	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/webui"
 	"github.com/spf13/cobra"
 )
@@ -43,7 +42,7 @@ var webCmd = &cobra.Command{
 			return fmt.Errorf("connect daemon: %w (try `cerberus daemon status` to check; if not installed, run `cerberus install`)", err)
 		}
 
-		webSrv, err := webui.New(client, app.AuditSink(), cfgPath, secrets.NewKeychainProvider(), nil)
+		webSrv, err := webui.New(client, app.AuditSink(), cfgPath, app.ConnectorSecrets(cfgPath), nil)
 		if err != nil {
 			return fmt.Errorf("init web ui: %w", err)
 		}
