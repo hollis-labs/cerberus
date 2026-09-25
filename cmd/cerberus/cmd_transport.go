@@ -59,7 +59,23 @@ func newExternalConnectorService(ctx context.Context) (connectorExecutor, func()
 			return socketConnectorExecutor{client}, func() {}, nil
 		}
 	}
-	return app.NewExternalConnectorService(cfgPath), func() {}, nil
+	return newLocalConnectorExecutor(), func() {}, nil
+}
+
+// localConnectorExecutor is the in-process lane: the operator's own shell.
+// It is the one place the CLI marks its calls SurfaceInProcess, which is what
+// lets local-only inputs (docker --host, --context, -f) through. Anything that
+// reaches the service unmarked is treated as remote.
+type localConnectorExecutor struct {
+	svc *cerbapi.ExternalConnectorService
+}
+
+func (l localConnectorExecutor) Execute(ctx context.Context, args cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
+	return l.svc.Execute(cerbapi.WithCallerSurface(ctx, cerbapi.SurfaceInProcess), args)
+}
+
+func newLocalConnectorExecutor() connectorExecutor {
+	return localConnectorExecutor{svc: app.NewExternalConnectorService(cfgPath)}
 }
 
 // explicitConfig reports whether the operator passed --config.

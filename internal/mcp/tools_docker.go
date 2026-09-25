@@ -85,14 +85,14 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 // NewCerberusDockerUpTool creates the cerberus_docker_up tool.
 func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 	return newDockerLifecycleTool(client, "cerberus_docker_up", "start",
-		"Start a local Docker container by name, or a declared docker resource (a container or a Compose stack, local or remote) by resource_id.",
+		"Start a local Docker container by name, or a declared docker resource (a container or a Compose stack, local or remote) by resource_id. Requires acknowledged=true.",
 		"started")
 }
 
 // NewCerberusDockerDownTool creates the cerberus_docker_down tool.
 func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 	return newDockerLifecycleTool(client, "cerberus_docker_down", "stop",
-		"Stop a local Docker container by name (docker stop), or a declared docker resource by resource_id (a Compose stack is stopped with docker compose stop). This does not remove anything: containers and networks are kept and cerberus_docker_up starts them again. Removal is the docker connector's destroy operation, which requires acknowledgment.",
+		"Stop a local Docker container by name (docker stop), or a declared docker resource by resource_id (a Compose stack is stopped with docker compose stop). This does not remove anything: containers and networks are kept and cerberus_docker_up starts them again. Removal is the docker connector's destroy operation. Requires acknowledged=true.",
 		"stopped")
 }
 
@@ -111,6 +111,10 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 				"resource_id": map[string]interface{}{
 					"type":        "string",
 					"description": "ID of a declared docker resource (type: container, connector: docker). Its compose file, container and Docker host come from the declaration.",
+				},
+				"acknowledged": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Acknowledge the operation. Required: starting and stopping are lifecycle operations.",
 				},
 			},
 			"oneOf": []map[string]interface{}{
@@ -138,9 +142,10 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 			}
 
 			if _, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
-				Connector: "docker",
-				Operation: operation,
-				Config:    cfg,
+				Connector:    "docker",
+				Operation:    operation,
+				Config:       cfg,
+				Acknowledged: boolArg(args, "acknowledged"),
 			}); err != nil {
 				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}

@@ -19,8 +19,9 @@ import (
 //   - operation_unsupported: no such operation here.
 //   - connector_unavailable, credential_missing: the connector cannot serve
 //     right now; the request may succeed once the operator fixes that.
-//   - operation_failed: the plugin ran the operation and it failed upstream.
-//     A bad gateway, not a fault in Cerberus.
+//   - operation_failed: the request passed every gate and the provider, the
+//     plugin or the tool behind the connector failed it. 502, so a 500 still
+//     means a fault in Cerberus itself.
 var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorInvalidArgs:        http.StatusBadRequest,
 	ExternalConnectorAckRequired:        http.StatusConflict,

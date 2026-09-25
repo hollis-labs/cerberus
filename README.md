@@ -229,8 +229,8 @@ cerberus docker ps
 cerberus docker ps --host ssh://user@host
 cerberus docker ps --context azure-dev
 cerberus docker logs <container> --host ssh://user@host --lines 100
-cerberus docker up <container> --host tcp://10.0.0.4:2376
-cerberus docker down <container> --host ssh://user@host
+cerberus docker up <container> --host tcp://10.0.0.4:2376 --ack
+cerberus docker down <container> --host ssh://user@host --ack
 ```
 
 `ssh://` needs key auth to the host and an account that can reach the Docker
@@ -259,14 +259,24 @@ the CLI, and from MCP as `resource_id` on `cerberus_docker_up`/`_down`:
 ```
 
 ```bash
-cerberus docker up mtbf-monitor      # no -f needed
-cerberus docker down mtbf-monitor    # compose stop: stopped, not removed
+cerberus docker up mtbf-monitor --ack     # no -f needed
+cerberus docker down mtbf-monitor --ack   # compose stop: stopped, not removed
 cerberus docker logs some-container  # undeclared containers still work
 ```
 
 `docker down` stops a container or stack (`docker stop`, `docker compose stop`)
 and removes nothing. Removal — `docker rm`, or `docker compose down` for a
-stack — is the connector's `destroy` operation, which requires `--ack`.
+stack — is the connector's `destroy` operation.
+
+Every connector operation declares an effect class — `read`, `read_sensitive`,
+`write`, `lifecycle`, `destructive`, `exec` or `admin` — and every class except
+the two reads needs acknowledgment: `--ack` on the CLI, `acknowledged: true`
+over MCP and the API. Starting and stopping are `lifecycle`, so `docker up`,
+`docker down`, `server start` and `server stop` all take `--ack`. An operation
+that writes to the local filesystem needs it whatever its effect, so
+`ssh get` and `ssh get-dir` take `--ack` too: a download overwrites the local
+path you name.
+`cerberus connectors describe <id>` shows each operation's effect.
 
 A `container` or `server` resource is a named handle for connector operations,
 not a supervised workload: `resource status` reports it as `unsupervised` and
@@ -282,10 +292,10 @@ remote dependency:
 cerberus ssh status <resource-id>
 cerberus ssh exec <resource-id> -- 'systemctl status nginx' --ack
 cerberus ssh put <resource-id> ./app.env /opt/app/.env --ack
-cerberus ssh get <resource-id> /etc/nginx/nginx.conf ./nginx.conf
+cerberus ssh get <resource-id> /etc/nginx/nginx.conf ./nginx.conf --ack
 cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --dry-run
 cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --ack
-cerberus ssh get-dir <resource-id> /opt/app/conf ./conf
+cerberus ssh get-dir <resource-id> /opt/app/conf ./conf --ack
 ```
 
 Every `ssh` verb names its target by resource id and nothing else: host, port,

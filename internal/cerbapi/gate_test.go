@@ -169,7 +169,7 @@ func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 
 func TestAckGateFailsClosedWithoutDefinition(t *testing.T) {
 	svc := NewExternalConnectorService(connector.NewRegistry())
-	err := svc.requireAcknowledgment(ExternalConnectorOperationArgs{Connector: "ghost", Operation: "wipe"})
+	_, err := svc.declaredOperation(context.Background(), ExternalConnectorOperationArgs{Connector: "ghost", Operation: "wipe"})
 	if code := connectorErrorCode(err); code != ExternalConnectorUnsupported {
 		t.Fatalf("missing definition: err = %v, want operation_unsupported refusal", err)
 	}
@@ -198,7 +198,8 @@ func TestAckGateStillRequiresAckForDeclaredDestructive(t *testing.T) {
 	}
 }
 
-// Newly destructive operations (P0-2 item 8) refuse without ack.
+// Operations reclassified in P0-2 item 8 still refuse without ack: under the
+// contract they are write and lifecycle, which Decision 14 gates.
 func TestReclassifiedOperationsRequireAck(t *testing.T) {
 	for _, tc := range []struct{ connector, operation string }{
 		{"forge", "update_deployment_script"},
@@ -210,8 +211,8 @@ func TestReclassifiedOperationsRequireAck(t *testing.T) {
 			for _, op := range def.Operations {
 				if def.ID == tc.connector && op.Name == tc.operation {
 					found = true
-					if !op.Destructive {
-						t.Errorf("%s.%s must be destructive", tc.connector, tc.operation)
+					if !op.RequiresAck {
+						t.Errorf("%s.%s must require acknowledgment (effect %s)", tc.connector, tc.operation, op.Effect)
 					}
 				}
 			}
@@ -237,7 +238,7 @@ func TestGateRefusalsSurviveRedaction(t *testing.T) {
 	args := ExternalConnectorOperationArgs{Connector: "docker", Operation: "list_containers"}
 	for _, err := range []error{
 		previewUnsupportedError(args),
-		svc.requireAcknowledgment(ExternalConnectorOperationArgs{Connector: "ghost", Operation: "wipe"}),
+		ghostRefusal(svc),
 	} {
 		var connErr *ExternalConnectorError
 		if !errors.As(err, &connErr) {
@@ -259,4 +260,9 @@ func TestManagedPluginPreviewUnsupportedKeepsItsCode(t *testing.T) {
 	if code := connectorErrorCode(err); code != ExternalConnectorPreviewUnsupported {
 		t.Fatalf("err = %v, want preview_unsupported", err)
 	}
+}
+
+func ghostRefusal(svc *ExternalConnectorService) error {
+	_, err := svc.declaredOperation(context.Background(), ExternalConnectorOperationArgs{Connector: "ghost", Operation: "wipe"})
+	return err
 }

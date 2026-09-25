@@ -187,7 +187,7 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 		}
 		w.Header().Set(APIHeaderName, APIVersion)
 		s.logger.Info("daemon.socket.request", "method", r.Method, "path", r.URL.Path)
-		h.ServeHTTP(w, r)
+		h.ServeHTTP(w, r.WithContext(WithCallerSurface(r.Context(), SurfaceSocket)))
 	})
 }
 
@@ -561,12 +561,6 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 	args.Operation = parts[2]
 	if args.Config == nil {
 		args.Config = map[string]any{}
-	}
-	// Ad-hoc docker targets are for the operator's own shell; a socket caller
-	// names a configured resource.
-	if err := RefuseAdHocDockerTarget(args); err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
 	}
 
 	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {

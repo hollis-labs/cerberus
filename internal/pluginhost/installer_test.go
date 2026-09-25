@@ -46,10 +46,15 @@ func writePluginYAMLFile(t *testing.T, dir string, spec PluginYAML) string {
 					"          required: "+strconv.FormatBool(secret.Required)+"\n")...)
 		}
 	}
+	op := spec.Cerberus.Connector.Operations[0]
 	data = append(data, []byte(
 		"    operations:\n"+
-			"      - name: "+spec.Cerberus.Connector.Operations[0].Name+"\n"+
-			"        input_schema:\n"+
+			"      - name: "+op.Name+"\n")...)
+	if op.Effect != "" {
+		data = append(data, []byte("        effect: "+string(op.Effect)+"\n")...)
+	}
+	data = append(data, []byte(
+		"        input_schema:\n"+
 			"          type: object\n")...)
 
 	path := filepath.Join(dir, PluginYAMLFilename)

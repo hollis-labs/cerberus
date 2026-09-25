@@ -72,7 +72,7 @@ func (c *Connector) Capabilities() contract.Capabilities {
 }
 
 func Definition() contract.Definition {
-	return contract.Definition{
+	return contract.Finalize(contract.Definition{
 		ID:            "docker",
 		Version:       "builtin",
 		ResourceTypes: []string{string(resource.Container)},
@@ -111,31 +111,66 @@ func Definition() contract.Definition {
 			{
 				Name:        "list_containers",
 				Description: "List running Docker containers on the machine running Cerberus, or on a declared docker resource's daemon.",
-				InputSchema: operationSchema(ResourceKey),
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "docker.daemon", From: []string{ResourceKey}},
+				Output:      contract.OutputStructured,
+				Preview:     contract.PreviewNone,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
+				Inputs:      daemonInputs(),
 			},
 			{
 				Name:        "start",
 				Description: "Start a Docker container or compose stack.",
-				InputSchema: containerOperationSchema(),
+				Effect:      contract.EffectLifecycle,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "docker.container", From: containerTarget()},
+				Output:      contract.OutputStructured,
+				Preview:     contract.PreviewNone,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
+				Inputs:      containerInputs(),
+				OneOf:       [][]string{containerTarget()},
 			},
 			{
 				Name:        "stop",
-				Description: "Stop a Docker container (docker stop) or compose stack (docker compose stop). Nothing is removed; removal is the destroy operation, which requires acknowledgment.",
-				InputSchema: containerOperationSchema(),
+				Description: "Stop a Docker container (docker stop) or compose stack (docker compose stop). Nothing is removed; removal is the destroy operation.",
+				Effect:      contract.EffectLifecycle,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "docker.container", From: containerTarget()},
+				Output:      contract.OutputStructured,
+				Preview:     contract.PreviewNone,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
+				Inputs:      containerInputs(),
+				OneOf:       [][]string{containerTarget()},
 			},
 			{
 				Name:        "destroy",
 				Description: "Remove a Docker container (docker rm) or tear down a compose stack (docker compose down, which removes its containers and networks).",
-				InputSchema: containerOperationSchema(),
-				Destructive: true,
+				Effect:      contract.EffectDestructive,
+				Target:      contract.TargetDescriptor{Kind: "docker.container", From: containerTarget()},
+				Output:      contract.OutputStructured,
+				Preview:     contract.PreviewNone,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
+				Inputs:      containerInputs(),
+				OneOf:       [][]string{containerTarget()},
 			},
 			{
 				Name:        "logs",
 				Description: "Read recent Docker container logs.",
-				InputSchema: containerOperationSchema("lines"),
+				Effect:      contract.EffectReadSensitive,
+				Target:      contract.TargetDescriptor{Kind: "docker.container", From: containerTarget()},
+				Preview:     contract.PreviewNone,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
+				Inputs:      containerInputs("lines"),
+				Output:      contract.OutputFreeText,
+				OneOf:       [][]string{containerTarget()},
 			},
 		},
-	}
+	})
 }
 
 func (c *Connector) Definition() contract.Definition {

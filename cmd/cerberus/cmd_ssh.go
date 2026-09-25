@@ -191,8 +191,8 @@ var sshPutCmd = sshTransferCmd("put",
 var sshGetCmd = sshTransferCmd("get",
 	"get <resource-id> <remote-path> <local-path>",
 	"Download a file from a remote host",
-	"Downloads a file from the remote host over SFTP. Read-only, so it needs no\n"+
-		"acknowledgment.",
+	"Downloads a file from the remote host over SFTP, overwriting the local path\n"+
+		"if it exists. Writing to the local filesystem needs --ack.",
 	false)
 
 // sshDirTransferCmd builds put-dir and get-dir. They mirror put and get: same
@@ -289,8 +289,8 @@ var sshGetDirCmd = sshDirTransferCmd("get_dir",
 	"Recursively downloads a remote directory over SFTP. It is the same walk as\n"+
 		"put-dir with the ends exchanged, including the refusal to follow a\n"+
 		"symlink out of the tree.\n\n"+
-		"Like get, it writes only to the local machine under a path you named, so\n"+
-		"it needs no acknowledgment.",
+		"Like get, it overwrites local files under the path you named, so it needs\n"+
+		"--ack.",
 	false)
 
 // localPath makes a local path absolute against this shell's working
@@ -324,6 +324,8 @@ func init() {
 	sshPutCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge overwriting the remote file")
 	sshPutDirCmd.Flags().BoolVar(&sshDryRun, "dry-run", false, "preview the upload without transferring")
 	sshPutDirCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge overwriting remote files")
+	sshGetCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge overwriting the local file")
+	sshGetDirCmd.Flags().BoolVar(&sshAcknowledge, "ack", false, "acknowledge overwriting local files")
 	sshCmd.AddCommand(sshExecCmd)
 	sshCmd.AddCommand(sshStatusCmd)
 	sshCmd.AddCommand(sshStopCmd)

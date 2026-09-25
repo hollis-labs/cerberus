@@ -171,7 +171,10 @@ export function ConnectorsPage() {
                             <div key={key} className={operationIndex > 0 ? 'border-t border-border-soft px-4 py-3' : 'px-4 py-3'}>
                               <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div>
-                                  <div className="text-sm text-text">{operation.name}</div>
+                                  <div className="text-sm text-text">
+                                    {operation.name}
+                                    {operation.effect ? <span className="ml-2 text-xs text-text-soft">{operation.effect}</span> : null}
+                                  </div>
                                   <div className="mt-1 max-w-2xl text-xs text-text-soft">{operation.description || 'No description.'}</div>
                                 </div>
                                 <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null} onClick={() => void runOperation(connector, operation.name)}>
@@ -211,7 +214,7 @@ export function ConnectorsPage() {
                                     type="checkbox"
                                     checked={!!ackByOp[key]}
                                     onChange={(event) => setAckByOp((current) => ({ ...current, [key]: event.target.checked }))}
-                                    disabled={!operation.destructive}
+                                    disabled={!operation.requires_ack}
                                   />
                                   Acknowledge
                                 </label>

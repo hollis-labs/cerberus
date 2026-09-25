@@ -57,7 +57,7 @@ func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
 func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_droplet_create",
-		Description: "Create a DigitalOcean droplet. Destructive: billable, and runs user_data as root. Requires acknowledged=true unless dry_run.",
+		Description: "Create a DigitalOcean droplet. Billable, and runs user_data as root. Requires acknowledged=true unless dry_run.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"name":         map[string]interface{}{"type": "string", "description": "Droplet name."},
 			"region":       map[string]interface{}{"type": "string", "description": "Region slug."},
@@ -66,7 +66,7 @@ func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 			"ssh_keys":     map[string]interface{}{"type": "array", "description": "SSH key fingerprints.", "items": map[string]interface{}{"type": "string"}},
 			"user_data":    map[string]interface{}{"type": "string", "description": "Cloud-init user-data."},
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
-			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge the destructive create operation."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge the create operation (write, billable)."},
 		}, "name", "region", "size", "image"),
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
@@ -105,7 +105,7 @@ func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 }
 
 func NewCerberusDropletStartTool(client cerbapi.Client) Tool {
-	return newDropletLifecycleTool(client, "cerberus_droplet_start", "start", "Start a DigitalOcean droplet.", false)
+	return newDropletLifecycleTool(client, "cerberus_droplet_start", "start", "Start (power on) a DigitalOcean droplet. Requires acknowledged=true.", false)
 }
 
 func NewCerberusDropletStopTool(client cerbapi.Client) Tool {
@@ -113,7 +113,7 @@ func NewCerberusDropletStopTool(client cerbapi.Client) Tool {
 }
 
 func NewCerberusDropletDestroyTool(client cerbapi.Client) Tool {
-	return newDropletLifecycleTool(client, "cerberus_droplet_destroy", "destroy", "Destroy a DigitalOcean droplet.", true)
+	return newDropletLifecycleTool(client, "cerberus_droplet_destroy", "destroy", "Destroy a DigitalOcean droplet. Requires acknowledged=true unless dry_run.", true)
 }
 
 func newDropletLifecycleTool(client cerbapi.Client, name, operation, description string, destructive bool) Tool {
@@ -123,7 +123,7 @@ func newDropletLifecycleTool(client cerbapi.Client, name, operation, description
 		InputSchema: objectSchema(map[string]interface{}{
 			"droplet_id":   map[string]interface{}{"type": "integer", "description": "DigitalOcean droplet ID."},
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
-			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge a destructive operation (stop, destroy)."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge the operation. Required: start and stop are lifecycle operations and destroy is destructive."},
 		}, "droplet_id"),
 		ReadOnlyHint:    false,
 		DestructiveHint: destructive,

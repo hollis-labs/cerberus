@@ -373,6 +373,10 @@ export interface ConnectorOperation {
   description?: string
   examples?: string[]
   input_schema?: Record<string, unknown>
+  // The operation contract. requires_ack, destructive and supports_dry are
+  // derived from it by the daemon; the console reads them, never infers them.
+  effect?: string
+  requires_ack?: boolean
   destructive?: boolean
   supports_dry?: boolean
 }

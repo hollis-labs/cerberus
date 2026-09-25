@@ -69,14 +69,53 @@ type SecretRequirement struct {
 }
 
 // Operation describes a connector action exposed through CLI, API, MCP, or GUI
-// adapters.
+// adapters, with its contract (see contract.go).
+//
+// An author declares the contract fields and Inputs. InputSchema,
+// Destructive, SupportsDry and RequiresAck are derived by Finalize and are
+// never set by hand: a hand-set flag is how an operation's MCP hint, ack gate
+// and discovery came to disagree.
 type Operation struct {
-	Name        string         `json:"name" yaml:"name"`
-	Description string         `json:"description,omitempty" yaml:"description,omitempty"`
-	Examples    []string       `json:"examples,omitempty" yaml:"examples,omitempty"`
+	Name        string   `json:"name" yaml:"name"`
+	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
+	Examples    []string `json:"examples,omitempty" yaml:"examples,omitempty"`
+
+	Effect     Effect           `json:"effect" yaml:"effect"`
+	Reversible bool             `json:"reversible" yaml:"reversible"`
+	Target     TargetDescriptor `json:"target" yaml:"target"`
+	Preview    PreviewKind      `json:"preview" yaml:"preview"`
+	Output     OutputKind       `json:"output" yaml:"output"`
+	Cost       Cost             `json:"cost" yaml:"cost"`
+	LocalFS    LocalFS          `json:"local_fs" yaml:"local_fs"`
+
+	// Inputs is the operation's key table: every config key it accepts, and
+	// who may send it. The admin lane checks a caller's config against it
+	// before resolving anything; InputSchema is built from it.
+	Inputs []Input `json:"-" yaml:"-"`
+	// OneOf lists groups of inputs of which at least one must be present,
+	// for operations that take a target under any of several keys.
+	OneOf [][]string `json:"one_of,omitempty" yaml:"one_of,omitempty"`
+	// InputsOpen is set for a plugin schema that does not close its
+	// properties: undeclared keys are then passed through, not refused.
+	InputsOpen bool `json:"-" yaml:"-"`
+
+	// Derived by Finalize.
 	InputSchema map[string]any `json:"input_schema,omitempty" yaml:"input_schema,omitempty"`
 	Destructive bool           `json:"destructive,omitempty" yaml:"destructive,omitempty"`
 	SupportsDry bool           `json:"supports_dry,omitempty" yaml:"supports_dry,omitempty"`
+	RequiresAck bool           `json:"requires_ack,omitempty" yaml:"requires_ack,omitempty"`
+
+	schemaIsSource bool
+}
+
+// Operation returns the named operation, finalized.
+func (d Definition) Operation(name string) (Operation, bool) {
+	for _, op := range d.Operations {
+		if op.Name == name {
+			return op.Finalize(), true
+		}
+	}
+	return Operation{}, false
 }
 
 // ObjectSchema returns a minimal JSON object schema for connector operation

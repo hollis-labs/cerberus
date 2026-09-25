@@ -131,7 +131,6 @@ func connectorExecConfig(op contract.Operation, flags connectorExecFlags, stdin 
 		}
 	}
 	properties, _ := op.InputSchema["properties"].(map[string]any)
-	closed := op.InputSchema["additionalProperties"] == false
 
 	for _, item := range flags.jsonArgs {
 		key, raw, ok := strings.Cut(item, "=")
@@ -177,22 +176,17 @@ func connectorExecConfig(op contract.Operation, flags connectorExecFlags, stdin 
 		}
 	}
 
-	if closed {
-		var unknown []string
-		for key := range cfg {
-			if _, ok := properties[key]; !ok {
-				unknown = append(unknown, key)
-			}
+	// The operation's key table is the one source for what it accepts: the
+	// same check the admin lane runs, run here first so a typo is named
+	// before anything is sent. This is the operator's own shell, so local-only
+	// inputs pass; over the socket the daemon still refuses them.
+	if err := op.Finalize().CheckInputs(cfg, true); err != nil {
+		accepted := make([]string, 0, len(op.Inputs))
+		for _, in := range op.Finalize().Inputs {
+			accepted = append(accepted, in.Name)
 		}
-		if len(unknown) > 0 {
-			sort.Strings(unknown)
-			accepted := make([]string, 0, len(properties))
-			for key := range properties {
-				accepted = append(accepted, key)
-			}
-			sort.Strings(accepted)
-			return nil, fmt.Errorf("unknown argument %s; the operation accepts: %s", strings.Join(unknown, ", "), strings.Join(accepted, ", "))
-		}
+		sort.Strings(accepted)
+		return nil, fmt.Errorf("%w; the operation accepts: %s", err, strings.Join(accepted, ", "))
 	}
 	return cfg, nil
 }
