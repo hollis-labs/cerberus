@@ -202,12 +202,14 @@ func (r *Resolver) resolveHelper(ctx context.Context, ref Ref) (string, error) {
 	}
 	// Helpers speak the keychain:// scheme; the helper:// authority names the
 	// helper, not the secret, so it is dropped from the delegated reference.
-	stdout, stderr, err := r.run(ctx, path, "resolve", keychainScheme+ref.Key)
+	delegated := keychainScheme + ref.Key
+	stdout, _, err := r.run(ctx, path, "resolve", delegated)
 	if err != nil {
-		if msg := strings.TrimSpace(string(stderr)); msg != "" {
-			return "", fmt.Errorf("%s: %s: %w", ref.Service, msg, err)
-		}
-		return "", fmt.Errorf("%s: %w", ref.Service, err)
+		// The helper's stderr is not copied into the error. It is text
+		// Cerberus did not compose from a program that holds the secret,
+		// and the error travels to launchd's stderr.log and to every
+		// surface. The command that shows it is named instead.
+		return "", fmt.Errorf("helper %s failed (%w); run `%s resolve %s` to see its output", ref.Service, err, path, delegated)
 	}
 	return string(stdout), nil
 }

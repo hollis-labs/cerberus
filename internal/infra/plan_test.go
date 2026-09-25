@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,5 +131,34 @@ func TestRunDeploymentRecordsTheDisplayedCommand(t *testing.T) {
 	}
 	if step.Output != token {
 		t.Fatalf("the process did not receive the real token in VERCEL_TOKEN: %q", step.Output)
+	}
+}
+
+type failingSecrets struct{ tokenSecrets }
+
+func (failingSecrets) Get(_ context.Context, service, key string) (string, error) {
+	return "", errors.New("keychain refused access")
+}
+
+// A credential lookup that fails stops the plan: deploying without the
+// token would fail later, at Vercel, for a reason nobody is shown.
+func TestPlanDeploymentStopsOnAFailedSecretLookup(t *testing.T) {
+	profile := DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: linkedRepo(t), DeployCommand: "vercel --prod --yes"}
+	plan := PlanDeployment(context.Background(), failingSecrets{}, profile)
+	if len(plan.Steps) != 0 || len(plan.steps) != 0 {
+		t.Fatalf("plan has steps despite the failed lookup: %+v", plan.Steps)
+	}
+	want := "could not resolve vercel/token (keychain refused access); fix its keychain entry or its reference in connector-secrets.yaml, then plan again"
+	if plan.Error != want {
+		t.Fatalf("plan error = %q, want %q", plan.Error, want)
+	}
+	// The error reaches the console through redact.Marshal, and its
+	// recovery instruction has to arrive intact.
+	if got := redact.Text(plan.Error); got != plan.Error {
+		t.Fatalf("redact.Text ate the recovery: %q", got)
+	}
+	result, err := RunDeployment(context.Background(), failingSecrets{}, profile)
+	if err != nil || result.Success || len(result.Steps) != 0 || result.Error != want {
+		t.Fatalf("run = %+v, %v; want no steps and the lookup error", result, err)
 	}
 }
