@@ -29,7 +29,7 @@ func (s *ResourceRuntimeService) ListPipelines(_ context.Context) ([]PipelineInf
 }
 
 // RunPipeline resolves and executes against the shared runtime connector.
-func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, options ...MutationOption) (*PipelineRunResult, error) {
+func (s *ResourceRuntimeService) runPipeline(ctx context.Context, id string, options ...MutationOption) (*PipelineRunResult, error) {
 	// One gate for the whole run: the stages call the local connector
 	// directly, so they are covered by this acknowledgment and never by one
 	// of their own.

@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"log/slog"
 
 	"github.com/hollis-labs/cerberus/internal/config"
@@ -25,6 +26,14 @@ type InProcessClient struct {
 	// Construction options forwarded to the shared runtime.
 	cfgPath string
 	cfg     *config.ConfigV2
+	audit   audit.Sink
+}
+
+// WithInProcessAudit is the sink for the runtime the client builds when none
+// is injected. Without one that runtime refuses every mutation as
+// audit_unavailable: an unrecorded default would be a silent no-op.
+func WithInProcessAudit(sink audit.Sink) InProcessOption {
+	return func(c *InProcessClient) { c.audit = sink }
 }
 
 // InProcessOption tunes construction of an InProcessClient.
@@ -109,7 +118,11 @@ func NewInProcessClient(opts ...InProcessOption) *InProcessClient {
 		opt(c)
 	}
 	if c.runtime == nil {
-		c.runtime = NewResourceRuntimeService(
+		sink := c.audit
+		if sink == nil {
+			sink = audit.Unavailable{Err: errors.New("no audit sink was configured for this in-process client")}
+		}
+		c.runtime = NewResourceRuntimeService(sink,
 			WithResourceRuntimeLogger(c.logger),
 			WithResourceRuntimeLocalConnector(c.local),
 			WithResourceRuntimeConfigV2(c.cfg),

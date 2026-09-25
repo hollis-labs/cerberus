@@ -2,6 +2,7 @@ package webui
 
 import (
 	"encoding/json"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,7 +93,7 @@ resources:
 // not, so a config carrying an unknown field looked identical to a clean
 // one everywhere in the console.
 func TestRegistryEndpointReportsSkippedAndWarned(t *testing.T) {
-	srv, err := New(&fakeClient{}, registryFixture(t), nil, nil)
+	srv, err := New(&fakeClient{}, audit.NewMemory(), registryFixture(t), nil, nil)
 	if err != nil {
 		t.Fatalf("webui.New: %v", err)
 	}

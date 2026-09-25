@@ -45,20 +45,3 @@ func llog() *slog.Logger {
 func GetLogger() *slog.Logger {
 	return llog()
 }
-
-// LogAudit writes a structured audit entry for destructive lifecycle operations.
-// This captures who requested the operation and why, so operators can trace
-// service disruptions back to the responsible agent/task.
-func LogAudit(operation, serviceID, reason, taskID, sessionID string) {
-	attrs := []any{
-		slog.String("service", serviceID),
-		slog.String("reason", reason),
-	}
-	if taskID != "" {
-		attrs = append(attrs, slog.String("task_id", taskID))
-	}
-	if sessionID != "" {
-		attrs = append(attrs, slog.String("session_id", sessionID))
-	}
-	llog().Info("lifecycle.audit", attrs...)
-}

@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ func TestPipelineTransportUsesSharedRuntimeAndFreshConfig(t *testing.T) {
 		}
 	}
 	writeConfig("Original", "'true'")
-	runtime := NewResourceRuntimeService(WithResourceRuntimeConfigPath(path))
+	runtime := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigPath(path))
 	// The client has no config of its own: all pipeline operations must delegate.
 	client := startConnectorSocket(t, NewInProcessClient(WithResourceRuntimeService(runtime)))
 	list, err := client.ListPipelines(context.Background())
@@ -60,7 +61,7 @@ func TestPipelineTransportUsesSharedRuntimeAndFreshConfig(t *testing.T) {
 }
 
 func TestPipelineDetailRetainsInvalidDefinition(t *testing.T) {
-	runtime := NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{
+	runtime := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{
 		Pipelines: []config.PipelineDef{{ID: "invalid", Name: "Inspectable"}},
 	}))
 	client := startConnectorSocket(t, NewInProcessClient(WithResourceRuntimeService(runtime)))

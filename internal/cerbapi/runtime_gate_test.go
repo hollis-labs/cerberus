@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"log/slog"
 	"os"
@@ -108,7 +109,7 @@ func runtimeMutations(id string) []runtimeMutation {
 // call returns acknowledgment_required at once — it takes no lock and looks
 // nothing up.
 func TestRuntimeAckComesBeforeAnything(t *testing.T) {
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{}))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{}))
 	svc.opMu.Lock()
 	svc.pipelineMu.Lock()
 	defer svc.opMu.Unlock()
@@ -137,7 +138,7 @@ func TestRuntimeAckComesBeforeAnything(t *testing.T) {
 
 // Acknowledged, the same calls go past the gate and meet the lookup.
 func TestRuntimeAckedCallsReachTheService(t *testing.T) {
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{}))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{}))
 	for _, m := range runtimeMutations("nothing-by-this-name") {
 		err := m.call(context.Background(), svc, WithAcknowledged(true))
 		var connErr *ExternalConnectorError
@@ -169,7 +170,7 @@ func TestMonitorRestartNeverHitsTheGate(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "restarted")
 	cfg := &config.ConfigV2{Resources: []config.ResourceDef{{ID: "crashy", Type: "process", Connector: "local",
 		Config: map[string]any{"auto_restart": true, "command": []string{"/usr/bin/touch", marker}}}}}
-	runtime := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
+	runtime := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
 
 	if _, err := runtime.ApplyResource(context.Background(), "crashy"); connectorErrorCode(err) != ExternalConnectorAckRequired {
 		t.Fatalf("explicit apply without ack: err = %v, want the gate to refuse it", err)
@@ -198,7 +199,7 @@ func TestMonitorRestartNeverHitsTheGate(t *testing.T) {
 // EnsureFresh never acknowledges on its own: the caller's acknowledgment
 // reaches the mutation it chooses, and without one that mutation is refused.
 func TestEnsureFreshCarriesTheCallersAck(t *testing.T) {
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{}))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{}))
 	if _, err := EnsureFresh(context.Background(), svc, "anything", true); connectorErrorCode(err) != ExternalConnectorAckRequired {
 		t.Fatalf("unacknowledged ensure-fresh: err = %v, want acknowledgment_required", err)
 	}
@@ -210,7 +211,7 @@ func TestEnsureFreshCarriesTheCallersAck(t *testing.T) {
 // Over the socket the acknowledgment travels in the body, and a refusal keeps
 // its code and the 409 the status table gives it.
 func TestResourceAckTravelsTheSocket(t *testing.T) {
-	sock := startConnectorSocket(t, NewInProcessClient(WithResourceRuntimeService(NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{})))))
+	sock := startConnectorSocket(t, NewInProcessClient(WithResourceRuntimeService(NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{})))))
 	_, err := sock.StopResource(context.Background(), "svc")
 	if code := connectorErrorCode(err); code != ExternalConnectorAckRequired {
 		t.Fatalf("unacknowledged stop over the socket: err = %v", err)

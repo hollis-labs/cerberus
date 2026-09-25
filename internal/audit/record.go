@@ -43,9 +43,15 @@ const PostureSecure = "secure"
 // self-reported (cerbapi.CallerSurface) and proves nothing: an in-process
 // CLI call is a local principal, never "the human".
 type Principal struct {
+	// Kind is automation for Cerberus acting on its own — the resource
+	// monitor restarting a workload — and empty for a request from a caller.
+	Kind         string `json:"kind,omitempty"`
 	Surface      string `json:"surface"`
 	SelfReported bool   `json:"self_reported"`
 }
+
+// PrincipalAutomation is the kind of a principal that is Cerberus itself.
+const PrincipalAutomation = "automation"
 
 // Target is what an operation touched: the contract's target kind, and the
 // values of the input fields its descriptor names (a droplet id, a resource
@@ -92,6 +98,14 @@ type Record struct {
 	DurationMS  int64  `json:"duration_ms,omitempty"`
 	Posture     string `json:"posture"`
 
+	// Reason is why automation acted: what the monitor saw.
+	Reason string `json:"reason,omitempty"`
+
+	// PluginTelemetry is what a plugin reported for this operation, bounded
+	// and redacted by the host. It enriches the host's outcome record; a
+	// plugin cannot write a record of its own.
+	PluginTelemetry *PluginTelemetry `json:"plugin_telemetry,omitempty"`
+
 	// Note explains a chain_start, file_start or chain_break record.
 	Note     string `json:"note,omitempty"`
 	PrevFile string `json:"prev_file,omitempty"`
@@ -116,4 +130,24 @@ func NewID() string {
 		panic("audit: no randomness: " + err.Error())
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// PluginTelemetry is the bounded, redacted record of what a plugin reported
+// during one operation: the events it returned with its result, and the
+// stderr lines it wrote while the call ran.
+type PluginTelemetry struct {
+	Events []PluginEvent `json:"events,omitempty"`
+	Stderr []string      `json:"stderr,omitempty"`
+	// SharedStderr is set when another call to the same plugin ran at the
+	// same time, so a stderr line may belong to either.
+	SharedStderr bool `json:"shared_stderr,omitempty"`
+	// Truncated is set when the plugin reported more than the bounds keep.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// PluginEvent is one event a plugin reported.
+type PluginEvent struct {
+	Kind    string `json:"kind,omitempty"`
+	Message string `json:"message,omitempty"`
+	Target  string `json:"target,omitempty"`
 }

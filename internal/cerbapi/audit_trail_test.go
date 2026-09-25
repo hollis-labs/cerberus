@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -210,7 +211,11 @@ func TestPluginPathsAreRecordedOnce(t *testing.T) {
 // in internal/app, which is what opens the real sink. Anywhere else would be
 // a place a service could be built on a sink nobody reads.
 func TestServicesAreConstructedOnlyInApp(t *testing.T) {
-	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true}
+	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true, "NewResourceRuntimeService": true}
+	// The one construction outside internal/app that is allowed, and why.
+	allowed := map[string]string{
+		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService": "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
+	}
 	root := filepath.Join("..", "..")
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -250,6 +255,9 @@ func TestServicesAreConstructedOnlyInApp(t *testing.T) {
 					name = fn.Name
 				}
 			}
+			if _, ok := allowed[rel+":"+name]; ok {
+				return true
+			}
 			if constructors[name] {
 				t.Errorf("%s: %s is constructed outside internal/app", fset.Position(call.Pos()), name)
 			}
@@ -264,6 +272,7 @@ func TestServicesAreConstructedOnlyInApp(t *testing.T) {
 		func() { NewExternalConnectorService(nil, connector.NewRegistry()) },
 		func() { _, _ = NewManagedPluginConnectorService(nil, "t", io.Discard, "") },
 		func() { NewPluginConnectorService(nil, "t", io.Discard) },
+		func() { NewResourceRuntimeService(nil) },
 	} {
 		func() {
 			defer func() {
@@ -277,13 +286,12 @@ func TestServicesAreConstructedOnlyInApp(t *testing.T) {
 }
 
 // Every Client method is classified. An audited method writes its records;
-// the resource mutators and pipeline run are P1-4b; the rest only read. A new
+// the rest only read. A new
 // method fails here until someone decides which it is.
 func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 	const (
 		audited  = "audited"
 		readOnly = "read_only"
-		p14b     = "audited in P1-4b"
 	)
 	classification := map[string]string{
 		"ExecuteConnectorOperation": audited,
@@ -293,8 +301,8 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		"UninstallManagedPlugin":    audited,
 		"ExecuteManagedPlugin":      audited,
 
-		"DeployResource": p14b, "ApplyResource": p14b, "ReloadResource": p14b, "StopResource": p14b,
-		"SyncResource": p14b, "RemoveResource": p14b, "RunPipeline": p14b,
+		"DeployResource": audited, "ApplyResource": audited, "ReloadResource": audited, "StopResource": audited,
+		"SyncResource": audited, "RemoveResource": audited, "RunPipeline": audited,
 
 		"ResourceLogs": readOnly, "Health": readOnly, "ListProjects": readOnly, "ListResources": readOnly,
 		"ResolveDiagnostics": readOnly, "GetResourceRuntime": readOnly, "GetResourceInspect": readOnly,
@@ -320,7 +328,8 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 	sink := audit.NewMemory()
 	managed := leakyManagedService(t)
 	managed.audit = sink
-	client := NewInProcessClient(WithExternalConnectorService(auditedDockerService(sink)), WithManagedPluginConnectorService(managed))
+	runtime := NewResourceRuntimeService(sink, WithResourceRuntimeConfigV2(&config.ConfigV2{}))
+	client := NewInProcessClient(WithExternalConnectorService(auditedDockerService(sink)), WithManagedPluginConnectorService(managed), WithResourceRuntimeService(runtime))
 	ctx := context.Background()
 	calls := map[string]func(){
 		"ExecuteConnectorOperation": func() {
@@ -335,6 +344,13 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		"ExecuteManagedPlugin": func() {
 			_, _ = client.ExecuteManagedPlugin(ctx, "leaky", PluginConnectorExecArgs{Operation: "list_things"})
 		},
+		"DeployResource": func() { _, _ = client.DeployResource(ctx, "svc") },
+		"ApplyResource":  func() { _, _ = client.ApplyResource(ctx, "svc") },
+		"ReloadResource": func() { _, _ = client.ReloadResource(ctx, "svc") },
+		"StopResource":   func() { _, _ = client.StopResource(ctx, "svc") },
+		"SyncResource":   func() { _, _ = client.SyncResource(ctx, "svc") },
+		"RemoveResource": func() { _, _ = client.RemoveResource(ctx, "svc") },
+		"RunPipeline":    func() { _, _ = client.RunPipeline(ctx, "p") },
 	}
 	for name, kind := range classification {
 		if kind != audited {
