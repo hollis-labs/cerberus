@@ -1,6 +1,7 @@
 package pluginhost
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -163,6 +164,12 @@ func (p TrustPolicy) ValidateInstall(check TrustCheck) (TrustDecision, error) {
 	}
 }
 
+// ErrPreviewUnsupported is a dry run of a plugin operation whose manifest does
+// not declare supports_dry. The plugin is never called. The text leads with
+// the same code the admin lane uses, so the one-shot plugin path, which
+// returns this unwrapped, still names it.
+var ErrPreviewUnsupported = errors.New("preview_unsupported: the manifest does not declare supports_dry, so there is no dry-run preview; nothing was executed")
+
 func OperationAllowed(tier TrustTier, op contract.ManifestOperation, acknowledged bool) error {
 	switch tier {
 	// TrustTierUnsigned sits with the trusted tiers rather than the dev tiers,
@@ -183,7 +190,10 @@ func OperationAllowed(tier TrustTier, op contract.ManifestOperation, acknowledge
 	default:
 		return fmt.Errorf("operation %q has unsupported trust tier %q", op.Name, tier)
 	}
-	if op.Destructive && op.RequiresAck && !acknowledged {
+	// Any destructive operation needs acknowledgment. RequiresAck used to be
+	// ANDed in here, which let a manifest declare destructive: true,
+	// requires_ack: false and opt out of the host's gate. It is metadata now.
+	if op.Destructive && !acknowledged {
 		return fmt.Errorf("destructive operation %q requires operator acknowledgment", op.Name)
 	}
 	return nil

@@ -101,13 +101,16 @@ func NewCerberusSSHPutTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 func NewCerberusSSHGetTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_get",
-		Description: "Download a file from an SSH resource over SFTP.",
+		Description: "Download a file from an SSH resource over SFTP, overwriting local_path if it exists.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
 			"remote_path": map[string]interface{}{"type": "string", "description": "File to download from the remote host."},
 			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination path."},
 		}, "resource_id", "remote_path", "local_path"),
-		ReadOnlyHint: true,
+		// Not read-only: the download overwrites local_path, which the caller
+		// chooses. Which local paths a caller may write is P1/P2 path policy.
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, cfg, client, "get", args, false, false)
 		},
@@ -141,13 +144,16 @@ func NewCerberusSSHPutDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool 
 func NewCerberusSSHGetDirTool(cfg *config.ConfigV2, client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_get_dir",
-		Description: "Recursively download a directory tree from an SSH resource over SFTP into a local directory.",
+		Description: "Recursively download a directory tree from an SSH resource over SFTP into a local directory, overwriting local files that already exist.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
 			"remote_path": map[string]interface{}{"type": "string", "description": "Directory to download from the remote host."},
 			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination directory."},
 		}, "resource_id", "remote_path", "local_path"),
-		ReadOnlyHint: true,
+		// Not read-only: the download overwrites local_path, which the caller
+		// chooses. Which local paths a caller may write is P1/P2 path policy.
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, cfg, client, "get_dir", args, false, false)
 		},

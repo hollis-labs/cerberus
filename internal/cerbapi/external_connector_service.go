@@ -33,7 +33,21 @@ const (
 	ExternalConnectorUnsupported       ExternalConnectorErrorCode = "operation_unsupported"
 	ExternalConnectorInvalidArgs       ExternalConnectorErrorCode = "invalid_args"
 	ExternalConnectorAckRequired       ExternalConnectorErrorCode = "acknowledgment_required"
+	// ExternalConnectorPreviewUnsupported is a dry run of an operation that
+	// has no preview. The operation is refused, never executed.
+	ExternalConnectorPreviewUnsupported ExternalConnectorErrorCode = "preview_unsupported"
 )
+
+// externalConnectorErrorCodes is the whole vocabulary, for tests that hold
+// each code intact through redaction.
+var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
+	ExternalConnectorUnavailable,
+	ExternalConnectorCredentialMissing,
+	ExternalConnectorUnsupported,
+	ExternalConnectorInvalidArgs,
+	ExternalConnectorAckRequired,
+	ExternalConnectorPreviewUnsupported,
+}
 
 type ExternalConnectorError struct {
 	Code      ExternalConnectorErrorCode
@@ -165,6 +179,16 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Dry run completed")
 			return externalConnectorResult(args, preview), nil
 		}
+		// A dry run never reaches a built-in connector's real dispatch. A
+		// loaded managed plugin is the one exception, and only for an
+		// operation its manifest declares supports_dry: pluginhost refuses
+		// the rest with the same code before calling the plugin.
+		if s.managedPlugins == nil || !s.managedPlugins.Loaded(args.Connector) {
+			err := previewUnsupportedError(args)
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Dry run unsupported")
+			return ExternalConnectorOperationResult{}, err
+		}
 	}
 	if s.managedPlugins != nil && s.managedPlugins.Loaded(args.Connector) {
 		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing managed plugin connector %s.%s", args.Connector, args.Operation))
@@ -246,17 +270,29 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	return result, nil
 }
 
+// requireAcknowledgment fails closed. Whether an operation is destructive is
+// read from its definition, so a connector with no definition, or an
+// operation its definition does not declare, is refused rather than treated
+// as safe.
 func (s *ExternalConnectorService) requireAcknowledgment(args ExternalConnectorOperationArgs) error {
 	def, ok := s.definitionFor(args.Connector)
 	if !ok {
-		return nil
+		return externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("connector %q has no definition, so whether %q is destructive cannot be checked; refusing", args.Connector, args.Operation))
 	}
 	for _, op := range def.Operations {
-		if op.Name == args.Operation && op.Destructive && !args.Acknowledged {
+		if op.Name != args.Operation {
+			continue
+		}
+		if op.Destructive && !args.Acknowledged {
 			return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("destructive operation %q requires operator acknowledgment", args.Operation))
 		}
+		return nil
 	}
-	return nil
+	return externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("connector %q does not declare operation %q, so whether it is destructive cannot be checked; refusing", args.Connector, args.Operation))
+}
+
+func previewUnsupportedError(args ExternalConnectorOperationArgs) error {
+	return externalConnectorError(args, ExternalConnectorPreviewUnsupported, fmt.Errorf("operation %q has no dry-run preview; nothing was executed. Run it without --dry-run to execute", args.Operation))
 }
 
 func (s *ExternalConnectorService) definitionFor(id string) (contract.Definition, bool) {
@@ -978,6 +1014,9 @@ func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) e
 	var missing *pluginhost.MissingSecretsError
 	if errors.As(err, &missing) {
 		return externalConnectorError(args, ExternalConnectorCredentialMissing, err)
+	}
+	if errors.Is(err, pluginhost.ErrPreviewUnsupported) {
+		return externalConnectorError(args, ExternalConnectorPreviewUnsupported, err)
 	}
 	return err
 }

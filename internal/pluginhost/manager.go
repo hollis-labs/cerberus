@@ -262,6 +262,14 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	if err := OperationAllowed(lp.plugin.Trust.Tier, op, args.Acknowledged); err != nil {
 		return OperationResult{}, err
 	}
+	// A dry run reaches the plugin only for an operation whose manifest
+	// declares supports_dry, and the plugin is trusted to honor dry_run.
+	// That preview is plugin-claimed, not verified by the host (Decision 7 in
+	// docs/plans/live-systems-security-target.md); install review in P1 is
+	// what turns the claim into something an operator accepted.
+	if args.DryRun && !op.SupportsDry {
+		return OperationResult{}, fmt.Errorf("plugin %q operation %q: %w", args.Connector, args.Operation, ErrPreviewUnsupported)
+	}
 
 	result, err := lp.process.CallTool(ctx, MCPRequestFromOperation(args))
 	if err != nil {

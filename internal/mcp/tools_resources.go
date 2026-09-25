@@ -227,7 +227,7 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 		Name:            "cerberus_resource_reload",
 		Description:     "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh with force=true instead.",
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		InputSchema: objectSchema(map[string]interface{}{
@@ -263,7 +263,7 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 		Name:            "cerberus_resource_stop",
 		Description:     "Stop a resource without uninstalling it. Use remove for uninstall.",
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		InputSchema: objectSchema(map[string]interface{}{
@@ -299,7 +299,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 		Name:            "cerberus_resource_deploy",
 		Description:     "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. This is the default action after editing source. ensure_fresh requires force=true to guarantee a rebuild.",
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		InputSchema: objectSchema(map[string]interface{}{
@@ -331,7 +331,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 		Name:            "cerberus_resource_ensure_fresh",
 		Description:     "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift. Unconfirmed activation returns success=false without restarting; follow the verification guidance before retrying.",
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		InputSchema: objectSchema(map[string]interface{}{
@@ -372,7 +372,7 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 		Name:            "cerberus_resource_apply",
 		Description:     "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh with force=true) so it rebuilds first.",
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		InputSchema: objectSchema(map[string]interface{}{
@@ -404,7 +404,7 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 		Name:            "cerberus_resource_sync",
 		Description:     "Sync installed artifacts without applying the runtime backend.",
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 		InputSchema: objectSchema(map[string]interface{}{
