@@ -2,7 +2,6 @@ package cerbapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,7 +16,6 @@ import (
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
-	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -229,10 +227,6 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector registry unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
-	// Refuse before credential resolution, dry-run previews, or plugin dispatch.
-	if args.Connector == "namecheap" && (args.Operation == "create_dns_record" || args.Operation == "delete_dns_record") {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
-	}
 	// The contract gate: the operation must be declared, and the caller's
 	// config must pass its key table. Both run on the raw request, before a
 	// configured resource is merged in and before anything is resolved, so a
@@ -352,8 +346,6 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 		result, err = s.executeForge(ctx, c, args)
 	case "github":
 		result, err = s.executeGitHub(ctx, c, args)
-	case "namecheap":
-		result, err = s.executeNamecheap(ctx, c, args)
 	case "ssh":
 		result, err = s.executeSSH(ctx, c, args)
 	default:
@@ -445,31 +437,6 @@ func (s *ExternalConnectorService) definitionFor(id string) (contract.Definition
 
 func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperationArgs) (ExternalConnectorDryRunPreview, bool, error) {
 	switch args.Connector {
-	case "namecheap":
-		switch args.Operation {
-		case "set_dns_record_set":
-			domainName, set, err := namecheapRecordSetArgs(args.Config)
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would replace every Namecheap DNS host record and explicitly set email routing.", map[string]any{"domain": domainName}, map[string]any{"email_type": set.EmailType, "records": set.Records}, "All omitted records will be deleted. getHosts can omit existing records; supply a complete authoritative set."), true, nil
-		case "create_dns_record", "delete_dns_record":
-			return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
-		case "set_custom_nameservers":
-			domain, err := requiredString(args.Config, "domain")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			nameservers, err := requiredStringSlice(args.Config, "nameservers")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would switch a Namecheap domain to custom nameservers.", map[string]any{
-				"domain": domain,
-			}, map[string]any{
-				"nameservers": nameservers,
-			}, "Changing registrar nameservers moves DNS authority away from Namecheap's default nameservers for this domain."), true, nil
-		}
 	case "forge":
 		switch args.Operation {
 		case "deploy_site":
@@ -733,85 +700,6 @@ func (s *ExternalConnectorService) executeForge(ctx context.Context, c contract.
 			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 		}
 		result, err := forge.ExecuteSiteCommand(ctx, serverID, siteID, command)
-		return externalConnectorResult(args, result), err
-	default:
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
-	}
-}
-
-func (s *ExternalConnectorService) executeNamecheap(ctx context.Context, c contract.Connector, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	namecheap, ok := c.(*ncconn.Connector)
-	if !ok {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("registered connector has type %T", c))
-	}
-
-	switch args.Operation {
-	case "get_dns_record_set":
-		domainName, err := requiredString(args.Config, "domain")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		set, err := namecheap.GetDNSRecordSet(ctx, domainName)
-		return externalConnectorResult(args, set), err
-	case "set_dns_record_set":
-		domainName, set, err := namecheapRecordSetArgs(args.Config)
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		err = namecheap.SetDNSRecordSet(ctx, domainName, set)
-		return externalConnectorResult(args, set), err
-	case "list_domains":
-		domains, err := namecheap.ListDomains(ctx)
-		return externalConnectorResult(args, domains), err
-	case "get_domain_status":
-		domainName, err := requiredString(args.Config, "domain")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		status, err := namecheap.GetDomainStatus(ctx, domainName)
-		return externalConnectorResult(args, status), err
-	case "list_dns_records":
-		domainName, err := requiredString(args.Config, "domain")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		records, err := namecheap.ListDNSRecords(ctx, domainName)
-		return externalConnectorResult(args, records), err
-	case "create_dns_record":
-		domainName, err := requiredString(args.Config, "domain")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		record := ncconn.DNSRecord{
-			Type:   stringFromConfig(args.Config, "type", ""),
-			Host:   stringFromConfig(args.Config, "host", ""),
-			Value:  stringFromConfig(args.Config, "value", ""),
-			TTL:    intFromConfig(args.Config, "ttl", 0),
-			MXPref: intFromConfig(args.Config, "mx_pref", 0),
-		}
-		created, err := namecheap.CreateDNSRecord(ctx, domainName, record)
-		return externalConnectorResult(args, created), err
-	case "delete_dns_record":
-		domainName, err := requiredString(args.Config, "domain")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		recordID, err := requiredInt(args.Config, "record_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		err = namecheap.DeleteDNSRecord(ctx, domainName, recordID)
-		return externalConnectorResult(args, nil), err
-	case "set_custom_nameservers":
-		domainName, err := requiredString(args.Config, "domain")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		nameservers, err := requiredStringSlice(args.Config, "nameservers")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		result, err := namecheap.SetCustomNameservers(ctx, domainName, nameservers)
 		return externalConnectorResult(args, result), err
 	default:
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
@@ -1111,34 +999,4 @@ func serverSiteIDs(cfg map[string]any) (int, int, error) {
 		return 0, 0, err
 	}
 	return serverID, siteID, nil
-}
-
-func namecheapRecordSetArgs(config map[string]any) (string, ncconn.DNSRecordSet, error) {
-	domainName, err := requiredString(config, "domain")
-	if err != nil {
-		return "", ncconn.DNSRecordSet{}, err
-	}
-	emailType, err := requiredString(config, "email_type")
-	if err != nil {
-		return "", ncconn.DNSRecordSet{}, err
-	}
-	raw, exists := config["records"]
-	if !exists || raw == nil {
-		return "", ncconn.DNSRecordSet{}, errors.New("records must explicitly contain the complete authoritative host record array")
-	}
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return "", ncconn.DNSRecordSet{}, err
-	}
-	var records []ncconn.DNSRecord
-	if err = json.Unmarshal(data, &records); err != nil {
-		return "", ncconn.DNSRecordSet{}, fmt.Errorf("records: %w", err)
-	}
-	for _, record := range records {
-		if record.Type == "" || record.Host == "" || record.Value == "" {
-			return "", ncconn.DNSRecordSet{}, errors.New("each record requires type, host and value")
-		}
-	}
-	set := ncconn.DNSRecordSet{EmailType: emailType, Records: records}
-	return domainName, set, set.Validate()
 }

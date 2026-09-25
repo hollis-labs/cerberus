@@ -71,11 +71,11 @@ policy:
    config snapshot, or the CLI's own config in-process. A docker operation may
    name `resource: <id>`, resolved the same way. This runs before any preview,
    so a preview names the real target (CERB-DEC-813).
-2. A hard refusal for `namecheap create_dns_record` / `delete_dns_record`,
-   deliberately placed **before** credential resolution so the refusal is what
-   an operator sees rather than a missing-token error. Verified: `cerberus dns
-   create` on a machine with no Namecheap credential returns the refusal and its
-   recovery, not `credential_missing`.
+2. *(Retired 2026-09-25.)* The hard refusal for `namecheap create_dns_record` /
+   `delete_dns_record` left the host with the built-in. The namecheap plugin
+   does not declare either operation, so the contract gate below refuses them
+   as undeclared before anything resolves, and the plugin refuses them by name
+   as well for a caller that reaches it directly.
 3. The dry-run branch. If `dryRunPreview` has a case for this connector and
    operation, it returns a preview and stops. If it has none, the call is
    refused as `preview_unsupported` and nothing runs, unless a loaded managed
