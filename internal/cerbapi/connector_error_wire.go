@@ -30,6 +30,7 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorUnavailable:        http.StatusServiceUnavailable,
 	ExternalConnectorCredentialMissing:  http.StatusServiceUnavailable,
 	ExternalConnectorOperationFailed:    http.StatusBadGateway,
+	ExternalConnectorAuditUnavailable:   http.StatusServiceUnavailable,
 }
 
 // ExternalConnectorHTTPStatus returns the status for err when it carries a

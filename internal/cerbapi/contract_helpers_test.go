@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
@@ -38,7 +39,7 @@ func checkFromSurface(surface CallerSurface, args ExternalConnectorOperationArgs
 	for _, def := range []contract.Definition{sshconn.Definition(), dockerconn.Definition()} {
 		registry.RegisterDefinition(def)
 	}
-	_, err := NewExternalConnectorService(registry).declaredOperation(WithCallerSurface(context.Background(), surface), args)
+	_, err := NewExternalConnectorService(audit.NewMemory(), registry).declaredOperation(WithCallerSurface(context.Background(), surface), args)
 	return err
 }
 

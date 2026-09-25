@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"net/url"
 	"path/filepath"
@@ -66,7 +67,7 @@ func (sentinelResolver) Get(_ context.Context, service, key string) (string, err
 // that echoes its credential into every error.
 func leakyManagedService(t *testing.T) *ManagedPluginConnectorService {
 	t.Helper()
-	svc, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	svc, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}
@@ -119,7 +120,7 @@ func capturingContext() (context.Context, *[]string) {
 func TestManagedPluginFailureTextIsRedactedOnEveryRoute(t *testing.T) {
 	routes := map[string]func(context.Context, *ManagedPluginConnectorService) error{
 		"admin lane": func(ctx context.Context, svc *ManagedPluginConnectorService) error {
-			_, err := NewExternalConnectorService(connector.NewRegistry(), svc).Execute(ctx,
+			_, err := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry(), svc).Execute(ctx,
 				ExternalConnectorOperationArgs{Connector: "leaky", Operation: "list_things"})
 			return err
 		},
@@ -171,7 +172,7 @@ func TestDigitalOceanCreateDropletPreviewNeverCarriesUserData(t *testing.T) {
 	const userData = "#cloud-config\nwrite_files:\n  - content: SENTINEL-USER-DATA-5b1d\n"
 	registry := connector.NewRegistry()
 	registry.RegisterDefinition(doconn.Definition())
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "digitalocean",
 		Operation: "create_droplet",

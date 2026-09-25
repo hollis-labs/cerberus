@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func TestCloudflareMXPriorityReachesBackendThroughSocket(t *testing.T) {
 	backend := &priorityBackend{created: make(chan cf.DNSRecord, 1)}
 	registry := connector.NewRegistry()
 	registry.Register(cf.NewWithBackend(backend))
-	client := startDaemonSocketWithClient(t, cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(registry))))
+	client := startDaemonSocketWithClient(t, cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(audit.NewMemory(), registry))))
 	tool := NewCerberusCloudflareDNSCreateTool(client)
 	for _, priority := range []any{float64(10), float64(0), 25} {
 		out, err := tool.Handler(context.Background(), map[string]any{"zone_id": "zone", "type": "MX", "name": "mail.example.com", "content": "mx.example.com", "priority": priority, "acknowledged": true})

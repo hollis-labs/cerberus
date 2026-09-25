@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestNamecheapMCPPreservesExplicitEmailModeAndAuthoritativeRecords(t *testin
 	backend := &recordSetBackend{writes: make(chan nc.DNSRecordSet, 1)}
 	registry := connector.NewRegistry()
 	registry.Register(nc.NewWithBackend(backend))
-	client := startDaemonSocketWithClient(t, cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(registry))))
+	client := startDaemonSocketWithClient(t, cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(audit.NewMemory(), registry))))
 	for _, tool := range NewCerberusDNSRecordSetTools(client) {
 		if tool.Name != "cerberus_set_dns_record_set" {
 			continue

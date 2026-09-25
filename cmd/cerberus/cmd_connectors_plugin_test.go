@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"os"
 	"path/filepath"
@@ -260,11 +261,11 @@ func startManagedPluginSocketServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PluginConnectorStatePath: %v", err)
 	}
-	managed, err := cerbapi.NewManagedPluginConnectorService("test", nil, statePath)
+	managed, err := cerbapi.NewManagedPluginConnectorService(audit.NewMemory(), "test", nil, statePath)
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}
-	external := cerbapi.NewExternalConnectorService(connector.NewRegistry(), managed)
+	external := cerbapi.NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry(), managed)
 	client := cerbapi.NewInProcessClient(
 		cerbapi.WithExternalConnectorService(external),
 		cerbapi.WithManagedPluginConnectorService(managed),

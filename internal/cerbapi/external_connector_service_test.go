@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"os"
 	"path/filepath"
@@ -324,7 +325,7 @@ func TestExternalConnectorServiceExecutesDockerOperation(t *testing.T) {
 	backend := &fakeDockerBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "docker",
@@ -346,7 +347,7 @@ func TestExternalConnectorServiceRoutesDockerOperationsToTheRequestedHost(t *tes
 	backend := &fakeDockerBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	if _, err := svc.Execute(WithCallerSurface(context.Background(), SurfaceInProcess), ExternalConnectorOperationArgs{
 		Connector: "docker",
@@ -376,7 +377,7 @@ func TestExternalConnectorServiceRoutesDockerOperationsToTheRequestedHost(t *tes
 func TestExternalConnectorServiceRejectsDockerHostAndContextTogether(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(&fakeDockerBackend{}))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "docker",
@@ -396,7 +397,7 @@ func TestExternalConnectorServiceExecutesDigitalOceanOperation(t *testing.T) {
 	backend := &fakeDigitalOceanBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(doconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "digitalocean",
@@ -419,7 +420,7 @@ func TestExternalConnectorServiceExecutesGitHubOperation(t *testing.T) {
 	backend := &fakeGitHubBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(ghconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "github",
@@ -442,7 +443,7 @@ func TestExternalConnectorServiceExecutesCloudflareOperation(t *testing.T) {
 	backend := &fakeCloudflareBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(cfconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "cloudflare",
@@ -465,7 +466,7 @@ func TestExternalConnectorServiceExecutesCloudflareZoneCreate(t *testing.T) {
 	backend := &fakeCloudflareBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(cfconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector:    "cloudflare",
@@ -493,7 +494,7 @@ func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t
 	backend := &fakeCloudflareBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(cfconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "cloudflare",
@@ -517,7 +518,7 @@ func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t
 func TestExternalConnectorServiceCloudflareZoneCreateDryRun(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.RegisterDefinition(cfconn.Definition())
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "cloudflare",
@@ -546,7 +547,7 @@ func TestExternalConnectorServiceCloudflareZoneCreateDryRun(t *testing.T) {
 func TestExternalConnectorServiceDryRunPreviewBypassesAcknowledgment(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.RegisterDefinition(cfconn.Definition())
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "cloudflare",
@@ -573,7 +574,7 @@ func TestExternalConnectorServiceDryRunPreviewBypassesAcknowledgment(t *testing.
 }
 
 func TestNamecheapPerRecordWritesRefusedWithoutCredentialsIncludingDryRun(t *testing.T) {
-	svc := NewExternalConnectorService(nil)
+	svc := NewExternalConnectorService(audit.NewMemory(), nil)
 	for _, op := range []string{"create_dns_record", "delete_dns_record"} {
 		for _, dryRun := range []bool{true, false} {
 			_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "namecheap", Operation: op, DryRun: dryRun, Acknowledged: true, Config: map[string]any{"domain": "example.com"}})
@@ -588,7 +589,7 @@ func TestExternalConnectorServiceExecutesNamecheapOperation(t *testing.T) {
 	backend := &fakeNamecheapBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(ncconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "namecheap",
@@ -611,7 +612,7 @@ func TestExternalConnectorServiceExecutesNamecheapNameserverChange(t *testing.T)
 	backend := &fakeNamecheapBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(ncconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector:    "namecheap",
@@ -638,7 +639,7 @@ func TestExternalConnectorServiceExecutesForgeOperation(t *testing.T) {
 	backend := &fakeForgeBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(forgeconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector:    "forge",
@@ -666,7 +667,7 @@ func TestExternalConnectorServiceExecutesSSHOperation(t *testing.T) {
 	backend := &fakeSSHBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(sshTestLookup())
 
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
@@ -690,7 +691,7 @@ func TestExternalConnectorServiceExecutesSSHOperation(t *testing.T) {
 func newSSHTestService(backend *fakeSSHBackend) *ExternalConnectorService {
 	registry := connector.NewRegistry()
 	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(sshTestLookup())
 	return svc
 }
@@ -976,7 +977,7 @@ func TestExternalConnectorServiceUnavailableConnectorReturnsStructuredError(t *t
 	registry := connector.NewRegistry()
 	registry.RegisterDefinition(ghconn.Definition())
 	registry.RegisterUnavailable("github", errors.New("missing token"))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "github", Operation: "status", Config: map[string]any{"owner": "o", "repo": "r"}})
 	var connErr *ExternalConnectorError
@@ -991,7 +992,7 @@ func TestExternalConnectorServiceUnavailableConnectorReturnsStructuredError(t *t
 func TestInProcessClientListsExternalConnectorDefinitions(t *testing.T) {
 	registry := connector.NewRegistry()
 	registry.RegisterDefinition(dockerconn.Definition())
-	client := NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(registry)))
+	client := NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(audit.NewMemory(), registry)))
 
 	defs, err := client.ListConnectors(context.Background())
 	if err != nil {
@@ -1006,7 +1007,7 @@ func TestSocketClientExecutesConnectorOperation(t *testing.T) {
 	backend := &fakeDockerBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(backend))
-	client := NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(registry)))
+	client := NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(audit.NewMemory(), registry)))
 
 	socketClient := startConnectorSocket(t, client)
 	result, err := socketClient.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
@@ -1036,7 +1037,7 @@ func TestExternalConnectorServiceIncludesInstalledManagedPluginDefinitions(t *te
 		t.Fatalf("Install: %v", err)
 	}
 
-	svc := NewExternalConnectorService(connector.NewRegistry(), managed)
+	svc := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry(), managed)
 	defs := svc.Definitions()
 	if len(defs) != 1 || defs[0].ID != "docker" {
 		t.Fatalf("Definitions = %#v", defs)
@@ -1068,7 +1069,7 @@ func TestSocketClientExecutesManagedPluginThroughConnectorAPI(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	client := NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(connector.NewRegistry(), managed)))
+	client := NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry(), managed)))
 	socketClient := startConnectorSocket(t, client)
 
 	result, err := socketClient.ExecuteConnectorOperation(context.Background(), ExternalConnectorOperationArgs{
@@ -1095,7 +1096,7 @@ func (c pingBypassClient) Health(context.Context, string) (*DaemonHealth, error)
 
 func TestSocketClientPingBypassesHealthWork(t *testing.T) {
 	socketClient := startConnectorSocket(t, pingBypassClient{
-		Client: NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(connector.NewRegistry()))),
+		Client: NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry()))),
 	})
 
 	if err := socketClient.Ping(context.Background()); err != nil {
@@ -1141,7 +1142,7 @@ func TestNamecheapWholeZoneReplacementIsExplicitAndAcknowledged(t *testing.T) {
 	backend := &fakeNamecheapBackend{}
 	reg := connector.NewRegistry()
 	reg.Register(ncconn.NewWithBackend(backend))
-	service := NewExternalConnectorService(reg)
+	service := NewExternalConnectorService(audit.NewMemory(), reg)
 	args := ExternalConnectorOperationArgs{Connector: "namecheap", Operation: "set_dns_record_set", Config: map[string]any{
 		"domain": "example.com", "email_type": "MX", "records": []any{map[string]any{"type": "TXT", "host": "resend._domainkey", "value": "p=AA/BB"}},
 	}}
@@ -1209,7 +1210,7 @@ func TestExternalConnectorServiceFallsBackToBuiltInWhenPluginNotLoaded(t *testin
 	registry := connector.NewRegistry()
 	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
 
-	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
@@ -1225,7 +1226,7 @@ func TestExternalConnectorServiceFallsBackToBuiltInWhenPluginNotLoaded(t *testin
 		t.Fatal("plugin should not be loaded")
 	}
 
-	svc := NewExternalConnectorService(registry, managed)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry, managed)
 	svc.SetResourceLookup(sshTestLookup())
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "ssh",
@@ -1243,7 +1244,7 @@ func TestExternalConnectorServiceFallsBackToBuiltInWhenPluginNotLoaded(t *testin
 // With no built-in to fall back to, an installed-but-unloaded plugin is still
 // an error — and the message should say how to recover.
 func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testing.T) {
-	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
@@ -1253,7 +1254,7 @@ func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testin
 		t.Fatalf("install: %v", installErr)
 	}
 
-	svc := NewExternalConnectorService(connector.NewRegistry(), managed)
+	svc := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry(), managed)
 	svc.SetResourceLookup(sshTestLookup())
 	_, err = svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "ssh",
@@ -1271,7 +1272,7 @@ func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testin
 // A local install needs no options, records origin "installed", and the host
 // fingerprints the entrypoint itself.
 func TestManagedPluginLocalInstallRecordsOriginAndFingerprint(t *testing.T) {
-	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
@@ -1295,7 +1296,7 @@ func TestManagedPluginLocalInstallRecordsOriginAndFingerprint(t *testing.T) {
 
 func TestManagedPluginUninstallRemovesEntry(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, statePath)
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
@@ -1323,7 +1324,7 @@ func TestManagedPluginRestoreSkipsMissingDirectoryInsteadOfFailing(t *testing.T)
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	pluginDir := writeTestPluginDir(t, "ssh")
 
-	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, statePath)
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
@@ -1339,7 +1340,7 @@ func TestManagedPluginRestoreSkipsMissingDirectoryInsteadOfFailing(t *testing.T)
 	}
 
 	var warnings strings.Builder
-	restored, err := NewManagedPluginConnectorService("test", &warnings, statePath)
+	restored, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", &warnings, statePath)
 	if err != nil {
 		t.Fatalf("restore returned an error for a missing plugin directory: %v", err)
 	}
@@ -1357,7 +1358,7 @@ func TestManagedPluginRestorePreservesUnrestorableEntries(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	pluginDir := writeTestPluginDir(t, "ssh")
 
-	managed, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, statePath)
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
@@ -1368,7 +1369,7 @@ func TestManagedPluginRestorePreservesUnrestorableEntries(t *testing.T) {
 		t.Fatalf("remove plugin dir: %v", rmErr)
 	}
 
-	restored, err := NewManagedPluginConnectorService("test", io.Discard, statePath)
+	restored, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, statePath)
 	if err != nil {
 		t.Fatalf("restore: %v", err)
 	}

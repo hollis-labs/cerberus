@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -82,7 +83,7 @@ func startDaemonSocketWithConnectors(t *testing.T) *cerbapi.SocketClient {
 	registry := connector.NewRegistry()
 	registry.RegisterDefinition(dockerconn.Definition())
 	inProc := cerbapi.NewInProcessClient(
-		cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(registry)),
+		cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(audit.NewMemory(), registry)),
 	)
 	srv := cerbapi.NewSocketServer(inProc, sockPath)
 	ctx, cancel := context.WithCancel(context.Background())

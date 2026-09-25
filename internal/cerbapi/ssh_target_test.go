@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func sshSocket(t *testing.T) (*SocketClient, *fakeSSHBackend) {
 	backend := &fakeSSHBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(sshTestLookup())
 	return startConnectorSocket(t, NewInProcessClient(WithExternalConnectorService(svc))), backend
 }
@@ -130,7 +131,7 @@ func TestSSHRequiresConfiguredSSHResource(t *testing.T) {
 }
 
 func TestSSHRefusalsSurviveRedaction(t *testing.T) {
-	svc := NewExternalConnectorService(connector.NewRegistry())
+	svc := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry())
 	svc.SetResourceLookup(sshTestLookup())
 	for _, cfg := range []map[string]any{
 		{"id": "server-1", "host": "h", "key_file": "/Users/me/.ssh/id_ed25519", "known_hosts_file": "/Users/me/.ssh/known_hosts", "allow_insecure_host_key": true},

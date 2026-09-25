@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,7 +50,7 @@ func TestWebSSHOperationsTakeOnlyAResourceID(t *testing.T) {
 	backend := &recordingSSHBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
-	svc := cerbapi.NewExternalConnectorService(registry)
+	svc := cerbapi.NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(cerbapi.ConfigResourceLookup(&config.ConfigV2{Version: 2, Resources: []config.ResourceDef{{
 		ID: "server-1", Connector: "ssh", Type: "server",
 		Config: map[string]any{"host": "10.0.0.9", "user": "ops", "key_file": "/tmp/k", "allow_insecure_host_key": true},

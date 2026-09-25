@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"os"
 	"regexp"
 	"strings"
@@ -35,7 +36,7 @@ func dockerSocket(t *testing.T) (*SocketClient, *fakeDockerBackend) {
 	backend := &fakeDockerBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(dockerTestResources())
 	return startConnectorSocket(t, NewInProcessClient(WithExternalConnectorService(svc))), backend
 }
@@ -161,7 +162,7 @@ func TestDockerAdHocTargetsWorkInProcess(t *testing.T) {
 	backend := &fakeDockerBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(dockerTestResources())
 	if _, err := svc.Execute(WithCallerSurface(context.Background(), SurfaceInProcess), ExternalConnectorOperationArgs{
 		Connector: "docker", Operation: "start", Acknowledged: true,
@@ -179,7 +180,7 @@ func TestDockerRefusalsSurviveRedaction(t *testing.T) {
 		Connector: "docker", Operation: "start",
 		Config: map[string]any{"host": "h", "context": "c", "docker_host": "h", "docker_context": "c", "compose_file": "/tmp/x.yml"},
 	})
-	svc := NewExternalConnectorService(connector.NewRegistry())
+	svc := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry())
 	svc.SetResourceLookup(dockerTestResources())
 	_, notDocker := svc.resolveDockerResource(ExternalConnectorOperationArgs{Connector: "docker", Operation: "start", Config: map[string]any{"resource": "muctlvaig"}})
 	_, missing := svc.resolveDockerResource(ExternalConnectorOperationArgs{Connector: "docker", Operation: "start", Config: map[string]any{"resource": "nope"}})

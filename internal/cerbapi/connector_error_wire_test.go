@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"net"
 	"net/http"
@@ -68,7 +69,7 @@ func TestConnectorErrorCodeSurvivesTheSocket(t *testing.T) {
 		t.Run(string(code), func(t *testing.T) {
 			want := codedRefusal(code)
 			sock := startConnectorSocket(t, codedErrorClient{
-				Client: NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(connector.NewRegistry()))),
+				Client: NewInProcessClient(WithExternalConnectorService(NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry()))),
 				err:    want,
 			})
 
