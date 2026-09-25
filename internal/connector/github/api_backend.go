@@ -19,6 +19,17 @@ func NewAPIBackend(token string) *APIBackend {
 	}
 }
 
+// NewAPIBackendAt is NewAPIBackend against an API base URL other than
+// api.github.com, such as a GitHub Enterprise Server's /api/v3/ or a test
+// server.
+func NewAPIBackendAt(token, baseURL string) (*APIBackend, error) {
+	client, err := gh.NewClient(nil).WithAuthToken(token).WithEnterpriseURLs(baseURL, baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("github API base URL %q: %w", baseURL, err)
+	}
+	return &APIBackend{client: client}, nil
+}
+
 func (a *APIBackend) RepoStatus(ctx context.Context, owner, repo string) (*RepoStatus, error) {
 	r, _, err := a.client.Repositories.Get(ctx, owner, repo)
 	if err != nil {
