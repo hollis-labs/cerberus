@@ -65,6 +65,13 @@ exactly as designed.
 ### The four gaps, in severity order
 
 **1. There is no audit trail, and there is already a function for one.**
+
+*Status 2026-09-25:* the admin lane, the plugin paths and plugin install,
+load and unload are audited (#67, P1-4a in
+`live-systems-security-target.md`). Resource mutators, pipelines, deploy
+profiles and the `cerberus audit` CLI are P1-4b. The text below describes
+the state before that.
+
 `LogAudit(operation, serviceID, reason, taskID, sessionID)` exists in
 `internal/service/lifecycle_log.go` with **zero callers**. Nothing records who
 asked for an operation, which credential it resolved, what it targeted, or what
