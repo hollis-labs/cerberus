@@ -39,7 +39,7 @@ func mustNew(t *testing.T, client cerbapi.Client) *Server {
 
 func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := mustNew(t, client).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, client), testGuard())
 
 	req := newTestRequest(http.MethodPost, "/api/resources/app/apply", nil)
 	req.Header.Set("Content-Type", "application/json")
@@ -85,7 +85,7 @@ func TestStateChangingResourceActionsRequireSessionToken(t *testing.T) {
 
 func TestStateChangingResourceStopRequiresSessionToken(t *testing.T) {
 	client := &fakeClient{}
-	handler := mustNew(t, client).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, client), testGuard())
 
 	sessionReq := newTestRequest(http.MethodGet, "/api/session", nil)
 	sessionRec := httptest.NewRecorder()
@@ -125,7 +125,7 @@ func TestHandleResourcesReturnsServiceUnavailableForDaemonDialFailure(t *testing
 	req := newTestRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	mustNew(t, client).Handler(testGuard()).ServeHTTP(rec, req)
+	signedIn(t, mustNew(t, client), testGuard()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -140,7 +140,7 @@ func TestHandleResourcesReturnsServiceUnavailableForTimeout(t *testing.T) {
 	req := newTestRequest(http.MethodGet, "/api/resources", nil)
 	rec := httptest.NewRecorder()
 
-	mustNew(t, client).Handler(testGuard()).ServeHTTP(rec, req)
+	signedIn(t, mustNew(t, client), testGuard()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
@@ -167,7 +167,7 @@ func sessionToken(t *testing.T, handler http.Handler) string {
 }
 
 func TestDomainReadEndpointsReachable(t *testing.T) {
-	handler := mustNew(t, &fakeClient{}).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, &fakeClient{}), testGuard())
 	paths := []string{
 		"/api/settings",
 		"/api/health",
@@ -195,7 +195,7 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 }
 
 func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
-	handler := mustNew(t, &fakeClient{}).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, &fakeClient{}), testGuard())
 	token := sessionToken(t, handler)
 	paths := []string{
 		"/api/resources/app/sync",

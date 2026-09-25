@@ -16,7 +16,7 @@ import (
 // compared against r.Host.
 func TestDNSRebindingIsRefused(t *testing.T) {
 	client := &fakeClient{}
-	handler := mustNew(t, client).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, client), testGuard())
 	token := sessionToken(t, handler)
 	const evil = "evil.example:9090"
 
@@ -49,7 +49,7 @@ func TestDNSRebindingIsRefused(t *testing.T) {
 }
 
 func TestLoopbackHostsServeTheConsole(t *testing.T) {
-	handler := mustNew(t, &fakeClient{}).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, &fakeClient{}), testGuard())
 	for _, host := range []string{"127.0.0.1:9090", "localhost:9090", "[::1]:9090", "localhost:5173"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/session", nil)
 		req.Host = host
@@ -74,7 +74,7 @@ func TestMutationOriginMustMatchAllowedSet(t *testing.T) {
 		{"null", http.StatusForbidden},
 	} {
 		client := &fakeClient{}
-		handler := mustNew(t, client).Handler(testGuard())
+		handler := signedIn(t, mustNew(t, client), testGuard())
 		token := sessionToken(t, handler)
 		req := newTestRequest(http.MethodPost, "/api/resources/app/stop", strings.NewReader("{}"))
 		req.Header.Set("Content-Type", "application/json")
@@ -99,6 +99,7 @@ var guardedRoutes = map[string][]string{
 		"/api/resources/app/apply", "/api/resources/app/deploy", "/api/resources/app/reload",
 		"/api/resources/app/stop", "/api/resources/app/sync", "/api/resources/app/remove",
 	},
+	"/api/logout":                 {"/api/logout"},
 	"/api/pipelines/":             {"/api/pipelines/p/run"},
 	"/api/registry/register":      {"/api/registry/register"},
 	"/api/registry/deregister":    {"/api/registry/deregister"},
@@ -178,7 +179,7 @@ func TestEveryMutationGoesThroughAllowStateChangingRequest(t *testing.T) {
 	for pattern, paths := range guardedRoutes {
 		for _, path := range paths {
 			client := &fakeClient{}
-			handler := mustNew(t, client).Handler(testGuard())
+			handler := signedIn(t, mustNew(t, client), testGuard())
 			token := sessionToken(t, handler)
 
 			for _, variant := range []struct {
@@ -216,7 +217,7 @@ func TestEveryMutationGoesThroughAllowStateChangingRequest(t *testing.T) {
 func TestNoUnguardedMutationUnderAnyRoute(t *testing.T) {
 	client := &fakeClient{}
 	srv := mustNew(t, client)
-	handler := srv.Handler(testGuard())
+	handler := signedIn(t, srv, testGuard())
 	token := sessionToken(t, handler)
 
 	var paths []string
@@ -256,7 +257,7 @@ func TestNoUnguardedMutationUnderAnyRoute(t *testing.T) {
 // run or install a plugin directory, even with a valid token.
 func TestPluginDirRoutesAreRetiredOnTheWeb(t *testing.T) {
 	client := &fakeClient{}
-	handler := mustNew(t, client).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, client), testGuard())
 	token := sessionToken(t, handler)
 	for _, path := range []string{
 		"/api/plugins/connectors/health",

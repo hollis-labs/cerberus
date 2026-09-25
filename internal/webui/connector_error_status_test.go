@@ -82,7 +82,7 @@ func TestWebConnectorRefusalsKeepTheirStatusAndMessage(t *testing.T) {
 				Client: cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry()))),
 				err:    refusal,
 			})
-			handler := mustNew(t, sock).Handler(testGuard())
+			handler := signedIn(t, mustNew(t, sock), testGuard())
 			req := newTestRequest(http.MethodPost, "/api/connectors/digitalocean/operations/stop", strings.NewReader(`{"config":{"droplet_id":42}}`))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Cerberus-Web-Token", sessionToken(t, handler))
