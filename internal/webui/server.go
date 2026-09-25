@@ -510,6 +510,10 @@ func (s *Server) handleConnectorByID(w http.ResponseWriter, r *http.Request) {
 	if args.Config == nil {
 		args.Config = map[string]any{}
 	}
+	if err := cerbapi.RefuseAdHocDockerTarget(args); err != nil {
+		writeClientError(w, err)
+		return
+	}
 	out, err := s.client.ExecuteConnectorOperation(r.Context(), args)
 	if err != nil {
 		writeClientError(w, err)

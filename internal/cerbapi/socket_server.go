@@ -562,6 +562,12 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 	if args.Config == nil {
 		args.Config = map[string]any{}
 	}
+	// Ad-hoc docker targets are for the operator's own shell; a socket caller
+	// names a configured resource.
+	if err := RefuseAdHocDockerTarget(args); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
 		return s.client.ExecuteConnectorOperation(ctx, args)

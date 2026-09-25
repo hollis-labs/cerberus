@@ -176,6 +176,17 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		}
 		args = resolved
 	}
+	// A docker operation may name a configured resource by id; its target
+	// (host, context, compose file) then comes from the resource.
+	if args.Connector == "docker" {
+		resolved, err := s.resolveDockerResource(args)
+		if err != nil {
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
+			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Docker resource refused")
+			return ExternalConnectorOperationResult{}, err
+		}
+		args = resolved
+	}
 	// Refuse before credential resolution, dry-run previews, or plugin dispatch.
 	if args.Connector == "namecheap" && (args.Operation == "create_dns_record" || args.Operation == "delete_dns_record") {
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)

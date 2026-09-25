@@ -31,6 +31,9 @@ type fakeDockerBackend struct {
 	logName  string
 	logLines int
 	target   dockerconn.Target
+	upFile   string
+	stopFile string
+	lists    int
 }
 
 func (b *fakeDockerBackend) WithTarget(target dockerconn.Target) dockerconn.Backend {
@@ -39,6 +42,7 @@ func (b *fakeDockerBackend) WithTarget(target dockerconn.Target) dockerconn.Back
 }
 
 func (b *fakeDockerBackend) ListContainers(_ context.Context) ([]dockerconn.Container, error) {
+	b.lists++
 	return []dockerconn.Container{{ID: "abc", Name: "web", State: "running"}}, nil
 }
 
@@ -65,11 +69,13 @@ func (b *fakeDockerBackend) ContainerLogs(_ context.Context, nameOrID string, li
 	return "logs", nil
 }
 
-func (b *fakeDockerBackend) ComposeUp(_ context.Context, _ string) error {
+func (b *fakeDockerBackend) ComposeUp(_ context.Context, composeFile string) error {
+	b.upFile = composeFile
 	return nil
 }
 
-func (b *fakeDockerBackend) ComposeStop(_ context.Context, _ string) error {
+func (b *fakeDockerBackend) ComposeStop(_ context.Context, composeFile string) error {
+	b.stopFile = composeFile
 	return nil
 }
 
