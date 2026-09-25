@@ -51,7 +51,13 @@ type Scope struct {
 	mu          sync.Mutex
 	values      map[string]struct{}
 	unprotected map[string]struct{}
-	redactor    *Redactor
+	// rendered is text this request already rendered once, where it was
+	// made — Cerberus's prose kept, detail redacted (Guidance). An edge
+	// that meets exactly this text again only removes values: running the
+	// rules a second time is how prose used to be eaten. Exact match, in
+	// process, per request — nothing outside can put text in it.
+	rendered map[string]struct{}
+	redactor *Redactor
 }
 
 func NewScope() *Scope { return &Scope{} }
@@ -108,6 +114,34 @@ func (s *Scope) Merge(r Redactor) {
 	}
 }
 
+// MarkRendered records text as rendered once already (see Scope.rendered).
+// Only text Render produced belongs here.
+func (s *Scope) MarkRendered(text string) {
+	if s == nil || text == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rendered == nil {
+		s.rendered = map[string]struct{}{}
+	}
+	if _, ok := s.rendered[text]; !ok {
+		s.rendered[text] = struct{}{}
+		s.redactor = nil
+	}
+}
+
+// IsRendered reports whether text was marked rendered in this request, after
+// the scope's values are removed from it — the form an edge writes.
+func (s *Scope) IsRendered(text string) bool {
+	if s == nil {
+		return false
+	}
+	r := s.Redactor()
+	_, raw := r.rendered[text]
+	return raw || r.renderedAfterValues(text)
+}
+
 // Unprotected names, sorted, the credentials registered with a value too
 // short to redact.
 func (s *Scope) Unprotected() []string {
@@ -139,6 +173,12 @@ func (s *Scope) Redactor() Redactor {
 			values = append(values, value)
 		}
 		r := New(values...)
+		if len(s.rendered) > 0 {
+			r.rendered = make(map[string]struct{}, len(s.rendered))
+			for text := range s.rendered {
+				r.rendered[text] = struct{}{}
+			}
+		}
 		s.redactor = &r
 	}
 	return *s.redactor
@@ -187,8 +227,11 @@ type scopedError struct {
 	scope  *Scope
 }
 
-func (e scopedError) Error() string { return e.scope.Text(e.source.Error()) }
-func (e scopedError) Unwrap() error { return e.source }
+// Error renders the source through the scope: a Renderer keeps its prose, and
+// anything else gets the scope's values and the rules.
+func (e scopedError) Error() string                  { return Render(e.scope, e.source) }
+func (e scopedError) Unwrap() error                  { return e.source }
+func (e scopedError) RenderRedacted(s *Scope) string { return Render(e.scope, e.source) }
 
 type scopeKey struct{}
 

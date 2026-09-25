@@ -25,7 +25,7 @@ func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 				Operation: "list_containers",
 			})
 			if err != nil {
-				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+				return connectorFailure(ctx, err)
 			}
 
 			return marshalConnectorData(result.Data)
@@ -64,7 +64,7 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 				},
 			})
 			if err != nil {
-				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+				return connectorFailure(ctx, err)
 			}
 			logs, _ := result.Data.(string)
 			return marshalConnectorData(struct {
@@ -148,7 +148,7 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 				Config:       cfg,
 				Acknowledged: boolArg(args, "acknowledged"),
 			}); err != nil {
-				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+				return connectorFailure(ctx, err)
 			}
 			if resourceID != "" {
 				return toolResult(lifecycleResult{Success: true, ServiceID: resourceID, Message: "resource " + verb})

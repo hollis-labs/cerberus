@@ -73,14 +73,31 @@ type ExternalConnectorError struct {
 	Connector string
 	Operation string
 	Err       error
+
+	// rendered is set once the error has been rendered through the
+	// request's scope (scopeError), or rebuilt from a daemon that said it
+	// had been: its text is final, and an edge does not run the rules
+	// over it again.
+	rendered bool
 }
 
-func (e *ExternalConnectorError) Error() string {
+// Error is "<connector> <operation>: <code>: <cause>". The head is names and
+// a code, which no rule runs over; the connector id and operation name come
+// from the caller, so each is checked on its own. The cause is rendered: a
+// Guidance cause keeps its prose, anything else gets the rules (redact.Render).
+func (e *ExternalConnectorError) Error() string { return e.RenderRedacted(nil) }
+
+// RenderRedacted is Error in s.
+func (e *ExternalConnectorError) RenderRedacted(s *redact.Scope) string {
+	head := fmt.Sprintf("%s %s: %s", redact.Text(e.Connector), redact.Text(e.Operation), e.Code)
 	if e.Err == nil {
-		return fmt.Sprintf("%s %s: %s", e.Connector, e.Operation, e.Code)
+		return s.ReplaceValues(head)
 	}
-	return redact.Text(fmt.Sprintf("%s %s: %s: %v", e.Connector, e.Operation, e.Code, e.Err))
+	return s.ReplaceValues(head) + ": " + redact.Render(s, e.Err)
 }
+
+// PreRendered reports whether the text is final (see rendered).
+func (e *ExternalConnectorError) PreRendered() bool { return e.rendered }
 
 func (e *ExternalConnectorError) Unwrap() error {
 	return e.Err
@@ -219,10 +236,16 @@ func scopeError(scope *redact.Scope, err error) error {
 	if connErr, ok := err.(*ExternalConnectorError); ok { //nolint:errorlint // the top-level error only; a wrapped one is handled below
 		if connErr.Err != nil {
 			connErr.Err = scope.Error(connErr.Err)
+			// The cause travels on its own as the wire's detail.
+			scope.MarkRendered(connErr.Err.Error())
 		}
+		connErr.rendered = true
+		scope.MarkRendered(connErr.Error())
 		return connErr
 	}
-	return scope.Error(err)
+	wrapped := scope.Error(err)
+	scope.MarkRendered(wrapped.Error())
+	return wrapped
 }
 
 // auditSpec describes a request for its records, from the contract when the
@@ -401,7 +424,7 @@ func (s *ExternalConnectorService) declaredOperation(ctx context.Context, args E
 	}
 	op, ok := def.Operation(args.Operation)
 	if !ok {
-		return contract.Operation{}, externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("connector %q does not declare operation %q, so its contract cannot be checked; refusing", args.Connector, args.Operation))
+		return contract.Operation{}, externalConnectorError(args, ExternalConnectorUnsupported, redact.Guidance("connector %q does not declare operation %q, so its contract cannot be checked; refusing", args.Connector, args.Operation))
 	}
 	if err := op.CheckInputs(args.Config, CallerSurfaceFrom(ctx) == SurfaceInProcess); err != nil {
 		return contract.Operation{}, externalConnectorError(args, ExternalConnectorInvalidArgs, inputRefusal(args.Connector, err))
@@ -416,11 +439,13 @@ var inputHints = map[string]string{
 	"docker": "over the socket, the web console and MCP a docker operation takes a configured docker resource (resource=<id>, see `cerberus resource list`) or a local container name; ad-hoc targets (--host, --context, -f) run only from your shell",
 }
 
+// inputRefusal is Cerberus's own prose — the key table's field names and the
+// connector's hint — so it is rendered as guidance, not run through the rules.
 func inputRefusal(connectorID string, err error) error {
 	if hint, ok := inputHints[connectorID]; ok {
-		return fmt.Errorf("%w; %s", err, hint)
+		return redact.Prose(fmt.Errorf("%w; %s", err, hint))
 	}
-	return err
+	return redact.Prose(err)
 }
 
 // requireAcknowledgment gates on the operation's derived RequiresAck: every
@@ -431,9 +456,9 @@ func requireAcknowledgment(args ExternalConnectorOperationArgs, op contract.Oper
 		return nil
 	}
 	if op.Effect.ReadOnly() && op.LocalFS == contract.LocalFSWrites {
-		return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q writes to the local filesystem and requires operator acknowledgment", op.Effect, args.Operation))
+		return externalConnectorError(args, ExternalConnectorAckRequired, redact.Guidance("%s operation %q writes to the local filesystem and requires operator acknowledgment", op.Effect, args.Operation))
 	}
-	return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q requires operator acknowledgment", op.Effect, args.Operation))
+	return externalConnectorError(args, ExternalConnectorAckRequired, redact.Guidance("%s operation %q requires operator acknowledgment", op.Effect, args.Operation))
 }
 
 // operationFailure codes an error from past the gates. A coded error keeps its
@@ -451,7 +476,7 @@ func operationFailure(args ExternalConnectorOperationArgs, err error) error {
 }
 
 func previewUnsupportedError(args ExternalConnectorOperationArgs) error {
-	return externalConnectorError(args, ExternalConnectorPreviewUnsupported, fmt.Errorf("operation %q has no dry-run preview; nothing was executed. Run it without --dry-run to execute", args.Operation))
+	return externalConnectorError(args, ExternalConnectorPreviewUnsupported, redact.Guidance("operation %q has no dry-run preview; nothing was executed. Run it without --dry-run to execute", args.Operation))
 }
 
 func (s *ExternalConnectorService) definitionFor(id string) (contract.Definition, bool) {
@@ -765,15 +790,17 @@ func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) e
 	if errors.As(err, &missing) {
 		return externalConnectorError(args, ExternalConnectorCredentialMissing, err)
 	}
+	// The host's own refusals, composed of operation and field names before
+	// the plugin is called: guidance.
 	if errors.Is(err, pluginhost.ErrPreviewUnsupported) {
-		return externalConnectorError(args, ExternalConnectorPreviewUnsupported, err)
+		return externalConnectorError(args, ExternalConnectorPreviewUnsupported, redact.Prose(err))
 	}
 	var inputErr *contract.InputError
 	if errors.As(err, &inputErr) {
-		return externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		return externalConnectorError(args, ExternalConnectorInvalidArgs, redact.Prose(err))
 	}
 	if errors.Is(err, pluginhost.ErrAckRequired) {
-		return externalConnectorError(args, ExternalConnectorAckRequired, err)
+		return externalConnectorError(args, ExternalConnectorAckRequired, redact.Prose(err))
 	}
 	if errors.Is(err, pluginhost.ErrOperationUndeclared) {
 		return externalConnectorError(args, ExternalConnectorUnsupported, err)

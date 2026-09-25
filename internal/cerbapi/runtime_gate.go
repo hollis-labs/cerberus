@@ -2,7 +2,6 @@ package cerbapi
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -10,6 +9,7 @@ import (
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/hollis-labs/cerberus/pkg/secret"
 )
@@ -64,13 +64,13 @@ func runtimeGate(ctx context.Context, def contract.Definition, operation string,
 	args := ExternalConnectorOperationArgs{Connector: def.ID, Operation: operation, Config: config, Acknowledged: opts.Acknowledged}
 	op, ok := def.Operation(operation)
 	if !ok {
-		return externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("%s does not declare operation %q; refusing", def.ID, operation))
+		return externalConnectorError(args, ExternalConnectorUnsupported, redact.Guidance("%s does not declare operation %q; refusing", def.ID, operation))
 	}
 	if err := op.CheckInputs(config, CallerSurfaceFrom(ctx) == SurfaceInProcess); err != nil {
-		return externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		return externalConnectorError(args, ExternalConnectorInvalidArgs, redact.Prose(err))
 	}
 	if op.RequiresAck && !opts.Acknowledged {
-		return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q on %q requires operator acknowledgment", op.Effect, operation, config["id"]))
+		return externalConnectorError(args, ExternalConnectorAckRequired, redact.Guidance("%s operation %q on %q requires operator acknowledgment", op.Effect, operation, config["id"]))
 	}
 	return nil
 }

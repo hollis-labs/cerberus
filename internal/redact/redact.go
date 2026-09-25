@@ -122,7 +122,28 @@ func isErrorCode(key string) bool {
 	return errorCodes[strings.ToLower(strings.TrimSpace(key))]
 }
 
-type Redactor struct{ values []string }
+type Redactor struct {
+	values []string
+	// rendered is a Scope's rendered set, snapshotted with its values: text
+	// that gets values removed and no rules.
+	rendered map[string]struct{}
+}
+
+func (r Redactor) isRendered(value string) bool {
+	_, ok := r.rendered[value]
+	return ok
+}
+
+// renderedAfterValues reports whether text is a rendered string after the
+// values are removed from it, which is how it looks once an edge wrote it.
+func (r Redactor) renderedAfterValues(text string) bool {
+	for rendered := range r.rendered {
+		if r.ReplaceValues(rendered) == text {
+			return true
+		}
+	}
+	return false
+}
 
 // New also removes known credential values when they appear without a label.
 func New(values ...string) Redactor {
@@ -210,6 +231,9 @@ func (r Redactor) ReplaceValues(value string) string {
 }
 
 func (r Redactor) Text(value string) string {
+	if r.isRendered(value) {
+		return r.ReplaceValues(value)
+	}
 	value = r.ReplaceValues(value)
 	value = privateKey.ReplaceAllString(value, Marker)
 	value = providerKey.ReplaceAllString(value, Marker)
@@ -345,7 +369,7 @@ func (r Redactor) walk(value any, hide, schema bool) any {
 		if hide && !schema && !IsReference(v) {
 			return Marker
 		}
-		return r.Text(v)
+		return r.Text(v) // a rendered string loses values only (Text)
 	case json.Number:
 		if hide && !schema {
 			return Marker

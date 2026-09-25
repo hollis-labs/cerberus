@@ -64,7 +64,7 @@ func executeGitHubMCP(ctx context.Context, client cerbapi.Client, operation, own
 		Config:    cfg,
 	})
 	if err != nil {
-		return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+		return connectorFailure(ctx, err)
 	}
 
 	data, err := redact.MarshalIndent(result.Data, "", "  ")
