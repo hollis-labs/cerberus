@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
@@ -14,6 +15,7 @@ type fixturePipelineClient struct {
 	detail *cerbapi.PipelineDetail
 	raw    []byte
 	runErr error
+	calls  *int
 }
 
 func (f fixturePipelineClient) ListPipelines(context.Context) ([]cerbapi.PipelineInfo, error) {
@@ -23,6 +25,9 @@ func (f fixturePipelineClient) GetPipeline(context.Context, string) (*cerbapi.Pi
 	return f.detail, nil
 }
 func (f fixturePipelineClient) RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
+	if f.calls != nil {
+		*f.calls++
+	}
 	if f.runErr != nil {
 		return nil, f.runErr
 	}
@@ -61,15 +66,30 @@ func TestRefusedPipelineRunAnnouncesNothing(t *testing.T) {
 	}
 }
 
-func TestPipelineRunRejectsInvalidDefinitionBeforeExecution(t *testing.T) {
-	client := fixturePipelineClient{
-		detail: &cerbapi.PipelineDetail{ValidationError: "resolve pipeline: missing resource"},
-		runErr: errors.New("execution should not be reached"),
-	}
-	var out bytes.Buffer
-	err := runPipelineCommand(context.Background(), client, "invalid", &out)
-	if err == nil || err.Error() != client.detail.ValidationError || out.String() != "" {
-		t.Fatalf("output = %q, error = %v", out.String(), err)
+// An invalid or unknown pipeline still goes to the runtime, which refuses it
+// before anything executes and records the attempt. What the CLI's lookup
+// found rides along as a hint, and nothing claims the pipeline started.
+func TestPipelineRunSendsInvalidAndUnknownPipelinesToTheRuntime(t *testing.T) {
+	for name, detail := range map[string]*cerbapi.PipelineDetail{
+		"invalid": {ValidationError: "resolve pipeline: missing resource"},
+		"unknown": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			client := fixturePipelineClient{detail: detail, runErr: errors.New("runtime refused"), calls: &calls}
+			var out bytes.Buffer
+			err := runPipelineCommand(context.Background(), client, "p", &out)
+			if calls != 1 {
+				t.Fatalf("the runtime was called %d times, want 1: the attempt must be recorded", calls)
+			}
+			wantHint := "hint: resolve pipeline: missing resource"
+			if detail == nil {
+				wantHint = `hint: pipeline "p" not found in config`
+			}
+			if err == nil || !strings.Contains(err.Error(), "runtime refused") || !strings.Contains(err.Error(), wantHint) || out.Len() != 0 {
+				t.Fatalf("output = %q, error = %v", out.String(), err)
+			}
+		})
 	}
 }
 
