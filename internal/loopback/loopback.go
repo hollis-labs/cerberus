@@ -24,43 +24,29 @@ import (
 // configured listen host.
 var loopbackNames = []string{"localhost", "127.0.0.1", "::1"}
 
-// CheckListen returns an error unless addr binds only loopback addresses. An
-// empty host (":4783") binds every interface and is refused. surface names
-// the command in the error, e.g. "cerberus web".
+// CheckListen returns an error unless addr binds only loopback. The host must
+// be `localhost` or a literal loopback IP (127.0.0.0/8 or ::1). Any other name
+// is refused rather than resolved: resolving it here and again at net.Listen
+// is two lookups that can disagree, and the guard would then trust that name
+// as a Host, putting whatever name an operator is talked into on the
+// allow-list. An empty host (":4783") binds every interface and is refused.
+// surface names the command in the error, e.g. "cerberus web".
 func CheckListen(surface, addr string) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("%s: invalid --listen %q: %w", surface, addr, err)
 	}
-	if !isLoopbackHost(host) {
-		return fmt.Errorf("%s: refusing to listen on %s: not a loopback address, and this surface has no authentication yet; use 127.0.0.1, localhost or [::1]", surface, addr)
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil && host != "" {
+		return fmt.Errorf("%s: refusing to listen on %s: --listen takes localhost, 127.0.0.1 or [::1] (or another literal loopback IP), not a hostname", surface, addr)
+	}
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("%s: refusing to listen on %s: not a loopback address, and this surface has no authentication yet; use localhost, 127.0.0.1 or [::1]", surface, addr)
 	}
 	return nil
-}
-
-// isLoopbackHost reports whether host names only loopback addresses. A name
-// other than localhost is resolved, and every address it resolves to must be
-// loopback.
-func isLoopbackHost(host string) bool {
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback()
-	}
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
-		return false
-	}
-	for _, ip := range ips {
-		if !ip.IsLoopback() {
-			return false
-		}
-	}
-	return true
 }
 
 // Guard enforces the Host and Origin allow-lists for one listening surface.
