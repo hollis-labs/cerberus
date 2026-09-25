@@ -11,13 +11,15 @@ import {
   Textarea,
 } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type ConnectorDefinition } from '../api/client'
+import { apiClient, type ConnectorDefinition, type ConnectorOperation, type ResourceInfo } from '../api/client'
 
 export function ConnectorsPage() {
   const connectors = usePoll((signal) => apiClient.listConnectors(signal), 5000)
+  const resources = usePoll((signal) => apiClient.listResources(signal), 15000)
   const [sessionToken, setSessionToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [configByOp, setConfigByOp] = useState<Record<string, string>>({})
+  const [fieldsByOp, setFieldsByOp] = useState<Record<string, Record<string, string>>>({})
   const [dryRunByOp, setDryRunByOp] = useState<Record<string, boolean>>({})
   const [ackByOp, setAckByOp] = useState<Record<string, boolean>>({})
   const [resultByOp, setResultByOp] = useState<Record<string, string>>({})
@@ -58,8 +60,13 @@ export function ConnectorsPage() {
     setBusy(key)
     setError(null)
     try {
-      const raw = configByOp[key]?.trim()
-      const config = raw ? parseJSONConfig(raw) : undefined
+      let config: Record<string, unknown> | undefined
+      if (targetKey(connector.id)) {
+        config = fieldsConfig(fieldsByOp[key] ?? {})
+      } else {
+        const raw = configByOp[key]?.trim()
+        config = raw ? parseJSONConfig(raw) : undefined
+      }
       const result = await apiClient.runConnectorOperation(
         connector.id,
         operation,
@@ -120,7 +127,7 @@ export function ConnectorsPage() {
 
                   <div className="grid gap-4 xl:grid-cols-[.78fr_1.22fr]">
                     <div className="space-y-4">
-                      <SettingsPanel title="Config fields">
+                      <SettingsPanel title={targetKey(connector.id) ? 'Resource config fields (set on the resource, not per call)' : 'Config fields'}>
                         <div className="space-y-0">
                           {(connector.config.fields?.length ?? 0) === 0 ? (
                             <div className="px-4 py-3 text-sm text-text-soft">No explicit config fields.</div>
@@ -172,12 +179,24 @@ export function ConnectorsPage() {
                                 </Button>
                               </div>
                               <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-                                <Textarea
-                                  value={configByOp[key] ?? ''}
-                                  onChange={(event) => setConfigByOp((current) => ({ ...current, [key]: event.target.value }))}
-                                  placeholder='{"example":"value"}'
-                                  className="min-h-28 resize-y font-mono text-xs"
-                                />
+                                {targetKey(connector.id) ? (
+                                  <ResourceOperationForm
+                                    connectorID={connector.id}
+                                    operation={operation}
+                                    resources={resources.data ?? []}
+                                    values={fieldsByOp[key] ?? {}}
+                                    onChange={(field, value) =>
+                                      setFieldsByOp((current) => ({ ...current, [key]: { ...(current[key] ?? {}), [field]: value } }))
+                                    }
+                                  />
+                                ) : (
+                                  <Textarea
+                                    value={configByOp[key] ?? ''}
+                                    onChange={(event) => setConfigByOp((current) => ({ ...current, [key]: event.target.value }))}
+                                    placeholder='{"example":"value"}'
+                                    className="min-h-28 resize-y font-mono text-xs"
+                                  />
+                                )}
                                 <label className="flex items-center gap-2 text-xs text-text-soft">
                                   <input
                                     type="checkbox"
@@ -214,6 +233,94 @@ export function ConnectorsPage() {
       </div>
     </div>
   )
+}
+
+// SSH and docker operations take a configured resource, never a free-form
+// host, key or compose file: the daemon refuses those fields, and resolves
+// the target from the resource. targetKey is the config key the resource id
+// travels under.
+function targetKey(connectorID: string): string | null {
+  if (connectorID === 'ssh') return 'id'
+  if (connectorID === 'docker') return 'resource'
+  return null
+}
+
+// Keys the form handles itself rather than as a free-text field: the
+// resource, and docker's container name and its aliases.
+const formManagedKeys = new Set(['id', 'resource', 'container', 'container_id', 'container_name', 'name'])
+
+const inputClass =
+  'w-full border border-border bg-panel-2/60 px-3 py-2 text-sm text-text outline-none transition-colors focus:border-border-strong'
+
+function ResourceOperationForm({
+  connectorID,
+  operation,
+  resources,
+  values,
+  onChange,
+}: {
+  connectorID: string
+  operation: ConnectorOperation
+  resources: ResourceInfo[]
+  values: Record<string, string>
+  onChange: (field: string, value: string) => void
+}) {
+  const resourceKey = targetKey(connectorID) ?? 'id'
+  const options = resources.filter((resource) => resource.connector === connectorID)
+  const properties = (operation.input_schema?.properties ?? {}) as Record<string, { description?: string }>
+  const advertised = new Set(Object.keys(properties))
+  const opFields = Object.keys(properties).filter((field) => !formManagedKeys.has(field)).sort()
+  return (
+    <div className="space-y-2">
+      {advertised.has(resourceKey) ? (
+        <select
+          value={values[resourceKey] ?? ''}
+          onChange={(event) => onChange(resourceKey, event.target.value)}
+          className={inputClass}
+          aria-label={`${connectorID} resource`}
+        >
+          <option value="">
+            {options.length === 0 ? `No ${connectorID} resources configured` : `Select a ${connectorID} resource`}
+            {connectorID === 'docker' ? ' (optional)' : ''}
+          </option>
+          {options.map((resource) => (
+            <option key={resource.id} value={resource.id}>
+              {resource.name && resource.name !== resource.id ? `${resource.id} — ${resource.name}` : resource.id}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {connectorID === 'docker' && advertised.has('container') ? (
+        <input
+          value={values.container ?? ''}
+          onChange={(event) => onChange('container', event.target.value)}
+          placeholder="or a container name on this machine (optional)"
+          className={inputClass}
+        />
+      ) : null}
+      {opFields.map((field) => (
+        <input
+          key={field}
+          value={values[field] ?? ''}
+          onChange={(event) => onChange(field, event.target.value)}
+          placeholder={properties[field]?.description ? `${field} — ${properties[field].description}` : field}
+          className={inputClass}
+        />
+      ))}
+    </div>
+  )
+}
+
+// fieldsConfig turns the form's values into an operation config, dropping
+// empty fields and sending lines as a number.
+function fieldsConfig(values: Record<string, string>): Record<string, unknown> {
+  const config: Record<string, unknown> = {}
+  for (const [field, raw] of Object.entries(values)) {
+    const value = raw.trim()
+    if (!value) continue
+    config[field] = field === 'lines' ? Number(value) : value
+  }
+  return config
 }
 
 function Field({ label, value }: { label: string; value: string }) {
