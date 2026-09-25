@@ -21,6 +21,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/pausectl"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/target"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -188,6 +189,11 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 			Port:       configInt(r.Config, "port"),
 			HasBuild:   hasBuildStrategyConfig(r.Config),
 			Tags:       append([]string(nil), r.Tags...),
+		}
+		labels := r.TargetLabels().Resolved()
+		info.Env, info.Owner, info.Admin = string(labels.Env), labels.Owner, labels.Admin.String()
+		if info.Admin == "" {
+			info.Admin = target.AdminUnknown
 		}
 		if SupervisedLocally(r.Type, r.Connector) {
 			row.spec, _ = localconn.SpecFromResourceConfig(r.Config)

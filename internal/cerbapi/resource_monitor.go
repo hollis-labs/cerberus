@@ -251,7 +251,7 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 	// unwritable log is logged and the restart goes ahead.
 	applyOp, _ := localconn.Definition().Operation(localconn.OpApply)
 	call, _ := beginAudit(ctx, m.runtime.audit, m.logger, auditSpec{
-		connector: "local", operation: localconn.OpApply, op: applyOp, known: true,
+		connector: "local", operation: localconn.OpApply, op: applyOp, known: true, resources: m.runtime.ResourceDef,
 		config: map[string]any{localconn.InputID: res.ID}, automation: true,
 		reason: fmt.Sprintf("auto_restart: the workload was %s; restart attempt %d of %d", state, m.failureCount[res.ID], maxAttempts),
 	})
