@@ -256,7 +256,7 @@ func scopeError(scope *redact.Scope, err error) error {
 // auditSpec describes a request for its records, from the contract when the
 // operation declares one. It checks nothing: the gates in execute do that.
 func (s *ExternalConnectorService) auditSpec(args ExternalConnectorOperationArgs) auditSpec {
-	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun}
+	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun, resources: s.resources}
 	if def, ok := s.definitionFor(args.Connector); ok {
 		spec.op, spec.known = def.Operation(args.Operation)
 		spec.credentials = credentialNames(def)

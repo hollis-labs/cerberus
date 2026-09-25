@@ -8,7 +8,7 @@ state_label: "shipped"
 review_status: "draft"
 confidence_score: 0.92
 confidence_label: "resolution and precedence read from source and confirmed live against the running binary; the v1 legacy structs are provably unwired"
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -74,3 +74,19 @@ design, to remove the entire class of "daemon had stale config" bugs.
 Verified live on 2026-09-17: `cerberus validate` reports
 `Config OK: 0 registered, resolved to 8 projects, 10 resources`. The entire
 running estate comes from the monolith and the registry contributes nothing.
+
+## Target labels (P2-3)
+
+A resource carries policy labels beside its `tags` (`internal/config/v2.go`):
+`env` (`prod`, `staging`, `dev`, `lab`, `poc`, `work`), `owner` (`self` or a
+team) and `admin` (`self`, `shared` or `owner`). `admin` is either one value or
+a map by sub-target kind with an optional `default`, because the team that
+provisions a box is often not the team that runs what is on it (Decision 18).
+`ResourceDef.TargetLabels` hands them to `internal/target`.
+
+Resolution sanitizes them. A value outside the vocabulary is dropped, so it
+reads as unknown (Decision 17), and for the global `config.yaml`, which is not
+validated like a project config, `resolveIndex` adds a warning naming the
+resource and the value (`internal/registry/resolve.go`). A malformed `admin`
+shape parses rather than failing the whole config. An unset label is unknown,
+and `cerberus resource list` shows it as `unknown` so the gap is visible.

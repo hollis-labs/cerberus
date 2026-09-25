@@ -70,6 +70,17 @@ const PrincipalAutomation = "automation"
 type Target struct {
 	Kind   string            `json:"kind,omitempty"`
 	Fields map[string]string `json:"fields,omitempty"`
+
+	// The target's policy labels (target.Target): inherited from the
+	// registered resource it was resolved through, or unknown. Admin is who
+	// administers the part this operation touches. Adhoc marks a target
+	// named by connection settings rather than a registered resource.
+	Resource string   `json:"resource,omitempty"`
+	Env      string   `json:"env,omitempty"`
+	Owner    string   `json:"owner,omitempty"`
+	Admin    string   `json:"admin,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
+	Adhoc    bool     `json:"adhoc,omitempty"`
 }
 
 // Record is one audit record.
