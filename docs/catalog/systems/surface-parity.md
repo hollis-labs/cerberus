@@ -139,13 +139,13 @@ not the HTTP-API column.
 | project show | Y | n | n | n | n |
 | pipeline list / show / run | Y | Y | ~ list+run | ~ list+run | ~ list+run |
 | connectors list / describe | Y | Y | Y | Y | Y |
-| **generic connector operation exec** | **n** | **Y** | **Y** | **n** | **Y** |
+| **generic connector operation exec** | **Y** `connectors exec` | **Y** | **Y** | ~ generated per op | **Y** |
 | plugin managed list | Y | Y | Y | **n** | Y |
 | plugin managed install (by path) | Y | Y | n (410) | **n** | n |
 | plugin managed load / unload | Y | Y | Y | **n** | Y |
 | plugin managed uninstall | Y | Y | Y | **n** | n |
 | plugin managed health | Y | Y | Y | **n** | Y |
-| plugin managed exec | Y | Y | Y | **n** | Y via connectors page |
+| plugin managed exec | retired (use `connectors exec`) | Y | Y | n | Y via connectors page |
 | plugin exec / health (in-process, unmanaged) | Y | n (410) | n (410) | n | n |
 | write-plugin-prototype | Y | n | n | n | n |
 | validate / config validate | Y | n | Y | **n** | Y |
@@ -179,6 +179,14 @@ which is authoritative:
 | azure (plugin) | 6 | 6 via `plugin managed exec` | **0** | 6 |
 | contextforge (plugin) | 4 | 4 via `plugin managed exec` | **0** | 4 |
 | **total** | **48** | **44** | **33** | **48** |
+
+**Since 2026-09-25 the table above is history.** Every connector operation,
+built-in or plugin, is on the CLI through `cerberus connectors exec <id> <op>`,
+and every plugin operation reaches MCP as a generated `cerberus_<id>_<op>` tool
+once the operator exposes it in `connector-config.yaml`. cloudflare,
+digitalocean, namecheap and forge are plugins now. `plugin managed exec` is
+retired. The remaining MCP gaps are in the built-ins: `ssh stop` and
+`docker destroy`.
 
 
 ## Correction from the second pass

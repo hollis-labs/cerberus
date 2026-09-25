@@ -38,7 +38,7 @@ cerberus:
             - name: list_subscriptions
               description: 'List the subscriptions this credential can see: id, display name, state, tenant.'
               examples:
-                - cerberus connectors plugin managed exec azure list_subscriptions
+                - cerberus connectors exec azure list_subscriptions
               input_schema:
                 additionalProperties: false
                 properties: {}
@@ -53,7 +53,7 @@ cerberus:
             - name: get_subscription
               description: Report one subscription. With no argument it resolves the one operations act on by default, which is the fastest way to confirm which estate Cerberus is reading.
               examples:
-                - cerberus connectors plugin managed exec azure get_subscription
+                - cerberus connectors exec azure get_subscription
               input_schema:
                 additionalProperties: false
                 properties:
@@ -73,7 +73,7 @@ cerberus:
             - name: list_resource_groups
               description: 'List resource groups in a subscription: name, location, provisioning state.'
               examples:
-                - cerberus connectors plugin managed exec azure list_resource_groups
+                - cerberus connectors exec azure list_resource_groups
               input_schema:
                 additionalProperties: false
                 properties:
@@ -93,7 +93,7 @@ cerberus:
             - name: list_resources
               description: 'List the whole resource inventory of a subscription: type, name, resource group, location. Provider-specific properties are deliberately not returned — that field is an untyped blob.'
               examples:
-                - cerberus connectors plugin managed exec azure list_resources
+                - cerberus connectors exec azure list_resources
               input_schema:
                 additionalProperties: false
                 properties:
@@ -113,7 +113,7 @@ cerberus:
             - name: list_ai_accounts
               description: 'List Cognitive Services / AI Services accounts: name, kind, sku, endpoint. Keys are never returned; local_auth_disabled reports whether key auth is even enabled.'
               examples:
-                - cerberus connectors plugin managed exec azure list_ai_accounts
+                - cerberus connectors exec azure list_ai_accounts
               input_schema:
                 additionalProperties: false
                 properties:
@@ -133,8 +133,8 @@ cerberus:
             - name: list_model_deployments
               description: 'List model deployments: deployment name, model, version, sku, capacity. Answers "what models can we actually call, at what version" without opening the portal. With no account it walks every AI account in the subscription.'
               examples:
-                - cerberus connectors plugin managed exec azure list_model_deployments
-                - cerberus connectors plugin managed exec azure list_model_deployments --arg account=PCB-Drawings-Extraction
+                - cerberus connectors exec azure list_model_deployments
+                - cerberus connectors exec azure list_model_deployments --arg account=PCB-Drawings-Extraction
               input_schema:
                 additionalProperties: false
                 properties:

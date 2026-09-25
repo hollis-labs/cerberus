@@ -34,7 +34,7 @@ cerberus:
             - name: get_health
               description: Report ContextForge reachability. /health is open, so this works without a token and is the fastest way to tell a down tunnel from a down gateway.
               examples:
-                - cerberus connectors plugin managed exec contextforge get_health
+                - cerberus connectors exec contextforge get_health
               input_schema:
                 additionalProperties: false
                 properties: {}
@@ -49,7 +49,7 @@ cerberus:
             - name: list_gateways
               description: 'List upstream MCP server registrations. Credentials are never returned: auth_type reports the kind of auth configured, auth_configured whether any is set.'
               examples:
-                - cerberus connectors plugin managed exec contextforge list_gateways
+                - cerberus connectors exec contextforge list_gateways
               input_schema:
                 additionalProperties: false
                 properties: {}
@@ -64,7 +64,7 @@ cerberus:
             - name: list_virtual_servers
               description: List the composed catalogs. These have no auth fields; auth lives on the gateway.
               examples:
-                - cerberus connectors plugin managed exec contextforge list_virtual_servers
+                - cerberus connectors exec contextforge list_virtual_servers
               input_schema:
                 additionalProperties: false
                 properties: {}
@@ -79,7 +79,7 @@ cerberus:
             - name: list_tools
               description: List tool registrations. Names are gateway-prefixed and change when a virtual server is renamed, so read them here rather than guessing.
               examples:
-                - cerberus connectors plugin managed exec contextforge list_tools
+                - cerberus connectors exec contextforge list_tools
               input_schema:
                 additionalProperties: false
                 properties: {}

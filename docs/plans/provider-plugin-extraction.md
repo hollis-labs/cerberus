@@ -1,5 +1,20 @@
 # Provider plugin extraction: cloudflare, digitalocean, forge, namecheap
 
+**Done 2026-09-25.** All four are plugins, and the host compiles in only the
+core connectors (`local`, `ssh`, `docker`, `github`). A stripped build went from
+62.8MB to 21.7MB, and the default build from 88.1MB to 31.6MB. No provider SDK
+remains in the host. Every step was deployed with its runbook and every
+expected value matched. The record below is kept as the history of how it was
+done.
+
+| Step | Stripped | Default |
+|---|---|---|
+| Before (main at H4's base) | 62.8 MB | 88.1 MB |
+| H4, cloudflare out | 23.6 MB | 34.1 MB |
+| H5, digitalocean out | 21.8 MB | 31.7 MB |
+| H6, namecheap out | 21.7 MB | — |
+| H7, forge out | 21.7 MB | 31.6 MB |
+
 Moving the four compiled-in provider connectors out to plugins in
 `hollis-labs/cerberus-plugins`. This is the X-0 survey (taken against cerberus
 `cd1729c` and cerberus-plugins `7c2929a`, 2026-09-25), the decisions taken on
@@ -41,7 +56,8 @@ connector verb is actually added"), `live-systems-security-target.md`
 | H4 | cerberus #69 | Remove the cloudflare built-in. Binary 62.8MB → 23.6MB stripped (88.1 → 34.1MB unstripped). Gate tests on a fake connector; `local` always reserved | merged, deployed |
 | H5 | cerberus #70 | Remove the digitalocean built-in (godo). 23.7MB → 21.8MB stripped | merged, deployed |
 | H6 | cerberus #72 | Remove the namecheap built-in, the `dns`/`domain` groups, the per-record special case in Execute; console stores `client_ip` as a secret | merged, deployed |
-| H7 | cerberus | Remove the forge built-in, the last provider built-in. `connectors exec` sends unknown operations and argument refusals to the admin lane, which records them, and keeps its own checks as hints | this PR |
+| H7 | cerberus #74 | Remove the forge built-in, the last provider built-in. `connectors exec` sends unknown operations and argument refusals to the admin lane, which records them, and keeps its own checks as hints | merged, deployed |
+| — | cerberus | Wrap-up: retire `connectors plugin managed exec` (no tombstone), the final AGENTS.md "Core or plugin", close CERB-DEC-291 | this PR |
 | H4 | cerberus | Remove the cloudflare built-in | waits for P1-1 and H3. Its UAT table carries A1's tightened behaviour: real-path validation of `create_dns_record`, bad numbers rejected, a `{deleted, zone_id, record_id}` delete result, and a health check with no network call |
 | — | both | digitalocean, then namecheap, then forge | after H4 |
 
