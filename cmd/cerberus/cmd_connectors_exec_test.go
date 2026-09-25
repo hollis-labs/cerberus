@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -54,7 +55,7 @@ func execTestOperation(t *testing.T, name string) contract.Operation {
 }
 
 func TestConnectorExecConfigTypesArgumentsFromTheSchema(t *testing.T) {
-	cfg, err := connectorExecConfig(execTestOperation(t, "set_records"), connectorExecFlags{
+	cfg, hints, err := connectorExecConfig(execTestOperation(t, "set_records"), connectorExecFlags{
 		args: []string{
 			"domain=example.com",
 			"ttl=300",
@@ -71,8 +72,8 @@ func TestConnectorExecConfigTypesArgumentsFromTheSchema(t *testing.T) {
 			`labels={"team":"infra"}`,
 		},
 	}, nil)
-	if err != nil {
-		t.Fatalf("connectorExecConfig: %v", err)
+	if err != nil || len(hints) != 0 {
+		t.Fatalf("connectorExecConfig: err %v, hints %v", err, hints)
 	}
 	want := map[string]any{
 		"domain":      "example.com",
@@ -96,7 +97,7 @@ func TestConnectorExecConfigLayersInputThenJSONThenArgs(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"domain":"from-input.example","ttl":60,"proxied":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := connectorExecConfig(execTestOperation(t, "set_records"), connectorExecFlags{
+	cfg, _, err := connectorExecConfig(execTestOperation(t, "set_records"), connectorExecFlags{
 		input:    path,
 		jsonArgs: []string{`ttl=120`},
 		args:     []string{"domain=from-arg.example"},
@@ -108,38 +109,62 @@ func TestConnectorExecConfigLayersInputThenJSONThenArgs(t *testing.T) {
 		t.Fatalf("cfg = %#v", cfg)
 	}
 
-	cfg, err = connectorExecConfig(execTestOperation(t, "set_records"), connectorExecFlags{input: "-"},
+	cfg, _, err = connectorExecConfig(execTestOperation(t, "set_records"), connectorExecFlags{input: "-"},
 		strings.NewReader(`{"domain":"stdin.example"}`))
 	if err != nil || cfg["domain"] != "stdin.example" {
 		t.Fatalf("stdin input: cfg = %#v, err = %v", cfg, err)
 	}
 }
 
-// Every refusal happens before the operation is sent, and names what to do.
-func TestConnectorExecConfigRefusals(t *testing.T) {
-	cases := []struct {
+// Only a command line that cannot form a request is refused here: there is
+// no operation to record.
+func TestConnectorExecConfigRefusesOnlyMalformedSyntax(t *testing.T) {
+	for _, tc := range []struct {
 		name  string
-		op    string
 		flags connectorExecFlags
 		want  string
 	}{
-		{"undeclared argument on a closed schema", "set_records", connectorExecFlags{args: []string{"domain=x", "zone=y"}}, "refusing fields (zone): the operation does not declare them; the operation accepts: domain, email_type"},
-		{"missing a required argument", "set_records", connectorExecFlags{args: []string{"ttl=5"}}, "missing required fields (domain)"},
-		{"not an integer", "set_records", connectorExecFlags{args: []string{"ttl=five"}}, `--arg ttl="five": want integer`},
-		{"not a boolean", "set_records", connectorExecFlags{args: []string{"proxied=maybe"}}, `--arg proxied="maybe": want boolean`},
-		{"outside the enum", "set_records", connectorExecFlags{args: []string{"email_type=FWD"}}, `not one of`},
-		{"object through --arg", "set_records", connectorExecFlags{args: []string{"labels=team"}}, "pass it as --arg-json labels=<JSON>"},
-		{"array of objects through --arg", "set_records", connectorExecFlags{args: []string{"records=A"}}, "pass it as --arg-json records=<JSON>"},
-		{"a scalar repeated", "set_records", connectorExecFlags{args: []string{"domain=a", "domain=b"}}, "--arg domain given more than once"},
-		{"malformed --arg", "set_records", connectorExecFlags{args: []string{"domain"}}, "want key=value"},
-		{"malformed --arg-json", "set_records", connectorExecFlags{jsonArgs: []string{"records=[oops"}}, "--arg-json records"},
-		{"--input that is not an object", "set_records", connectorExecFlags{input: "-"}, "--input must be a JSON object"},
-	}
-	for _, tc := range cases {
+		{"malformed --arg", connectorExecFlags{args: []string{"domain"}}, "want key=value"},
+		{"malformed --arg-json", connectorExecFlags{jsonArgs: []string{"records=[oops"}}, "--arg-json records"},
+		{"--input that is not an object", connectorExecFlags{input: "-"}, "--input must be a JSON object"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := connectorExecConfig(execTestOperation(t, tc.op), tc.flags, strings.NewReader(`[1,2]`))
+			_, _, err := connectorExecConfig(execTestOperation(t, "set_records"), tc.flags, strings.NewReader(`[1,2]`))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Everything else this side knows about the operation is a hint. The value is
+// sent as written, and the admin lane refuses it and records the attempt.
+func TestConnectorExecConfigHintsAndSendsTheRest(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags connectorExecFlags
+		hint  string
+		key   string
+		sent  any
+	}{
+		{"undeclared argument on a closed schema", connectorExecFlags{args: []string{"domain=x", "zone=y"}}, "refusing fields (zone): the operation does not declare them; the operation accepts: domain, email_type", "zone", "y"},
+		{"missing a required argument", connectorExecFlags{args: []string{"ttl=5"}}, "missing required fields (domain)", "ttl", 5},
+		{"not an integer", connectorExecFlags{args: []string{"domain=x", "ttl=five"}}, `--arg ttl="five": want integer`, "ttl", "five"},
+		{"not a boolean", connectorExecFlags{args: []string{"domain=x", "proxied=maybe"}}, `--arg proxied="maybe": want boolean`, "proxied", "maybe"},
+		{"outside the enum", connectorExecFlags{args: []string{"domain=x", "email_type=FWD"}}, `not one of`, "email_type", "FWD"},
+		{"object through --arg", connectorExecFlags{args: []string{"domain=x", "labels=team"}}, "pass it as --arg-json labels=<JSON>", "labels", "team"},
+		{"a scalar repeated", connectorExecFlags{args: []string{"domain=a", "domain=b"}}, "--arg domain given more than once", "domain", []any{"a", "b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, hints, err := connectorExecConfig(execTestOperation(t, "set_records"), tc.flags, nil)
+			if err != nil {
+				t.Fatalf("refused locally: %v; want a hint and the value sent", err)
+			}
+			if !strings.Contains(strings.Join(hints, "\n"), tc.hint) {
+				t.Fatalf("hints = %q, want one containing %q", hints, tc.hint)
+			}
+			if !reflect.DeepEqual(cfg[tc.key], tc.sent) {
+				t.Fatalf("cfg[%s] = %#v, want %#v sent as given", tc.key, cfg[tc.key], tc.sent)
 			}
 		})
 	}
@@ -148,9 +173,9 @@ func TestConnectorExecConfigRefusals(t *testing.T) {
 // A schema that does not close itself accepts what it does not name, as a
 // string: typing only ever narrows what the operation received before.
 func TestConnectorExecConfigOpenSchemaKeepsUnknownArguments(t *testing.T) {
-	cfg, err := connectorExecConfig(execTestOperation(t, "open_op"), connectorExecFlags{args: []string{"anything=42"}}, nil)
-	if err != nil || cfg["anything"] != "42" {
-		t.Fatalf("cfg = %#v, err = %v", cfg, err)
+	cfg, hints, err := connectorExecConfig(execTestOperation(t, "open_op"), connectorExecFlags{args: []string{"anything=42"}}, nil)
+	if err != nil || cfg["anything"] != "42" || len(hints) != 0 {
+		t.Fatalf("cfg = %#v, hints = %v, err = %v", cfg, hints, err)
 	}
 }
 
@@ -166,7 +191,7 @@ func (r *recordingExecutor) Execute(_ context.Context, args cerbapi.ExternalConn
 func TestRunConnectorExecSendsTypedArgsDryRunAndAck(t *testing.T) {
 	exec := &recordingExecutor{}
 	var out bytes.Buffer
-	err := runConnectorExec(context.Background(), &out, nil, exec, []contract.Definition{execTestDefinition()}, "dnsdemo", "set_records",
+	err := runConnectorExec(context.Background(), &out, io.Discard, nil, exec, []contract.Definition{execTestDefinition()}, "dnsdemo", "set_records",
 		connectorExecFlags{args: []string{"domain=example.com", "ttl=300"}, dryRun: true, ack: true})
 	if err != nil {
 		t.Fatalf("runConnectorExec: %v", err)
@@ -183,14 +208,26 @@ func TestRunConnectorExecSendsTypedArgsDryRunAndAck(t *testing.T) {
 	}
 }
 
-func TestRunConnectorExecNamesWhatExists(t *testing.T) {
+// An unknown connector or operation still reaches the admin lane, which
+// refuses and records it; the operator gets the hint first, naming what
+// exists.
+func TestRunConnectorExecSendsUnknownsAndHints(t *testing.T) {
 	defs := []contract.Definition{execTestDefinition(), {ID: "another"}}
-	err := runConnectorExec(context.Background(), &bytes.Buffer{}, nil, &recordingExecutor{}, defs, "missing", "x", connectorExecFlags{})
-	if err == nil || !strings.Contains(err.Error(), "known connectors: another, dnsdemo") {
-		t.Fatalf("unknown connector: err = %v", err)
-	}
-	err = runConnectorExec(context.Background(), &bytes.Buffer{}, nil, &recordingExecutor{}, defs, "dnsdemo", "nope", connectorExecFlags{})
-	if err == nil || !strings.Contains(err.Error(), "it declares: set_records, open_op") {
-		t.Fatalf("unknown operation: err = %v", err)
+	for _, tc := range []struct{ connector, operation, hint string }{
+		{"missing", "x", "known connectors: another, dnsdemo"},
+		{"dnsdemo", "nope", "it declares: set_records, open_op"},
+	} {
+		exec := &recordingExecutor{}
+		var errOut bytes.Buffer
+		err := runConnectorExec(context.Background(), &bytes.Buffer{}, &errOut, nil, exec, defs, tc.connector, tc.operation, connectorExecFlags{args: []string{"k=v"}})
+		if err != nil {
+			t.Fatalf("%s %s: %v", tc.connector, tc.operation, err)
+		}
+		if exec.got.Connector != tc.connector || exec.got.Operation != tc.operation || exec.got.Config["k"] != "v" {
+			t.Fatalf("%s %s was not sent to the admin lane: %+v", tc.connector, tc.operation, exec.got)
+		}
+		if !strings.Contains(errOut.String(), "hint: "+tc.connector+" "+tc.operation+": ") || !strings.Contains(errOut.String(), tc.hint) {
+			t.Fatalf("hint = %q, want it to name %q", errOut.String(), tc.hint)
+		}
 	}
 }

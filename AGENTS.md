@@ -148,8 +148,8 @@ loaded at runtime without rebuilding the host.
 Our plugins live in `hollis-labs/cerberus-plugins`; third-party plugins are
 standalone repos. `cloudflare` moved out first (its SDK was most of the binary:
 removing it took a stripped build from 62.8MB to 23.6MB), then `digitalocean`
-(21.8MB), then `namecheap`. `forge` is the last compiled in, and is next, per
-`docs/plans/provider-plugin-extraction.md`. Do not add a second.
+(21.8MB), then `namecheap` and `forge`. No provider connector is compiled in
+any more (`docs/plans/provider-plugin-extraction.md`). Do not add one.
 
 **A new provider integration is a plugin, not a built-in.** If you are about to
 add a vendor SDK to `go.mod` for a connector, that is the signal you are in the

@@ -14,7 +14,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
@@ -342,8 +341,6 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 	switch args.Connector {
 	case "docker":
 		result, err = s.executeDocker(ctx, c, args)
-	case "forge":
-		result, err = s.executeForge(ctx, c, args)
 	case "github":
 		result, err = s.executeGitHub(ctx, c, args)
 	case "ssh":
@@ -437,33 +434,6 @@ func (s *ExternalConnectorService) definitionFor(id string) (contract.Definition
 
 func (s *ExternalConnectorService) dryRunPreview(args ExternalConnectorOperationArgs) (ExternalConnectorDryRunPreview, bool, error) {
 	switch args.Connector {
-	case "forge":
-		switch args.Operation {
-		case "deploy_site":
-			serverID, siteID, err := serverSiteIDs(args.Config)
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would trigger a Forge site deployment.", map[string]any{
-				"server_id": serverID,
-				"site_id":   siteID,
-			}, nil), true, nil
-		case "exec_site_command":
-			serverID, siteID, err := serverSiteIDs(args.Config)
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			command, err := requiredString(args.Config, "command")
-			if err != nil {
-				return ExternalConnectorDryRunPreview{}, true, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-			}
-			return dryRunPreview(args, "Would execute a Forge site command.", map[string]any{
-				"server_id": serverID,
-				"site_id":   siteID,
-			}, map[string]any{
-				"command": command,
-			}), true, nil
-		}
 	case "ssh":
 		switch args.Operation {
 		case "exec":
@@ -636,71 +606,6 @@ func (s *ExternalConnectorService) executeGitHub(ctx context.Context, c contract
 	case "list_workflow_runs":
 		runs, err := github.ListWorkflowRuns(ctx, owner, repo, intFromConfig(args.Config, "limit", 10))
 		return externalConnectorResult(args, runs), err
-	default:
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
-	}
-}
-
-func (s *ExternalConnectorService) executeForge(ctx context.Context, c contract.Connector, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	forge, ok := c.(*forgeconn.Connector)
-	if !ok {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("registered connector has type %T", c))
-	}
-
-	switch args.Operation {
-	case "list_servers":
-		servers, err := forge.ListServers(ctx)
-		return externalConnectorResult(args, servers), err
-	case "get_server":
-		serverID, err := requiredInt(args.Config, "server_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		server, err := forge.GetServer(ctx, serverID)
-		return externalConnectorResult(args, server), err
-	case "list_sites":
-		serverID, err := requiredInt(args.Config, "server_id")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		sites, err := forge.ListSites(ctx, serverID)
-		return externalConnectorResult(args, sites), err
-	case "get_deployment_script":
-		serverID, siteID, err := serverSiteIDs(args.Config)
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		script, err := forge.GetDeploymentScript(ctx, serverID, siteID)
-		return externalConnectorResult(args, script), err
-	case "update_deployment_script":
-		serverID, siteID, err := serverSiteIDs(args.Config)
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		content, err := requiredString(args.Config, "content")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		err = forge.UpdateDeploymentScript(ctx, serverID, siteID, content, boolFromConfig(args.Config, "auto_source"))
-		return externalConnectorResult(args, nil), err
-	case "deploy_site":
-		serverID, siteID, err := serverSiteIDs(args.Config)
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		err = forge.DeploySite(ctx, serverID, siteID)
-		return externalConnectorResult(args, nil), err
-	case "exec_site_command":
-		serverID, siteID, err := serverSiteIDs(args.Config)
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		command, err := requiredString(args.Config, "command")
-		if err != nil {
-			return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-		}
-		result, err := forge.ExecuteSiteCommand(ctx, serverID, siteID, command)
-		return externalConnectorResult(args, result), err
 	default:
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
@@ -987,16 +892,4 @@ func requiredStringSlice(cfg map[string]any, key string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s must be a string array", key)
 	}
-}
-
-func serverSiteIDs(cfg map[string]any) (int, int, error) {
-	serverID, err := requiredInt(cfg, "server_id")
-	if err != nil {
-		return 0, 0, err
-	}
-	siteID, err := requiredInt(cfg, "site_id")
-	if err != nil {
-		return 0, 0, err
-	}
-	return serverID, siteID, nil
 }

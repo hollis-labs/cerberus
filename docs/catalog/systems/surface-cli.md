@@ -107,8 +107,12 @@ so dry-run, acknowledgment and redaction apply exactly as they do for a
 hand-written subcommand. Arguments are typed from the operation's input schema:
 `--arg k=v` is parsed as the declared integer, number or boolean, a repeated key
 builds an array, `--arg-json k=<JSON>` carries objects, and `--input <file|->`
-takes a whole argument object. An argument a closed schema does not declare is
-refused before anything is sent. `connectors plugin managed exec` is now the
+takes a whole argument object. What the CLI knows about the operation (an
+unknown connector or operation, an argument a closed schema does not declare, a
+value that does not fit its type) is printed as a hint, and the call is sent
+anyway, so the admin lane refuses it and records the attempt in the audit log.
+Only a command line that cannot form a request, such as `--arg` without `=`, is
+refused locally. `connectors plugin managed exec` is now the
 same command limited to installed plugins, and the one-shot `connectors plugin
 exec <dir>` types its arguments from the directory's `plugin.yaml`. That is
 also the CLI path to `namecheap`'s `get_dns_record_set` and `set_dns_record_set`

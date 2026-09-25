@@ -7,7 +7,6 @@ import (
 	"time"
 
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
-	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
 	gh "github.com/hollis-labs/cerberus/internal/connector/github"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -30,11 +29,6 @@ func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {
 	}{
 		{"docker", "list_containers", []docker.Container{{ID: "abc", Name: "web", State: "running"}}},
 		{"docker", "logs", "line one\nline two\n"},
-		{"forge", "list_servers", []forge.Server{{ID: 123, Name: "web"}}},
-		{"forge", "get_server", &forge.Server{ID: 123, Name: "web"}},
-		{"forge", "list_sites", []forge.Site{{ID: 456, Name: "example.com"}}},
-		{"forge", "get_deployment_script", "#!/bin/sh\ntrue\n"},
-		{"forge", "exec_site_command", &forge.SiteCommand{}},
 		{"github", "status", &gh.RepoStatus{Owner: "org", Repo: "repo", UpdatedAt: timestamp}},
 		{"github", "list_releases", []gh.Release{{TagName: "v1", PublishedAt: timestamp}}},
 		{"github", "list_workflow_runs", []gh.WorkflowRun{{ID: 9007199254740993, Name: "Build", CreatedAt: timestamp}}},
