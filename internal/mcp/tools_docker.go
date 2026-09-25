@@ -140,7 +140,7 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_docker_down",
-		Description: "Stop a Docker container or Compose stack, on this machine or on a remote Docker host.",
+		Description: "Stop a Docker container (docker stop) or Compose stack (docker compose stop), on this machine or on a remote Docker host. This does not remove the stack: containers and networks are kept and cerberus_docker_up starts it again. Removal is the docker connector's destroy operation, which requires acknowledgment.",
 		InputSchema: map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": false,
@@ -151,7 +151,7 @@ func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 				},
 				"compose_file": map[string]interface{}{
 					"type":        "string",
-					"description": "Compose file path to run with docker compose down.",
+					"description": "Compose file path to run with docker compose stop.",
 				},
 			}),
 			"oneOf": []map[string]interface{}{
