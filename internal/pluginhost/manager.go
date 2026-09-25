@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -316,6 +317,10 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	}
 	out, err := OperationResultFromMCP(args, result)
 	if err != nil {
+		var coded *CodedError
+		if errors.As(err, &coded) {
+			coded.MissingSecrets = append([]string(nil), lp.missingSecrets...)
+		}
 		return OperationResult{}, lp.redactor.Error(err)
 	}
 	return out, nil

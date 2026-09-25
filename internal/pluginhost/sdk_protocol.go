@@ -106,6 +106,15 @@ func MCPRequestFromOperation(args OperationArgs) SDKMCPCallRequest {
 
 func OperationResultFromMCP(args OperationArgs, result SDKMCPCallResult) (OperationResult, error) {
 	if result.IsError {
+		if code, message, ok := plugin.ParseErrorResult(result.Content); ok {
+			if !code.Valid() {
+				// A code outside the plugin vocabulary is reported, not
+				// trusted: it cannot pose as one of the gate's own codes.
+				message = fmt.Sprintf("%s (the plugin sent unknown error code %q)", message, code)
+				code = plugin.ErrorOperationFailed
+			}
+			return OperationResult{}, &CodedError{Connector: args.Connector, Operation: args.Operation, Code: code, Message: message}
+		}
 		return OperationResult{}, fmt.Errorf("plugin tool %s returned error: %s", ToolNameForOperation(args.Connector, args.Operation), string(result.Content))
 	}
 	var data any
