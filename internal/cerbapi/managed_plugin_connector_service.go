@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
@@ -114,13 +115,13 @@ func (s *ManagedPluginConnectorService) Install(ctx context.Context, args Plugin
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Installing managed plugin")
 	installed, err := s.install(args.PluginDir, args.InstallOptions())
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", args.PluginDir, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", args.PluginDir, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin install failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	state := managedState(installed, false)
 	if err := s.persist(); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", installed.ID, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", installed.ID, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin install failed")
 		return ManagedPluginConnectorState{}, err
 	}
@@ -134,14 +135,14 @@ func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (Ma
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Loading managed plugin %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Loading managed plugin")
 	if err := s.manager.Load(context.Background(), id); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin load failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	installed, _ := s.manager.Installed(id)
 	state := s.state(installed, true)
 	if err := s.persist(); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin load failed")
 		return ManagedPluginConnectorState{}, err
 	}
@@ -155,14 +156,14 @@ func (s *ManagedPluginConnectorService) Unload(ctx context.Context, id string) (
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Unloading managed plugin %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Unloading managed plugin")
 	if err := s.manager.Unload(ctx, id); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin unload failed for %s: %s", id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin unload failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin unload failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	installed, _ := s.manager.Installed(id)
 	state := managedState(installed, false)
 	if err := s.persist(); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin unload failed for %s: %s", id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin unload failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin unload failed")
 		return ManagedPluginConnectorState{}, err
 	}
@@ -182,25 +183,25 @@ func (s *ManagedPluginConnectorService) Uninstall(ctx context.Context, id string
 	installed, ok := s.manager.Installed(id)
 	if !ok {
 		err := fmt.Errorf("plugin %q is not installed", id)
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	if s.manager.Loaded(id) {
 		if err := s.manager.Unload(ctx, id); err != nil {
-			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, redact.Text(err.Error())))
 			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
 			return ManagedPluginConnectorState{}, err
 		}
 	}
 	if err := s.manager.Remove(id); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
 		return ManagedPluginConnectorState{}, err
 	}
 	delete(s.records, id)
 	if err := s.persist(); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
 		return ManagedPluginConnectorState{}, err
 	}
@@ -273,7 +274,7 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 		Acknowledged: args.Acknowledged,
 	})
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin operation %s failed on %s: %s", args.Operation, id, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin operation %s failed on %s: %s", args.Operation, id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin operation failed")
 		// Coded here, so the direct plugin route answers a refusal with the
 		// same code and status as the admin lane does.

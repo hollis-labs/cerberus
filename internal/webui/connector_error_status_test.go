@@ -64,6 +64,7 @@ func TestWebConnectorRefusalsKeepTheirStatusAndMessage(t *testing.T) {
 		cerbapi.ExternalConnectorUnsupported:        http.StatusNotFound,
 		cerbapi.ExternalConnectorUnavailable:        http.StatusServiceUnavailable,
 		cerbapi.ExternalConnectorCredentialMissing:  http.StatusServiceUnavailable,
+		cerbapi.ExternalConnectorOperationFailed:    http.StatusBadGateway,
 	}
 	for _, code := range cerbapi.ExternalConnectorErrorCodes() {
 		t.Run(string(code), func(t *testing.T) {

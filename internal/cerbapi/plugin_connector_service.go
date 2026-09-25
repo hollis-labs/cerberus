@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
 
@@ -104,7 +105,7 @@ func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnecto
 	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
 	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.InstallOptions())
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin health check failed for %s: %s", args.PluginDir, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin health check failed for %s: %s", args.PluginDir, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin health failed")
 		return PluginConnectorHealth{}, err
 	}
@@ -113,7 +114,7 @@ func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnecto
 	gmcp.NotifyProgress(ctx, progressToken, 2, 3, "Checking plugin health")
 	health, err := manager.Health(ctx, installed.ID)
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin health check failed for %s: %s", installed.ID, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin health check failed for %s: %s", installed.ID, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin health failed")
 		return PluginConnectorHealth{}, err
 	}
@@ -133,7 +134,7 @@ func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnect
 	gmcp.NotifyProgress(ctx, progressToken, 0, 3, "Installing plugin")
 	manager, installed, err := s.installAndLoad(ctx, args.PluginDir, args.Options)
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed for %s: %s", args.Operation, args.PluginDir, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed for %s: %s", args.Operation, args.PluginDir, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation failed")
 		return ExternalConnectorOperationResult{}, err
 	}
@@ -148,7 +149,7 @@ func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnect
 		Acknowledged: args.Acknowledged,
 	})
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed on %s: %s", args.Operation, installed.ID, err.Error()))
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed on %s: %s", args.Operation, installed.ID, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation failed")
 		return ExternalConnectorOperationResult{}, err
 	}
