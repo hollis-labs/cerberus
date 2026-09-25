@@ -66,6 +66,11 @@ Destructive connector operations require explicit operator acknowledgment
   Read before adding a credential backend, a redaction rule, or anything that
   gates an operation. It is also the honest inventory: there is no audit trail
   today, and the acknowledgment gate is an intent gate rather than a human one.
+- `docs/plans/live-systems-security-target.md` — the end state that work
+  converges on: effect classes, named targets, layered policy, human approval
+  bound to a plan, egress labels, audit. Also lists gate defects to fix first
+  and the decisions already taken. Read before adding a gate, a policy rule or
+  an approval path.
 - `~/Projects/tools` — ~70 shell scripts that already administer the work host,
   with their failure modes documented in-line. This is the capability spec for
   what connectors should grow; promote proven behaviour rather than redesigning.
