@@ -221,13 +221,13 @@ var resourceReloadCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, reloadErr := client.ReloadResource(cmd.Context(), res.ID)
+			out, reloadErr := client.ReloadResource(cmd.Context(), res.ID, ackOption(cmd))
 			if reloadErr != nil {
 				return reloadErr
 			}
 			return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
 		}
-		out, err := newResourceRuntimeService().ReloadResource(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().ReloadResource(cmd.Context(), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -253,13 +253,13 @@ var resourceStopCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, stopErr := client.StopResource(cmd.Context(), res.ID)
+			out, stopErr := client.StopResource(cmd.Context(), res.ID, ackOption(cmd))
 			if stopErr != nil {
 				return stopErr
 			}
 			return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
 		}
-		out, err := newResourceRuntimeService().StopResource(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().StopResource(cmd.Context(), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -286,14 +286,14 @@ var resourceApplyCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, applyErr := client.ApplyResource(cmd.Context(), res.ID)
+			out, applyErr := client.ApplyResource(cmd.Context(), res.ID, ackOption(cmd))
 			if applyErr != nil {
 				return applyErr
 			}
 			return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
 		}
 
-		out, err := newResourceRuntimeService().ApplyResource(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().ApplyResource(cmd.Context(), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -319,6 +319,7 @@ var resourceDeployCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		deployOpts = append(deployOpts, ackOption(cmd))
 
 		socketClient, err := resourceMutationSocket(cmd.Context())
 		if err != nil {
@@ -338,6 +339,12 @@ var resourceDeployCmd = &cobra.Command{
 		}
 		return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
 	},
+}
+
+// ackOption reads a command's --ack into the mutation's options.
+func ackOption(cmd *cobra.Command) cerbapi.MutationOption {
+	ack, _ := cmd.Flags().GetBool("ack")
+	return cerbapi.WithAcknowledged(ack)
 }
 
 // resolveDeployFlags collapses the --install-after-build / --no-install-after-build
@@ -370,6 +377,7 @@ sync only copies it; reload only restarts the current installed binary.`,
 		if err != nil {
 			return err
 		}
+		deployOpts = append(deployOpts, ackOption(cmd))
 		client, err := resourceMutationSocket(cmd.Context())
 		if err != nil {
 			return err
@@ -415,7 +423,7 @@ func printEnsureFreshResult(res *cerbapi.EnsureFreshResult) error {
 	return nil
 }
 
-func resolveDeployFlags(cmd *cobra.Command) ([]cerbapi.DeployResourceOption, error) {
+func resolveDeployFlags(cmd *cobra.Command) ([]cerbapi.MutationOption, error) {
 	yesSet := cmd.Flags().Changed("install-after-build")
 	noSet := cmd.Flags().Changed("no-install-after-build")
 	if yesSet && noSet {
@@ -427,9 +435,9 @@ func resolveDeployFlags(cmd *cobra.Command) ([]cerbapi.DeployResourceOption, err
 		if err != nil {
 			return nil, fmt.Errorf("read --install-after-build: %w", err)
 		}
-		return []cerbapi.DeployResourceOption{cerbapi.WithInstallAfterBuildOverride(val)}, nil
+		return []cerbapi.MutationOption{cerbapi.WithInstallAfterBuildOverride(val)}, nil
 	case noSet:
-		return []cerbapi.DeployResourceOption{cerbapi.WithInstallAfterBuildOverride(false)}, nil
+		return []cerbapi.MutationOption{cerbapi.WithInstallAfterBuildOverride(false)}, nil
 	default:
 		return nil, nil
 	}
@@ -530,14 +538,14 @@ var resourceSyncCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, syncErr := client.SyncResource(cmd.Context(), res.ID)
+			out, syncErr := client.SyncResource(cmd.Context(), res.ID, ackOption(cmd))
 			if syncErr != nil {
 				return syncErr
 			}
 			return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
 		}
 
-		out, err := newResourceRuntimeService().SyncResource(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().SyncResource(cmd.Context(), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -564,14 +572,14 @@ var resourceRemoveCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, removeErr := client.RemoveResource(cmd.Context(), res.ID)
+			out, removeErr := client.RemoveResource(cmd.Context(), res.ID, ackOption(cmd))
 			if removeErr != nil {
 				return removeErr
 			}
 			return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
 		}
 
-		out, err := newResourceRuntimeService().RemoveResource(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().RemoveResource(cmd.Context(), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -958,6 +966,12 @@ func init() {
 	resourceLogsCmd.Flags().StringVar(&resourceLogsStream, "stream", "stdout", "log stream to read: stdout or stderr")
 	resourceCmd.AddCommand(resourceLogsCmd)
 	resourceCmd.AddCommand(resourceSyncCmd)
+	// Every resource mutation needs acknowledgment (Decisions 11 and 14):
+	// deploy, apply, reload and stop are lifecycle, sync is a write and
+	// remove is destructive. ensure-fresh passes it to whichever it runs.
+	for _, c := range []*cobra.Command{resourceDeployCmd, resourceEnsureFreshCmd, resourceApplyCmd, resourceReloadCmd, resourceStopCmd, resourceSyncCmd, resourceRemoveCmd} {
+		c.Flags().Bool("ack", false, "acknowledge the operation; every resource mutation requires it")
+	}
 	resourceCmd.AddCommand(resourceRemoveCmd)
 
 }

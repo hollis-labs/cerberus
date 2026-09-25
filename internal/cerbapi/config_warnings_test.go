@@ -20,11 +20,11 @@ func TestResourceConfigWarningVisibleInLifecycleStatusAndDoctor(t *testing.T) {
 	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
 	ctx := context.Background()
 	t.Cleanup(func() {
-		_, _ = svc.StopResource(ctx, id)
+		_, _ = svc.StopResource(ctx, id, WithAcknowledged(true))
 		_ = pausectl.ResumeService(id)
 		_ = service.RemovePIDFile(id)
 	})
-	op, err := svc.ApplyResource(ctx, id)
+	op, err := svc.ApplyResource(ctx, id, WithAcknowledged(true))
 	if err != nil || !op.Success || !strings.Contains(strings.Join(op.Warnings, " "), "config.ENV") {
 		t.Fatalf("apply hid typo: %+v %v", op, err)
 	}

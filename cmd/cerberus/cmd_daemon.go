@@ -211,8 +211,8 @@ func refuseIfLaunchdManagedAndManual() error {
 	}
 	plistPath, _ := daemon.LaunchdManagedDaemonPlistPath()
 	return fmt.Errorf(`refusing to start a manual cerberus daemon: launchd plist exists at %s.
-  - To kick the launchd-managed daemon: cerberus resource reload %s
-  - To restart from scratch:           cerberus resource apply  %s
+  - To kick the launchd-managed daemon: cerberus resource reload %s --ack
+  - To restart from scratch:           cerberus resource apply  %s --ack
   - To debug a parallel daemon (rare): cerberus daemon --foreground --override-launchd`,
 		plistPath, daemon.CanonicalDaemonResourceID, daemon.CanonicalDaemonResourceID)
 }

@@ -3,9 +3,7 @@ package infra
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	"gopkg.in/yaml.v3"
@@ -128,75 +126,4 @@ func (s *State) Profile(id string) (DeploymentProfile, bool) {
 		}
 	}
 	return DeploymentProfile{}, false
-}
-
-func SuggestedProfiles() []DeploymentProfile {
-	suggestions := []DeploymentProfile{}
-	chrispianPath := "/Users/chrispian/dev/sites/chrispian.dev"
-	if info, err := os.Stat(chrispianPath); err == nil && info.IsDir() {
-		gitRemote, gitOwner, gitRepo := suggestedGitMetadata(chrispianPath)
-		suggestions = append(suggestions, DeploymentProfile{
-			ID:               "chrispian-dev",
-			Name:             "chrispian.dev",
-			Provider:         "vercel",
-			RepoPath:         chrispianPath,
-			Domain:           "chrispian.dev",
-			DNSProvider:      "namecheap",
-			ProductionBranch: "main",
-			GitProvider:      "github",
-			GitRemote:        gitRemote,
-			GitOwner:         gitOwner,
-			GitRepo:          gitRepo,
-			PreflightCommand: "pnpm check",
-			BuildCommand:     "pnpm build",
-			DeployCommand:    "vercel --prod --yes",
-		})
-	}
-	return suggestions
-}
-
-func suggestedGitMetadata(repoPath string) (remote, owner, repo string) {
-	remotes := strings.Fields(runGitCommand(repoPath, "remote"))
-	for _, candidate := range []string{"origin"} {
-		for _, remoteName := range remotes {
-			if remoteName != candidate {
-				continue
-			}
-			url := strings.TrimSpace(runGitCommand(repoPath, "remote", "get-url", remoteName))
-			owner, repo = parseGitHubRemote(url)
-			return remoteName, owner, repo
-		}
-	}
-	return "", "", ""
-}
-
-func parseGitHubRemote(raw string) (owner, repo string) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", ""
-	}
-	switch {
-	case strings.HasPrefix(raw, "git@github.com:"):
-		raw = strings.TrimPrefix(raw, "git@github.com:")
-	case strings.HasPrefix(raw, "https://github.com/"):
-		raw = strings.TrimPrefix(raw, "https://github.com/")
-	default:
-		return "", ""
-	}
-	raw = strings.TrimSuffix(raw, ".git")
-	parts := strings.Split(raw, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", ""
-	}
-	return parts[0], parts[1]
-}
-
-func runGitCommand(repoPath string, args ...string) string {
-	cmd := exec.Command("git", args...) //nolint:gosec
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return string(out)
 }

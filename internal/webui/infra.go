@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/infra"
 )
 
@@ -12,7 +13,6 @@ type infraResponse struct {
 	StatePath   string               `json:"state_path,omitempty"`
 	Providers   []infraProviderDTO   `json:"providers"`
 	Deployments []infraDeploymentDTO `json:"deployments"`
-	Suggestions []infraDeploymentDTO `json:"suggestions,omitempty"`
 	Error       string               `json:"error,omitempty"`
 }
 
@@ -62,7 +62,6 @@ type infraDeploymentDTO struct {
 	PreflightCommand string `json:"preflight_command,omitempty"`
 	BuildCommand     string `json:"build_command,omitempty"`
 	DeployCommand    string `json:"deploy_command,omitempty"`
-	Suggested        bool   `json:"suggested,omitempty"`
 }
 
 func (s *Server) handleInfra(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +147,6 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"deployments": resp.Deployments,
-			"suggestions": resp.Suggestions,
 			"state_path":  resp.StatePath,
 		})
 	case http.MethodPost:
@@ -235,12 +233,35 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "deployment profile not found")
 			return
 		}
-		result, err := infra.RunDeployment(r.Context(), s.secrets, profile)
+		opts, err := decodeMutationBody(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		result, err := cerbapi.RunDeploymentProfile(r.Context(), s.secrets, profile, opts...)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	case "plan":
+		// What run would execute, for the confirm step: the operator
+		// confirms against these commands (Decision 3). Read-only.
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		state, err := infra.LoadState(s.configPath)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, result)
+		profile, ok := state.Profile(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "deployment profile not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, infra.PlanDeployment(r.Context(), s.secrets, profile))
 	default:
 		writeError(w, http.StatusNotFound, "unknown deployment action")
 	}
@@ -256,25 +277,15 @@ func (s *Server) infraResponse(r *http.Request) (infraResponse, error) {
 		return infraResponse{}, err
 	}
 
-	savedIDs := map[string]bool{}
 	deployments := make([]infraDeploymentDTO, 0, len(state.Profiles))
 	for _, profile := range state.Profiles {
-		savedIDs[profile.ID] = true
-		deployments = append(deployments, dtoFromProfile(profile, false))
-	}
-	suggestions := []infraDeploymentDTO{}
-	for _, profile := range infra.SuggestedProfiles() {
-		if savedIDs[profile.ID] {
-			continue
-		}
-		suggestions = append(suggestions, dtoFromProfile(profile, true))
+		deployments = append(deployments, dtoFromProfile(profile))
 	}
 
 	resp := infraResponse{
 		StatePath:   statePath,
 		Providers:   s.providerDTOs(r, state),
 		Deployments: deployments,
-		Suggestions: suggestions,
 	}
 	return resp, nil
 }
@@ -372,7 +383,7 @@ func providerCatalog() map[string]providerSpec {
 	}
 }
 
-func dtoFromProfile(profile infra.DeploymentProfile, suggested bool) infraDeploymentDTO {
+func dtoFromProfile(profile infra.DeploymentProfile) infraDeploymentDTO {
 	return infraDeploymentDTO{
 		ID:               profile.ID,
 		Name:             profile.Name,
@@ -392,7 +403,6 @@ func dtoFromProfile(profile infra.DeploymentProfile, suggested bool) infraDeploy
 		PreflightCommand: profile.PreflightCommand,
 		BuildCommand:     profile.BuildCommand,
 		DeployCommand:    profile.DeployCommand,
-		Suggested:        suggested,
 	}
 }
 

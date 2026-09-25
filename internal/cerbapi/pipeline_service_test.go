@@ -39,7 +39,7 @@ func TestPipelineTransportUsesSharedRuntimeAndFreshConfig(t *testing.T) {
 	if detail.Definition.Name != "Updated" || detail.ValidationError != "" {
 		t.Fatalf("detail = %#v", detail)
 	}
-	result, err := client.RunPipeline(context.Background(), "check")
+	result, err := client.RunPipeline(context.Background(), "check", WithAcknowledged(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestPipelineDetailRetainsInvalidDefinition(t *testing.T) {
 	if detail.Definition.Name != "Inspectable" || detail.ValidationError != `resolve pipeline: pipeline "invalid" has no stages` {
 		t.Fatalf("detail = %#v", detail)
 	}
-	result, err := client.RunPipeline(context.Background(), "invalid")
+	result, err := client.RunPipeline(context.Background(), "invalid", WithAcknowledged(true))
 	if err != nil {
 		t.Fatal(err)
 	}

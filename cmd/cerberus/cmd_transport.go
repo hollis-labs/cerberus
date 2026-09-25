@@ -87,7 +87,7 @@ func explicitConfig() bool {
 type pipelineClient interface {
 	ListPipelines(context.Context) ([]cerbapi.PipelineInfo, error)
 	GetPipeline(context.Context, string) (*cerbapi.PipelineDetail, error)
-	RunPipeline(context.Context, string) (*cerbapi.PipelineRunResult, error)
+	RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error)
 }
 
 func newPipelineClient(cmd *cobra.Command) (pipelineClient, error) {

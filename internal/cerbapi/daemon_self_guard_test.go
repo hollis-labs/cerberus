@@ -35,16 +35,16 @@ func TestServingDaemonRefusesMutationBeforeBuildOrInstall(t *testing.T) {
 			if err := pipeline.Execute(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "refusing to mutate") {
 				t.Fatalf("pipeline bypassed self-protection: %v", err)
 			}
-			operations := []func(context.Context, string) (*OpResult, error){runtime.ApplyResource, runtime.SyncResource, runtime.ReloadResource, runtime.StopResource, runtime.RemoveResource,
-				func(ctx context.Context, id string) (*OpResult, error) { return runtime.DeployResource(ctx, id) },
-			}
+			// Acknowledged, so the contract gate passes and the guard, which
+			// is unchanged, is what refuses.
+			operations := []func(context.Context, string, ...MutationOption) (*OpResult, error){runtime.ApplyResource, runtime.SyncResource, runtime.ReloadResource, runtime.StopResource, runtime.RemoveResource, runtime.DeployResource}
 			for _, operation := range operations {
-				result, err := operation(context.Background(), identity.id)
+				result, err := operation(context.Background(), identity.id, WithAcknowledged(true))
 				if err != nil || result == nil || result.Success || !strings.Contains(result.Error, "refusing to mutate serving Cerberus") || !strings.Contains(result.Error, "kickstart") {
 					t.Fatalf("expected actionable self-mutation refusal, got %+v / %v", result, err)
 				}
 			}
-			result, err := EnsureFresh(context.Background(), runtime, identity.id, true)
+			result, err := EnsureFresh(context.Background(), runtime, identity.id, true, WithAcknowledged(true))
 			if err != nil || result.Success || !strings.Contains(result.Message, "refusing to mutate") {
 				t.Fatalf("ensure-fresh bypassed guard: %+v / %v", result, err)
 			}

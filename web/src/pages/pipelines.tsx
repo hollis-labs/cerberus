@@ -4,6 +4,7 @@ import { Button, Callout, EmptyState, SummaryCards, Textarea } from '@hollis-lab
 import { Panel } from '@hollis-labs/sysop-ui/widgets'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient } from '../api/client'
+import { ActionConfirm, type PendingConfirm } from '../components/action-confirm'
 
 export function PipelinesPage() {
   const pipelines = usePoll((signal) => apiClient.listPipelines(signal), 5000)
@@ -11,6 +12,7 @@ export function PipelinesPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [output, setOutput] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
+  const [pending, setPending] = useState<PendingConfirm | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -40,13 +42,20 @@ export function PipelinesPage() {
     { label: 'Stages', value: items.reduce((sum, item) => sum + item.stage_count, 0), accentColor: 'var(--color-warning)' },
   ]
 
+  // A run is exec — a stage can be a shell action — so it asks first, and the
+  // request is sent, acknowledged, from the confirm step.
+  function confirm(id: string, name: string) {
+    if (!sessionToken || busy) return
+    setPending({ verb: 'Run', subject: name, effect: 'exec', run: () => run(id) })
+  }
+
   async function run(id: string) {
     if (!sessionToken || busy) return
     setBusy(id)
     setError(null)
     try {
-      const result = await apiClient.runPipeline(id, sessionToken)
-      const raw = result.raw ? new TextDecoder().decode(Uint8Array.from(result.raw)) : ''
+      const result = await apiClient.runPipeline(id, sessionToken, true)
+      const raw = result.raw ? decodeRunResult(result.raw) : ''
       setOutput((current) => ({
         ...current,
         [id]: [result.error, raw].filter(Boolean).join('\n\n') || 'Pipeline completed.',
@@ -74,7 +83,7 @@ export function PipelinesPage() {
               title={item.name || item.id}
               icon={<Route className="h-3.5 w-3.5" />}
               meta={
-                <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null} onClick={() => void run(item.id)}>
+                <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null} onClick={() => confirm(item.id, item.name || item.id)}>
                   {busy === item.id ? 'Running...' : 'Run'}
                 </Button>
               }
@@ -90,6 +99,19 @@ export function PipelinesPage() {
           ))
         )}
       </div>
+      <ActionConfirm pending={pending} busy={busy !== null} onClose={() => setPending(null)} />
     </div>
   )
+}
+
+// decodeRunResult turns the base64 JSON of a pipeline result into readable
+// text: pretty-printed when it parses, as decoded otherwise.
+function decodeRunResult(raw: string): string {
+  const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0))
+  const text = new TextDecoder().decode(bytes)
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2)
+  } catch {
+    return text
+  }
 }

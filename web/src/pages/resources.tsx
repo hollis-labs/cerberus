@@ -23,6 +23,7 @@ import {
 import { refreshPolledData, usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type LogLines, type OpResult, type ResourceAction, type ResourceInfo, type ResourceRuntimeStatus } from '../api/client'
 import { ResolveNotice } from '../components/resolve-notice'
+import { ActionConfirm, RESOURCE_ACTION_EFFECT, type PendingConfirm } from '../components/action-confirm'
 
 type StatusFilter = 'all' | 'running' | 'attention' | 'stopped'
 
@@ -214,14 +215,26 @@ function ResourceTable({
   // rows) so the action menu can disable while one is running.
   const [busy, setBusy] = useState<{ id: string; action: ResourceAction } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [pending, setPending] = useState<PendingConfirm | null>(null)
   const anyBusy = busy !== null
 
-  async function runQuickAction(item: ResourceInfo, action: ResourceAction) {
+  // A quick action asks first; the request is sent, acknowledged, from the
+  // confirm step.
+  function runQuickAction(item: ResourceInfo, action: ResourceAction) {
     if (!token || busy) return
+    setPending({
+      verb: action.charAt(0).toUpperCase() + action.slice(1),
+      subject: item.name || item.id,
+      effect: RESOURCE_ACTION_EFFECT[action],
+      run: () => sendQuickAction(item, action),
+    })
+  }
+
+  async function sendQuickAction(item: ResourceInfo, action: ResourceAction) {
     setBusy({ id: item.id, action })
     setActionError(null)
     try {
-      const result = await apiClient.runResourceAction(item.id, action, token)
+      const result = await apiClient.runResourceAction(item.id, action, token, true)
       if (!result.success) {
         setActionError(result.error || `${action} failed for ${item.name || item.id}`)
       }
@@ -313,6 +326,7 @@ function ResourceTable({
         rowAriaLabel={(item) => `Open ${item.name || item.id}`}
         scrollRootRef={scrollRootRef}
       />
+      <ActionConfirm pending={pending} busy={anyBusy} onClose={() => setPending(null)} />
     </>
   )
 }
@@ -477,6 +491,7 @@ function ResourceDetailDialog({
   const [error, setError] = useState<string | null>(null)
   const [opResult, setOpResult] = useState<OpResult | null>(null)
   const [runningAction, setRunningAction] = useState<ResourceAction | null>(null)
+  const [pending, setPending] = useState<PendingConfirm | null>(null)
 
   useEffect(() => {
     if (!resourceID) {
@@ -507,12 +522,24 @@ function ResourceDetailDialog({
     }
   }, [resourceID, stream])
 
+  // An action asks first; the request is sent, acknowledged, from the
+  // confirm step.
+  function confirm(action: ResourceAction) {
+    if (!resourceID || !actionToken) return
+    setPending({
+      verb: action.charAt(0).toUpperCase() + action.slice(1),
+      subject: detail?.name || resourceID,
+      effect: RESOURCE_ACTION_EFFECT[action],
+      run: () => run(action),
+    })
+  }
+
   async function run(action: ResourceAction) {
     if (!resourceID || !actionToken) return
     setRunningAction(action)
     setError(null)
     try {
-      const result = await apiClient.runResourceAction(resourceID, action, actionToken)
+      const result = await apiClient.runResourceAction(resourceID, action, actionToken, true)
       setOpResult(result)
       const [nextDetail, nextLogs] = await Promise.all([apiClient.getResource(resourceID), apiClient.getLogs(resourceID, stream)])
       setDetail(nextDetail)
@@ -543,7 +570,7 @@ function ResourceDetailDialog({
                 variant={action.variant}
                 size="sm"
                 disabled={!actionToken || runningAction !== null}
-                onClick={() => void run(action.key)}
+                onClick={() => confirm(action.key)}
               >
                 {runningAction === action.key ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : action.icon}
                 {action.label}
@@ -618,6 +645,7 @@ function ResourceDetailDialog({
           )}
         </div>
       )}
+      <ActionConfirm pending={pending} busy={runningAction !== null} onClose={() => setPending(null)} />
     </DetailDialog>
   )
 }

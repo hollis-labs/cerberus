@@ -41,11 +41,15 @@ func NewCerberusPipelineListTool(client cerbapi.Client) Tool {
 func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_pipeline_run",
-		Description: "Run a pipeline and return per-stage results.",
+		Description: "Run a pipeline and return per-stage results. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"pipeline_id": map[string]interface{}{
 				"type":        "string",
 				"description": "Pipeline ID.",
+			},
+			"acknowledged": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Acknowledge the run. Required: a stage can run shell commands, so a run is exec.",
 			},
 		}, "pipeline_id"),
 		// A pipeline stage can be a shell action (sh -c), so a run can do anything.
@@ -61,7 +65,7 @@ func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 					Error:   "pipeline_id is required",
 				})
 			}
-			res, err := client.RunPipeline(ctx, pipelineID)
+			res, err := client.RunPipeline(ctx, pipelineID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
 			if err != nil {
 				return "", err
 			}

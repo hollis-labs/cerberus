@@ -223,81 +223,48 @@ func (c *SocketClient) GetResourceDoctor(ctx context.Context, id string) (*Resou
 	return &out, nil
 }
 
-func (c *SocketClient) DeployResource(ctx context.Context, id string, options ...DeployResourceOption) (*OpResult, error) {
+// mutation posts a resource mutation with its options in the body. The
+// acknowledgment travels explicitly, per call, so a daemon-routed call is
+// gated on exactly what the caller sent.
+func (c *SocketClient) mutation(ctx context.Context, id, verb string, stream bool, options []MutationOption) (*OpResult, error) {
 	if id == "" {
 		return nil, errors.New("resource id required")
 	}
-	var body any
-	if len(options) > 0 {
-		// Materialize functional options into the value-typed opts so JSON
-		// serialization on the socket transport preserves overrides. Empty
-		// body stays nil to match the historical contract for the no-opts
-		// case (older daemons accept the unchanged shape).
-		opts := ApplyDeployResourceOptions(options)
-		if opts.InstallAfterBuildOverride != nil {
-			body = opts
-		}
-	}
+	body := ApplyMutationOptions(options)
+	path := "/resources/" + url.PathEscape(id) + "/" + verb
 	var out OpResult
-	if err := c.doJSONStream(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/deploy", body, &out); err != nil {
+	do := c.doJSON
+	if stream {
+		do = c.doJSONStream
+	}
+	if err := do(ctx, http.MethodPost, path, body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (c *SocketClient) ApplyResource(ctx context.Context, id string) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("resource id required")
-	}
-	var out OpResult
-	if err := c.doJSONStream(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/apply", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func (c *SocketClient) DeployResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	return c.mutation(ctx, id, "deploy", true, options)
 }
 
-func (c *SocketClient) ReloadResource(ctx context.Context, id string) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("resource id required")
-	}
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/reload", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func (c *SocketClient) ApplyResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	return c.mutation(ctx, id, "apply", true, options)
 }
 
-func (c *SocketClient) StopResource(ctx context.Context, id string) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("resource id required")
-	}
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/stop", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func (c *SocketClient) ReloadResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	return c.mutation(ctx, id, "reload", false, options)
 }
 
-func (c *SocketClient) SyncResource(ctx context.Context, id string) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("resource id required")
-	}
-	var out OpResult
-	if err := c.doJSONStream(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/sync", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func (c *SocketClient) StopResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	return c.mutation(ctx, id, "stop", false, options)
 }
 
-func (c *SocketClient) RemoveResource(ctx context.Context, id string) (*OpResult, error) {
-	if id == "" {
-		return nil, errors.New("resource id required")
-	}
-	var out OpResult
-	if err := c.doJSON(ctx, http.MethodPost, "/resources/"+url.PathEscape(id)+"/remove", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+func (c *SocketClient) SyncResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	return c.mutation(ctx, id, "sync", true, options)
+}
+
+func (c *SocketClient) RemoveResource(ctx context.Context, id string, options ...MutationOption) (*OpResult, error) {
+	return c.mutation(ctx, id, "remove", false, options)
 }
 
 func (c *SocketClient) ListPipelines(ctx context.Context) ([]PipelineInfo, error) {
@@ -319,12 +286,12 @@ func (c *SocketClient) GetPipeline(ctx context.Context, id string) (*PipelineDet
 	return out, nil
 }
 
-func (c *SocketClient) RunPipeline(ctx context.Context, id string) (*PipelineRunResult, error) {
+func (c *SocketClient) RunPipeline(ctx context.Context, id string, options ...MutationOption) (*PipelineRunResult, error) {
 	if id == "" {
 		return nil, errors.New("pipeline id required")
 	}
 	var out PipelineRunResult
-	if err := c.doJSONStream(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/run", nil, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/run", ApplyMutationOptions(options), &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
