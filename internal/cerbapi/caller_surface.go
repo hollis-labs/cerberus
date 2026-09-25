@@ -38,18 +38,24 @@ const (
 type callerSurfaceKey struct{}
 
 // BeginRequest is where a request enters Cerberus: it marks ctx with the
-// surface the request came through and gives it a request-scoped redactor
-// (redact.Scope), which credentials resolved on the request register with
-// and which its error and log paths render through. Every entry point calls
-// this rather than WithCallerSurface, so an entry point cannot mark a
-// surface and forget the scope.
+// surface the request came through, the principal it is from, and a
+// request-scoped redactor (redact.Scope), which credentials resolved on the
+// request register with and which its error and log paths render through.
+// Every entry point calls this rather than WithCallerSurface, so an entry
+// point cannot mark a surface and forget the scope or the principal — they
+// start together.
+//
+// The principal is a label for default policy, never approval; see
+// Principal.
 //
 // A ctx that already carries a scope keeps it. A path that never reaches
 // BeginRequest has no scope, and redact.ScopeFrom returns nil, which renders
 // as the regex net alone: forgetting it costs value redaction, never
 // redaction.
 func BeginRequest(ctx context.Context, surface CallerSurface) context.Context {
-	ctx, _ = redact.EnsureScope(WithCallerSurface(ctx, surface))
+	ctx = WithCallerSurface(ctx, surface)
+	ctx = WithPrincipal(ctx, requestPrincipal(ctx, surface))
+	ctx, _ = redact.EnsureScope(ctx)
 	return ctx
 }
 
@@ -58,8 +64,18 @@ func BeginRequest(ctx context.Context, surface CallerSurface) context.Context {
 // handler answers through take a ResponseWriter and no request: through
 // ResponseScope they render in the request's scope without each of a few
 // hundred call sites passing it along, and without one being able to forget.
+//
+// Only the socket reads a caller's claim about itself (PrincipalHeader),
+// because only the socket knows the caller's uid. The web console reads
+// nothing the browser sends as a claim.
 func BeginHTTPRequest(w http.ResponseWriter, r *http.Request, surface CallerSurface) (http.ResponseWriter, *http.Request) {
-	r = r.WithContext(BeginRequest(r.Context(), surface))
+	ctx := r.Context()
+	if surface == SurfaceSocket {
+		if claim, ok := principalFromHeader(r.Header); ok {
+			ctx = WithPrincipal(ctx, claim)
+		}
+	}
+	r = r.WithContext(BeginRequest(ctx, surface))
 	return scopedResponseWriter{ResponseWriter: w, scope: redact.ScopeFrom(r.Context())}, r
 }
 

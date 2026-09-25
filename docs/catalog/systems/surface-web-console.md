@@ -149,3 +149,11 @@ never in argv or a shell string. The run is not yet bound to the plan it showed
 
 The console marks every request as the `web` surface, so an in-process client
 behind it refuses local-only inputs just as the daemon would.
+
+## Since P2-1
+
+Every console request is labelled `kind: human, via: web`, marked
+self-reported, and nothing the browser sends is read as a claim. The console
+passes that label on to the daemon, which verifies the uid of the web process,
+not of whoever is at the browser. The label becomes real when P2-2 adds a login
+(CERB-GAP-442).

@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
+
+	gmcp "github.com/hollis-labs/go-mcp/server"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/mcp"
@@ -34,7 +39,12 @@ the operator to start one with 'cerberus daemon'.`,
 			return fmt.Errorf("resolve socket path: %w", err)
 		}
 
-		socketClient := cerbapi.NewSocketClient(sockPath, cerbapi.WithClientLogger(logger))
+		// Every tool call is an agent's (Decision 9), and its claim rides on
+		// each request; the daemon adds the uid from the socket's peer
+		// credentials.
+		client := &mcpClientInfo{}
+		socketClient := cerbapi.NewSocketClient(sockPath, cerbapi.WithClientLogger(logger),
+			cerbapi.WithPrincipalClaim(mcpPrincipal(cerbapi.ViaMCPStdio, client)))
 
 		// Best-effort connectivity check. We log rather than hard-fail
 		// because the daemon might start after the MCP subprocess (e.g.
@@ -52,7 +62,7 @@ the operator to start one with 'cerberus daemon'.`,
 		}
 		cancel()
 
-		srv := buildCerberusMCPServer(socketClient, logger)
+		srv := buildCerberusMCPServer(socketClient, gmcp.WithInitializedHandler(client.capture))
 		startPluginToolSync(cmd.Context(), srv, socketClient, logger)
 
 		// CW-20260519-0053: selfexec.WatchAndExit removed. CERB-4 added it
@@ -79,10 +89,78 @@ func startPluginToolSync(ctx context.Context, srv *mcp.Server, client cerbapi.Cl
 	})
 }
 
-func buildCerberusMCPServer(socketClient cerbapi.Client, logger *slog.Logger) *mcp.Server {
-	srv := mcp.NewServer("cerberus", "0.1.0")
+func buildCerberusMCPServer(socketClient cerbapi.Client, opts ...mcp.Option) *mcp.Server {
+	srv := mcp.NewServer("cerberus", "0.1.0", opts...)
 	for _, tool := range mcp.AllTools(socketClient) {
 		srv.RegisterTool(tool)
 	}
 	return srv
+}
+
+// mcpPrincipal is the claim an MCP server makes for a tool call: an agent,
+// named by the clientInfo the call carries in its _meta (the current
+// protocol sends it on every request), or failing that the one captured at a
+// legacy initialize handshake. Either way it is the client's own claim.
+func mcpPrincipal(via string, legacy *mcpClientInfo) func(context.Context) cerbapi.Principal {
+	return func(ctx context.Context) cerbapi.Principal {
+		name := clientInfoFromMeta(gmcp.MetaFromContext(ctx))
+		if name == "" && legacy != nil {
+			name = legacy.get()
+		}
+		if name == "" {
+			name = "mcp-client"
+		}
+		return cerbapi.Principal{Kind: cerbapi.PrincipalAgent, Via: via, Client: name}
+	}
+}
+
+// clientInfoFromMeta reads name/version from a call's _meta clientInfo.
+func clientInfoFromMeta(meta map[string]any) string {
+	raw, ok := meta[mcpsdk.MetaKeyClientInfo]
+	if !ok {
+		return ""
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return ""
+	}
+	var impl mcpsdk.Implementation
+	if json.Unmarshal(data, &impl) != nil || impl.Name == "" {
+		return ""
+	}
+	if impl.Version != "" {
+		return impl.Name + "/" + impl.Version
+	}
+	return impl.Name
+}
+
+// mcpClientInfo is the MCP client a stdio server serves, from a legacy
+// initialize handshake, for a call that carries no clientInfo of its own. A
+// stdio server has one session, so one value serves every call.
+type mcpClientInfo struct {
+	mu   sync.Mutex
+	name string
+}
+
+func (c *mcpClientInfo) capture(_ context.Context, req *mcpsdk.InitializedRequest) {
+	if req == nil || req.Session == nil {
+		return
+	}
+	params := req.Session.InitializeParams()
+	if params == nil || params.ClientInfo == nil {
+		return
+	}
+	name := params.ClientInfo.Name
+	if params.ClientInfo.Version != "" {
+		name += "/" + params.ClientInfo.Version
+	}
+	c.mu.Lock()
+	c.name = name
+	c.mu.Unlock()
+}
+
+func (c *mcpClientInfo) get() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.name
 }

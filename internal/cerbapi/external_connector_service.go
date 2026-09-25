@@ -46,6 +46,10 @@ const (
 	// bundle no longer matches the one the operator accepted in review, or
 	// its host range excludes this Cerberus. Nothing was started.
 	ExternalConnectorPluginChanged ExternalConnectorErrorCode = "plugin_changed"
+	// ExternalConnectorPrincipalRefused is a socket connection from a user
+	// other than the daemon's, or one whose peer credentials could not be
+	// read. Nothing was served.
+	ExternalConnectorPrincipalRefused ExternalConnectorErrorCode = "principal_refused"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -60,6 +64,7 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorOperationFailed,
 	ExternalConnectorAuditUnavailable,
 	ExternalConnectorPluginChanged,
+	ExternalConnectorPrincipalRefused,
 }
 
 // ExternalConnectorErrorCodes returns the whole vocabulary, for tests on the

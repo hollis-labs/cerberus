@@ -100,12 +100,22 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 }
 
 // principalFor is who asked, as far as the serving process knows: the
-// self-reported surface, and automation when Cerberus acted on its own.
+// request's principal (BeginRequest), and automation when Cerberus acted on
+// its own. A label for the record, never approval.
 func principalFor(ctx context.Context, spec auditSpec) audit.Principal {
 	p := audit.Principal{Surface: string(CallerSurfaceFrom(ctx)), SelfReported: true}
+	if who, ok := PrincipalFrom(ctx); ok {
+		p.Kind, p.Via, p.Client, p.Session, p.OnBehalfOf = string(who.Kind), who.Via, who.Client, who.Session, who.OnBehalfOf
+		p.SelfReported = who.SelfReported
+		if who.UID >= 0 { // -1 is unknown
+			uid := who.UID
+			p.UID, p.UIDVerified = &uid, who.UIDVerified
+		}
+	}
 	if spec.automation {
 		p.Kind = audit.PrincipalAutomation
 		p.Surface = string(SurfaceMonitor)
+		p.Via = ViaMonitor
 		p.SelfReported = false
 	}
 	return p

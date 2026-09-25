@@ -300,3 +300,33 @@ Every dry run a plugin serves is recorded with `preview: plugin_claimed` (Decisi
 run of an operation with an accepted preview no longer needs `--ack`, so this
 marker is what tells a reader that the preview was the plugin's claim
 (CERB-GAP-652).
+
+## Principals in the record (P2-1)
+
+Every record's `principal` now says who as well as where. It carries:
+
+- `kind`: human, agent or automation.
+- `surface`: the transport the request entered through (`in_process`,
+  `socket`, `web` or `monitor`).
+- `via`: who is on the other end (cli, mcp_stdio, mcp_http, web, monitor,
+  pipeline or unknown).
+- `uid` and `uid_verified`, `client`, `session`, `on_behalf_of` and
+  `self_reported`.
+
+`BeginRequest` builds the principal together with the redaction scope
+(`requestPrincipal` in `internal/cerbapi/principal.go`), and `principalFor` in
+`audit_trail.go` copies it into the record. The socket's uid comes from peer
+credentials and is marked verified, as is the CLI's own process uid. Kind, via
+and client stay the caller's claim.
+
+Classification follows Decisions 9 and 19:
+
+- An in-process CLI call is human only when stdin and stdout are terminals and
+  `CERBERUS_PRINCIPAL` is not `agent`.
+- MCP is an agent, named by the clientInfo each call carries.
+- The monitor and a pipeline's stages are automation; the stages act
+  `on_behalf_of` the caller.
+- The web console is labelled human until P2-2 gives it a login.
+
+None of it is approval. The code says so where the type is defined, and the
+acknowledgment is still the caller's own (CERB-GAP-838, CERB-GAP-859).

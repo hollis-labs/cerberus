@@ -33,6 +33,30 @@ type SocketClient struct {
 
 	// dialPath is retained purely for error-message context.
 	dialPath string
+
+	// claim, when set, is this process's own identity (an MCP server's
+	// clientInfo), sent in place of whatever principal ctx carries.
+	claim func(context.Context) Principal
+}
+
+// WithPrincipalClaim sets the principal this client claims on every
+// request, overriding the one on the request's context. `cerberus mcp` uses
+// it: its identity is the MCP client it serves, not the CLI process it runs
+// in. The daemon records the claim as self-reported; the uid it reads from
+// the kernel.
+func WithPrincipalClaim(claim func(context.Context) Principal) SocketClientOption {
+	return func(c *SocketClient) { c.claim = claim }
+}
+
+// setPrincipal puts the caller's claim about itself on req.
+func (c *SocketClient) setPrincipal(req *http.Request) {
+	if c.claim != nil {
+		setPrincipalHeader(req.Header, c.claim(req.Context()))
+		return
+	}
+	if p, ok := PrincipalFrom(req.Context()); ok {
+		setPrincipalHeader(req.Header, p)
+	}
 }
 
 // SocketClientOption tunes construction of a SocketClient.
@@ -431,6 +455,7 @@ func (c *SocketClient) doJSON(ctx context.Context, method, path string, body int
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set(APIHeaderName, APIVersion)
+	c.setPrincipal(req)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -480,6 +505,7 @@ func (c *SocketClient) doJSONStream(ctx context.Context, method, path string, bo
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set(APIHeaderName, APIVersion)
+	c.setPrincipal(req)
 	req.Header.Set(ProgressHeaderName, "1")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -603,3 +629,13 @@ func (e *DaemonUnreachableError) Error() string {
 }
 
 func (e *DaemonUnreachableError) Unwrap() error { return e.Err }
+
+// WhoAmI asks the daemon how it classifies this client's requests. It is a
+// read, and off the Client interface: nothing but a diagnostic needs it.
+func (c *SocketClient) WhoAmI(ctx context.Context) (Principal, error) {
+	var out Principal
+	if err := c.doJSON(ctx, http.MethodGet, "/whoami", nil, &out); err != nil {
+		return Principal{}, err
+	}
+	return out, nil
+}
