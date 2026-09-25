@@ -186,6 +186,15 @@ func installPolicy() {
 	}))
 }
 
+// ApprovalsDir is ~/.cerberus/approvals.
+func ApprovalsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cerberus", "approvals"), nil
+}
+
 // PolicyDir is ~/.cerberus/policy.
 func PolicyDir() (string, error) {
 	home, err := os.UserHomeDir()

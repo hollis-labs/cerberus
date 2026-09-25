@@ -122,9 +122,9 @@ func NewPluginConnectorService(sink audit.Sink, hostVersion string, stderr io.Wr
 // plugin's code, so it is recorded as an admin call, and refused when its
 // record cannot be written.
 func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnectorHealthArgs) (_ PluginConnectorHealth, retErr error) {
-	call, err := beginAudit(ctx, s.audit, slog.Default(), auditSpec{connector: "plugin", operation: "health", op: pluginAdminOperation("health"), known: true, config: map[string]any{"plugin_dir": args.PluginDir}})
+	call, err := beginGated(ctx, s.audit, slog.Default(), auditSpec{connector: "plugin", operation: "health", op: pluginAdminOperation("health"), known: true, config: map[string]any{"plugin_dir": args.PluginDir}})
 	if err != nil {
-		return PluginConnectorHealth{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: "health"}, ExternalConnectorAuditUnavailable, err)
+		return PluginConnectorHealth{}, err
 	}
 	defer func() { call.finish(retErr) }()
 	progressToken := fmt.Sprintf("plugin-health:%s", args.PluginDir)
@@ -159,11 +159,11 @@ func (s *PluginConnectorService) Health(ctx context.Context, args PluginConnecto
 // contract is unknown until the plugin is read, so the intent is recorded as
 // unclassified — which requires the record, failing closed.
 func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnectorExecArgs) (_ ExternalConnectorOperationResult, retErr error) {
-	call, err := beginAudit(ctx, s.audit, slog.Default(), auditSpec{connector: "plugin", operation: args.Operation,
+	call, err := beginGated(ctx, s.audit, slog.Default(), auditSpec{connector: "plugin", operation: args.Operation,
 		op: contract.Operation{Target: contract.TargetDescriptor{Kind: "plugin", From: []string{"plugin_dir"}}}, config: withPluginDir(args.Config, args.PluginDir),
 		acknowledged: args.Acknowledged, dryRun: args.DryRun})
 	if err != nil {
-		return ExternalConnectorOperationResult{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: args.Operation}, ExternalConnectorAuditUnavailable, err)
+		return ExternalConnectorOperationResult{}, err
 	}
 	defer func() { call.finish(retErr) }()
 	ctx = call.withTelemetry(ctx)
