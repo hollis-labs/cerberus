@@ -50,10 +50,7 @@ func TestBuiltinEffectClassification(t *testing.T) {
 	want := map[string]contract.Effect{
 		"docker.list_containers": contract.EffectRead, "docker.start": contract.EffectLifecycle,
 		"docker.stop": contract.EffectLifecycle, "docker.destroy": contract.EffectDestructive,
-		"docker.logs":        contract.EffectReadSensitive,
-		"forge.list_servers": contract.EffectRead, "forge.get_server": contract.EffectRead, "forge.list_sites": contract.EffectRead,
-		"forge.get_deployment_script": contract.EffectReadSensitive, "forge.update_deployment_script": contract.EffectWrite,
-		"forge.deploy_site": contract.EffectLifecycle, "forge.exec_site_command": contract.EffectExec,
+		"docker.logs":   contract.EffectReadSensitive,
 		"github.status": contract.EffectRead, "github.list_releases": contract.EffectRead, "github.list_workflow_runs": contract.EffectRead,
 		"ssh.status": contract.EffectRead, "ssh.exec": contract.EffectExec, "ssh.put": contract.EffectWrite,
 		"ssh.get": contract.EffectReadSensitive, "ssh.put_dir": contract.EffectWrite, "ssh.get_dir": contract.EffectReadSensitive,

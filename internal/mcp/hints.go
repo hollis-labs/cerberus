@@ -5,7 +5,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
@@ -51,12 +50,6 @@ var toolOperations = map[string]opRef{
 	"cerberus_ssh_get":     {sshconn.Definition, "get"},
 	"cerberus_ssh_put_dir": {sshconn.Definition, "put_dir"},
 	"cerberus_ssh_get_dir": {sshconn.Definition, "get_dir"},
-
-	"cerberus_forge_servers": {forgeconn.Definition, "list_servers"},
-	"cerberus_forge_server":  {forgeconn.Definition, "get_server"},
-	"cerberus_forge_sites":   {forgeconn.Definition, "list_sites"},
-	"cerberus_forge_deploy":  {forgeconn.Definition, "deploy_site"},
-	"cerberus_forge_exec":    {forgeconn.Definition, "exec_site_command"},
 
 	"cerberus_docker_ps":      {dockerconn.Definition, "list_containers"},
 	"cerberus_docker_logs":    {dockerconn.Definition, "logs"},

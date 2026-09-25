@@ -64,7 +64,7 @@ Arguments are typed from the operation's input schema, which
 			return err
 		}
 		defer closeFn()
-		return runConnectorExec(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), svc, defs, args[0], args[1], connectorsExecFlags)
+		return runConnectorExec(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(), svc, defs, args[0], args[1], connectorsExecFlags)
 	},
 }
 
@@ -73,16 +73,32 @@ func init() {
 	connectorsCmd.AddCommand(connectorsExecCmd)
 }
 
-// runConnectorExec resolves the operation's schema, types the arguments
-// against it, and runs the operation through the executor's admin lane.
-func runConnectorExec(ctx context.Context, out io.Writer, stdin io.Reader, svc connectorExecutor, defs []contract.Definition, connectorID, operation string, flags connectorExecFlags) error {
+// runConnectorExec types the arguments against the operation's schema, where
+// the operation is known, and runs it through the executor's admin lane.
+//
+// Every attempted operation reaches the admin lane, which refuses what it must
+// and records the attempt in the audit log. So nothing about the operation is
+// refused here: an unknown connector or operation, an argument the schema does
+// not declare, or a value that does not fit its type is sent as given, and
+// Execute refuses and records it. What this side knows becomes a hint on
+// errOut, printed before sending, so the operator still learns about a typo
+// without the attempt going unrecorded. Only a command line that cannot be
+// turned into a request at all, such as `--arg` without `=` or unparseable
+// JSON, is refused locally, because there is no operation to record.
+func runConnectorExec(ctx context.Context, out, errOut io.Writer, stdin io.Reader, svc connectorExecutor, defs []contract.Definition, connectorID, operation string, flags connectorExecFlags) error {
+	var hints []string
 	op, err := findConnectorOperation(defs, connectorID, operation)
 	if err != nil {
-		return err
+		hints = append(hints, err.Error()+"; sending it anyway, so the refusal is recorded")
+		op = contract.Operation{Name: operation}
 	}
-	cfg, err := connectorExecConfig(op, flags, stdin)
+	cfg, argHints, err := connectorExecConfig(op, flags, stdin)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", connectorID, operation, err)
+	}
+	hints = append(hints, argHints...)
+	for _, hint := range hints {
+		fmt.Fprintf(errOut, "hint: %s %s: %s\n", connectorID, operation, hint)
 	}
 	result, err := svc.Execute(ctx, cerbapi.ExternalConnectorOperationArgs{
 		Connector:    connectorID,
@@ -118,16 +134,20 @@ func findConnectorOperation(defs []contract.Definition, connectorID, operation s
 }
 
 // connectorExecConfig builds the operation's config from --input, then
-// --arg-json, then --arg, each overriding the one before it by key.
-func connectorExecConfig(op contract.Operation, flags connectorExecFlags, stdin io.Reader) (map[string]any, error) {
+// --arg-json, then --arg, each overriding the one before it by key. A value
+// is typed from the schema where it fits; where it does not, it is sent as
+// written and described in a hint, so the admin lane refuses and records it.
+// It errors only for a command line that cannot form a request.
+func connectorExecConfig(op contract.Operation, flags connectorExecFlags, stdin io.Reader) (map[string]any, []string, error) {
 	cfg := map[string]any{}
+	var hints []string
 	if flags.input != "" {
 		data, err := readExecInput(flags.input, stdin)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := json.Unmarshal(data, &cfg); err != nil {
-			return nil, fmt.Errorf("--input must be a JSON object of arguments: %w", err)
+			return nil, nil, fmt.Errorf("--input must be a JSON object of arguments: %w", err)
 		}
 	}
 	properties, _ := op.InputSchema["properties"].(map[string]any)
@@ -135,60 +155,68 @@ func connectorExecConfig(op contract.Operation, flags connectorExecFlags, stdin 
 	for _, item := range flags.jsonArgs {
 		key, raw, ok := strings.Cut(item, "=")
 		if !ok || key == "" {
-			return nil, fmt.Errorf("invalid --arg-json %q, want key=<JSON value>", item)
+			return nil, nil, fmt.Errorf("invalid --arg-json %q, want key=<JSON value>", item)
 		}
 		var value any
 		if err := json.Unmarshal([]byte(raw), &value); err != nil {
-			return nil, fmt.Errorf("--arg-json %s: %w", key, err)
+			return nil, nil, fmt.Errorf("--arg-json %s: %w", key, err)
 		}
 		cfg[key] = value
 	}
 
 	repeated := map[string][]any{}
+	scalars := map[string]bool{}
 	for _, item := range flags.args {
 		key, raw, ok := strings.Cut(item, "=")
 		if !ok || key == "" {
-			return nil, fmt.Errorf("invalid --arg %q, want key=value", item)
+			return nil, nil, fmt.Errorf("invalid --arg %q, want key=value", item)
 		}
 		schema, _ := properties[key].(map[string]any)
 		if schemaType(schema) == "array" {
 			items, _ := schema["items"].(map[string]any)
-			value, err := coerceArg(key, raw, items)
-			if err != nil {
-				return nil, err
+			value, hint := coerceArg(key, raw, items)
+			if hint != "" {
+				hints = append(hints, hint)
 			}
 			repeated[key] = append(repeated[key], value)
 			continue
 		}
-		if _, dup := repeated[key]; dup {
-			return nil, fmt.Errorf("--arg %s given more than once, but it is not an array", key)
+		value, hint := coerceArg(key, raw, schema)
+		if hint != "" {
+			hints = append(hints, hint)
 		}
-		value, err := coerceArg(key, raw, schema)
-		if err != nil {
-			return nil, err
+		if scalars[key] {
+			// Sent as the list it was given, so the lane refuses it rather
+			// than this side silently keeping one of the values.
+			hints = append(hints, fmt.Sprintf("--arg %s given more than once, but it is not an array; sending every value", key))
+			repeated[key] = append(repeated[key], value)
+			continue
 		}
+		scalars[key] = true
 		cfg[key] = value
-		repeated[key] = nil
+		repeated[key] = []any{value}
 	}
 	for key, values := range repeated {
-		if values != nil {
+		if !scalars[key] || len(values) > 1 {
 			cfg[key] = values
 		}
 	}
 
-	// The operation's key table is the one source for what it accepts: the
-	// same check the admin lane runs, run here first so a typo is named
-	// before anything is sent. This is the operator's own shell, so local-only
-	// inputs pass; over the socket the daemon still refuses them.
-	if err := op.Finalize().CheckInputs(cfg, true); err != nil {
-		accepted := make([]string, 0, len(op.Inputs))
-		for _, in := range op.Finalize().Inputs {
-			accepted = append(accepted, in.Name)
+	// The operation's key table, the same check the admin lane runs. Its
+	// verdict is a hint: the lane refuses and records the call. This is the
+	// operator's own shell, so local-only inputs pass; over the socket the
+	// daemon still refuses them.
+	if op.InputSchema != nil {
+		if err := op.Finalize().CheckInputs(cfg, true); err != nil {
+			accepted := make([]string, 0, len(op.Inputs))
+			for _, in := range op.Finalize().Inputs {
+				accepted = append(accepted, in.Name)
+			}
+			sort.Strings(accepted)
+			hints = append(hints, fmt.Sprintf("%v; the operation accepts: %s", err, strings.Join(accepted, ", ")))
 		}
-		sort.Strings(accepted)
-		return nil, fmt.Errorf("%w; the operation accepts: %s", err, strings.Join(accepted, ", "))
 	}
-	return cfg, nil
+	return cfg, hints, nil
 }
 
 func readExecInput(path string, stdin io.Reader) ([]byte, error) {
@@ -222,8 +250,9 @@ func schemaType(schema map[string]any) string {
 
 // coerceArg parses one --arg value into the type its schema declares. An
 // undeclared type stays a string, which is what the operation received before
-// arguments were typed at all.
-func coerceArg(key, raw string, schema map[string]any) (any, error) {
+// arguments were typed at all. A value that does not fit is kept as written
+// and described in the returned hint; the admin lane refuses it.
+func coerceArg(key, raw string, schema map[string]any) (any, string) {
 	var (
 		value any
 		err   error
@@ -236,7 +265,7 @@ func coerceArg(key, raw string, schema map[string]any) (any, error) {
 	case "boolean":
 		value, err = strconv.ParseBool(strings.TrimSpace(raw))
 	case "object", "array":
-		return nil, fmt.Errorf("--arg %s takes a structured value; pass it as --arg-json %s=<JSON>", key, key)
+		return raw, fmt.Sprintf("--arg %s takes a structured value; pass it as --arg-json %s=<JSON>; sending the text as given", key, key)
 	default:
 		value = raw
 	}
@@ -245,12 +274,12 @@ func coerceArg(key, raw string, schema map[string]any) (any, error) {
 		if errors.As(err, &numErr) {
 			err = numErr.Err
 		}
-		return nil, fmt.Errorf("--arg %s=%q: want %s: %w", key, raw, schemaType(schema), err)
+		return raw, fmt.Sprintf("--arg %s=%q: want %s: %v; sending the text as given", key, raw, schemaType(schema), err)
 	}
 	if enum, ok := schema["enum"]; ok && !enumContains(enum, value) {
-		return nil, fmt.Errorf("--arg %s=%q: not one of %v", key, raw, enum)
+		return value, fmt.Sprintf("--arg %s=%q: not one of %v", key, raw, enum)
 	}
-	return value, nil
+	return value, ""
 }
 
 // enumContains compares printed values: a schema that crossed the socket was
