@@ -109,8 +109,6 @@ func init() {
 
 	githubCmd.GroupID = "platform"
 	sshCmd.GroupID = "platform"
-	domainCmd.GroupID = "platform"
-	dnsCmd.GroupID = "platform"
 	forgeCmd.GroupID = "platform"
 	dockerCmd.GroupID = "platform"
 	connectorsCmd.GroupID = "platform"
@@ -133,8 +131,6 @@ func init() {
 	rootCmd.AddCommand(pipelineCmd)
 	rootCmd.AddCommand(githubCmd)
 	rootCmd.AddCommand(sshCmd)
-	rootCmd.AddCommand(domainCmd)
-	rootCmd.AddCommand(dnsCmd)
 	rootCmd.AddCommand(forgeCmd)
 	rootCmd.AddCommand(dockerCmd)
 	rootCmd.AddCommand(connectorsCmd)

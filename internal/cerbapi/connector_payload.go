@@ -6,7 +6,6 @@ import (
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
 	gh "github.com/hollis-labs/cerberus/internal/connector/github"
-	nc "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
 )
 
@@ -37,18 +36,6 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 		return decodePayload[[]gh.Release](raw)
 	case "github/list_workflow_runs":
 		return decodePayload[[]gh.WorkflowRun](raw)
-	case "namecheap/list_domains":
-		return decodePayload[[]nc.Domain](raw)
-	case "namecheap/get_domain_status":
-		return decodePayload[*nc.DomainStatus](raw)
-	case "namecheap/list_dns_records":
-		return decodePayload[[]nc.DNSRecord](raw)
-	case "namecheap/get_dns_record_set":
-		return decodePayload[*nc.DNSRecordSet](raw)
-	case "namecheap/set_dns_record_set":
-		return decodePayload[nc.DNSRecordSet](raw)
-	case "namecheap/set_custom_nameservers":
-		return decodePayload[*nc.DomainNameserverUpdate](raw)
 	case "ssh/exec":
 		return decodePayload[*ssh.ExecResult](raw)
 	case "ssh/put", "ssh/get":

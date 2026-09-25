@@ -2,17 +2,17 @@
 id: "CERB-CAP-207"
 class: "capability"
 name: "Namecheap connector"
-summary: "Manages Namecheap domains and DNS by whole-zone replacement only, having deliberately disabled per-record writes that could silently delete records."
+summary: "Manages Namecheap domains and DNS by whole-zone replacement only, as the namecheap plugin in hollis-labs/cerberus-plugins; per-record writes stay refused because Namecheap can hide records a read-modify-write would delete."
 state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
-confidence_score: 0.85
-confidence_label: "Refusal path verified live without a credential; the write path has unit tests but no credential to run"
-last_reviewed: "2026-09-17"
+confidence_score: 0.82
+confidence_label: "Fake-backend, diff-preview and scrubber tests in the plugin; the Namecheap credential error numbers are from the documented list and wait for the operator's live check"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
-locus: "core"
-pointer_locator: "internal/connector/namecheap/connector.go"
+locus: "plugin"
+pointer_locator: "hollis-labs/cerberus-plugins:namecheap/internal/namecheapplugin/connector.go"
 tags:
   - "cerberus"
   - "class:capability"
@@ -22,70 +22,80 @@ tags:
   - "registrar"
   - "safety-refusal"
   - "whole-zone"
-  - "locus:core"
+  - "plugin"
+  - "locus:plugin"
 relationships:
   - type: "implements"
     target: "CERB-CAP-200"
-    note: "Compiled in today, scheduled to migrate out"
+    note: "A plugin connector since 2026-09-25, reached through the admin lane"
   - type: "relates_to"
     target: "CERB-DEC-295"
-    note: "Per-record writes are disabled on purpose, not unimplemented"
+    note: "Per-record writes remain refused, now by the plugin and the contract gate"
   - type: "relates_to"
     target: "CERB-DEC-291"
-    note: "One of the four that will migrate later"
-  - type: "blocks"
+    note: "The third of the four to migrate"
+  - type: "relates_to"
     target: "CERB-GAP-283"
-    note: "The only safe write path is MCP-only; the CLI exposes only the disabled commands"
+    note: "The safe write path is now on every surface through connectors exec and the generated tools"
 ---
 
 # Namecheap connector
 
-> Manages Namecheap domains and DNS by whole-zone replacement only, having deliberately disabled per-record writes that could silently delete records.
+> Manages Namecheap domains and DNS by whole-zone replacement only, as the namecheap plugin in hollis-labs/cerberus-plugins; per-record writes stay refused because Namecheap can hide records a read-modify-write would delete.
 
 The Namecheap API has a trap in it, and this connector is mostly the shape of
-avoiding that trap. `getHosts` can omit existing records, and `setHosts`
-replaces the entire zone. Compose those naively into a per-record "create" and
-you read a partial set, write it back with one addition, and silently delete
-everything `getHosts` left out.
+the fence around it. `getHosts` can omit records that exist, and `setHosts`
+replaces the entire zone. A per-record create or delete computed from a
+`getHosts` read therefore deletes whatever the read could not see. So there is
+no per-record write. The only DNS write is `set_dns_record_set`, which replaces
+every host record and explicitly sets the domain's email routing, and which
+requires the caller to supply the complete authoritative set.
 
-So per-record writes are **disabled**. `create_dns_record` and
-`delete_dns_record` are implemented in the connector and in the service
-dispatch, are absent from the declared `Definition`, and are refused at the very
-top of `Execute` — before credential resolution, before the dry-run branch,
-before plugin dispatch. The CLI commands still exist and are labelled
-`Disabled: unsafe per-record Namecheap writes` in `--help`. Verified live on a
-machine with no Namecheap credential: `cerberus dns create` returns the refusal
-and its recovery, not `credential_missing`. That ordering is the whole point —
-an operator learns why the operation is wrong rather than that their token is
-missing.
+Six operations. `list_domains`, `get_domain_status`, `list_dns_records` and
+`get_dns_record_set` are `read`, `set_custom_nameservers` is `write`, and
+`set_dns_record_set` is `destructive`: every record the set omits is deleted.
 
-What replaces them is `set_dns_record_set`: the caller supplies the complete
-authoritative record array *and* an explicit `email_type`, both required. The
-email mode has to be explicit because Namecheap's MX handling is entangled with
-it — MX records under `EmailType=FWD` are refused before the write rather than
-written into a broken state. The dry-run preview says plainly that all omitted
-records will be deleted. That behaviour is unit-tested from several directions,
-including that an empty set still carries its email mode and that an unknown
-mode is refused.
+Since 2026-09-25 this is a plugin, not a built-in
+(`docs/plans/provider-plugin-extraction.md`, H6). The id and the secret names
+are unchanged: `api_user`, `api_key`, `username`, and now `client_ip`, which the
+built-in read but never declared, so a plugin would otherwise never have been
+handed it. The web console used to save the client IP as a field in
+`infra.yaml` that nothing read, so an IP entered there never reached the
+connector. It now stores it as `namecheap/client_ip`, where the plugin resolves
+it.
 
-The asymmetry left behind is worth naming: `get_dns_record_set` and
-`set_dns_record_set` are exposed **only over MCP**
-(`cerberus_get_dns_record_set`, `cerberus_set_dns_record_set`). There is no CLI
-command for either. So the refusal message a CLI user gets tells them to use an
-MCP tool, and the only safe Namecheap write path in the product is reachable
-only by an agent.
+What changed for a caller:
+
+- **CLI.** `cerberus domain …` and `cerberus dns …` are gone, including the
+  disabled `dns create` and `dns delete`, with no tombstones.
+  `cerberus connectors exec namecheap <op>` runs any operation, and gives the
+  record-set operations a CLI verb for the first time.
+- **MCP.** The hand-written `cerberus_domain_*`, `cerberus_dns_*`,
+  `cerberus_nameservers_set` and `cerberus_get/set_dns_record_set` tools are
+  gone. The generated tools are `cerberus_namecheap_<op>`, served for the
+  operations the operator lists under `namecheap: mcp: expose:` in
+  `connector-config.yaml`.
+- **Per-record writes.** The host's special case in `ExternalConnectorService`
+  left with the built-in. The plugin does not declare `create_dns_record` or
+  `delete_dns_record`, so the contract gate refuses them as undeclared. The
+  plugin also refuses them by name, coded `invalid_args`, with the guidance to
+  use `set_dns_record_set`.
+- **Previews.** `set_dns_record_set`'s dry run reads the zone first and shows
+  what the set would add, remove and change, including an email-routing
+  change. That makes it the one preview in the lane that makes a network read,
+  and it is plugin-claimed. If the read fails, the dry run fails.
+- **Validation** of `email_type`, the FWD/MX conflict and each record now lives
+  in the plugin, and applies to both the dry run and the real call.
 
 ## Owns
 
-- Domain list and registration status
-- A domain's complete host record set, read together with its email routing mode
-- Whole-zone record replacement with explicit email routing
-- Custom nameserver assignment
-- Refusing per-record create and delete, before credential resolution
+- Domain list and status
+- Host-record read, and whole-zone replacement with explicit email routing
+- Switching a domain to custom nameservers
+- The refusal of per-record writes
 
 ## Does not own
 
-- Per-record DNS writes. They are disabled by decision, not missing
-- Domain registration, renewal or transfer
-- Authoritative DNS serving — that is Cloudflare's lane here
-- Any vendor SDK — it is a hand-written XML API client
+- Per-record DNS writes, deliberately
+- Registration, renewal, transfers or WHOIS privacy
+- A place in the Cerberus binary

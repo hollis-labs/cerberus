@@ -1,6 +1,5 @@
 // Package conformance_test holds every Cerberus operation — built-in
-// connectors, the runtime's own operations, the disabled namecheap writes
-// and our plugins' manifests — to the contract conformance suite.
+// connectors, the runtime's own operations and our plugins' manifests — to the contract conformance suite.
 package conformance_test
 
 import (
@@ -14,7 +13,6 @@ import (
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
-	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -24,7 +22,7 @@ import (
 func builtins() []contract.Definition {
 	defs := []contract.Definition{
 		dockerconn.Definition(), forgeconn.Definition(),
-		ghconn.Definition(), ncconn.Definition(), sshconn.Definition(),
+		ghconn.Definition(), sshconn.Definition(),
 	}
 	return append(defs, cerbapi.RuntimeDefinitions()...)
 }
@@ -33,14 +31,6 @@ func TestBuiltinOperationsConform(t *testing.T) {
 	for _, def := range builtins() {
 		if problems := conformance.Definition(def); len(problems) > 0 {
 			t.Errorf("%s:\n  %s", def.ID, conformance.Report(problems))
-		}
-	}
-	for _, op := range ncconn.DisabledOperations() {
-		if problems := conformance.Operation(op); len(problems) > 0 {
-			t.Errorf("namecheap disabled:\n  %s", conformance.Report(problems))
-		}
-		if err := op.Validate(); err != nil {
-			t.Errorf("namecheap disabled: %v", err)
 		}
 	}
 }

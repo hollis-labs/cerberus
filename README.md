@@ -59,11 +59,11 @@ to build, install, start, stop, and report on them.
 **Daily driver.** Chrispian ships changes to any portfolio service with
 `cerberus resource deploy <id> --ack`, checks for build/install drift with
 `resource status`, and manages domain cutovers with
-`cerberus connectors exec cloudflare …` / `cerberus domain` — one CLI for every service in the portfolio, local or
+`cerberus connectors exec cloudflare|namecheap …` — one CLI for every service in the portfolio, local or
 remote.
 
-**Agent-driven ops.** This session's `cerberus_resource_*`, `cerberus_dns_*`,
-and plugin tools such as `cerberus_digitalocean_*` are Cerberus's MCP surface — an agent can
+**Agent-driven ops.** This session's `cerberus_resource_*` tools and the
+generated plugin tools such as `cerberus_cloudflare_*` and `cerberus_namecheap_*` are Cerberus's MCP surface — an agent can
 deploy a fix, check whether a service is actually running the code it thinks
 it is, or cut a DNS record over, in the same tool-call vocabulary it uses for
 everything else.
@@ -205,8 +205,8 @@ cerberus resource remove <resource-id> --ack
 ```
 
 For external infra/domain operations, the current Namecheap and Cloudflare
-surfaces include the following. Cloudflare is a plugin (`hollis-labs/cerberus-plugins`),
-so its operations run through the generic `connectors exec` verb once it is
+surfaces include the following. Both are plugins (`hollis-labs/cerberus-plugins`),
+so their operations run through the generic `connectors exec` verb once they are
 installed with `cerberus connectors plugin managed install <dir>`:
 
 ```bash
@@ -214,10 +214,10 @@ cerberus connectors exec cloudflare list_zones
 cerberus connectors exec cloudflare create_zone --arg account_id=<account-id> --arg name=<domain> --arg type=full --ack
 cerberus connectors exec cloudflare list_dns_records --arg zone_id=<zone-id>
 cerberus connectors exec cloudflare create_dns_record --arg zone_id=<zone-id> --arg type=CNAME --arg name=www --arg content=example.vercel-dns.com --ack
-cerberus domain list
-cerberus domain status <domain>
-cerberus domain nameservers set <domain> <ns1> <ns2> --ack
-cerberus dns list <domain>
+cerberus connectors exec namecheap list_domains
+cerberus connectors exec namecheap get_domain_status --arg domain=<domain>
+cerberus connectors exec namecheap set_custom_nameservers --arg domain=<domain> --arg nameservers=<ns1> --arg nameservers=<ns2> --ack
+cerberus connectors exec namecheap get_dns_record_set --arg domain=<domain>
 ```
 
 Docker operations run against the daemon's own Docker by default, or against
@@ -460,19 +460,21 @@ For registrar and DNS operations:
 
 - `cerberus connectors exec cloudflare create_zone` (the cloudflare plugin)
   creates the Cloudflare zone that will own DNS for a domain.
-- `cerberus domain nameservers set` switches a Namecheap domain to a custom
+- The namecheap plugin's `set_custom_nameservers` switches a domain to a custom
   nameserver set such as Cloudflare's assigned nameservers.
-- `cerberus dns list` inspects the current Namecheap-hosted host records for a
-  domain before or after a delegation cutover.
-- Namecheap per-record create/delete are disabled, including dry-run. The API
-  can hide existing records, making read-modify-write silently destructive.
-  Existing CLI/MCP commands return an error without issuing a DNS request.
-- The Namecheap connector's `get_dns_record_set` operation includes domain
+- Its `list_dns_records` and `get_dns_record_set` inspect the current
+  Namecheap-hosted host records before or after a delegation cutover.
+- Namecheap per-record create/delete do not exist, including as a dry run. The
+  API can hide existing records, making read-modify-write silently destructive,
+  so the plugin does not declare them and refuses them by name.
+- The namecheap plugin's `get_dns_record_set` operation includes domain
   `email_type`. Its `set_dns_record_set` operation explicitly replaces all
   hosts and the email mode; it requires acknowledgment, `domain`, `email_type`,
   and a complete `records` array. Use it through connector execution in the
-  API, MCP (`cerberus_get_dns_record_set` / `cerberus_set_dns_record_set`)
-  or console. It supports dry-run. `FWD` rejects MX/MXE records;
+  API, CLI (`cerberus connectors exec namecheap set_dns_record_set --input set.json`),
+  MCP (`cerberus_namecheap_get_dns_record_set` /
+  `cerberus_namecheap_set_dns_record_set`, once exposed) or console. Its dry run
+  diffs the proposed set against the records it reads first. `FWD` rejects MX/MXE records;
   changing to custom MX is an explicit email-routing change.
   [Namecheap setHosts](https://www.namecheap.com/support/api/methods/domains-dns/set-hosts/)
   deletes omitted records. The API can hide existing records, so its read-back

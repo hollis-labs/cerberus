@@ -72,7 +72,7 @@ no rebuild of the host.
 | `cloudflare` | **plugin** (2026-09-25) | **Plugin** | DNS provider, optional; the largest dependency win available. Measured on removal: a stripped build went 62.8MB → 23.6MB | `cloudflare-go/v4` (33MB source) |
 | `digitalocean` | **plugin** (2026-09-25) | **Plugin** | VPS provider, optional | `godo` (2.7MB) |
 | `forge` | compiled | **Plugin** | Laravel Forge, niche | none |
-| `namecheap` | compiled | **Plugin** | Registrar, optional | none |
+| `namecheap` | **plugin** (2026-09-25) | **Plugin** | Registrar, optional | none |
 | **ContextForge** | — | **Plugin** | Adtran-specific; a v0.x SDK against an evolving gateway, so rebuild-independence pays most | `go-contextforge` |
 | **Azure** | — | **Plugin** | Vendor SDK, optional | `azure-sdk-for-go` |
 
