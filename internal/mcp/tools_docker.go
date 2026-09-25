@@ -15,11 +15,10 @@ import (
 
 // NewCerberusDockerPSTool creates the cerberus_docker_ps tool.
 func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:         "cerberus_docker_ps",
-		Description:  "List running Docker containers on the machine running Cerberus.",
-		InputSchema:  objectSchema(map[string]interface{}{}),
-		ReadOnlyHint: true,
+	return contractTool(Tool{
+		Name:        "cerberus_docker_ps",
+		Description: "List running Docker containers on the machine running Cerberus.",
+		InputSchema: objectSchema(map[string]interface{}{}),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "docker",
@@ -31,12 +30,12 @@ func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 
 			return marshalConnectorData(result.Data)
 		},
-	}
+	})
 }
 
 // NewCerberusDockerLogsTool creates the cerberus_docker_logs tool.
 func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_docker_logs",
 		Description: "Get recent logs for a Docker container on the machine running Cerberus.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -49,7 +48,6 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 				"description": "Number of log lines to return. Default 50.",
 			},
 		}, "container"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			container, _ := args["container"].(string)
 			lines := 50
@@ -79,7 +77,7 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 				Output:    logs,
 			})
 		},
-	}
+	})
 }
 
 // NewCerberusDockerUpTool creates the cerberus_docker_up tool.
@@ -92,12 +90,19 @@ func NewCerberusDockerUpTool(client cerbapi.Client) Tool {
 // NewCerberusDockerDownTool creates the cerberus_docker_down tool.
 func NewCerberusDockerDownTool(client cerbapi.Client) Tool {
 	return newDockerLifecycleTool(client, "cerberus_docker_down", "stop",
-		"Stop a local Docker container by name (docker stop), or a declared docker resource by resource_id (a Compose stack is stopped with docker compose stop). This does not remove anything: containers and networks are kept and cerberus_docker_up starts them again. Removal is the docker connector's destroy operation. Requires acknowledged=true.",
+		"Stop a local Docker container by name (docker stop), or a declared docker resource by resource_id (a Compose stack is stopped with docker compose stop). This does not remove anything: containers and networks are kept and cerberus_docker_up starts them again. Removal is cerberus_docker_destroy. Requires acknowledged=true.",
 		"stopped")
 }
 
+// NewCerberusDockerDestroyTool creates the cerberus_docker_destroy tool.
+func NewCerberusDockerDestroyTool(client cerbapi.Client) Tool {
+	return newDockerLifecycleTool(client, "cerberus_docker_destroy", "destroy",
+		"Remove a local Docker container by name (docker rm), or tear down a declared docker resource by resource_id (a Compose stack is removed with docker compose down, taking its containers and networks with it). This cannot be undone from Cerberus: cerberus_docker_up does not bring a removed stack back as it was. Requires acknowledged=true.",
+		"destroyed")
+}
+
 func newDockerLifecycleTool(client cerbapi.Client, name, operation, description, verb string) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        name,
 		Description: description,
 		InputSchema: map[string]interface{}{
@@ -122,10 +127,6 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 				{"required": []string{"resource_id"}},
 			},
 		},
-		ReadOnlyHint:    false,
-		DestructiveHint: false,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			container, _ := args["container_name"].(string)
@@ -154,5 +155,5 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 			}
 			return toolResult(lifecycleResult{Success: true, ServiceID: container, Message: "container " + verb})
 		},
-	}
+	})
 }

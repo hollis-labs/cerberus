@@ -11,6 +11,18 @@ const (
 	OpStop   = "stop"
 	OpSync   = "sync"
 	OpRemove = "remove"
+
+	// OpEnsureFresh chooses deploy, apply or sync from the resource's
+	// runtime advice and runs it. It is gated by the operation it chooses;
+	// its own contract is that of the most reaching choice, deploy.
+	OpEnsureFresh = "ensure_fresh"
+
+	// Reads of the supervision lane. Not gated: they change nothing.
+	OpList    = "list"
+	OpStatus  = "status"
+	OpInspect = "inspect"
+	OpDoctor  = "doctor"
+	OpLogs    = "logs"
 )
 
 // Resource mutation input keys.
@@ -59,6 +71,24 @@ func Definition() contract.Definition {
 			// lifecycle event, which is a write.
 			op(OpSync, "Copy the built artifact into the install directory without touching the runtime backend.", contract.EffectWrite, false, contract.LocalFSWrites),
 			op(OpRemove, "Uninstall the resource's runtime state.", contract.EffectDestructive, false, contract.LocalFSWrites),
+			op(OpEnsureFresh, "Run deploy, apply or sync, whichever the resource's runtime advice recommends.", contract.EffectLifecycle, false, contract.LocalFSWrites,
+				contract.Field("force", map[string]any{"type": "boolean", "description": "Always deploy (rebuild)."})),
+			op(OpStatus, "Read the resource's runtime status and recommended next action.", contract.EffectRead, false, contract.LocalFSNone),
+			op(OpInspect, "Read the resource's runtime details, install paths and log paths.", contract.EffectRead, false, contract.LocalFSNone),
+			op(OpDoctor, "Run the resource's runtime and install checks.", contract.EffectRead, false, contract.LocalFSNone),
+			{
+				Name: OpList, Description: "List configured resources.",
+				Effect: contract.EffectRead, Target: contract.TargetDescriptor{Kind: "local.registry"},
+				Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone,
+				Inputs: []contract.Input{contract.Field("project", contract.StringSchema("Filter by project ID."))},
+			},
+			// Logs are text the workload wrote, which can carry anything.
+			func() contract.Operation {
+				logs := op(OpLogs, "Read recent lines of the resource's log.", contract.EffectReadSensitive, false, contract.LocalFSNone,
+					contract.Field("lines", contract.IntegerSchema("Number of lines.")), contract.Field("stream", contract.StringSchema("stdout or stderr.")))
+				logs.Output = contract.OutputFreeText
+				return logs
+			}(),
 		},
 	})
 }

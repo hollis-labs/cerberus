@@ -120,11 +120,13 @@ func runPipelineCommand(ctx context.Context, client pipelineClient, id string, o
 	if detail.ValidationError != "" {
 		return errors.New(detail.ValidationError)
 	}
-	fmt.Fprintf(out, "Running pipeline: %s (%s)\n", detail.Definition.Name, detail.Definition.ID)
+	// The run is gated, so nothing is announced until it has been let
+	// through: a refused run prints only the refusal.
 	result, err := client.RunPipeline(ctx, id, opts...)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(out, "Pipeline: %s (%s)\n", detail.Definition.Name, detail.Definition.ID)
 	if !result.Success {
 		return errors.New(result.Error)
 	}

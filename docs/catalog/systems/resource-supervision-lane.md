@@ -8,7 +8,7 @@ state_label: "partial"
 review_status: "draft"
 confidence_score: 0.9
 confidence_label: "read-only verbs run live against the running daemon; the os_service and artifact halves of the lane have no live exercise on this machine"
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -100,3 +100,23 @@ Surfaces: cli, socket, mcp, console. Entry points: cerberus resource <verb> <id>
 
 - `docs/adr/0002-resource-only-local-workload-model.md`
 - `docs/plans/infra-admin-control-plane.md`
+
+## Since PR #63
+
+The supervision lane's mutations join the operation contract.
+`localconn.Definition()` classes them as follows:
+
+- `deploy`, `apply`, `reload` and `stop` are `lifecycle`.
+- `sync` is `write` (CERB-DEC-820).
+- `remove` is `destructive`.
+
+Every one needs acknowledgment. `runtimeGate` runs at the top of each mutator,
+before `opMu` and before the resource lookup, so an unacknowledged call returns
+`acknowledgment_required` at once and names its target.
+
+The acknowledgment is a per-call `MutationOption` (CERB-DEC-819): `--ack` on the
+CLI, `acknowledged` over MCP, and the console's confirm step. The socket carries
+it in every mutation's request body. The monitor's `auto_restart` and
+health-driven restarts are unchanged and ungated, and the serving-daemon
+self-mutation guard is unchanged. Recovery hints that print a mutating command
+now include `--ack`.

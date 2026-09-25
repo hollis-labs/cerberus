@@ -1,8 +1,12 @@
 package connector
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -181,12 +185,13 @@ func (op Operation) Finalize() Operation {
 	switch {
 	case op.schemaIsSource:
 		// Already derived from a plugin's schema; leave the schema as written.
-	case len(op.Inputs) == 0 && op.InputSchema != nil:
-		op.Inputs, op.InputsOpen = InputsFromSchema(op.InputSchema)
-		op.schemaIsSource = true
-	default:
+	case op.inputsAreSource || len(op.Inputs) > 0 || op.InputSchema == nil:
 		op.InputSchema = schemaFromInputs(op.Inputs)
 		op.InputsOpen = false
+		op.inputsAreSource = true
+	default:
+		op.Inputs, op.InputsOpen = InputsFromSchema(op.InputSchema)
+		op.schemaIsSource = true
 	}
 	if op.Effect != "" {
 		op.Destructive = op.Effect == EffectDestructive
@@ -340,6 +345,9 @@ type InputError struct {
 	Missing []string
 	// MissingOneOf groups had none of their keys present.
 	MissingOneOf [][]string
+	// WrongType values do not match their input's schema type or enum. Each
+	// entry reads "key wants <type>, got <kind>", naming no value.
+	WrongType []string
 }
 
 // Error names the refused keys in parentheses, never directly before a colon
@@ -358,6 +366,9 @@ func (e *InputError) Error() string {
 	}
 	for _, group := range e.MissingOneOf {
 		parts = append(parts, "one of ("+strings.Join(group, ", ")+") is required")
+	}
+	if len(e.WrongType) > 0 {
+		parts = append(parts, "wrong types ("+strings.Join(e.WrongType, "; ")+")")
 	}
 	return strings.Join(parts, "; ")
 }
@@ -381,6 +392,10 @@ func (op Operation) CheckInputs(config map[string]any, local bool) error {
 			}
 		case in.scope() == InputLocal && !local:
 			ierr.LocalOnly = append(ierr.LocalOnly, key)
+		default:
+			if problem := typeProblem(in.Schema, config[key]); problem != "" {
+				ierr.WrongType = append(ierr.WrongType, key+" "+problem)
+			}
 		}
 	}
 	for _, in := range op.Inputs {
@@ -400,11 +415,12 @@ func (op Operation) CheckInputs(config map[string]any, local bool) error {
 			ierr.MissingOneOf = append(ierr.MissingOneOf, group)
 		}
 	}
-	if len(ierr.Undeclared)+len(ierr.LocalOnly)+len(ierr.Missing)+len(ierr.MissingOneOf) == 0 {
+	if len(ierr.Undeclared)+len(ierr.LocalOnly)+len(ierr.Missing)+len(ierr.MissingOneOf)+len(ierr.WrongType) == 0 {
 		return nil
 	}
 	sort.Strings(ierr.Undeclared)
 	sort.Strings(ierr.LocalOnly)
+	sort.Strings(ierr.WrongType)
 	return &ierr
 }
 
@@ -441,4 +457,99 @@ func joinKinds[T ~string](list []T) string {
 		out[i] = string(item)
 	}
 	return strings.Join(out, ", ")
+}
+
+// typeProblem checks a value against its input's JSON schema type and enum,
+// accepting exactly what the executors accept: an integer may arrive as any
+// Go integer, an integral float (JSON decodes numbers as float64), a
+// json.Number or a decimal string, because the executors' readers take all
+// of those. A nil value is absence, which the required check handles. It
+// returns "" when the value fits, or "wants <type>, got <kind>".
+func typeProblem(schema map[string]any, value any) string {
+	if value == nil || schema == nil {
+		return ""
+	}
+	want, _ := schema["type"].(string)
+	ok := true
+	switch want {
+	case "string":
+		_, ok = value.(string)
+	case "boolean":
+		_, ok = value.(bool)
+	case "integer":
+		ok = isInteger(value)
+	case "number":
+		ok = isNumber(value)
+	case "array":
+		ok = reflectKind(value) == reflect.Slice
+	case "object":
+		_, ok = value.(map[string]any)
+	}
+	if !ok {
+		return "wants " + want + ", got " + jsonKind(value)
+	}
+	if enum, hasEnum := schema["enum"].([]any); hasEnum && len(enum) > 0 {
+		for _, allowed := range enum {
+			if fmt.Sprint(allowed) == fmt.Sprint(value) {
+				return ""
+			}
+		}
+		return "wants one of its declared values"
+	}
+	return ""
+}
+
+func isInteger(value any) bool {
+	switch v := value.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return true
+	case float64:
+		return v == math.Trunc(v)
+	case float32:
+		return float64(v) == math.Trunc(float64(v))
+	case json.Number:
+		_, err := v.Int64()
+		return err == nil
+	case string:
+		_, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return err == nil
+	}
+	return false
+}
+
+func isNumber(value any) bool {
+	switch v := value.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	case json.Number:
+		_, err := v.Float64()
+		return err == nil
+	case string:
+		_, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return err == nil
+	}
+	return false
+}
+
+func reflectKind(value any) reflect.Kind {
+	return reflect.TypeOf(value).Kind()
+}
+
+// jsonKind names a value's JSON kind, never the value itself.
+func jsonKind(value any) string {
+	switch value.(type) {
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case map[string]any:
+		return "object"
+	}
+	switch {
+	case isNumber(value):
+		return "number"
+	case reflectKind(value) == reflect.Slice:
+		return "array"
+	}
+	return "unknown"
 }

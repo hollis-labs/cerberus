@@ -10,14 +10,13 @@ import (
 
 // NewCerberusProjectListTool creates the cerberus_project_list tool.
 func NewCerberusProjectListTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_project_list",
 		Description: "List projects and resource counts. Returns a budgeted envelope ({items,count,total,truncated,hint}).",
 		InputSchema: objectSchema(map[string]interface{}{
 			"limit":  limitSchemaProp(),
 			"offset": offsetSchemaProp(),
 		}),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			list, err := client.ListProjects(ctx)
 			if err != nil {
@@ -28,12 +27,12 @@ func NewCerberusProjectListTool(client cerbapi.Client) Tool {
 			}
 			return budgetedList("cerberus_project_list", list, args, "%d projects total."), nil
 		},
-	}
+	})
 }
 
 // NewCerberusResourceListTool creates the cerberus_resource_list tool.
 func NewCerberusResourceListTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_resource_list",
 		Description: "List resources. Optional filters: project_id, connector, tag. Returns a budgeted envelope ({items,count,total,truncated,hint}); narrow with filters if truncated.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -52,7 +51,6 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 			"limit":  limitSchemaProp(),
 			"offset": offsetSchemaProp(),
 		}),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			projectID, _ := args["project_id"].(string)
 			connectorFilter, _ := args["connector"].(string)
@@ -72,12 +70,12 @@ func NewCerberusResourceListTool(client cerbapi.Client) Tool {
 			return budgetedList("cerberus_resource_list", list, args,
 				"%d resources match; narrow with project_id, connector, or tag to see the rest."), nil
 		},
-	}
+	})
 }
 
 // NewCerberusResourceStatusTool creates the cerberus_resource_status tool.
 func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_resource_status",
 		Description: "Get runtime status for one resource. Read artifact_stale and recommended_action / recommended_next_step and act on them — or just call cerberus_resource_ensure_fresh to perform the recommended action automatically. Use before deploy, apply, reload, or remove.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -86,7 +84,6 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 				"description": "Resource ID.",
 			},
 		}, "resource_id"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
@@ -105,12 +102,12 @@ func NewCerberusResourceStatusTool(client cerbapi.Client) Tool {
 			}
 			return string(data), nil
 		},
-	}
+	})
 }
 
 // NewCerberusResourceInspectTool creates the cerberus_resource_inspect tool.
 func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_resource_inspect",
 		Description: "Get runtime details, install paths, and log paths for one resource.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -119,7 +116,6 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 				"description": "Resource ID.",
 			},
 		}, "resource_id"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
@@ -138,12 +134,12 @@ func NewCerberusResourceInspectTool(client cerbapi.Client) Tool {
 			}
 			return string(data), nil
 		},
-	}
+	})
 }
 
 // NewCerberusResourceDoctorTool creates the cerberus_resource_doctor tool.
 func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_resource_doctor",
 		Description: "Run checks for one resource and return pass, warn, or fail guidance.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -152,7 +148,6 @@ func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 				"description": "Resource ID.",
 			},
 		}, "resource_id"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
@@ -171,12 +166,12 @@ func NewCerberusResourceDoctorTool(client cerbapi.Client) Tool {
 			}
 			return string(data), nil
 		},
-	}
+	})
 }
 
 // NewCerberusResourceLogsTool creates the cerberus_resource_logs tool.
 func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_resource_logs",
 		Description: "Get recent logs for one resource.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -194,7 +189,6 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 				"enum":        []string{"stdout", "stderr"},
 			},
 		}, "resource_id"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID, _ := args["resource_id"].(string)
 			if resourceID == "" {
@@ -218,18 +212,14 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 			}
 			return string(data), nil
 		},
-	}
+	})
 }
 
 // NewCerberusResourceReloadTool creates the cerberus_resource_reload tool.
 func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:            "cerberus_resource_reload",
-		Description:     "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh with force=true instead. Requires acknowledged=true.",
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
+	return contractTool(Tool{
+		Name:        "cerberus_resource_reload",
+		Description: "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh with force=true instead. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -258,18 +248,14 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 				Error:   res.Error,
 			})
 		},
-	}
+	})
 }
 
 // NewCerberusResourceStopTool creates the cerberus_resource_stop tool.
 func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:            "cerberus_resource_stop",
-		Description:     "Stop a resource without uninstalling it. Use remove for uninstall. Requires acknowledged=true.",
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
+	return contractTool(Tool{
+		Name:        "cerberus_resource_stop",
+		Description: "Stop a resource without uninstalling it. Use remove for uninstall. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -298,18 +284,14 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 				Error:   res.Error,
 			})
 		},
-	}
+	})
 }
 
 // NewCerberusResourceDeployTool creates the cerberus_resource_deploy tool.
 func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:            "cerberus_resource_deploy",
-		Description:     "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. This is the default action after editing source. ensure_fresh requires force=true to guarantee a rebuild. Requires acknowledged=true.",
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
+	return contractTool(Tool{
+		Name:        "cerberus_resource_deploy",
+		Description: "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. This is the default action after editing source. ensure_fresh requires force=true to guarantee a rebuild. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -334,18 +316,14 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 			}
 			return toolResult(*res)
 		},
-	}
+	})
 }
 
 // NewCerberusResourceEnsureFreshTool creates the cerberus_resource_ensure_fresh tool.
 func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:            "cerberus_resource_ensure_fresh",
-		Description:     "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift. Unconfirmed activation returns success=false without restarting; follow the verification guidance before retrying. Requires acknowledged=true.",
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
+	return contractTool(Tool{
+		Name:        "cerberus_resource_ensure_fresh",
+		Description: "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift. Unconfirmed activation returns success=false without restarting; follow the verification guidance before retrying. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -382,18 +360,14 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 			}
 			return string(data), nil
 		},
-	}
+	})
 }
 
 // NewCerberusResourceApplyTool creates the cerberus_resource_apply tool.
 func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:            "cerberus_resource_apply",
-		Description:     "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh with force=true) so it rebuilds first. Requires acknowledged=true.",
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
+	return contractTool(Tool{
+		Name:        "cerberus_resource_apply",
+		Description: "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh with force=true) so it rebuilds first. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -418,18 +392,14 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 			}
 			return toolResult(*res)
 		},
-	}
+	})
 }
 
 // NewCerberusResourceSyncTool creates the cerberus_resource_sync tool.
 func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:            "cerberus_resource_sync",
-		Description:     "Sync installed artifacts without applying the runtime backend. Requires acknowledged=true.",
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
+	return contractTool(Tool{
+		Name:        "cerberus_resource_sync",
+		Description: "Sync installed artifacts without applying the runtime backend. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -458,18 +428,14 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 				Error:   res.Error,
 			})
 		},
-	}
+	})
 }
 
 // NewCerberusResourceRemoveTool creates the cerberus_resource_remove tool.
 func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:            "cerberus_resource_remove",
-		Description:     "Uninstall a resource and remove installed artifacts. Use stop to pause only. Requires acknowledged=true.",
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
+	return contractTool(Tool{
+		Name:        "cerberus_resource_remove",
+		Description: "Uninstall a resource and remove installed artifacts. Use stop to pause only. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{
 				"type":        "string",
@@ -498,5 +464,5 @@ func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 				Error:   res.Error,
 			})
 		},
-	}
+	})
 }

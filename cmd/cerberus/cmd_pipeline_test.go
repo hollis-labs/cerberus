@@ -39,9 +39,25 @@ func TestPipelineRunOutput(t *testing.T) {
 	if err == nil || err.Error() != "pipeline failed: bad exit" {
 		t.Fatalf("error = %v", err)
 	}
-	want := "Running pipeline: Release (release)\n\n  build                ok (2ms)\n  verify               FAILED (3ms)\n    error: bad exit\n  deploy               skipped (0s)\n\nPipeline release: failed (5ms)\n"
+	want := "Pipeline: Release (release)\n\n  build                ok (2ms)\n  verify               FAILED (3ms)\n    error: bad exit\n  deploy               skipped (0s)\n\nPipeline release: failed (5ms)\n"
 	if out.String() != want {
 		t.Fatalf("output = %q, want %q", out.String(), want)
+	}
+}
+
+// A refused run prints the refusal and nothing else: no line claims the
+// pipeline started.
+func TestRefusedPipelineRunAnnouncesNothing(t *testing.T) {
+	client := fixturePipelineClient{
+		detail: &cerbapi.PipelineDetail{Definition: config.PipelineDef{ID: "release", Name: "Release"}},
+		runErr: errors.New(`daemon: pipeline run: acknowledgment_required: exec operation "run" on "release" requires operator acknowledgment`),
+	}
+	var out bytes.Buffer
+	if err := runPipelineCommand(context.Background(), client, "release", &out); err == nil {
+		t.Fatal("refused run returned no error")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("a refused run printed %q", out.String())
 	}
 }
 

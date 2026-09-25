@@ -149,3 +149,23 @@ that every code followed by a recovery sentence survives `redact.Text`.
 - MCP tool definitions for built-in connectors — those are hand-written in internal/mcp/tools_<x>.go
 - Acknowledgment for plugin connector operations, which the plugin lane's OperationAllowed enforces separately, on the same destructive flag
 - An audit trail. Nothing records who ran which destructive verb
+
+## Since P1 (PRs #57 and #60, and the P1-3 branch)
+
+`Execute`'s order is now fixed and fail-closed:
+
+1. The namecheap per-record refusal.
+2. The contract gate: the operation must be declared, and the raw config must
+   pass its key table for the caller's surface (CERB-CAP-212, CERB-DEC-817).
+3. ssh and docker resource resolution.
+4. Dry run.
+5. Plugin dispatch.
+6. The acknowledgment check.
+7. `Resolve`.
+8. Execution.
+
+No argument or acknowledgment refusal depends on a credential. Refusals travel
+the socket with their code (`connectorErrorWire`), so every surface maps them
+through one status table. An error from past the gates that carries no code is
+`operation_failed`, 502. The P1-3 branch added JSON type and enum checks to the
+key table, swept over every declared operation.
