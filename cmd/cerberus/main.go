@@ -67,6 +67,14 @@ resource "cerberus-daemon-service" on macOS launchd.
 
 MIT licensed. Published by Hollis Labs.`,
 	Version: version,
+	// By the time a pre-run hook runs, cobra has parsed the flags and checked
+	// the arguments, so misuse has already been reported with its usage. A
+	// failure after this point is operational — a refusal, a missing
+	// credential, a provider error — and a usage block under it only buries
+	// the message that says what to do.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		cmd.SilenceUsage = true
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},

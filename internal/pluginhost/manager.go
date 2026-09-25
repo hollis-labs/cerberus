@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Installer is the install side of the plugin host. The initial manager keeps
@@ -269,12 +270,17 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	lp, ok := m.running[args.Connector]
 	m.mu.RUnlock()
 	if !ok {
-		return OperationResult{}, fmt.Errorf("plugin %q is not loaded", args.Connector)
+		return OperationResult{}, fmt.Errorf("plugin %q %w", args.Connector, ErrNotLoaded)
 	}
 
 	op, ok := OperationFromToolName(args.Connector, ToolNameForOperation(args.Connector, args.Operation), lp.plugin.Manifest)
 	if !ok {
 		return OperationResult{}, fmt.Errorf("plugin %q: %w %q", args.Connector, ErrOperationUndeclared, args.Operation)
+	}
+	// The key table runs first, so a bad argument is refused without
+	// calling the plugin, and before anything needs its credential.
+	if err := op.Operation().CheckInputs(args.Config, true); err != nil {
+		return OperationResult{}, fmt.Errorf("plugin %q operation %q: %w", args.Connector, args.Operation, err)
 	}
 	if err := OperationAllowed(lp.plugin.Origin, op, args.Acknowledged); err != nil {
 		return OperationResult{}, err
@@ -284,7 +290,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// That preview is plugin-claimed, not verified by the host (Decision 7 in
 	// docs/plans/live-systems-security-target.md); install review in P1 is
 	// what turns the claim into something an operator accepted.
-	if args.DryRun && !op.SupportsDry {
+	if args.DryRun && op.EffectivePreview() == contract.PreviewNone {
 		return OperationResult{}, fmt.Errorf("plugin %q operation %q: %w", args.Connector, args.Operation, ErrPreviewUnsupported)
 	}
 

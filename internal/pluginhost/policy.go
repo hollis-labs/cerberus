@@ -100,6 +100,10 @@ var ErrAckRequired = errors.New("requires operator acknowledgment")
 // not declare. The admin lane reports it as operation_unsupported.
 var ErrOperationUndeclared = errors.New("does not declare operation")
 
+// ErrNotLoaded is an operation on a plugin that is installed but not
+// running. The admin lane reports it as connector_unavailable.
+var ErrNotLoaded = errors.New("is not loaded")
+
 // ErrPreviewUnsupported is a dry run of a plugin operation whose manifest does
 // not declare supports_dry. The plugin is never called. The text leads with
 // the same code the admin lane uses, so the one-shot plugin path, which
@@ -110,17 +114,18 @@ func OperationAllowed(origin InstallOrigin, op contract.ManifestOperation, ackno
 	switch origin {
 	case OriginInstalled:
 	case OriginDev:
-		if op.Destructive {
+		if op.IsDestructive() {
 			return fmt.Errorf("destructive operation %q is refused for a development (--dev) plugin; install it without --dev to run it", op.Name)
 		}
 	default:
 		return fmt.Errorf("operation %q refused: plugin has unknown install origin %q", op.Name, origin)
 	}
-	// Any destructive operation needs acknowledgment. RequiresAck used to be
-	// ANDed in here, which let a manifest declare destructive: true,
-	// requires_ack: false and opt out of the host's gate. It is metadata now.
-	if op.Destructive && !acknowledged {
-		return fmt.Errorf("destructive operation %q %w", op.Name, ErrAckRequired)
+	// Acknowledgment follows the effect (Decision 14). An operation that
+	// declares no effect is treated as exec and needs it, so a manifest gap
+	// fails closed. requires_ack is never read: it once let a manifest declare
+	// destructive: true, requires_ack: false and opt out of the host's gate.
+	if effect := op.EffectiveEffect(); effect.RequiresAck() && !acknowledged {
+		return fmt.Errorf("%s operation %q %w", effect, op.Name, ErrAckRequired)
 	}
 	return nil
 }

@@ -65,7 +65,7 @@ func TestDryRunNeverCallsPluginWithoutSupportsDry(t *testing.T) {
 	manager, process := loadedGateManager(t,
 		contract.ManifestOperation{Name: "restart", InputSchema: contract.ObjectSchema(map[string]any{})},
 		contract.ManifestOperation{Name: "destroy", Destructive: true, InputSchema: contract.ObjectSchema(map[string]any{})},
-		contract.ManifestOperation{Name: "scale", SupportsDry: true, InputSchema: contract.ObjectSchema(map[string]any{})},
+		contract.ManifestOperation{Name: "scale", Effect: contract.EffectLifecycle, SupportsDry: true, InputSchema: contract.ObjectSchema(map[string]any{})},
 	)
 	for _, op := range []string{"restart", "destroy"} {
 		_, err := manager.ExecuteOperation(context.Background(), OperationArgs{Connector: "docker", Operation: op, DryRun: true, Acknowledged: true})
@@ -77,7 +77,7 @@ func TestDryRunNeverCallsPluginWithoutSupportsDry(t *testing.T) {
 		t.Fatalf("plugin called %d times for dry runs it cannot preview", process.calls)
 	}
 
-	if _, err := manager.ExecuteOperation(context.Background(), OperationArgs{Connector: "docker", Operation: "scale", DryRun: true}); err != nil {
+	if _, err := manager.ExecuteOperation(context.Background(), OperationArgs{Connector: "docker", Operation: "scale", DryRun: true, Acknowledged: true}); err != nil {
 		t.Fatalf("supports_dry dry run: %v", err)
 	}
 	if process.calls != 1 {

@@ -49,7 +49,7 @@ func (c *Connector) Capabilities() contract.Capabilities {
 }
 
 func Definition() contract.Definition {
-	return contract.Definition{
+	return contract.Finalize(contract.Definition{
 		ID:            "ssh",
 		Version:       "builtin",
 		ResourceTypes: []string{string(resource.Server)},
@@ -77,34 +77,75 @@ func Definition() contract.Definition {
 			}},
 		},
 		Operations: []contract.Operation{
-			{Name: "status", Description: "Check SSH reachability and basic host status.", InputSchema: operationSchema(nil)},
-			{Name: "exec", Description: "Execute a command over SSH.", Examples: []string{"cerberus ssh exec prod-api -- 'systemctl status nginx' --dry-run", "cerberus ssh exec prod-api -- 'systemctl restart php-fpm' --ack"}, InputSchema: operationSchema(nil, FieldCommand), Destructive: true, SupportsDry: true},
-			{Name: "put", Description: "Upload a local file to the remote host over SFTP.", Examples: []string{"cerberus ssh put prod-api ./docker-compose.yml /opt/app/docker-compose.yml --dry-run", "cerberus ssh put prod-api ./app.env /opt/app/.env --ack"}, InputSchema: operationSchema(map[string]string{
-				FieldLocalPath:  "Local file to upload.",
-				FieldRemotePath: "Destination path on the remote host.",
-			}, FieldLocalPath, FieldRemotePath), Destructive: true, SupportsDry: true},
-			{Name: "get", Description: "Download a file from the remote host over SFTP.", Examples: []string{"cerberus ssh get prod-api /etc/nginx/nginx.conf ./nginx.conf"}, InputSchema: operationSchema(map[string]string{
-				FieldRemotePath: "File to download from the remote host.",
-				FieldLocalPath:  "Local destination path.",
-			}, FieldRemotePath, FieldLocalPath)},
-			{Name: "put_dir", Description: "Recursively upload a local directory tree to the remote host over SFTP.", Examples: []string{"cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --dry-run", "cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --ack"}, InputSchema: operationSchema(map[string]string{
-				FieldLocalPath:  "Local directory to upload.",
-				FieldRemotePath: "Destination directory on the remote host.",
-			}, FieldLocalPath, FieldRemotePath), Destructive: true, SupportsDry: true},
-			// get_dir writes a tree rather than a single file, so the house
-			// rule points at Destructive. It is not, for the same reason get
-			// is not: both write only to the local machine, under a path the
-			// operator typed. Marking it destructive would also promise a
-			// dry-run preview that cannot be built — previewing a download
-			// means walking the remote tree, and previews run before the
-			// connector is resolved, with no connection to walk it over.
-			{Name: "get_dir", Description: "Recursively download a remote directory tree over SFTP into a local directory.", Examples: []string{"cerberus ssh get-dir prod-api /opt/app/config ./config"}, InputSchema: operationSchema(map[string]string{
-				FieldRemotePath: "Directory to download from the remote host.",
-				FieldLocalPath:  "Local destination directory.",
-			}, FieldRemotePath, FieldLocalPath)},
-			{Name: "stop", Description: "Shut down the remote host via SSH.", Examples: []string{"cerberus ssh stop prod-api --dry-run", "cerberus ssh stop prod-api --ack"}, InputSchema: operationSchema(nil), Destructive: true, SupportsDry: true},
+			{
+				Name: "status", Description: "Check SSH reachability and basic host status.",
+				Effect: contract.EffectRead, Target: hostTarget,
+				Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone,
+				Inputs: operationInputs(nil),
+			},
+			{
+				Name: "exec", Description: "Execute a command over SSH.",
+				Examples: []string{"cerberus ssh exec prod-api -- 'systemctl status nginx' --dry-run", "cerberus ssh exec prod-api -- 'systemctl restart php-fpm' --ack"},
+				Effect:   contract.EffectExec, Target: hostTarget,
+				Preview: contract.PreviewHost, Output: contract.OutputFreeText, Cost: contract.CostNone, LocalFS: contract.LocalFSNone,
+				Inputs: operationInputs(nil, FieldCommand),
+			},
+			{
+				Name: "put", Description: "Upload a local file to the remote host over SFTP.",
+				Examples: []string{"cerberus ssh put prod-api ./docker-compose.yml /opt/app/docker-compose.yml --dry-run", "cerberus ssh put prod-api ./app.env /opt/app/.env --ack"},
+				Effect:   contract.EffectWrite, Target: hostTarget,
+				Preview: contract.PreviewHost, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSReads,
+				Inputs: operationInputs(map[string]string{
+					FieldLocalPath:  "Local file to upload.",
+					FieldRemotePath: "Destination path on the remote host.",
+				}, FieldLocalPath, FieldRemotePath),
+			},
+			// get and get_dir write only to the local machine, under a path the
+			// operator typed, and return what the remote file holds: that is
+			// read_sensitive with local_fs writes, not a write to the target.
+			// They have no preview: previewing a download means walking the
+			// remote tree, and previews run before any connection exists.
+			{
+				Name: "get", Description: "Download a file from the remote host over SFTP.",
+				Examples: []string{"cerberus ssh get prod-api /etc/nginx/nginx.conf ./nginx.conf"},
+				Effect:   contract.EffectReadSensitive, Target: hostTarget,
+				Preview: contract.PreviewNone, Output: contract.OutputFile, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites,
+				Inputs: operationInputs(map[string]string{
+					FieldRemotePath: "File to download from the remote host.",
+					FieldLocalPath:  "Local destination path.",
+				}, FieldRemotePath, FieldLocalPath),
+			},
+			{
+				Name: "put_dir", Description: "Recursively upload a local directory tree to the remote host over SFTP.",
+				Examples: []string{"cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --dry-run", "cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --ack"},
+				Effect:   contract.EffectWrite, Target: hostTarget,
+				Preview: contract.PreviewHost, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSReads,
+				Inputs: operationInputs(map[string]string{
+					FieldLocalPath:  "Local directory to upload.",
+					FieldRemotePath: "Destination directory on the remote host.",
+				}, FieldLocalPath, FieldRemotePath),
+			},
+			{
+				Name: "get_dir", Description: "Recursively download a remote directory tree over SFTP into a local directory.",
+				Examples: []string{"cerberus ssh get-dir prod-api /opt/app/config ./config"},
+				Effect:   contract.EffectReadSensitive, Target: hostTarget,
+				Preview: contract.PreviewNone, Output: contract.OutputFile, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites,
+				Inputs: operationInputs(map[string]string{
+					FieldRemotePath: "Directory to download from the remote host.",
+					FieldLocalPath:  "Local destination directory.",
+				}, FieldRemotePath, FieldLocalPath),
+			},
+			// stop powers the host off. Nothing over SSH can bring it back, so
+			// it is not reversible from here.
+			{
+				Name: "stop", Description: "Shut down the remote host via SSH.",
+				Examples: []string{"cerberus ssh stop prod-api --dry-run", "cerberus ssh stop prod-api --ack"},
+				Effect:   contract.EffectLifecycle, Target: hostTarget,
+				Preview: contract.PreviewHost, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone,
+				Inputs: operationInputs(nil),
+			},
 		},
-	}
+	})
 }
 
 func (c *Connector) Definition() contract.Definition { return Definition() }

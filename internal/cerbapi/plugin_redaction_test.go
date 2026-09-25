@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
+	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
@@ -83,7 +84,7 @@ func leakyManagedService(t *testing.T) *ManagedPluginConnectorService {
 				{Name: "token", Env: "CERBERUS_LEAKY_TOKEN"},
 			}},
 			Operations: []contract.ManifestOperation{
-				{Name: "list_things", InputSchema: contract.ObjectSchema(map[string]any{})},
+				{Name: "list_things", Effect: contract.EffectRead, InputSchema: contract.ObjectSchema(map[string]any{})},
 			},
 		},
 	})
@@ -168,7 +169,9 @@ func TestOperationFailedCodeSurvivesRedaction(t *testing.T) {
 // the script by size and hash and never carries it.
 func TestDigitalOceanCreateDropletPreviewNeverCarriesUserData(t *testing.T) {
 	const userData = "#cloud-config\nwrite_files:\n  - content: SENTINEL-USER-DATA-5b1d\n"
-	svc := NewExternalConnectorService(connector.NewRegistry())
+	registry := connector.NewRegistry()
+	registry.RegisterDefinition(doconn.Definition())
+	svc := NewExternalConnectorService(registry)
 	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
 		Connector: "digitalocean",
 		Operation: "create_droplet",
