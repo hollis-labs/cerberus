@@ -173,3 +173,13 @@ there, and the same typed plugin id confirms both the review and the copy. The
 file is a working file: nothing is enforced or even evaluated until
 `cerberus policy apply` makes it part of the applied snapshot. So the
 plugin's word never becomes policy by itself (I10, Decision 10).
+
+## Restores are recorded
+
+When the daemon starts, it reloads every plugin marked loaded. Each of those
+loads is an audit record: a `plugin load` by automation
+(`via: daemon_start`), with the reason `restore at daemon start`, and either
+the bundle digest checked against the accepted review, or
+`unchecked: its review is pending`. It carries the entrypoint digest too.
+Before this, a restart left no trace, even though a restart is exactly when a
+pending plugin starts new code (`TestRestoreRecordsEachPluginLoad`).

@@ -215,10 +215,31 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 			service.warnf("plugin %q was installed before install review and loads unchecked until reviewed; run `cerberus connectors plugin managed review %s` in a terminal", installed.ID, installed.ID)
 		}
 		if entry.Loaded {
-			if err := service.manager.Load(ctx, installed.ID); err != nil {
+			// A restart is exactly when a plugin starts new code — for a
+			// review_pending one, code nobody checked — so the load is
+			// recorded, as Cerberus acting on its own. It is never refused:
+			// an unwritable log is logged, and the plugin still loads.
+			call, _ := beginAudit(ctx, service.audit, service.logger, restoreSpec(installed))
+			err := service.manager.Load(ctx, installed.ID)
+			call.finish(managedLoadError(err))
+			if err != nil {
 				service.warnf("plugin %q installed but failed to load: %v", installed.ID, err)
 			}
 		}
 	}
 	return nil
+}
+
+// restoreSpec is the audit record of a plugin loaded when the daemon starts:
+// automation, with the reason, and whether the bundle was checked against
+// an accepted review or runs unchecked because its review is pending.
+func restoreSpec(p pluginhost.InstalledPlugin) auditSpec {
+	checked := "bundle " + p.BundleDigest + " checked against its accepted review"
+	if p.ReviewPending || p.BundleDigest == "" {
+		checked = "unchecked: its review is pending"
+	}
+	return auditSpec{connector: "plugin", operation: "load", op: pluginAdminOperation("load"), known: true,
+		config: map[string]any{"id": p.ID, "plugin_dir": p.Path}, automation: true, automationVia: "daemon_start",
+		reason:                 "restore at daemon start; " + checked,
+		pluginEntrypointSHA256: p.EntrypointSHA256}
 }
