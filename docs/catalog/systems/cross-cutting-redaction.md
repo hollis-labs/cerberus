@@ -169,8 +169,25 @@ and each MCP tool call, since an MCP server has no middleware chain and the
 daemon's stdio server runs tools in-process. A ctx that already has a scope
 keeps it, so nested entry points share one. An entry point that is bypassed
 leaves a nil scope, which renders as the regex net alone. Each entry point
-has a test for both halves. Resolution registers into the scope, and the
-render edges read it back, in the PRs that follow.
+has a test for both halves.
+
+Resolution registers into it. `app.ConnectorSecrets`, the one provider every
+connector lane, the plugin host and now the web console resolve through,
+wraps the reference chain in `secrets.Registering`, so each value resolved on
+a request is added to that request's scope under `service/key`. The only
+values it skips are ones that are not credentials. The first is a secret a
+built-in connector's definition declares with `Path: true`: ssh's
+`ssh/<resource-id>/key` is a key file's path, and a path is what "reading SSH
+key <path>: no such file" has to show. The second is `vercel/scope`, a team
+slug the deploy prints. Which secrets are paths is read from the definitions,
+not listed by hand.
+
+Two leaks of the same kind were closed in the same change. The `secretref`
+helper's stderr is no longer copied into its error, which now names the
+command that shows it. A failed deploy credential lookup now stops the plan
+with a recovery sentence instead of deploying without the token. Both
+messages are tested to survive `redact.Text`. The render edges read the scope
+back in the next PR.
 The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
 `--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
 fixed by changing the placeholder rather than the rule.

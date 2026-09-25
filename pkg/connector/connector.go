@@ -66,6 +66,11 @@ type SecretRequirement struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 	Env         string `json:"env,omitempty" yaml:"env,omitempty"`
 	Required    bool   `json:"required,omitempty" yaml:"required,omitempty"`
+	// Path declares that the secret's value is the path to a credential
+	// file, not the credential. The host does not register a path for
+	// value redaction: it is what an error such as "reading SSH key <path>:
+	// no such file" must show for the operator to act on it.
+	Path bool `json:"path,omitempty" yaml:"path,omitempty"`
 }
 
 // Operation describes a connector action exposed through CLI, API, MCP, or GUI

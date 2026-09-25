@@ -105,14 +105,19 @@ func PlanDeployment(ctx context.Context, secrets secret.Provider, profile Deploy
 }
 
 func planVercel(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) ([]deployStep, string) {
-	token := secretValue(ctx, secrets, "vercel", "token")
+	token, err := secretValue(ctx, secrets, "vercel", "token")
+	if err != nil {
+		return nil, secretLookupFailure("vercel/token", err)
+	}
 	var tokenEnv []string
 	if token != "" {
 		tokenEnv = []string{"VERCEL_TOKEN=" + token}
 	}
 	scope := profile.VercelScope
 	if scope == "" {
-		scope = secretValue(ctx, secrets, "vercel", "scope")
+		if scope, err = secretValue(ctx, secrets, "vercel", "scope"); err != nil {
+			return nil, secretLookupFailure("vercel/scope", err)
+		}
 	}
 	var steps []deployStep
 	if profile.PreflightCommand != "" {
@@ -243,12 +248,27 @@ func executeStep(result *DeploymentRunResult, name, command string, cmd *exec.Cm
 	return true
 }
 
-func secretValue(ctx context.Context, provider secret.Provider, service, key string) string {
+// secretValue resolves service/key. A secret that is not stored is "" and no
+// error; an error is a lookup that failed — a keychain that refused, a
+// reference that did not resolve — and the plan stops on it rather than
+// deploying without the credential and failing later for a reason nobody
+// sees.
+func secretValue(ctx context.Context, provider secret.Provider, service, key string) (string, error) {
 	if provider == nil {
-		return ""
+		return "", nil
 	}
-	value, _ := provider.Get(ctx, service, key)
-	return strings.TrimSpace(value)
+	value, err := provider.Get(ctx, service, key)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(value), nil
+}
+
+// secretLookupFailure is the plan error for a credential that could not be
+// resolved. The name is never followed by a colon, so the assignment rule in
+// redact.Text cannot read the message after it as the credential's value.
+func secretLookupFailure(name string, err error) string {
+	return fmt.Sprintf("could not resolve %s (%v); fix its keychain entry or its reference in connector-secrets.yaml, then plan again", name, err)
 }
 
 func lastNonEmptyLine(output string) string {
