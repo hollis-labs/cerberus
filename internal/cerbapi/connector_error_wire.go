@@ -23,6 +23,7 @@ import (
 //     right now; the request may succeed once the operator fixes that.
 //   - plugin_changed: the plugin is not the bundle the operator reviewed;
 //     it conflicts with the accepted review until re-accepted on a TTY.
+//   - principal_refused: the socket caller is not the daemon's own user.
 //   - operation_failed: the request passed every gate and the provider, the
 //     plugin or the tool behind the connector failed it. 502, so a 500 still
 //     means a fault in Cerberus itself.
@@ -36,6 +37,7 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorOperationFailed:    http.StatusBadGateway,
 	ExternalConnectorAuditUnavailable:   http.StatusServiceUnavailable,
 	ExternalConnectorPluginChanged:      http.StatusConflict,
+	ExternalConnectorPrincipalRefused:   http.StatusForbidden,
 }
 
 // ExternalConnectorHTTPStatus returns the status for err when it carries a

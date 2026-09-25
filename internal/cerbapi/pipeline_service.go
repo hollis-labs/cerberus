@@ -59,7 +59,8 @@ func (s *ResourceRuntimeService) runPipeline(ctx context.Context, id string, opt
 	}
 	env := &domain.PipelineEnv{Values: make(map[string]any)}
 	exec := pipeline.NewExecutor(nil)
-	result, err := exec.Run(ctx, p, env)
+	// The run is the caller's; its stages are Cerberus acting for them.
+	result, err := exec.Run(WithPrincipal(ctx, pipelinePrincipal(ctx, id)), p, env)
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("pipeline execution: %s", err.Error())}, nil
 	}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -73,9 +74,11 @@ func TestBeginRequestJoinsTheScopeItIsAlreadyIn(t *testing.T) {
 func TestSocketServerBeginsEveryRequest(t *testing.T) {
 	var seen context.Context
 	capture := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { seen = r.Context() })
-	s := &SocketServer{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	s := &SocketServer{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uid: os.Getuid()}
 
-	s.wrap(capture).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/health", nil))
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req = req.WithContext(withPeer(req.Context(), peerCred{uid: os.Getuid()}))
+	s.wrap(capture).ServeHTTP(httptest.NewRecorder(), req)
 	if CallerSurfaceFrom(seen) != SurfaceSocket {
 		t.Fatalf("surface = %s", CallerSurfaceFrom(seen))
 	}

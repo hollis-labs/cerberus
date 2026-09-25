@@ -567,7 +567,11 @@ func runDaemonBody() error {
 			fmt.Fprintf(os.Stderr, "mcp: "+format+"\n", args...)
 		})
 
-		if err := srv.Run(ctx); err != nil {
+		// Its callers are agents. The context is not marked in-process: this
+		// is not the operator's shell, so local-only inputs stay refused.
+		mcpCtx := cerbapi.WithPrincipal(ctx, cerbapi.Principal{Kind: cerbapi.PrincipalAgent, Via: cerbapi.ViaMCPStdio,
+			UID: os.Getuid(), UIDVerified: true, Client: "daemon-stdio", SelfReported: true})
+		if err := srv.Run(mcpCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		}
 	}()
