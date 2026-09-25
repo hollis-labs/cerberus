@@ -559,7 +559,7 @@ func runDaemonBody() error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		srv := mcp.NewServer("cerberus", "0.1.0")
+		srv := mcp.NewServer("cerberus", "0.1.0", mcp.WithInstructions(mcp.Instructions(currentPosture())))
 		for _, tool := range mcp.AllTools(inProc) {
 			srv.RegisterTool(tool)
 		}

@@ -54,12 +54,32 @@ var _ PDP = (*Evaluator)(nil)
 // File is the policy the evaluator decides with.
 func (e *Evaluator) File() File { return e.file }
 
+// GlobalPosture implements PDP.
+func (e *Evaluator) GlobalPosture() string { return e.file.GlobalPosture() }
+
 // Authorize evaluates req against every layer and combines the matches.
+//
+// Under the permissive posture (PostureFor) the built-in strictness steps
+// aside: the baseline allows every effect for every principal, and the
+// target defaults for prod, unknown, shared and unlabeled-admin targets and
+// for ad-hoc targets add nothing. Two things do not relax. A target labeled
+// as administered by its owner (admin: owner) is still not ours to change,
+// because that is a fact the operator declared about someone else's system,
+// not a default. And every operator rule — a baseline cell the file
+// replaced, provider, target and principal rules — applies as written.
 func (e *Evaluator) Authorize(req Request) Result {
 	kind := principalColumn(req.Principal.Kind)
+	posture, postureRules := e.file.PostureFor(req)
+	permissive := posture == PosturePermissive
 	var matches []Match
 	add := func(rule string, d Decision, reason string, approval *Approval) {
 		matches = append(matches, Match{Rule: rule, Decision: d, Reason: reason, Approval: approval})
+	}
+
+	// A plugin operation with no declared effect is exec under secure and
+	// write under permissive; the plugin's contract is untouched.
+	if req.EffectUndeclared && permissive {
+		req.Effect = contract.EffectWrite
 	}
 
 	// 1. Baseline, by effect and principal kind.
@@ -70,6 +90,8 @@ func (e *Evaluator) Authorize(req Request) Result {
 	case localDevLifecycle(req, effect, kind):
 		// Decision 11: day-to-day local work does not prompt a human.
 		add("builtin.local-dev-lifecycle", Allow, "a human's lifecycle operation on a local dev resource", nil)
+	case permissive && !e.baselineOverridden(effect, kind):
+		add(postureRuleName(postureRules), Allow, "the permissive posture: the baseline allows every effect", nil)
 	default:
 		d := e.baselineCell(effect, kind)
 		add(fmt.Sprintf("baseline.%s.%s", effect, kind), d, baselineReason(effect, kind, d), nil)
@@ -83,7 +105,7 @@ func (e *Evaluator) Authorize(req Request) Result {
 	if admin == "" {
 		admin = target.AdminUnknown
 	}
-	if effect != "" && isChange(effect) {
+	if effect != "" && isChange(effect) && (!permissive || admin == target.AdminOwner) {
 		switch admin {
 		case target.AdminOwner, target.AdminUnknown:
 			reason := "the owning team administers this; it is not ours to change on our own say-so"
@@ -97,7 +119,7 @@ func (e *Evaluator) Authorize(req Request) Result {
 			}
 		}
 	}
-	if env := t.Env; env == target.EnvProd || env == target.EnvUnknown || env == "" {
+	if env := t.Env; !permissive && (env == target.EnvProd || env == target.EnvUnknown || env == "") {
 		label := "builtin.env-" + string(target.EnvProd)
 		reason := "a production target"
 		if env != target.EnvProd {
@@ -114,7 +136,7 @@ func (e *Evaluator) Authorize(req Request) Result {
 			// everywhere.
 		}
 	}
-	if t.Adhoc && !e.granted(req.Principal, "adhoc_targets") {
+	if t.Adhoc && !permissive && !e.granted(req.Principal, "adhoc_targets") {
 		add("builtin.adhoc", Deny, "the target is named by connection settings, not a registered resource, and this caller lacks the adhoc_targets grant", nil)
 	}
 
@@ -148,7 +170,29 @@ func (e *Evaluator) Authorize(req Request) Result {
 			}
 		}
 	}
-	return combine(matches, e.snapshot, req.DryRun)
+	res := combine(matches, e.snapshot, req.DryRun)
+	res.Posture = posture
+	return res
+}
+
+// baselineOverridden reports whether the operator's file replaced this
+// baseline cell. An operator's cell is an operator rule, so it applies
+// under every posture.
+func (e *Evaluator) baselineOverridden(effect contract.Effect, kind string) bool {
+	if e.file.Baseline == nil {
+		return false
+	}
+	d, ok := e.file.Baseline.ByEffect[effect][kind]
+	return ok && d.Valid()
+}
+
+// postureRuleName names what made the evaluation permissive: the global
+// posture, or the posture rules that matched.
+func postureRuleName(rules []int) string {
+	if len(rules) == 0 {
+		return "posture.permissive"
+	}
+	return fmt.Sprintf("posture_rules[%d].permissive", rules[0])
 }
 
 // baselineCell is the built-in cell, or the operator's replacement for it.

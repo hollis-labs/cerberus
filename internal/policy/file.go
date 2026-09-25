@@ -32,10 +32,12 @@ const FileVersion = 1
 //	      - { effect: [read_sensitive], decision: approve }
 type File struct {
 	Version int `yaml:"version"`
-	// Posture is reserved for P2-5 (section 13, Decision 13): secure, the
-	// default, or permissive, and per-target overrides. It is parsed,
-	// validated and part of the snapshot hash, and changes only through
-	// `cerberus policy apply`; this evaluator does not read it yet.
+	// Posture is secure, the default, or permissive (section 13, Decision
+	// 13, settled at the P2-5 review). The global posture governs the
+	// host-wide switches, which have no target, and is where target-scoped
+	// evaluation starts; posture_rules adjust only target-scoped
+	// evaluation (PostureFor). Both are part of the snapshot hash and
+	// change only through `cerberus policy apply`.
 	Posture      string        `yaml:"posture,omitempty"`
 	PostureRules []PostureRule `yaml:"posture_rules,omitempty"`
 
@@ -51,28 +53,59 @@ const (
 	PosturePermissive = "permissive"
 )
 
-// PostureRule sets the posture for targets that match (P2-5).
+// PostureRule sets the posture for the targets it matches (P2-5), for
+// target-scoped evaluation only: it never changes a host-wide switch.
 type PostureRule struct {
 	Match   TargetMatch `yaml:"match"`
 	Posture string      `yaml:"posture"`
 }
 
-// PostureFor is the posture the file declares for a target: the global
-// posture, made permissive by a matching rule, and secure when nothing is
-// said. Reserved for P2-5; the evaluator does not use it.
-func (f File) PostureFor(req Request) (string, []int) {
-	posture := f.Posture
-	if posture == "" {
-		posture = PostureSecure
+// GlobalPosture is the file's global posture: secure unless it says
+// permissive.
+func (f File) GlobalPosture() string {
+	if f.Posture == PosturePermissive {
+		return PosturePermissive
 	}
-	var matched []int
+	return PostureSecure
+}
+
+// PostureFor is the posture target-scoped evaluation uses for req, and the
+// posture rules that decided it. It starts from the global posture; a
+// matching rule that says secure makes it secure, and wins over any that say
+// permissive (the most restrictive reading, as policy combines). A rule
+// that says permissive applies only to a target whose env and owner are both
+// declared and that is not ad hoc: a scoped relaxation never reaches a
+// target nobody labeled (Decision 17), however broad its match, because
+// `env: "!prod"` matches an unknown env too. The global posture is the one
+// switch that opens everything.
+func (f File) PostureFor(req Request) (string, []int) {
+	posture := f.GlobalPosture()
+	var secure, permissive []int
 	for i, r := range f.PostureRules {
-		if r.Match.Matches(req.Connector, req.Target) {
-			matched = append(matched, i)
-			posture = r.Posture
+		if !r.Match.Matches(req.Connector, req.Target) {
+			continue
+		}
+		switch {
+		case r.Posture == PostureSecure:
+			secure = append(secure, i)
+		case r.Posture == PosturePermissive && scopable(req.Target):
+			permissive = append(permissive, i)
 		}
 	}
-	return posture, matched
+	switch {
+	case len(secure) > 0:
+		return PostureSecure, secure
+	case len(permissive) > 0:
+		return PosturePermissive, permissive
+	}
+	return posture, nil
+}
+
+// scopable reports whether a scoped permissive rule may apply to t: it is
+// labeled, with a known env and owner, and it is a registered target.
+func scopable(t target.Target) bool {
+	known := func(v string) bool { return v != "" && !strings.EqualFold(v, "unknown") }
+	return known(string(t.Env)) && known(t.Owner) && !t.Adhoc
 }
 
 // BaselineOverride replaces cells of the built-in baseline table.

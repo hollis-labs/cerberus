@@ -7,6 +7,14 @@ const http = createApiClient({ baseUrl: '' })
 export interface SessionInfo {
   action_token: string
   session?: string
+  posture?: PostureInfo
+}
+
+// PostureInfo is the applied posture (section 13): shown in the header so a
+// permissive install can never be mistaken for a secure one.
+export interface PostureInfo {
+  summary: string
+  permissive: boolean
 }
 
 export interface OverviewInfo {
