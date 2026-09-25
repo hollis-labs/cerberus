@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 type stubProvider struct {
@@ -137,6 +139,34 @@ func TestResolverHelper(t *testing.T) {
 		want := []string{"/usr/local/bin/mux-apikey-helper", "resolve", "keychain://openai/work"}
 		if strings.Join(gotArgs, " ") != strings.Join(want, " ") {
 			t.Errorf("helper invoked as %v, want %v", gotArgs, want)
+		}
+	})
+
+	// A failing helper's stderr is text Cerberus did not compose, from a
+	// program that holds the secret, so it is not copied into the error.
+	// The error names the command that shows it, and that instruction has
+	// to survive redaction.
+	t.Run("failure names the command, not the helper's output", func(t *testing.T) {
+		const echoed = "q7Zr2mXv9pLw" //nolint:gosec // a test sentinel, not a credential
+		r := NewResolver(nil,
+			WithHelperLookup(func(name string) (string, error) { return "/usr/local/bin/" + name, nil }),
+			WithCommandRunner(func(context.Context, string, ...string) ([]byte, []byte, error) {
+				return nil, []byte("vault sealed; last value " + echoed), errors.New("exit status 3")
+			}),
+		)
+		_, err := r.Resolve(context.Background(), "helper://mux-apikey-helper/openai/work")
+		if err == nil {
+			t.Fatal("want an error")
+		}
+		if strings.Contains(err.Error(), echoed) || strings.Contains(err.Error(), "vault sealed") {
+			t.Fatalf("helper stderr copied into the error: %q", err)
+		}
+		want := "resolve helper://mux-apikey-helper/openai/work: helper mux-apikey-helper failed (exit status 3); run `/usr/local/bin/mux-apikey-helper resolve keychain://openai/work` to see its output"
+		if err.Error() != want {
+			t.Fatalf("err = %q, want %q", err, want)
+		}
+		if got := redact.Text(err.Error()); got != want {
+			t.Fatalf("redact.Text ate the recovery: %q", got)
 		}
 	})
 
