@@ -209,7 +209,23 @@ The render edges read the scope back.
   its request's context, so its stage failures lose that request's
   credentials.
 
-Plugin text joins in S2-5.
+**The acceptance test.** `internal/testfixture/sentinel` is a credential
+that matches no rule, and the real GitHub connector behind a factory that
+resolves it through the registering provider. Its API is an httptest server
+whose 401 echoes the bearer token, unlabelled, so go-github composes the
+message around it. `TestResolvedCredentialNeverReachesAnySurface`
+(`cmd/cerberus`) runs the failure through the in-process CLI, the socket's
+error and progress stream, MCP over the socket (the tool list `cerberus mcp`
+and mcp-http serve) and the daemon's stdio MCP, and reads the audit log.
+`TestConsoleNeverShowsAResolvedCredential` covers the console, and
+`TestDeployOutputNeverShowsTheResolvedToken` covers a Vercel step that echoes
+its token. Each test first checks that the regex net alone misses the
+sentinel. With registration switched off, every surface leaks it.
+
+ssh, docker and local resolve no credential value, so they have no case. ssh
+resolves a key file's path, which is deliberately not registered. docker and
+local resolve nothing, and local's `FromEnv` coverage of env literals is
+unchanged. Plugin text joins in S2-5.
 The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
 `--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
 fixed by changing the placeholder rather than the rule.
