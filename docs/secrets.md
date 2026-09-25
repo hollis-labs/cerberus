@@ -131,3 +131,49 @@ rotated afterwards until it is reloaded:
 managed list` reports `missing_secrets` for a plugin that loaded without one —
 credential *names*, which is why `redact.NamesOnlyKey` exempts that field from
 redaction.
+
+## Plugin settings
+
+A plugin's non-secret settings, meaning the config fields its manifest declares,
+come from `connector-config.yaml` beside the global config (normally
+`~/.cerberus/connector-config.yaml`). The same file decides which of a plugin's
+operations are served as MCP tools:
+
+```yaml
+contextforge:
+  fields:
+    address: http://127.0.0.1:14444
+  mcp:
+    expose: [get_health, list_gateways]   # default: nothing
+namecheap:
+  fields:
+    sandbox: true
+```
+
+Some of these fields choose the system a plugin acts on: a gateway address,
+an API server, a kubeconfig. That is why they come from a file the operator
+edits and never from a caller. **Cerberus reads this file and never writes
+it**: no socket, web or MCP path changes it.
+
+The rules:
+
+- **Only declared fields and declared operations.** Each field value is
+  checked against its declared type. An undeclared field, a wrong type, or an
+  unknown operation in `mcp.expose` refuses the plugin's load. The problem is
+  named in `cerberus connectors plugin managed list` under `config_problems`
+  rather than dropped. A dropped field meant to choose a target would leave
+  the plugin acting on its default, which is the worse failure.
+- **Literal values only.** A `keychain://`, `helper://` or `op://` reference is
+  refused. Credentials belong in `connector-secrets.yaml`.
+- **Read at load.** An edit takes effect when the plugin is reloaded
+  (`cerberus connectors plugin managed load <id>`). `managed list` reports the
+  delivered field names (`config_fields`), the exposed operations
+  (`mcp_expose`) and the file's fingerprint (`config_sha256`), never the
+  values.
+- **Not a secret, but a steering wheel.** The file does not have to be 0600,
+  but Cerberus warns if it is group- or world-writable.
+
+Values reach the plugin in the same Init config map as its secrets, as the
+strings the SDK's `ConfigReader` parses: booleans as `true`/`false`, integers
+as digits, and lists and mappings as JSON. The manifest refuses a field and a
+secret that share a name, so neither can shadow the other.

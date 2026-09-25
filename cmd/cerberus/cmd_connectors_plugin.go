@@ -259,7 +259,8 @@ func runPluginExec(ctx context.Context, out io.Writer, pluginDir, operation stri
 
 func pluginConnectorService() *cerbapi.PluginConnectorService {
 	return cerbapi.NewPluginConnectorService(version, os.Stderr,
-		cerbapi.WithPluginConnectorSecrets(app.ConnectorSecrets(cfgPath)))
+		cerbapi.WithPluginConnectorSecrets(app.ConnectorSecrets(cfgPath)),
+		cerbapi.WithPluginConnectorConfig(app.ConnectorConfigPath(cfgPath)))
 }
 
 func pluginInstallOptions(dev bool) cerbapi.PluginInstallOptions {
