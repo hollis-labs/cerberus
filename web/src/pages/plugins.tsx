@@ -132,7 +132,7 @@ export function PluginsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm text-text">{plugin.id}</div>
-                    <div className="mt-1 text-xs text-text-soft">v{plugin.version} · {plugin.trust_tier || 'unknown trust tier'}</div>
+                    <div className="mt-1 text-xs text-text-soft">v{plugin.version} · {plugin.origin === 'dev' ? 'dev install · destructive operations refused' : 'installed'}</div>
                     <div className="mt-1 font-mono text-xs text-text-soft">{plugin.path}</div>
                   </div>
                   <div className="flex flex-wrap gap-2">

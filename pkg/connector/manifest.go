@@ -92,7 +92,7 @@ func DefinitionFromManifest(manifest Manifest) Definition {
 	}
 }
 
-// Validate checks the manifest fields that Cerberus needs before trusting a
+// Validate checks the manifest fields that Cerberus needs before accepting a
 // built-in or plugin connector declaration.
 func (m Manifest) Validate() error {
 	var problems []string

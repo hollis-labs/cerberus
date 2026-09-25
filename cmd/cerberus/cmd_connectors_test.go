@@ -73,11 +73,7 @@ func TestConnectorsCommandUsesDaemonManagedPluginInventory(t *testing.T) {
 	pluginDir := helperPluginDir(t)
 	startManagedPluginSocketServer(t)
 
-	connectorsPluginTrust = pluginTrustOptions{
-		catalogSigned: true,
-		archiveSigned: true,
-		archiveSHA256: "abc",
-	}
+	connectorsPluginDev = false
 	connectorsPluginManagedInstallCmd.SetContext(context.Background())
 	if err := connectorsPluginManagedInstallCmd.RunE(connectorsPluginManagedInstallCmd, []string{pluginDir}); err != nil {
 		t.Fatalf("install RunE: %v", err)
@@ -124,11 +120,7 @@ func TestConnectorsDescribeCommandUsesDaemonInventory(t *testing.T) {
 	pluginDir := helperPluginDir(t)
 	startManagedPluginSocketServer(t)
 
-	connectorsPluginTrust = pluginTrustOptions{
-		catalogSigned: true,
-		archiveSigned: true,
-		archiveSHA256: "abc",
-	}
+	connectorsPluginDev = false
 	connectorsPluginManagedInstallCmd.SetContext(context.Background())
 	if err := connectorsPluginManagedInstallCmd.RunE(connectorsPluginManagedInstallCmd, []string{pluginDir}); err != nil {
 		t.Fatalf("install RunE: %v", err)

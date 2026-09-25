@@ -85,7 +85,7 @@ func TestSubprocessLauncherUsesExplicitEnvAndResolvedPath(t *testing.T) {
 		ID:       "docker",
 		Version:  "dev",
 		Path:     pluginDir,
-		Trust:    TrustDecision{Tier: TrustTierSigned},
+		Origin:   OriginInstalled,
 		Spec:     testPluginSpec(Entrypoint{Command: "bin/docker-plugin", Args: []string{"--serve"}}),
 		Manifest: validManifest(),
 	}
@@ -118,7 +118,7 @@ func TestSubprocessLauncherRejectsMissingTransport(t *testing.T) {
 		ID:       "docker",
 		Version:  "dev",
 		Path:     pluginDir,
-		Trust:    TrustDecision{Tier: TrustTierSigned},
+		Origin:   OriginInstalled,
 		Spec:     testPluginSpec(Entrypoint{Command: "bin/docker-plugin"}),
 		Manifest: validManifest(),
 	}
@@ -142,7 +142,7 @@ func TestSubprocessLauncherAddsOnlyGrantedCapabilityEnv(t *testing.T) {
 			ID:       "example",
 			Version:  "dev",
 			Path:     dir,
-			Trust:    TrustDecision{Tier: TrustTierSigned},
+			Origin:   OriginInstalled,
 			Spec:     testPluginSpec(Entrypoint{Command: "bin/example-plugin"}),
 			Manifest: validManifest(),
 			Granted:  granted,

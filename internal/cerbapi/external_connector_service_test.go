@@ -1013,11 +1013,6 @@ func TestExternalConnectorServiceIncludesInstalledManagedPluginDefinitions(t *te
 
 	if _, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
-		Trust: PluginConnectorTrustOptions{
-			CatalogSigned: true,
-			ArchiveSigned: true,
-			ArchiveSHA256: "abc",
-		},
 	}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -1047,11 +1042,6 @@ func TestSocketClientExecutesManagedPluginThroughConnectorAPI(t *testing.T) {
 
 	if _, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
-		Trust: PluginConnectorTrustOptions{
-			CatalogSigned: true,
-			ArchiveSigned: true,
-			ArchiveSHA256: "abc",
-		},
 	}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -1259,9 +1249,9 @@ func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testin
 	}
 }
 
-// An unsigned local install must succeed with no signature flags and no
-// operator-supplied hash, and must record what really happened.
-func TestManagedPluginInstallUnsignedRecordsHonestTierAndHash(t *testing.T) {
+// A local install needs no options, records origin "installed", and the host
+// fingerprints the entrypoint itself.
+func TestManagedPluginLocalInstallRecordsOriginAndFingerprint(t *testing.T) {
 	managed, err := NewManagedPluginConnectorService("test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
@@ -1270,17 +1260,17 @@ func TestManagedPluginInstallUnsignedRecordsHonestTierAndHash(t *testing.T) {
 		PluginDir: writeTestPluginDir(t, "ssh"),
 	})
 	if err != nil {
-		t.Fatalf("unsigned install failed: %v", err)
+		t.Fatalf("local install failed: %v", err)
 	}
-	if state.TrustTier != string(pluginhost.TrustTierUnsigned) {
-		t.Fatalf("TrustTier = %q, want %q", state.TrustTier, pluginhost.TrustTierUnsigned)
+	if state.Origin != string(pluginhost.OriginInstalled) {
+		t.Fatalf("Origin = %q, want %q", state.Origin, pluginhost.OriginInstalled)
 	}
 	installed, ok := managed.manager.Installed("ssh")
 	if !ok {
 		t.Fatal("plugin not registered")
 	}
-	if installed.ArchiveSHA256 == "" {
-		t.Fatal("host did not compute an archive hash")
+	if installed.EntrypointSHA256 == "" {
+		t.Fatal("host did not fingerprint the entrypoint")
 	}
 }
 

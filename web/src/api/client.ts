@@ -412,7 +412,12 @@ export interface ManagedPluginState {
   version: string
   path: string
   loaded: boolean
-  trust_tier?: string
+  // How the plugin was installed: "installed", or "dev" for a development
+  // install whose destructive operations are refused. Not a trust level.
+  origin?: string
+  // Fingerprint of the entrypoint at install. Change detection, not trust;
+  // nothing compares it yet.
+  entrypoint_sha256?: string
 }
 
 export interface PluginHealth {
