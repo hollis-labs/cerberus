@@ -5,6 +5,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
@@ -21,7 +22,7 @@ var dockerPSCmd = &cobra.Command{
 	Use:   "ps",
 	Short: "List running containers",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService(cmd.Context())
+		svc, closeFn, err := newDockerConnectorService(cmd)
 		if err != nil {
 			return err
 		}
@@ -70,17 +71,17 @@ var dockerLogsCmd = &cobra.Command{
 	Short: "Show container logs",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService(cmd.Context())
+		svc, closeFn, err := newDockerConnectorService(cmd)
 		if err != nil {
 			return err
 		}
 		defer closeFn()
 
-		cfg, err := dockerOperationConfig(cmd, args[0])
+		cfg, res, err := dockerOperationConfig(cmd, args[0])
 		if err != nil {
 			return err
 		}
-		if cfg["container"] == nil {
+		if res != nil && res.Config["container"] == nil && res.Config["compose_file"] != nil {
 			// A resource that only names a compose file has no single log
 			// stream — the stack's containers carry their own names.
 			return fmt.Errorf("resource %q declares a compose stack and no single container; "+
@@ -111,14 +112,14 @@ var dockerUpCmd = &cobra.Command{
 	Short: "Start container or compose stack",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService(cmd.Context())
+		svc, closeFn, err := newDockerConnectorService(cmd)
 		if err != nil {
 			return err
 		}
 		defer closeFn()
 
 		resourceID := args[0]
-		cfg, err := dockerOperationConfig(cmd, resourceID)
+		cfg, res, err := dockerOperationConfig(cmd, resourceID)
 		if err != nil {
 			return err
 		}
@@ -131,7 +132,7 @@ var dockerUpCmd = &cobra.Command{
 			return err
 		}
 
-		if composeFile := dockerComposeFileFromConfig(cfg); composeFile != "" {
+		if composeFile := dockerComposeFile(cfg, res); composeFile != "" {
 			fmt.Printf("Compose stack started: %s\n", composeFile)
 			return nil
 		}
@@ -151,14 +152,14 @@ Removal (docker rm, docker compose down) is the connector's destroy operation,
 which requires acknowledgment. There is no 'docker' verb for it yet.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, closeFn, err := newExternalConnectorService(cmd.Context())
+		svc, closeFn, err := newDockerConnectorService(cmd)
 		if err != nil {
 			return err
 		}
 		defer closeFn()
 
 		resourceID := args[0]
-		cfg, err := dockerOperationConfig(cmd, resourceID)
+		cfg, res, err := dockerOperationConfig(cmd, resourceID)
 		if err != nil {
 			return err
 		}
@@ -171,7 +172,7 @@ which requires acknowledgment. There is no 'docker' verb for it yet.`,
 			return err
 		}
 
-		if composeFile := dockerComposeFileFromConfig(cfg); composeFile != "" {
+		if composeFile := dockerComposeFile(cfg, res); composeFile != "" {
 			fmt.Printf("Compose stack stopped: %s\n", composeFile)
 			return nil
 		}
@@ -183,8 +184,9 @@ which requires acknowledgment. There is no 'docker' verb for it yet.`,
 
 // dockerTargetConfig folds the --host/--context flags into an operation's
 // config. Host selection is a property of the call, not of the process, so it
-// travels in the payload rather than in the CLI's own environment — the
-// operation runs in the daemon, whose environment is not this shell's.
+// travels in the payload rather than in the CLI's own environment. Either
+// flag makes the operation run in this process (newDockerConnectorService);
+// the socket refuses them.
 func dockerTargetConfig(cmd *cobra.Command, cfg map[string]any) map[string]any {
 	host, _ := cmd.Flags().GetString("host")
 	dockerContext, _ := cmd.Flags().GetString("context")
@@ -203,40 +205,55 @@ func dockerTargetConfig(cmd *cobra.Command, cfg map[string]any) map[string]any {
 	return cfg
 }
 
-// dockerOperationConfig resolves the command's argument through the registry
-// the way `cerberus ssh` does, and falls back to treating it as a literal
-// container name.
+// dockerOperationConfig builds the operation's config for an argument that
+// names either a declared docker resource or a literal container.
 //
-// Resolving is what makes a `type: container` resource worth declaring: one
-// carrying `compose_file` comes up by id with no `-f`. The fallback is what
+// A declared resource is sent by id — `resource: <id>` — and whoever runs the
+// operation resolves it against its config, so its compose file, container
+// and host come from the declaration and never travel as free-form fields.
+// That is what makes a `type: container` resource worth declaring: one
+// carrying `compose_file` comes up by id with no `-f`. The literal fallback
 // keeps `cerberus docker logs <container>` working for the containers nobody
 // declared, which is most of them.
-func dockerOperationConfig(cmd *cobra.Command, id string) (map[string]any, error) {
-	cfg := map[string]any{"id": id, "name": id, "container": id}
-
+//
+// The ad-hoc flags (--host, --context, -f) are added on top and win; they are
+// accepted only in-process, which newDockerConnectorService arranges.
+func dockerOperationConfig(cmd *cobra.Command, id string) (map[string]any, *config.ResourceDef, error) {
 	res, err := lookupDockerResource(cmd, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	cfg := map[string]any{"id": id, "name": id, "container": id}
 	if res != nil {
-		cfg = make(map[string]any, len(res.Config)+2)
-		for key, value := range res.Config {
-			cfg[key] = value
-		}
-		cfg["id"] = res.ID
-		cfg["name"] = firstNonEmpty(res.Name, res.ID)
-		// A resource that names a compose file operates as a stack; only a
-		// single-container resource needs a container name inferred for it.
-		if _, ok := cfg["container"]; !ok && cfg["compose_file"] == nil {
-			cfg["container"] = firstNonEmpty(res.Name, res.ID)
-		}
+		cfg = map[string]any{"resource": res.ID}
 	}
-
-	// An explicit -f beats whatever the resource declared.
 	if composeFile, flagErr := cmd.Flags().GetString("file"); flagErr == nil && composeFile != "" {
 		cfg["compose_file"] = composeFile
 	}
-	return dockerTargetConfig(cmd, cfg), nil
+	return dockerTargetConfig(cmd, cfg), res, nil
+}
+
+// adHocDockerFlags reports whether the command names a docker target of its
+// own: a daemon (--host, --context) or a compose file (-f).
+func adHocDockerFlags(cmd *cobra.Command) bool {
+	for _, name := range []string{"host", "context", "file"} {
+		if value, err := cmd.Flags().GetString(name); err == nil && value != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// newDockerConnectorService runs an ad-hoc docker target in this process. The
+// socket, the web console and MCP refuse --host, --context and -f targets —
+// a compose file is code execution on whichever daemon runs it — so they are
+// offered only from the operator's own shell. Everything else goes through
+// the daemon as usual.
+func newDockerConnectorService(cmd *cobra.Command) (connectorExecutor, func(), error) {
+	if adHocDockerFlags(cmd) {
+		return app.NewExternalConnectorService(cfgPath), func() {}, nil
+	}
+	return newExternalConnectorService(cmd.Context())
 }
 
 // lookupDockerResource finds a declared docker resource by id. A miss is not an
@@ -276,20 +293,27 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// dockerComposeFileFromConfig reports the compose file an operation resolved to,
-// so the CLI can describe what it actually did rather than what was typed.
-func dockerComposeFileFromConfig(cfg map[string]any) string {
-	value, _ := cfg["compose_file"].(string)
-	return value
+// dockerComposeFile reports the compose file an operation ran against — the
+// -f override, or the declared resource's — so the CLI can describe what it
+// actually did rather than what was typed.
+func dockerComposeFile(cfg map[string]any, res *config.ResourceDef) string {
+	if value, _ := cfg["compose_file"].(string); value != "" {
+		return value
+	}
+	if res != nil {
+		value, _ := res.Config["compose_file"].(string)
+		return value
+	}
+	return ""
 }
 
 func init() {
 	dockerLogsCmd.Flags().IntVar(&dockerLogsLines, "lines", 50, "number of log lines to show")
-	dockerUpCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode)")
-	dockerDownCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode)")
+	dockerUpCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode); runs in this shell, not through the daemon")
+	dockerDownCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode); runs in this shell, not through the daemon")
 	for _, sub := range []*cobra.Command{dockerPSCmd, dockerLogsCmd, dockerUpCmd, dockerDownCmd} {
-		sub.Flags().StringP("host", "H", "", "Docker daemon to target as a DOCKER_HOST value (ssh://user@host, tcp://host:2376)")
-		sub.Flags().String("context", "", "Docker context name to target (mutually exclusive with --host)")
+		sub.Flags().StringP("host", "H", "", "Docker daemon to target as a DOCKER_HOST value (ssh://user@host, tcp://host:2376); runs in this shell, not through the daemon")
+		sub.Flags().String("context", "", "Docker context name to target (mutually exclusive with --host); runs in this shell, not through the daemon")
 		dockerCmd.AddCommand(sub)
 	}
 }

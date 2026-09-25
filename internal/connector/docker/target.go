@@ -27,8 +27,8 @@ type Target struct {
 // key names the connector's own input schemas declare.
 func TargetFromConfig(cfg map[string]any) (Target, error) {
 	target := Target{
-		Host:    trimmedString(cfg, "host"),
-		Context: trimmedString(cfg, "context"),
+		Host:    trimmedString(cfg, TargetHostKey),
+		Context: trimmedString(cfg, TargetContextKey),
 	}
 	return target, target.Validate()
 }

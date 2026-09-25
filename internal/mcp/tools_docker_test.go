@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
@@ -20,7 +19,10 @@ func (c *capturingDockerClient) ExecuteConnectorOperation(ctx context.Context, a
 	return c.fakeSocketProgressClient.ExecuteConnectorOperation(ctx, args)
 }
 
-func TestDockerToolsForwardHostSelectionToTheConnector(t *testing.T) {
+// Docker tools never send an ad-hoc target: no DOCKER_HOST, docker context or
+// compose file, even when an agent adds them to the arguments. The socket
+// would refuse them; a remote daemon or a stack is a declared resource.
+func TestDockerToolsNeverSendAdHocTargets(t *testing.T) {
 	cases := []struct {
 		name string
 		tool func(cerbapi.Client) Tool
@@ -30,40 +32,45 @@ func TestDockerToolsForwardHostSelectionToTheConnector(t *testing.T) {
 		{"logs", NewCerberusDockerLogsTool, map[string]interface{}{"container": "web"}},
 		{"up", NewCerberusDockerUpTool, map[string]interface{}{"container_name": "web"}},
 		{"down", NewCerberusDockerDownTool, map[string]interface{}{"container_name": "web"}},
+		{"up by resource", NewCerberusDockerUpTool, map[string]interface{}{"resource_id": "mtbf-monitor"}},
+		{"down by resource", NewCerberusDockerDownTool, map[string]interface{}{"resource_id": "mtbf-monitor"}},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &capturingDockerClient{}
-			args := map[string]interface{}{"docker_host": "ssh://cburks@muctlvaig"}
+			args := map[string]interface{}{
+				"docker_host":    "ssh://cburks@muctlvaig",
+				"docker_context": "azure-dev",
+				"compose_file":   "/tmp/evil.yml",
+			}
 			for key, value := range tc.args {
 				args[key] = value
 			}
-
 			if _, err := tc.tool(client).Handler(context.Background(), args); err != nil {
 				t.Fatalf("handler: %v", err)
 			}
-			if got := client.args.Config["host"]; got != "ssh://cburks@muctlvaig" {
-				t.Fatalf("config host = %#v, want the requested host", got)
+			for _, key := range []string{"host", "context", "docker_host", "docker_context", "compose_file"} {
+				if _, ok := client.args.Config[key]; ok {
+					t.Errorf("tool sent %q: %#v", key, client.args.Config)
+				}
 			}
 		})
 	}
 }
 
-func TestDockerToolsOmitHostSelectionWhenNoneIsAskedFor(t *testing.T) {
-	client := &capturingDockerClient{}
-	if _, err := NewCerberusDockerPSTool(client).Handler(context.Background(), map[string]interface{}{}); err != nil {
-		t.Fatalf("handler: %v", err)
-	}
-	// A nil config is what every caller sent before host selection existed;
-	// sending an empty host would make "default" an explicit choice the
-	// connector has to unpick.
-	if _, ok := client.args.Config["host"]; ok {
-		t.Fatalf("config gained a host key without one being asked for: %#v", client.args.Config)
+func TestDockerLifecycleToolsSendAResourceByID(t *testing.T) {
+	for name, tool := range map[string]func(cerbapi.Client) Tool{"up": NewCerberusDockerUpTool, "down": NewCerberusDockerDownTool} {
+		client := &capturingDockerClient{}
+		if _, err := tool(client).Handler(context.Background(), map[string]interface{}{"resource_id": "mtbf-monitor"}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(client.args.Config) != 1 || client.args.Config["resource"] != "mtbf-monitor" {
+			t.Fatalf("%s: config = %#v, want only resource=mtbf-monitor", name, client.args.Config)
+		}
 	}
 }
 
-func TestDockerToolsAdvertiseHostSelection(t *testing.T) {
+func TestDockerToolSchemasOfferNoAdHocTargets(t *testing.T) {
 	client := &capturingDockerClient{}
 	tools := map[string]Tool{
 		"ps":   NewCerberusDockerPSTool(client),
@@ -80,19 +87,21 @@ func TestDockerToolsAdvertiseHostSelection(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: input schema has no properties: %#v", name, schema)
 		}
-		for _, key := range []string{"docker_host", "docker_context"} {
-			if _, ok := properties[key]; !ok {
-				t.Errorf("%s: schema does not advertise %s", name, key)
+		for _, key := range []string{"docker_host", "docker_context", "compose_file"} {
+			if _, ok := properties[key]; ok {
+				t.Errorf("%s: schema still offers %s", name, key)
 			}
 		}
-		// additionalProperties is false on these schemas, so a parameter the
-		// handler reads but the schema omits is a parameter a strict client
-		// cannot send.
+		// additionalProperties is false, so a strict client cannot send an
+		// unadvertised parameter either.
 		if schema["additionalProperties"] != false {
 			t.Errorf("%s: additionalProperties = %#v, want false", name, schema["additionalProperties"])
 		}
-		if !strings.Contains(tool.Description, "remote Docker host") {
-			t.Errorf("%s: description does not mention remote hosts: %q", name, tool.Description)
+	}
+	for _, name := range []string{"up", "down"} {
+		properties := tools[name].InputSchema.(map[string]interface{})["properties"].(map[string]interface{})
+		if _, ok := properties["resource_id"]; !ok {
+			t.Errorf("%s: schema does not offer resource_id", name)
 		}
 	}
 }
