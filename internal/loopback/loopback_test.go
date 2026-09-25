@@ -25,6 +25,11 @@ func TestCheckListen(t *testing.T) {
 		{"10.0.0.5:4785", false},
 		{"[fe80::1]:4785", false},
 		{"not-an-address", false},
+		// Names other than localhost are refused, even ones that resolve to
+		// loopback, so nothing is resolved twice or trusted as a Host.
+		{"myhost.local:4783", false},
+		{"localhost.localdomain:4783", false},
+		{"ip6-localhost:4783", false},
 	} {
 		err := CheckListen("cerberus web", tc.addr)
 		if (err == nil) != tc.ok {
@@ -38,7 +43,7 @@ func TestCheckListenRefusalNamesTheReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected refusal")
 	}
-	for _, want := range []string{"cerberus mcp-http", "0.0.0.0:4785", "no authentication", "127.0.0.1, localhost or [::1]"} {
+	for _, want := range []string{"cerberus mcp-http", "0.0.0.0:4785", "no authentication", "localhost, 127.0.0.1 or [::1]"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q missing %q", err.Error(), want)
 		}
@@ -50,7 +55,7 @@ func TestCheckListenRefusalNamesTheReason(t *testing.T) {
 // is worse than no explanation.
 func TestRefusalMessagesSurviveRedaction(t *testing.T) {
 	msgs := []string{HostRejected, OriginRejected}
-	for _, addr := range []string{"0.0.0.0:4783", ":4785", "not-an-address"} {
+	for _, addr := range []string{"0.0.0.0:4783", ":4785", "not-an-address", "myhost.local:4783"} {
 		msgs = append(msgs, CheckListen("cerberus web", addr).Error())
 	}
 	for _, msg := range msgs {
@@ -63,6 +68,18 @@ func TestRefusalMessagesSurviveRedaction(t *testing.T) {
 		}
 		if !strings.Contains(string(data), strings.ReplaceAll(msg, `"`, `\"`)) {
 			t.Errorf("redact.Marshal changed refusal: %s", data)
+		}
+	}
+}
+
+func TestCheckListenRefusesHostnamesNamingTheAcceptedForms(t *testing.T) {
+	err := CheckListen("cerberus web", "myhost.local:4783")
+	if err == nil {
+		t.Fatal("expected refusal")
+	}
+	for _, want := range []string{"localhost", "127.0.0.1", "[::1]", "not a hostname"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q missing %q", err.Error(), want)
 		}
 	}
 }
