@@ -860,6 +860,7 @@ Two ordering constraints come from the decisions:
   "accepted at install" is the condition.
 
 - **P0. Fix first.** Items 1 to 9 above. Small, local, no new concepts.
+  *Landed 2026-09-25*; see "P0 as landed" below.
 - **P1. Contract and record.**
   - The operation contract with effect classes on every built-in, plugin,
     local and resource operation.
@@ -893,3 +894,42 @@ Two ordering constraints come from the decisions:
   - Lockdown, rate limits and the circuit breaker.
 
 WP-S2 is independent and can land in any phase.
+
+## P0 as landed — 2026-09-25
+
+| Item | PR | Outcome |
+|---|---|---|
+| 1 | #49 | A dry run never executes. An operation without a preview returns `preview_unsupported`. A plugin dry run is forwarded only when the manifest declares `supports_dry`, and that preview is plugin-claimed. |
+| 2 | #49 | The ack gate fails closed on a missing definition or an undeclared operation. Plugins: any `destructive` operation needs ack, and `requires_ack` is metadata. |
+| 3 | #49 | `stop` is `compose stop`. `destroy` is `compose down`, with ack. `cerberus docker down` maps to `stop`. |
+| 4, 5 | #48, #50 | A loopback Host allow-list on the web console and `mcp-http` (port-agnostic, so it survives `ssh -L`), exact Origin matching, and `--listen` limited to `localhost` or a literal loopback IP with no override. |
+| 6 | #50 | The one-shot `plugin_dir` routes are gone from the socket and web. Install-by-path remains on the socket only, for the CLI. |
+| 7 | #50, #52 | SSH and docker targets must be configured resources on the socket, web and MCP, resolved on the daemon side. The ad-hoc `--host`, `--context`, `-f` and `--config` work only in-process. |
+| 8 | #49 | Flags and MCP hints corrected. `ssh put` path policy is deferred. |
+| 9 | #51 | The signing tiers are removed, and `origin: installed \| dev` takes their place. `entrypoint_sha256` is change detection, not yet compared. |
+
+### Carried into P1
+
+- **In-process is not a trust boundary.** Every P0 surface rule is enforced
+  at the socket, web and MCP. The in-process CLI deliberately keeps its
+  free-form power: `--config <file>`, `docker --host/-f` and `connectors plugin
+  exec <dir>`. An agent with a shell has all of it. Principal identity must
+  classify an in-process call as a local principal, never as "the human"
+  (Decision 9), and the audit log must record it.
+- **Two enforcement shapes coexist.** SSH's field allow-list runs inside
+  `Execute`, on every surface including in-process. Docker's runs at the
+  socket and web boundary, and in-process is exempt. The operation contract
+  should replace both with one per-connector key table, following
+  `internal/connector/docker/config_keys.go`, checked with the caller's
+  surface in hand. The same table gives plugins a declared-input allow-list.
+- **`--dev` exists only in devmode builds.** The `dev` origin is reachable only
+  by people who build Cerberus themselves. The install review either documents
+  that or offers it in release builds.
+- **Docker `destroy` has no dedicated verb, preview or MCP tool.** It is
+  reachable only through the generic connector API, with ack.
+- **Deferred in the P0 PRs.** Plugin install fully in-process (the socket still
+  records a path), path policy for `ssh put` and `get`, comparing the entrypoint
+  hash on load, and web login plus `mcp-http` auth (WP-S8).
+- **Redaction.** P0 added four refusal families and needed no redaction rule
+  change. Each carries a test that it survives `redact.Text`, and that is the
+  default for every new error from here on.
