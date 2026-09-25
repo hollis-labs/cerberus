@@ -112,9 +112,10 @@ unknown connector or operation, an argument a closed schema does not declare, a
 value that does not fit its type) is printed as a hint, and the call is sent
 anyway, so the admin lane refuses it and records the attempt in the audit log.
 Only a command line that cannot form a request, such as `--arg` without `=`, is
-refused locally. `connectors plugin managed exec` is now the
-same command limited to installed plugins, and the one-shot `connectors plugin
-exec <dir>` types its arguments from the directory's `plugin.yaml`. That is
+refused locally. `connectors plugin managed exec`, which had become the same
+command limited to installed plugins, was retired on 2026-09-25 with no
+tombstone. The one-shot `connectors plugin exec <dir>` types its arguments from
+the directory's `plugin.yaml` and follows the same hint-and-send rule. That is
 also the CLI path to `namecheap`'s `get_dns_record_set` and `set_dns_record_set`
 (CERB-GAP-436), with the authoritative records passed as `--arg-json records=…`
 or `--input`. A generic verb is still a worse operator experience than a typed

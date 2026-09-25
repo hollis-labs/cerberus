@@ -110,5 +110,6 @@ Plugin manifests carry the operation contract (CERB-CAP-212). An operation with
 no `effect` loads, is treated as `exec`, and is reported in
 `plugin managed list`'s `contract_gaps`, which is always present and `[]` when
 there are none (CERB-DEC-821). A plugin's `input_schema` is enforced as its key
-table on both the admin lane and managed exec. cerberus-plugins PR #5 (P1-6a)
+table on the admin lane, which every CLI, socket, console and MCP call to a
+plugin goes through (`managed exec` was retired in favour of `connectors exec`). cerberus-plugins PR #5 (P1-6a)
 declared an effect on every operation of our plugins, so none has a gap.
