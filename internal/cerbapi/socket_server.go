@@ -187,7 +187,7 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 		}
 		w.Header().Set(APIHeaderName, APIVersion)
 		s.logger.Info("daemon.socket.request", "method", r.Method, "path", r.URL.Path)
-		h.ServeHTTP(w, r.WithContext(WithCallerSurface(r.Context(), SurfaceSocket)))
+		h.ServeHTTP(w, r.WithContext(BeginRequest(r.Context(), SurfaceSocket)))
 	})
 }
 

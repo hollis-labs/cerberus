@@ -71,7 +71,7 @@ type localConnectorExecutor struct {
 }
 
 func (l localConnectorExecutor) Execute(ctx context.Context, args cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
-	return l.svc.Execute(cerbapi.WithCallerSurface(ctx, cerbapi.SurfaceInProcess), args)
+	return l.svc.Execute(cerbapi.BeginRequest(ctx, cerbapi.SurfaceInProcess), args)
 }
 
 func newLocalConnectorExecutor() connectorExecutor {
@@ -108,10 +108,11 @@ func newPipelineClient(cmd *cobra.Command) (pipelineClient, error) {
 	return app.NewResourceRuntimeService(cfgPath, cfg), nil
 }
 
-// inProcessContext marks a call the CLI runs in its own process as the
-// in_process surface, for the gate and the audit record. It is harmless on a
-// call that goes to the daemon: the socket client does not send it, and the
-// socket server marks its own requests.
+// inProcessContext begins a call the CLI runs in its own process as the
+// in_process surface, for the gate and the audit record, with its own
+// redaction scope. It is harmless on a call that goes to the daemon: the
+// socket client sends neither, and the socket server begins its own
+// requests.
 func inProcessContext(ctx context.Context) context.Context {
-	return cerbapi.WithCallerSurface(ctx, cerbapi.SurfaceInProcess)
+	return cerbapi.BeginRequest(ctx, cerbapi.SurfaceInProcess)
 }
