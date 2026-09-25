@@ -158,7 +158,9 @@ func (s *PluginConnectorService) Execute(ctx context.Context, args PluginConnect
 	if err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Plugin operation %s failed on %s: %s", args.Operation, installed.ID, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation failed")
-		return ExternalConnectorOperationResult{}, err
+		// Coded the way the admin lane codes it, so the one-shot `plugin exec`
+		// reports the same code a managed plugin would.
+		return ExternalConnectorOperationResult{}, managedPluginExecuteError(ExternalConnectorOperationArgs{Connector: installed.ID, Operation: args.Operation}, err)
 	}
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Plugin operation %s completed on %s", args.Operation, installed.ID))
 	gmcp.NotifyProgress(ctx, progressToken, 3, 3, "Plugin operation completed")
