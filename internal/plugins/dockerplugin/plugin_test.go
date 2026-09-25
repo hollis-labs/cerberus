@@ -55,6 +55,7 @@ func (f *fakeBackend) ComposeUp(_ context.Context, composeFile string) error {
 	return nil
 }
 
+func (f *fakeBackend) ComposeStop(context.Context, string) error { return nil }
 func (f *fakeBackend) ComposeDown(context.Context, string) error { return nil }
 func (f *fakeBackend) ComposePS(context.Context, string) (*dockerconn.ComposeStack, error) {
 	return nil, nil

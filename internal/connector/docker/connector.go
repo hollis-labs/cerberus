@@ -120,12 +120,12 @@ func Definition() contract.Definition {
 			},
 			{
 				Name:        "stop",
-				Description: "Stop a Docker container or compose stack.",
+				Description: "Stop a Docker container (docker stop) or compose stack (docker compose stop). Nothing is removed; removal is the destroy operation, which requires acknowledgment.",
 				InputSchema: dockerResourceInputSchema(),
 			},
 			{
 				Name:        "destroy",
-				Description: "Remove a Docker container or stop a compose stack.",
+				Description: "Remove a Docker container (docker rm) or tear down a compose stack (docker compose down, which removes its containers and networks).",
 				InputSchema: dockerResourceInputSchema(),
 				Destructive: true,
 			},
@@ -156,9 +156,11 @@ func (c *Connector) Start(ctx context.Context, res *resource.Resource) error {
 	return c.StartContainer(ctx, dockerContainerName(res))
 }
 
+// Stop is non-destructive: a compose stack is stopped with compose stop, not
+// torn down, so it keeps its containers and networks. Removal is Destroy.
 func (c *Connector) Stop(ctx context.Context, res *resource.Resource) error {
 	if composeFile := dockerComposeFile(res); composeFile != "" {
-		return c.ComposeDown(ctx, composeFile)
+		return c.ComposeStop(ctx, composeFile)
 	}
 	return c.StopContainer(ctx, dockerContainerName(res))
 }
@@ -224,7 +226,12 @@ func (c *Connector) ComposeUp(ctx context.Context, composeFile string) error {
 	return c.backend.ComposeUp(ctx, composeFile)
 }
 
-// ComposeDown stops a compose stack.
+// ComposeStop stops a compose stack without removing it.
+func (c *Connector) ComposeStop(ctx context.Context, composeFile string) error {
+	return c.backend.ComposeStop(ctx, composeFile)
+}
+
+// ComposeDown stops and removes a compose stack.
 func (c *Connector) ComposeDown(ctx context.Context, composeFile string) error {
 	return c.backend.ComposeDown(ctx, composeFile)
 }

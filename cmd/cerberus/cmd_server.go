@@ -107,9 +107,10 @@ var serverCreateCmd = &cobra.Command{
 		defer closeFn()
 
 		result, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
-			Connector: "digitalocean",
-			Operation: "create_droplet",
-			DryRun:    serverDryRun,
+			Connector:    "digitalocean",
+			Operation:    "create_droplet",
+			DryRun:       serverDryRun,
+			Acknowledged: serverAck,
 			Config: map[string]any{
 				"name":      serverCreateName,
 				"region":    serverCreateRegion,
@@ -199,7 +200,10 @@ func init() {
 	serverCreateCmd.Flags().StringVar(&serverCreateUserData, "user-data", "", "cloud-init user-data")
 	serverCreateCmd.Flags().BoolVar(&serverDryRun, "dry-run", false, "preview the operation without executing it")
 
+	serverCreateCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the destructive create operation (billable; runs user-data)")
+
 	serverStopCmd.Flags().BoolVar(&serverDryRun, "dry-run", false, "preview the operation without executing it")
+	serverStopCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge the destructive stop operation")
 	serverDestroyCmd.Flags().BoolVar(&serverDryRun, "dry-run", false, "preview the operation without executing it")
 	serverDestroyCmd.Flags().BoolVar(&serverAck, "ack", false, "acknowledge destructive destroy operation")
 

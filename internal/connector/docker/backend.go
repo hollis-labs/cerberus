@@ -33,6 +33,9 @@ type Backend interface {
 	// ComposeUp starts a Compose stack in detached mode.
 	ComposeUp(ctx context.Context, composeFile string) error
 
+	// ComposeStop stops a Compose stack's containers without removing them.
+	ComposeStop(ctx context.Context, composeFile string) error
+
 	// ComposeDown stops and removes a Compose stack.
 	ComposeDown(ctx context.Context, composeFile string) error
 

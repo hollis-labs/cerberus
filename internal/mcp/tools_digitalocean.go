@@ -57,18 +57,19 @@ func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
 func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_droplet_create",
-		Description: "Create a DigitalOcean droplet.",
+		Description: "Create a DigitalOcean droplet. Destructive: billable, and runs user_data as root. Requires acknowledged=true unless dry_run.",
 		InputSchema: objectSchema(map[string]interface{}{
-			"name":      map[string]interface{}{"type": "string", "description": "Droplet name."},
-			"region":    map[string]interface{}{"type": "string", "description": "Region slug."},
-			"size":      map[string]interface{}{"type": "string", "description": "Size slug."},
-			"image":     map[string]interface{}{"type": "string", "description": "Image slug."},
-			"ssh_keys":  map[string]interface{}{"type": "array", "description": "SSH key fingerprints.", "items": map[string]interface{}{"type": "string"}},
-			"user_data": map[string]interface{}{"type": "string", "description": "Cloud-init user-data."},
-			"dry_run":   map[string]interface{}{"type": "boolean", "description": "Preview only."},
+			"name":         map[string]interface{}{"type": "string", "description": "Droplet name."},
+			"region":       map[string]interface{}{"type": "string", "description": "Region slug."},
+			"size":         map[string]interface{}{"type": "string", "description": "Size slug."},
+			"image":        map[string]interface{}{"type": "string", "description": "Image slug."},
+			"ssh_keys":     map[string]interface{}{"type": "array", "description": "SSH key fingerprints.", "items": map[string]interface{}{"type": "string"}},
+			"user_data":    map[string]interface{}{"type": "string", "description": "Cloud-init user-data."},
+			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge the destructive create operation."},
 		}, "name", "region", "size", "image"),
 		ReadOnlyHint:    false,
-		DestructiveHint: false,
+		DestructiveHint: true,
 		IdempotentHint:  false,
 		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
@@ -89,10 +90,11 @@ func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 				cfg["ssh_keys"] = out
 			}
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
-				Connector: "digitalocean",
-				Operation: "create_droplet",
-				Config:    cfg,
-				DryRun:    boolArg(args, "dry_run"),
+				Connector:    "digitalocean",
+				Operation:    "create_droplet",
+				Config:       cfg,
+				DryRun:       boolArg(args, "dry_run"),
+				Acknowledged: boolArg(args, "acknowledged"),
 			})
 			if err != nil {
 				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
@@ -107,7 +109,7 @@ func NewCerberusDropletStartTool(client cerbapi.Client) Tool {
 }
 
 func NewCerberusDropletStopTool(client cerbapi.Client) Tool {
-	return newDropletLifecycleTool(client, "cerberus_droplet_stop", "stop", "Stop a DigitalOcean droplet.", false)
+	return newDropletLifecycleTool(client, "cerberus_droplet_stop", "stop", "Stop (power off) a DigitalOcean droplet. Requires acknowledged=true unless dry_run.", true)
 }
 
 func NewCerberusDropletDestroyTool(client cerbapi.Client) Tool {
@@ -121,7 +123,7 @@ func newDropletLifecycleTool(client cerbapi.Client, name, operation, description
 		InputSchema: objectSchema(map[string]interface{}{
 			"droplet_id":   map[string]interface{}{"type": "integer", "description": "DigitalOcean droplet ID."},
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
-			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge destructive destroy operations."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge a destructive operation (stop, destroy)."},
 		}, "droplet_id"),
 		ReadOnlyHint:    false,
 		DestructiveHint: destructive,

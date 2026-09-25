@@ -107,6 +107,7 @@ var errorCodes = map[string]bool{
 	"operation_unsupported":   true,
 	"invalid_args":            true,
 	"acknowledgment_required": true,
+	"preview_unsupported":     true,
 }
 
 // isErrorCode reports whether an assignment rule's captured key is really a

@@ -248,3 +248,30 @@ func TestSocketPermissionRecoverySurvivesRedaction(t *testing.T) {
 		}
 	}
 }
+
+// TestComposeStopAndDownInvokeDifferentCommands pins the argv: stop must be
+// `compose stop`, which keeps the stack, and only down may remove it.
+func TestComposeStopAndDownInvokeDifferentCommands(t *testing.T) {
+	path := fakeDockerCLI(t, `echo "$@" > "$(dirname "$0")/argv"`)
+	backend := newCLIBackendWithPath(path)
+	argv := func() string {
+		data, err := os.ReadFile(filepath.Join(filepath.Dir(path), "argv"))
+		if err != nil {
+			t.Fatalf("reading argv: %v", err)
+		}
+		return strings.TrimSpace(string(data))
+	}
+
+	if err := backend.ComposeStop(context.Background(), "stack.yml"); err != nil {
+		t.Fatalf("ComposeStop: %v", err)
+	}
+	if got := argv(); got != "compose -f stack.yml stop" {
+		t.Fatalf("ComposeStop argv = %q, want compose -f stack.yml stop", got)
+	}
+	if err := backend.ComposeDown(context.Background(), "stack.yml"); err != nil {
+		t.Fatalf("ComposeDown: %v", err)
+	}
+	if got := argv(); got != "compose -f stack.yml down" {
+		t.Fatalf("ComposeDown argv = %q, want compose -f stack.yml down", got)
+	}
+}

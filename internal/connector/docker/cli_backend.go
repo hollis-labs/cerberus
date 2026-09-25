@@ -219,6 +219,16 @@ func (c *CLIBackend) ComposeUp(ctx context.Context, composeFile string) error {
 	return nil
 }
 
+// ComposeStop stops a Compose stack via docker compose stop. Containers,
+// networks and volumes are kept, so ComposeUp brings the same stack back.
+func (c *CLIBackend) ComposeStop(ctx context.Context, composeFile string) error {
+	_, err := c.run(ctx, "compose", "-f", composeFile, "stop")
+	if err != nil {
+		return fmt.Errorf("docker compose stop -f %s: %w", composeFile, err)
+	}
+	return nil
+}
+
 // ComposeDown stops and removes a Compose stack via docker compose down.
 func (c *CLIBackend) ComposeDown(ctx context.Context, composeFile string) error {
 	_, err := c.run(ctx, "compose", "-f", composeFile, "down")
