@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -191,7 +192,8 @@ func TestResolveDiagnosticsOverSocket(t *testing.T) {
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := os.Stat(sockPath); err == nil {
+		if conn, err := net.Dial("unix", sockPath); err == nil {
+			_ = conn.Close()
 			break
 		}
 		if time.Now().After(deadline) {
