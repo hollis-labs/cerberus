@@ -40,7 +40,6 @@ func TestToolHintsKeepTheP0Fixes(t *testing.T) {
 		{NewCerberusSSHGetDirTool(nil), false, true},
 		{NewCerberusResourceStopTool(nil), false, true},
 		{NewCerberusPipelineRunTool(nil), false, true},
-		{NewCerberusDropletStopTool(nil), false, true},
 		{NewCerberusDockerDownTool(nil), false, true},
 		{NewCerberusDockerDestroyTool(nil), false, true},
 		{NewCerberusResourceStatusTool(nil), true, false},

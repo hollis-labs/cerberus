@@ -12,10 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/digitalocean/godo"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
-	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
@@ -92,47 +90,6 @@ type fakeGitHubBackend struct {
 	owner string
 	repo  string
 	limit int
-}
-
-type fakeDigitalOceanBackend struct {
-	dropletID int
-	created   *godo.Droplet
-}
-
-func (b *fakeDigitalOceanBackend) CreateDroplet(_ context.Context, req *godo.DropletCreateRequest) (*godo.Droplet, error) {
-	b.created = &godo.Droplet{
-		ID:     42,
-		Name:   req.Name,
-		Status: "new",
-		Region: &godo.Region{Slug: req.Region},
-		Size:   &godo.Size{Slug: req.Size},
-		Image:  &godo.Image{Slug: req.Image.Slug},
-	}
-	return b.created, nil
-}
-
-func (b *fakeDigitalOceanBackend) PowerOnDroplet(_ context.Context, id int) error {
-	b.dropletID = id
-	return nil
-}
-
-func (b *fakeDigitalOceanBackend) PowerOffDroplet(_ context.Context, id int) error {
-	b.dropletID = id
-	return nil
-}
-
-func (b *fakeDigitalOceanBackend) DeleteDroplet(_ context.Context, id int) error {
-	b.dropletID = id
-	return nil
-}
-
-func (b *fakeDigitalOceanBackend) GetDroplet(_ context.Context, id int) (*godo.Droplet, error) {
-	b.dropletID = id
-	return &godo.Droplet{ID: id, Name: "web", Status: "active"}, nil
-}
-
-func (b *fakeDigitalOceanBackend) ListDroplets(_ context.Context) ([]godo.Droplet, error) {
-	return []godo.Droplet{{ID: 7, Name: "api", Status: "active"}}, nil
 }
 
 type fakeNamecheapBackend struct {
@@ -355,29 +312,6 @@ func TestExternalConnectorServiceRejectsDockerHostAndContextTogether(t *testing.
 	var opErr *ExternalConnectorError
 	if !errors.As(err, &opErr) || opErr.Code != ExternalConnectorInvalidArgs {
 		t.Fatalf("err = %v, want %s", err, ExternalConnectorInvalidArgs)
-	}
-}
-
-func TestExternalConnectorServiceExecutesDigitalOceanOperation(t *testing.T) {
-	backend := &fakeDigitalOceanBackend{}
-	registry := connector.NewRegistry()
-	registry.Register(doconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "digitalocean",
-		Operation: "get_droplet",
-		Config:    map[string]any{"droplet_id": 42},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	droplet, ok := result.Data.(*doconn.DropletStatus)
-	if !ok {
-		t.Fatalf("Data type = %T, want *digitalocean.DropletStatus", result.Data)
-	}
-	if droplet.ID != 42 || backend.dropletID != 42 {
-		t.Fatalf("droplet = %#v backend=%d", droplet, backend.dropletID)
 	}
 }
 

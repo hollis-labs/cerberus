@@ -70,7 +70,7 @@ no rebuild of the host.
 | `docker` | compiled | **Core** | Primitive: shells out to the CLI, remote docker rides ssh | none |
 | `github` | compiled | **Core** | Cerberus's own release and pipeline story leans on it | `go-github` (7MB) |
 | `cloudflare` | **plugin** (2026-09-25) | **Plugin** | DNS provider, optional; the largest dependency win available. Measured on removal: a stripped build went 62.8MB → 23.6MB | `cloudflare-go/v4` (33MB source) |
-| `digitalocean` | compiled | **Plugin** | VPS provider, optional | `godo` (2.7MB) |
+| `digitalocean` | **plugin** (2026-09-25) | **Plugin** | VPS provider, optional | `godo` (2.7MB) |
 | `forge` | compiled | **Plugin** | Laravel Forge, niche | none |
 | `namecheap` | compiled | **Plugin** | Registrar, optional | none |
 | **ContextForge** | — | **Plugin** | Adtran-specific; a v0.x SDK against an evolving gateway, so rebuild-independence pays most | `go-contextforge` |
@@ -135,9 +135,11 @@ the host derives tool names, so a plugin does not touch any of the five.
   of `list_gateways` would have emitted them into CLI output, MCP results and
   agent context.
 - **Credentials come from the secret provider**, never a config field. See
-  `docs/secrets.md`; copy how `digitalocean.New` does it.
+  `docs/secrets.md`. A plugin declares the secret in its manifest and the host
+  hands it over at init; the `cloudflare` and `digitalocean` plugins in
+  `hollis-labs/cerberus-plugins` show the pattern.
 - **Put the vendor SDK behind a `Backend` interface** in the connector package,
-  as `digitalocean` and `docker` already do. This is what makes a v0.x
+  as the `digitalocean` plugin and `docker` already do. This is what makes a v0.x
   dependency swappable and the connector testable without network.
 - Tests use a fake `Backend`. See `fakeSSHBackend` in
   `internal/cerbapi/external_connector_service_test.go`.

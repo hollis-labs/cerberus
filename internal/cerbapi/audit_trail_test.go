@@ -114,7 +114,7 @@ func TestAuditRecordsTheTargetAndNotTheArguments(t *testing.T) {
 func TestUnwritableAuditRefusesNonReads(t *testing.T) {
 	resolves := 0
 	svc := NewExternalConnectorService(audit.Failing{}, resolveCountingRegistry(&resolves))
-	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "digitalocean", Operation: "stop", Acknowledged: true, Config: map[string]any{"droplet_id": 1}})
+	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "docker", Operation: "stop", Acknowledged: true, Config: map[string]any{"container": "web"}})
 	var connErr *ExternalConnectorError
 	if !errors.As(err, &connErr) || connErr.Code != ExternalConnectorAuditUnavailable {
 		t.Fatalf("err = %v, want audit_unavailable", err)
@@ -129,7 +129,7 @@ func TestUnwritableAuditRefusesNonReads(t *testing.T) {
 		t.Fatalf("status %d, want 503", status)
 	}
 
-	_, _ = svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "digitalocean", Operation: "list_droplets"})
+	_, _ = svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "docker", Operation: "list_containers"})
 	if resolves != 1 {
 		t.Fatal("a read was refused because its record could not be written")
 	}

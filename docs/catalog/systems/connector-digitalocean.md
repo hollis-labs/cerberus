@@ -2,88 +2,83 @@
 id: "CERB-CAP-205"
 class: "capability"
 name: "DigitalOcean connector"
-summary: "Lists, creates and manages the power state of DigitalOcean droplets through godo; since P0 create, stop and destroy are all destructive and ack-gated."
+summary: "Lists, creates and manages the power state of DigitalOcean droplets as the digitalocean plugin in hollis-labs/cerberus-plugins; no longer compiled in."
 state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
-confidence_score: 0.88
-confidence_label: "No token on the audit machine; flags and CLI --ack re-read on main after P0 (#48 to #54) and counted from connectors describe"
+confidence_score: 0.82
+confidence_label: "Fake-backend, pagination, DTO and scrubber tests in the plugin; no DigitalOcean token on this machine, so live reads wait for the operator's UAT"
 last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
-locus: "core"
-pointer_locator: "internal/connector/digitalocean/connector.go"
+locus: "plugin"
+pointer_locator: "hollis-labs/cerberus-plugins:digitalocean/internal/digitaloceanplugin/connector.go"
 tags:
   - "cerberus"
   - "class:capability"
   - "connector"
-  - "destructive-flags"
   - "digitalocean"
   - "droplet"
-  - "migrating-to-plugin"
-  - "locus:core"
+  - "plugin"
+  - "locus:plugin"
 relationships:
   - type: "implements"
     target: "CERB-CAP-200"
-    note: "Compiled in today, scheduled to migrate out"
+    note: "A plugin connector since 2026-09-25, reached through the admin lane"
   - type: "relates_to"
     target: "CERB-DEC-291"
-    note: "One of the four that will migrate later"
-  - type: "blocks"
+    note: "The second of the four to migrate"
+  - type: "relates_to"
     target: "CERB-GAP-270"
-    note: "droplet start advertised dry_run over MCP with no preview behind it; since PR #49 that dry run is refused"
-  - type: "blocks"
-    target: "CERB-GAP-279"
-    note: "create_droplet and stop were not flagged destructive; closed in PR #49"
+    note: "droplet start takes no dry run; the plugin refuses one, coded invalid_args"
   - type: "relates_to"
     target: "CERB-GAP-281"
-    note: "Returns godo types rather than a Cerberus DTO"
+    note: "The plugin returns Cerberus DTOs; godo is confined to one file"
 ---
 
 # DigitalOcean connector
 
-> Lists, creates and manages the power state of DigitalOcean droplets through godo; since P0 create, stop and destroy are all destructive and ack-gated.
+> Lists, creates and manages the power state of DigitalOcean droplets as the digitalocean plugin in hollis-labs/cerberus-plugins; no longer compiled in.
 
-Seven operations, the widest lifecycle surface in the lane: `list_droplets`,
-`get_droplet`, `create_droplet`, `start`, `stop`, `destroy`, `status`. At audit
-time it was where the lane's flag discipline was weakest, and the flags are the
-only thing the enforcement points read.
+Seven operations. `list_droplets`, `get_droplet` and `status` are `read`,
+`create_droplet` is `write` with `cost: billable`, `start` and `stop` are
+`lifecycle`, and `destroy` is `destructive`. Everything except the reads needs
+acknowledgment. `start` needs it for the first time: before P1-1 it was not
+flagged at all.
 
-PR #49 applied the house rule from `docs/plans/connector-work-packages.md`
-("anything that writes, replaces, deletes or reboots gets `Destructive: true`").
-`create_droplet` is destructive because it is billable and runs the supplied
-cloud-init `user_data` as root. `stop` is destructive because a hard power-off
-takes down whatever the droplet serves. Both keep their previews. `cerberus
-server create` and `cerberus server stop` gained `--ack`, and `--dry-run` on
-either still needs none. The MCP tools `cerberus_droplet_create` and
-`cerberus_droplet_stop` carry `DestructiveHint: true`, and create gained an
-`acknowledged` argument (CERB-GAP-279).
+Since 2026-09-25 this is a plugin, not a built-in
+(`docs/plans/provider-plugin-extraction.md`, H5). The id and the secret name are
+unchanged, so `CERBERUS_DIGITALOCEAN_API_TOKEN`, a `digitalocean: api_token:`
+entry in `connector-secrets.yaml` and `keychain://digitalocean/api_token`
+resolve exactly as before. Removing it took `godo` and hashicorp's
+`go-retryablehttp`/`go-cleanhttp` out of the binary: 23.7MB → 21.8MB stripped.
 
-`start` stays non-destructive, because powering on is reversible. It has no
-preview, yet the MCP tool `cerberus_droplet_start` shares a lifecycle helper
-with stop and destroy and so still advertises a `dry_run` parameter described
-as "Preview only". Until PR #49 the admin lane's dry-run branch fell through when
-it found no preview case, and with no gate on a non-destructive operation,
-`cerberus_droplet_start {droplet_id, dry_run: true}` booted the droplet. It now
-returns `preview_unsupported` and runs nothing (CERB-GAP-270).
+What changed for a caller:
 
-The connector otherwise follows the house pattern well: the godo client sits
-behind a `Backend` interface, the credential comes from the secret provider
-rather than a config field, and its tests exercise the lifecycle against a fake.
-It returns `godo` types rather than Cerberus DTOs, which ADR 0003 schedules for
-migration rather than immediate rewrite. There was no DigitalOcean token on the
-audit machine, so `live` read `no` and no operation here was run.
+- **CLI.** `cerberus server …` is gone, with no tombstone.
+  `cerberus connectors exec digitalocean <op>` runs any operation.
+- **MCP.** The hand-written `cerberus_droplet_*` tools are gone. The generated
+  tools are `cerberus_digitalocean_<op>`, served for the operations the
+  operator lists under `digitalocean: mcp: expose:` in `connector-config.yaml`.
+- **list_droplets** reads every page, 200 at a time up to 100 pages. The
+  built-in read one page of 100 and silently dropped the rest. It returns
+  `{droplets, truncated}`, with `truncated: true` when the cap cut the list
+  short, so a capped list is never presented as complete.
+- **Previews.** `create_droplet`'s dry run shows `user_data` as
+  `{bytes, sha256}`, never its content, because cloud-init routinely carries
+  credentials. `start` has no preview, and a dry run of it is refused.
+- **Tighter than the built-in.** `droplet_id` must be a positive whole
+  number, `create_droplet` requires `name`, `start`, `stop` and `destroy`
+  return `{droplet_id, action}` rather than null, and health makes no network
+  call.
 
 ## Owns
 
-- Droplet list and get
-- Droplet creation from region, size, image, SSH keys and user_data
-- Droplet power on, and ack-gated power off and destroy
-- Mapping droplet power state onto a Cerberus resource state
-- A godo client behind a Backend interface
+- Droplet list, get, create, start, stop, destroy and status
+- The godo client, confined to one file behind a DTO-returning backend
 
 ## Does not own
 
-- Anything else in the DigitalOcean product surface: no volumes, no load balancers, no DNS, no Kubernetes
-- Supervision of what runs on a droplet — that is ssh and docker against it afterwards
-- Cost. Nothing warns that create_droplet starts billing
+- Volumes, snapshots, networking, DNS, or anything else in the DigitalOcean API
+- Provisioning beyond a single create call. OpenTofu is the roadmap for that
+- A place in the Cerberus binary

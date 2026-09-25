@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
-	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
@@ -74,13 +73,6 @@ var toolOperations = map[string]opRef{
 	"cerberus_docker_up":      {dockerconn.Definition, "start"},
 	"cerberus_docker_down":    {dockerconn.Definition, "stop"},
 	"cerberus_docker_destroy": {dockerconn.Definition, "destroy"},
-
-	"cerberus_droplet_list":    {doconn.Definition, "list_droplets"},
-	"cerberus_droplet_get":     {doconn.Definition, "get_droplet"},
-	"cerberus_droplet_create":  {doconn.Definition, "create_droplet"},
-	"cerberus_droplet_start":   {doconn.Definition, "start"},
-	"cerberus_droplet_stop":    {doconn.Definition, "stop"},
-	"cerberus_droplet_destroy": {doconn.Definition, "destroy"},
 }
 
 type opRef struct {

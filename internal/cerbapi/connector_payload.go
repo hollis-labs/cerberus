@@ -3,7 +3,6 @@ package cerbapi
 import (
 	"encoding/json"
 
-	do "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
 	gh "github.com/hollis-labs/cerberus/internal/connector/github"
@@ -22,18 +21,6 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 		}
 	}
 	switch args.Connector + "/" + args.Operation {
-	case "digitalocean/list_droplets":
-		return decodePayload[[]do.DropletStatus](raw)
-	case "digitalocean/get_droplet":
-		return decodePayload[*do.DropletStatus](raw)
-	case "digitalocean/create_droplet":
-		var reference struct {
-			DropletID *int `json:"droplet_id"`
-		}
-		if json.Unmarshal(raw, &reference) == nil && reference.DropletID != nil {
-			return raw, nil // creation succeeded but the follow-up read failed
-		}
-		return decodePayload[*do.DropletStatus](raw)
 	case "docker/list_containers":
 		return decodePayload[[]docker.Container](raw)
 	case "forge/list_servers":
@@ -68,7 +55,7 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 		return decodePayload[*ssh.TransferResult](raw)
 	case "ssh/put_dir", "ssh/get_dir":
 		return decodePayload[*ssh.DirTransferResult](raw)
-	case "docker/logs", "forge/get_deployment_script", "ssh/status", "docker/status", "digitalocean/status":
+	case "docker/logs", "forge/get_deployment_script", "ssh/status", "docker/status":
 		return decodePayload[string](raw)
 	default:
 		return raw, nil // retain unknown/plugin payloads without losing fields
