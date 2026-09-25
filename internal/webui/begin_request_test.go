@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
@@ -38,5 +39,19 @@ func TestConsoleRequestsBeginWithAScope(t *testing.T) {
 	}
 	if got := redact.ScopeFrom(seen).Text(labeledSecret); got == labeledSecret || got != redact.Text(labeledSecret) {
 		t.Fatalf("unwrapped handler rendered %q, want the regex net", got)
+	}
+}
+
+// A credential registered on a console request is gone from the error body
+// the console writes for it.
+func TestConsoleResponsesRenderThroughTheRequestScope(t *testing.T) {
+	const sentinel = "q7Zr2mXv9pLw" //nolint:gosec // a test sentinel, not a credential
+	rec := httptest.NewRecorder()
+	markWebSurface(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redact.ScopeFrom(r.Context()).Add("vercel/token", sentinel)
+		writeError(w, http.StatusBadGateway, "deploy step printed "+sentinel)
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/deployments/site/run", nil))
+	if body := rec.Body.String(); strings.Contains(body, sentinel) || !strings.Contains(body, redact.Marker) {
+		t.Fatalf("console body = %s", body)
 	}
 }

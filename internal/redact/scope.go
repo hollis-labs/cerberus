@@ -2,6 +2,7 @@ package redact
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"slices"
@@ -17,15 +18,17 @@ import (
 const MinValueLength = 8
 
 // Forms returns the strings value takes in text a connector might render:
-// raw, and the escaped forms it takes in a URL, which is where a transport
-// error echoes it back. It returns nil for a value too short to redact safely
+// raw, the escaped forms it takes in a URL, which is where a transport error
+// echoes it back, and its JSON string escaping, which is how it appears in an
+// already-encoded result. It returns nil for a value too short to redact safely
 // (see MinValueLength) and for a secret reference, which is a name.
 func Forms(value string) []string {
 	if len(value) < MinValueLength || IsReference(value) {
 		return nil
 	}
 	forms := []string{value}
-	for _, escaped := range []string{url.QueryEscape(value), url.PathEscape(value)} {
+	encoded, _ := json.Marshal(value)
+	for _, escaped := range []string{url.QueryEscape(value), url.PathEscape(value), string(encoded[1 : len(encoded)-1])} {
 		if !slices.Contains(forms, escaped) {
 			forms = append(forms, escaped)
 		}
@@ -120,8 +123,14 @@ func (s *Scope) Redactor() Redactor {
 	return *s.redactor
 }
 
-func (s *Scope) Text(value string) string    { return s.Redactor().Text(value) }
-func (s *Scope) Args(args []string) []string { return s.Redactor().Args(args) }
+func (s *Scope) Text(value string) string { return s.Redactor().Text(value) }
+
+// ReplaceValues removes the registered values and applies no rules. It is for
+// text whose structure a rule could break, such as an already-encoded JSON
+// document, which the regex net would rewrite into something that no longer
+// parses. Such text has had the net applied where it was encoded.
+func (s *Scope) ReplaceValues(value string) string { return s.Redactor().ReplaceValues(value) }
+func (s *Scope) Args(args []string) []string       { return s.Redactor().Args(args) }
 
 // Error renders err through the scope at the time Error() is called, so a
 // value registered after the error was wrapped is still removed.
