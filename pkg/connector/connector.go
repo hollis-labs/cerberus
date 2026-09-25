@@ -105,7 +105,10 @@ type Operation struct {
 	SupportsDry bool           `json:"supports_dry,omitempty" yaml:"supports_dry,omitempty"`
 	RequiresAck bool           `json:"requires_ack,omitempty" yaml:"requires_ack,omitempty"`
 
-	schemaIsSource bool
+	// Which of Inputs and InputSchema the author declared, so Finalize
+	// derives the other the same way every time.
+	schemaIsSource  bool
+	inputsAreSource bool
 }
 
 // Operation returns the named operation, finalized.

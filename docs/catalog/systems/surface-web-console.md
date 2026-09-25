@@ -86,9 +86,9 @@ It also owns capability that exists nowhere else:
   socket route and no MCP tool.
 - **`/api/infra`, `/api/deployments`** — a provider/deployment-profile subsystem
   backed by `~/.cerberus/infra.yaml`. `internal/infra` is imported by exactly one
-  file, `internal/webui/infra.go`. It also carries a hardcoded suggestion for
-  `/Users/<other-user>/dev/sites/<site>`, another user's path, so on this
-  machine it returns empty.
+  file, `internal/webui/infra.go`. It used to carry a hardcoded suggestion for
+  another user's site path; PR #63 removed it and the suggestions feature with
+  it.
 - **`/api/settings`**, **`/api/config/backups`**, **`/api/registry/register`**
   and **`/api/registry/deregister`** — config-adjacent operations with CLI
   equivalents but no MCP tools.
@@ -126,3 +126,25 @@ fails. Verified live in the audit worktree: `go vet ./internal/webui/` and
 `go test ./cmd/cerberus` both fail with `pattern all:dist: no matching files
 found`. The console does not embed a stale bundle — the module does not compile.
 
+## Since P1 (PRs #57, #60 and #63)
+
+**Refusals render.** Since PR #57 a connector refusal answers with its status
+from the shared table (400, 404, 409, 422, 503; 502 for `operation_failed`
+since PR #60), and the body carries `message`, which the console's API client
+renders, and `code`.
+
+**Every mutation asks first.** A shared `ActionConfirm` dialog (sysop-ui
+`ConfirmDialog`) is the only thing in the console that sends
+`acknowledged: true`, and it names the operation's effect. It fronts every
+resource action (row quick actions and the detail dialog), pipeline Run and
+deployment-profile Run. The Connectors page's Acknowledge checkbox follows the
+operation's `requires_ack` and shows its effect.
+
+**A deployment is confirmed against its plan.** The confirm dialog lists every
+command a profile run will execute and the directory it runs in, from
+`GET /api/deployments/{id}/plan` (CERB-TOOL-418). Credentials appear as
+`[vercel token]`. The run is not yet bound to the plan it showed
+(CERB-GAP-853).
+
+The console marks every request as the `web` surface, so an in-process client
+behind it refuses local-only inputs just as the daemon would.

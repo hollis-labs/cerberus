@@ -152,8 +152,7 @@ var dockerDownCmd = &cobra.Command{
 Nothing is removed: containers, networks and volumes are kept, and
 'cerberus docker up' starts the same stack again.
 
-Removal (docker rm, docker compose down) is the connector's destroy operation,
-which requires acknowledgment. There is no 'docker' verb for it yet.`,
+Removal (docker rm, docker compose down) is 'cerberus docker destroy'.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, closeFn, err := newDockerConnectorService(cmd)
@@ -183,6 +182,48 @@ which requires acknowledgment. There is no 'docker' verb for it yet.`,
 		}
 
 		fmt.Printf("Container stopped: %s\n", resourceID)
+		return nil
+	},
+}
+
+var dockerDestroyCmd = &cobra.Command{
+	Use:   "destroy <resource-id>",
+	Short: "Remove a container or tear down a compose stack (docker rm / docker compose down)",
+	Long: `Removes a container (docker rm) or tears down a compose stack (docker compose
+down, which removes its containers and networks). This is the connector's
+destroy operation: destructive, and not undone by 'cerberus docker up'.
+It needs --ack.
+
+'cerberus docker down' stops without removing anything.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc, closeFn, err := newDockerConnectorService(cmd)
+		if err != nil {
+			return err
+		}
+		defer closeFn()
+
+		resourceID := args[0]
+		cfg, res, err := dockerOperationConfig(cmd, resourceID)
+		if err != nil {
+			return err
+		}
+
+		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
+			Connector:    "docker",
+			Operation:    "destroy",
+			Config:       cfg,
+			Acknowledged: dockerAck,
+		}); err != nil {
+			return err
+		}
+
+		if composeFile := dockerComposeFile(cfg, res); composeFile != "" {
+			fmt.Printf("Compose stack torn down: %s\n", composeFile)
+			return nil
+		}
+
+		fmt.Printf("Container removed: %s\n", resourceID)
 		return nil
 	},
 }
@@ -318,7 +359,9 @@ func init() {
 	dockerDownCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode); runs in this shell, not through the daemon")
 	dockerUpCmd.Flags().BoolVar(&dockerAck, "ack", false, "acknowledge the start operation (lifecycle)")
 	dockerDownCmd.Flags().BoolVar(&dockerAck, "ack", false, "acknowledge the stop operation (lifecycle)")
-	for _, sub := range []*cobra.Command{dockerPSCmd, dockerLogsCmd, dockerUpCmd, dockerDownCmd} {
+	dockerDestroyCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode); runs in this shell, not through the daemon")
+	dockerDestroyCmd.Flags().BoolVar(&dockerAck, "ack", false, "acknowledge the destroy operation (destructive)")
+	for _, sub := range []*cobra.Command{dockerPSCmd, dockerLogsCmd, dockerUpCmd, dockerDownCmd, dockerDestroyCmd} {
 		sub.Flags().StringP("host", "H", "", "Docker daemon to target as a DOCKER_HOST value (ssh://user@host, tcp://host:2376); runs in this shell, not through the daemon")
 		sub.Flags().String("context", "", "Docker context name to target (mutually exclusive with --host); runs in this shell, not through the daemon")
 		dockerCmd.AddCommand(sub)

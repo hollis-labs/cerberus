@@ -103,8 +103,9 @@ them:
 - **Socket-only:** NDJSON progress streaming, which reaches an MCP host because
   `SocketClient` re-emits notifications into the caller's context, and is
   silently dropped for CLI and console callers.
-- **Neither CLI nor MCP:** `docker destroy` and `digitalocean status`, both
-  declared by their connectors and reachable only through the generic route.
+- **Neither CLI nor MCP:** `digitalocean status`, declared by its connector and
+  reachable only through the generic route. `docker destroy` gained
+  `cerberus docker destroy` and `cerberus_docker_destroy` on the P1-3 branch.
 - **No surface but the CLI:** the whole plugin lifecycle. `connectors plugin
   managed install|load|unload|uninstall|health|exec` has CLI commands, socket
   routes, console HTTP routes and console UI — and zero MCP tools. An
@@ -193,7 +194,7 @@ PR #50 made the plugin rows above true in a stricter sense. The one-shot
 `plugin_dir` routes and web install-by-path now answer 410, so running a
 directory is CLI-only and installing one is CLI-plus-socket. The generic
 connector route is no longer free-form for ssh and docker (CERB-DEC-813), and
-the MCP ssh and docker tools accept only a resource id. `docker destroy` is
-still on neither the CLI nor MCP (CERB-GAP-272). The per-connector table
+the MCP ssh and docker tools accept only a resource id. `docker destroy` reached
+the CLI and MCP on the P1-3 branch (CERB-GAP-272 closed). The per-connector table
 predates `ssh put_dir` and `get_dir`, which are on the CLI and MCP, so ssh now
 declares seven operations rather than five.

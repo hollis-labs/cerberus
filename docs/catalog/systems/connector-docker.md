@@ -109,8 +109,9 @@ compose file chooses images, commands and host bind mounts, so this amounted to
 code execution with host filesystem access through `cerberus_docker_up`. Now
 those surfaces take an allow-list built from the connector's own key table
 (`internal/connector/docker/config_keys.go`): `resource`, the container keys and
-`id`/`lines`. `RefuseAdHocDockerTarget` refuses every other key by name,
-including every compose-file alias. A declared resource's `host`, `context` and
+`id`/`lines`. Every other key is refused by name,
+including every compose-file alias — since PR #60 by the operation's key table
+rather than `RefuseAdHocDockerTarget`. A declared resource's `host`, `context` and
 `compose_file` come from its declaration and still apply, resolved by whoever
 runs the call (CERB-DEC-813). On the CLI, `--host`, `--context` and `-f` force
 the call in-process, where they still work. `docker ps` with no flags goes to
@@ -145,3 +146,19 @@ CERB-GAP-272).
 - Building images. CanBuild is declared but no build operation is exposed
 - Docker itself, or whether its daemon is running
 - Creating containers. CanCreate is false; Compose files declare what exists
+
+## Since P1 (PR #60 and the P1-3 branch)
+
+Each docker operation's `Inputs` is its key table (CERB-CAP-212). `resource`,
+the container keys and `id`/`lines` are caller-scope. `host`, `context` and
+every compose-file alias are local-scope: accepted from the operator's shell
+and refused, by name, over the socket, the console and MCP. The check runs in
+`Execute`, so the in-process CLI is checked against the same table.
+
+`start` and `stop` are `lifecycle` and need acknowledgment: `docker up` and
+`down` take `--ack`, and the MCP tools take `acknowledged`. `logs` is
+`read_sensitive`. `destroy` is `destructive` and, since the P1-3 branch, has
+`cerberus docker destroy <id> --ack` and `cerberus_docker_destroy`
+(CERB-GAP-272 closed). It still has no preview (CERB-GAP-271). An uncoded
+docker failure, such as the Docker daemon being down, is `operation_failed`
+(502).

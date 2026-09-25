@@ -2,13 +2,13 @@
 id: "CERB-CAP-712"
 class: "capability"
 name: "The pipeline lane"
-summary: "Executes ordered, dependency-resolved stages of build, deploy, start, stop, health-wait and shell actions against local process resources — the third execution lane, with no acknowledgment gate and no pipeline declared on this machine."
+summary: "Executes ordered, dependency-resolved stages of build, deploy, start, stop, health-wait and shell actions against local process resources \u2014 the third execution lane; since PR #63 every run is exec and needs acknowledgment, and it still has no dry-run."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.9
 confidence_label: "The whole package read end to end and every surface traced; zero pipelines are defined here so nothing in the lane has been executed"
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -101,11 +101,12 @@ serving-daemon self-mutation guard does reach it: `actions.Deploy` calls
 the connector itself, so a pipeline cannot deploy the daemon over itself.
 
 What it has that the admin lane has is the destructive-operation vocabulary —
-and that is the sharp edge. A pipeline run takes no `--ack`, offers no
-`--dry-run`, and is not flagged destructive on any surface, while `shell` runs
+and that was the sharp edge. Until PR #63 a pipeline run took no `--ack`, offered no
+`--dry-run`, and was not flagged destructive on any surface, while `shell` runs
 arbitrary commands and `stop` stops production resources. `cerberus_pipeline_run`
-puts that behind one MCP tool call whose only required argument is a pipeline id
-(CERB-GAP-733).
+put that behind one MCP tool call whose only required argument was a pipeline id
+(CERB-GAP-733). Since PR #63 a run is `exec` and needs acknowledgment on every
+surface; it still offers no dry-run.
 
 Rollback is advertised and largely absent. On failure the executor calls
 `Rollback` on completed stages in reverse order, logging rather than
@@ -124,8 +125,7 @@ on this machine. Author-time validation would not catch much if one were added
 fire at run time.
 
 Marked `partial`: the implementation is complete and coherent, and it is
-entirely unexercised here, undocumented as a lane, and missing the
-acknowledgment gate every comparable verb has.
+entirely unexercised here, undocumented as a lane, and has no dry-run.
 
 ## What it owns
 
@@ -147,3 +147,16 @@ acknowledgment gate every comparable verb has.
 - any non-local resource: `build`, `deploy` and `health_wait` all require
   `type: process` / `connector: local`
 - an MCP tool or console view for `pipeline show`
+
+## Since PR #63
+
+`pipeline.Definition()` declares `run` as `exec` — a stage can be `sh -c`, and a
+static contract cannot see which stages a pipeline declares (CERB-DEC-820) — and
+`list` as a read. `RunPipeline` passes the runtime gate before it takes the
+pipeline lock: `cerberus pipeline run <id> --ack`, `acknowledged` on
+`cerberus_pipeline_run`, and a confirm step in the console. The stages call the
+local connector directly, so the run's one acknowledgment covers them. The
+acknowledgment travels as an explicit option, never in a context, so it cannot
+leak into what the stages call (CERB-DEC-819). The P1-3 branch stopped the CLI
+printing `Running pipeline:` before a refusal. The console's pipelines page now
+decodes the run result, which arrives as base64 JSON.

@@ -261,12 +261,13 @@ the CLI, and from MCP as `resource_id` on `cerberus_docker_up`/`_down`:
 ```bash
 cerberus docker up mtbf-monitor --ack     # no -f needed
 cerberus docker down mtbf-monitor --ack   # compose stop: stopped, not removed
+cerberus docker destroy mtbf-monitor --ack  # compose down: containers and networks removed
 cerberus docker logs some-container  # undeclared containers still work
 ```
 
 `docker down` stops a container or stack (`docker stop`, `docker compose stop`)
 and removes nothing. Removal — `docker rm`, or `docker compose down` for a
-stack — is the connector's `destroy` operation.
+stack — is `cerberus docker destroy <id> --ack` (MCP: `cerberus_docker_destroy`).
 
 Every connector operation declares an effect class — `read`, `read_sensitive`,
 `write`, `lifecycle`, `destructive`, `exec` or `admin` — and every class except

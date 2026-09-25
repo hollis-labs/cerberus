@@ -570,73 +570,9 @@ func runDaemonBody() error {
 	go func() {
 		defer wg.Done()
 		srv := mcp.NewServer("cerberus", "0.1.0")
-		srv.RegisterTool(mcp.NewCerberusHealthTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusProjectListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceStatusTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceInspectTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceDoctorTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceLogsTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceReloadTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceStopTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceDeployTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceEnsureFreshTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceSyncTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceApplyTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusResourceRemoveTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusPipelineListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusPipelineRunTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusConnectorListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusConnectorDescribeTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusGithubStatusTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusGithubReleasesTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusGithubRunsTool(inProc))
-
-		// SSH tools
-		srv.RegisterTool(mcp.NewCerberusSSHExecTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHStatusTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHPutTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHGetTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHPutDirTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusSSHGetDirTool(inProc))
-
-		// Namecheap tools
-		srv.RegisterTool(mcp.NewCerberusDomainListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDomainStatusTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusNameserversSetTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDNSListTool(inProc))
-		for _, tool := range mcp.NewCerberusDNSRecordSetTools(inProc) {
+		for _, tool := range mcp.AllTools(inProc) {
 			srv.RegisterTool(tool)
 		}
-		srv.RegisterTool(mcp.NewCerberusDNSCreateTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDNSDeleteTool(inProc))
-
-		// Forge tools
-		srv.RegisterTool(mcp.NewCerberusForgeServersTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusForgeServerTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusForgeSitesTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusForgeDeployTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusForgeExecTool(inProc))
-
-		// Cloudflare tools
-		srv.RegisterTool(mcp.NewCerberusCloudflareZonesTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusCloudflareZoneCreateTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSCreateTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusCloudflareDNSDeleteTool(inProc))
-
-		// Docker tools
-		srv.RegisterTool(mcp.NewCerberusDockerPSTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDockerLogsTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDockerUpTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDockerDownTool(inProc))
-
-		srv.RegisterTool(mcp.NewCerberusDropletListTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDropletGetTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDropletCreateTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDropletStartTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDropletStopTool(inProc))
-		srv.RegisterTool(mcp.NewCerberusDropletDestroyTool(inProc))
 
 		if err := srv.Run(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)

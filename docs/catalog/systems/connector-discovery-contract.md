@@ -105,3 +105,20 @@ the supervision-shaped operations; everything else is per-connector surface.
 - Connector liveness. That is the registry's Probe
 - Response types. ADR 0003 governs those and the contract does not check them
 - MCP tool naming for built-ins — only plugin connectors get generated names
+
+## Since PR #60
+
+Discovery now serves the operation contract (CERB-CAP-212):
+
+- **Contract fields:** `effect`, `reversible`, `target`, `preview`, `output`,
+  `cost`, `local_fs` and `requires_ack`, alongside the derived `destructive`
+  and `supports_dry`.
+- **`destructive`** now means `effect == destructive` only. Gate on
+  `requires_ack`, which is the whole answer to "does this need
+  acknowledgment". The paragraph above that says `destructive` was that answer
+  describes the state before PR #60.
+- **`input_schema`** is built from the key table's caller-scope inputs, so
+  local-only docker keys are never advertised.
+- **Schema drift is impossible.** `Finalize` derives the schema from the key
+  table, so the two cannot disagree for built-ins, and the conformance suite
+  checks the same for plugin manifests.

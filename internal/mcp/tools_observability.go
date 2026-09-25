@@ -10,7 +10,7 @@ import (
 
 // NewCerberusHealthTool creates the cerberus_health tool.
 func NewCerberusHealthTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_health",
 		Description: "Get daemon and resource health. Optional resource_id filters to one resource.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -19,7 +19,6 @@ func NewCerberusHealthTool(client cerbapi.Client) Tool {
 				"description": "Optional resource ID filter.",
 			},
 		}),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			filterID, _ := args["resource_id"].(string)
 			h, err := client.Health(ctx, filterID)
@@ -32,5 +31,5 @@ func NewCerberusHealthTool(client cerbapi.Client) Tool {
 			}
 			return string(data), nil
 		},
-	}
+	})
 }

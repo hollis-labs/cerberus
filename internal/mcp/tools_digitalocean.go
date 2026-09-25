@@ -7,11 +7,10 @@ import (
 )
 
 func NewCerberusDropletListTool(client cerbapi.Client) Tool {
-	return Tool{
-		Name:         "cerberus_droplet_list",
-		Description:  "List DigitalOcean droplets.",
-		InputSchema:  emptyObjectSchema(),
-		ReadOnlyHint: true,
+	return contractTool(Tool{
+		Name:        "cerberus_droplet_list",
+		Description: "List DigitalOcean droplets.",
+		InputSchema: emptyObjectSchema(),
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "digitalocean",
@@ -22,11 +21,11 @@ func NewCerberusDropletListTool(client cerbapi.Client) Tool {
 			}
 			return marshalConnectorData(result.Data)
 		},
-	}
+	})
 }
 
 func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_droplet_get",
 		Description: "Get details for one DigitalOcean droplet.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -35,7 +34,6 @@ func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
 				"description": "DigitalOcean droplet ID.",
 			},
 		}, "droplet_id"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			dropletID, ok := args["droplet_id"].(float64)
 			if !ok || dropletID <= 0 {
@@ -51,11 +49,11 @@ func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
 			}
 			return marshalConnectorData(result.Data)
 		},
-	}
+	})
 }
 
 func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_droplet_create",
 		Description: "Create a DigitalOcean droplet. Billable, and runs user_data as root. Requires acknowledged=true unless dry_run.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -68,10 +66,6 @@ func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge the create operation (write, billable)."},
 		}, "name", "region", "size", "image"),
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  false,
-		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			cfg := map[string]any{
 				"name":      stringArg(args, "name"),
@@ -101,23 +95,23 @@ func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 			}
 			return marshalConnectorData(result.Data)
 		},
-	}
+	})
 }
 
 func NewCerberusDropletStartTool(client cerbapi.Client) Tool {
-	return newDropletLifecycleTool(client, "cerberus_droplet_start", "start", "Start (power on) a DigitalOcean droplet. Requires acknowledged=true.", false)
+	return newDropletLifecycleTool(client, "cerberus_droplet_start", "start", "Start (power on) a DigitalOcean droplet. Requires acknowledged=true.")
 }
 
 func NewCerberusDropletStopTool(client cerbapi.Client) Tool {
-	return newDropletLifecycleTool(client, "cerberus_droplet_stop", "stop", "Stop (power off) a DigitalOcean droplet. Requires acknowledged=true unless dry_run.", true)
+	return newDropletLifecycleTool(client, "cerberus_droplet_stop", "stop", "Stop (power off) a DigitalOcean droplet. Requires acknowledged=true unless dry_run.")
 }
 
 func NewCerberusDropletDestroyTool(client cerbapi.Client) Tool {
-	return newDropletLifecycleTool(client, "cerberus_droplet_destroy", "destroy", "Destroy a DigitalOcean droplet. Requires acknowledged=true unless dry_run.", true)
+	return newDropletLifecycleTool(client, "cerberus_droplet_destroy", "destroy", "Destroy a DigitalOcean droplet. Requires acknowledged=true unless dry_run.")
 }
 
-func newDropletLifecycleTool(client cerbapi.Client, name, operation, description string, destructive bool) Tool {
-	return Tool{
+func newDropletLifecycleTool(client cerbapi.Client, name, operation, description string) Tool {
+	return contractTool(Tool{
 		Name:        name,
 		Description: description,
 		InputSchema: objectSchema(map[string]interface{}{
@@ -125,10 +119,6 @@ func newDropletLifecycleTool(client cerbapi.Client, name, operation, description
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge the operation. Required: start and stop are lifecycle operations and destroy is destructive."},
 		}, "droplet_id"),
-		ReadOnlyHint:    false,
-		DestructiveHint: destructive,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			dropletID, ok := args["droplet_id"].(float64)
 			if !ok || dropletID <= 0 {
@@ -146,5 +136,5 @@ func newDropletLifecycleTool(client cerbapi.Client, name, operation, description
 			}
 			return marshalConnectorData(result.Data)
 		},
-	}
+	})
 }

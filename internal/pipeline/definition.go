@@ -2,8 +2,11 @@ package pipeline
 
 import contract "github.com/hollis-labs/cerberus/pkg/connector"
 
-// OpRun is the pipeline run operation.
-const OpRun = "run"
+// Pipeline operations.
+const (
+	OpRun  = "run"
+	OpList = "list"
+)
 
 // Definition is the pipeline runner's contract. A run is exec (Decision 11):
 // a stage can be a shell action (`sh -c`), and a static contract cannot see
@@ -24,6 +27,15 @@ func Definition() contract.Definition {
 			Cost:        contract.CostNone,
 			LocalFS:     contract.LocalFSWrites,
 			Inputs:      []contract.Input{contract.RequiredField("id", contract.StringSchema("ID of a configured pipeline (see `cerberus pipeline list`)."))},
+		}, {
+			Name:        OpList,
+			Description: "List configured pipelines.",
+			Effect:      contract.EffectRead,
+			Target:      contract.TargetDescriptor{Kind: "pipeline.registry"},
+			Preview:     contract.PreviewNone,
+			Output:      contract.OutputStructured,
+			Cost:        contract.CostNone,
+			LocalFS:     contract.LocalFSNone,
 		}},
 	})
 }

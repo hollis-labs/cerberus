@@ -103,3 +103,12 @@ manifest can no longer opt out of the gate. And a dry run reaches the plugin onl
 for an operation that declares `supports_dry`; anything else is refused as
 `preview_unsupported` without calling the plugin. A forwarded dry run is the
 plugin's own claim, which the host cannot verify (CERB-DEC-814).
+
+## Since PR #60
+
+Plugin manifests carry the operation contract (CERB-CAP-212). An operation with
+no `effect` loads, is treated as `exec`, and is reported in
+`plugin managed list`'s `contract_gaps`, which is always present and `[]` when
+there are none (CERB-DEC-821). A plugin's `input_schema` is enforced as its key
+table on both the admin lane and managed exec. cerberus-plugins PR #5 (P1-6a)
+declared an effect on every operation of our plugins, so none has a gap.

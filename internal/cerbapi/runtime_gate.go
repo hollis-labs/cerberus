@@ -16,7 +16,7 @@ import (
 // dispatches them through ExternalConnectorService — but they are gated on
 // the same contract, and conformance enumerates them with the rest.
 func RuntimeDefinitions() []contract.Definition {
-	return []contract.Definition{localconn.Definition(), pipeline.Definition(), infra.Definition()}
+	return []contract.Definition{localconn.Definition(), pipeline.Definition(), infra.Definition(), ControlPlaneDefinition()}
 }
 
 // RunDeploymentProfile runs a saved deployment profile through the contract
