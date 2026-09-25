@@ -158,6 +158,7 @@ cerberus init         # create default config and exit
 cerberus install      # bootstrap the macOS launch agent for the daemon
 cerberus mcp          # stdio MCP server for local agent clients
 cerberus mcp-http     # HTTP MCP endpoint at http://127.0.0.1:4785/mcp by default
+cerberus status       # at a glance: daemon, posture, who you are, plugin review, audit chain, web console
 cerberus whoami       # how Cerberus classifies this caller: human, agent or automation
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
