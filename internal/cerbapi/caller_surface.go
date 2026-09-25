@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
@@ -51,6 +52,40 @@ func BeginRequest(ctx context.Context, surface CallerSurface) context.Context {
 	ctx, _ = redact.EnsureScope(WithCallerSurface(ctx, surface))
 	return ctx
 }
+
+// BeginHTTPRequest is BeginRequest for an HTTP server. It also hands the
+// request's scope to the response writer, because the JSON writers every
+// handler answers through take a ResponseWriter and no request: through
+// ResponseScope they render in the request's scope without each of a few
+// hundred call sites passing it along, and without one being able to forget.
+func BeginHTTPRequest(w http.ResponseWriter, r *http.Request, surface CallerSurface) (http.ResponseWriter, *http.Request) {
+	r = r.WithContext(BeginRequest(r.Context(), surface))
+	return scopedResponseWriter{ResponseWriter: w, scope: redact.ScopeFrom(r.Context())}, r
+}
+
+// ResponseScope is the redaction scope of the request w answers, or nil —
+// the regex net alone — for a writer BeginHTTPRequest did not produce.
+func ResponseScope(w http.ResponseWriter) *redact.Scope {
+	if sw, ok := w.(scopedResponseWriter); ok {
+		return sw.scope
+	}
+	return nil
+}
+
+type scopedResponseWriter struct {
+	http.ResponseWriter
+	scope *redact.Scope
+}
+
+// Flush keeps the progress stream working through the wrapper.
+func (w scopedResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (w scopedResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // WithCallerSurface marks ctx as having entered through surface. A server
 // sets it once, at the edge, for every request it serves.

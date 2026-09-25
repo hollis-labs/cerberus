@@ -1,11 +1,14 @@
 package cerbapi
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	gh "github.com/hollis-labs/cerberus/internal/connector/github"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 // decodeConnectorPayload restores the service's DTOs across JSON transport.
@@ -46,4 +49,26 @@ func decodePayload[T any](raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+// RenderInProcessResult gives a result the in-process lane produced what the
+// socket gives one it serves: the payload marshaled through the request's
+// scope — its resolved credentials, sensitive keys and the regex net — and
+// decoded back into the same DTO, so the CLI prints the same thing on either
+// lane. Before it, the in-process lane printed ssh exec output and docker
+// logs with no redaction at all.
+func RenderInProcessResult(ctx context.Context, args ExternalConnectorOperationArgs, result ExternalConnectorOperationResult) (ExternalConnectorOperationResult, error) {
+	if result.Data == nil {
+		return result, nil
+	}
+	raw, err := redact.ScopeFrom(ctx).Marshal(result.Data)
+	if err != nil {
+		return ExternalConnectorOperationResult{}, fmt.Errorf("render %s %s payload: %w", args.Connector, args.Operation, err)
+	}
+	data, err := decodeConnectorPayload(args, raw)
+	if err != nil {
+		return ExternalConnectorOperationResult{}, fmt.Errorf("decode %s %s payload: %w", args.Connector, args.Operation, err)
+	}
+	result.Data = data
+	return result, nil
 }

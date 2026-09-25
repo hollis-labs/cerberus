@@ -5,6 +5,8 @@ import (
 	"log"
 
 	"github.com/hollis-labs/go-mcp/budget"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 // defaultListLimit caps MCP list responses. It uses the budget package's
@@ -72,5 +74,12 @@ func budgetedList[T any](tool string, items []T, args map[string]interface{}, hi
 		// for tuning reviews: grep `mcp.budget.truncated`.
 		log.Printf("mcp.budget.truncated tool=%s total=%d returned=%d offset=%d limit=%d", tool, total, env.Count, offset, limit)
 	}
-	return budget.ToolJSON(env)
+	// budget.ToolJSON is plain encoding/json. On the daemon's stdio server
+	// the items come from InProcessClient, which no server has redacted, so
+	// the envelope goes through the regex net here.
+	data, err := redact.Marshal(env)
+	if err != nil {
+		return budget.ToolJSON(env)
+	}
+	return string(data)
 }
