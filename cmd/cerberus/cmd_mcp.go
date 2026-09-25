@@ -90,6 +90,7 @@ func startPluginToolSync(ctx context.Context, srv *mcp.Server, client cerbapi.Cl
 }
 
 func buildCerberusMCPServer(socketClient cerbapi.Client, opts ...mcp.Option) *mcp.Server {
+	opts = append([]mcp.Option{mcp.WithInstructions(mcp.Instructions(currentPosture()))}, opts...)
 	srv := mcp.NewServer("cerberus", "0.1.0", opts...)
 	for _, tool := range mcp.AllTools(socketClient) {
 		srv.RegisterTool(tool)

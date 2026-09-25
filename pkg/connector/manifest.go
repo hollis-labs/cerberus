@@ -153,6 +153,8 @@ func (op ManifestOperation) Operation() Operation {
 		Output:      op.Output,
 		Cost:        op.Cost,
 		LocalFS:     op.LocalFS,
+
+		EffectUndeclared: op.Effect == "",
 	}.Finalize()
 }
 

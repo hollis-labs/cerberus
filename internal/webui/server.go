@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/loopback"
+	"github.com/hollis-labs/cerberus/internal/policy"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -50,6 +51,7 @@ type Server struct {
 	logger     *slog.Logger
 	sessions   *sessionStore
 	guard      *loopback.Guard
+	posture    func() policy.PostureSummary
 }
 
 // New constructs the console. The audit sink is required: operations the
@@ -66,6 +68,17 @@ func New(client cerbapi.Client, sink audit.Sink, configPath string, secrets secr
 		return nil, err
 	}
 	return &Server{client: client, audit: sink, configPath: configPath, secrets: secrets, logger: logger, sessions: sessions}, nil
+}
+
+// SetPosture tells the console where to read the applied posture it shows
+// in its header. Without it the console shows secure, the default.
+func (s *Server) SetPosture(current func() policy.PostureSummary) { s.posture = current }
+
+func (s *Server) currentPosture() policy.PostureSummary {
+	if s.posture == nil {
+		return policy.PostureSummary{Global: policy.PostureSecure, Snapshot: policy.SnapshotBaseline}
+	}
+	return s.posture()
 }
 
 // SetSessionLimits overrides how long a sign-in link, an idle session and a
@@ -182,7 +195,9 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	sess := webSession(r.Context())
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(map[string]string{"action_token": sess.actionToken, "session": sess.ID})
+	posture := s.currentPosture()
+	_ = json.NewEncoder(w).Encode(map[string]any{"action_token": sess.actionToken, "session": sess.ID,
+		"posture": map[string]any{"summary": posture.String(), "permissive": posture.Permissive(), "detail": posture}})
 }
 
 func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {

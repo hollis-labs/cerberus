@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
@@ -292,5 +293,34 @@ func TestSignedInRequestsCarryTheSessionPrincipal(t *testing.T) {
 	}
 	if seen.Session == cookie.Value {
 		t.Fatal("the principal carries the cookie's value")
+	}
+}
+
+// The console header shows the applied posture; the session carries it.
+func TestSessionCarriesThePosture(t *testing.T) {
+	srv := mustNew(t, &fakeClient{})
+	srv.SetPosture(func() policy.PostureSummary {
+		return policy.File{PostureRules: []policy.PostureRule{{Match: policy.TargetMatch{Env: "dev"}, Posture: policy.PosturePermissive}}}.PostureSummary("h")
+	})
+	h := srv.Handler(testGuard())
+	rec := serve(h, withCookie(newTestRequest(http.MethodGet, "/api/session", nil), signIn(t, srv, h)))
+	var body struct {
+		Posture struct {
+			Summary    string `json:"summary"`
+			Permissive bool   `json:"permissive"`
+		} `json:"posture"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Posture.Permissive || !strings.Contains(body.Posture.Summary, "permissive for env=dev") {
+		t.Fatalf("session posture = %+v", body.Posture)
+	}
+
+	plain := mustNew(t, &fakeClient{})
+	ph := plain.Handler(testGuard())
+	rec = serve(ph, withCookie(newTestRequest(http.MethodGet, "/api/session", nil), signIn(t, plain, ph)))
+	if !strings.Contains(rec.Body.String(), `"summary":"secure"`) {
+		t.Fatalf("a console with no posture source must show secure: %s", rec.Body.String())
 	}
 }
