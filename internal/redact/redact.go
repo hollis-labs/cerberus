@@ -300,15 +300,19 @@ func Launchd(value string) string {
 
 // Marshal redacts data while preserving valid JSON and numbers.
 // Schema metadata is traversed as metadata, not as credential assignments.
-func Marshal(value any) ([]byte, error) {
+func Marshal(value any) ([]byte, error) { return (Redactor{}).Marshal(value) }
+func (r Redactor) Marshal(value any) ([]byte, error) {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
-	return JSON(data)
+	return r.JSON(data)
 }
 func MarshalIndent(value any, prefix, indent string) ([]byte, error) {
-	data, err := Marshal(value)
+	return (Redactor{}).MarshalIndent(value, prefix, indent)
+}
+func (r Redactor) MarshalIndent(value any, prefix, indent string) ([]byte, error) {
+	data, err := r.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
@@ -318,22 +322,23 @@ func MarshalIndent(value any, prefix, indent string) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
-func JSON(data []byte) ([]byte, error) {
+func JSON(data []byte) ([]byte, error) { return (Redactor{}).JSON(data) }
+func (r Redactor) JSON(data []byte) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
 		return nil, err
 	}
-	return json.Marshal(walk(value, false, false))
+	return json.Marshal(r.walk(value, false, false))
 }
-func walk(value any, hide, schema bool) any {
+func (r Redactor) walk(value any, hide, schema bool) any {
 	switch v := value.(type) {
 	case string:
 		if hide && !schema && !IsReference(v) {
 			return Marker
 		}
-		return Text(v)
+		return r.Text(v)
 	case json.Number:
 		if hide && !schema {
 			return Marker
@@ -357,7 +362,7 @@ func walk(value any, hide, schema bool) any {
 						}
 					}
 					if len(args) == len(list) {
-						v[key] = (Redactor{}).Args(args)
+						v[key] = r.Args(args)
 						continue
 					}
 				}
@@ -365,11 +370,11 @@ func walk(value any, hide, schema bool) any {
 			// A names-only key suppresses only its own contribution to hide.
 			// An inherited hide still wins: a names-only field nested under
 			// something already hidden stays hidden.
-			v[key] = walk(item, hide || (SensitiveKey(key) && !NamesOnlyKey(key)), schema || strings.HasSuffix(key, "_schema"))
+			v[key] = r.walk(item, hide || (SensitiveKey(key) && !NamesOnlyKey(key)), schema || strings.HasSuffix(key, "_schema"))
 		}
 	case []any:
 		for i, item := range v {
-			v[i] = walk(item, hide, schema)
+			v[i] = r.walk(item, hide, schema)
 		}
 	}
 	return value
