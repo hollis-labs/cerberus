@@ -89,3 +89,19 @@ State compatibility is handled rather than migrated. An old state entry's
 `trust` object, and an older CLI's `trust` install argument, are read for
 `dev_mode` alone. The signing keys and `archive_sha256` are ignored, and the
 next write uses `options`.
+
+## Since PR #60
+
+`OperationAllowed` reads the operation's effective contract, not the legacy
+flags:
+
+- **Acknowledgment:** any operation whose contract needs it, which includes
+  every operation with no declared `effect` (treated as `exec`,
+  CERB-DEC-821).
+- **`dev` origin:** refuses an operation that is `destructive` by its effect,
+  or by the legacy flag when no effect is declared.
+- **Key table:** the host checks the plugin's `input_schema` before calling
+  it.
+- **Coded refusals:** acknowledgment, undeclared-operation and key-table
+  refusals are coded for the admin lane, and a plugin that is not loaded is
+  `connector_unavailable`.

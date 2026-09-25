@@ -2,7 +2,7 @@
 id: "CERB-CAP-402"
 class: "capability"
 name: "MCP adapter"
-summary: "53 hand-registered MCP tools served over stdio and HTTP by a stateless RPC client to the daemon socket, covering 33 of 48 connector operations and none of the plugin lifecycle."
+summary: "56 MCP tools from one registry (mcp.AllTools), served over stdio, HTTP and the daemon's own stdio server, every one annotated from its operation's contract rather than by hand; plugin operations and the plugin lifecycle still have no tools."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
@@ -84,9 +84,10 @@ the daemon directly. Under launchd that goroutine reads a stdin nothing writes
 to.
 
 **The load-bearing finding: tool registration is hand-maintained, not
-generated.** `buildCerberusMCPServer` is a flat list of 52 `RegisterTool` calls
-naming 52 hand-written `NewCerberusXxxTool` constructors, and the daemon repeats
-the same list inline. Nothing iterates connector metadata to produce tools. So
+generated.** At audit time `buildCerberusMCPServer` was a flat list of 52 `RegisterTool` calls
+naming 52 hand-written `NewCerberusXxxTool` constructors, and the daemon repeated
+the same list inline. The P1-3 branch replaced both with `mcp.AllTools`; the
+constructors are still hand-written. Nothing iterates connector metadata to produce tools. So
 the premise that a new connector capability becomes a CLI command, an API
 operation and an MCP tool at the same time is true for the API — the socket has
 one generic operations route — and false for MCP, where it becomes a tool only
@@ -118,6 +119,36 @@ CERB-DEC-813). PR #49 corrected the hints. `cerberus_droplet_create`,
 `cerberus_droplet_stop`, `cerberus_resource_{stop,deploy,ensure_fresh,apply,sync,reload}`
 and `cerberus_pipeline_run` are `DestructiveHint: true`. `cerberus_ssh_get` and
 `cerberus_ssh_get_dir` are no longer `ReadOnlyHint`, because they overwrite a
-local path. `TestToolHintsMatchWhatTheToolsDo` pins them. An MCP client keeps the
-schemas it loaded until it reconnects.
+local path. An MCP client keeps the schemas it loaded until it reconnects. The
+hand-pinned hints this paragraph describes were replaced on the P1-3 branch by
+derived ones (below).
 
+## Since P1 (PRs #57, #60 and #63, and the P1-3 branch)
+
+**One tool list.** `internal/mcp/registry.go`'s `AllTools(client)` is served by
+`cerberus mcp`, `mcp-http` and the daemon's stdio server, which calls the
+in-process client unmarked and so counts as a remote caller (CERB-DEC-817).
+There are 56 tools; `cerberus_docker_destroy` is new.
+
+**Derived annotations** (CERB-DEC-818). Every tool's four hints come from
+`contract.HintsFor` on the operation it runs, applied by `mcp.WithHints`.
+`internal/mcp/hints.go` binds each tool to its operation and is the only file
+in the package that sets a hint; `TestNoHandWrittenHints` fails on one anywhere
+else. The rules:
+
+- ReadOnly is `!requires_ack`.
+- Destructive is `requires_ack`.
+- Idempotent is claimed only by reads.
+- OpenWorld is true for a target outside Cerberus's own `local.`, `pipeline`
+  and `cerberus.` kinds.
+
+As a result, OpenWorld is now true for the provider, SSH and Docker tools, and
+droplet start and docker up/down are destructive, matching their
+acknowledgment. The control plane's own reads (health, project list, connector
+discovery) have contracts too (`cerbapi.ControlPlaneDefinition`).
+
+**Refusals are errors.** Since PR #57 every tool result that reports failure
+sets `isError: true`, with the same redacted body. Every tool over an
+operation that needs acknowledgment takes `acknowledged`: the resource
+mutations, pipeline run, docker up/down/destroy, droplet start/stop/destroy,
+ssh get/get_dir and the existing writes.

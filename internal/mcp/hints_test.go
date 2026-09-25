@@ -1,38 +1,53 @@
 package mcp
 
-import "testing"
+import (
+	"testing"
 
-// TestToolHintsMatchWhatTheToolsDo pins the hints fixed in P0-2: a client
-// decides whether to ask a human from these, so a mutating tool marked
-// non-destructive, or a tool that overwrites local files marked read-only,
-// skips the question.
-func TestToolHintsMatchWhatTheToolsDo(t *testing.T) {
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
+)
+
+// Every served tool's annotations are the ones its operation's contract
+// derives, and they agree with the gate: a client decides whether to ask a
+// human from DestructiveHint, and every operation that needs acknowledgment
+// is marked destructive. This replaces P0-2's hand-pinned list, which the
+// derivation now makes true by construction for every tool.
+func TestToolHintsAreDerivedFromTheContract(t *testing.T) {
+	for _, tool := range AllTools(nil) {
+		op, ok := ToolOperation(tool.Name)
+		if !ok {
+			t.Errorf("%s has no contract binding", tool.Name)
+			continue
+		}
+		want := contract.HintsFor(op)
+		got := contract.ToolHints{ReadOnly: tool.ReadOnlyHint, Destructive: tool.DestructiveHint, Idempotent: tool.IdempotentHint, OpenWorld: tool.OpenWorldHint}
+		if got != want {
+			t.Errorf("%s: hints %+v, want %+v derived from %s", tool.Name, got, want, op.Name)
+		}
+		if tool.DestructiveHint != op.RequiresAck || tool.ReadOnlyHint == op.RequiresAck {
+			t.Errorf("%s: ReadOnly=%v Destructive=%v disagree with requires_ack=%v", tool.Name, tool.ReadOnlyHint, tool.DestructiveHint, op.RequiresAck)
+		}
+	}
+}
+
+// The cases P0-2 fixed by hand, still true: a tool that overwrites local
+// files is not read-only, and mutations a client must ask about are marked.
+func TestToolHintsKeepTheP0Fixes(t *testing.T) {
 	for _, tc := range []struct {
-		tool        Tool
-		readOnly    bool
-		destructive bool
+		tool                  Tool
+		readOnly, destructive bool
 	}{
-		{NewCerberusResourceStopTool(nil), false, true},
-		{NewCerberusResourceDeployTool(nil), false, true},
-		{NewCerberusResourceEnsureFreshTool(nil), false, true},
-		{NewCerberusResourceApplyTool(nil), false, true},
-		{NewCerberusResourceSyncTool(nil), false, true},
-		{NewCerberusResourceReloadTool(nil), false, true},
-		{NewCerberusResourceRemoveTool(nil), false, true},
-		{NewCerberusPipelineRunTool(nil), false, true},
-		{NewCerberusDropletCreateTool(nil), false, true},
-		{NewCerberusDropletStopTool(nil), false, true},
-		{NewCerberusDropletDestroyTool(nil), false, true},
-		{NewCerberusDropletStartTool(nil), false, false},
 		{NewCerberusSSHGetTool(nil), false, true},
 		{NewCerberusSSHGetDirTool(nil), false, true},
-		{NewCerberusSSHPutTool(nil), false, true},
-		// docker_down is compose stop / docker stop: nothing is removed.
-		{NewCerberusDockerDownTool(nil), false, false},
+		{NewCerberusResourceStopTool(nil), false, true},
+		{NewCerberusPipelineRunTool(nil), false, true},
+		{NewCerberusDropletStopTool(nil), false, true},
+		{NewCerberusDockerDownTool(nil), false, true},
+		{NewCerberusDockerDestroyTool(nil), false, true},
+		{NewCerberusResourceStatusTool(nil), true, false},
+		{NewCerberusDockerLogsTool(nil), true, false},
 	} {
 		if tc.tool.ReadOnlyHint != tc.readOnly || tc.tool.DestructiveHint != tc.destructive {
-			t.Errorf("%s: ReadOnlyHint=%v DestructiveHint=%v, want %v/%v",
-				tc.tool.Name, tc.tool.ReadOnlyHint, tc.tool.DestructiveHint, tc.readOnly, tc.destructive)
+			t.Errorf("%s: ReadOnlyHint=%v DestructiveHint=%v, want %v/%v", tc.tool.Name, tc.tool.ReadOnlyHint, tc.tool.DestructiveHint, tc.readOnly, tc.destructive)
 		}
 	}
 }

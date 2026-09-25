@@ -1,0 +1,93 @@
+schema_version: "1"
+id: contextforge
+version: 0.1.0
+protocol: plugin-sdk/subprocess
+runtime: subprocess
+entrypoint:
+    command: bin/cerberus-contextforge-plugin
+cerberus:
+    connector:
+        api_version: cerberus.connector/v1
+        kind: Connector
+        id: contextforge
+        version: 0.1.0
+        resource_types:
+            - server
+        capabilities:
+            can_create: false
+            can_destroy: false
+            can_build: false
+            can_logs: false
+            can_health: true
+        config:
+            fields:
+                - name: address
+                  type: string
+                  description: ContextForge base URL. Defaults to a local tunnel endpoint.
+                  default: http://127.0.0.1:14444
+            secrets:
+                - name: token
+                  description: ContextForge admin JWT. Bearer only — X-API-Key and a raw token both 401.
+                  env: CONTEXTFORGE_TOKEN
+                  required: true
+        operations:
+            - name: get_health
+              description: Report ContextForge reachability. /health is open, so this works without a token and is the fastest way to tell a down tunnel from a down gateway.
+              examples:
+                - cerberus connectors plugin managed exec contextforge get_health
+              input_schema:
+                additionalProperties: false
+                properties: {}
+                type: object
+              effect: read
+              target:
+                kind: contextforge.gateway
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+            - name: list_gateways
+              description: 'List upstream MCP server registrations. Credentials are never returned: auth_type reports the kind of auth configured, auth_configured whether any is set.'
+              examples:
+                - cerberus connectors plugin managed exec contextforge list_gateways
+              input_schema:
+                additionalProperties: false
+                properties: {}
+                type: object
+              effect: read
+              target:
+                kind: contextforge.gateway
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+            - name: list_virtual_servers
+              description: List the composed catalogs. These have no auth fields; auth lives on the gateway.
+              examples:
+                - cerberus connectors plugin managed exec contextforge list_virtual_servers
+              input_schema:
+                additionalProperties: false
+                properties: {}
+                type: object
+              effect: read
+              target:
+                kind: contextforge.gateway
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+            - name: list_tools
+              description: List tool registrations. Names are gateway-prefixed and change when a virtual server is renamed, so read them here rather than guessing.
+              examples:
+                - cerberus connectors plugin managed exec contextforge list_tools
+              input_schema:
+                additionalProperties: false
+                properties: {}
+                type: object
+              effect: read_sensitive
+              target:
+                kind: contextforge.gateway
+              preview: none
+              output: free_text
+              cost: none
+              local_fs: none

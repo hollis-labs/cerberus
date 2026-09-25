@@ -8,7 +8,7 @@ import (
 
 // NewCerberusSSHExecTool creates the cerberus_ssh_exec tool.
 func NewCerberusSSHExecTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_ssh_exec",
 		Description: "Run a command on an SSH resource.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -17,10 +17,6 @@ func NewCerberusSSHExecTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "resource_id", "command"),
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  false,
-		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID := stringArg(args, "resource_id")
 			command := stringArg(args, "command")
@@ -36,18 +32,17 @@ func NewCerberusSSHExecTool(client cerbapi.Client) Tool {
 			}
 			return marshalConnectorData(result.Data)
 		},
-	}
+	})
 }
 
 // NewCerberusSSHStatusTool creates the cerberus_ssh_status tool.
 func NewCerberusSSHStatusTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_ssh_status",
 		Description: "Check connectivity and host info for an SSH resource.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
 		}, "resource_id"),
-		ReadOnlyHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			resourceID := stringArg(args, "resource_id")
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
@@ -60,12 +55,12 @@ func NewCerberusSSHStatusTool(client cerbapi.Client) Tool {
 			}
 			return marshalConnectorData(result.Data)
 		},
-	}
+	})
 }
 
 // NewCerberusSSHPutTool creates the cerberus_ssh_put tool.
 func NewCerberusSSHPutTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_ssh_put",
 		Description: "Upload a local file to an SSH resource over SFTP, replacing the remote file if it exists.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -75,20 +70,16 @@ func NewCerberusSSHPutTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "resource_id", "local_path", "remote_path"),
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, client, "put", args,
 				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},
-	}
+	})
 }
 
 // NewCerberusSSHGetTool creates the cerberus_ssh_get tool.
 func NewCerberusSSHGetTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_ssh_get",
 		Description: "Download a file from an SSH resource over SFTP, overwriting local_path if it exists. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -99,17 +90,15 @@ func NewCerberusSSHGetTool(client cerbapi.Client) Tool {
 		}, "resource_id", "remote_path", "local_path"),
 		// Not read-only: the download overwrites local_path, which the caller
 		// chooses. Which local paths a caller may write is P1/P2 path policy.
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, client, "get", args, false, boolArg(args, "acknowledged"))
 		},
-	}
+	})
 }
 
 // NewCerberusSSHPutDirTool creates the cerberus_ssh_put_dir tool.
 func NewCerberusSSHPutDirTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_ssh_put_dir",
 		Description: "Recursively upload a local directory tree to an SSH resource over SFTP, replacing remote files that already exist. Permission bits are carried and a symlink pointing outside the tree is refused. Every byte is copied every time — there is no delta transfer.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -119,20 +108,16 @@ func NewCerberusSSHPutDirTool(client cerbapi.Client) Tool {
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only. Reports file count and total bytes without transferring."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
 		}, "resource_id", "local_path", "remote_path"),
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, client, "put_dir", args,
 				boolArg(args, "dry_run"), boolArg(args, "acknowledged"))
 		},
-	}
+	})
 }
 
 // NewCerberusSSHGetDirTool creates the cerberus_ssh_get_dir tool.
 func NewCerberusSSHGetDirTool(client cerbapi.Client) Tool {
-	return Tool{
+	return contractTool(Tool{
 		Name:        "cerberus_ssh_get_dir",
 		Description: "Recursively download a directory tree from an SSH resource over SFTP into a local directory, overwriting local files that already exist. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
@@ -143,12 +128,10 @@ func NewCerberusSSHGetDirTool(client cerbapi.Client) Tool {
 		}, "resource_id", "remote_path", "local_path"),
 		// Not read-only: the download overwrites local_path, which the caller
 		// chooses. Which local paths a caller may write is P1/P2 path policy.
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			return runSSHTransfer(ctx, client, "get_dir", args, false, boolArg(args, "acknowledged"))
 		},
-	}
+	})
 }
 
 // runSSHTransfer backs all four transfer tools; they differ only in direction,
