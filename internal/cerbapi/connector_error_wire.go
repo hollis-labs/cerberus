@@ -19,6 +19,8 @@ import (
 //   - operation_unsupported: no such operation here.
 //   - connector_unavailable, credential_missing: the connector cannot serve
 //     right now; the request may succeed once the operator fixes that.
+//   - plugin_changed: the plugin is not the bundle the operator reviewed;
+//     it conflicts with the accepted review until re-accepted on a TTY.
 //   - operation_failed: the request passed every gate and the provider, the
 //     plugin or the tool behind the connector failed it. 502, so a 500 still
 //     means a fault in Cerberus itself.
@@ -31,6 +33,7 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorCredentialMissing:  http.StatusServiceUnavailable,
 	ExternalConnectorOperationFailed:    http.StatusBadGateway,
 	ExternalConnectorAuditUnavailable:   http.StatusServiceUnavailable,
+	ExternalConnectorPluginChanged:      http.StatusConflict,
 }
 
 // ExternalConnectorHTTPStatus returns the status for err when it carries a

@@ -126,17 +126,18 @@ func TestPluginDirRefusalsSurviveRedaction(t *testing.T) {
 
 func TestManagedPluginConnectorLifecycleOverSocket(t *testing.T) {
 	t.Setenv("GO_WANT_PLUGIN_CONNECTOR_API_HELPER", "1")
+	managed := mustManagedPluginService(t, "")
 	client := NewInProcessClient(
-		WithManagedPluginConnectorService(mustManagedPluginService(t, "")),
+		WithManagedPluginConnectorService(managed),
 	)
 	socketClient := startConnectorSocket(t, client)
 	pluginDir := helperPluginDir(t)
 
-	installed, err := socketClient.InstallManagedPlugin(context.Background(), PluginConnectorHealthArgs{
+	installed, err := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
 	})
 	if err != nil {
-		t.Fatalf("InstallManagedPlugin: %v", err)
+		t.Fatalf("install: %v", err)
 	}
 	if installed.ID != "docker" || installed.Loaded {
 		t.Fatalf("installed = %+v", installed)
@@ -193,7 +194,7 @@ func TestManagedPluginConnectorServiceRestoresPersistedState(t *testing.T) {
 	pluginDir := helperPluginDir(t)
 
 	svc := mustManagedPluginService(t, statePath)
-	installed, err := svc.Install(context.Background(), PluginConnectorHealthArgs{
+	installed, err := svc.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
 	})
 	if err != nil {

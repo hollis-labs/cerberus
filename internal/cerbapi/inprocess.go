@@ -161,11 +161,11 @@ func (c *InProcessClient) ExecuteConnectorOperation(ctx context.Context, args Ex
 	return c.external.Execute(ctx, args)
 }
 
-func (c *InProcessClient) InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {
+func (c *InProcessClient) ReloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
 	if c.managedPlugins == nil {
 		return ManagedPluginConnectorState{}, errors.New("managed plugin connector service is not configured")
 	}
-	return c.managedPlugins.Install(ctx, args)
+	return c.managedPlugins.Reload(ctx, id)
 }
 
 func (c *InProcessClient) LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {

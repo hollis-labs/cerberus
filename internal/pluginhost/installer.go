@@ -75,8 +75,8 @@ func (i DirectoryInstaller) Install(ctx context.Context, source string) (Install
 	}
 
 	// The host always computes the entrypoint fingerprint; a caller cannot
-	// supply one. It is change detection for later, not a trust signal, and
-	// nothing compares it yet (P1, CERB-GAP-336).
+	// supply one. It is recorded for the audit log. What a load compares is
+	// the bundle digest (CheckBundle), which covers the entrypoint too.
 	entrypointSHA, err := hashPluginEntrypoint(pluginDir, spec)
 	if err != nil {
 		return InstalledPlugin{}, err

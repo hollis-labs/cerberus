@@ -348,9 +348,9 @@ func (c *SocketClient) executeConnectorOperation(ctx context.Context, args Exter
 	return c.doJSONStream(ctx, http.MethodPost, path, args, out)
 }
 
-func (c *SocketClient) InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {
+func (c *SocketClient) ReloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
 	var out ManagedPluginConnectorState
-	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/install", args, &out); err != nil {
+	if err := c.doJSONStream(ctx, http.MethodPost, "/plugins/connectors/"+url.PathEscape(id)+"/reload", nil, &out); err != nil {
 		return ManagedPluginConnectorState{}, err
 	}
 	return out, nil

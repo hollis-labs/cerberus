@@ -297,7 +297,7 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 	)
 	classification := map[string]string{
 		"ExecuteConnectorOperation": audited,
-		"InstallManagedPlugin":      audited,
+		"ReloadManagedPlugin":       audited,
 		"LoadManagedPlugin":         audited,
 		"UnloadManagedPlugin":       audited,
 		"UninstallManagedPlugin":    audited,
@@ -337,9 +337,7 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		"ExecuteConnectorOperation": func() {
 			_, _ = client.ExecuteConnectorOperation(ctx, ExternalConnectorOperationArgs{Connector: "docker", Operation: "list_containers"})
 		},
-		"InstallManagedPlugin": func() {
-			_, _ = client.InstallManagedPlugin(ctx, PluginConnectorHealthArgs{PluginDir: t.TempDir()})
-		},
+		"ReloadManagedPlugin":    func() { _, _ = client.ReloadManagedPlugin(ctx, "ghost") },
 		"LoadManagedPlugin":      func() { _, _ = client.LoadManagedPlugin(ctx, "ghost") },
 		"UnloadManagedPlugin":    func() { _, _ = client.UnloadManagedPlugin(ctx, "ghost") },
 		"UninstallManagedPlugin": func() { _, _ = client.UninstallManagedPlugin(ctx, "ghost") },
