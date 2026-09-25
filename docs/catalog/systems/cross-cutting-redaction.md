@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.95
-confidence_label: "Rules read directly; all five defects, shipped and open, re-run against redact.Text on 2026-09-18"
-last_reviewed: "2026-09-18"
+confidence_label: "redact.go and the P0 refusal tests re-read on main after P0 (#48 to #54); earlier findings as recorded 2026-09-18"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -114,3 +114,13 @@ been correct and none has been structural; `AGENTS.md` already names the answer
 value as separate things, and keep `Text` as a last-resort net over text
 Cerberus did not compose. What is still missing is the test discipline that
 would have caught any of them (CERB-GAP-274).
+
+**P0 held the line without a rule change.** The P0 work (PRs #48 to #52) added
+four refusal families: the non-loopback `--listen` refusal, the retired
+`plugin_dir` routes, the SSH connection-field refusal and the docker ad-hoc
+target refusal. Each has a test that it survives `redact.Text`, and `key_file`
+and `known_hosts_file` values were checked against `redact.Marshal`.
+`preview_unsupported` joined the error-code vocabulary before it could lose the
+word after it, and `TestGateRefusalsSurviveRedaction` runs every error code,
+followed by a recovery sentence, through `redact.Text`. That is the discipline
+this record asks for, applied by hand. It is not yet a gate (CERB-GAP-274).

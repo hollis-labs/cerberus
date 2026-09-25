@@ -1,14 +1,14 @@
 ---
 id: "CERB-CAP-306"
 class: "capability"
-name: "Plugin trust policy and tiers"
-summary: "Records a trust tier at install from a policy mode and caller-asserted signature claims, and checks that tier on every operation."
+name: "Plugin install origin and operation gate"
+summary: "Records how a plugin was installed, installed or dev, and gates every operation on that origin and the operation's destructive flag; it makes no trust claim, and the self-asserted signing tiers it replaced are gone."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
-confidence_score: 0.9
-confidence_label: "Policy and gate read in full; devmode refusal and self-asserted signed install both verified live; no signature verification exists"
-last_reviewed: "2026-09-17"
+confidence_score: 0.95
+confidence_label: "internal/pluginhost/policy.go, installer and plugin state re-read on main after P0 (#48 to #54)"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -24,60 +24,68 @@ tags:
 relationships:
   - type: "implements"
     target: "CERB-DEC-354"
-    note: "unsigned sits with the trusted tiers; provenance vs intent"
+    note: "unsigned sat with the trusted tiers; superseded by CERB-DEC-815"
   - type: "implements"
     target: "CERB-DEC-355"
     note: "the host computes the entrypoint hash itself"
   - type: "blocks"
     target: "CERB-GAP-335"
-    note: "the only gating tiers need a devmode build, and signed is unverified"
+    note: "the tiers constrained nothing reachable; closed in PR #51"
   - type: "blocks"
     target: "CERB-GAP-336"
-    note: "the computed hash is discarded"
+    note: "the hash is reported but neither persisted nor compared"
+  - type: "relates_to"
+    target: "CERB-DEC-815"
+    note: "origin replaced the trust tiers"
+  - type: "blocks"
+    target: "CERB-GAP-848"
+    note: "the dev origin needs a devmode build"
 ---
 
-# Plugin trust policy and tiers
+# Plugin install origin and operation gate
 
-`TrustPolicy` decides whether a plugin may be installed and records a
-`TrustTier` on the result; `OperationAllowed` consults that tier on every
-operation. Three modes: `catalog_signed` (the default, requiring a catalog
-signature, an archive hash and an archive signature), `local` (unsigned from a
-local path, requiring the hash only), and `developer` (unsigned from an
-allow-listed root, and only in a `devmode` build). Six tiers: `builtin`,
-`signed`, `local_dev`, `unsigned_dev`, `unsigned`, `untrusted`.
+This record was "Plugin trust policy and tiers" until PR #51, and the rename is
+the finding. At audit time `TrustPolicy` recorded one of six tiers (`builtin`,
+`signed`, `local_dev`, `unsigned_dev`, `unsigned`, `untrusted`) from a mode and
+two caller-asserted booleans, `--catalog-signed` and `--archive-signed`. There
+was no signature verification anywhere, so passing both flags against an
+unsigned directory recorded `signed` (verified live at the time), and
+`OperationAllowed` treated `signed`, `unsigned` and `builtin` identically anyway.
+The only tiers that gated anything needed a devmode build that no Makefile
+target produces (CERB-GAP-335).
 
-The gating rule is short. `builtin`, `signed` and `unsigned` may run anything,
-subject to `--ack` on a `destructive` operation that declares `requires_ack`.
-`local_dev` and `unsigned_dev` are refused every destructive operation outright.
-`untrusted` and the empty tier are refused everything. Putting `unsigned` with
-the trusted tiers is deliberate and argued in the code: a signature attests to
-*provenance*, the acknowledgment attests to *intent*, and an operator who built
-or vetted a plugin themselves has established provenance out of band — grouping
-it with the dev tiers would make the plugin lane read-only, and a read-only
-plugin lane cannot carry the provider integrations it exists for.
+PR #51 removed the vocabulary instead of implementing signing, because Cerberus
+does not sign or vet plugins (Decision 12 in
+`docs/plans/live-systems-security-target.md`). What replaced it is an install
+origin, which states how a plugin was installed and what the host restricts, and
+makes no claim about who built it (CERB-DEC-815):
 
-Which tiers are reachable is a different question from which tiers exist, and
-the answer is uncomfortable. `DevModeEnabled` is a build-tag constant, `false`
-in every build the Makefile produces; `--dev` on the installed binary fails with
-"developer trust mode requires a devmode build" (verified live). So
-`local_dev` and `unsigned_dev` — the only tiers that gate anything on trust —
-cannot be reached by any shipped binary. And `signed` is not verified: there is
-no signature verification anywhere in the codebase, no cosign, no minisign, no
-key material. `CatalogSigned` and `ArchiveSigned` are booleans the *caller*
-asserts, reachable as `--catalog-signed` / `--archive-signed` on the CLI;
-passing both against an unsigned plugin directory is accepted (verified live).
-`TrustPolicy` is therefore honest about what it recorded and dishonest about
-nothing — it is the tier *names* that imply verification that does not exist.
+- **`installed`**: installed from a local directory. Its operations are gated
+  like a built-in's: a `destructive` one needs `--ack`.
+- **`dev`**: a development install with `--dev`. It needs a devmode build and a
+  source under an allowed developer root, and every destructive operation is
+  refused, acknowledged or not. That is a restriction, not a lower trust level.
 
-The hash is the one integrity mechanism that is real, and it is half-wired. The
-installer computes the entrypoint's SHA-256 itself when the caller supplies
-none, on the sound argument that asking an operator to paste a digest of a
-binary they just built is friction that buys nothing. But the result is only
-stored on the in-memory `InstalledPlugin`: it is not written to
-`~/.cerberus/plugin-connectors.json`, not compared on restore or reload, and not
-in the `managed list` payload. Both plugins on this machine are `unsigned`, and
-neither declares a destructive operation — so the tier gate, the `--ack` path
-and the whole trust apparatus are, in practice, exercised by nothing that runs
-here. The only plugin artifact in existence with a destructive operation is the
-Docker prototype, whose id is reserved and which can therefore only be run
-through the one-shot lane.
+`ValidateInstall` checks the manifest, requires that the entrypoint could be
+fingerprinted, refuses a requested sandbox profile while no sandbox is enforced
+(nothing sets `SandboxEnforced`), and returns the origin. `OperationAllowed`
+runs on every operation. It refuses a `dev` plugin's destructive operations and
+any unknown origin, including the legacy tier names, then demands
+acknowledgment for any `destructive` operation. Since PR #49 it no longer reads
+`requires_ack`, so a manifest cannot opt a destructive operation out of the gate
+(CERB-GAP-286). A dry run reaches the plugin only for an operation that declares
+`supports_dry`, and that preview is the plugin's claim (CERB-DEC-814).
+
+Two things are unfinished. `dev` has the old reachability problem under a new
+name: `DevModeEnabled` is a build-tag constant, false in every build the
+Makefile produces, so a release build refuses `--dev` with "a development
+install (--dev) requires a devmode build" (CERB-GAP-848). And the entrypoint
+hash is half-wired. The host always computes it, since `--archive-sha256` is
+gone, and `managed list` reports it as `entrypoint_sha256`. It is not written to
+`plugin-connectors.json`, and restore recomputes it from disk, so nothing
+compares it (CERB-GAP-336). The P1 plan pairs comparing it with a re-review.
+
+State compatibility is handled rather than migrated. An old state entry's
+`trust` object, and an older CLI's `trust` install argument, are read for
+`dev_mode` alone. The signing keys and `archive_sha256` are ignored, and the
+next write uses `options`.
