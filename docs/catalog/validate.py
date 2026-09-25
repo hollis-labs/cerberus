@@ -57,6 +57,17 @@ for rid in {i for i in ids if ids.count(i) > 1}:
     err(f"duplicate id {rid}")
 idset = set(ids)
 
+# Canonical order: by class, then number (add_record.py). Tail appends from
+# two branches always touch the same lines; in this order a new record lands
+# at the end of its own class, so branches adding different classes merge.
+_CLASS_ORDER = ["capability", "decision", "gap", "tool"]
+def _order_key(r):
+    m = re.match(r"^CERB-[A-Z]+-(\d+)$", r.get("id") or "")
+    c = r.get("class")
+    return (_CLASS_ORDER.index(c) if c in _CLASS_ORDER else len(_CLASS_ORDER), int(m.group(1)) if m else 0, r.get("id") or "")
+if [r.get("id") for r in records] != [r.get("id") for r in sorted(records, key=_order_key)]:
+    err("records are not in canonical order (class, then number); run: python3 docs/catalog/add_record.py sort")
+
 for rec in records:
     rid = rec.get("id", "<no id>")
     for f in REQUIRED:

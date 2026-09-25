@@ -115,3 +115,43 @@ A deferral is a decision: record it as one rather than leaving a silent gap.
 - **Prefer a specific summary.** "Manages Docker" says nothing;
   "Runs Docker operations against a per-call target, local or over SSH" is a
   record.
+
+## Adding and merging records
+
+More than one branch writes this catalog at once, often from different agents.
+Two things used to collide. Ids are numbered **globally across classes**, so two
+branches that each take "the next number" take the same one. And records were
+appended at the tail, so any two branches' new records touched the same lines.
+`add_record.py` handles both:
+
+```bash
+python3 docs/catalog/add_record.py add record.json  # allocate, insert, write; prints the id
+python3 docs/catalog/add_record.py resolve          # during a rebase or merge conflict
+python3 docs/catalog/add_record.py sync             # capability bodies from systems/*.md
+python3 docs/catalog/add_record.py sort             # canonical order
+python3 docs/catalog/test_add_record.py             # its tests, against real git repos
+```
+
+- **Canonical order.** Records are sorted by class (capability, decision, gap,
+  tool), then by number, and `validate.py` refuses any other order. A new gap
+  lands at the end of the gap block and a new tool at the end of the tool
+  block, so branches that add different classes merge without a conflict.
+- **Allocate late.** `add` takes the next number above every id in your
+  checkout and on `origin/main`, which it fetches. Run it after rebasing onto
+  current main, just before you push. Leave `id` out of `record.json`. A
+  capability is a `systems/*.md` document first, so give it the id in the
+  document's frontmatter and add its record by hand.
+- **On a conflict, don't hand-merge the JSON.** Run `resolve`. It merges the
+  base, the other side and yours record by record:
+  - a record only one side changed takes that side's version;
+  - a record you added keeps its id unless the other side used that id or its
+    number, and then it is renumbered;
+  - the new id is written into your other new records and into the
+    `systems/*.md` files where the other side never used the old id.
+
+  It prints each renumbering so you can fix commit messages and PR
+  descriptions. A record both sides changed differently is left for you, except
+  a capability whose only difference is its body, which it rebuilds from its
+  document.
+- Output keeps the house serialization: indent 2, non-ASCII as is, and a
+  trailing newline.
