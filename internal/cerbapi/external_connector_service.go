@@ -38,9 +38,11 @@ const (
 	// ExternalConnectorPreviewUnsupported is a dry run of an operation that
 	// has no preview. The operation is refused, never executed.
 	ExternalConnectorPreviewUnsupported ExternalConnectorErrorCode = "preview_unsupported"
-	// ExternalConnectorOperationFailed is a plugin operation that ran and
-	// failed for a reason the host did not classify. Coding it is what routes
-	// the plugin's own text through ExternalConnectorError's redaction.
+	// ExternalConnectorOperationFailed is a connector operation — built-in or
+	// plugin — that passed every gate and then failed in the provider, the
+	// plugin or the tool it drives, for a reason the host did not classify. It
+	// is not a refusal and not a fault in Cerberus. Coding it is also what
+	// routes a plugin's own text through ExternalConnectorError's redaction.
 	ExternalConnectorOperationFailed ExternalConnectorErrorCode = "operation_failed"
 )
 
@@ -178,6 +180,20 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector registry unavailable")
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
+	// Refuse before credential resolution, dry-run previews, or plugin dispatch.
+	if args.Connector == "namecheap" && (args.Operation == "create_dns_record" || args.Operation == "delete_dns_record") {
+		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
+	}
+	// The contract gate: the operation must be declared, and the caller's
+	// config must pass its key table. Both run on the raw request, before a
+	// configured resource is merged in and before anything is resolved, so a
+	// refusal never depends on having a credential.
+	op, contractErr := s.declaredOperation(ctx, args)
+	if contractErr != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(contractErr.Error())))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Operation refused")
+		return ExternalConnectorOperationResult{}, contractErr
+	}
 	// An SSH target is always a configured resource. Resolve it first, so a
 	// dry-run preview shows the target that would really be used.
 	if args.Connector == "ssh" {
@@ -199,10 +215,6 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 			return ExternalConnectorOperationResult{}, err
 		}
 		args = resolved
-	}
-	// Refuse before credential resolution, dry-run previews, or plugin dispatch.
-	if args.Connector == "namecheap" && (args.Operation == "create_dns_record" || args.Operation == "delete_dns_record") {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, ncconn.ErrUnsafePerRecordWrite)
 	}
 	if args.DryRun {
 		if preview, ok, err := s.dryRunPreview(args); ok || err != nil {
@@ -263,7 +275,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	// credential, and a refusal that depends on having one reports
 	// credential_missing for a call that was never going to run: an un-acked
 	// droplet stop said "no token" instead of "not acknowledged".
-	if err := s.requireAcknowledgment(args); err != nil {
+	if err := requireAcknowledgment(args, op); err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Acknowledgment required")
 		return ExternalConnectorOperationResult{}, err
@@ -300,6 +312,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	default:
 		err = externalConnectorError(args, ExternalConnectorUnsupported, nil)
 	}
+	err = operationFailure(args, err)
 	if err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Connector operation failed")
@@ -310,25 +323,64 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	return result, nil
 }
 
-// requireAcknowledgment fails closed. Whether an operation is destructive is
-// read from its definition, so a connector with no definition, or an
-// operation its definition does not declare, is refused rather than treated
-// as safe.
-func (s *ExternalConnectorService) requireAcknowledgment(args ExternalConnectorOperationArgs) error {
+// declaredOperation finds the operation's contract and checks the caller's
+// config against its key table. It fails closed: a connector with no
+// definition, or an operation its definition does not declare, is refused
+// rather than treated as safe.
+func (s *ExternalConnectorService) declaredOperation(ctx context.Context, args ExternalConnectorOperationArgs) (contract.Operation, error) {
 	def, ok := s.definitionFor(args.Connector)
 	if !ok {
-		return externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("connector %q has no definition, so whether %q is destructive cannot be checked; refusing", args.Connector, args.Operation))
+		return contract.Operation{}, externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("connector %q has no definition, so the contract of %q cannot be checked; refusing", args.Connector, args.Operation))
 	}
-	for _, op := range def.Operations {
-		if op.Name != args.Operation {
-			continue
-		}
-		if op.Destructive && !args.Acknowledged {
-			return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("destructive operation %q requires operator acknowledgment", args.Operation))
-		}
+	op, ok := def.Operation(args.Operation)
+	if !ok {
+		return contract.Operation{}, externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("connector %q does not declare operation %q, so its contract cannot be checked; refusing", args.Connector, args.Operation))
+	}
+	if err := op.CheckInputs(args.Config, CallerSurfaceFrom(ctx) == SurfaceInProcess); err != nil {
+		return contract.Operation{}, externalConnectorError(args, ExternalConnectorInvalidArgs, inputRefusal(args.Connector, err))
+	}
+	return op, nil
+}
+
+// inputHints add the connector's own recovery to a key-table refusal: how
+// to name a target it takes only as a configured resource.
+var inputHints = map[string]string{
+	"ssh":    "an ssh operation takes a configured resource id, not connection settings; pass id=<resource-id> (see `cerberus resource list`) and set host, user and keys on the resource",
+	"docker": "over the socket, the web console and MCP a docker operation takes a configured docker resource (resource=<id>, see `cerberus resource list`) or a local container name; ad-hoc targets (--host, --context, -f) run only from your shell",
+}
+
+func inputRefusal(connectorID string, err error) error {
+	if hint, ok := inputHints[connectorID]; ok {
+		return fmt.Errorf("%w; %s", err, hint)
+	}
+	return err
+}
+
+// requireAcknowledgment gates on the operation's derived RequiresAck: every
+// effect class except read and read_sensitive (Decision 14), and any
+// operation that writes to the local filesystem.
+func requireAcknowledgment(args ExternalConnectorOperationArgs, op contract.Operation) error {
+	if !op.RequiresAck || args.Acknowledged {
 		return nil
 	}
-	return externalConnectorError(args, ExternalConnectorUnsupported, fmt.Errorf("connector %q does not declare operation %q, so whether it is destructive cannot be checked; refusing", args.Connector, args.Operation))
+	if op.Effect.ReadOnly() && op.LocalFS == contract.LocalFSWrites {
+		return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q writes to the local filesystem and requires operator acknowledgment", op.Effect, args.Operation))
+	}
+	return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q requires operator acknowledgment", op.Effect, args.Operation))
+}
+
+// operationFailure codes an error from past the gates. A coded error keeps its
+// code; anything else came from the provider, the plugin or the tool behind
+// the connector.
+func operationFailure(args ExternalConnectorOperationArgs, err error) error {
+	if err == nil {
+		return nil
+	}
+	var coded *ExternalConnectorError
+	if errors.As(err, &coded) {
+		return err
+	}
+	return externalConnectorError(args, ExternalConnectorOperationFailed, err)
 }
 
 func previewUnsupportedError(args ExternalConnectorOperationArgs) error {
@@ -1078,11 +1130,18 @@ func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) e
 	if errors.Is(err, pluginhost.ErrPreviewUnsupported) {
 		return externalConnectorError(args, ExternalConnectorPreviewUnsupported, err)
 	}
+	var inputErr *contract.InputError
+	if errors.As(err, &inputErr) {
+		return externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+	}
 	if errors.Is(err, pluginhost.ErrAckRequired) {
 		return externalConnectorError(args, ExternalConnectorAckRequired, err)
 	}
 	if errors.Is(err, pluginhost.ErrOperationUndeclared) {
 		return externalConnectorError(args, ExternalConnectorUnsupported, err)
+	}
+	if errors.Is(err, pluginhost.ErrNotLoaded) {
+		return externalConnectorError(args, ExternalConnectorUnavailable, err)
 	}
 	return externalConnectorError(args, ExternalConnectorOperationFailed, err)
 }

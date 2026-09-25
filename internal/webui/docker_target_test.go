@@ -84,7 +84,7 @@ func TestWebDockerTakesAResourceNotAnAdHocTarget(t *testing.T) {
 		t.Fatalf("a refused request reached the backend: %+v", backend)
 	}
 
-	if rec := post(`{"config":{"resource":"web-monitor"}}`); rec.Code != http.StatusOK {
+	if rec := post(`{"config":{"resource":"web-monitor"},"acknowledged":true}`); rec.Code != http.StatusOK {
 		t.Fatalf("by resource: %d %s", rec.Code, rec.Body.String())
 	}
 	if backend.upFile != "/srv/web/docker-compose.yml" {

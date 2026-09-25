@@ -69,8 +69,8 @@ func secretDeclaringPlugin() InstalledPlugin {
 		},
 	}
 	plugin.Manifest.Operations = []contract.ManifestOperation{
-		{Name: "get_health", InputSchema: contract.ObjectSchema(map[string]any{})},
-		{Name: "list_gateways", InputSchema: contract.ObjectSchema(map[string]any{})},
+		{Name: "get_health", Effect: contract.EffectRead, InputSchema: contract.ObjectSchema(map[string]any{})},
+		{Name: "list_gateways", Effect: contract.EffectRead, InputSchema: contract.ObjectSchema(map[string]any{})},
 	}
 	return plugin
 }

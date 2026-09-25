@@ -90,18 +90,19 @@ func NewCerberusSSHPutTool(client cerbapi.Client) Tool {
 func NewCerberusSSHGetTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_get",
-		Description: "Download a file from an SSH resource over SFTP, overwriting local_path if it exists.",
+		Description: "Download a file from an SSH resource over SFTP, overwriting local_path if it exists. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
-			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
-			"remote_path": map[string]interface{}{"type": "string", "description": "File to download from the remote host."},
-			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination path."},
+			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+			"remote_path":  map[string]interface{}{"type": "string", "description": "File to download from the remote host."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local destination path."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge overwriting local_path. Required: the download writes to the local filesystem."},
 		}, "resource_id", "remote_path", "local_path"),
 		// Not read-only: the download overwrites local_path, which the caller
 		// chooses. Which local paths a caller may write is P1/P2 path policy.
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
-			return runSSHTransfer(ctx, client, "get", args, false, false)
+			return runSSHTransfer(ctx, client, "get", args, false, boolArg(args, "acknowledged"))
 		},
 	}
 }
@@ -133,18 +134,19 @@ func NewCerberusSSHPutDirTool(client cerbapi.Client) Tool {
 func NewCerberusSSHGetDirTool(client cerbapi.Client) Tool {
 	return Tool{
 		Name:        "cerberus_ssh_get_dir",
-		Description: "Recursively download a directory tree from an SSH resource over SFTP into a local directory, overwriting local files that already exist.",
+		Description: "Recursively download a directory tree from an SSH resource over SFTP into a local directory, overwriting local files that already exist. Requires acknowledged=true.",
 		InputSchema: objectSchema(map[string]interface{}{
-			"resource_id": map[string]interface{}{"type": "string", "description": "SSH resource ID."},
-			"remote_path": map[string]interface{}{"type": "string", "description": "Directory to download from the remote host."},
-			"local_path":  map[string]interface{}{"type": "string", "description": "Local destination directory."},
+			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
+			"remote_path":  map[string]interface{}{"type": "string", "description": "Directory to download from the remote host."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local destination directory."},
+			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge overwriting local files. Required: the download writes to the local filesystem."},
 		}, "resource_id", "remote_path", "local_path"),
 		// Not read-only: the download overwrites local_path, which the caller
 		// chooses. Which local paths a caller may write is P1/P2 path policy.
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
-			return runSSHTransfer(ctx, client, "get_dir", args, false, false)
+			return runSSHTransfer(ctx, client, "get_dir", args, false, boolArg(args, "acknowledged"))
 		},
 	}
 }

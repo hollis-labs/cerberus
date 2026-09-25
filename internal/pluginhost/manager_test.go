@@ -72,7 +72,7 @@ func validInstalledPlugin() InstalledPlugin {
 			Version:       "dev",
 			ResourceTypes: []string{"container"},
 			Operations: []contract.ManifestOperation{
-				{Name: "logs", InputSchema: contract.ObjectSchema(map[string]any{})},
+				{Name: "logs", Effect: contract.EffectReadSensitive, InputSchema: contract.ObjectSchema(map[string]any{"container": contract.StringSchema("Container.")})},
 			},
 		},
 	}

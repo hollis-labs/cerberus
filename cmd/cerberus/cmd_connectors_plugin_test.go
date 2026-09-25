@@ -130,7 +130,7 @@ func helperPluginDir(t *testing.T) string {
 		Version:       "test",
 		ResourceTypes: []string{"container"},
 		Operations: []contract.ManifestOperation{
-			{Name: "logs", InputSchema: contract.ObjectSchema(map[string]any{
+			{Name: "logs", Effect: contract.EffectReadSensitive, InputSchema: contract.ObjectSchema(map[string]any{
 				"container": contract.StringSchema("Container name."),
 				"lines":     contract.IntegerSchema("Lines to return."),
 			})},
@@ -138,7 +138,7 @@ func helperPluginDir(t *testing.T) string {
 			// built-in id's known operations; logs would be decoded as the
 			// docker built-in's string. A real plugin cannot claim a
 			// built-in id, so only this fixture meets that.
-			{Name: "tail", InputSchema: contract.ObjectSchema(map[string]any{
+			{Name: "tail", Effect: contract.EffectReadSensitive, InputSchema: contract.ObjectSchema(map[string]any{
 				"container": contract.StringSchema("Container name."),
 				"lines":     contract.IntegerSchema("Lines to return."),
 			})},
@@ -215,7 +215,7 @@ func TestManagedPluginCommands(t *testing.T) {
 	// An argument the schema does not declare is refused before anything runs.
 	connectorsPluginManagedExecFlags = connectorExecFlags{args: []string{"container=web", "follow=true"}}
 	err := connectorsPluginManagedExecCmd.RunE(connectorsPluginManagedExecCmd, []string{"docker", "tail"})
-	if err == nil || !strings.Contains(err.Error(), "unknown argument follow") {
+	if err == nil || !strings.Contains(err.Error(), "refusing fields (follow)") {
 		t.Fatalf("exec with an undeclared argument: err = %v, want it refused", err)
 	}
 

@@ -960,10 +960,4 @@ func init() {
 	resourceCmd.AddCommand(resourceSyncCmd)
 	resourceCmd.AddCommand(resourceRemoveCmd)
 
-	// A runtime (RunE) failure on a resource subcommand is an operational
-	// error, not misuse — printing the cobra usage block is just noise. Cobra
-	// still prints the error itself (SilenceErrors stays false).
-	for _, c := range resourceCmd.Commands() {
-		c.SilenceUsage = true
-	}
 }

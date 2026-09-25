@@ -123,7 +123,8 @@ func TestConnectorExecConfigRefusals(t *testing.T) {
 		flags connectorExecFlags
 		want  string
 	}{
-		{"undeclared argument on a closed schema", "set_records", connectorExecFlags{args: []string{"domain=x", "zone=y"}}, "unknown argument zone; the operation accepts: domain, email_type"},
+		{"undeclared argument on a closed schema", "set_records", connectorExecFlags{args: []string{"domain=x", "zone=y"}}, "refusing fields (zone): the operation does not declare them; the operation accepts: domain, email_type"},
+		{"missing a required argument", "set_records", connectorExecFlags{args: []string{"ttl=5"}}, "missing required fields (domain)"},
 		{"not an integer", "set_records", connectorExecFlags{args: []string{"ttl=five"}}, `--arg ttl="five": want integer`},
 		{"not a boolean", "set_records", connectorExecFlags{args: []string{"proxied=maybe"}}, `--arg proxied="maybe": want boolean`},
 		{"outside the enum", "set_records", connectorExecFlags{args: []string{"email_type=FWD"}}, `not one of`},

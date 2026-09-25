@@ -37,7 +37,8 @@ func TestAckRefusalComesBeforeCredentialResolution(t *testing.T) {
 	for _, op := range []string{"stop", "destroy", "create_droplet"} {
 		t.Run(op, func(t *testing.T) {
 			resolves = 0
-			args := ExternalConnectorOperationArgs{Connector: "digitalocean", Operation: op, Config: map[string]any{"droplet_id": 42}}
+			declared, _ := doconn.Definition().Operation(op)
+			args := ExternalConnectorOperationArgs{Connector: "digitalocean", Operation: op, Config: sampleConfig(declared)}
 
 			_, err := svc.Execute(context.Background(), args)
 			var connErr *ExternalConnectorError

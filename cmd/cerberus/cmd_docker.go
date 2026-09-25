@@ -5,7 +5,6 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
@@ -107,6 +106,10 @@ var dockerLogsCmd = &cobra.Command{
 	},
 }
 
+// dockerAck is --ack on up and down: starting and stopping are lifecycle
+// operations, which need acknowledgment (Decision 14).
+var dockerAck bool
+
 var dockerUpCmd = &cobra.Command{
 	Use:   "up <resource-id>",
 	Short: "Start container or compose stack",
@@ -125,9 +128,10 @@ var dockerUpCmd = &cobra.Command{
 		}
 
 		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
-			Connector: "docker",
-			Operation: "start",
-			Config:    cfg,
+			Connector:    "docker",
+			Operation:    "start",
+			Config:       cfg,
+			Acknowledged: dockerAck,
 		}); err != nil {
 			return err
 		}
@@ -165,9 +169,10 @@ which requires acknowledgment. There is no 'docker' verb for it yet.`,
 		}
 
 		if _, err := svc.Execute(cmd.Context(), cerbapi.ExternalConnectorOperationArgs{
-			Connector: "docker",
-			Operation: "stop",
-			Config:    cfg,
+			Connector:    "docker",
+			Operation:    "stop",
+			Config:       cfg,
+			Acknowledged: dockerAck,
 		}); err != nil {
 			return err
 		}
@@ -251,7 +256,7 @@ func adHocDockerFlags(cmd *cobra.Command) bool {
 // the daemon as usual.
 func newDockerConnectorService(cmd *cobra.Command) (connectorExecutor, func(), error) {
 	if adHocDockerFlags(cmd) {
-		return app.NewExternalConnectorService(cfgPath), func() {}, nil
+		return newLocalConnectorExecutor(), func() {}, nil
 	}
 	return newExternalConnectorService(cmd.Context())
 }
@@ -311,6 +316,8 @@ func init() {
 	dockerLogsCmd.Flags().IntVar(&dockerLogsLines, "lines", 50, "number of log lines to show")
 	dockerUpCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode); runs in this shell, not through the daemon")
 	dockerDownCmd.Flags().StringP("file", "f", "", "compose file path (for compose mode); runs in this shell, not through the daemon")
+	dockerUpCmd.Flags().BoolVar(&dockerAck, "ack", false, "acknowledge the start operation (lifecycle)")
+	dockerDownCmd.Flags().BoolVar(&dockerAck, "ack", false, "acknowledge the stop operation (lifecycle)")
 	for _, sub := range []*cobra.Command{dockerPSCmd, dockerLogsCmd, dockerUpCmd, dockerDownCmd} {
 		sub.Flags().StringP("host", "H", "", "Docker daemon to target as a DOCKER_HOST value (ssh://user@host, tcp://host:2376); runs in this shell, not through the daemon")
 		sub.Flags().String("context", "", "Docker context name to target (mutually exclusive with --host); runs in this shell, not through the daemon")

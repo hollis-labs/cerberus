@@ -3,29 +3,13 @@ package cerbapi
 import (
 	"errors"
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/config"
-	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 )
 
 // ResourceLookup returns the configured resource with the given id, from
 // whichever config the serving process resolved.
 type ResourceLookup func(id string) (*config.ResourceDef, bool)
-
-// sshOperationFields are the only keys an SSH operation's Config may carry,
-// from the ssh connector's table. Everything that decides where and how to
-// connect comes from the configured resource named by id, so no caller can aim
-// the daemon's SSH at a host, key or trust setting the operator did not
-// configure.
-var sshOperationFields = func() map[string]bool {
-	out := make(map[string]bool, len(sshconn.OperationFields))
-	for _, key := range sshconn.OperationFields {
-		out[key] = true
-	}
-	return out
-}()
 
 // SetResourceLookup gives the service the resources SSH operations resolve
 // against. Without one, SSH operations are refused.
@@ -43,23 +27,12 @@ func ConfigResourceLookup(cfg *config.ConfigV2) ResourceLookup {
 	}
 }
 
-// resolveSSHTarget replaces an SSH operation's caller-supplied Config with
-// the configured resource's, keeping only the operation's own fields. It is
-// the one resolver every surface shares: socket, web, MCP and the in-process
-// CLI all send an id and nothing else about the target.
+// resolveSSHTarget merges the configured resource's connection settings into
+// an SSH operation's config. The key table has already refused every field
+// but the operation's own (sshconn.OperationFields), on every surface
+// including the in-process CLI, so the host, key and trust settings can only
+// come from the resource.
 func (s *ExternalConnectorService) resolveSSHTarget(args ExternalConnectorOperationArgs) (ExternalConnectorOperationArgs, error) {
-	var refused []string
-	for key := range args.Config {
-		if !sshOperationFields[key] {
-			refused = append(refused, key)
-		}
-	}
-	if len(refused) > 0 {
-		sort.Strings(refused)
-		return args, externalConnectorError(args, ExternalConnectorInvalidArgs, fmt.Errorf(
-			"refusing fields %s: an ssh operation takes a configured resource id, not connection settings; pass id=<resource-id> (see `cerberus resource list`) and set host, user and keys on the resource",
-			strings.Join(refused, ", ")))
-	}
 	id := stringFromConfig(args.Config, "id", "")
 	if id == "" {
 		return args, externalConnectorError(args, ExternalConnectorInvalidArgs, errors.New("id is required: pass a configured ssh resource id (see `cerberus resource list`)"))

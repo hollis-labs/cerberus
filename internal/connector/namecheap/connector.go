@@ -97,7 +97,7 @@ func (c *Connector) Capabilities() contract.Capabilities {
 }
 
 func Definition() contract.Definition {
-	return contract.Definition{
+	return contract.Finalize(contract.Definition{
 		ID:            "namecheap",
 		Version:       "builtin",
 		ResourceTypes: []string{string(resource.Domain)},
@@ -139,12 +139,11 @@ func Definition() contract.Definition {
 		},
 		Operations: []contract.Operation{
 			{
-				Name: "get_dns_record_set", Description: "Read visible host records and domain email_type. getHosts may omit records; this is not an authoritative zone backup.",
+				Name: "get_dns_record_set", Effect: contract.EffectRead, Target: contract.TargetDescriptor{Kind: "namecheap.domain", From: []string{"domain"}}, Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone, Description: "Read visible host records and domain email_type. getHosts may omit records; this is not an authoritative zone backup.",
 				InputSchema: contract.ObjectSchema(map[string]any{"domain": contract.StringSchema("Domain name.")}, "domain"),
 			},
 			{
-				Name: "set_dns_record_set", Description: "Replace ALL DNS hosts and explicitly set domain email routing. Supply an authoritative complete records array, including records getHosts hides. Omitted records are deleted.",
-				Destructive: true, SupportsDry: true,
+				Name: "set_dns_record_set", Effect: contract.EffectWrite, Target: contract.TargetDescriptor{Kind: "namecheap.domain", From: []string{"domain"}}, Preview: contract.PreviewHost, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone, Description: "Replace ALL DNS hosts and explicitly set domain email routing. Supply an authoritative complete records array, including records getHosts hides. Omitted records are deleted.",
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"domain":     contract.StringSchema("Domain name."),
 					"email_type": map[string]any{"type": "string", "enum": []string{"MX", "MXE", "FWD", "OX", "NONE"}},
@@ -155,11 +154,23 @@ func Definition() contract.Definition {
 			},
 			{
 				Name:        "list_domains",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "namecheap.account"},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "List domains in the Namecheap account.",
 				InputSchema: contract.ObjectSchema(map[string]any{}),
 			},
 			{
 				Name:        "get_domain_status",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "namecheap.domain", From: []string{"domain"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Read detailed status for a Namecheap domain.",
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"domain": contract.StringSchema("Domain name in sld.tld form."),
@@ -167,6 +178,12 @@ func Definition() contract.Definition {
 			},
 			{
 				Name:        "list_dns_records",
+				Effect:      contract.EffectRead,
+				Target:      contract.TargetDescriptor{Kind: "namecheap.domain", From: []string{"domain"}},
+				Preview:     contract.PreviewNone,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "List DNS records for a Namecheap domain.",
 				InputSchema: contract.ObjectSchema(map[string]any{
 					"domain": contract.StringSchema("Domain name in sld.tld form."),
@@ -174,6 +191,13 @@ func Definition() contract.Definition {
 			},
 			{
 				Name:        "set_custom_nameservers",
+				Effect:      contract.EffectWrite,
+				Reversible:  true,
+				Target:      contract.TargetDescriptor{Kind: "namecheap.domain", From: []string{"domain"}},
+				Preview:     contract.PreviewHost,
+				Output:      contract.OutputStructured,
+				Cost:        contract.CostNone,
+				LocalFS:     contract.LocalFSNone,
 				Description: "Switch a Namecheap domain to a custom nameserver set.",
 				Examples: []string{
 					"cerberus domain nameservers set example.com ns1.example.net ns2.example.net --dry-run",
@@ -188,11 +212,9 @@ func Definition() contract.Definition {
 						"minItems":    2,
 					},
 				}, "domain", "nameservers"),
-				Destructive: true,
-				SupportsDry: true,
 			},
 		},
-	}
+	})
 }
 
 func (c *Connector) Definition() contract.Definition {

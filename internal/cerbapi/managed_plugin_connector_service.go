@@ -36,6 +36,13 @@ type ManagedPluginConnectorState struct {
 	// launch code. Names only, like MissingSecrets.
 	Capabilities []string `json:"capabilities,omitempty"`
 	Granted      []string `json:"granted,omitempty"`
+
+	// ContractGaps lists what the plugin's manifest leaves undeclared and how
+	// the host reads each gap — an operation with no effect is treated as
+	// exec. A gap is reported, not refused, so existing plugins keep loading.
+	// Always present, as [] when there are none, so "no gaps" is something a
+	// reader can see rather than infer from a missing field.
+	ContractGaps []string `json:"contract_gaps"`
 }
 
 type ManagedPluginConnectorService struct {
@@ -304,6 +311,7 @@ func managedState(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginC
 		Origin:           string(plugin.Origin),
 		EntrypointSHA256: plugin.EntrypointSHA256,
 		Capabilities:     declared,
+		ContractGaps:     plugin.Manifest.ContractGaps(),
 		// The grant is decided at load. For a plugin that is installed but not
 		// loaded, plugin.Granted is empty, so compute what it would receive —
 		// otherwise `managed list` shows a plugin asking for access and

@@ -15,7 +15,8 @@ const (
 	FieldRemotePath = "remote_path"
 )
 
-// OperationFields is the enforcement allow-list.
+// OperationFields is every key an ssh operation accepts. Connection
+// settings are not among them: they come from the configured resource.
 var OperationFields = []string{FieldID, FieldCommand, FieldLocalPath, FieldRemotePath}
 
 var fieldSchemas = map[string]map[string]any{
@@ -25,19 +26,20 @@ var fieldSchemas = map[string]map[string]any{
 	FieldRemotePath: contract.StringSchema("Path on the remote host."),
 }
 
-// operationSchema is an object schema over the given operation fields, each
-// described once, with id always required. descriptions overrides a field's
-// generic description for this operation.
-func operationSchema(descriptions map[string]string, fields ...string) map[string]any {
-	props := map[string]any{FieldID: fieldSchemas[FieldID]}
-	required := []string{FieldID}
+// operationInputs is an operation's key table over the given fields, each
+// described once, all required, with id always first. descriptions overrides
+// a field's generic description for this operation.
+func operationInputs(descriptions map[string]string, fields ...string) []contract.Input {
+	inputs := []contract.Input{contract.RequiredField(FieldID, fieldSchemas[FieldID])}
 	for _, field := range fields {
 		schema := fieldSchemas[field]
 		if text, ok := descriptions[field]; ok {
 			schema = contract.StringSchema(text)
 		}
-		props[field] = schema
-		required = append(required, field)
+		inputs = append(inputs, contract.RequiredField(field, schema))
 	}
-	return contract.ObjectSchema(props, required...)
+	return inputs
 }
+
+// hostTarget is every ssh operation's target: the configured host resource.
+var hostTarget = contract.TargetDescriptor{Kind: "ssh.host", From: []string{FieldID}}
