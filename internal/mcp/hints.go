@@ -8,7 +8,6 @@ import (
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
-	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -53,15 +52,6 @@ var toolOperations = map[string]opRef{
 	"cerberus_ssh_put_dir": {sshconn.Definition, "put_dir"},
 	"cerberus_ssh_get_dir": {sshconn.Definition, "get_dir"},
 
-	"cerberus_domain_list":        {ncconn.Definition, "list_domains"},
-	"cerberus_domain_status":      {ncconn.Definition, "get_domain_status"},
-	"cerberus_nameservers_set":    {ncconn.Definition, "set_custom_nameservers"},
-	"cerberus_dns_list":           {ncconn.Definition, "list_dns_records"},
-	"cerberus_get_dns_record_set": {ncconn.Definition, "get_dns_record_set"},
-	"cerberus_set_dns_record_set": {ncconn.Definition, "set_dns_record_set"},
-	"cerberus_dns_create":         {namecheapDisabled, "create_dns_record"},
-	"cerberus_dns_delete":         {namecheapDisabled, "delete_dns_record"},
-
 	"cerberus_forge_servers": {forgeconn.Definition, "list_servers"},
 	"cerberus_forge_server":  {forgeconn.Definition, "get_server"},
 	"cerberus_forge_sites":   {forgeconn.Definition, "list_sites"},
@@ -78,10 +68,6 @@ var toolOperations = map[string]opRef{
 type opRef struct {
 	definition func() contract.Definition
 	operation  string
-}
-
-func namecheapDisabled() contract.Definition {
-	return contract.Definition{ID: "namecheap", Operations: ncconn.DisabledOperations()}
 }
 
 // ToolOperation is the contract of the operation a tool runs, from the

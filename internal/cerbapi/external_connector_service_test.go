@@ -17,7 +17,6 @@ import (
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
-	ncconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -90,38 +89,6 @@ type fakeGitHubBackend struct {
 	owner string
 	repo  string
 	limit int
-}
-
-type fakeNamecheapBackend struct {
-	recordSet   *ncconn.DNSRecordSet
-	domain      string
-	nameservers []string
-}
-
-func (b *fakeNamecheapBackend) ListDomains(_ context.Context) ([]ncconn.Domain, error) {
-	return []ncconn.Domain{{Name: "example.com"}}, nil
-}
-
-func (b *fakeNamecheapBackend) GetDomainStatus(_ context.Context, domain string) (*ncconn.DomainStatus, error) {
-	b.domain = domain
-	return &ncconn.DomainStatus{Domain: domain, Registered: true}, nil
-}
-
-func (b *fakeNamecheapBackend) GetDNSRecordSet(_ context.Context, sld, tld string) (*ncconn.DNSRecordSet, error) {
-	b.domain = sld + "." + tld
-	return &ncconn.DNSRecordSet{EmailType: "MX", Records: []ncconn.DNSRecord{{ID: 1, Type: "A", Host: "@", Value: "1.2.3.4"}}}, nil
-}
-
-func (b *fakeNamecheapBackend) SetDNSRecordSet(_ context.Context, sld, tld string, set ncconn.DNSRecordSet) error {
-	b.recordSet = &set
-	b.domain = sld + "." + tld
-	return nil
-}
-
-func (b *fakeNamecheapBackend) SetCustomNameservers(_ context.Context, domain string, nameservers []string) (*ncconn.DomainNameserverUpdate, error) {
-	b.domain = domain
-	b.nameservers = append([]string(nil), nameservers...)
-	return &ncconn.DomainNameserverUpdate{Domain: domain, Updated: true, NameServers: nameservers}, nil
 }
 
 type fakeForgeBackend struct {
@@ -389,68 +356,6 @@ func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t
 	}
 	if connErr.Code != ExternalConnectorAckRequired {
 		t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorAckRequired)
-	}
-}
-
-func TestNamecheapPerRecordWritesRefusedWithoutCredentialsIncludingDryRun(t *testing.T) {
-	svc := NewExternalConnectorService(audit.NewMemory(), nil)
-	for _, op := range []string{"create_dns_record", "delete_dns_record"} {
-		for _, dryRun := range []bool{true, false} {
-			_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "namecheap", Operation: op, DryRun: dryRun, Acknowledged: true, Config: map[string]any{"domain": "example.com"}})
-			if !errors.Is(err, ncconn.ErrUnsafePerRecordWrite) {
-				t.Fatalf("expected disabled operation before credential lookup: %v", err)
-			}
-		}
-	}
-}
-
-func TestExternalConnectorServiceExecutesNamecheapOperation(t *testing.T) {
-	backend := &fakeNamecheapBackend{}
-	registry := connector.NewRegistry()
-	registry.Register(ncconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "namecheap",
-		Operation: "get_domain_status",
-		Config:    map[string]any{"domain": "example.com"},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	status, ok := result.Data.(*ncconn.DomainStatus)
-	if !ok || status.Domain != "example.com" || !status.Registered {
-		t.Fatalf("Data = %#v, want namecheap domain status", result.Data)
-	}
-	if backend.domain != "example.com" {
-		t.Fatalf("domain = %q, want example.com", backend.domain)
-	}
-}
-
-func TestExternalConnectorServiceExecutesNamecheapNameserverChange(t *testing.T) {
-	backend := &fakeNamecheapBackend{}
-	registry := connector.NewRegistry()
-	registry.Register(ncconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector:    "namecheap",
-		Operation:    "set_custom_nameservers",
-		Acknowledged: true,
-		Config: map[string]any{
-			"domain":      "chrispian.dev",
-			"nameservers": []string{"aldo.ns.cloudflare.com", "betty.ns.cloudflare.com"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	update, ok := result.Data.(*ncconn.DomainNameserverUpdate)
-	if !ok || !update.Updated || update.Domain != "chrispian.dev" {
-		t.Fatalf("Data = %#v, want nameserver update", result.Data)
-	}
-	if backend.domain != "chrispian.dev" || len(backend.nameservers) != 2 {
-		t.Fatalf("backend = %+v", backend)
 	}
 }
 
@@ -955,41 +860,6 @@ func startConnectorSocket(t *testing.T, client Client) *SocketClient {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return NewSocketClient(socketPath)
-}
-
-func TestNamecheapWholeZoneReplacementIsExplicitAndAcknowledged(t *testing.T) {
-	backend := &fakeNamecheapBackend{}
-	reg := connector.NewRegistry()
-	reg.Register(ncconn.NewWithBackend(backend))
-	service := NewExternalConnectorService(audit.NewMemory(), reg)
-	args := ExternalConnectorOperationArgs{Connector: "namecheap", Operation: "set_dns_record_set", Config: map[string]any{
-		"domain": "example.com", "email_type": "MX", "records": []any{map[string]any{"type": "TXT", "host": "resend._domainkey", "value": "p=AA/BB"}},
-	}}
-	if _, err := service.Execute(context.Background(), args); err == nil {
-		t.Fatal("replacement accepted without acknowledgment")
-	}
-	if backend.recordSet != nil {
-		t.Fatal("unacknowledged write reached backend")
-	}
-	args.DryRun = true
-	if _, err := service.Execute(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	if backend.recordSet != nil {
-		t.Fatal("dry run wrote")
-	}
-	args.DryRun = false
-	args.Acknowledged = true
-	if _, err := service.Execute(context.Background(), args); err != nil {
-		t.Fatal(err)
-	}
-	if backend.recordSet == nil || backend.recordSet.EmailType != "MX" || backend.recordSet.Records[0].Value != "p=AA/BB" {
-		t.Fatal("explicit mode/records lost")
-	}
-	delete(args.Config, "records")
-	if _, err := service.Execute(context.Background(), args); err == nil {
-		t.Fatal("missing authoritative records accepted")
-	}
 }
 
 // writeTestPluginDir creates a minimal installable plugin directory for the

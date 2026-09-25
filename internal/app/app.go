@@ -18,7 +18,6 @@ import (
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	githubconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
-	namecheapconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
@@ -249,7 +248,6 @@ func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretPr
 	registry.RegisterDefinition(dockerconn.Definition())
 	registry.RegisterDefinition(forgeconn.Definition())
 	registry.RegisterDefinition(githubconn.Definition())
-	registry.RegisterDefinition(namecheapconn.Definition())
 	registry.RegisterDefinition(sshconn.Definition())
 
 	registry.RegisterFactory(forgeconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
@@ -257,9 +255,6 @@ func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretPr
 	})
 	registry.RegisterFactory(githubconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
 		return githubconn.New(secrets.WithContext(ctx, sec))
-	})
-	registry.RegisterFactory(namecheapconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
-		return namecheapconn.New(secrets.WithContext(ctx, sec))
 	})
 	// Docker resolves per call, like the credentialed connectors above. Eager
 	// registration cached a boot-time "docker CLI not found" for the daemon's
