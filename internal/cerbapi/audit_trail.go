@@ -11,6 +11,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -39,6 +40,8 @@ type auditSpec struct {
 	// For a loaded plugin: its config and entrypoint fingerprints.
 	pluginConfigSHA256     string
 	pluginEntrypointSHA256 string
+	// resources resolves a target's registered resource, for its labels.
+	resources ResourceLookup
 	// preview is plugin_claimed for a dry run a plugin serves itself.
 	preview string
 	// review is an install review's record.
@@ -180,6 +183,7 @@ func outcomeCode(err error) string {
 // the target. No other argument value is recorded.
 func auditTarget(spec auditSpec) audit.Target {
 	t := audit.Target{Kind: spec.op.Target.Kind}
+	id := ""
 	for _, field := range spec.op.Target.From {
 		value, ok := spec.config[field]
 		if !ok || value == nil {
@@ -189,8 +193,45 @@ func auditTarget(spec auditSpec) audit.Target {
 			t.Fields = map[string]string{}
 		}
 		t.Fields[field] = fmt.Sprint(value)
+		if id == "" {
+			id = t.Fields[field]
+		}
 	}
+	resolved := resolveTarget(spec, id)
+	t.Resource, t.Env, t.Owner, t.Admin, t.Adhoc = resolved.Resource, string(resolved.Env), resolved.Owner, resolved.AdminFor, resolved.Adhoc
+	t.Tags = resolved.Tags
 	return t
+}
+
+// resolveTarget labels an operation's target (target.Resolve): from the
+// registered resource the call names, by one of its target fields or the
+// usual id and resource keys, or unknown. A call that carries a local-only
+// input names its target by connection settings, and is ad hoc.
+func resolveTarget(spec auditSpec, id string) target.Target {
+	var res *target.ResourceLabels
+	if spec.resources != nil {
+		keys := append(append([]string(nil), spec.op.Target.From...), "id", "resource")
+		for _, key := range keys {
+			name, _ := spec.config[key].(string)
+			if name == "" {
+				continue
+			}
+			if def, ok := spec.resources(name); ok && def != nil {
+				labels := def.TargetLabels()
+				res = &labels
+				break
+			}
+		}
+	}
+	adhoc := false
+	for _, in := range spec.op.Inputs {
+		if in.Scope == contract.InputLocal {
+			if _, present := spec.config[in.Name]; present {
+				adhoc = true
+			}
+		}
+	}
+	return target.Resolve(spec.connector, spec.op.Target.Kind, id, res, adhoc)
 }
 
 // credentialNames are a definition's declared secrets, as the audit record

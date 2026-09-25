@@ -287,6 +287,12 @@ type ResourceInfo struct {
 	RecommendedAction   string   `json:"recommended_action,omitempty"`
 	RecommendedNextStep string   `json:"recommended_next_step,omitempty"`
 	Tags                []string `json:"tags,omitempty"`
+	// Env, Owner and Admin are the resource's policy labels, with unknown
+	// for an undeclared one (Decision 17): an unknown is shown, not
+	// hidden, so it can be labeled.
+	Env   string `json:"env"`
+	Owner string `json:"owner"`
+	Admin string `json:"admin"`
 }
 
 // ResourceListArgs filters the resource list response.

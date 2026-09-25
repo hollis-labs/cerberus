@@ -71,7 +71,7 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	op, known := def.Operation(operation)
 	call, err := beginAudit(ctx, s.audit, s.logger, auditSpec{
 		connector: def.ID, operation: operation, op: op, known: known,
-		config: config, acknowledged: opts.Acknowledged,
+		config: config, acknowledged: opts.Acknowledged, resources: s.ResourceDef,
 	})
 	if err != nil {
 		return nil, externalConnectorError(ExternalConnectorOperationArgs{Connector: def.ID, Operation: operation}, ExternalConnectorAuditUnavailable, err)
