@@ -70,7 +70,11 @@ func TestWebDockerTakesAResourceNotAnAdHocTarget(t *testing.T) {
 		return rec
 	}
 
-	for _, field := range []string{`"host":"ssh://evil@x"`, `"context":"prod"`, `"compose_file":"/tmp/evil.yml"`} {
+	for _, field := range []string{
+		`"host":"ssh://evil@x"`, `"context":"prod"`, `"docker_host":"tcp://x:2376"`,
+		`"compose_file":"/tmp/evil.yml"`, `"composeFile":"/tmp/evil.yml"`, `"file":"/tmp/evil.yml"`,
+		`"anything_else":"x"`,
+	} {
 		rec := post(`{"config":{"container":"web",` + field + `}}`)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "refusing fields") {
 			t.Fatalf("%s: %d %s, want 400 refusal", field, rec.Code, rec.Body.String())

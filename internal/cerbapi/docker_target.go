@@ -4,16 +4,31 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 )
 
-// dockerAdHocTargetFields aim a docker operation at a daemon or a stack the
-// operator did not declare: a DOCKER_HOST, a docker context, or a compose file
-// (which chooses images, commands and host bind mounts, so it amounts to code
-// execution on whichever daemon runs it). They are accepted only in-process,
-// from the operator's own shell (`cerberus docker … --host/--context/-f`).
-// Over the socket and the web console a docker operation names a configured
-// resource instead, and its target is resolved from there.
-var dockerAdHocTargetFields = []string{"host", "context", "docker_host", "docker_context", "compose_file"}
+// dockerCallerFields is the allow-list for a docker operation's config from a
+// socket or web caller: a declared resource, a container on the local daemon,
+// and the operation's own fields. Everything else is refused by name — in
+// particular every target key (DOCKER_HOST, docker context, and each compose
+// file alias), because a compose file chooses images, commands and bind mounts
+// and so amounts to code execution on whichever daemon runs it. Ad-hoc targets
+// are accepted only in-process, from the operator's own shell
+// (`cerberus docker … --host/--context/-f`); a declared resource supplies its
+// target from the declaration.
+//
+// It is built from the connector's own key table, so a new alias is refused
+// until someone classifies it as an operation field.
+func dockerCallerFields() map[string]bool {
+	allowed := map[string]bool{"resource": true}
+	for _, keys := range [][]string{dockerconn.ContainerKeys, dockerconn.OperationKeys} {
+		for _, key := range keys {
+			allowed[key] = true
+		}
+	}
+	return allowed
+}
 
 // RefuseAdHocDockerTarget is the socket's and the web console's check on a
 // docker operation's caller-supplied config. It runs on the raw request,
@@ -23,9 +38,10 @@ func RefuseAdHocDockerTarget(args ExternalConnectorOperationArgs) error {
 	if args.Connector != "docker" {
 		return nil
 	}
+	allowed := dockerCallerFields()
 	var refused []string
-	for _, key := range dockerAdHocTargetFields {
-		if _, ok := args.Config[key]; ok {
+	for key := range args.Config {
+		if !allowed[key] {
 			refused = append(refused, key)
 		}
 	}
@@ -34,7 +50,7 @@ func RefuseAdHocDockerTarget(args ExternalConnectorOperationArgs) error {
 	}
 	sort.Strings(refused)
 	return externalConnectorError(args, ExternalConnectorInvalidArgs, fmt.Errorf(
-		"refusing fields %s: ad-hoc docker targets (--host, --context, -f) run only from your shell; over the socket, the web console and MCP, name a configured docker resource with resource=<id> (see `cerberus resource list`)",
+		"refusing fields %s: over the socket, the web console and MCP a docker operation takes a configured docker resource (resource=<id>, see `cerberus resource list`) or a local container name; ad-hoc targets (--host, --context, -f) run only from your shell",
 		strings.Join(refused, ", ")))
 }
 
