@@ -69,6 +69,20 @@ func TestFinalizeDerivesFromTheContract(t *testing.T) {
 
 // The advertised schema is built from the caller-scope inputs only: a local
 // input is accepted from the operator's shell and never advertised.
+// Writing to the local filesystem needs acknowledgment whatever the effect:
+// a read_sensitive download still overwrites a path the caller chose.
+func TestLocalWritesRequireAck(t *testing.T) {
+	op := contractOp(EffectReadSensitive)
+	op.LocalFS = LocalFSWrites
+	if !op.Finalize().RequiresAck {
+		t.Fatal("local_fs writes did not require ack")
+	}
+	op.LocalFS = LocalFSReads
+	if op.Finalize().RequiresAck {
+		t.Fatal("local_fs reads on a read op required ack")
+	}
+}
+
 func TestFinalizeAdvertisesCallerInputsOnly(t *testing.T) {
 	op := contractOp(EffectRead).Finalize()
 	props, _ := op.InputSchema["properties"].(map[string]any)

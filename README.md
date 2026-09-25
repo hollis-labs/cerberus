@@ -272,7 +272,10 @@ Every connector operation declares an effect class — `read`, `read_sensitive`,
 `write`, `lifecycle`, `destructive`, `exec` or `admin` — and every class except
 the two reads needs acknowledgment: `--ack` on the CLI, `acknowledged: true`
 over MCP and the API. Starting and stopping are `lifecycle`, so `docker up`,
-`docker down`, `server start` and `server stop` all take `--ack`.
+`docker down`, `server start` and `server stop` all take `--ack`. An operation
+that writes to the local filesystem needs it whatever its effect, so
+`ssh get` and `ssh get-dir` take `--ack` too: a download overwrites the local
+path you name.
 `cerberus connectors describe <id>` shows each operation's effect.
 
 A `container` or `server` resource is a named handle for connector operations,
@@ -289,10 +292,10 @@ remote dependency:
 cerberus ssh status <resource-id>
 cerberus ssh exec <resource-id> -- 'systemctl status nginx' --ack
 cerberus ssh put <resource-id> ./app.env /opt/app/.env --ack
-cerberus ssh get <resource-id> /etc/nginx/nginx.conf ./nginx.conf
+cerberus ssh get <resource-id> /etc/nginx/nginx.conf ./nginx.conf --ack
 cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --dry-run
 cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --ack
-cerberus ssh get-dir <resource-id> /opt/app/conf ./conf
+cerberus ssh get-dir <resource-id> /opt/app/conf ./conf --ack
 ```
 
 Every `ssh` verb names its target by resource id and nothing else: host, port,

@@ -356,13 +356,17 @@ func inputRefusal(connectorID string, err error) error {
 	return err
 }
 
-// requireAcknowledgment gates on the operation's effect (Decision 14): every
-// class except read and read_sensitive needs acknowledgment.
+// requireAcknowledgment gates on the operation's derived RequiresAck: every
+// effect class except read and read_sensitive (Decision 14), and any
+// operation that writes to the local filesystem.
 func requireAcknowledgment(args ExternalConnectorOperationArgs, op contract.Operation) error {
-	if op.RequiresAck && !args.Acknowledged {
-		return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q requires operator acknowledgment", op.Effect, args.Operation))
+	if !op.RequiresAck || args.Acknowledged {
+		return nil
 	}
-	return nil
+	if op.Effect.ReadOnly() && op.LocalFS == contract.LocalFSWrites {
+		return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q writes to the local filesystem and requires operator acknowledgment", op.Effect, args.Operation))
+	}
+	return externalConnectorError(args, ExternalConnectorAckRequired, fmt.Errorf("%s operation %q requires operator acknowledgment", op.Effect, args.Operation))
 }
 
 // operationFailure codes an error from past the gates. A coded error keeps its

@@ -348,7 +348,7 @@ func TestExternalConnectorServiceRoutesDockerOperationsToTheRequestedHost(t *tes
 	registry.Register(dockerconn.NewWithBackend(backend))
 	svc := NewExternalConnectorService(registry)
 
-	if _, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+	if _, err := svc.Execute(WithCallerSurface(context.Background(), SurfaceInProcess), ExternalConnectorOperationArgs{
 		Connector: "docker",
 		Operation: "list_containers",
 		Config:    map[string]any{"host": "ssh://cburks@muctlvaig"},
@@ -775,20 +775,25 @@ func TestExternalConnectorServiceSSHPutRequiresAcknowledgment(t *testing.T) {
 	}
 }
 
-// get only reads, so it must NOT demand an ack — otherwise every read becomes
-// a confirmation prompt and the gate stops meaning anything.
-func TestExternalConnectorServiceSSHGetNeedsNoAcknowledgment(t *testing.T) {
+// get's effect is read_sensitive, but it overwrites a local path the caller
+// chose, and local_fs: writes needs acknowledgment whatever the effect.
+func TestExternalConnectorServiceSSHGetOverwritesLocalFilesOnlyWhenAcknowledged(t *testing.T) {
 	backend := &fakeSSHBackend{}
 	svc := newSSHTestService(backend)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+	args := ExternalConnectorOperationArgs{
 		Connector: "ssh",
 		Operation: "get",
 		Config: sshTransferConfig(map[string]any{
 			"remote_path": "/etc/nginx/nginx.conf",
 			"local_path":  "./nginx.conf",
 		}),
-	})
+	}
+
+	if _, err := svc.Execute(context.Background(), args); connectorErrorCode(err) != ExternalConnectorAckRequired || backend.getCalls != 0 {
+		t.Fatalf("unacknowledged: err = %v, calls = %d, want acknowledgment_required and no transfer", err, backend.getCalls)
+	}
+	args.Acknowledged = true
+	result, err := svc.Execute(context.Background(), args)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -902,18 +907,23 @@ func TestExternalConnectorServiceSSHPutDirDryRunNeedsNoAcknowledgment(t *testing
 
 // get_dir writes only to the local machine, under a path the operator named —
 // the same reason get needs no ack. Making a read prompt empties the gate.
-func TestExternalConnectorServiceSSHGetDirNeedsNoAcknowledgment(t *testing.T) {
+func TestExternalConnectorServiceSSHGetDirOverwritesLocalFilesOnlyWhenAcknowledged(t *testing.T) {
 	backend := &fakeSSHBackend{}
 	svc := newSSHTestService(backend)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+	args := ExternalConnectorOperationArgs{
 		Connector: "ssh",
 		Operation: "get_dir",
 		Config: sshTransferConfig(map[string]any{
 			"remote_path": "/opt/app/conf",
 			"local_path":  "./conf",
 		}),
-	})
+	}
+
+	if _, err := svc.Execute(context.Background(), args); connectorErrorCode(err) != ExternalConnectorAckRequired || backend.getDirCalls != 0 {
+		t.Fatalf("unacknowledged: err = %v, calls = %d, want acknowledgment_required and no transfer", err, backend.getDirCalls)
+	}
+	args.Acknowledged = true
+	result, err := svc.Execute(context.Background(), args)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}

@@ -7,12 +7,16 @@ import "context"
 // comes only from the operator's own shell.
 //
 // The surface is self-reported by the process that serves the request, not
-// proven. It never grants anything: in-process is the default because the
-// in-process CLI is the one path with no server in front of it, and every
-// server marks its requests before they reach a service.
+// proven. It fails closed: an unmarked context is SurfaceUnknown and is
+// treated as remote, so a caller that reaches a service without marking —
+// a new handler, a scheduler, a server that forgets — never gets the
+// operator's shell's power. The in-process CLI marks itself, at the one place
+// it hands out a local service (newLocalConnectorExecutor in cmd/cerberus).
 type CallerSurface string
 
 const (
+	// SurfaceUnknown is an unmarked context. It is treated as remote.
+	SurfaceUnknown CallerSurface = "unknown"
 	// SurfaceInProcess is the CLI running the service in its own process.
 	SurfaceInProcess CallerSurface = "in_process"
 	// SurfaceSocket is the daemon socket: the CLI through the daemon, and
@@ -30,11 +34,11 @@ func WithCallerSurface(ctx context.Context, surface CallerSurface) context.Conte
 	return context.WithValue(ctx, callerSurfaceKey{}, surface)
 }
 
-// CallerSurfaceFrom returns the surface ctx entered through, or in-process
-// when no server marked it.
+// CallerSurfaceFrom returns the surface ctx entered through, or
+// SurfaceUnknown when nothing marked it.
 func CallerSurfaceFrom(ctx context.Context) CallerSurface {
 	if surface, ok := ctx.Value(callerSurfaceKey{}).(CallerSurface); ok && surface != "" {
 		return surface
 	}
-	return SurfaceInProcess
+	return SurfaceUnknown
 }

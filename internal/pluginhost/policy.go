@@ -120,12 +120,13 @@ func OperationAllowed(origin InstallOrigin, op contract.ManifestOperation, ackno
 	default:
 		return fmt.Errorf("operation %q refused: plugin has unknown install origin %q", op.Name, origin)
 	}
-	// Acknowledgment follows the effect (Decision 14). An operation that
+	// Acknowledgment follows the effect (Decision 14), and local_fs: writes
+	// needs it whatever the effect. An operation that
 	// declares no effect is treated as exec and needs it, so a manifest gap
 	// fails closed. requires_ack is never read: it once let a manifest declare
 	// destructive: true, requires_ack: false and opt out of the host's gate.
-	if effect := op.EffectiveEffect(); effect.RequiresAck() && !acknowledged {
-		return fmt.Errorf("%s operation %q %w", effect, op.Name, ErrAckRequired)
+	if contract := op.Operation(); contract.RequiresAck && !acknowledged {
+		return fmt.Errorf("%s operation %q %w", contract.Effect, op.Name, ErrAckRequired)
 	}
 	return nil
 }

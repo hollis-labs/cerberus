@@ -163,7 +163,7 @@ func TestDockerAdHocTargetsWorkInProcess(t *testing.T) {
 	registry.Register(dockerconn.NewWithBackend(backend))
 	svc := NewExternalConnectorService(registry)
 	svc.SetResourceLookup(dockerTestResources())
-	if _, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+	if _, err := svc.Execute(WithCallerSurface(context.Background(), SurfaceInProcess), ExternalConnectorOperationArgs{
 		Connector: "docker", Operation: "start", Acknowledged: true,
 		Config: map[string]any{"resource": "mtbf-monitor", "compose_file": "/tmp/override.yml", "host": "ssh://ops@other"},
 	}); err != nil {

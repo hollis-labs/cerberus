@@ -5,7 +5,6 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
@@ -257,7 +256,7 @@ func adHocDockerFlags(cmd *cobra.Command) bool {
 // the daemon as usual.
 func newDockerConnectorService(cmd *cobra.Command) (connectorExecutor, func(), error) {
 	if adHocDockerFlags(cmd) {
-		return app.NewExternalConnectorService(cfgPath), func() {}, nil
+		return newLocalConnectorExecutor(), func() {}, nil
 	}
 	return newExternalConnectorService(cmd.Context())
 }

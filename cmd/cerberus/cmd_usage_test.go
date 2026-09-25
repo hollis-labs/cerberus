@@ -60,6 +60,7 @@ func TestRuntimeErrorsDoNotPrintUsage(t *testing.T) {
 func TestLifecycleVerbsOfferAck(t *testing.T) {
 	for _, path := range [][]string{
 		{"server", "start"}, {"server", "stop"}, {"docker", "up"}, {"docker", "down"},
+		{"ssh", "get"}, {"ssh", "get-dir"},
 	} {
 		cmd, _, err := rootCmd.Find(path)
 		if err != nil {

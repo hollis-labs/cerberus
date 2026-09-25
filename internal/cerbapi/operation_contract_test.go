@@ -29,8 +29,8 @@ func TestBuiltinDefinitionsDeclareTheContract(t *testing.T) {
 			t.Errorf("%s: Definition() is not finalized", def.ID)
 		}
 		for _, op := range def.Operations {
-			if op.RequiresAck != !op.Effect.ReadOnly() {
-				t.Errorf("%s.%s: effect %s but requires_ack %v", def.ID, op.Name, op.Effect, op.RequiresAck)
+			if want := !op.Effect.ReadOnly() || op.LocalFS == contract.LocalFSWrites; op.RequiresAck != want {
+				t.Errorf("%s.%s: effect %s, local_fs %s, but requires_ack %v", def.ID, op.Name, op.Effect, op.LocalFS, op.RequiresAck)
 			}
 		}
 		manifest := contract.ManifestFromDefinition(def)
@@ -68,11 +68,16 @@ func TestBuiltinEffectClassification(t *testing.T) {
 		"ssh.get": contract.EffectReadSensitive, "ssh.put_dir": contract.EffectWrite, "ssh.get_dir": contract.EffectReadSensitive,
 		"ssh.stop": contract.EffectLifecycle,
 	}
+	// Ops whose ack comes from local_fs: writes rather than their effect.
+	localWriteAck := map[string]bool{"ssh.get": true, "ssh.get_dir": true}
 	seen := map[string]bool{}
 	for _, def := range builtinConnectorDefinitions() {
 		for _, op := range def.Operations {
 			key := def.ID + "." + op.Name
 			seen[key] = true
+			if byLocalWrite := op.Effect.ReadOnly() && op.RequiresAck; byLocalWrite != localWriteAck[key] {
+				t.Errorf("%s: read effect with ack from local_fs writes = %v, want %v", key, byLocalWrite, localWriteAck[key])
+			}
 			if got, ok := want[key]; !ok {
 				t.Errorf("%s is not classified in this test", key)
 			} else if op.Effect != got {
@@ -170,7 +175,8 @@ func TestAckFollowsTheEffect(t *testing.T) {
 			case op.RequiresAck:
 				if code := connectorErrorCode(err); code != ExternalConnectorAckRequired || resolves != 0 {
 					t.Errorf("%s.%s (%s): err = %v resolves = %d, want acknowledgment_required before resolution", def.ID, op.Name, op.Effect, err, resolves)
-				} else if !strings.Contains(err.Error(), string(op.Effect)+" operation") {
+				} else if !strings.Contains(err.Error(), string(op.Effect)+" operation") ||
+					(op.Effect.ReadOnly() && !strings.Contains(err.Error(), "writes to the local filesystem")) {
 					t.Errorf("%s.%s: refusal does not name the effect: %v", def.ID, op.Name, err)
 				}
 			case resolves != 1:
@@ -187,17 +193,22 @@ func TestLocalOnlyInputsFollowTheSurface(t *testing.T) {
 	if err := checkFromSurface(SurfaceInProcess, args); err != nil {
 		t.Fatalf("in-process: %v", err)
 	}
-	for _, surface := range []CallerSurface{SurfaceSocket, SurfaceWeb, ""} {
-		if surface == "" {
-			continue
-		}
+	for _, surface := range []CallerSurface{SurfaceSocket, SurfaceWeb, SurfaceUnknown} {
 		err := checkFromSurface(surface, args)
 		if code := connectorErrorCode(err); code != ExternalConnectorInvalidArgs || !strings.Contains(err.Error(), "refusing fields (host)") {
 			t.Fatalf("%s: err = %v, want host refused", surface, err)
 		}
 	}
-	if CallerSurfaceFrom(context.Background()) != SurfaceInProcess {
-		t.Fatal("an unmarked context must read as in-process")
+	// Fail closed (I2): a caller that reaches the service without marking
+	// its context is remote, never the operator's shell.
+	if CallerSurfaceFrom(context.Background()) != SurfaceUnknown {
+		t.Fatal("an unmarked context must read as unknown")
+	}
+	registry := connector.NewRegistry()
+	registry.RegisterDefinition(dockerconn.Definition())
+	_, err := NewExternalConnectorService(registry).declaredOperation(context.Background(), args)
+	if code := connectorErrorCode(err); code != ExternalConnectorInvalidArgs || !strings.Contains(err.Error(), "refusing fields (host)") {
+		t.Fatalf("unmarked context: err = %v, want host refused", err)
 	}
 }
 
