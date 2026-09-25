@@ -59,7 +59,7 @@ var pipelineRunCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		ctx, cancel := signal.NotifyContext(inProcessContext(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
 		defer cancel()
 		ack, _ := cmd.Flags().GetBool("ack")
 		return runPipelineCommand(ctx, client, args[0], os.Stdout, cerbapi.WithAcknowledged(ack))

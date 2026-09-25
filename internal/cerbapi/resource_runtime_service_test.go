@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"runtime"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestResourceRuntimeStopPausesDevSessionUntilApply(t *testing.T) {
 			},
 		},
 	}
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
 
 	stopRes, err := svc.StopResource(context.Background(), "dev-api", WithAcknowledged(true))
 	if err != nil {
@@ -85,7 +86,7 @@ func TestResourceRuntimeStopDoesNotPauseOSService(t *testing.T) {
 			},
 		},
 	}
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
 
 	stopRes, err := svc.StopResource(context.Background(), "service-api", WithAcknowledged(true))
 	if err != nil {

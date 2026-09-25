@@ -1,6 +1,7 @@
 package cerbapi
 
 import (
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"strings"
 	"testing"
 
@@ -83,7 +84,7 @@ func TestUnsupervisedOperationErrorNamesWhatToRunInstead(t *testing.T) {
 }
 
 func TestListResourcesReportsUnsupervisedKindsInsteadOfABlankCell(t *testing.T) {
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(&config.ConfigV2{
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{
 		Resources: []config.ResourceDef{
 			{ID: "mtbf-monitor", Type: "container", Connector: "docker",
 				Config: map[string]any{"compose_file": "/tmp/docker-compose.yml"}},

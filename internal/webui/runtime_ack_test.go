@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +18,7 @@ import (
 // action or pipeline run without it is refused with 409 and the refusal's
 // message; with it, the call reaches the runtime.
 func TestWebRuntimeActionsNeedTheConfirmStep(t *testing.T) {
-	runtime := cerbapi.NewResourceRuntimeService(cerbapi.WithResourceRuntimeConfigV2(&config.ConfigV2{}))
+	runtime := cerbapi.NewResourceRuntimeService(audit.NewMemory(), cerbapi.WithResourceRuntimeConfigV2(&config.ConfigV2{}))
 	handler := mustNew(t, cerbapi.NewInProcessClient(cerbapi.WithResourceRuntimeService(runtime))).Handler(testGuard())
 	token := sessionToken(t, handler)
 	post := func(path, body string) *httptest.ResponseRecorder {
@@ -62,7 +63,7 @@ func TestWebDeploymentRunConfirmsAgainstThePlan(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(&fakeClient{}, cfgPath, nil, nil)
+	srv, err := New(&fakeClient{}, audit.NewMemory(), cfgPath, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

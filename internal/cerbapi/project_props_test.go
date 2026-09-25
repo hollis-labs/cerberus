@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/config"
@@ -46,7 +47,7 @@ func TestListProjectsCarriesCapabilitiesAndLinks(t *testing.T) {
 		"propsapp": propsProjectConfig,
 		"bareapp":  barePropsProjectConfig,
 	})
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigPath(cfgPath))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigPath(cfgPath))
 
 	list, err := svc.ListProjects(context.Background())
 	if err != nil {
@@ -92,7 +93,7 @@ func TestListProjectsCarriesCapabilitiesAndLinks(t *testing.T) {
 func TestInProcessClientListProjectsMatchesRuntimeService(t *testing.T) {
 	cfgPath := writeRegistryFixture(t, map[string]string{"propsapp": propsProjectConfig})
 
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigPath(cfgPath))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigPath(cfgPath))
 	direct, err := svc.ListProjects(context.Background())
 	if err != nil {
 		t.Fatalf("runtime ListProjects: %v", err)
@@ -125,7 +126,7 @@ func TestListProjectsOmitsSkippedConfig(t *testing.T) {
 		"propsapp":  propsProjectConfig,
 		"brokenapp": brokenProjectConfig,
 	})
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigPath(cfgPath))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigPath(cfgPath))
 
 	list, err := svc.ListProjects(context.Background())
 	if err != nil {

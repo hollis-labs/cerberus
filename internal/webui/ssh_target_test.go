@@ -55,7 +55,7 @@ func TestWebSSHOperationsTakeOnlyAResourceID(t *testing.T) {
 		ID: "server-1", Connector: "ssh", Type: "server",
 		Config: map[string]any{"host": "10.0.0.9", "user": "ops", "key_file": "/tmp/k", "allow_insecure_host_key": true},
 	}}}))
-	srv, err := New(cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc)), "", nil, nil)
+	srv, err := New(cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc)), audit.NewMemory(), "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/app"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -159,7 +160,7 @@ var resourceInspectCmd = &cobra.Command{
 			}
 		}
 
-		out, err := newResourceRuntimeService().GetResourceInspect(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().GetResourceInspect(inProcessContext(cmd.Context()), res.ID)
 		if err != nil {
 			return err
 		}
@@ -194,7 +195,7 @@ var resourceDoctorCmd = &cobra.Command{
 			}
 		}
 
-		out, err := newResourceRuntimeService().GetResourceDoctor(cmd.Context(), res.ID)
+		out, err := newResourceRuntimeService().GetResourceDoctor(inProcessContext(cmd.Context()), res.ID)
 		if err != nil {
 			return err
 		}
@@ -227,7 +228,7 @@ var resourceReloadCmd = &cobra.Command{
 			}
 			return printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", res.ID))
 		}
-		out, err := newResourceRuntimeService().ReloadResource(cmd.Context(), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().ReloadResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -259,7 +260,7 @@ var resourceStopCmd = &cobra.Command{
 			}
 			return printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", res.ID))
 		}
-		out, err := newResourceRuntimeService().StopResource(cmd.Context(), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().StopResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -293,7 +294,7 @@ var resourceApplyCmd = &cobra.Command{
 			return printResourceOpResult(out, fmt.Sprintf("Applied resource %s", res.ID))
 		}
 
-		out, err := newResourceRuntimeService().ApplyResource(cmd.Context(), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().ApplyResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -333,7 +334,7 @@ var resourceDeployCmd = &cobra.Command{
 			return printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", res.ID))
 		}
 
-		out, err := newResourceRuntimeService().DeployResource(cmd.Context(), res.ID, deployOpts...)
+		out, err := newResourceRuntimeService().DeployResource(inProcessContext(cmd.Context()), res.ID, deployOpts...)
 		if err != nil {
 			return err
 		}
@@ -389,7 +390,7 @@ sync only copies it; reload only restarts the current installed binary.`,
 			}
 			return printEnsureFreshResult(res)
 		}
-		res, err := cerbapi.EnsureFresh(cmd.Context(), newResourceRuntimeService(), id, resourceEnsureFreshForce, deployOpts...)
+		res, err := cerbapi.EnsureFresh(inProcessContext(cmd.Context()), newResourceRuntimeService(), id, resourceEnsureFreshForce, deployOpts...)
 		if err != nil {
 			return err
 		}
@@ -507,7 +508,7 @@ var resourceLogsCmd = &cobra.Command{
 			}
 		}
 
-		out, err := newResourceRuntimeService().ResourceLogs(cmd.Context(), res.ID, resourceLogsLines, resourceLogsStream)
+		out, err := newResourceRuntimeService().ResourceLogs(inProcessContext(cmd.Context()), res.ID, resourceLogsLines, resourceLogsStream)
 		if err != nil {
 			return err
 		}
@@ -545,7 +546,7 @@ var resourceSyncCmd = &cobra.Command{
 			return printResourceOpResult(out, fmt.Sprintf("Synced resource %s", res.ID))
 		}
 
-		out, err := newResourceRuntimeService().SyncResource(cmd.Context(), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().SyncResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -579,7 +580,7 @@ var resourceRemoveCmd = &cobra.Command{
 			return printResourceOpResult(out, fmt.Sprintf("Removed resource %s", res.ID))
 		}
 
-		out, err := newResourceRuntimeService().RemoveResource(cmd.Context(), res.ID, ackOption(cmd))
+		out, err := newResourceRuntimeService().RemoveResource(inProcessContext(cmd.Context()), res.ID, ackOption(cmd))
 		if err != nil {
 			return err
 		}
@@ -626,7 +627,7 @@ func newResourceSocketClient(opts ...cerbapi.SocketClientOption) (*cerbapi.Socke
 }
 
 func newResourceRuntimeService() *cerbapi.ResourceRuntimeService {
-	return cerbapi.NewResourceRuntimeService(cerbapi.WithResourceRuntimeConfigPath(cfgPath))
+	return app.NewResourceRuntimeService(cfgPath, nil)
 }
 
 func printResourceOpResult(out *cerbapi.OpResult, fallback string) error {

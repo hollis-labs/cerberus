@@ -65,6 +65,14 @@ Two consequences are worth stating because they are easy to misread. First, the 
 - restarting anything a human stopped: a pausectl pause wins until an apply/deploy/reload resumes it
 - restarting the *daemon process* itself, which is `internal/daemon/restart.go` — live code, not v1 debt: `cerberus daemon restart` and `daemon --replace` both route through `daemon.RestartWithVerify` at cmd_daemon.go:258
 
+## Recorded, never gated
+
+Since P1-4b every restart the monitor makes writes an intent and an outcome to
+the audit log (CERB-CAP-604) with principal kind `automation`, surface
+`monitor`, and a reason naming the state it saw and the attempt count. It is
+never gated, and an unwritable log does not stop it
+(`TestMonitorRestartIsRecordedAsAutomation`).
+
 ## Where it lives
 
 - `internal/cerbapi/resource_monitor.go`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
 	"strings"
 	"sync"
 
@@ -68,6 +69,9 @@ type loadedPlugin struct {
 	// so it can remove them from any text the plugin sends back. The values
 	// are fixed at load, so one redactor built then serves every request.
 	redactor redact.Redactor
+	// stderr correlates the plugin's stderr lines with the operations
+	// running when it wrote them.
+	stderr *stderrTap
 }
 
 // ManagerOption configures a Manager. The constructor stays positional for the
@@ -160,7 +164,8 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	// declared nothing gets nothing.
 	plugin.Granted = GrantCapabilities(plugin.Spec.Capabilities)
 
-	process, err := m.launcher.Launch(ctx, plugin)
+	tap := newStderrTap()
+	process, err := m.launcher.Launch(withStderrTap(ctx, tap), plugin)
 	if err != nil {
 		return err
 	}
@@ -173,6 +178,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	m.reportSecretProblems(id, resolved)
 	redactor, unprotected := resolved.redactor()
 	m.reportUnprotectedSecrets(id, unprotected)
+	tap.setRedactor(redactor)
 
 	// Fields travel beside the secrets. The manifest refuses a field and a
 	// secret with the same name, so neither can shadow the other.
@@ -218,6 +224,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		missingSecrets: resolved.MissingRequired,
 		settings:       settings,
 		redactor:       redactor,
+		stderr:         tap,
 	}
 	return nil
 }
@@ -382,7 +389,20 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// before it can reach an error, a log line or an MCP notification. The
 	// plugin is expected to scrub its own credentials; this is the host's
 	// backstop for one that does not (I10).
+	// An audited call carries a collector: it gets the stderr lines written
+	// while the call runs and the telemetry in the result, redacted.
+	collector := collectorFrom(ctx)
+	if collector != nil && lp.stderr != nil {
+		defer lp.stderr.attach(collector)()
+	}
 	result, err := lp.process.CallTool(ctx, MCPRequestFromOperation(args))
+	if err == nil {
+		var events []pluginsdk.TelemetryEvent
+		result.Content, events = pluginsdk.SplitTelemetry(result.Content)
+		if collector != nil {
+			collector.addEvents(events, lp.redactor)
+		}
+	}
 	if err != nil {
 		err = lp.redactor.Error(err)
 		// A plugin that loaded without a declared credential gets its failures

@@ -56,7 +56,7 @@ func TestWebDockerTakesAResourceNotAnAdHocTarget(t *testing.T) {
 		ID: "mtbf-monitor", Type: "container", Connector: "docker",
 		Config: map[string]any{"compose_file": "/srv/mtbf/docker-compose.yml"},
 	}}}))
-	srv, err := New(cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc)), "", nil, nil)
+	srv, err := New(cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc)), audit.NewMemory(), "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

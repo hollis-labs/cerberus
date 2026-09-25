@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +18,7 @@ func TestRuntimeObserversDoNotWaitBehindBuild(t *testing.T) {
 		"dir": dir, "command": []string{"/bin/true"}, "install_after_build": false,
 		"build_strategy": map[string]any{"kind": "legacy_command", "rules": map[string]any{"command": []string{"/bin/sh", "-c", "touch started; while [ ! -f release ]; do sleep 0.01; done; exit 1"}}},
 	}}}}
-	svc := NewResourceRuntimeService(WithResourceRuntimeConfigV2(cfg))
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
