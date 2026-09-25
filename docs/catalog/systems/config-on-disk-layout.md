@@ -83,3 +83,11 @@ record.
 resource's identity, and it carries only `pid`, `started_at`, a `config_hash`
 and `cerberus_version` — a hash, not the config. `state/overview_snapshots.json`
 carries per-minute counts and no definitions.
+
+## Since P1-5
+
+`~/.cerberus/plugins/<id>/<digest>/` holds the reviewed copies managed plugins
+run from, mode 0700, with a `.staging-*` directory present only during a review.
+`plugin-connectors.json` is written as version 2 by rename, beside a
+`plugin-connectors.json.lock` that serialises the CLI and the daemon. `cerberus path`
+reports neither (CERB-GAP-545).

@@ -200,6 +200,19 @@ func NewResourceRuntimeService(configPath string, cfg *config.ConfigV2) *cerbapi
 	return cerbapi.NewResourceRuntimeService(AuditSink(), opts...)
 }
 
+// NewPluginReviewer builds the in-process install review lane over
+// ~/.cerberus/plugin-connectors.json and its plugin store, writing to this
+// process's audit sink. The built-in connector ids are reserved, as for the
+// daemon's managed lane.
+func NewPluginReviewer(configPath string) (*cerbapi.PluginReviewer, error) {
+	statePath, err := cerbapi.PluginConnectorStatePath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve plugin connector state path: %w", err)
+	}
+	registry, _ := newConnectorRegistry(configPath)
+	return cerbapi.NewPluginReviewer(AuditSink(), statePath, registry.BuiltInIDs()...), nil
+}
+
 // NewPluginConnectorService builds the one-shot plugin lane (`connectors
 // plugin exec <dir>`), writing to this process's audit sink.
 func NewPluginConnectorService(hostVersion string, stderr io.Writer, configPath string) *cerbapi.PluginConnectorService {

@@ -70,8 +70,13 @@ type Client interface {
 	// it exists only in-process, in the operator's own shell
 	// (`cerberus connectors plugin health|exec <dir>`). Socket and web callers
 	// address an installed plugin by id.
-	// InstallManagedPlugin validates and registers a plugin directory with the daemon manager.
-	InstallManagedPlugin(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error)
+	// Installing a plugin is not on this interface either. It is an install
+	// review confirmed on the operator's terminal (PluginReviewer), which
+	// writes the reviewed entry and then asks the serving process to reload
+	// it by id.
+	// ReloadManagedPlugin makes the serving process re-read one plugin's
+	// reviewed state entry. It takes an id, never a path.
+	ReloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
 	// LoadManagedPlugin starts a previously installed plugin by id.
 	LoadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error)
 	// UnloadManagedPlugin stops a loaded plugin by id.

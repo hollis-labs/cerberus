@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/mattn/go-isatty"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 
@@ -78,23 +82,45 @@ var connectorsPluginManagedCmd = &cobra.Command{
 
 var connectorsPluginManagedInstallCmd = &cobra.Command{
 	Use:   "install <plugin-dir>",
-	Short: "Register a plugin directory with the daemon-managed plugin host",
-	Args:  cobra.ExactArgs(1),
+	Short: "Review a plugin and install it into the plugin store (interactive)",
+	Long: `Review a plugin directory and install it. This runs in your terminal, not
+in the daemon, and only from an interactive terminal: it prints what the plugin
+declares it can do and where the declaration has gaps, and installs it only when
+you type the plugin id.
+
+The reviewed bundle is copied into ~/.cerberus/plugins/<id>/<digest>/ and runs
+from there, so rebuilding the source directory changes nothing that runs until
+you install it again. Installing a plugin that is already installed is an
+upgrade, shown as a diff against the review you accepted before. The running
+daemon is then asked to reload the plugin by id.
+
+Every load compares the installed bundle with the one you accepted and refuses
+a plugin that changed (plugin_changed); see 'load --accept-changes'.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		client, err := newManagedPluginSocketClient()
-		if err != nil {
-			return err
-		}
-		out, err := client.InstallManagedPlugin(cmd.Context(), cerbapi.PluginConnectorHealthArgs{
-			PluginDir: args[0],
-			Options:   pluginInstallOptions(connectorsPluginDev),
-		})
-		if err != nil {
-			return err
-		}
-		return writeJSON(cmd.OutOrStdout(), out)
+		return runPluginReview(cmd, func(ctx context.Context, r *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error) {
+			return r.PrepareInstall(ctx, args[0], connectorsPluginDev)
+		}, false)
 	},
 }
+
+var connectorsPluginManagedReviewCmd = &cobra.Command{
+	Use:   "review <plugin-id>",
+	Short: "Review an installed plugin: the one-time review of a plugin installed before reviews existed (interactive)",
+	Long: `Review an installed plugin and accept it by typing its id. A plugin installed
+before install review existed keeps loading, reported as review_pending, until
+this is run once for it: the review is the same one install shows, and
+accepting it copies the plugin into the plugin store. A plugin whose bundle no
+longer matches its accepted review is shown as a diff.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runPluginReview(cmd, func(ctx context.Context, r *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error) {
+			return r.PrepareReview(ctx, args[0])
+		}, false)
+	},
+}
+
+var connectorsPluginAcceptChanges bool
 
 var connectorsPluginManagedListCmd = &cobra.Command{
 	Use:   "list",
@@ -115,8 +141,20 @@ var connectorsPluginManagedListCmd = &cobra.Command{
 var connectorsPluginManagedLoadCmd = &cobra.Command{
 	Use:   "load <plugin-id>",
 	Short: "Load a daemon-managed plugin",
-	Args:  cobra.ExactArgs(1),
+	Long: `Load an installed plugin in the daemon. A plugin whose bundle no longer
+matches the one you accepted is refused (plugin_changed). --accept-changes, from
+an interactive terminal, shows what changed as a diff against the accepted
+review, and loads the plugin once you type its id.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if connectorsPluginAcceptChanges {
+			err := runPluginReview(cmd, func(ctx context.Context, r *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error) {
+				return r.PrepareReview(ctx, args[0])
+			}, true)
+			if err != nil {
+				return err
+			}
+		}
 		client, err := newManagedPluginSocketClient()
 		if err != nil {
 			return err
@@ -185,7 +223,9 @@ func init() {
 	addPluginInstallFlags(connectorsPluginExecCmd)
 	addPluginInstallFlags(connectorsPluginManagedInstallCmd)
 	connectorsPluginExecFlags.register(connectorsPluginExecCmd)
+	connectorsPluginManagedLoadCmd.Flags().BoolVar(&connectorsPluginAcceptChanges, "accept-changes", false, "review what changed since the accepted review and accept it (interactive terminal only)")
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedInstallCmd)
+	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedReviewCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedListCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedLoadCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedUnloadCmd)
@@ -225,6 +265,81 @@ func runPluginExec(ctx context.Context, out io.Writer, pluginDir, operation stri
 		return err
 	}
 	return writeJSON(out, result)
+}
+
+// pluginReviewIsTerminal reports whether the review can be confirmed by a
+// person: stdin and stdout are a terminal. Tests swap it.
+var pluginReviewIsTerminal = func() bool {
+	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
+}
+
+var errPluginReviewNotInteractive = errors.New("a plugin install or review runs only from an interactive terminal, where it shows what the plugin can do and asks you to type its id; run it from a terminal, not a script or an agent")
+
+// newPluginReviewer is swapped by tests.
+var newPluginReviewer = func() (*cerbapi.PluginReviewer, error) { return app.NewPluginReviewer(cfgPath) }
+
+// reloadManagedPlugin asks the daemon to re-read a reviewed entry. Swapped
+// by tests.
+var reloadManagedPlugin = func(ctx context.Context, id string) (cerbapi.ManagedPluginConnectorState, error) {
+	client, err := newManagedPluginSocketClient()
+	if err != nil {
+		return cerbapi.ManagedPluginConnectorState{}, err
+	}
+	return client.ReloadManagedPlugin(ctx, id)
+}
+
+// runPluginReview prepares a review, shows it, takes the typed plugin id and
+// accepts it, then asks the daemon to reload the plugin. quietIfNothing makes
+// "nothing to review" a success, for load --accept-changes on a plugin that
+// has not changed.
+func runPluginReview(cmd *cobra.Command, prepare func(context.Context, *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error), quietIfNothing bool) error {
+	if !pluginReviewIsTerminal() {
+		return errPluginReviewNotInteractive
+	}
+	ctx := inProcessContext(cmd.Context())
+	out := cmd.OutOrStdout()
+	reviewer, err := newPluginReviewer()
+	if err != nil {
+		return err
+	}
+	pending, err := prepare(ctx, reviewer)
+	if errors.Is(err, cerbapi.ErrNothingToReview) {
+		if quietIfNothing {
+			return nil
+		}
+		_, err = fmt.Fprintln(out, redact.Text(err.Error()))
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprint(out, pending.Text())
+	_, _ = fmt.Fprint(out, "\n"+pending.Prompt())
+	line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		reviewer.Discard(pending)
+		return readErr
+	}
+	state, err := reviewer.Accept(ctx, pending, line)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "Accepted %s %s (%s); it runs from %s\n", state.ID, state.Version, state.BundleDigest, state.Path)
+	reloaded, err := reloadManagedPlugin(cmd.Context(), state.ID)
+	var unreachable *cerbapi.DaemonUnreachableError
+	switch {
+	case errors.As(err, &unreachable):
+		_, err = fmt.Fprintln(out, "The daemon is not running; it picks the reviewed plugin up when it starts.")
+		return err
+	case err != nil:
+		return fmt.Errorf("the review was accepted and recorded, but the daemon did not reload %q: %w", state.ID, err)
+	}
+	if reloaded.Loaded {
+		_, err = fmt.Fprintf(out, "The daemon reloaded %s.\n", state.ID)
+	} else {
+		_, err = fmt.Fprintf(out, "The daemon has registered %s; load it with `cerberus connectors plugin managed load %s`.\n", state.ID, state.ID)
+	}
+	return err
 }
 
 func pluginConnectorService() *cerbapi.PluginConnectorService {

@@ -92,3 +92,27 @@ can never be installed into the managed lane, which is exactly why the one-shot
 package, distinct from `internal/pluginhost` — is the in-repo reference plugin
 that prototype is generated from: the host half is `pluginhost`, the
 example-plugin half is `plugins`.
+
+## Since P1-5: the review declarations
+
+`CerberusPluginBlock` carries four declarations beside `connector`, defined in
+`pkg/plugin/declaration.go` and checked by `PluginYAML.Validate`:
+
+- **`host: {min_contract, max_contract}`** is the Cerberus contract range the
+  plugin was built for, against `plugin.ContractVersion` (1). It is enforced at
+  install and at load. Undeclared is a review gap.
+- **`suggested_policy`** is rules of `operation` and `require` (`ack`,
+  `approval`, `approval_for_agents`, `deny`) with a reason. The review shows
+  them; the host never applies them (I10).
+- **`surfaces: {mcp, cli_only}`** covers suggested MCP exposure, which is still
+  opt-in per operation in `connector-config.yaml`, and operations that must never
+  reach MCP, which the host honors.
+- **`telemetry`** names the event kinds each operation reports through
+  `AttachTelemetry`. A non-read operation without one is a gap: its audit record
+  carries only the host's view.
+
+A declaration that names an operation the connector does not declare, uses a
+requirement outside the vocabulary, puts an operation in both `mcp` and
+`cli_only`, or inverts the host range is a validation problem, refused at
+install. An absent declaration is a gap the review shows, never a refusal.
+`docs/plugins.md` is the author- and operator-facing reference.

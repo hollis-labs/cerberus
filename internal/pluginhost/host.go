@@ -24,11 +24,19 @@ type InstalledPlugin struct {
 	Origin   InstallOrigin     `json:"origin"`
 	Spec     PluginYAML        `json:"spec"`
 	Manifest contract.Manifest `json:"manifest"`
-	// EntrypointSHA256 fingerprints the entrypoint binary as installed, so a
-	// later check can tell whether it is still the binary that was installed.
-	// It is change detection, not a trust signal, and nothing compares it yet:
-	// a binary replaced underneath us is not detected (P1, CERB-GAP-336).
+	// EntrypointSHA256 fingerprints the entrypoint binary, for the audit
+	// record. What load compares is BundleDigest, which covers it.
 	EntrypointSHA256 string `json:"entrypoint_sha256,omitempty"`
+
+	// BundleDigest is the digest of the bundle the operator accepted in its
+	// install review. Load recomputes it from Path and refuses a plugin that
+	// no longer matches (ChangedError). It is change detection, not a trust
+	// signal: it says the bundle is the one reviewed, not who built it.
+	BundleDigest string `json:"bundle_digest,omitempty"`
+	// ReviewPending marks a plugin installed before install review existed.
+	// It keeps loading, unchecked, until the operator reviews it; its
+	// previews are not accepted, so its dry runs still need acknowledgment.
+	ReviewPending bool `json:"review_pending,omitempty"`
 
 	// Granted is what the host allowed of Spec.Capabilities, decided once at
 	// load and used for two things that must not disagree: the environment the

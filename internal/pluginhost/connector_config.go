@@ -163,11 +163,20 @@ func (c ConnectorConfig) ForPlugin(plugin InstalledPlugin) ResolvedSettings {
 		opNames = append(opNames, op.Name)
 	}
 	sort.Strings(opNames)
+	// A plugin may narrow itself: an operation it declares CLI-only never
+	// reaches MCP, whatever this file says. It is not a problem — the
+	// plugin still loads — but the operator is told why the tool is absent.
+	cliOnly := map[string]bool{}
+	for _, name := range plugin.Spec.Cerberus.Surfaces.CLIOnly {
+		cliOnly[name] = true
+	}
 	seen := map[string]bool{}
 	for _, name := range entry.MCP.Expose {
 		switch {
 		case !ops[name]:
 			out.Problems = append(out.Problems, fmt.Sprintf("mcp.expose names %q, which the plugin does not declare (operations: %s)", name, joinOrNone(opNames)))
+		case cliOnly[name]:
+			out.Warnings = append(out.Warnings, fmt.Sprintf("plugin %q declares %q CLI-only, so it is not exposed to MCP although %s lists it", plugin.ID, name, ConnectorConfigFilename))
 		case !seen[name]:
 			seen[name] = true
 			out.Expose = append(out.Expose, name)
