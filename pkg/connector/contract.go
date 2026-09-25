@@ -170,7 +170,9 @@ func (in Input) scope() InputScope {
 //   - InputSchema is built from the caller-scope Inputs. Local inputs are
 //     not advertised, because only the operator's shell may send them.
 //   - Destructive is Effect == destructive.
-//   - RequiresAck follows Effect (Decision 14).
+//   - RequiresAck follows Effect (Decision 14), and is also set by local_fs:
+//     writes, whatever the effect — ssh get is read_sensitive egress, but it
+//     overwrites a local path an agent chose, such as authorized_keys.
 //   - SupportsDry is Preview != none.
 //
 // An operation with no Inputs but an InputSchema — a plugin manifest — gets
@@ -189,7 +191,7 @@ func (op Operation) Finalize() Operation {
 	if op.Effect != "" {
 		op.Destructive = op.Effect == EffectDestructive
 	}
-	op.RequiresAck = op.Effect.RequiresAck()
+	op.RequiresAck = op.Effect.RequiresAck() || op.LocalFS == LocalFSWrites
 	if op.Preview != "" {
 		op.SupportsDry = op.Preview != PreviewNone
 	}

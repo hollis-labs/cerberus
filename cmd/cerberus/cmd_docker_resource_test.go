@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/spf13/cobra"
 )
 
@@ -186,7 +185,7 @@ func TestAdHocDockerFlagsForceInProcess(t *testing.T) {
 			t.Fatalf("--%s: %v", flag.name, err)
 		}
 		closeFn()
-		if _, ok := svc.(*cerbapi.ExternalConnectorService); !ok {
+		if _, ok := svc.(localConnectorExecutor); !ok {
 			t.Fatalf("--%s: executor = %T, want the in-process service", flag.name, svc)
 		}
 	}
