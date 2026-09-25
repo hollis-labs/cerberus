@@ -153,6 +153,15 @@ Two observations worth recording:
    channel that reaches a person. Neither alone is sufficient: policy without
    elicitation cannot ask, and elicitation without policy cannot express
    "read-only against this host".
+
+   Two inputs for this design, from building the Kubernetes plugin's writes.
+   First, the policy has to be per target, not per connector. The same
+   `restart_workload` is routine on a dev cluster and needs a human on a shared
+   one. Second, it has to decide what a dry run needs. Today the host gates a
+   plugin's dry run on `--ack` exactly as it gates a write, because it cannot
+   verify that the plugin honours `dry_run` (CERB-GAP-652). A policy that
+   allows dry runs freely while a human approves the write needs a way to
+   trust the plugin's dry-run claim first.
 3. **SPIFFE is recorded as direction, not planned.** It needs infrastructure
    Cerberus does not have. Trigger conditions are in WP-S9.
 4. **PII is its own work package**, not folded into the redaction rework,

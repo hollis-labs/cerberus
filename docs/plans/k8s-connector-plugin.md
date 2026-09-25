@@ -9,6 +9,13 @@ Written 2026-09-18, before the cluster exists. That is deliberate: WP-K1 is
 buildable today against a fake backend, and everything cluster-shaped is gated
 behind one question (WP-K0) that nobody can answer yet.
 
+**Status, 2026-09-25:** WP-K1 to WP-K4 are done, and WP-K6 is prototyped. There
+are fourteen reads and five writes, all verified against a `kind` cluster
+through the host. The `exec` credential path is now verified end to end with a
+stand-in helper. What still waits on the real cluster is narrower than WP-K0
+reads: which helper it uses, and what RBAC we are given. See "Verified against a
+real cluster — 2026-09-25" below.
+
 ## The lane decision
 
 **Plugin, not a built-in.** AGENTS.md: "If you are about to add a vendor SDK to
@@ -203,7 +210,7 @@ likely hands us:
 ```
 $ check_access --context corp-prod
   auth_mode: exec   ready: false
-  credential_plugin: {command: kubelogin, resolved: false,
+  exec_helper: {command: kubelogin, resolved: false,
                       interactive_mode: Always, env_names: [AAD_CLIENT_SECRET]}
   problems:
     credential_missing: credential plugin kubelogin was not found on PATH or in
@@ -238,9 +245,10 @@ in the marshalled output. A full protocol run greps clean for the sentinel
 across both stdout and stderr. Env is reported as `env_names`; exec `Args` are
 not emitted at all.
 
-`TestEveryOperationIsReadOnly` is the tripwire for WP-K6: the first write
-operation added will fail it, forcing a deliberate decision rather than letting
-a write arrive unannounced.
+`TestEveryOperationIsReadOnly` was the tripwire for WP-K6: the first write
+operation added failed it, as intended. When the writes landed it was replaced
+by `TestWriteOperationsAreExactlyTheDestructiveOnes`, which keeps the same job:
+a write cannot be added without being marked `Destructive`, and so gated.
 
 ### Two things worth knowing before picking this up
 
@@ -257,9 +265,11 @@ a write arrive unannounced.
 
 ---
 
-## WP-K2 — Kubeconfig and credential resolution
+## WP-K2 — Kubeconfig and credential resolution — DONE
 
-**Blocked on WP-K0.**
+Built in WP-K1. The `exec` path was verified live on 2026-09-25 with a stand-in
+helper found outside the daemon's minimal PATH. What remains open is only the
+managed cluster's own helper.
 
 **Do:** resolve a cluster connection per call, from (in order) an explicit
 `context` operation argument, a `kubeconfig` config field, `$KUBECONFIG`, then
@@ -296,11 +306,12 @@ same call `docker` made in WP-3 — one daemon, several clusters.
 
 ---
 
-## WP-K3 — Read operations
+## WP-K3 — Read operations — DONE 2026-09-25
 
-**Blocked on WP-K2.** Everything here is read-only and therefore
-`Destructive: false`, `SupportsDry: false`. Making a read prompt for `--ack`
-empties the gate of meaning.
+All of the table below shipped. `list_pods`, `list_services`,
+`list_ingresses` and `list_api_resources` were added alongside it. Everything
+here is read-only and therefore `Destructive: false`, `SupportsDry: false`.
+Making a read prompt for `--ack` empties the gate of meaning.
 
 Proposed operation set, smallest thing that is genuinely useful:
 
@@ -321,7 +332,7 @@ unrecoverable.
 
 ---
 
-## WP-K4 — Logs
+## WP-K4 — Logs — DONE
 
 Pod logs, with `container`, `tail`, `since` and `previous`. Snapshot only —
 **not** streaming. The admin lane returns a result; a long-lived stream over the
@@ -352,26 +363,43 @@ sits behind WP-K6.
 
 ---
 
-## WP-K6 — Write operations — LOCKED
+## WP-K6 — Write operations — PROTOTYPED 2026-09-25
 
-"Work infrastructure is read-only" is a scope decision, not a permissions
-workaround. `apply`, `delete`, `scale`, `rollout restart`, `cordon`, `drain`,
-`exec` are documented as locked rather than built speculatively.
+This package was LOCKED under "work infrastructure is read-only". That decision
+has been amended (AGENTS.md, CERB-DEC-292). It now governs what we *do* to work
+resources, not what a connector can *do*. Cerberus is built in public, and most
+of its users do not share our estate. Whether a write runs against a work
+cluster is the owning team's decision. A connector that can write does not make
+that decision.
 
-**Unlock conditions, so this is not a dead end:**
+**Shipped:** `scale_workload`, `restart_workload`, `cordon_node`,
+`uncordon_node`, `delete_pod`. The original unlock conditions became the build
+rules:
 
-- The cluster is ours to operate, with an owner who has agreed in writing that
-  Cerberus writes to it — as opposed to an infrastructure team owning it and
-  Cerberus being a tool that helps operate it.
-- A dedicated ServiceAccount with a scoped Role, so a write is attributable to
-  Cerberus and bounded by RBAC rather than by our own restraint.
-- Every write operation carries `Destructive: true` and a real `SupportsDry`
-  preview. Kubernetes gives us server-side dry-run (`dryRun=All`) for free,
-  which is a better preview than anything we would compose — and skipping the
-  `dryRunPreview` case is what makes `--dry-run` demand `--ack`.
+- Every write is `Destructive: true` and `SupportsDry: true`, so the host
+  refuses it without `--ack`. The plugin also refuses an unacknowledged write on
+  its own, so the rule holds for a caller that is not the host.
+  `TestWriteOperationsAreExactlyTheDestructiveOnes` keeps the manifest and the
+  plugin's list of writes in step.
+- The preview is server-side dry run (`dryRun=All`), not one composed by the
+  plugin. Verified: a read-only identity's *dry run* is refused with the same
+  RBAC error as the real write.
+- Every write is attributable: field manager `cerberus-kubernetes-plugin` shows
+  up in the object's `managedFields`.
 
-A disposable local or development cluster is the natural first write target and
-needs none of the above. A cluster someone else owns needs all of it.
+**Still true, and now the operator's job rather than the code's:** point
+Cerberus at a work cluster with an identity whose RBAC is the policy. Ask for a
+read-only role there, or for a role that grants exactly the verbs the owning
+team agrees to. Per-target write policy with a human in the loop is the planned
+replacement for that restraint.
+
+**Not built, and why:** `drain` is long-running and can stall on a
+PodDisruptionBudget indefinitely, so it is not one call. `apply` is deployment,
+not administration. `exec` is WP-K5.
+
+**Host friction found while building it:** under the host, `--dry-run` on a
+plugin write also needs `--ack`, because the host cannot verify that a plugin
+honours `dry_run`. Recorded as CERB-GAP-652.
 
 ---
 
@@ -386,28 +414,111 @@ wanted.
 
 ---
 
+## Open decisions
+
+Recorded so they are picked up rather than re-derived. Each names who decides.
+
+1. **Should a plugin's dry run need `--ack`?** Decided by Cerberus, as part of
+   per-target write policy. Today it does, because the host cannot verify that a
+   plugin honours `dry_run`. This plugin is safe regardless, because the API
+   server enforces `dryRun=All`. But that is a property of this plugin, not a
+   guarantee the host gives. See CERB-GAP-652 and "Human-in-the-loop is a
+   policy file plus MCP elicitation" in `agent-authority-and-secrets.md`.
+2. **Which writes may run against the managed cluster, and where?** Decided by
+   the team that owns the cluster, and asked in the same follow-up as WP-K0,
+   with the exact RBAC each write needs. Until they answer, use a read-only role
+   there. It was verified to refuse every write, dry runs included.
+3. **Where writes are allowed, which need a human?** Decided by Cerberus
+   per-target policy, once it exists. Until then `--ack` is the only gate, and it
+   is an intent gate, not a human one.
+
 ## Sequencing
 
 ```
-WP-K0 auth discovery   operator action, BLOCKING ──┐
-                                                    ├─► WP-K2 kubeconfig/creds ──► WP-K3 reads ──► WP-K4 logs
-WP-K1 skeleton + DTOs  DONE 2026-09-18           ──┘   (largely landed in K1;      (written, unproven   └─► WP-K5 exec/forward (deferred)
-                                                        what remains is proving     against a cluster)
-                                                        it against a real cluster)
-                                                                                              └─► WP-K6 writes (locked)
-                                                                                              └─► WP-K7 helm (deferred)
+WP-K0 auth discovery   operator action — narrowed: which helper, which RBAC
+WP-K1 skeleton + DTOs  DONE 2026-09-18
+WP-K2 kubeconfig/creds DONE — exec path verified with a stand-in helper 2026-09-25
+WP-K3 reads            DONE 2026-09-25
+WP-K4 logs             DONE
+WP-K5 exec/forward     deferred
+WP-K6 writes           PROTOTYPED 2026-09-25 — use against a work cluster is policy, not code
+WP-K7 helm             deferred
 ```
 
-WP-K1 was the whole parallelizable surface and it has landed, including the
-DTO boundary — the part that is expensive to get wrong and was cheap to get
-right while there was no cluster to be careless with.
+---
 
-**WP-K2, WP-K3 and WP-K4 are now verified against a real API server** — see
-"Verified against a real cluster" below. What remains genuinely blocked on the
-target cluster is narrow: the `exec` credential path (kind uses client
-certificates, so the launchd-PATH rewrite is still only unit-tested), RBAC
-behaviour under a restricted role, and whatever the mapping gets wrong on
-objects we have not thought to create.
+## Verified against a real cluster — 2026-09-25
+
+The same `kind` v1.37.0 setup as below, plus four additions: a read-only
+ServiceAccount bound to the built-in `view` role; a context whose `exec` helper
+is a script in `~/.local/bin` that prints that account's token; a second
+context whose helper is set to `interactiveMode: Always`; and metrics-server.
+Everything ran through `cerberus connectors plugin exec`, which applies the
+host's `--ack` gate and output redaction without touching the installed daemon,
+under `env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin`.
+
+- **The `exec` credential path works end to end.** The helper was found in the
+  fallback search, its absolute path was rewritten into the in-memory
+  kubeconfig, and client-go ran it under the daemon's `PATH`. This is the piece
+  the 2026-09-18 run could not reach.
+- **RBAC denials name the grant.** Scale, cordon and delete as the read-only
+  account each failed with the API server's own text, for example
+  `cannot patch resource "nodes" in API group "" at the cluster scope`. Dry runs
+  failed the same way.
+- **Every write behaved.** Dry runs changed nothing: the ReplicaSet count held,
+  the node stayed schedulable, and the pod stayed running. No-ops sent nothing.
+  A DaemonSet scale was refused with the reason. The restart rolled a new
+  ReplicaSet.
+- **`top` matches `kubectl top`** for nodes and pods. The not-installed (404)
+  and not-answering (503) cases both came back as `available: false` with a
+  reason, and the 503 case was seen live while metrics-server was starting.
+- **The canary sweep is clean.** All fourteen reads ran in both the
+  client-certificate and `exec` contexts, and none of the 30 results carried
+  the canary or a `[REDACTED]`.
+
+### Four bugs the live path found that no test had
+
+All four are fixed, each with a test.
+
+1. **Host redaction blanked a DTO field by its key.** `list_ingresses` returned
+   `secret_name: "[REDACTED]"`. The host hides the value of any key containing
+   `SECRET`, even when the value is a name. Worse, the host hides *everything
+   beneath* a matching key. So `check_access`'s `credential_plugin` object would
+   have come back with the helper's command, path, install hint and env names
+   all `[REDACTED]`, which is the whole diagnosis. It was never seen before
+   because kind has no `exec` helper. The keys are now `certificate` and
+   `exec_helper`. `TestNoDTOKeyIsOneTheHostRedacts` walks every DTO's JSON keys
+   against a copy of the host's `SensitiveKey`. **Worth knowing for any plugin:**
+   the eighth redaction casualty is a JSON key, not prose.
+2. **The kubeconfig context's namespace was ignored.** With no `namespace`
+   argument, operations used `default`, not the context's namespace as kubectl
+   does. For reads that is a wrong answer. For writes it means changing a
+   same-named workload in `default`. The order is now: the argument, the
+   connector's configured namespace, the context's namespace, then `default`.
+3. **`interactiveMode: Always` passed preflight.** `check_access` said
+   `ready: true` and every call then failed, because client-go refuses to run
+   such a helper without a terminal. It checks before running the helper, so a
+   cached login is never reached, and the old advice to refresh in a terminal
+   could not work. Now it reports `ready: false`, and the recovery is
+   `interactiveMode: IfAvailable`.
+4. **client-go's exec error lost a word to the host redactor.** Its text reads
+   `getting credentials: exec plugin …`, and the assignment rule took
+   `credentials:` for a key, turning that into `[REDACTED] plugin …`. The cause is
+   now cut out from behind that phrase, and the interactive case gets its own
+   message rather than one pointing at the `PATH`.
+
+### Still not verified
+
+- **A managed cluster's own helper** (`kubelogin`, `aws eks get-token`,
+  `gke-gcloud-auth-plugin`). The stand-in proves the plumbing, not the helper's
+  behaviour.
+- **The installed daemon.** This run used the host's in-process exec path, which
+  shares the gate, the redaction and the launch environment. The 2026-09-18 run
+  covered the daemon for the original nine operations.
+- **More than one node**, so `top` and cordon have only been seen on a
+  single-node cluster.
+
+---
 
 ## Verified against a real cluster — 2026-09-18
 
