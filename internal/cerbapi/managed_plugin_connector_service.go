@@ -2,9 +2,12 @@ package cerbapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
@@ -22,9 +25,19 @@ type ManagedPluginConnectorState struct {
 	// development install whose destructive operations are refused. It is not
 	// a trust level.
 	Origin string `json:"origin,omitempty"`
-	// EntrypointSHA256 fingerprints the entrypoint as installed. Change
-	// detection for later, not a trust signal; nothing compares it yet (P1).
+	// EntrypointSHA256 fingerprints the entrypoint as installed.
 	EntrypointSHA256 string `json:"entrypoint_sha256,omitempty"`
+	// Source is the directory the reviewed bundle was installed from; Path
+	// is where it runs from, its copy in the plugin store.
+	Source string `json:"source,omitempty"`
+	// BundleDigest is the digest of the accepted bundle. Every load compares
+	// it, and refuses a plugin that no longer matches (plugin_changed).
+	BundleDigest string    `json:"bundle_digest,omitempty"`
+	AcceptedAt   time.Time `json:"accepted_at,omitzero"`
+	// ReviewPending marks a plugin installed before install review. It
+	// keeps loading, unchecked, until `cerberus connectors plugin managed
+	// review <id>` is run in a terminal. Always present.
+	ReviewPending bool `json:"review_pending"`
 
 	// MissingSecrets names required credentials a loaded plugin did not
 	// receive. Reported so `managed list` is truthful about a plugin that is
@@ -63,15 +76,10 @@ type ManagedPluginConnectorService struct {
 	manager     *pluginhost.Manager
 	hostVersion string
 	statePath   string
+	store       pluginhost.Store
 	records     map[string]pluginConnectorPersistedEntry
 	warn        io.Writer
 	reservedIDs []string
-
-	// unrestored holds entries whose plugin directory could not be restored at
-	// startup. They are kept so persist() does not silently drop a registration
-	// whose directory is temporarily absent — a rebuilt plugin comes back on the
-	// next restart instead of having to be reinstalled.
-	unrestored []pluginConnectorPersistedEntry
 
 	audit  audit.Sink
 	logger *slog.Logger
@@ -134,6 +142,7 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 	service := &ManagedPluginConnectorService{
 		hostVersion: hostVersion,
 		statePath:   statePath,
+		store:       pluginStoreFor(statePath),
 		records:     make(map[string]pluginConnectorPersistedEntry),
 		warn:        stderr,
 		reservedIDs: append(append([]string(nil), hostServedIDs...), cfg.reservedIDs...),
@@ -157,31 +166,61 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 	return service, nil
 }
 
-func (s *ManagedPluginConnectorService) Install(ctx context.Context, args PluginConnectorHealthArgs) (_ ManagedPluginConnectorState, retErr error) {
-	call, err := s.beginAdmin(ctx, "install", map[string]any{"plugin_dir": args.PluginDir})
+// Reload re-reads one plugin's entry from the state file and makes the
+// daemon's view match it: the entry an install review just wrote, a new
+// accepted bundle, or a removal. It takes an id only — never a path — so it
+// can only apply what a review on the operator's terminal accepted, and a
+// bundle that does not match its accepted digest is refused before the
+// running plugin is touched.
+func (s *ManagedPluginConnectorService) Reload(ctx context.Context, id string) (_ ManagedPluginConnectorState, retErr error) {
+	call, err := s.beginAdmin(ctx, "reload", map[string]any{"id": id})
 	if err != nil {
 		return ManagedPluginConnectorState{}, err
 	}
 	defer func() { call.finish(retErr) }()
 
-	progressToken := fmt.Sprintf("managed-plugin-install:%s", args.PluginDir)
-	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Installing managed plugin from %s", args.PluginDir))
-	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Installing managed plugin")
-	installed, err := s.install(args.PluginDir, args.InstallOptions())
+	state, err := readPluginConnectorState(s.statePath)
 	if err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", args.PluginDir, redact.Text(err.Error())))
-		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin install failed")
 		return ManagedPluginConnectorState{}, err
 	}
-	state := managedState(installed, false)
+	i := state.findEntry(id)
+	if i < 0 {
+		return ManagedPluginConnectorState{}, fmt.Errorf("plugin %q is not in %s; install it with `cerberus connectors plugin managed install <dir>` in a terminal", id, s.statePath)
+	}
+	entry := state.Entries[i]
+	next, err := s.inspect(entry)
+	if err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	if next.ID != id {
+		return ManagedPluginConnectorState{}, fmt.Errorf("the state entry for %q now holds plugin %q; refusing", id, next.ID)
+	}
+	wasLoaded := s.manager.Loaded(id)
+	if wasLoaded || entry.Loaded {
+		// Checked before the running plugin is stopped: a refused bundle
+		// leaves what is running alone.
+		if err := pluginhost.CheckBundle(next); err != nil {
+			return ManagedPluginConnectorState{}, managedLoadError(err)
+		}
+	}
+	if wasLoaded {
+		if err := s.manager.Unload(ctx, id); err != nil {
+			return ManagedPluginConnectorState{}, err
+		}
+	}
+	s.manager.RegisterInstalled(next)
+	entry.ID = id
+	s.records[id] = entry
+	if wasLoaded || entry.Loaded {
+		if err := s.manager.Load(ctx, id); err != nil {
+			_ = s.persist()
+			return ManagedPluginConnectorState{}, managedLoadError(err)
+		}
+	}
 	if err := s.persist(); err != nil {
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin install failed for %s: %s", installed.ID, redact.Text(err.Error())))
-		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin install failed")
 		return ManagedPluginConnectorState{}, err
 	}
-	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin installed: %s", installed.ID))
-	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin installed")
-	return state, nil
+	return s.state(next, s.manager.Loaded(id)), nil
 }
 
 func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (_ ManagedPluginConnectorState, retErr error) {
@@ -197,7 +236,7 @@ func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (_ 
 	if err := s.manager.Load(context.Background(), id); err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin load failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin load failed")
-		return ManagedPluginConnectorState{}, err
+		return ManagedPluginConnectorState{}, managedLoadError(err)
 	}
 	installed, _ := s.manager.Installed(id)
 	state := s.state(installed, true)
@@ -271,7 +310,25 @@ func (s *ManagedPluginConnectorService) Uninstall(ctx context.Context, id string
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
 		return ManagedPluginConnectorState{}, err
 	}
+	entry := s.records[id]
 	delete(s.records, id)
+	if err := updatePluginConnectorState(s.statePath, func(st *pluginConnectorPersistedState) error {
+		if i := st.findEntry(id); i >= 0 {
+			st.Entries = append(st.Entries[:i], st.Entries[i+1:]...)
+		}
+		return nil
+	}); err != nil {
+		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, redact.Text(err.Error())))
+		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
+		return ManagedPluginConnectorState{}, err
+	}
+	// Only Cerberus's own copies are removed; a development install's
+	// source directory, or a pending entry's checkout, is the operator's.
+	if s.store.Owns(entry.PluginDir) || s.store.Owns(installed.Path) {
+		if err := s.store.Remove(id); err != nil {
+			s.warnf("plugin %q uninstalled, but its store copy was not removed: %v", id, err)
+		}
+	}
 	if err := s.persist(); err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin uninstall failed for %s: %s", id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin uninstall failed")
@@ -338,6 +395,9 @@ func (s *ManagedPluginConnectorService) Health(ctx context.Context, id string) (
 // the way the admin lane records its operations.
 func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
 	spec := auditSpec{connector: id, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun}
+	if args.DryRun {
+		spec.preview = audit.PreviewPluginClaimed
+	}
 	spec.pluginConfigSHA256, spec.pluginEntrypointSHA256 = s.fingerprints(id)
 	for _, def := range s.Definitions() {
 		if def.ID == id {
@@ -397,6 +457,8 @@ func managedState(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginC
 		Loaded:           loaded,
 		Origin:           string(plugin.Origin),
 		EntrypointSHA256: plugin.EntrypointSHA256,
+		BundleDigest:     plugin.BundleDigest,
+		ReviewPending:    plugin.ReviewPending,
 		Capabilities:     declared,
 		ContractGaps:     plugin.Manifest.ContractGaps(),
 		// The grant is decided at load. For a plugin that is installed but not
@@ -419,6 +481,10 @@ func grantedOrPreview(plugin pluginhost.InstalledPlugin) []string {
 
 func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin, loaded bool) ManagedPluginConnectorState {
 	out := managedState(plugin, loaded)
+	if entry, ok := s.records[plugin.ID]; ok {
+		out.Source = entry.Source
+		out.AcceptedAt = entry.AcceptedAt
+	}
 	if loaded {
 		out.MissingSecrets = s.manager.MissingSecrets(plugin.ID)
 		if settings, ok := s.manager.Settings(plugin.ID); ok {
@@ -448,45 +514,67 @@ func connectorConfigLoader(path string) func() (pluginhost.ConnectorConfig, erro
 	}
 }
 
-func (s *ManagedPluginConnectorService) install(pluginDir string, options PluginInstallOptions) (pluginhost.InstalledPlugin, error) {
+// inspect reads a state entry into the plugin it describes, without
+// registering it: the plugin.yaml at its directory, the reserved-id and
+// install-policy checks, and the accepted digest that load will compare.
+func (s *ManagedPluginConnectorService) inspect(entry pluginConnectorPersistedEntry) (pluginhost.InstalledPlugin, error) {
 	installer := pluginhost.DirectoryInstaller{
-		Policy:      pluginPolicy(pluginDir, options),
+		Policy:      pluginPolicy(entry.PluginDir, entry.Options),
 		ReservedIDs: s.reservedIDs,
 	}
-	installed, err := installer.Install(context.Background(), pluginDir)
+	installed, err := installer.Install(context.Background(), entry.PluginDir)
+	if err != nil {
+		return pluginhost.InstalledPlugin{}, err
+	}
+	installed.BundleDigest = entry.BundleDigest
+	installed.ReviewPending = entry.reviewPending()
+	return installed, nil
+}
+
+// register makes a state entry one of the daemon's installed plugins.
+func (s *ManagedPluginConnectorService) register(entry pluginConnectorPersistedEntry) (pluginhost.InstalledPlugin, error) {
+	installed, err := s.inspect(entry)
 	if err != nil {
 		return pluginhost.InstalledPlugin{}, err
 	}
 	s.manager.RegisterInstalled(installed)
-	s.records[installed.ID] = pluginConnectorPersistedEntry{
-		PluginDir: pluginDir,
-		Options:   options,
-		Loaded:    s.manager.Loaded(installed.ID),
-	}
+	entry.ID = installed.ID
+	s.records[installed.ID] = entry
 	return installed, nil
 }
 
+// persist records which plugins are loaded. It updates only that, under the
+// state file's lock, and keeps every entry it does not know: an install
+// review in a terminal writes this file too, and an entry the daemon could
+// not restore must not be dropped because its directory is briefly absent.
 func (s *ManagedPluginConnectorService) persist() error {
-	if s.statePath == "" {
+	return updatePluginConnectorState(s.statePath, func(st *pluginConnectorPersistedState) error {
+		for id := range s.records {
+			if i := st.findEntry(id); i >= 0 {
+				st.Entries[i].ID = id
+				st.Entries[i].Loaded = s.manager.Loaded(id)
+			}
+		}
 		return nil
+	})
+}
+
+// managedLoadError codes a refused load: a bundle that is not the one
+// reviewed is plugin_changed, with the recovery in its text.
+func managedLoadError(err error) error {
+	if errors.Is(err, pluginhost.ErrPluginChanged) {
+		return externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: "load"}, ExternalConnectorPluginChanged, err)
 	}
-	plugins := s.manager.InstalledPlugins()
-	state := pluginConnectorPersistedState{
-		Entries: make([]pluginConnectorPersistedEntry, 0, len(plugins)),
+	return err
+}
+
+// pluginStoreFor is the plugin store beside a state file: the daemon's is
+// ~/.cerberus/plugins.
+func pluginStoreFor(statePath string) pluginhost.Store {
+	if statePath == "" {
+		return pluginhost.Store{}
 	}
-	for _, plugin := range plugins {
-		record := s.records[plugin.ID]
-		record.Loaded = s.manager.Loaded(plugin.ID)
-		record.PluginDir = plugin.Path
-		s.records[plugin.ID] = record
-		state.Entries = append(state.Entries, pluginConnectorPersistedEntry{
-			PluginDir: record.PluginDir,
-			Options:   record.Options,
-			Loaded:    record.Loaded,
-		})
-	}
-	state.Entries = append(state.Entries, s.unrestored...)
-	return writePluginConnectorState(s.statePath, state)
+	return pluginhost.Store{Root: filepath.Join(filepath.Dir(statePath), "plugins")}
 }
 
 // warnf reports a non-fatal managed-plugin problem. Startup problems must be
@@ -499,10 +587,10 @@ func (s *ManagedPluginConnectorService) warnf(format string, args ...any) {
 }
 
 // pluginAdminOperation is the contract the audit log records plugin
-// lifecycle calls under. It is admin: it changes what Cerberus can run. It is
-// not a declared, gated operation yet — P1-5 makes install an admin
-// operation with a review and a TTY confirmation — so it lives here, for the
-// record, rather than in a Definition that would claim a gate nothing enforces.
+// lifecycle calls under. It is admin: it changes what Cerberus can run.
+// Install, upgrade and review are gated by a review confirmed on the
+// operator's terminal (PluginReviewer); load, unload, reload and uninstall
+// act only on what such a review accepted.
 func pluginAdminOperation(name string) contract.Operation {
 	return contract.Operation{
 		Name: name, Effect: contract.EffectAdmin,

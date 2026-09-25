@@ -681,7 +681,7 @@ func TestExternalConnectorServiceIncludesInstalledManagedPluginDefinitions(t *te
 	managed := mustManagedPluginService(t, "")
 	pluginDir := helperPluginDir(t)
 
-	if _, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, err := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
 	}); err != nil {
 		t.Fatalf("Install: %v", err)
@@ -710,7 +710,7 @@ func TestSocketClientExecutesManagedPluginThroughConnectorAPI(t *testing.T) {
 	managed := mustManagedPluginService(t, "")
 	pluginDir := helperPluginDir(t)
 
-	if _, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, err := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
 	}); err != nil {
 		t.Fatalf("Install: %v", err)
@@ -829,7 +829,7 @@ func TestExternalConnectorServiceFallsBackToBuiltInWhenPluginNotLoaded(t *testin
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, installErr := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: writeTestPluginDir(t, "ssh"),
 	}); installErr != nil {
 		t.Fatalf("install: %v", installErr)
@@ -863,7 +863,7 @@ func TestExternalConnectorServiceErrorsWhenPluginNotLoadedAndNoBuiltIn(t *testin
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, installErr := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: writeTestPluginDir(t, "ssh"),
 	}); installErr != nil {
 		t.Fatalf("install: %v", installErr)
@@ -891,7 +891,7 @@ func TestManagedPluginLocalInstallRecordsOriginAndFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	state, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	state, err := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: writeTestPluginDir(t, "ssh"),
 	})
 	if err != nil {
@@ -915,7 +915,7 @@ func TestManagedPluginUninstallRemovesEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	if _, err := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, err := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: writeTestPluginDir(t, "ssh"),
 	}); err != nil {
 		t.Fatalf("install: %v", err)
@@ -943,7 +943,7 @@ func TestManagedPluginRestoreSkipsMissingDirectoryInsteadOfFailing(t *testing.T)
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{
+	if _, installErr := managed.installForTest(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: pluginDir,
 	}); installErr != nil {
 		t.Fatalf("install: %v", installErr)
@@ -977,7 +977,7 @@ func TestManagedPluginRestorePreservesUnrestorableEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}
-	if _, installErr := managed.Install(context.Background(), PluginConnectorHealthArgs{PluginDir: pluginDir}); installErr != nil {
+	if _, installErr := managed.installForTest(context.Background(), PluginConnectorHealthArgs{PluginDir: pluginDir}); installErr != nil {
 		t.Fatalf("install: %v", installErr)
 	}
 	if rmErr := os.RemoveAll(pluginDir); rmErr != nil {

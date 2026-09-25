@@ -244,11 +244,8 @@ func (fakeSocketProgressClient) ExecutePluginConnector(ctx context.Context, args
 	gmcp.NotifyMessage(ctx, "info", "fake plugin operation completed")
 	return cerbapi.ExternalConnectorOperationResult{Connector: "docker", Operation: args.Operation, Data: map[string]any{"ok": true}}, nil
 }
-func (fakeSocketProgressClient) InstallManagedPlugin(ctx context.Context, _ cerbapi.PluginConnectorHealthArgs) (cerbapi.ManagedPluginConnectorState, error) {
-	gmcp.NotifyMessage(ctx, "info", "fake managed plugin install started")
-	gmcp.NotifyProgress(ctx, "fake-managed-install", 1, 2, "installing managed plugin")
-	gmcp.NotifyMessage(ctx, "info", "fake managed plugin install completed")
-	return cerbapi.ManagedPluginConnectorState{ID: "docker", Loaded: false, Version: "0.1.0"}, nil
+func (fakeSocketProgressClient) ReloadManagedPlugin(context.Context, string) (cerbapi.ManagedPluginConnectorState, error) {
+	return cerbapi.ManagedPluginConnectorState{}, nil
 }
 func (fakeSocketProgressClient) LoadManagedPlugin(ctx context.Context, id string) (cerbapi.ManagedPluginConnectorState, error) {
 	gmcp.NotifyMessage(ctx, "info", "fake managed plugin load started")

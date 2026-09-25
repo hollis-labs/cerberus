@@ -113,3 +113,15 @@ there are none (CERB-DEC-821). A plugin's `input_schema` is enforced as its key
 table on the admin lane, which every CLI, socket, console and MCP call to a
 plugin goes through (`managed exec` was retired in favour of `connectors exec`). cerberus-plugins PR #5 (P1-6a)
 declared an effect on every operation of our plugins, so none has a gap.
+
+## Since P1-5
+
+The lane now versions what it runs, in the sense that matters for integrity. A
+managed plugin runs from a reviewed copy in `~/.cerberus/plugins/<id>/<digest>/`,
+and every load refuses a bundle that is not the one the operator accepted
+(`plugin_changed`), so rebuilding `dist/` no longer swaps the implementation
+underneath a registration (CERB-CAP-303). There is still no pin or rollback to
+an earlier version (CERB-GAP-337). `plugin.yaml` gained the section 10
+declarations beside the connector manifest (CERB-CAP-304). A plugin that marks an
+operation `cli_only` keeps it off MCP even when `connector-config.yaml` exposes
+it, which is a plugin narrowing itself; the host warns and does not expose it.

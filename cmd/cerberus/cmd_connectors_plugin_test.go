@@ -173,17 +173,9 @@ func TestManagedPluginCommands(t *testing.T) {
 	connectorsExecFlags = connectorExecFlags{}
 	connectorsPluginDev = false
 
-	var out bytes.Buffer
-	connectorsPluginManagedInstallCmd.SetOut(&out)
-	connectorsPluginManagedInstallCmd.SetContext(context.Background())
-	if err := connectorsPluginManagedInstallCmd.RunE(connectorsPluginManagedInstallCmd, []string{pluginDir}); err != nil {
-		t.Fatalf("install RunE: %v", err)
-	}
-	if !strings.Contains(out.String(), `"id": "docker"`) {
-		t.Fatalf("install output = %s", out.String())
-	}
+	registerPendingPlugin(t, pluginDir, "docker")
 
-	out.Reset()
+	var out bytes.Buffer
 	connectorsPluginManagedLoadCmd.SetOut(&out)
 	connectorsPluginManagedLoadCmd.SetContext(context.Background())
 	if err := connectorsPluginManagedLoadCmd.RunE(connectorsPluginManagedLoadCmd, []string{"docker"}); err != nil {
@@ -333,5 +325,26 @@ func TestRunPluginExecReportsThePluginErrorCode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "docker fail: connector_unavailable: upstream is down") {
 		t.Fatalf("the code or message was lost: %v", err)
+	}
+}
+
+// registerPendingPlugin puts pluginDir in the test daemon's state as an
+// entry from before install review, and has the daemon reload it by id.
+// Install itself is an interactive review, tested in cmd_plugin_review_test.go.
+func registerPendingPlugin(t *testing.T, pluginDir, id string) {
+	t.Helper()
+	statePath, err := cerbapi.PluginConnectorStatePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := json.Marshal(map[string]any{"entries": []map[string]any{{"plugin_dir": pluginDir, "options": map[string]any{}, "loaded": false}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, entry, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reloadManagedPlugin(context.Background(), id); err != nil {
+		t.Fatalf("reload %s: %v", id, err)
 	}
 }

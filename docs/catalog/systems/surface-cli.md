@@ -121,3 +121,12 @@ also the CLI path to `namecheap`'s `get_dns_record_set` and `set_dns_record_set`
 or `--input`. A generic verb is still a worse operator experience than a typed
 subcommand with real flags, which is why the everyday verbs keep theirs.
 
+## Since P1-5
+
+`connectors plugin managed install <dir>`, `managed review <id>` and
+`managed load <id> --accept-changes` run the install review in the CLI process
+and only from an interactive terminal: stdin and stdout must both be a TTY, so
+`</dev/null` is refused. They confirm by the typed plugin id, then ask the
+daemon to reload the plugin by id, or say the daemon picks it up at start when it
+is not running. The one-shot `plugin exec|health <dir>` is unchanged and
+unreviewed.

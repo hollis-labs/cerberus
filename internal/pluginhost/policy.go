@@ -54,8 +54,8 @@ type InstallCheck struct {
 	SourcePath string
 	// EntrypointSHA256 fingerprints the entrypoint binary as installed. It is
 	// change detection, not a trust signal: it says nothing about who built
-	// the binary. Nothing compares it yet — refusing to load a binary that no
-	// longer matches is P1 (CERB-GAP-336).
+	// the binary. Load compares the bundle digest, which covers it
+	// (CheckBundle).
 	EntrypointSHA256 string
 	SandboxProfile   SandboxProfile
 	SandboxEnforced  bool
@@ -129,6 +129,15 @@ func OperationAllowed(origin InstallOrigin, op contract.ManifestOperation, ackno
 		return fmt.Errorf("%s operation %q %w", contract.Effect, op.Name, ErrAckRequired)
 	}
 	return nil
+}
+
+// PreviewAccepted reports whether a dry run of op may run without
+// acknowledgment: the plugin declares a preview for it, and the operator
+// accepted that declaration in the plugin's install review (Decision 7). The
+// preview is still the plugin's claim; the audit record marks it
+// plugin_claimed. A plugin whose review is pending has accepted nothing.
+func PreviewAccepted(plugin InstalledPlugin, op contract.ManifestOperation) bool {
+	return !plugin.ReviewPending && plugin.BundleDigest != "" && op.EffectivePreview() != contract.PreviewNone
 }
 
 func pathAllowed(path string, roots []string) bool {

@@ -46,7 +46,7 @@ relationships:
     note: "ssh and docker configs are limited to a resource id on the socket"
   - type: "blocks"
     target: "CERB-GAP-849"
-    note: "install by path is the one socket route that still takes a directory"
+    note: "install by path retired in P1-5 (410)"
 ---
 
 # Daemon socket API
@@ -110,11 +110,21 @@ guarding it. Before PR #50, `/plugins/connectors/health` and
 `/plugins/connectors/operations/` installed, loaded and ran the entrypoint of
 whatever `plugin_dir` a caller named. Both answer 410 now, and the daemon no
 longer builds a `PluginConnectorService`, so no surface can make the daemon run
-a directory it was not told to install. `POST /plugins/connectors/install` still
-takes a path, for the CLI (CERB-GAP-849).
+a directory it was not told to install. `POST /plugins/connectors/install` took a path,
+for the CLI, until P1-5 retired it (CERB-GAP-849).
 
 The daemon deliberately refuses one class of call: `daemon_self_guard.go` blocks
 resource mutations targeting the daemon's own resource, because deploying the
 daemon through its own socket kills the call on EOF and can leave the launchd
 job booted out.
 
+## Since P1-5
+
+No socket route takes a directory. `POST /plugins/connectors/install` answers
+410 with `PluginInstallRetired`, which names the terminal command, because an
+install is a review confirmed on the operator's TTY and a socket request cannot
+carry that. `POST /plugins/connectors/{id}/reload` is new. It takes an id, makes
+the daemon re-read that entry from the reviewed state file, and refuses a bundle
+that does not match its accepted digest as `plugin_changed` (409) without
+stopping the running plugin. Load and reload now answer with the coded error's
+status and keep the code on the wire.

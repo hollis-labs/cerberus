@@ -151,6 +151,13 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		return fmt.Errorf("plugin launcher is not configured")
 	}
 
+	// The bundle is checked before anything else runs: a plugin that is not
+	// the one the operator reviewed, or was built for another contract, is
+	// refused before its code starts.
+	if err := CheckBundle(plugin); err != nil {
+		return err
+	}
+
 	// Settings are checked before the subprocess starts. A problem refuses
 	// the load: a field meant to choose a target that was dropped would leave
 	// the plugin acting on its default instead, which is the worse failure.
@@ -373,7 +380,10 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	if err := op.Operation().CheckInputs(args.Config, true); err != nil {
 		return OperationResult{}, fmt.Errorf("plugin %q operation %q: %w", args.Connector, args.Operation, err)
 	}
-	if err := OperationAllowed(lp.plugin.Origin, op, args.Acknowledged); err != nil {
+	// A dry run whose preview the operator accepted at review stands in for
+	// acknowledgment. The plugin is still told the caller's own flag.
+	acknowledged := args.Acknowledged || (args.DryRun && PreviewAccepted(lp.plugin, op))
+	if err := OperationAllowed(lp.plugin.Origin, op, acknowledged); err != nil {
 		return OperationResult{}, err
 	}
 	// A dry run reaches the plugin only for an operation whose manifest

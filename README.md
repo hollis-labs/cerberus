@@ -207,7 +207,8 @@ cerberus resource remove <resource-id> --ack
 For external infra/domain operations, the current Namecheap and Cloudflare
 surfaces include the following. Both are plugins (`hollis-labs/cerberus-plugins`),
 so their operations run through the generic `connectors exec` verb once they are
-installed with `cerberus connectors plugin managed install <dir>`:
+installed with `cerberus connectors plugin managed install <dir>`. Install is an
+interactive review in your terminal; see [docs/plugins.md](docs/plugins.md):
 
 ```bash
 cerberus connectors exec cloudflare list_zones
