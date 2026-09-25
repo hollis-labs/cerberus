@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -70,6 +72,9 @@ type ManagedPluginConnectorService struct {
 	// whose directory is temporarily absent — a rebuilt plugin comes back on the
 	// next restart instead of having to be reinstalled.
 	unrestored []pluginConnectorPersistedEntry
+
+	audit  audit.Sink
+	logger *slog.Logger
 }
 
 // ManagedPluginOption configures optional managed-plugin host capabilities.
@@ -108,7 +113,14 @@ func WithManagedPluginReservedIDs(ids ...string) ManagedPluginOption {
 	return func(c *managedPluginConfig) { c.reservedIDs = append(c.reservedIDs, ids...) }
 }
 
-func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, statePath string, opts ...ManagedPluginOption) (*ManagedPluginConnectorService, error) {
+// NewManagedPluginConnectorService constructs the managed plugin lane. The
+// audit sink is required, as for the admin lane: plugin operations on the
+// direct route, and install, load, unload and uninstall, write their records
+// to it.
+func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stderr io.Writer, statePath string, opts ...ManagedPluginOption) (*ManagedPluginConnectorService, error) {
+	if sink == nil {
+		panic("cerbapi: NewManagedPluginConnectorService requires an audit sink")
+	}
 	var cfg managedPluginConfig
 	for _, opt := range opts {
 		opt(&cfg)
@@ -119,6 +131,8 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 		records:     make(map[string]pluginConnectorPersistedEntry),
 		warn:        stderr,
 		reservedIDs: cfg.reservedIDs,
+		audit:       sink,
+		logger:      slog.Default(),
 	}
 	service.manager = pluginhost.NewManager(
 		nil,
@@ -137,7 +151,13 @@ func NewManagedPluginConnectorService(hostVersion string, stderr io.Writer, stat
 	return service, nil
 }
 
-func (s *ManagedPluginConnectorService) Install(ctx context.Context, args PluginConnectorHealthArgs) (ManagedPluginConnectorState, error) {
+func (s *ManagedPluginConnectorService) Install(ctx context.Context, args PluginConnectorHealthArgs) (_ ManagedPluginConnectorState, retErr error) {
+	call, err := s.beginAdmin(ctx, "install", map[string]any{"plugin_dir": args.PluginDir})
+	if err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	defer func() { call.finish(retErr) }()
+
 	progressToken := fmt.Sprintf("managed-plugin-install:%s", args.PluginDir)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Installing managed plugin from %s", args.PluginDir))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Installing managed plugin")
@@ -158,7 +178,13 @@ func (s *ManagedPluginConnectorService) Install(ctx context.Context, args Plugin
 	return state, nil
 }
 
-func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (_ ManagedPluginConnectorState, retErr error) {
+	call, err := s.beginAdmin(ctx, "load", map[string]any{"id": id})
+	if err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	defer func() { call.finish(retErr) }()
+
 	progressToken := fmt.Sprintf("managed-plugin-load:%s", id)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Loading managed plugin %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Loading managed plugin")
@@ -179,7 +205,13 @@ func (s *ManagedPluginConnectorService) Load(ctx context.Context, id string) (Ma
 	return state, nil
 }
 
-func (s *ManagedPluginConnectorService) Unload(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+func (s *ManagedPluginConnectorService) Unload(ctx context.Context, id string) (_ ManagedPluginConnectorState, retErr error) {
+	call, err := s.beginAdmin(ctx, "unload", map[string]any{"id": id})
+	if err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	defer func() { call.finish(retErr) }()
+
 	progressToken := fmt.Sprintf("managed-plugin-unload:%s", id)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Unloading managed plugin %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Unloading managed plugin")
@@ -203,7 +235,13 @@ func (s *ManagedPluginConnectorService) Unload(ctx context.Context, id string) (
 // Uninstall unloads the plugin if needed and drops it from the managed set and
 // the persisted state. Without it the only way to undo an install was editing
 // ~/.cerberus/plugin-connectors.json by hand.
-func (s *ManagedPluginConnectorService) Uninstall(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
+func (s *ManagedPluginConnectorService) Uninstall(ctx context.Context, id string) (_ ManagedPluginConnectorState, retErr error) {
+	call, err := s.beginAdmin(ctx, "uninstall", map[string]any{"id": id})
+	if err != nil {
+		return ManagedPluginConnectorState{}, err
+	}
+	defer func() { call.finish(retErr) }()
+
 	progressToken := fmt.Sprintf("managed-plugin-uninstall:%s", id)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Uninstalling managed plugin %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Uninstalling managed plugin")
@@ -290,7 +328,29 @@ func (s *ManagedPluginConnectorService) Health(ctx context.Context, id string) (
 	}, nil
 }
 
+// Execute runs a plugin operation on the direct plugin route, recording it
+// the way the admin lane records its operations.
 func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	spec := auditSpec{connector: id, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun}
+	spec.pluginConfigSHA256, spec.pluginEntrypointSHA256 = s.fingerprints(id)
+	for _, def := range s.Definitions() {
+		if def.ID == id {
+			spec.op, spec.known = def.Operation(args.Operation)
+			spec.credentials = credentialNames(def)
+		}
+	}
+	call, err := beginAudit(ctx, s.audit, s.logger, spec)
+	if err != nil {
+		return ExternalConnectorOperationResult{}, externalConnectorError(ExternalConnectorOperationArgs{Connector: id, Operation: args.Operation}, ExternalConnectorAuditUnavailable, err)
+	}
+	result, err := s.execute(ctx, id, args)
+	call.finish(err)
+	return result, err
+}
+
+// execute runs a plugin operation unrecorded: for a caller that has written
+// the records itself, the admin lane.
+func (s *ManagedPluginConnectorService) execute(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
 	progressToken := fmt.Sprintf("managed-plugin-exec:%s:%s", id, args.Operation)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing managed plugin operation %s on %s", args.Operation, id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Executing managed plugin operation")
@@ -430,4 +490,43 @@ func (s *ManagedPluginConnectorService) warnf(format string, args ...any) {
 		return
 	}
 	fmt.Fprintf(s.warn, "cerberus: managed plugin: "+format+"\n", args...)
+}
+
+// pluginAdminOperation is the contract the audit log records plugin
+// lifecycle calls under. It is admin: it changes what Cerberus can run. It is
+// not a declared, gated operation yet — P1-5 makes install an admin
+// operation with a review and a TTY confirmation — so it lives here, for the
+// record, rather than in a Definition that would claim a gate nothing enforces.
+func pluginAdminOperation(name string) contract.Operation {
+	return contract.Operation{
+		Name: name, Effect: contract.EffectAdmin,
+		Target:  contract.TargetDescriptor{Kind: "plugin", From: []string{"id", "plugin_dir"}},
+		Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites,
+	}.Finalize()
+}
+
+// beginAdmin writes the intent record of a plugin lifecycle call. Admin is not
+// a read, so an unwritable log refuses the call.
+func (s *ManagedPluginConnectorService) beginAdmin(ctx context.Context, operation string, target map[string]any) (*auditCall, error) {
+	spec := auditSpec{connector: "plugin", operation: operation, op: pluginAdminOperation(operation), known: true, config: target}
+	call, err := beginAudit(ctx, s.audit, s.logger, spec)
+	if err != nil {
+		return nil, externalConnectorError(ExternalConnectorOperationArgs{Connector: "plugin", Operation: operation}, ExternalConnectorAuditUnavailable, err)
+	}
+	return call, nil
+}
+
+// fingerprints are a loaded plugin's config and entrypoint hashes, for its
+// audit records.
+func (s *ManagedPluginConnectorService) fingerprints(id string) (config, entrypoint string) {
+	if s == nil || !s.manager.Loaded(id) {
+		return "", ""
+	}
+	if settings, ok := s.manager.Settings(id); ok {
+		config = settings.SHA256
+	}
+	if installed, ok := s.manager.Installed(id); ok {
+		entrypoint = installed.EntrypointSHA256
+	}
+	return config, entrypoint
 }

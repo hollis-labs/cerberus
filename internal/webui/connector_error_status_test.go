@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -65,6 +66,7 @@ func TestWebConnectorRefusalsKeepTheirStatusAndMessage(t *testing.T) {
 		cerbapi.ExternalConnectorUnavailable:        http.StatusServiceUnavailable,
 		cerbapi.ExternalConnectorCredentialMissing:  http.StatusServiceUnavailable,
 		cerbapi.ExternalConnectorOperationFailed:    http.StatusBadGateway,
+		cerbapi.ExternalConnectorAuditUnavailable:   http.StatusServiceUnavailable,
 	}
 	for _, code := range cerbapi.ExternalConnectorErrorCodes() {
 		t.Run(string(code), func(t *testing.T) {
@@ -75,7 +77,7 @@ func TestWebConnectorRefusalsKeepTheirStatusAndMessage(t *testing.T) {
 			refusal := &cerbapi.ExternalConnectorError{Code: code, Connector: "digitalocean", Operation: "stop",
 				Err: errors.New("refused for the test; retry with acknowledged=true")}
 			sock := startRefusingDaemon(t, refusingDaemon{
-				Client: cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(connector.NewRegistry()))),
+				Client: cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry()))),
 				err:    refusal,
 			})
 			handler := mustNew(t, sock).Handler(testGuard())

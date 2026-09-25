@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
@@ -32,7 +33,7 @@ func TestAckRefusalComesBeforeCredentialResolution(t *testing.T) {
 		resolves++
 		return doconn.New(noSecrets{})
 	})
-	svc := NewExternalConnectorService(registry)
+	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	for _, op := range []string{"stop", "destroy", "create_droplet"} {
 		t.Run(op, func(t *testing.T) {

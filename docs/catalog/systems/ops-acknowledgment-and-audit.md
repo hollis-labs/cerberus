@@ -1,8 +1,8 @@
 ---
 id: "CERB-CAP-604"
 class: "capability"
-name: "Destructive-operation acknowledgment, and the absence of an audit trail"
-summary: "Every operation that is not a read \u2014 and any that writes the local filesystem \u2014 demands an explicit acknowledgment on every surface, checked before credentials or arguments resolve; a dry run previews or is refused; and nothing yet records who acknowledged what."
+name: "Operation acknowledgment and the audit log"
+summary: "Every operation that is not a read \u2014 and any that writes the local filesystem \u2014 demands an explicit acknowledgment on every surface, checked before credentials or arguments resolve; a dry run previews or is refused; and since P1-4a the admin lane and the plugin paths record every call, intent and outcome, in an append-only hash-chained log."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
@@ -23,6 +23,12 @@ tags:
   - "provenance"
   - "locus:core"
 relationships:
+  - type: "relates_to"
+    target: "CERB-DEC-822"
+    note: "how the audit log is stored"
+  - type: "relates_to"
+    target: "CERB-GAP-856"
+    note: "what the audit log does not cover yet"
   - type: "depends_on"
     target: "CERB-CAP-602"
     note: "the daemon log is the only candidate trail"
@@ -48,7 +54,7 @@ relationships:
     note: "the gate runs after credential resolution"
 ---
 
-# Destructive-operation acknowledgment, and the absence of an audit trail
+# Operation acknowledgment and the audit log
 
 The gate works, and it is strict. `cerberus ssh exec <work-host> -- id -nG` with
 no flags exits 1 with `acknowledgment_required: exec operation "exec"
@@ -56,6 +62,10 @@ requires operator acknowledgment` (the wording names the effect since PR #60). A
 preview DTO naming the connector, operation, resolved target and the command
 that would run, without executing it. That is the intended shape and it behaves
 as documented.
+
+The sections below up to "The planned remedy" describe the state before the
+audit log existed, and why it was needed. What P1-4a built is at the end, under
+"The audit log (P1-4a)".
 
 P0 tightened the gate in three ways, all in PR #49. It fails closed: an
 operation the connector does not declare, or a connector with no definition, is
@@ -159,6 +169,71 @@ Cerberus.
 health-driven restarts call the local connector directly and never meet the
 gate. `TestMonitorRestartNeverHitsTheGate` pins it.
 
-What this record is about is unchanged: the acknowledgment is still supplied by
-the caller being gated (CERB-GAP-838), and nothing records it until the audit
-log (P1-4).
+The acknowledgment is still supplied by the caller being gated
+(CERB-GAP-838). What changed in P1-4a is that it is now recorded.
+
+## The audit log (P1-4a)
+
+**Where it is.** `~/.cerberus/audit/YYYY-MM.jsonl`, one file per calendar month,
+mode 0600, in a 0700 directory (`internal/audit`, opened once per process by
+`app.AuditSink`). A file is only ever appended to. Every record carries a
+sequence number, the previous record's hash and its own hash, a SHA-256 over
+the record's JSON with `prev_hash` inside it, so the chain runs across the
+monthly files. The very first record in a directory is `chain_start`. Each new
+month opens with `file_start`, naming the previous file. A torn last write from
+a crash is left as it is, and the next write appends a `chain_break` and
+resumes from the last complete record. `audit.Verify` walks every file in order
+and reports any gap in the sequence, broken link, wrong hash or unexplained torn
+line. Storage choices are recorded in CERB-DEC-822.
+
+**One chain, several writers.** The daemon and an in-process CLI both write
+here. Every append runs under an exclusive `flock` on the directory's `.lock`
+and a per-process mutex, and re-reads the chain tail when another writer has
+appended since. Every append is fsynced before the write returns.
+
+**Two records per call.** An `intent` is written before anything runs — before
+the contract gate, so a refusal is recorded too — and an `outcome` on every exit
+with the same `operation_id`. Each record is a DTO, not a copy of the request:
+
+- `principal`: the caller surface (`socket`, `web`, `in_process` or `unknown`),
+  marked `self_reported`. An in-process CLI call is a local principal, never
+  "the human".
+- `connector`, `operation`, `effect`, and `target`: the contract's target kind
+  and the values of its target fields only, such as a droplet id.
+- `args_digest`: an HMAC-SHA256 of the arguments under a per-install
+  `.digest_key`. No other argument value is recorded.
+- `credential_names`: the connector's declared secret names, as
+  `connector/name`, on outcomes that got past the gates. None on a refusal or a
+  host-preview dry run.
+- `acknowledged`, `dry_run`, `decision` (`allowed` or `refused`),
+  `outcome_code` (`ok` or the error code), `duration_ms`, and `posture`
+  (`secure`).
+- For a plugin operation, `plugin_config_sha256` and
+  `plugin_entrypoint_sha256`, so a record shows which config and which binary
+  ran.
+
+**An unwritable log is not silent (Decision 8).** When the intent cannot be
+written, a non-read or unclassified operation is refused with
+`audit_unavailable` (503, exempt from redaction) and nothing runs. A read goes
+on, with an `audit.write_failed` error in the daemon log. A directory that
+cannot be opened gives `audit.Unavailable`, which refuses every write the same
+way. A failed outcome write is logged, and shows as an intent with no pair.
+
+**What is recorded today.** The admin lane (`ExternalConnectorService.Execute`,
+every exit), the managed plugin direct route, and plugin install, load, unload
+and uninstall. The lifecycle calls are recorded as `admin`, connector
+`plugin`. The one-shot `connectors plugin exec` and `health` are recorded too,
+as unclassified and `admin` respectively. The admin lane's call into a plugin is
+recorded once, not twice.
+
+**What keeps it that way.** The sink is a required constructor argument of
+every service that writes it, and a nil sink panics. Outside tests those
+services are constructed only in `internal/app`
+(`TestServicesAreConstructedOnlyInApp`). Every `cerbapi.Client` method is
+classified as audited, read-only or pending, and a new method fails until it is
+classified. Test packages that reach the real sink point `HOME` at a scratch
+directory in `TestMain`.
+
+Not yet recorded: the resource mutators, pipeline runs and deploy-profile runs,
+and there is no audit CLI (`tail`, `query`, `verify`, `prune`) yet. Both are
+P1-4b (CERB-GAP-856).

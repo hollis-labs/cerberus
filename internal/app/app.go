@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/hollis-labs/go-apppaths/paths"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
@@ -21,6 +23,7 @@ import (
 	namecheapconn "github.com/hollis-labs/cerberus/internal/connector/namecheap"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/store/sqlite"
@@ -87,7 +90,7 @@ func NewWithOptions(opts Options) (*App, error) {
 		cerbapi.WithResourceRuntimeConfigV2(v2),
 		cerbapi.WithResourceRuntimeConfigPath(opts.ConfigPath),
 	)
-	external := cerbapi.NewExternalConnectorService(registry)
+	external := cerbapi.NewExternalConnectorService(AuditSink(), registry)
 	external.SetResourceLookup(runtime.ResourceDef)
 
 	// Resolve the main database path via go-apppaths. Only cerberus.db moves
@@ -123,7 +126,7 @@ func NewExternalConnectorService(configPath ...string) *cerbapi.ExternalConnecto
 		path = configPath[0]
 	}
 	connectors, _ := newConnectorRegistry(path)
-	svc := cerbapi.NewExternalConnectorService(connectors)
+	svc := cerbapi.NewExternalConnectorService(AuditSink(), connectors)
 	svc.SetResourceLookup(func(id string) (*config.ResourceDef, bool) {
 		cfg, err := registry.ResolveConfig(path)
 		if err != nil {
@@ -132,6 +135,70 @@ func NewExternalConnectorService(configPath ...string) *cerbapi.ExternalConnecto
 		return cerbapi.ConfigResourceLookup(cfg)(id)
 	})
 	return svc
+}
+
+var (
+	auditOnce sync.Once
+	auditSink audit.Sink
+)
+
+// AuditSink is this process's audit sink: ~/.cerberus/audit, opened once and
+// shared, so every service in the process writes through one writer. When the
+// directory cannot be opened the sink refuses every write with the reason —
+// non-read operations are then refused and reads are logged (Decision 8).
+func AuditSink() audit.Sink {
+	auditOnce.Do(func() {
+		dir, err := AuditDir()
+		if err == nil {
+			var sink *audit.FileSink
+			if sink, err = audit.OpenFileSink(dir); err == nil {
+				auditSink = sink
+				return
+			}
+		}
+		auditSink = audit.Unavailable{Err: err}
+	})
+	return auditSink
+}
+
+// AuditDir is ~/.cerberus/audit.
+func AuditDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cerberus", "audit"), nil
+}
+
+// NewDaemonConnectorServices builds the daemon's managed plugin lane and its
+// admin lane, both writing to this process's audit sink. The admin lane
+// resolves resources against the daemon's runtime.
+func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, configPath string) (*cerbapi.ManagedPluginConnectorService, *cerbapi.ExternalConnectorService, error) {
+	statePath, err := cerbapi.PluginConnectorStatePath()
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve plugin connector state path: %w", err)
+	}
+	// Plugins resolve their declared credentials through the same provider the
+	// built-in connectors use, so `connector-secrets.yaml` and `keychain://`
+	// mean the same thing either side of the plugin boundary.
+	managed, err := cerbapi.NewManagedPluginConnectorService(AuditSink(), hostVersion, stderr, statePath,
+		cerbapi.WithManagedPluginSecrets(a.Secrets),
+		cerbapi.WithManagedPluginConnectorConfig(ConnectorConfigPath(configPath)),
+		cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...))
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize managed plugin connectors: %w", err)
+	}
+	external := cerbapi.NewExternalConnectorService(AuditSink(), a.Registry, managed)
+	external.SetResourceLookup(a.Runtime.ResourceDef)
+	return managed, external, nil
+}
+
+// NewPluginConnectorService builds the one-shot plugin lane (`connectors
+// plugin exec <dir>`), writing to this process's audit sink.
+func NewPluginConnectorService(hostVersion string, stderr io.Writer, configPath string) *cerbapi.PluginConnectorService {
+	return cerbapi.NewPluginConnectorService(AuditSink(), hostVersion, stderr,
+		cerbapi.WithPluginConnectorSecrets(ConnectorSecrets(configPath)),
+		cerbapi.WithPluginConnectorConfig(ConnectorConfigPath(configPath)))
 }
 
 func newConnectorRegistry(configPaths ...string) (*connector.Registry, domain.SecretProvider) {

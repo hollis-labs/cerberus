@@ -490,22 +490,10 @@ func runDaemonBody() error {
 	// (daemon-embedded stdio MCP server AND external callers via the
 	// unix socket) are backed by this single client so state lives in
 	// one place.
-	statePath, stateErr := cerbapi.PluginConnectorStatePath()
-	if stateErr != nil {
-		return fmt.Errorf("resolve plugin connector state path: %w", stateErr)
+	managedPlugins, external, servicesErr := app.NewDaemonConnectorServices(a, version, os.Stderr, cfgPath)
+	if servicesErr != nil {
+		return servicesErr
 	}
-	// Plugins resolve their declared credentials through the same provider the
-	// built-in connectors use, so `connector-secrets.yaml` and `keychain://`
-	// mean the same thing either side of the plugin boundary.
-	managedPlugins, managedErr := cerbapi.NewManagedPluginConnectorService(version, os.Stderr, statePath,
-		cerbapi.WithManagedPluginSecrets(a.Secrets),
-		cerbapi.WithManagedPluginConnectorConfig(app.ConnectorConfigPath(cfgPath)),
-		cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...))
-	if managedErr != nil {
-		return fmt.Errorf("initialize managed plugin connectors: %w", managedErr)
-	}
-	external := cerbapi.NewExternalConnectorService(a.Registry, managedPlugins)
-	external.SetResourceLookup(a.Runtime.ResourceDef)
 	inProc := cerbapi.NewInProcessClient(
 		cerbapi.WithConfigV2(a.Config),
 		cerbapi.WithConfigPath(cfgPath),

@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,7 +51,7 @@ func TestWebDockerTakesAResourceNotAnAdHocTarget(t *testing.T) {
 	backend := &recordingDockerBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(backend))
-	svc := cerbapi.NewExternalConnectorService(registry)
+	svc := cerbapi.NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(cerbapi.ConfigResourceLookup(&config.ConfigV2{Version: 2, Resources: []config.ResourceDef{{
 		ID: "mtbf-monitor", Type: "container", Connector: "docker",
 		Config: map[string]any{"compose_file": "/srv/mtbf/docker-compose.yml"},
