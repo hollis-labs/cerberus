@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 // externalConnectorHTTPStatus is the one table from a connector error code to
@@ -57,6 +59,13 @@ type connectorErrorWire struct {
 	Connector string                     `json:"connector,omitempty"`
 	Operation string                     `json:"operation,omitempty"`
 	Detail    string                     `json:"detail,omitempty"`
+
+	// Rendered says the daemon rendered this error's text once, where it
+	// was made: Cerberus's prose kept, the detail redacted. A client trusts
+	// the text as final only when it is set, so a client talking to a
+	// daemon that predates it, or the reverse, falls back to running the
+	// rules — never to skipping them on text nobody rendered.
+	Rendered bool `json:"rendered,omitempty"`
 }
 
 func connectorErrorWireFor(err error) connectorErrorWire {
@@ -74,15 +83,51 @@ func connectorErrorWireFor(err error) connectorErrorWire {
 // daemonError rebuilds the error the daemon reported. A coded refusal comes
 // back as an *ExternalConnectorError, so errors.As works on the client side
 // of the socket exactly as it does in-process.
+//
+// When the daemon marked the text rendered, the error is PreRendered: an edge
+// on this side shows it with the scope's values removed and no rules. Without
+// the marker it is ordinary text, and the rules run over it as before.
 func daemonError(msg string, wire connectorErrorWire) error {
 	if wire.Code == "" {
+		if wire.Rendered {
+			return renderedDaemonError{text: "daemon: " + msg}
+		}
 		return fmt.Errorf("daemon: %s", msg)
 	}
-	connErr := &ExternalConnectorError{Code: wire.Code, Connector: wire.Connector, Operation: wire.Operation}
+	connErr := &ExternalConnectorError{Code: wire.Code, Connector: wire.Connector, Operation: wire.Operation, rendered: wire.Rendered}
 	if wire.Detail != "" {
-		connErr.Err = errors.New(wire.Detail)
+		if wire.Rendered {
+			connErr.Err = renderedDaemonError{text: wire.Detail}
+		} else {
+			connErr.Err = errors.New(wire.Detail)
+		}
+	}
+	if wire.Rendered {
+		return renderedDaemonError{text: "daemon: " + connErr.Error(), cause: connErr}
 	}
 	return fmt.Errorf("daemon: %w", connErr)
+}
+
+// renderedDaemonError is text the daemon rendered and said so. It is its own
+// Renderer, so nothing on this side runs the rules over it again.
+type renderedDaemonError struct {
+	text  string
+	cause error
+}
+
+func (e renderedDaemonError) Error() string                         { return e.text }
+func (e renderedDaemonError) Unwrap() error                         { return e.cause }
+func (e renderedDaemonError) PreRendered() bool                     { return true }
+func (e renderedDaemonError) RenderRedacted(s *redact.Scope) string { return s.ReplaceValues(e.text) }
+
+// markRendered sets the wire's rendered flag when the text going out is text
+// this request rendered (redact.Scope.IsRendered). Called by the socket's
+// writers, so no call site has to know.
+func (w *connectorErrorWire) markRendered(scope *redact.Scope, text string) {
+	w.Rendered = scope.IsRendered(text)
+	if w.Detail != "" && !scope.IsRendered(w.Detail) {
+		w.Rendered = false
+	}
 }
 
 // errorResponseFor is the socket's error body for err.

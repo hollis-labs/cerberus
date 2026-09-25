@@ -121,7 +121,7 @@ func scopedToolError(scope *redact.Scope, err error) error {
 	if errors.As(err, &structured) {
 		return scopedStructuredError{source: structured, scope: scope}
 	}
-	return errors.New(scope.Text(err.Error()))
+	return errors.New(scope.ErrorText(err))
 }
 
 // scopedStructuredError deliberately has no Unwrap: go-mcp looks for a

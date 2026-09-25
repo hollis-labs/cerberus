@@ -138,7 +138,11 @@ type MissingSecretsError struct {
 	Err       error
 }
 
-func (e *MissingSecretsError) Error() string {
+func (e *MissingSecretsError) Error() string { return e.RenderRedacted(nil) }
+
+// RenderRedacted keeps the recovery sentence, which is Cerberus's own prose,
+// and renders only the plugin's failure through s and the rules.
+func (e *MissingSecretsError) RenderRedacted(s *redact.Scope) string {
 	envVars := make([]string, 0, len(e.Secrets))
 	for _, name := range e.Secrets {
 		envVars = append(envVars, secrets.EnvVarName(e.Connector, name))
@@ -157,9 +161,9 @@ func (e *MissingSecretsError) Error() string {
 		e.Connector,
 	)
 	if e.Err == nil {
-		return msg
+		return s.ReplaceValues(msg)
 	}
-	return redact.Text(e.Err.Error()) + "; " + msg
+	return redact.Render(s, e.Err) + "; " + s.ReplaceValues(msg)
 }
 
 func (e *MissingSecretsError) Unwrap() error {

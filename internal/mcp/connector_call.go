@@ -20,9 +20,21 @@ func executeConnectorMCP(ctx context.Context, client cerbapi.Client, connectorID
 		Acknowledged: acknowledged,
 	})
 	if err != nil {
-		return toolResult(lifecycleResult{Success: false, Error: err.Error()})
+		return connectorFailure(ctx, err)
 	}
 	return marshalConnectorData(result.Data)
+}
+
+// connectorFailure is how a tool relays a failed call: a tool error whose
+// body is the OpResult shape. The text is rendered once, here, in the call's
+// scope — a pre-rendered error keeps its prose, anything else gets the rules
+// — and marked rendered, so the edges after this (the failure's content, the
+// scoped tool error) only remove values from it.
+func connectorFailure(ctx context.Context, err error) (any, error) {
+	scope := redact.ScopeFrom(ctx)
+	msg := scope.ErrorText(err)
+	scope.MarkRendered(msg)
+	return nil, toolFailure{message: msg, content: lifecycleResult{Success: false, Error: msg}, scope: scope}
 }
 
 func marshalConnectorData(data any) (string, error) {
