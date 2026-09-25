@@ -144,7 +144,8 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	// reach every plugin rather than the one that declared it.
 	resolved := resolvePluginSecrets(ctx, m.secrets, plugin)
 	m.reportSecretProblems(id, resolved)
-	redactor := resolved.redactor()
+	redactor, unprotected := resolved.redactor()
+	m.reportUnprotectedSecrets(id, unprotected)
 
 	initResult, err := process.Init(ctx, SDKInitParams{
 		PluginDir: plugin.Path,
@@ -198,6 +199,17 @@ func (m *Manager) reportSecretProblems(id string, resolved resolvedSecrets) {
 			"plugin %q loaded without required credential %s; operations needing it will fail with credential_missing",
 			id, strings.Join(resolved.MissingRequired, ", ")))
 	}
+}
+
+// reportUnprotectedSecrets names the credentials whose values are too short
+// for the plugin redactor to remove without eating ordinary text. Names only.
+func (m *Manager) reportUnprotectedSecrets(id string, names []string) {
+	if m.warn == nil || len(names) == 0 {
+		return
+	}
+	m.warn(fmt.Sprintf(
+		"plugin %q credential %s is shorter than %d bytes and is not redacted from the plugin's text",
+		id, strings.Join(names, ", "), minRedactedValueLength))
 }
 
 // MissingSecrets names the required credentials a loaded plugin did not
