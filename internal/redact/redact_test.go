@@ -221,3 +221,43 @@ func TestRecoveryGuidanceExemptionsStillRedact(t *testing.T) {
 		}
 	}
 }
+
+// The ninth patch. azidentity prefixes an error with its credential's Go type
+// name, "AzureCLICredential: ", and a name ending in Credential or Token
+// satisfied the assignment rule, so the next word of the message was eaten as
+// its value. The first case is the exact text the azure plugin returned when
+// the Azure CLI needed MFA; "ERROR:" is the az CLI's own stderr prefix.
+func TestTextKeepsGoTypeNamePrefixes(t *testing.T) {
+	for _, in := range []string{
+		"list subscriptions: the Azure CLI is installed but not signed in. Run `az login` as the user the daemon runs as: AzureCLICredential: ERROR: AADSTS50076: Due to a configuration change made by your administrator, or because you moved to a new location, you must use multi-factor authentication to access",
+		"AzureCLICredential: AADSTS50076: Due to a configuration change",
+		"DefaultAzureCredential: failed to acquire a token.",
+		"ClientSecretCredential: authentication failed",
+		"ManagedIdentityCredential: no default identity is assigned to this resource",
+		"StaticToken: expired",
+	} {
+		if got := Text(in); got != in {
+			t.Errorf("type-name prefix was mangled:\n  in:  %s\n  got: %s", in, got)
+		}
+	}
+}
+
+// The exemption is for prose. A token-shaped value after a type name, a
+// one-word or lower-case key, an "=" join, a quoted key, and an assignment
+// sitting behind the prefix are all still redacted.
+func TestTypeNamePrefixExemptionStillRedacts(t *testing.T) {
+	for _, in := range []string{
+		"ClientSecret: 8Q~kXsentinel-secret",
+		"ApiToken: sentinel-secret-9f2c",
+		"Token: sentinel-secret",
+		"credential: sentinel-secret",
+		"ClientSecret=sentinel-secret",
+		`"ClientSecret": "sentinel-secret"`,
+		"AzureCLICredential: ERROR: token=sentinel-secret",
+	} {
+		got := Text(in)
+		if strings.Contains(got, "sentinel-secret") {
+			t.Errorf("credential survived: Text(%q) = %q", in, got)
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secrets"
+	"github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
 // SecretResolver is the read half of the host's secret provider, as the plugin
@@ -156,4 +157,29 @@ func (e *MissingSecretsError) Error() string {
 
 func (e *MissingSecretsError) Unwrap() error {
 	return e.Err
+}
+
+// CodedError is a plugin failure carrying a code the plugin chose (see
+// pkg/plugin ErrorResult). The plugin knows what failed and the host does not,
+// so its code wins over the load-time missing-credential annotation. A plugin
+// that loaded without a credential is still told so, as a second line, rather
+// than having its own diagnosis relabelled: ContextForge's get_health with the
+// tunnel down is unreachable, whether or not a token is also missing.
+type CodedError struct {
+	Connector string
+	Operation string
+	Code      plugin.ErrorCode
+	Message   string
+
+	// MissingSecrets names the declared-required credentials the plugin
+	// loaded without. Names only.
+	MissingSecrets []string
+}
+
+func (e *CodedError) Error() string {
+	if len(e.MissingSecrets) == 0 {
+		return e.Message
+	}
+	note := (&MissingSecretsError{Connector: e.Connector, Secrets: e.MissingSecrets}).Error()
+	return e.Message + "; separately, " + note
 }

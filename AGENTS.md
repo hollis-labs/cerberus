@@ -281,14 +281,27 @@ redaction has no owning capability: it sits on every surface's error path and
 therefore in no area's territory, which is why each area saw only the damage
 visible from where it stood.
 
-**Seven patches to the same regexes is the finding.** Each fix has been correct
+The eighth was a JSON key rather than prose: the Kubernetes plugin's
+`credential_plugin` object came back wholly `[REDACTED]`, and was renamed
+rather than patched. The ninth is fixed in the `assignment` rule. azidentity
+prefixes an error with its credential's Go type name, `AzureCLICredential: `,
+and a name ending in `Credential` or `Token` satisfied the rule, so the az CLI's
+own `ERROR:` was eaten as if it were the credential's value. An UpperCamelCase
+type name of two or more words, joined by `: ` to something that is not
+token-shaped, is now read as prose. A token-shaped value after such a name is
+still redacted. This one is in text Cerberus did not compose, a vendor SDK's
+error, which is exactly where `Text` is the only net there is: value-boundary
+redaction protects the values Cerberus resolved, not the grammar of someone
+else's message.
+
+**Nine casualties, eight of them patched in the same regexes, is the finding.** Each fix has been correct
 and none has been structural: `redact.Text` runs over rendered prose and
 re-derives, from a regex, a key/value structure the caller had in its hands and
 threw away. The structural answer is to redact at the value boundary — redact
 the credential where it is still a field, and let the message be assembled from
 already-safe parts — with `Text` kept only as a last-resort net over text
 Cerberus did not compose. That is a larger change than any one of these fixes;
-until it happens, expect an eighth. The rule that remains: **do not
+until it happens, expect a tenth. The rule that remains: **do not
 run redaction over a value that is a name by construction**, and if an error
 message carries a recovery instruction, add a test that it survives `redact.Text`
 intact. A safety net that eats the instruction is worse than no instruction.
