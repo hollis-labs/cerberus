@@ -1699,6 +1699,128 @@
       }
     },
     {
+      "id": "CERB-CAP-211",
+      "class": "capability",
+      "name": "Kubernetes connector (plugin)",
+      "summary": "Reads and administers a Kubernetes cluster from a runtime-loaded plugin: fourteen reads and five writes, every write behind --ack with an API-server dry run.",
+      "state_field": "maturity",
+      "state_label": "partial",
+      "review_status": "reviewed",
+      "confidence_score": 0.8,
+      "confidence_label": "Every operation verified live against a kind cluster through the host's in-process exec path; not yet run against a managed cluster or through the installed daemon",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:capability",
+        "connector",
+        "dry-run",
+        "kubernetes",
+        "plugin",
+        "locus:plugin"
+      ],
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-200",
+          "note": "Its operations dispatch through the admin lane"
+        },
+        {
+          "type": "depends_on",
+          "target": "CERB-CAP-301",
+          "note": "Loaded at runtime; the host resolves its optional token secret"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-290",
+          "note": "Ships as a plugin because client-go would grow the host binary by roughly 40%"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-292",
+          "note": "The first connector to build writes under the amended decision"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-652",
+          "note": "Its dry runs need --ack under the host"
+        }
+      ],
+      "body": "> Reads and administers a Kubernetes cluster from a runtime-loaded plugin: fourteen reads and five writes, every write behind --ack with an API-server dry run.\n\nKubernetes is a plugin rather than a built-in because of client-go. The typed\nclientsets alone produce a binary of about 37 MB, which compiled into the host\nwould grow it by roughly 40%; as a subprocess it costs the host nothing. It\ntakes client-go v0.37 with apimachinery and the metrics client in lockstep, and\ndeliberately not controller-runtime: a reconcile loop against a remote cluster\nis the supervision lane, which does not reach remote systems.\n\nFourteen reads: kubeconfig contexts, an access preflight, health, namespaces,\nnodes, pods, workloads, events, logs, a workload describe, services, ingresses,\nthe API resource types the server serves, and current usage from\nmetrics-server. Two of them, `list_contexts` and `check_access`, never contact\nthe cluster, because they are what an operator needs when authentication is the\nthing that is broken. Every list is bounded and says when it truncated.\n\nFive writes: scale, rolling restart, cordon, uncordon, and pod delete. Each is\n`Destructive` and `SupportsDry`. The dry run is the API server's own\n(`dryRun=All`), so admission, validation and RBAC all run and nothing persists.\nAn identity that may not make a change fails the preview exactly as it would\nfail the write. Each write is recorded under its own field manager, reports the\nfields it changed rather than the object, and sends nothing for a no-op.\n\nThe DTOs are an allow-list and the sharpest in the repo: env values, container\ncommand and args, probe exec commands, secret contents and the\nlast-applied-configuration annotation are never emitted, only names. Three bugs\nwere found only by running against a real API server through the host, and each\nnow has a test. Host redaction blanked a DTO key containing \"secret\", and would\nhave blanked the whole credential-helper diagnosis under a key containing\n\"credential\". The kubeconfig context's namespace was ignored, which with writes\nmeans changing a same-named workload in `default`. And a helper set to\ninteractive mode Always passed preflight, then failed every call.\n\nThe exec credential-helper path is verified with a stand-in helper found\noutside the daemon's minimal PATH, not yet with a managed cluster's own helper.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins: kubernetes/",
+      "data": {
+        "owns": [
+          "Kubeconfig context listing and an access preflight that needs no cluster",
+          "Cluster, node, namespace, pod, workload, event, service and ingress reads, every list bounded",
+          "Workload describe, API resource discovery including CRDs, and metrics-server usage",
+          "Scale, rolling restart, cordon, uncordon and pod delete, each previewed by the API server's own dry run",
+          "Exec credential-helper resolution per call, outside the daemon's minimal PATH"
+        ],
+        "does_not_own": [
+          "Secret contents, env values, container args or probe commands — names only",
+          "Drain, apply, Helm, exec, port-forward and log streaming",
+          "Any watch, informer or reconcile loop",
+          "Whether a given cluster should accept writes: that is the target's RBAC today, and per-target policy later",
+          "Its own credential storage. The host hands it the optional token over the Init channel"
+        ],
+        "vendor": [
+          "k8s.io/client-go",
+          "k8s.io/metrics"
+        ],
+        "entry_points": [
+          "kubernetes.list_contexts",
+          "kubernetes.check_access",
+          "kubernetes.get_health",
+          "kubernetes.list_namespaces",
+          "kubernetes.list_nodes",
+          "kubernetes.list_pods",
+          "kubernetes.list_workloads",
+          "kubernetes.list_events",
+          "kubernetes.get_logs",
+          "kubernetes.describe_workload",
+          "kubernetes.list_services",
+          "kubernetes.list_ingresses",
+          "kubernetes.list_api_resources",
+          "kubernetes.top",
+          "kubernetes.scale_workload",
+          "kubernetes.restart_workload",
+          "kubernetes.cordon_node",
+          "kubernetes.uncordon_node",
+          "kubernetes.delete_pod"
+        ],
+        "surfaces": [
+          "cli",
+          "daemon-socket"
+        ],
+        "key_files": [
+          "internal/cerbapi/external_connector_service.go",
+          "internal/pluginhost/policy.go",
+          "hollis-labs/cerberus-plugins: kubernetes/internal/k8splugin"
+        ],
+        "adrs": [
+          "docs/adr/0003-connector-response-dtos.md"
+        ],
+        "operation_count": 19,
+        "destructive_operations": [
+          "scale_workload",
+          "restart_workload",
+          "cordon_node",
+          "uncordon_node",
+          "delete_pod"
+        ],
+        "dry_runnable_operations": [
+          "scale_workload",
+          "restart_workload",
+          "cordon_node",
+          "uncordon_node",
+          "delete_pod"
+        ],
+        "document": "docs/catalog/systems/connector-kubernetes.md"
+      }
+    },
+    {
       "namespace": "cerberus",
       "last_reviewed": "2026-09-17",
       "created_at": "2026-09-17",
@@ -4882,14 +5004,14 @@
     {
       "id": "CERB-DEC-292",
       "class": "decision",
-      "name": "Work infrastructure is read-only by scope, not by permission",
-      "summary": "Connectors targeting Adtran resources implement read and probe operations; lifecycle and write operations are documented as locked with what would unlock them.",
+      "name": "Work infrastructure is not ours to change on our own say-so",
+      "summary": "Connectors may implement write operations, behind --ack with a real preview; whether a write runs against an Adtran resource is the owning team's decision, not something the connector's existence grants.",
       "state_field": "status",
       "state_label": "shipped",
       "review_status": "reviewed",
       "confidence_score": 0.9,
-      "confidence_label": "Consistent with the shipped surface: azure and contextforge are read-only, and muctlvaig is reached as the operator's own account",
-      "last_reviewed": "2026-09-17",
+      "confidence_label": "Amended 2026-09-25: the kubernetes plugin ships writes, and the rule now governs using them against work resources rather than building them",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -4897,10 +5019,10 @@
         "cerberus",
         "class:decision",
         "decision",
-        "read-only",
         "scope",
         "work-infrastructure",
-        "locus:core"
+        "locus:core",
+        "writes"
       ],
       "relationships": [
         {
@@ -4917,19 +5039,25 @@
           "type": "relates_to",
           "target": "CERB-DEC-298",
           "note": "Azure's locked paths are the worked example"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-211",
+          "note": "The first connector to ship writes under the amendment"
         }
       ],
-      "body": "This is a scope decision and is worth keeping distinct from a permissions\nworkaround, because the two look identical in the code and lead to opposite\nfollow-ups.\n\nAn infrastructure team administers the Adtran estate. Cerberus is a tool that\nhelps operate it, not a control plane that owns it. So connectors targeting work\nresources implement read and probe operations, and lifecycle and write\noperations are **documented as locked, with what would unlock them**, rather\nthan built speculatively.\n\nThe difference matters in two directions. A permissions workaround implies the\ncapability should exist and the access is the obstacle, so the next step is to\nfind a way around it. A scope decision says the capability is not Cerberus's to\nhave yet, so the next step — if the write is genuinely wanted — is an ask to the\nteam that owns the resource. And writing the unlock conditions down instead of\nleaving a gap means the next person finds the reason rather than an absence they\nwill read as an oversight.\n\nThe exceptions already in place are deliberate and narrow, which is what keeps\nthe rule meaningful: the local dev services in `~/.cerberus/config.yaml`, and\n`muctlvaig` reached over SSH **as the operator's own account** — not as a\nservice identity with standing privilege. That second qualifier is the whole\ndistinction. `ssh exec` against the work host is the operator doing by hand,\nfaster, what they were already entitled to do; it is not Cerberus holding\ncredentials of its own.\n\nTwo observable consequences. Azure ships six read operations and documents its\nVM lifecycle as locked with the exact roles and provider registrations that\nwould unlock it. ContextForge ships four reads and nothing that registers,\nedits or removes an upstream. And the SSH tunnel resources carry `auto_start`\nand `auto_restart` both false, because an auto-restarting tunnel against a\ncorporate auth endpoint is a good way to get an account locked out — the same\nrestraint applied to supervision rather than to verbs.",
+      "body": "This is a scope decision and is worth keeping distinct from a permissions\nworkaround, because the two look identical in the code and lead to opposite\nfollow-ups.\n\nAn infrastructure team administers the Adtran estate. Cerberus is a tool that\nhelps operate it, not a control plane that owns it. So connectors targeting work\nresources implement read and probe operations, and lifecycle and write\noperations are **documented as locked, with what would unlock them**, rather\nthan built speculatively.\n\nThe difference matters in two directions. A permissions workaround implies the\ncapability should exist and the access is the obstacle, so the next step is to\nfind a way around it. A scope decision says the capability is not Cerberus's to\nhave yet, so the next step — if the write is genuinely wanted — is an ask to the\nteam that owns the resource. And writing the unlock conditions down instead of\nleaving a gap means the next person finds the reason rather than an absence they\nwill read as an oversight.\n\nThe exceptions already in place are deliberate and narrow, which is what keeps\nthe rule meaningful: the local dev services in `~/.cerberus/config.yaml`, and\n`muctlvaig` reached over SSH **as the operator's own account** — not as a\nservice identity with standing privilege. That second qualifier is the whole\ndistinction. `ssh exec` against the work host is the operator doing by hand,\nfaster, what they were already entitled to do; it is not Cerberus holding\ncredentials of its own.\n\nTwo observable consequences. Azure ships six read operations and documents its\nVM lifecycle as locked with the exact roles and provider registrations that\nwould unlock it. ContextForge ships four reads and nothing that registers,\nedits or removes an upstream. And the SSH tunnel resources carry `auto_start`\nand `auto_restart` both false, because an auto-restarting tunnel against a\ncorporate auth endpoint is a good way to get an account locked out — the same\nrestraint applied to supervision rather than to verbs.\n\n**Amended 2026-09-25.** The rule above said what connectors *build*. It now says what we *do*. Cerberus is built in public, so a connector may implement writes whether or not any work target will accept them. It builds them the usual way: `Destructive`, `SupportsDry`, behind `--ack`, with a real preview. What stays is the part that was always the point: a write against a work resource is the owning team's decision, and a connector that can write is not that decision. Until per-target policy exists, the credential is the policy. Point a connector at a work target with an identity that cannot write. The kubernetes plugin is the first connector built under the amendment.",
       "locus": "core",
       "pointer_locator": "AGENTS.md",
       "data": {
-        "decision": "Cerberus helps operate the Adtran estate; it does not own it. Write operations against work resources are not built speculatively.",
+        "decision": "Cerberus helps operate the Adtran estate; it does not own it. Connectors may build write operations, since Cerberus is built in public for estates unlike ours, but a write against a work resource needs the owning team's agreement.",
         "alternatives_considered": [
           "Build write operations and gate them behind stronger acknowledgment",
           "Request the access first, then build",
-          "Build them and leave them untested against the real estate"
+          "Build them and leave them untested against the real estate",
+          "As first decided: build no write operation for any connector that could target work resources"
         ],
-        "rationale": "An infrastructure team administers the Adtran estate. Building write paths Cerberus is not entitled to use produces untested code, and a tool that can write where it should not is a liability rather than a capability. Where a write is genuinely wanted, the ask goes to the team that owns the resource.",
+        "rationale": "An infrastructure team administers the Adtran estate, so a write against it is that team's call. But Cerberus is built in public and most of its users do not share our estate. Withholding a capability because our own targets may not accept it made the tool less useful to everyone else, and that bought nothing for us that the target's RBAC and --ack do not already give. The control belongs at use, not at build: a read-only identity for a work target today, and per-target write policy with a human in the loop next.",
         "reversible": true,
         "superseded_by": ""
       }
@@ -12622,6 +12750,52 @@
         "priority": "speculative",
         "blocked_by": [],
         "unlocks_when": "a feature needs durable state — an audit trail being the obvious candidate",
+        "effort": "small"
+      }
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "reviewed",
+      "id": "CERB-GAP-652",
+      "class": "gap",
+      "name": "A plugin's dry run still demands --ack",
+      "summary": "The host previews built-in writes itself but passes a plugin's dry_run through to the plugin, and gates the call on --ack either way, so previewing a plugin write needs --dry-run --ack.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.9,
+      "confidence_label": "Verified live with the kubernetes plugin: --dry-run alone is refused with 'requires operator acknowledgment'",
+      "tags": [
+        "ack",
+        "dry-run",
+        "plugin",
+        "gap",
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/pluginhost/policy.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "the acknowledgment gate this weakens"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-211",
+          "note": "the first plugin with dry-runnable writes"
+        }
+      ],
+      "body": "OperationAllowed checks acknowledgment before the call reaches the plugin, and it does not look at dry_run. For a built-in that is fine: dryRunPreview answers the dry run in the host and never reaches the gate. A plugin has no host-side preview, so its dry run goes through the gate like a real write.\n\nThe obvious fix is not safe. Letting a dry run past the gate trusts the plugin to honour dry_run, and a plugin that ignored it would run an unacknowledged write. So the gate costs friction and buys a real guarantee. The honest fixes are to verify the plugin's dry-run claim, for example with a signed manifest, or to fold this into per-target write policy, where a dry run can be allowed without a human while the write still needs one.\n\nThe friction is not only cosmetic. An operator trained to type --dry-run --ack will type --ack. Against a real cluster the plugin makes the dry run safe regardless, because the API server enforces dryRun=All, but that is a property of this plugin, not of the host.",
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "Per-target write policy exists, or plugin dry-run support can be trusted rather than claimed",
         "effort": "small"
       }
     },
