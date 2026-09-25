@@ -52,13 +52,19 @@ types them.`,
 			return err
 		}
 		def := contract.DefinitionFromManifest(spec.Cerberus.Connector)
+		// As with connectors exec, an unknown operation or a bad argument is
+		// a hint, not a refusal: the one-shot host refuses and records it.
 		op, err := findConnectorOperation([]contract.Definition{def}, def.ID, args[1])
 		if err != nil {
-			return err
+			fmt.Fprintf(cmd.ErrOrStderr(), "hint: %s %s: %v; sending it anyway, so the refusal is recorded\n", def.ID, args[1], err)
+			op = contract.Operation{Name: args[1]}
 		}
-		cfg, err := connectorExecConfig(op, connectorsPluginExecFlags, cmd.InOrStdin())
+		cfg, hints, err := connectorExecConfig(op, connectorsPluginExecFlags, cmd.InOrStdin())
 		if err != nil {
 			return fmt.Errorf("%s %s: %w", def.ID, args[1], err)
+		}
+		for _, hint := range hints {
+			fmt.Fprintf(cmd.ErrOrStderr(), "hint: %s %s: %s\n", def.ID, args[1], hint)
 		}
 		return runPluginExec(cmd.Context(), cmd.OutOrStdout(), args[0], args[1], cfg, connectorsPluginExecFlags.dryRun, connectorsPluginExecFlags.ack, connectorsPluginDev)
 	},
@@ -204,7 +210,7 @@ var connectorsPluginManagedExecCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return runConnectorExec(cmd.Context(), cmd.OutOrStdout(), cmd.InOrStdin(), socketConnectorExecutor{client}, defs, args[0], args[1], connectorsPluginManagedExecFlags)
+		return runConnectorExec(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(), socketConnectorExecutor{client}, defs, args[0], args[1], connectorsPluginManagedExecFlags)
 	},
 }
 

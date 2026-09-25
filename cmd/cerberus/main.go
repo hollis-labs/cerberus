@@ -109,7 +109,6 @@ func init() {
 
 	githubCmd.GroupID = "platform"
 	sshCmd.GroupID = "platform"
-	forgeCmd.GroupID = "platform"
 	dockerCmd.GroupID = "platform"
 	connectorsCmd.GroupID = "platform"
 
@@ -131,7 +130,6 @@ func init() {
 	rootCmd.AddCommand(pipelineCmd)
 	rootCmd.AddCommand(githubCmd)
 	rootCmd.AddCommand(sshCmd)
-	rootCmd.AddCommand(forgeCmd)
 	rootCmd.AddCommand(dockerCmd)
 	rootCmd.AddCommand(connectorsCmd)
 	rootCmd.AddCommand(runSecretsCmd)
