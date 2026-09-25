@@ -12,8 +12,8 @@ import (
 	"github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
-// The tap forwards every byte unchanged, and hands each complete line written
-// while a call runs to that call's collector, through the plugin's redactor.
+// The tap forwards every complete line, and hands each one written while a
+// call runs to that call's collector, both through the plugin's redactor.
 func TestStderrTapAttributesLinesToTheRunningCall(t *testing.T) {
 	var out bytes.Buffer
 	tap := newStderrTap()

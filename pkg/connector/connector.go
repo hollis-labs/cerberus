@@ -66,11 +66,35 @@ type SecretRequirement struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 	Env         string `json:"env,omitempty" yaml:"env,omitempty"`
 	Required    bool   `json:"required,omitempty" yaml:"required,omitempty"`
-	// Path declares that the secret's value is the path to a credential
-	// file, not the credential. The host does not register a path for
-	// value redaction: it is what an error such as "reading SSH key <path>:
-	// no such file" must show for the operator to act on it.
-	Path bool `json:"path,omitempty" yaml:"path,omitempty"`
+	// Kind is what the value is. Unset, it is a credential. A value that is
+	// read through the secret chain but is not a credential — a key file's
+	// path, a team slug, an account name — declares so, and the host does
+	// not value-redact it: redaction would cut it out of the very error or
+	// output that has to show it.
+	Kind SecretKind `json:"kind,omitempty" yaml:"kind,omitempty"`
+}
+
+// SecretKind is what a declared secret's value is.
+type SecretKind string
+
+const (
+	// SecretKindCredential is a credential: the default, and value-redacted
+	// from every surface the operation's text reaches.
+	SecretKindCredential SecretKind = "credential"
+	// SecretKindPath is the path to a credential file, such as an SSH key.
+	// It is guidance ("reading SSH key <path>: no such file"), not the
+	// credential.
+	SecretKindPath SecretKind = "path"
+	// SecretKindName is a name kept beside credentials, such as a team
+	// slug, an account user or an allow-listed IP, that the operation's
+	// output names in the open.
+	SecretKindName SecretKind = "name"
+)
+
+// IsCredential reports whether the secret's value is a credential, and so
+// is value-redacted.
+func (r SecretRequirement) IsCredential() bool {
+	return r.Kind == "" || r.Kind == SecretKindCredential
 }
 
 // Operation describes a connector action exposed through CLI, API, MCP, or GUI

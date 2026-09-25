@@ -30,8 +30,8 @@ func TestConnectorSecretsRegisterResolvedCredentials(t *testing.T) {
 // and which ones they are comes from the connector definitions (D1), not
 // from this test.
 func TestConnectorSecretsDoNotRegisterNonCredentials(t *testing.T) {
-	if !builtInPathSecrets["ssh"]["key"] {
-		t.Fatalf("the ssh definition's key secret is not declared as a path: %v", builtInPathSecrets)
+	if !builtInNonCredentials["ssh"]["key"] {
+		t.Fatalf("the ssh definition's key secret is not declared as a path: %v", builtInNonCredentials)
 	}
 	for _, tc := range []struct{ service, key string }{{"ssh/box", "key"}, {"vercel", "scope"}} {
 		if !notACredential(tc.service, tc.key) {

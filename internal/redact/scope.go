@@ -87,6 +87,27 @@ func (s *Scope) Add(name, value string) bool {
 	return true
 }
 
+// Merge registers every value r removes. A credential resolved before the
+// request began — a plugin's, resolved once at load — joins the request this
+// way, where it is used, so every surface rendering the request's output
+// removes it. r's values have already been through Forms.
+func (s *Scope) Merge(r Redactor) {
+	if s == nil || len(r.values) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.values == nil {
+		s.values = map[string]struct{}{}
+	}
+	for _, value := range r.values {
+		if _, ok := s.values[value]; !ok {
+			s.values[value] = struct{}{}
+			s.redactor = nil
+		}
+	}
+}
+
 // Unprotected names, sorted, the credentials registered with a value too
 // short to redact.
 func (s *Scope) Unprotected() []string {
