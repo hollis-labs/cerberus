@@ -170,6 +170,14 @@ The rules:
   delivered field names (`config_fields`), the exposed operations
   (`mcp_expose`) and the file's fingerprint (`config_sha256`), never the
   values.
+- **MCP exposure is default-deny.** A listed operation is served as the MCP
+  tool `cerberus_<plugin id>_<operation>`, with its input schema from the
+  manifest and its hints from its contract. `cerberus mcp`, `mcp-http` and the
+  daemon's stdio server refresh their generated tools every 15 seconds, and
+  tell a subscribed client with `notifications/tools/list_changed`. So after
+  an edit and a `managed load`, the tool appears within about 15 seconds,
+  with no restart. A name that would shadow a built-in tool is refused and
+  logged.
 - **Not a secret, but a steering wheel.** The file does not have to be 0600,
   but Cerberus warns if it is group- or world-writable.
 
