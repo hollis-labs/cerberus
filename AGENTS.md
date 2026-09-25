@@ -64,8 +64,10 @@ Destructive connector operations require explicit operator acknowledgment
 - `docs/plans/agent-authority-and-secrets.md` — what an agent is allowed to do
   with Cerberus's reach, what it may see, and what is recorded afterwards.
   Read before adding a credential backend, a redaction rule, or anything that
-  gates an operation. It is also the honest inventory: there is no audit trail
-  today, and the acknowledgment gate is an intent gate rather than a human one.
+  gates an operation. It is also the honest inventory. The acknowledgment gate
+  is an intent gate, not a human one. The audit log (`~/.cerberus/audit/`,
+  append-only, hash-chained) covers the admin lane and plugin lifecycle.
+  Resource mutators, pipelines and the audit CLI are still being added.
 - `docs/plans/live-systems-security-target.md` — the end state that work
   converges on: effect classes, named targets, layered policy, human approval
   bound to a plan, egress labels, audit. Also lists gate defects to fix first
