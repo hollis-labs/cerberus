@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os/exec"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/webui"
 	"github.com/spf13/cobra"
@@ -27,6 +29,9 @@ var webCmd = &cobra.Command{
 	Short: "Run a compact local web console for v2 resources",
 	Long:  "Starts a local-only web console for listing resources and running common v2 workflows such as launch, build-plus-restart, restart, and open.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := loopback.CheckListen("cerberus web", webListenAddr); err != nil {
+			return err
+		}
 		client, err := newResourceSocketClient()
 		if err != nil {
 			return err
@@ -42,16 +47,25 @@ var webCmd = &cobra.Command{
 			return fmt.Errorf("init web ui: %w", err)
 		}
 
+		ln, err := net.Listen("tcp", webListenAddr)
+		if err != nil {
+			return fmt.Errorf("listen %s: %w", webListenAddr, err)
+		}
+		guard, err := loopback.NewGuardForAddr(webListenAddr, ln.Addr())
+		if err != nil {
+			_ = ln.Close()
+			return err
+		}
+
 		url := "http://" + webListenAddr
 		srv := &http.Server{
-			Addr:              webListenAddr,
-			Handler:           webSrv.Handler(),
+			Handler:           webSrv.Handler(guard),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 
 		errCh := make(chan error, 1)
 		go func() {
-			errCh <- srv.ListenAndServe()
+			errCh <- srv.Serve(ln)
 		}()
 
 		fmt.Printf("Cerberus web UI listening at %s\n", url)
@@ -79,7 +93,7 @@ var webCmd = &cobra.Command{
 }
 
 func init() {
-	webCmd.Flags().StringVar(&webListenAddr, "listen", webListenAddr, "listen address for the local web UI")
+	webCmd.Flags().StringVar(&webListenAddr, "listen", webListenAddr, "listen address for the local web UI; must be loopback (127.0.0.1, localhost or [::1]) because the UI has no authentication yet")
 	webCmd.Flags().BoolVar(&webOpen, "open", webOpen, "open the web UI in the default browser after start")
 	webCmd.Flags().DurationVar(&webWait, "wait-for-daemon", webWait, "how long to wait for the daemon socket before failing startup")
 }

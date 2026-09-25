@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
@@ -48,6 +49,7 @@ type Server struct {
 	secrets     secretpkg.Provider
 	logger      *slog.Logger
 	actionToken string
+	guard       *loopback.Guard
 }
 
 func New(client cerbapi.Client, configPath string, secrets secretpkg.Provider, logger *slog.Logger) (*Server, error) {
@@ -61,44 +63,70 @@ func New(client cerbapi.Client, configPath string, secrets secretpkg.Provider, l
 	return &Server{client: client, configPath: configPath, secrets: secrets, logger: logger, actionToken: token}, nil
 }
 
-func (s *Server) Handler() http.Handler {
+// Handler returns the web UI handler behind guard's Host and Origin checks.
+// guard is required: the UI has no authentication beyond the action token,
+// and that token is handed to any request /api/session accepts.
+func (s *Server) Handler(guard *loopback.Guard) http.Handler {
+	if guard == nil {
+		panic("webui: Handler requires a loopback guard")
+	}
+	s.guard = guard
+	mux := s.routes()
+	return s.withLogging(guard.Middleware(mux))
+}
+
+// route is one registered API pattern. routeTable is the single list the mux
+// is built from, so a test can enumerate every route and require each one to
+// be classified as read-only or guarded.
+type route struct {
+	pattern string
+	handler http.HandlerFunc
+}
+
+func (s *Server) routeTable() []route {
+	return []route{
+		{"/api/session", s.handleSession},
+		{"/api/resources", s.handleResources},
+		{"/api/resources/", s.handleResourceByID},
+		// Full cerbapi.Client domain (CW-20260517-0039). Handlers stay thin
+		// over the client; mutating routes reuse the actionToken guard.
+		{"/api/overview", s.handleOverview},
+		{"/api/settings", s.handleSettings},
+		{"/api/system", s.handleSystem},
+		{"/api/health", s.handleHealth},
+		{"/api/projects", s.handleProjects},
+		{"/api/pipelines", s.handlePipelines},
+		{"/api/pipelines/", s.handlePipelineByID},
+		{"/api/registry", s.handleRegistry},
+		{"/api/registry/health", s.handleRegistryHealth},
+		{"/api/registry/register", s.handleRegistryRegister},
+		{"/api/registry/deregister", s.handleRegistryDeregister},
+		{"/api/config/validate", s.handleConfigValidate},
+		{"/api/config/resolve", s.handleConfigResolve},
+		{"/api/config/migrate", s.handleConfigMigrate},
+		{"/api/config/migrate/preview", s.handleConfigMigratePreview},
+		{"/api/config/backups", s.handleConfigBackups},
+		{"/api/config/backups/restore", s.handleConfigRestoreBackup},
+		{"/api/connectors", s.handleConnectors},
+		{"/api/connectors/", s.handleConnectorByID},
+		{"/api/infra", s.handleInfra},
+		{"/api/infra/providers/", s.handleInfraProviderByID},
+		{"/api/deployments", s.handleDeployments},
+		{"/api/deployments/", s.handleDeploymentByID},
+		{"/api/plugins/connectors", s.handleManagedPlugins},
+		{"/api/plugins/connectors/health", s.handlePluginHealth},
+		{"/api/plugins/connectors/operations/", s.handlePluginOperations},
+		{"/api/plugins/connectors/", s.handleManagedPluginByID},
+	}
+}
+
+func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/session", s.handleSession)
-	mux.HandleFunc("/api/resources", s.handleResources)
-	mux.HandleFunc("/api/resources/", s.handleResourceByID)
-
-	// Full cerbapi.Client domain (CW-20260517-0039). Handlers stay thin
-	// over the client; mutating routes reuse the actionToken guard.
-	mux.HandleFunc("/api/overview", s.handleOverview)
-	mux.HandleFunc("/api/settings", s.handleSettings)
-	mux.HandleFunc("/api/system", s.handleSystem)
-	mux.HandleFunc("/api/health", s.handleHealth)
-	mux.HandleFunc("/api/projects", s.handleProjects)
-	mux.HandleFunc("/api/pipelines", s.handlePipelines)
-	mux.HandleFunc("/api/pipelines/", s.handlePipelineByID)
-	mux.HandleFunc("/api/registry", s.handleRegistry)
-	mux.HandleFunc("/api/registry/health", s.handleRegistryHealth)
-	mux.HandleFunc("/api/registry/register", s.handleRegistryRegister)
-	mux.HandleFunc("/api/registry/deregister", s.handleRegistryDeregister)
-	mux.HandleFunc("/api/config/validate", s.handleConfigValidate)
-	mux.HandleFunc("/api/config/resolve", s.handleConfigResolve)
-	mux.HandleFunc("/api/config/migrate", s.handleConfigMigrate)
-	mux.HandleFunc("/api/config/migrate/preview", s.handleConfigMigratePreview)
-	mux.HandleFunc("/api/config/backups", s.handleConfigBackups)
-	mux.HandleFunc("/api/config/backups/restore", s.handleConfigRestoreBackup)
-	mux.HandleFunc("/api/connectors", s.handleConnectors)
-	mux.HandleFunc("/api/connectors/", s.handleConnectorByID)
-	mux.HandleFunc("/api/infra", s.handleInfra)
-	mux.HandleFunc("/api/infra/providers/", s.handleInfraProviderByID)
-	mux.HandleFunc("/api/deployments", s.handleDeployments)
-	mux.HandleFunc("/api/deployments/", s.handleDeploymentByID)
-	mux.HandleFunc("/api/plugins/connectors", s.handleManagedPlugins)
-	mux.HandleFunc("/api/plugins/connectors/health", s.handlePluginHealth)
-	mux.HandleFunc("/api/plugins/connectors/operations/", s.handlePluginOperations)
-	mux.HandleFunc("/api/plugins/connectors/", s.handleManagedPluginByID)
-
+	for _, rt := range s.routeTable() {
+		mux.HandleFunc(rt.pattern, rt.handler)
+	}
 	mux.Handle("/", gowebui.Handler(gowebui.Config{FS: distFS, BasePath: "/"}))
-	return s.withLogging(mux)
+	return mux
 }
 
 func (s *Server) withLogging(next http.Handler) http.Handler {
@@ -229,11 +257,16 @@ func (s *Server) allowStateChangingRequest(r *http.Request) bool {
 	if r.Header.Get("X-Cerberus-Web-Token") != s.actionToken {
 		return false
 	}
+	// Compare against the guard's allowed set, never against r.Host: under
+	// DNS rebinding the attacker controls Host and Origin together.
+	if s.guard == nil || !s.guard.HostAllowed(r.Host) {
+		return false
+	}
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
-	return origin == "http://"+r.Host || origin == "https://"+r.Host
+	return s.guard.OriginAllowed(origin)
 }
 
 func (s *Server) performAction(ctx context.Context, id, action string) (*cerbapi.OpResult, error) {
