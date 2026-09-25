@@ -14,6 +14,7 @@ type fakeBackend struct {
 	removed  string
 	upFile   string
 	downFile string
+	stopFile string
 
 	container *Container
 	stack     *ComposeStack
@@ -54,6 +55,11 @@ func (b *fakeBackend) ContainerLogs(_ context.Context, _ string, _ int) (string,
 
 func (b *fakeBackend) ComposeUp(_ context.Context, composeFile string) error {
 	b.upFile = composeFile
+	return nil
+}
+
+func (b *fakeBackend) ComposeStop(_ context.Context, composeFile string) error {
+	b.stopFile = composeFile
 	return nil
 }
 
@@ -124,11 +130,38 @@ func TestDockerConnectorComposeLifecycleUsesComposeFile(t *testing.T) {
 		t.Fatalf("state = %q, want %q", state, domain.StateStarting)
 	}
 
+	// Stop is compose stop, never compose down: stopping a stack must not
+	// remove its containers and networks.
 	if err := conn.Stop(context.Background(), res); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
+	if backend.stopFile != "docker-compose.yml" {
+		t.Fatalf("stopFile = %q, want docker-compose.yml", backend.stopFile)
+	}
+	if backend.downFile != "" {
+		t.Fatalf("stop ran compose down on %q", backend.downFile)
+	}
+
+	if err := conn.Destroy(context.Background(), res); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
 	if backend.downFile != "docker-compose.yml" {
 		t.Fatalf("downFile = %q, want docker-compose.yml", backend.downFile)
+	}
+}
+
+func TestDockerStopIsNotDestructiveAndDestroyIs(t *testing.T) {
+	for _, op := range Definition().Operations {
+		switch op.Name {
+		case "stop":
+			if op.Destructive {
+				t.Error("stop is compose stop and must not be marked destructive")
+			}
+		case "destroy":
+			if !op.Destructive {
+				t.Error("destroy is compose down / docker rm and must be destructive")
+			}
+		}
 	}
 }
 

@@ -142,8 +142,14 @@ var dockerUpCmd = &cobra.Command{
 
 var dockerDownCmd = &cobra.Command{
 	Use:   "down <resource-id>",
-	Short: "Stop container or compose stack",
-	Args:  cobra.ExactArgs(1),
+	Short: "Stop container or compose stack (does not remove it)",
+	Long: `Stops a container (docker stop) or a compose stack (docker compose stop).
+Nothing is removed: containers, networks and volumes are kept, and
+'cerberus docker up' starts the same stack again.
+
+Removal (docker rm, docker compose down) is the connector's destroy operation,
+which requires acknowledgment. There is no 'docker' verb for it yet.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, closeFn, err := newExternalConnectorService(cmd.Context())
 		if err != nil {

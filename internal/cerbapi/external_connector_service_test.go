@@ -68,6 +68,10 @@ func (b *fakeDockerBackend) ComposeUp(_ context.Context, _ string) error {
 	return nil
 }
 
+func (b *fakeDockerBackend) ComposeStop(_ context.Context, _ string) error {
+	return nil
+}
+
 func (b *fakeDockerBackend) ComposeDown(_ context.Context, _ string) error {
 	return nil
 }

@@ -250,9 +250,13 @@ the host and that recovery. The MCP tools take the same selection as
 
 ```bash
 cerberus docker up mtbf-monitor      # no -f needed
-cerberus docker down mtbf-monitor
+cerberus docker down mtbf-monitor    # compose stop: stopped, not removed
 cerberus docker logs some-container  # undeclared containers still work
 ```
+
+`docker down` stops a container or stack (`docker stop`, `docker compose stop`)
+and removes nothing. Removal — `docker rm`, or `docker compose down` for a
+stack — is the connector's `destroy` operation, which requires `--ack`.
 
 A `container` or `server` resource is a named handle for connector operations,
 not a supervised workload: `resource status` reports it as `unsupervised` and

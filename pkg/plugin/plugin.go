@@ -3,6 +3,12 @@
 // pkg/connector and pkg/resource, to declare its plugin.yaml and to name the
 // MCP tools the host routes operations through.
 //
+// Operation metadata lives in pkg/connector's ManifestOperation. Two fields
+// govern what the host lets through: destructive (always acknowledgment-gated)
+// and supports_dry (a dry run is refused unless it is set). requires_ack is
+// deprecated and ignored for gating; keep setting it on destructive operations
+// for older hosts.
+//
 // The host side — the manager, installer, trust policy and subprocess
 // launcher — deliberately stays in internal/pluginhost. Those are host
 // decisions and must not be something a plugin can influence.

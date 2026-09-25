@@ -25,6 +25,7 @@ type fakeProcess struct {
 
 	unloaded bool
 	closed   bool
+	calls    int
 }
 
 func (f *fakeProcess) Init(context.Context, SDKInitParams) (SDKInitResult, error) {
@@ -37,6 +38,7 @@ func (f *fakeProcess) Unload(context.Context) error {
 }
 func (f *fakeProcess) Health(context.Context) (SDKHealthResult, error) { return f.health, nil }
 func (f *fakeProcess) CallTool(context.Context, SDKMCPCallRequest) (SDKMCPCallResult, error) {
+	f.calls++
 	return f.callResult, nil
 }
 func (f *fakeProcess) Close() error {

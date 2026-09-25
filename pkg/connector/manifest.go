@@ -26,9 +26,19 @@ type ManifestOperation struct {
 	Description string         `json:"description,omitempty" yaml:"description,omitempty"`
 	Examples    []string       `json:"examples,omitempty" yaml:"examples,omitempty"`
 	InputSchema map[string]any `json:"input_schema,omitempty" yaml:"input_schema,omitempty"`
-	Destructive bool           `json:"destructive,omitempty" yaml:"destructive,omitempty"`
-	SupportsDry bool           `json:"supports_dry,omitempty" yaml:"supports_dry,omitempty"`
-	RequiresAck bool           `json:"requires_ack,omitempty" yaml:"requires_ack,omitempty"`
+	// Destructive operations always require operator acknowledgment. The host
+	// enforces that from this field alone.
+	Destructive bool `json:"destructive,omitempty" yaml:"destructive,omitempty"`
+	// SupportsDry declares that the plugin honors dry_run with a preview that
+	// executes nothing. A dry run of an operation without it is refused by the
+	// host as preview_unsupported and never reaches the plugin. The preview is
+	// the plugin's claim; the host does not verify it.
+	SupportsDry bool `json:"supports_dry,omitempty" yaml:"supports_dry,omitempty"`
+	// RequiresAck is deprecated: the host gates on Destructive and ignores
+	// this field. Validation still requires it to be true on a destructive
+	// operation, because older hosts required both, so dropping it would run a
+	// destructive operation unacknowledged there.
+	RequiresAck bool `json:"requires_ack,omitempty" yaml:"requires_ack,omitempty"`
 }
 
 // ManifestFromDefinition converts build-time connector metadata into the
