@@ -1172,3 +1172,123 @@ on a TTY only. The posture is visible in `status`, the console header, the MCP
 instructions and every audit record. Audit and egress never relax.
 
 **Order:** P2-1 → P2-3 → P2-4, then P2-5 on top of P2-4. P2-2 is independent.
+
+## P3 cut — 2026-09-25
+
+P3 turns enforcement on, so it is built on an honest premise. **Everything runs
+as one uid.** A same-uid agent can allocate a pty, run any `cerberus` command,
+mint a web session (CERB-GAP-862) and rewrite any file under `~/.cerberus`
+(CERB-GAP-857). That makes `tty_confirm` a UX floor against an agent that
+follows the rules, not a boundary. Out of band means something only when the
+approving act needs a person to be present.
+
+**P3-1: the broker.**
+- It lives in the daemon, backed by `~/.cerberus/approvals/events.jsonl`: mode
+  0600, append-only, folded into state at start so a restart loses nothing.
+  Expiry is checked lazily, plus a sweeper.
+- Lifecycle: `pending → approved | denied | expired`, then
+  `approved → consumed | expired | revoked`.
+- Audit kinds: `approval_requested`, `approval_decided`, `approval_expired`,
+  `approval_consumed` (linked to the intent by `operation_id`) and
+  `approval_revoked`.
+- Consume is write-ahead, before execution, so an approval runs at most once.
+  It re-runs `Authorize`: a newer `deny` refuses, and a relaxation still
+  consumes and is recorded (D8).
+- The store is not trusted on its word. An out-of-band decision carries a
+  presence assertion, verified at consume.
+- With no daemon, the in-process CLI lane supports `tty_confirm` only. A call
+  that needs out of band gets `approval_pending`, naming how to start the
+  daemon (D3).
+- `approval_required`, `approval_pending` (with `{id, expires_at,
+  approve_with}`), `approval_expired` and `plan_stale` are `redact.Guidance`,
+  tested on every lane.
+
+**P3-2: the plan hash (I6).** It is `sha256` over canonical JSON with a
+version field, and it never contains a credential value (env vars by name).
+- Admin lane: connector, op, effect, the resolved target and its labels,
+  `args_digest`, the preview DTO and its kind, the provider's version token
+  (`resourceVersion`, etag, serial), and a plugin's entrypoint and config
+  digests.
+- Resource verbs: the resolved spec digest, git HEAD and the dirty flag, the
+  artifact output, the rendered plist for `apply`, and the observed state. This
+  adds `cerberus resource plan <id> <verb>`.
+- Pipelines: each stage's argv or shell, env names, and the spec digests of the
+  resources it names.
+- Deploy profiles: P1-2's steps as run, the profile digest, and repo HEAD and
+  dirty. This closes CERB-GAP-853.
+- Apply resends the args with the approval id. The broker compares
+  `args_digest` and never stores raw args (D4). It recomputes the plan and
+  refuses with `plan_stale` on any difference. It applies conditionally on the
+  provider's version token where the API allows. The outcome record carries
+  `approval_id` and `plan_hash`.
+
+**P3-3: `tty_confirm` (Decisions 2 and 3).**
+- The CLI on a TTY, as a human principal, fetches the plan and prints it. It
+  asks for the target id to be typed (`y` is refused), then sends
+  `confirmed_plan_hash`. Decide and consume happen on that one call.
+- `--ack` still gates the effects the P1 gate covers, but satisfies nothing on
+  its own. Without a TTY the call gets `approval_pending` and the approve
+  command.
+- The console confirm dialog, on a human session, is `tty_confirm` too, and
+  only where `tty_confirm` is allowed.
+
+**P3-4: out of band (D1).** On `env: prod`, shared and `owner != self`
+targets, out of band is **WebAuthn user verification (Touch ID or a security
+key) on the console's approvals page**.
+- `127.0.0.1` is a secure context. A virtual authenticator cannot sign for an
+  enrolled credential.
+- `cerberus approvals approve <id>` opens that page for such a request. A
+  Secure Enclave key behind user presence, through a signed CLI helper, is the
+  noted alternative.
+- `cerberus approvals list|show|approve|deny|revoke` runs on a TTY. The
+  approving surface must differ from the requesting one, and an `mcp_*`
+  surface never approves (I5).
+- **Enrollment** is `cerberus approvals enroll` on a TTY: trust on first use,
+  recorded. After that, adding or removing a key needs an assertion from an
+  enrolled key.
+- A key registry that changed by any other route refuses out-of-band approvals
+  for a **24h cool-down** (D7). It says so in `status`, the console header and
+  a notification. This is detection, not prevention. Prevention needs a second
+  uid or hardware-bound storage, and is recorded as a gap.
+- `approvers: 2` stays unsatisfiable, and so fails closed, until two people's
+  keys are enrolled.
+
+**P3-5: grants and break glass.**
+- Grants are `once` (the default, bound to `plan_hash`), `session` or `window`,
+  each with a TTL.
+- A grant never widens a `deny`, is re-checked on every use, is revocable from
+  the CLI and the console, and is listed in `status` while active. It is
+  recorded as `grant_created`, `grant_used` and `grant_revoked`.
+- **Grants are allowed anywhere operator policy allows them (D5, the
+  operator's choice).** There is no built-in floor. Instead there is a safety
+  net:
+  - `policy apply` and `policy explain` flag, loudly, any rule that allows a
+    `session` or `window` grant on a prod, shared or `owner != self` target;
+  - every use of such a grant is marked on its audit record
+    (`grant_on_protected_target: true`).
+- **Break glass:** `--break-glass --reason "…"` gets past `approve`, never past
+  `deny`.
+  - It needs a TTY, a human principal, a typed target id and a reason.
+  - **On prod-class targets it also needs a presence assertion (D2).**
+    Otherwise a pty would be enough.
+  - It writes a `break_glass` record before the intent, sends a notification,
+    shows in `status` and the header for 24h, and is rate-limited per target.
+
+**P3-6: MCP.** `cerberus_approval_wait(id)` blocks for a bounded time, and
+`approval_pending` is a DTO. A retry carries `approval_id`. The Guidance tells
+the agent what to ask its human.
+
+**P3-7: the switch-on (D6).**
+- An `enforcement` section in the applied snapshot: `mode: shadow | enforce`,
+  plus `enforce:` entries scoped by target match, principal and effect.
+- `cerberus policy report --since … --scope …` shows the would-blocks, the
+  approvals they would need, and the targets still unknown.
+- `cerberus policy enforce --scope …` runs on a TTY. It shows the flips and the
+  channels each flipped rule needs, and errors if a needed channel is not set
+  up (such as no enrolled key). It needs a typed confirmation. Going back to
+  shadow is `admin` too.
+- Ramp: agents on prod-class targets, then agents everywhere, then humans'
+  `destructive` and `exec`, then `mode: enforce`.
+
+**Order:** P3-1 → P3-2 → P3-3 → P3-4 → P3-5 → P3-6, then P3-7.
+Channels come before the flip.
