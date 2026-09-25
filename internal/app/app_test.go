@@ -11,11 +11,13 @@ func TestRegisterBuiltInConnectorsRegistersDiscoveryMetadata(t *testing.T) {
 	registerBuiltInConnectors(registry, nil)
 
 	defs := registry.Definitions()
-	var hasCloudflare, hasDocker, hasForge, hasGitHub, hasNamecheap, hasSSH bool
+	var hasDocker, hasForge, hasGitHub, hasNamecheap, hasSSH bool
 	for _, def := range defs {
 		switch def.ID {
 		case "cloudflare":
-			hasCloudflare = true
+			// A plugin now (hollis-labs/cerberus-plugins). Registering it
+			// here again would also reserve its id and refuse the plugin.
+			t.Fatalf("cloudflare is registered as a built-in; it moved to a plugin")
 		case "docker":
 			hasDocker = true
 		case "forge":
@@ -28,7 +30,7 @@ func TestRegisterBuiltInConnectorsRegistersDiscoveryMetadata(t *testing.T) {
 			hasSSH = true
 		}
 	}
-	if !hasCloudflare || !hasDocker || !hasForge || !hasGitHub || !hasNamecheap || !hasSSH {
+	if !hasDocker || !hasForge || !hasGitHub || !hasNamecheap || !hasSSH {
 		t.Fatalf("definitions missing expected built-ins: %#v", defs)
 	}
 }

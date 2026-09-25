@@ -48,10 +48,7 @@ func TestBuiltinDefinitionsDeclareTheContract(t *testing.T) {
 // which surfaces need --ack, so it is pinned rather than left to review.
 func TestBuiltinEffectClassification(t *testing.T) {
 	want := map[string]contract.Effect{
-		"cloudflare.list_zones": contract.EffectRead, "cloudflare.create_zone": contract.EffectWrite,
-		"cloudflare.list_dns_records": contract.EffectRead, "cloudflare.create_dns_record": contract.EffectWrite,
-		"cloudflare.delete_dns_record": contract.EffectDestructive,
-		"digitalocean.list_droplets":   contract.EffectRead, "digitalocean.get_droplet": contract.EffectRead,
+		"digitalocean.list_droplets": contract.EffectRead, "digitalocean.get_droplet": contract.EffectRead,
 		"digitalocean.create_droplet": contract.EffectWrite, "digitalocean.start": contract.EffectLifecycle,
 		"digitalocean.stop": contract.EffectLifecycle, "digitalocean.destroy": contract.EffectDestructive,
 		"digitalocean.status":    contract.EffectRead,

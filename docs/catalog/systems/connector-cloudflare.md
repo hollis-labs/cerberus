@@ -2,82 +2,90 @@
 id: "CERB-CAP-204"
 class: "capability"
 name: "Cloudflare connector"
-summary: "Lists and creates Cloudflare zones and DNS records through cloudflare-go, with the largest dependency in the binary and no test files."
+summary: "Lists and creates Cloudflare zones and DNS records as the cloudflare plugin in hollis-labs/cerberus-plugins; no longer compiled in, which took a stripped build from 62.8MB to 23.6MB."
 state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
-confidence_score: 0.75
-confidence_label: "No token on this machine and the package has zero test files, so nothing here is verified beyond its declaration"
-last_reviewed: "2026-09-17"
+confidence_score: 0.8
+confidence_label: "Fake-backend, DTO and scrubber tests in the plugin; no Cloudflare token on this machine, so live reads wait for the operator's UAT"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
-locus: "core"
-pointer_locator: "internal/connector/cloudflare/connector.go"
+locus: "plugin"
+pointer_locator: "hollis-labs/cerberus-plugins:cloudflare/internal/cloudflareplugin/connector.go"
 tags:
   - "cerberus"
   - "class:capability"
   - "cloudflare"
   - "connector"
   - "dns"
-  - "migrating-to-plugin"
-  - "untested"
-  - "locus:core"
+  - "plugin"
+  - "locus:plugin"
 relationships:
   - type: "implements"
     target: "CERB-CAP-200"
-    note: "Compiled in today, scheduled to migrate out"
+    note: "A plugin connector since 2026-09-25, reached through the admin lane"
   - type: "relates_to"
     target: "CERB-DEC-291"
-    note: "First of the four to migrate, because the 33MB payoff is largest"
+    note: "The first of the four to migrate, because it was most of the binary"
   - type: "relates_to"
     target: "CERB-GAP-280"
-    note: "Zero test files in a package with three destructive operations"
+    note: "The built-in had no tests; the plugin has them"
   - type: "relates_to"
     target: "CERB-GAP-281"
-    note: "Returns cloudflare-go types rather than a Cerberus DTO"
+    note: "The plugin returns Cerberus DTOs; cloudflare-go is confined to one file"
 ---
 
 # Cloudflare connector
 
-> Lists and creates Cloudflare zones and DNS records through cloudflare-go, with the largest dependency in the binary and no test files.
+> Lists and creates Cloudflare zones and DNS records as the cloudflare plugin in hollis-labs/cerberus-plugins; no longer compiled in, which took a stripped build from 62.8MB to 23.6MB.
 
-Five operations: `list_zones`, `create_zone`, `list_dns_records`,
-`create_dns_record`, `delete_dns_record`. Three are destructive and all three
-are dry-runnable, with previews in the admin lane that echo the resolved target
-and input before anything is sent.
+Five operations: `list_zones` and `list_dns_records` are `read`,
+`create_zone` and `create_dns_record` are `write`, and `delete_dns_record` is
+`destructive`. The three writes are acknowledgment-gated and preview with a
+`plugin` preview, which is the plugin's claim and not verified by the host.
 
-The wrangler CLI backend exists but is thin to the point of being mostly
-refusals: listing zones, creating zones and listing tunnels each return an error
-telling the caller to use the API backend instead. In practice this connector is
-the API client or it is nothing.
+Since 2026-09-25 this is a plugin, not a built-in
+(`docs/plans/provider-plugin-extraction.md`, H4). The id and the secret name are
+unchanged, so `CERBERUS_CLOUDFLARE_API_TOKEN`, a `cloudflare: api_token:` entry
+in `connector-secrets.yaml` and `keychain://cloudflare/api_token` all resolve
+exactly as before. The host looks a plugin's secret up as
+`<plugin id>/<secret name>`, which is the key the built-in used. Removing it
+took `cloudflare-go/v4` and its tidwall JSON dependencies out of the binary: a
+stripped build went from 62.8MB to 23.6MB, and an unstripped one from 88.1MB to
+34.1MB. The SDK's generated types weighed far more in type metadata and line
+tables than their symbol sizes suggested.
 
-Two facts about it are more load-bearing than the operation list.
+What changed for a caller:
 
-`cloudflare-go/v4` is 33MB and the single largest dependency win available in
-the binary, which is why Cloudflare is named first in the migration order to
-plugins. That is a decision already taken, deferred deliberately: the four
-compiled-in provider connectors work today, moving them is cost with no feature
-benefit, and it would mean migrating onto a plugin lane that had never carried a
-plugin authored as one from day one. ContextForge was built first to learn what
-authoring feels like.
+- **CLI.** `cerberus cloudflare …` is gone, with no tombstone.
+  `cerberus connectors exec cloudflare <op>` runs any operation, with
+  arguments typed from the schema.
+- **MCP.** The hand-written `cerberus_cloudflare_zones`, `_zone_create`,
+  `_dns_list`, `_dns_create` and `_dns_delete` are gone. The generated tools
+  are `cerberus_cloudflare_<op>`, served only for the operations the operator
+  lists under `cloudflare: mcp: expose:` in `connector-config.yaml`.
+- **No wrangler fallback.** It authenticated outside the declared-secret
+  channel and could not list or create zones.
+- **Tighter than the built-in.** `create_dns_record` validates `type`,
+  `name` and `content` on the real path, bad numbers are refused rather than
+  defaulted, `delete_dns_record` returns `{deleted, zone_id, record_id}`
+  rather than null, and health makes no network call.
 
-And `internal/connector/cloudflare/` has **no test files**. Three destructive
-DNS operations, a vendor SDK behind a `Backend` interface built precisely so it
-could be tested without network, and nothing exercises it. `go test
-./internal/connector/...` reports `[no test files]` for this package. The
-dry-run previews and the service dispatch are covered from `internal/cerbapi`;
-the connector itself is not. On this machine there is also no Cloudflare token,
-so nothing here is verified beyond its declaration.
+The plugin carries what the built-in did not: fake-backend tests for every
+operation, a DTO canary, a token scrubber with a sentinel test, coded errors
+(`credential_missing`, `connector_unavailable`, `invalid_args`), and a
+live-check script that requires a read-only token.
 
 ## Owns
 
 - Zone list and create
 - DNS record list, create and delete, with proxied, TTL and priority
-- Two backends: the cloudflare-go API client and the wrangler CLI
+- The Cloudflare API client, confined to one file behind a DTO-returning backend
 
 ## Does not own
 
 - Tunnels, Workers, R2, or anything else in the Cloudflare product surface
 - Registrar operations — that is namecheap
 - Zone deletion. create_zone exists; there is no destroy_zone
-- Its own tests. There are none
+- A place in the Cerberus binary

@@ -146,8 +146,10 @@ talks to a provider is a plugin: optional per user, its own release schedule,
 loaded at runtime without rebuilding the host.
 
 Our plugins live in `hollis-labs/cerberus-plugins`; third-party plugins are
-standalone repos. `cloudflare`, `digitalocean`, `forge` and `namecheap` are
-compiled in today and will migrate later — do not add a fifth.
+standalone repos. `cloudflare` moved out first (its SDK was most of the binary:
+removing it took a stripped build from 62.8MB to 23.6MB). `digitalocean`,
+`forge` and `namecheap` are still compiled in, and are next, in that order,
+per `docs/plans/provider-plugin-extraction.md`. Do not add a fourth.
 
 **A new provider integration is a plugin, not a built-in.** If you are about to
 add a vendor SDK to `go.mod` for a connector, that is the signal you are in the

@@ -100,7 +100,6 @@ func TestToolRefusalsSetIsError(t *testing.T) {
 		{NewCerberusDockerPSTool(client), map[string]any{}, ackRefusal},
 		{NewCerberusDropletStopTool(client), map[string]any{"droplet_id": 42}, ackRefusal},
 		{NewCerberusDropletCreateTool(client), map[string]any{"name": "n", "region": "r", "size": "s", "image": "i"}, ackRefusal},
-		{NewCerberusCloudflareDNSDeleteTool(client), map[string]any{"zone_id": "z", "record_id": "r"}, ackRefusal},
 		{NewCerberusGithubStatusTool(client), map[string]any{"owner": "o", "repo": "r"}, ackRefusal},
 		// Refusals the tool makes itself, before reaching the serving process.
 		{NewCerberusDNSCreateTool(client), map[string]any{"domain": "example.com"}, "per-record create/delete is disabled"},

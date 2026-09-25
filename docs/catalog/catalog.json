@@ -1089,13 +1089,13 @@
       "id": "CERB-CAP-204",
       "class": "capability",
       "name": "Cloudflare connector",
-      "summary": "Lists and creates Cloudflare zones and DNS records through cloudflare-go, with the largest dependency in the binary and no test files.",
+      "summary": "Lists and creates Cloudflare zones and DNS records as the cloudflare plugin in hollis-labs/cerberus-plugins; no longer compiled in, which took a stripped build from 62.8MB to 23.6MB.",
       "state_field": "maturity",
       "state_label": "partial",
       "review_status": "reviewed",
-      "confidence_score": 0.75,
-      "confidence_label": "No token on this machine and the package has zero test files, so nothing here is verified beyond its declaration",
-      "last_reviewed": "2026-09-17",
+      "confidence_score": 0.8,
+      "confidence_label": "Fake-backend, DTO and scrubber tests in the plugin; no Cloudflare token on this machine, so live reads wait for the operator's UAT",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -1104,35 +1104,34 @@
         "cloudflare",
         "connector",
         "dns",
-        "migrating-to-plugin",
-        "untested",
-        "locus:core"
+        "plugin",
+        "locus:plugin"
       ],
       "relationships": [
         {
           "type": "implements",
           "target": "CERB-CAP-200",
-          "note": "Compiled in today, scheduled to migrate out"
+          "note": "A plugin connector since 2026-09-25, reached through the admin lane"
         },
         {
           "type": "relates_to",
           "target": "CERB-DEC-291",
-          "note": "First of the four to migrate, because the 33MB payoff is largest"
+          "note": "The first of the four to migrate, because it was most of the binary"
         },
         {
           "type": "relates_to",
           "target": "CERB-GAP-280",
-          "note": "Zero test files in a package with three destructive operations"
+          "note": "The built-in had no tests; the plugin has them"
         },
         {
           "type": "relates_to",
           "target": "CERB-GAP-281",
-          "note": "Returns cloudflare-go types rather than a Cerberus DTO"
+          "note": "The plugin returns Cerberus DTOs; cloudflare-go is confined to one file"
         }
       ],
-      "body": "> Lists and creates Cloudflare zones and DNS records through cloudflare-go, with the largest dependency in the binary and no test files.\n\nFive operations: `list_zones`, `create_zone`, `list_dns_records`,\n`create_dns_record`, `delete_dns_record`. Three are destructive and all three\nare dry-runnable, with previews in the admin lane that echo the resolved target\nand input before anything is sent.\n\nThe wrangler CLI backend exists but is thin to the point of being mostly\nrefusals: listing zones, creating zones and listing tunnels each return an error\ntelling the caller to use the API backend instead. In practice this connector is\nthe API client or it is nothing.\n\nTwo facts about it are more load-bearing than the operation list.\n\n`cloudflare-go/v4` is 33MB and the single largest dependency win available in\nthe binary, which is why Cloudflare is named first in the migration order to\nplugins. That is a decision already taken, deferred deliberately: the four\ncompiled-in provider connectors work today, moving them is cost with no feature\nbenefit, and it would mean migrating onto a plugin lane that had never carried a\nplugin authored as one from day one. ContextForge was built first to learn what\nauthoring feels like.\n\nAnd `internal/connector/cloudflare/` has **no test files**. Three destructive\nDNS operations, a vendor SDK behind a `Backend` interface built precisely so it\ncould be tested without network, and nothing exercises it. `go test\n./internal/connector/...` reports `[no test files]` for this package. The\ndry-run previews and the service dispatch are covered from `internal/cerbapi`;\nthe connector itself is not. On this machine there is also no Cloudflare token,\nso nothing here is verified beyond its declaration.\n\n## Owns\n\n- Zone list and create\n- DNS record list, create and delete, with proxied, TTL and priority\n- Two backends: the cloudflare-go API client and the wrangler CLI\n\n## Does not own\n\n- Tunnels, Workers, R2, or anything else in the Cloudflare product surface\n- Registrar operations — that is namecheap\n- Zone deletion. create_zone exists; there is no destroy_zone\n- Its own tests. There are none",
-      "locus": "core",
-      "pointer_locator": "internal/connector/cloudflare/connector.go",
+      "body": "> Lists and creates Cloudflare zones and DNS records as the cloudflare plugin in hollis-labs/cerberus-plugins; no longer compiled in, which took a stripped build from 62.8MB to 23.6MB.\n\nFive operations: `list_zones` and `list_dns_records` are `read`,\n`create_zone` and `create_dns_record` are `write`, and `delete_dns_record` is\n`destructive`. The three writes are acknowledgment-gated and preview with a\n`plugin` preview, which is the plugin's claim and not verified by the host.\n\nSince 2026-09-25 this is a plugin, not a built-in\n(`docs/plans/provider-plugin-extraction.md`, H4). The id and the secret name are\nunchanged, so `CERBERUS_CLOUDFLARE_API_TOKEN`, a `cloudflare: api_token:` entry\nin `connector-secrets.yaml` and `keychain://cloudflare/api_token` all resolve\nexactly as before. The host looks a plugin's secret up as\n`<plugin id>/<secret name>`, which is the key the built-in used. Removing it\ntook `cloudflare-go/v4` and its tidwall JSON dependencies out of the binary: a\nstripped build went from 62.8MB to 23.6MB, and an unstripped one from 88.1MB to\n34.1MB. The SDK's generated types weighed far more in type metadata and line\ntables than their symbol sizes suggested.\n\nWhat changed for a caller:\n\n- **CLI.** `cerberus cloudflare …` is gone, with no tombstone.\n  `cerberus connectors exec cloudflare <op>` runs any operation, with\n  arguments typed from the schema.\n- **MCP.** The hand-written `cerberus_cloudflare_zones`, `_zone_create`,\n  `_dns_list`, `_dns_create` and `_dns_delete` are gone. The generated tools\n  are `cerberus_cloudflare_<op>`, served only for the operations the operator\n  lists under `cloudflare: mcp: expose:` in `connector-config.yaml`.\n- **No wrangler fallback.** It authenticated outside the declared-secret\n  channel and could not list or create zones.\n- **Tighter than the built-in.** `create_dns_record` validates `type`,\n  `name` and `content` on the real path, bad numbers are refused rather than\n  defaulted, `delete_dns_record` returns `{deleted, zone_id, record_id}`\n  rather than null, and health makes no network call.\n\nThe plugin carries what the built-in did not: fake-backend tests for every\noperation, a DTO canary, a token scrubber with a sentinel test, coded errors\n(`credential_missing`, `connector_unavailable`, `invalid_args`), and a\nlive-check script that requires a read-only token.\n\n## Owns\n\n- Zone list and create\n- DNS record list, create and delete, with proxied, TTL and priority\n- The Cloudflare API client, confined to one file behind a DTO-returning backend\n\n## Does not own\n\n- Tunnels, Workers, R2, or anything else in the Cloudflare product surface\n- Registrar operations — that is namecheap\n- Zone deletion. create_zone exists; there is no destroy_zone\n- A place in the Cerberus binary",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:cloudflare/internal/cloudflareplugin/connector.go",
       "data": {
         "owns": [
           "Zone list and create",
@@ -2250,7 +2249,7 @@
     },
     {
       "namespace": "cerberus",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "review_status": "draft",
       "id": "CERB-CAP-305",
@@ -2271,7 +2270,7 @@
       ],
       "locus": "core",
       "pointer_locator": "internal/pluginhost/installer.go",
-      "body": "A plugin may not claim a connector id this binary serves itself.\n`DirectoryInstaller.ReservedIDs` is checked first in `Install` — before trust is\nevaluated, before the entrypoint is hashed, before any subprocess exists — and a\ncollision returns a `ReservedIDError` naming the id and the two ways out\n(\"rename the plugin, or remove the built-in first\"). The refused plugin never\nreaches the inventory.\n\nTwo reasons, and the second is the one people miss. A plugin claiming a built-in\nid would shadow the connector Cerberus serves itself. And because the secret\nchannel namespaces by connector id, a plugin called `github` would be handed\n`CERBERUS_GITHUB_TOKEN` — the built-in's credential — simply by declaring a\nsecret named `token`. The guard is a credential boundary, not only a naming one.\n\n`pluginhost` has no opinion about what a host compiled in, so the caller\nsupplies the set. The daemon fills it from `Registry.BuiltInIDs()`, the union of\nregistered instances, factories and definitions, which on this machine is eight\nids — `local`, `ssh`, `docker`, `github`, `cloudflare`, `digitalocean`, `forge`,\n`namecheap` — not the four `AGENTS.md` names. Derived rather than hardcoded is\nthe point: when `cloudflare` migrates out to a plugin it stops being registered\nand a `cloudflare` plugin becomes installable the same day, with no guard to\nedit.\n\nOnly the managed lane reserves. `connectors plugin exec` installs into a\nthrowaway host for one call and registers nothing, so it cannot shadow anything\n— and refusing there would break the Docker prototype, whose whole purpose is to\ndemonstrate authoring against a built-in's shape. An inventory registered before\nthe guard existed can still hold a shadowing plugin; restore skips it with a\nwarning and keeps the registration rather than dropping the operator's record or\ntaking the daemon down. WP-0's older safety net — an installed-but-unloaded\nplugin falls back to the built-in it shadows, because unloading one once left\n`cerberus docker ps` permanently broken with no uninstall command — stays in\nplace for exactly that case.",
+      "body": "A plugin may not claim a connector id this binary serves itself.\n`DirectoryInstaller.ReservedIDs` is checked first in `Install` — before trust is\nevaluated, before the entrypoint is hashed, before any subprocess exists — and a\ncollision returns a `ReservedIDError` naming the id and the two ways out\n(\"rename the plugin, or remove the built-in first\"). The refused plugin never\nreaches the inventory.\n\nTwo reasons, and the second is the one people miss. A plugin claiming a built-in\nid would shadow the connector Cerberus serves itself. And because the secret\nchannel namespaces by connector id, a plugin called `github` would be handed\n`CERBERUS_GITHUB_TOKEN` — the built-in's credential — simply by declaring a\nsecret named `token`. The guard is a credential boundary, not only a naming one.\n\n`pluginhost` has no opinion about what a host compiled in, so the caller\nsupplies the set. The daemon fills it from `Registry.BuiltInIDs()`, the union of\nregistered instances, factories and definitions. Derived rather than hardcoded\nis the point, and it worked as intended: when `cloudflare` moved out to a plugin\non 2026-09-25 it stopped being registered, and a `cloudflare` plugin became\ninstallable the same day with no guard to edit. The set is now `ssh`, `docker`,\n`github`, `digitalocean`, `forge` and `namecheap`.\n\nOne id was never in it. `local` is served by the supervision lane, not the\nconnector registry, so `BuiltInIDs` could not report it, and a plugin could\nclaim the id `local` despite `AGENTS.md` naming it as reserved. The managed\nlane now always reserves the ids the host serves outside the registry\n(`hostServedIDs`, currently `local`) on top of whatever the daemon passes, and\n`TestManagedPluginInstallRefusesLocalWithoutBeingTold` holds it.\n\nOnly the managed lane reserves. `connectors plugin exec` installs into a\nthrowaway host for one call and registers nothing, so it cannot shadow anything\n— and refusing there would break the Docker prototype, whose whole purpose is to\ndemonstrate authoring against a built-in's shape. An inventory registered before\nthe guard existed can still hold a shadowing plugin; restore skips it with a\nwarning and keeps the registration rather than dropping the operator's record or\ntaking the daemon down. WP-0's older safety net — an installed-but-unloaded\nplugin falls back to the built-in it shadows, because unloading one once left\n`cerberus docker ps` permanently broken with no uninstall command — stays in\nplace for exactly that case.",
       "relationships": [
         {
           "type": "implements",
@@ -5090,11 +5089,11 @@
       "name": "The four compiled-in provider connectors stay put for now",
       "summary": "cloudflare, digitalocean, forge and namecheap are built in today and will migrate to plugins later, in a decided order — and no fifth is added.",
       "state_field": "status",
-      "state_label": "deferred",
+      "state_label": "partial",
       "review_status": "reviewed",
       "confidence_score": 0.95,
       "confidence_label": "Recorded in the plan with the dependency sizes; all four still compiled in and reported by connectors list",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -5124,7 +5123,7 @@
           "note": "Last, having no SDK to shed"
         }
       ],
-      "body": "The rule is that a provider integration is a plugin. Four provider connectors\nare compiled in anyway, and that is a decision rather than an inconsistency —\nwith a sequence attached.\n\n**Do not migrate them yet.** They work, and moving them is cost with no feature\nbenefit. The stronger reason is sequencing: migrating them first would have\nmeant moving working code onto a lane that had never carried a plugin authored\nas one from day one. ContextForge was built first precisely to learn what\nauthoring feels like, and it found real gaps in the lane — the host secret\nchannel among them — that a migration would have hit while also carrying the\nrisk of regressing something that already worked.\n\n**The order follows the payoff.** `cloudflare-go/v4` is 33MB, the largest\ndependency win available in the binary, so cloudflare goes first. `godo` is\n2.7MB, so digitalocean follows. Forge and Namecheap have no vendor SDK at all —\nboth are hand-written HTTP clients — so they are last, and their migration buys\nmodularity rather than size.\n\n**And no fifth is added.** This is the part with teeth, because the natural\nreading of \"four are compiled in\" is that compiling one in is an available\noption. It is not. The four are legacy with a migration plan; the rule for\nanything new is the plugin lane.\n\nThere is a mechanism backing the decision rather than only a note.\n`Registry.BuiltInIDs` is derived from what is actually registered rather than\nhardcoded, and it is the set a plugin may not claim — so when cloudflare moves\nout it stops being reserved on its own, and a cloudflare plugin becomes\ninstallable the same day. The reservation shrinks by itself as the migration\nhappens.",
+      "body": "The rule is that a provider integration is a plugin. Four provider connectors\nare compiled in anyway, and that is a decision rather than an inconsistency —\nwith a sequence attached.\n\n**Do not migrate them yet.** They work, and moving them is cost with no feature\nbenefit. The stronger reason is sequencing: migrating them first would have\nmeant moving working code onto a lane that had never carried a plugin authored\nas one from day one. ContextForge was built first precisely to learn what\nauthoring feels like, and it found real gaps in the lane — the host secret\nchannel among them — that a migration would have hit while also carrying the\nrisk of regressing something that already worked.\n\n**The order follows the payoff.** `cloudflare-go/v4` is 33MB, the largest\ndependency win available in the binary, so cloudflare goes first. `godo` is\n2.7MB, so digitalocean follows. Forge and Namecheap have no vendor SDK at all —\nboth are hand-written HTTP clients — so they are last, and their migration buys\nmodularity rather than size.\n\n**And no fifth is added.** This is the part with teeth, because the natural\nreading of \"four are compiled in\" is that compiling one in is an available\noption. It is not. The four are legacy with a migration plan; the rule for\nanything new is the plugin lane.\n\nThere is a mechanism backing the decision rather than only a note.\n`Registry.BuiltInIDs` is derived from what is actually registered rather than\nhardcoded, and it is the set a plugin may not claim — so when cloudflare moves\nout it stops being reserved on its own, and a cloudflare plugin becomes\ninstallable the same day. The reservation shrinks by itself as the migration\nhappens.\n\n**Under way since 2026-09-25.** The deferral ended with `docs/plans/provider-plugin-extraction.md`. `cloudflare` moved first, as ordered here, and a stripped build fell from 62.8MB to 23.6MB, far more than the SDK's symbol sizes predicted. The reserved-id set shrank by itself, as designed. `digitalocean`, `namecheap` and `forge` follow in that order; their plugins are built, and each built-in is removed once the one before it is live.",
       "locus": "core",
       "pointer_locator": "docs/plans/connector-work-packages.md",
       "data": {
@@ -15924,7 +15923,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.75,
       "confidence_label": "No Cloudflare token on this machine and the package has no test files at all",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -15933,7 +15932,7 @@
         "cloudflare",
         "connector",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -15943,9 +15942,9 @@
           "note": "An operation of the cloudflare connector"
         }
       ],
-      "body": "Lists the zones the API token can see. Refuses on the wrangler CLI backend, which cannot list zones.\n\nReachable as `cerberus cloudflare zones` and as the MCP tool `cerberus_cloudflare_zones`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/cloudflare/connector.go",
+      "body": "Lists the zones the API token can see. Refuses on the wrangler CLI backend, which cannot list zones.\n\nReachable as `cerberus cloudflare zones` and as the MCP tool `cerberus_cloudflare_zones`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.\n\n**A plugin operation since 2026-09-25.** Served by the cloudflare plugin, not the binary: `cerberus connectors exec cloudflare list_zones` on the CLI, and the generated MCP tool `cerberus_cloudflare_list_zones` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:cloudflare/internal/cloudflareplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-204",
         "invocation": "cerberus cloudflare zones",
@@ -15976,7 +15975,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.75,
       "confidence_label": "Dry-run path is covered by a cerbapi test; the connector package itself has no tests and no token",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -15986,7 +15985,7 @@
         "connector",
         "dry-run",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -15997,9 +15996,9 @@
           "note": "An operation of the cloudflare connector"
         }
       ],
-      "body": "Creates a zone under an account. Destructive, with a dry-run preview that echoes account, name and zone type.\n\nReachable as `cerberus cloudflare zones create <account-id> <name> [--dry-run|--ack]` and as the MCP tool `cerberus_cloudflare_zone_create`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. Dry-run path is covered by a cerbapi test; the connector package itself has no tests and no token.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/cloudflare/connector.go",
+      "body": "Creates a zone under an account. Destructive, with a dry-run preview that echoes account, name and zone type.\n\nReachable as `cerberus cloudflare zones create <account-id> <name> [--dry-run|--ack]` and as the MCP tool `cerberus_cloudflare_zone_create`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. Dry-run path is covered by a cerbapi test; the connector package itself has no tests and no token.\n\n**A plugin operation since 2026-09-25.** Served by the cloudflare plugin, not the binary: `cerberus connectors exec cloudflare create_zone` on the CLI, and the generated MCP tool `cerberus_cloudflare_create_zone` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:cloudflare/internal/cloudflareplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-204",
         "invocation": "cerberus cloudflare zones create <account-id> <name> [--dry-run|--ack]",
@@ -16030,7 +16029,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.75,
       "confidence_label": "No Cloudflare token on this machine and the package has no test files at all",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16039,7 +16038,7 @@
         "cloudflare",
         "connector",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16049,9 +16048,9 @@
           "note": "An operation of the cloudflare connector"
         }
       ],
-      "body": "Lists a zone's DNS records through the API backend.\n\nReachable as `cerberus cloudflare dns list <zone-id>` and as the MCP tool `cerberus_cloudflare_dns_list`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/cloudflare/connector.go",
+      "body": "Lists a zone's DNS records through the API backend.\n\nReachable as `cerberus cloudflare dns list <zone-id>` and as the MCP tool `cerberus_cloudflare_dns_list`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.\n\n**A plugin operation since 2026-09-25.** Served by the cloudflare plugin, not the binary: `cerberus connectors exec cloudflare list_dns_records` on the CLI, and the generated MCP tool `cerberus_cloudflare_list_dns_records` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:cloudflare/internal/cloudflareplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-204",
         "invocation": "cerberus cloudflare dns list <zone-id>",
@@ -16082,7 +16081,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.75,
       "confidence_label": "No Cloudflare token on this machine and the package has no test files at all",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16092,7 +16091,7 @@
         "connector",
         "dry-run",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16103,9 +16102,9 @@
           "note": "An operation of the cloudflare connector"
         }
       ],
-      "body": "Creates one DNS record in a zone, with proxied, TTL and priority. Destructive with a dry-run preview.\n\nReachable as `cerberus cloudflare dns create <zone-id> [--dry-run|--ack]` and as the MCP tool `cerberus_cloudflare_dns_create`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/cloudflare/connector.go",
+      "body": "Creates one DNS record in a zone, with proxied, TTL and priority. Destructive with a dry-run preview.\n\nReachable as `cerberus cloudflare dns create <zone-id> [--dry-run|--ack]` and as the MCP tool `cerberus_cloudflare_dns_create`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.\n\n**A plugin operation since 2026-09-25.** Served by the cloudflare plugin, not the binary: `cerberus connectors exec cloudflare create_dns_record` on the CLI, and the generated MCP tool `cerberus_cloudflare_create_dns_record` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:cloudflare/internal/cloudflareplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-204",
         "invocation": "cerberus cloudflare dns create <zone-id> [--dry-run|--ack]",
@@ -16136,7 +16135,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.75,
       "confidence_label": "No Cloudflare token on this machine and the package has no test files at all",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16146,7 +16145,7 @@
         "connector",
         "dry-run",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16157,9 +16156,9 @@
           "note": "An operation of the cloudflare connector"
         }
       ],
-      "body": "Deletes one DNS record by id. Destructive with a dry-run preview that names zone and record id only.\n\nReachable as `cerberus cloudflare dns delete <zone-id> <record-id> [--dry-run|--ack]` and as the MCP tool `cerberus_cloudflare_dns_delete`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/cloudflare/connector.go",
+      "body": "Deletes one DNS record by id. Destructive with a dry-run preview that names zone and record id only.\n\nReachable as `cerberus cloudflare dns delete <zone-id> <record-id> [--dry-run|--ack]` and as the MCP tool `cerberus_cloudflare_dns_delete`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Cloudflare token on this machine and the package has no test files at all.\n\n**A plugin operation since 2026-09-25.** Served by the cloudflare plugin, not the binary: `cerberus connectors exec cloudflare delete_dns_record` on the CLI, and the generated MCP tool `cerberus_cloudflare_delete_dns_record` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:cloudflare/internal/cloudflareplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-204",
         "invocation": "cerberus cloudflare dns delete <zone-id> <record-id> [--dry-run|--ack]",

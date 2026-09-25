@@ -1,12 +1,15 @@
 package webui
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/infra"
+	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 type infraResponse struct {
@@ -118,12 +121,14 @@ func (s *Server) handleInfraProviderByID(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	secretsChanged := false
 	for key, value := range req.Secrets {
 		if s.secrets != nil && strings.TrimSpace(value) != "" {
 			if err := s.secrets.Set(r.Context(), id, key, value); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			secretsChanged = true
 		}
 	}
 	for _, key := range req.ClearSecrets {
@@ -132,9 +137,45 @@ func (s *Server) handleInfraProviderByID(w http.ResponseWriter, r *http.Request)
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			secretsChanged = true
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	resp := map[string]any{"success": true}
+	if secretsChanged {
+		reloaded, reloadErr := s.reloadPluginForSecrets(r.Context(), id)
+		resp["plugin_reloaded"] = reloaded
+		if reloadErr != nil {
+			// The secret is saved either way; say the plugin still holds the
+			// old value rather than failing the save.
+			resp["plugin_reload_error"] = redact.Text(reloadErr.Error())
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// reloadPluginForSecrets restarts the loaded managed plugin whose id matches a
+// provider whose secrets were just saved. A plugin receives its credentials at
+// load, unlike a built-in, which resolves them on every call, so without this a
+// console save would not take effect until someone ran `managed load`. It
+// reports false when no loaded plugin has the id.
+func (s *Server) reloadPluginForSecrets(ctx context.Context, id string) (bool, error) {
+	plugins, err := s.client.ListManagedPlugins(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list managed plugins: %w", err)
+	}
+	for _, plugin := range plugins {
+		if plugin.ID != id || !plugin.Loaded {
+			continue
+		}
+		if _, err := s.client.UnloadManagedPlugin(ctx, id); err != nil {
+			return false, fmt.Errorf("unload plugin %q to pick up the new credential: %w", id, err)
+		}
+		if _, err := s.client.LoadManagedPlugin(ctx, id); err != nil {
+			return false, fmt.Errorf("reload plugin %q after the credential change: %w; run `cerberus connectors plugin managed load %s`", id, err, id)
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {

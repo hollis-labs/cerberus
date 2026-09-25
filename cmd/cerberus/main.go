@@ -113,7 +113,6 @@ func init() {
 	domainCmd.GroupID = "platform"
 	dnsCmd.GroupID = "platform"
 	forgeCmd.GroupID = "platform"
-	cloudflareCmd.GroupID = "platform"
 	dockerCmd.GroupID = "platform"
 	connectorsCmd.GroupID = "platform"
 
@@ -139,7 +138,6 @@ func init() {
 	rootCmd.AddCommand(domainCmd)
 	rootCmd.AddCommand(dnsCmd)
 	rootCmd.AddCommand(forgeCmd)
-	rootCmd.AddCommand(cloudflareCmd)
 	rootCmd.AddCommand(dockerCmd)
 	rootCmd.AddCommand(connectorsCmd)
 	rootCmd.AddCommand(runSecretsCmd)

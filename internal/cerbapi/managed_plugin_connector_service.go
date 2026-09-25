@@ -113,6 +113,12 @@ func WithManagedPluginReservedIDs(ids ...string) ManagedPluginOption {
 	return func(c *managedPluginConfig) { c.reservedIDs = append(c.reservedIDs, ids...) }
 }
 
+// hostServedIDs are connector ids the host serves outside the connector
+// registry, so Registry.BuiltInIDs cannot report them and the daemon's
+// reserved set would miss them. local is the supervision lane itself. They are
+// reserved for every managed lane, whatever the caller passes.
+var hostServedIDs = []string{"local"}
+
 // NewManagedPluginConnectorService constructs the managed plugin lane. The
 // audit sink is required, as for the admin lane: plugin operations on the
 // direct route, and install, load, unload and uninstall, write their records
@@ -130,7 +136,7 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 		statePath:   statePath,
 		records:     make(map[string]pluginConnectorPersistedEntry),
 		warn:        stderr,
-		reservedIDs: cfg.reservedIDs,
+		reservedIDs: append(append([]string(nil), hostServedIDs...), cfg.reservedIDs...),
 		audit:       sink,
 		logger:      slog.Default(),
 	}

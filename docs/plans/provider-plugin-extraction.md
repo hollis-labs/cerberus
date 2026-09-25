@@ -37,7 +37,8 @@ connector verb is actually added"), `live-systems-security-target.md`
 | A1 | cerberus-plugins #4 | `cloudflare` plugin | merged. **Not installed as a managed plugin anywhere until H4**; the id is the built-in's. |
 | H1 | cerberus #59 | Shared MCP helpers, `cerberus connectors exec` with typed args, `managed exec` through the admin lane | merged |
 | H2b | cerberus #65 | `connector-config.yaml`: plugin fields delivered, MCP exposure switch | merged |
-| H3 | cerberus | MCP generator: `cerberus_<plugin>_<op>` for each exposed op, refreshed every 15s with tools/list_changed; the one-shot `plugin exec` prints the code | this PR |
+| H3 | cerberus #66 | MCP generator: `cerberus_<plugin>_<op>` for each exposed op, refreshed every 15s with tools/list_changed; the one-shot `plugin exec` prints the code | merged |
+| H4 | cerberus | Remove the cloudflare built-in. Binary 62.8MB → 23.6MB stripped (88.1 → 34.1MB unstripped). Gate tests on a fake connector; `local` always reserved | this PR |
 | H4 | cerberus | Remove the cloudflare built-in | waits for P1-1 and H3. Its UAT table carries A1's tightened behaviour: real-path validation of `create_dns_record`, bad numbers rejected, a `{deleted, zone_id, record_id}` delete result, and a health check with no network call |
 | — | both | digitalocean, then namecheap, then forge | after H4 |
 
