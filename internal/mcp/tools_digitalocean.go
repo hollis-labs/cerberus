@@ -18,7 +18,7 @@ func NewCerberusDropletListTool(client cerbapi.Client) Tool {
 				Operation: "list_droplets",
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			return marshalConnectorData(result.Data)
 		},
@@ -39,7 +39,7 @@ func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			dropletID, ok := args["droplet_id"].(float64)
 			if !ok || dropletID <= 0 {
-				return marshalResult(lifecycleResult{Success: false, Error: "droplet_id is required"}), nil
+				return toolResult(lifecycleResult{Success: false, Error: "droplet_id is required"})
 			}
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector: "digitalocean",
@@ -47,7 +47,7 @@ func NewCerberusDropletGetTool(client cerbapi.Client) Tool {
 				Config:    map[string]any{"droplet_id": int(dropletID)},
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			return marshalConnectorData(result.Data)
 		},
@@ -97,7 +97,7 @@ func NewCerberusDropletCreateTool(client cerbapi.Client) Tool {
 				Acknowledged: boolArg(args, "acknowledged"),
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			return marshalConnectorData(result.Data)
 		},
@@ -132,7 +132,7 @@ func newDropletLifecycleTool(client cerbapi.Client, name, operation, description
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			dropletID, ok := args["droplet_id"].(float64)
 			if !ok || dropletID <= 0 {
-				return marshalResult(lifecycleResult{Success: false, Error: "droplet_id is required"}), nil
+				return toolResult(lifecycleResult{Success: false, Error: "droplet_id is required"})
 			}
 			result, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
 				Connector:    "digitalocean",
@@ -142,7 +142,7 @@ func newDropletLifecycleTool(client cerbapi.Client, name, operation, description
 				Acknowledged: boolArg(args, "acknowledged"),
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			return marshalConnectorData(result.Data)
 		},

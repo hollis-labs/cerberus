@@ -576,21 +576,7 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 	}
 	out, err := s.client.ExecuteConnectorOperation(r.Context(), args)
 	if err != nil {
-		status := http.StatusInternalServerError
-		var connErr *ExternalConnectorError
-		if errors.As(err, &connErr) {
-			switch connErr.Code {
-			case ExternalConnectorInvalidArgs:
-				status = http.StatusBadRequest
-			case ExternalConnectorUnavailable, ExternalConnectorCredentialMissing:
-				status = http.StatusServiceUnavailable
-			case ExternalConnectorUnsupported:
-				status = http.StatusNotFound
-			case ExternalConnectorAckRequired:
-				status = http.StatusConflict
-			}
-		}
-		writeJSONError(w, status, err.Error())
+		writeServiceError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -737,7 +723,7 @@ func (s *SocketServer) handleManagedPluginConnectorsID(w http.ResponseWriter, r 
 		}
 		out, err := s.client.ExecuteManagedPlugin(r.Context(), id, args)
 		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
+			writeServiceError(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -810,7 +796,7 @@ func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn f
 	})
 	result, err := fn(ctx)
 	if err != nil {
-		writeEnvelope(StreamEnvelope{Type: "error", Error: err.Error()})
+		writeEnvelope(StreamEnvelope{Type: "error", Error: err.Error(), connectorErrorWire: connectorErrorWireFor(err)})
 		return true
 	}
 	data, err := redact.Marshal(result)

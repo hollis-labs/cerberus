@@ -56,20 +56,20 @@ func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			pipelineID, _ := args["pipeline_id"].(string)
 			if pipelineID == "" {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   "pipeline_id is required",
-				}), nil
+				})
 			}
 			res, err := client.RunPipeline(ctx, pipelineID)
 			if err != nil {
 				return "", err
 			}
 			if !res.Success {
-				return marshalResult(lifecycleResult{
+				return toolResult(lifecycleResult{
 					Success: false,
 					Error:   res.Error,
-				}), nil
+				})
 			}
 			// Raw already holds the marshaled pipeline.Result JSON; we
 			// pass it through verbatim rather than re-indenting.

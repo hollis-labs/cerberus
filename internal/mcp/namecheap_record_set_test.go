@@ -59,8 +59,8 @@ func TestDisabledNamecheapMCPCommandsDoNotContactEvenAnOlderDaemon(t *testing.T)
 	for _, tool := range []Tool{NewCerberusDNSCreateTool(nil), NewCerberusDNSDeleteTool(nil)} {
 		for _, dryRun := range []bool{true, false} {
 			out, err := tool.Handler(context.Background(), map[string]any{"domain": "example.com", "dry_run": dryRun, "acknowledged": true})
-			if err != nil || !strings.Contains(out.(string), "per-record create/delete is disabled") {
-				t.Fatalf("missing refusal: %s %v", out, err)
+			if err == nil || !strings.Contains(err.Error(), "per-record create/delete is disabled") {
+				t.Fatalf("missing refusal: want a tool error, got %v %v", out, err)
 			}
 		}
 	}

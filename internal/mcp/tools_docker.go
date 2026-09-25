@@ -28,7 +28,7 @@ func NewCerberusDockerPSTool(client cerbapi.Client) Tool {
 				Operation: "list_containers",
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 
 			return marshalConnectorData(result.Data)
@@ -68,7 +68,7 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 				},
 			})
 			if err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr // MCP tools embed errors in JSON response
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			logs, _ := result.Data.(string)
 			return marshalConnectorData(struct {
@@ -130,13 +130,13 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 			var cfg map[string]any
 			switch {
 			case resourceID != "" && container != "":
-				return marshalResult(lifecycleResult{Success: false, Error: "pass container_name or resource_id, not both"}), nil
+				return toolResult(lifecycleResult{Success: false, Error: "pass container_name or resource_id, not both"})
 			case resourceID != "":
 				cfg = map[string]any{"resource": resourceID}
 			case container != "":
 				cfg = map[string]any{"container": container, "id": container, "name": container}
 			default:
-				return marshalResult(lifecycleResult{Success: false, Error: "one of container_name or resource_id is required"}), nil
+				return toolResult(lifecycleResult{Success: false, Error: "one of container_name or resource_id is required"})
 			}
 
 			if _, err := client.ExecuteConnectorOperation(ctx, cerbapi.ExternalConnectorOperationArgs{
@@ -144,12 +144,12 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 				Operation: operation,
 				Config:    cfg,
 			}); err != nil {
-				return marshalResult(lifecycleResult{Success: false, Error: err.Error()}), nil //nolint:nilerr
+				return toolResult(lifecycleResult{Success: false, Error: err.Error()})
 			}
 			if resourceID != "" {
-				return marshalResult(lifecycleResult{Success: true, ServiceID: resourceID, Message: "resource " + verb}), nil
+				return toolResult(lifecycleResult{Success: true, ServiceID: resourceID, Message: "resource " + verb})
 			}
-			return marshalResult(lifecycleResult{Success: true, ServiceID: container, Message: "container " + verb}), nil
+			return toolResult(lifecycleResult{Success: true, ServiceID: container, Message: "container " + verb})
 		},
 	}
 }
