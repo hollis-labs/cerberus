@@ -308,8 +308,12 @@ operation, resource, target host and caller surface.
 **Design notes:**
 - Policy is evaluated in the **serving runtime**, not in a caller. A rule a CLI
   enforces is a rule an MCP call bypasses.
-- Default posture is the current behaviour, so adopting the engine is not a
-  breaking change. Then tighten deliberately.
+- ~~Default posture is the current behaviour, so adopting the engine is not a
+  breaking change. Then tighten deliberately.~~ **Superseded 2026-09-25:** the
+  baseline is strict for humans and agents from day one, rolled out in shadow
+  mode until the first approval path exists. See Decisions 2 and 3 in
+  `docs/plans/live-systems-security-target.md`, which is the end state this
+  work package builds toward.
 - Policy denial is a distinct error code from acknowledgment-required and from
   `credential_missing`. An agent that cannot tell "you may not" from "ask a
   human" will retry the wrong thing.
