@@ -60,7 +60,7 @@ func TestWebDockerTakesAResourceNotAnAdHocTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := srv.Handler(testGuard())
+	handler := signedIn(t, srv, testGuard())
 	token := sessionToken(t, handler)
 	post := func(body string) *httptest.ResponseRecorder {
 		req := newTestRequest(http.MethodPost, "/api/connectors/docker/operations/start", strings.NewReader(body))

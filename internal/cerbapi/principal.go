@@ -141,14 +141,25 @@ func requestPrincipal(ctx context.Context, surface CallerSurface) Principal {
 		}
 		return claim
 	case SurfaceWeb:
-		// Human-labeled until the console has a real login (P2-2). Nothing
-		// the browser sends is read as a claim.
+		// The label every console request starts with. Nothing the browser
+		// sends is read as a claim. Only a signed-in session reaches an API
+		// route, and the console then replaces this with that session's
+		// principal (WebSessionPrincipal).
 		return Principal{Kind: PrincipalHuman, Via: ViaWeb, UID: -1, SelfReported: true}
 	case SurfaceMonitor:
 		return Principal{Kind: PrincipalAutomation, Via: ViaMonitor, UID: os.Getuid(), UIDVerified: true, Client: "resource-monitor"}
 	case SurfaceUnknown:
 	}
 	return Principal{Kind: PrincipalAgent, Via: ViaUnknown, UID: -1, SelfReported: true}
+}
+
+// WebSessionPrincipal is the principal of a console request made by a
+// signed-in session (P2-2, Decision 20): a human, established by the
+// one-time sign-in link rather than claimed, named by the session's public
+// id. The uid stays unverified: the link proves possession of a 0600 file,
+// which is not the kernel vouching for a peer.
+func WebSessionPrincipal(session string) Principal {
+	return Principal{Kind: PrincipalHuman, Via: ViaWeb, UID: -1, Session: session}
 }
 
 // pipelinePrincipal is the principal a pipeline's stages run as: automation

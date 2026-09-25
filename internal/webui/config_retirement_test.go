@@ -8,7 +8,7 @@ import (
 )
 
 func TestCentralizedMigrationEndpointsAreGone(t *testing.T) {
-	handler := mustNew(t, &fakeClient{}).Handler(testGuard())
+	handler := signedIn(t, mustNew(t, &fakeClient{}), testGuard())
 	token := sessionToken(t, handler)
 	for _, endpoint := range []struct{ method, path string }{
 		{http.MethodGet, "/api/config/migrate/preview"},

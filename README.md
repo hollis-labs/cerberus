@@ -170,10 +170,19 @@ daemon socket refuses a connection from any user but its own, checked through
 the kernel's peer credentials. The classification picks default policy and is
 never approval; `cerberus whoami` shows it and why.
 
-`cerberus web` and `cerberus mcp-http` are loopback-only. Neither
-authenticates its caller yet, so `--listen` must name `localhost` or a literal
-loopback IP (`127.0.0.1`, `[::1]`), on any port, and either command refuses to
-start otherwise. Other hostnames are refused even when they resolve to
+`cerberus web` needs a sign-in. On start it prints and opens a one-time
+sign-in URL, good for two minutes and for one use. Visiting it gives the browser
+an `HttpOnly`, `SameSite=Strict` session cookie. The session ends after 30
+minutes without use (`--session-idle`), after twelve hours in any case, on
+**Sign out**, and whenever `cerberus web` exits. `cerberus web open` prints and
+opens another link for the running console. It mints the link from a key that
+console keeps under `~/.cerberus/web/`, readable only by you. Without a session,
+every API route answers 401.
+
+`cerberus web` and `cerberus mcp-http` are loopback-only. `mcp-http` does not
+authenticate its caller yet, so for both, `--listen` must name `localhost` or a
+literal loopback IP (`127.0.0.1`, `[::1]`), on any port, and either command
+refuses to start otherwise. Other hostnames are refused even when they resolve to
 loopback. Both also refuse a request whose `Host` header is not a
 loopback name, which defeats DNS rebinding. An SSH local forward
 (`ssh -L 9000:127.0.0.1:4785 host`) works; a tunnel or reverse proxy that
