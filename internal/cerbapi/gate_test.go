@@ -74,6 +74,11 @@ func sampleConfig(op contract.Operation) map[string]any {
 // configured target by id, which is all the SSH lane accepts.
 func sweepConfig(connectorID string, op contract.Operation) map[string]any {
 	cfg := sampleConfig(op)
+	if connectorID == "docker" {
+		// A sampled resource id names nothing; the sweep operates a literal
+		// container instead.
+		delete(cfg, "resource")
+	}
 	if connectorID != "ssh" {
 		return cfg
 	}

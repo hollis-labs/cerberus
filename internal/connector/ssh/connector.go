@@ -77,38 +77,20 @@ func Definition() contract.Definition {
 			}},
 		},
 		Operations: []contract.Operation{
-			{Name: "status", Description: "Check SSH reachability and basic host status.", InputSchema: sshInputSchema()},
-			{Name: "exec", Description: "Execute a command over SSH.", Examples: []string{"cerberus ssh exec prod-api -- 'systemctl status nginx' --dry-run", "cerberus ssh exec prod-api -- 'systemctl restart php-fpm' --ack"}, InputSchema: contract.ObjectSchema(map[string]any{
-				"host":     contract.StringSchema("Remote host name or IP address."),
-				"port":     contract.IntegerSchema("SSH port."),
-				"user":     contract.StringSchema("SSH username."),
-				"key_file": contract.StringSchema("Private key path."),
-				"command":  contract.StringSchema("Command to execute."),
-			}, "host", "command"), Destructive: true, SupportsDry: true},
-			{Name: "put", Description: "Upload a local file to the remote host over SFTP.", Examples: []string{"cerberus ssh put prod-api ./docker-compose.yml /opt/app/docker-compose.yml --dry-run", "cerberus ssh put prod-api ./app.env /opt/app/.env --ack"}, InputSchema: contract.ObjectSchema(map[string]any{
-				"host":        contract.StringSchema("Remote host name or IP address."),
-				"port":        contract.IntegerSchema("SSH port."),
-				"user":        contract.StringSchema("SSH username."),
-				"key_file":    contract.StringSchema("Private key path."),
-				"local_path":  contract.StringSchema("Local file to upload."),
-				"remote_path": contract.StringSchema("Destination path on the remote host."),
-			}, "host", "local_path", "remote_path"), Destructive: true, SupportsDry: true},
-			{Name: "get", Description: "Download a file from the remote host over SFTP.", Examples: []string{"cerberus ssh get prod-api /etc/nginx/nginx.conf ./nginx.conf"}, InputSchema: contract.ObjectSchema(map[string]any{
-				"host":        contract.StringSchema("Remote host name or IP address."),
-				"port":        contract.IntegerSchema("SSH port."),
-				"user":        contract.StringSchema("SSH username."),
-				"key_file":    contract.StringSchema("Private key path."),
-				"remote_path": contract.StringSchema("File to download from the remote host."),
-				"local_path":  contract.StringSchema("Local destination path."),
-			}, "host", "remote_path", "local_path")},
-			{Name: "put_dir", Description: "Recursively upload a local directory tree to the remote host over SFTP.", Examples: []string{"cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --dry-run", "cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --ack"}, InputSchema: contract.ObjectSchema(map[string]any{
-				"host":        contract.StringSchema("Remote host name or IP address."),
-				"port":        contract.IntegerSchema("SSH port."),
-				"user":        contract.StringSchema("SSH username."),
-				"key_file":    contract.StringSchema("Private key path."),
-				"local_path":  contract.StringSchema("Local directory to upload."),
-				"remote_path": contract.StringSchema("Destination directory on the remote host."),
-			}, "host", "local_path", "remote_path"), Destructive: true, SupportsDry: true},
+			{Name: "status", Description: "Check SSH reachability and basic host status.", InputSchema: operationSchema(nil)},
+			{Name: "exec", Description: "Execute a command over SSH.", Examples: []string{"cerberus ssh exec prod-api -- 'systemctl status nginx' --dry-run", "cerberus ssh exec prod-api -- 'systemctl restart php-fpm' --ack"}, InputSchema: operationSchema(nil, FieldCommand), Destructive: true, SupportsDry: true},
+			{Name: "put", Description: "Upload a local file to the remote host over SFTP.", Examples: []string{"cerberus ssh put prod-api ./docker-compose.yml /opt/app/docker-compose.yml --dry-run", "cerberus ssh put prod-api ./app.env /opt/app/.env --ack"}, InputSchema: operationSchema(map[string]string{
+				FieldLocalPath:  "Local file to upload.",
+				FieldRemotePath: "Destination path on the remote host.",
+			}, FieldLocalPath, FieldRemotePath), Destructive: true, SupportsDry: true},
+			{Name: "get", Description: "Download a file from the remote host over SFTP.", Examples: []string{"cerberus ssh get prod-api /etc/nginx/nginx.conf ./nginx.conf"}, InputSchema: operationSchema(map[string]string{
+				FieldRemotePath: "File to download from the remote host.",
+				FieldLocalPath:  "Local destination path.",
+			}, FieldRemotePath, FieldLocalPath)},
+			{Name: "put_dir", Description: "Recursively upload a local directory tree to the remote host over SFTP.", Examples: []string{"cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --dry-run", "cerberus ssh put-dir prod-api ./deploy /opt/app/deploy --ack"}, InputSchema: operationSchema(map[string]string{
+				FieldLocalPath:  "Local directory to upload.",
+				FieldRemotePath: "Destination directory on the remote host.",
+			}, FieldLocalPath, FieldRemotePath), Destructive: true, SupportsDry: true},
 			// get_dir writes a tree rather than a single file, so the house
 			// rule points at Destructive. It is not, for the same reason get
 			// is not: both write only to the local machine, under a path the
@@ -116,31 +98,16 @@ func Definition() contract.Definition {
 			// dry-run preview that cannot be built — previewing a download
 			// means walking the remote tree, and previews run before the
 			// connector is resolved, with no connection to walk it over.
-			{Name: "get_dir", Description: "Recursively download a remote directory tree over SFTP into a local directory.", Examples: []string{"cerberus ssh get-dir prod-api /opt/app/config ./config"}, InputSchema: contract.ObjectSchema(map[string]any{
-				"host":        contract.StringSchema("Remote host name or IP address."),
-				"port":        contract.IntegerSchema("SSH port."),
-				"user":        contract.StringSchema("SSH username."),
-				"key_file":    contract.StringSchema("Private key path."),
-				"remote_path": contract.StringSchema("Directory to download from the remote host."),
-				"local_path":  contract.StringSchema("Local destination directory."),
-			}, "host", "remote_path", "local_path")},
-			{Name: "stop", Description: "Shut down the remote host via SSH.", Examples: []string{"cerberus ssh stop prod-api --dry-run", "cerberus ssh stop prod-api --ack"}, InputSchema: sshInputSchema(), Destructive: true, SupportsDry: true},
+			{Name: "get_dir", Description: "Recursively download a remote directory tree over SFTP into a local directory.", Examples: []string{"cerberus ssh get-dir prod-api /opt/app/config ./config"}, InputSchema: operationSchema(map[string]string{
+				FieldRemotePath: "Directory to download from the remote host.",
+				FieldLocalPath:  "Local destination directory.",
+			}, FieldRemotePath, FieldLocalPath)},
+			{Name: "stop", Description: "Shut down the remote host via SSH.", Examples: []string{"cerberus ssh stop prod-api --dry-run", "cerberus ssh stop prod-api --ack"}, InputSchema: operationSchema(nil), Destructive: true, SupportsDry: true},
 		},
 	}
 }
 
 func (c *Connector) Definition() contract.Definition { return Definition() }
-
-func sshInputSchema() map[string]any {
-	return contract.ObjectSchema(map[string]any{
-		"host":     contract.StringSchema("Remote host name or IP address."),
-		"port":     contract.IntegerSchema("SSH port."),
-		"user":     contract.StringSchema("SSH username."),
-		"key_file": contract.StringSchema("Private key path."),
-		"id":       contract.StringSchema("Resource ID used to resolve keychain secrets."),
-		"name":     contract.StringSchema("Resource name."),
-	}, "host")
-}
 
 func (c *Connector) Create(_ context.Context, _ *resource.Resource) error {
 	return nil // no-op
