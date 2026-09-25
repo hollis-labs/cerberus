@@ -48,10 +48,6 @@ func TestBuiltinDefinitionsDeclareTheContract(t *testing.T) {
 // which surfaces need --ack, so it is pinned rather than left to review.
 func TestBuiltinEffectClassification(t *testing.T) {
 	want := map[string]contract.Effect{
-		"digitalocean.list_droplets": contract.EffectRead, "digitalocean.get_droplet": contract.EffectRead,
-		"digitalocean.create_droplet": contract.EffectWrite, "digitalocean.start": contract.EffectLifecycle,
-		"digitalocean.stop": contract.EffectLifecycle, "digitalocean.destroy": contract.EffectDestructive,
-		"digitalocean.status":    contract.EffectRead,
 		"docker.list_containers": contract.EffectRead, "docker.start": contract.EffectLifecycle,
 		"docker.stop": contract.EffectLifecycle, "docker.destroy": contract.EffectDestructive,
 		"docker.logs":        contract.EffectReadSensitive,

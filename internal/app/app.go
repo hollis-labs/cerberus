@@ -14,7 +14,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
-	doconn "github.com/hollis-labs/cerberus/internal/connector/digitalocean"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	githubconn "github.com/hollis-labs/cerberus/internal/connector/github"
@@ -236,16 +235,12 @@ func ConnectorConfigPath(configPaths ...string) string {
 }
 
 func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretProvider) {
-	registry.RegisterDefinition(doconn.Definition())
 	registry.RegisterDefinition(dockerconn.Definition())
 	registry.RegisterDefinition(forgeconn.Definition())
 	registry.RegisterDefinition(githubconn.Definition())
 	registry.RegisterDefinition(namecheapconn.Definition())
 	registry.RegisterDefinition(sshconn.Definition())
 
-	registry.RegisterFactory(doconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
-		return doconn.New(secrets.WithContext(ctx, sec))
-	})
 	registry.RegisterFactory(forgeconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
 		return forgeconn.New(secrets.WithContext(ctx, sec))
 	})
