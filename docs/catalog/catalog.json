@@ -22019,6 +22019,62 @@
         "unlocks_when": "Minting a console sign-in link needs an identity or presence the operator's other processes do not have: a separate uid, a user-presence-gated keychain item, or workload identity (WP-S9)",
         "effort": "medium for a presence-gated keychain key; large for a separate uid or WP-S9"
       }
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "id": "CERB-TOOL-863",
+      "class": "tool",
+      "name": "cerberus status",
+      "summary": "Shows, read-only and on one screen, the state an operator now needs at a glance: daemon, posture, the principal the daemon sees, plugins awaiting review, the audit chain, and running web consoles.",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "unit-tested per part and run against a scratch daemon and console on a scratch HOME",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "diagnostic",
+        "status",
+        "principal",
+        "audit",
+        "plugin",
+        "web",
+        "locus:core",
+        "verified:test"
+      ],
+      "locus": "core",
+      "pointer_locator": "cmd/cerberus/cmd_status.go",
+      "body": "`cerberus status` gathers what the commands that own each piece already\nknow and prints one line each. Nothing is changed, and a part that cannot be\nread shows as unavailable while the rest still prints.\n\n- **daemon** comes from `cerberus daemon status`.\n- **posture** is `secure`, a placeholder until postures land (P2-5).\n- **you** is the principal the daemon gives this caller (`GET /whoami`), with\n  its verified uid.\n- **plugins** counts the managed plugins the daemon has, and names the ones\n  still `review_pending`.\n- **audit** is the result of `audit.Verify` over every month file and the last\n  record's time. A broken chain reads `NOT INTACT` and points at\n  `cerberus audit verify`.\n- **web** lists each console whose login key file is under `~/.cerberus/web`.\n  Only the file's address is read, never its key, and the address is probed,\n  because a console that crashed leaves its file behind.\n\nThe daemon is asked only when its socket answers, so a stopped daemon is one\nline and not a page of dial warnings. `-o json` gives the same report as data.",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-400",
+          "note": "a verb of the CLI"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-TOOL-419",
+          "note": "the you line is whoami's daemon view"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-403",
+          "note": "reports the consoles P2-2's login key files name"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "destructive": false,
+        "invocation": "cerberus status [-o json]",
+        "surfaces": [
+          "cli"
+        ],
+        "vendor": [],
+        "verified": "test"
+      }
     }
   ]
 }
