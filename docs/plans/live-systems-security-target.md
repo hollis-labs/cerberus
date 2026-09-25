@@ -860,6 +860,33 @@ what it means for the design above.
     policy" ordering in `agent-authority-and-secrets.md`; it does not reverse
     it, and policy still waits for the audit log.
 
+17. **An unlabelled target is treated as strictly as possible.** *Taken at the
+    P2 cut.* A target without `env` or `owner` evaluates as `env: unknown`,
+    `owner: unknown`, which matches rules the way `prod` plus "not ours"
+    would. In shadow mode, the audit log shows every target that still needs
+    a label before P3 turns enforcement on.
+18. **Ownership is two attributes, not one.** *Taken at the P2 cut.* On the
+    work estate, the team that provisions a box is often not the team that
+    administers what runs on it. The infra/networking department sets up hosts
+    and Kubernetes, but we frequently administer the docker network, the
+    cluster workloads and the software, especially during a POC before infra
+    takes over. `toolbox-stage` is provisioned by the AWS team, and we fully
+    control its settings, software, containers and ssh. So a target carries:
+    - `owner`: who provisions and ultimately owns it (`self` or a team).
+    - `admin`: who administers it day to day: `self`, `shared` or `owner`.
+      This is scopable per sub-target kind, for example
+      `admin: { default: owner, docker: self, software: self }`.
+    Policy keys off `admin` for write, lifecycle, destructive and exec
+    effects, and off `owner` for provisioning-level operations. This refines
+    the AGENTS.md rule "work infrastructure is read-only": the rule becomes a
+    policy default for `admin: owner`. It is no longer a blanket rule for
+    every work target.
+19. **Agent launchers set `CERBERUS_PRINCIPAL=agent`.** The operator adds it to
+    tether. A non-TTY CLI call is also classified `agent` (Decision 9).
+20. **The web console gets a real login in P2.** `cerberus web open` prints or
+    opens a one-time URL. It is exchanged for a session cookie (`HttpOnly`,
+    `SameSite=Strict`), and the unauthenticated `GET /api/session` goes away.
+
 ## Working backwards: a suggested phase shape
 
 This is for the task-cutting session, not a commitment. Each phase should leave
@@ -1036,3 +1063,57 @@ plugins.
 Deferred to P2 and later, unchanged: principal identity from peer
 credentials, target `env` and `owner`, `Authorize` and policy files,
 postures, approvals and elicitation.
+
+## P2 cut — 2026-09-25
+
+P2 builds the enforcement point and runs it in **shadow mode**. `Authorize`
+evaluates every operation and records its decision and the rules that
+matched, but enforces nothing until P3 lands approvals (see "Working
+backwards"). The P0 and P1 disciplines still hold.
+
+**P2-1: principal identity.**
+- The socket reads peer credentials (`LOCAL_PEERPID`/`getpeereid`) and rejects
+  a uid other than its own.
+- Every request carries a principal: `kind` (human, agent or automation),
+  surface, uid, client (MCP clientInfo), session and on_behalf_of.
+- Classification follows Decisions 9 and 19: MCP is agent, the monitor and
+  pipelines are automation, and the web console is human once P2-2 lands.
+- The principal goes into every audit record, which is no longer
+  "self_reported" for the socket uid.
+
+**P2-2: web console login** (Decision 20). A one-time token exchanged for a
+session cookie. The action token's bootstrap goes away. The Host and Origin
+guards stay.
+
+**P2-3: target labels.**
+- `env` (prod, staging, dev, lab, poc, work or unknown) plus `owner`,
+  `admin` and `tags` (Decision 18) go on resources, and on connector targets
+  resolved from a resource.
+- Sub-targets inherit: a namespace from its cluster, a record from its zone.
+- An unlabelled target is `unknown` (Decision 17).
+- An `adhoc_targets` grant is needed for free-form targets, and agents don't
+  have it.
+- `cerberus resource list` shows the labels.
+
+**P2-4: the policy engine, in shadow mode.**
+- Our own YAML behind a narrow PDP interface (Decision 1).
+- Layers: the section 4 baseline; provider profiles, where a plugin's
+  `suggested_policy` can be accepted into the operator's file at review but
+  is never applied by itself (I10); target rules on
+  `env`/`owner`/`admin`/`tags`; principal rules.
+- The most restrictive match wins.
+- `Authorize` is wired into every path: admin lane, runtime gate, pipelines,
+  deploy profiles and plugins. The in-process path uses the same evaluator.
+- Shadow mode records `decision`, `matched_rules` and `would_block`.
+- `cerberus policy explain <op> [target] [--as agent]`.
+- `cerberus policy apply` runs on a TTY only. It shows the decisions that
+  flip, requires a typed confirmation, and writes a snapshot whose hash is
+  recorded and checked on load (Decision 10).
+- The distinct error codes are reserved now and used in P3.
+
+**P2-5: postures** (section 13 and Decision 13). `secure` is the default and
+`permissive` is opt-in, scopable per target match. `cerberus posture set` runs
+on a TTY only. The posture is visible in `status`, the console header, the MCP
+instructions and every audit record. Audit and egress never relax.
+
+**Order:** P2-1 → P2-3 → P2-4, then P2-5 on top of P2-4. P2-2 is independent.
