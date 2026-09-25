@@ -230,6 +230,11 @@ func validateConfigSchema(schema ConfigSchema) []string {
 			}
 			seenSecrets[secret.Name] = true
 		}
+		switch secret.Kind {
+		case "", SecretKindCredential, SecretKindPath, SecretKindName:
+		default:
+			problems = append(problems, fmt.Sprintf("secret %q kind %q is not credential, path or name", secret.Name, secret.Kind))
+		}
 		if secret.Env == "" && !secret.Required {
 			problems = append(problems, fmt.Sprintf("secret %q should declare env fallback or required=true", secret.Name))
 		}
