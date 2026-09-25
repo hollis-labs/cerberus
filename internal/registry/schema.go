@@ -216,6 +216,12 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 				add(SeverityWarning, unknownFieldName, field+": "+warning)
 			}
 		}
+		// A policy label outside the vocabulary is a warning, not an error:
+		// dropping the config would make its resources vanish. The value
+		// reads as unknown, the strict reading (Decision 17).
+		for _, problem := range resource.TargetLabels().Validate() {
+			add(SeverityWarning, field+".labels", problem+"; read as unknown")
+		}
 		if _, ok := resource.Config["build"]; ok {
 			add(SeverityWarning, field+".config.build",
 				"`build` is deprecated and auto-translated to a legacy_command build_strategy; migrate to an explicit build_strategy (go_standard, make_standard, or legacy_command)")

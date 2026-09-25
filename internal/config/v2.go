@@ -1,5 +1,7 @@
 package config
 
+import "github.com/hollis-labs/cerberus/internal/target"
+
 // ConfigV2 is the next-generation config format for Cerberus.
 // It introduces projects and resources as first-class concepts,
 // enabling multi-connector support (local, cloud, container, etc.).
@@ -84,6 +86,20 @@ type ResourceDef struct {
 	Config    map[string]any `yaml:"config"`    // connector-specific config
 	Tags      []string       `yaml:"tags,omitempty"`
 	DependsOn []string       `yaml:"depends_on,omitempty"`
+
+	// Env, Owner and Admin label the resource for policy (Decision 18):
+	// where it runs, who provisions and owns it, and who administers it day
+	// to day, optionally per sub-target kind. Unset is unknown, read as
+	// strictly as possible (Decision 17). Operations on the resource, and on
+	// anything under it, inherit these.
+	Env   target.Env   `yaml:"env,omitempty"`
+	Owner string       `yaml:"owner,omitempty"`
+	Admin target.Admin `yaml:"admin,omitempty"`
+}
+
+// TargetLabels are the resource's policy labels.
+func (r ResourceDef) TargetLabels() target.ResourceLabels {
+	return target.ResourceLabels{ID: r.ID, Labels: target.Labels{Env: r.Env, Owner: r.Owner, Admin: r.Admin, Tags: append([]string(nil), r.Tags...)}}
 }
 
 // PipelineDef defines a multi-step workflow in config.

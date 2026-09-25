@@ -910,8 +910,8 @@ func renderResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus, format strin
 
 func printResourceList(list []cerbapi.ResourceInfo) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tSTATUS\tARTIFACT\tNEXT\tTAGS")
-	fmt.Fprintln(w, "--\t----\t----\t-------\t---------\t----\t----------\t--------\t------\t--------\t----\t----")
+	fmt.Fprintln(w, "ID\tNAME\tTYPE\tPROJECT\tCONNECTOR\tMODE\tSUPERVISOR\tRUN FROM\tSTATUS\tARTIFACT\tNEXT\tENV\tOWNER\tADMIN\tTAGS")
+	fmt.Fprintln(w, "--\t----\t----\t-------\t---------\t----\t----------\t--------\t------\t--------\t----\t---\t-----\t-----\t----")
 	for _, r := range list {
 		tags := "-"
 		if len(r.Tags) > 0 {
@@ -926,10 +926,10 @@ func printResourceList(list []cerbapi.ResourceInfo) {
 			artifact = "stale"
 		}
 		next := valueOrDash(r.RecommendedAction)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.ID, r.Name, r.Type, r.Project, r.Connector,
 			valueOrDash(r.Mode), valueOrDash(r.Supervisor), valueOrDash(r.RunFrom),
-			status, artifact, next, tags)
+			status, artifact, next, valueOrDash(r.Env), valueOrDash(r.Owner), valueOrDash(r.Admin), tags)
 	}
 	w.Flush() //nolint:errcheck
 	if len(list) == 0 {

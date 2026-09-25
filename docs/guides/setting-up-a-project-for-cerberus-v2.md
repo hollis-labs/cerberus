@@ -414,6 +414,41 @@ resources:
       mode: dev_session
 ```
 
+## Label Every Resource For Policy
+
+Each resource carries policy labels. Cerberus reads them to choose the
+default policy for anything that acts on the resource, or on something under
+it:
+
+```yaml
+- id: build-host
+  type: server
+  connector: ssh
+  env: staging        # prod | staging | dev | lab | poc | work
+  owner: platform     # self, or the team that provisions and owns it
+  admin:              # who administers it day to day: self | shared | owner
+    default: owner
+    docker: self      # per sub-target kind: we run the containers here
+    software: self
+  tags: [poc]
+```
+
+- `owner` and `admin` are separate on purpose. The team that provisions a box
+  is often not the team that runs what is on it. `admin` can be a single value
+  or a map by sub-target kind. A key matches an operation's target kind, such
+  as `kubernetes.workload`, or its connector id, such as `docker`.
+- Anything under a resource inherits its labels. A container inherits from
+  its host, a namespace from its cluster, and a record from its zone.
+- **Unlabeled means unknown**, and unknown is read as strictly as possible.
+  `cerberus resource list` shows `unknown` so the gap is visible. A value
+  outside the vocabulary warns and reads as unknown.
+- An operation that names its target by connection settings (`--host`,
+  `--context`, `-f`) rather than a registered resource is *ad hoc*. It needs
+  the `adhoc_targets` grant, which agents do not have by default.
+
+Labels are your declarations about your own estate, not something Cerberus
+verifies.
+
 ## Operator Lifecycle Expectations
 
 Choose lifecycle verbs by intent:

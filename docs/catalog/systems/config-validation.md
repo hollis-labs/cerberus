@@ -8,7 +8,7 @@ state_label: "partial"
 review_status: "draft"
 confidence_score: 0.95
 confidence_label: "check list read from source and the blind spots proved empirically by running the installed binary against eight broken configs"
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -107,3 +107,13 @@ configs in a scratch directory; every one below returned `OK` and exit 0:
 Enforcement confirmed: `port: 0` errors with the omit-the-field recovery text,
 and within-config duplicate ports fail the single-file form, both verified by
 running the binary. `TestValidateProjectConfigPortZeroIsError` passes.
+
+## Target labels (P2-3)
+
+`ValidateProjectConfig` checks each resource's `env`, `owner` and `admin`
+against the `internal/target` vocabulary and reports a value outside it as a
+**warning**, `…; read as unknown`, under `resources[<id>].labels`. It is
+deliberately not an error: an error skips the whole config, and its resources
+would vanish from the runtime over a label. The value then reads as unknown,
+the strict reading (Decision 17). `TestInvalidLabelsWarnAndReadAsUnknown`
+covers a project config and the global one.

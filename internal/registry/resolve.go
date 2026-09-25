@@ -149,6 +149,20 @@ func resolveIndex(opts ResolveOptions, idx *Index) (*ResolvedConfig, error) {
 
 	resolved.Config.Projects = flattenProjects(projects)
 	resolved.Config.Resources = flattenResources(resources)
+	// A label outside the vocabulary reads as unknown. The global config
+	// is not validated like a project config, so its problems are reported
+	// here; a project config's were reported by ValidateProjectConfig.
+	for i := range resolved.Config.Resources {
+		r := &resolved.Config.Resources[i]
+		labels := r.TargetLabels()
+		if resourceOwner[r.ID] == "" {
+			for _, problem := range labels.Validate() {
+				resolved.Warnings = append(resolved.Warnings, fmt.Sprintf("resource %q: %s; read as unknown", r.ID, problem))
+			}
+		}
+		clean := labels.Sanitized()
+		r.Env, r.Owner, r.Admin = clean.Env, clean.Owner, clean.Admin
+	}
 	resolved.Config.Pipelines = flattenPipelines(pipelines)
 	config.NormalizeV2(resolved.Config)
 	for _, conflict := range PortConflicts(resolved.Config.Resources) {

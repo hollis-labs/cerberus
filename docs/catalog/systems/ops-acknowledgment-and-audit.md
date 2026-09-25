@@ -330,3 +330,22 @@ Classification follows Decisions 9 and 19:
 
 None of it is approval. The code says so where the type is defined, and the
 acknowledgment is still the caller's own (CERB-GAP-838, CERB-GAP-859).
+
+## Targets in the record (P2-3)
+
+The record's `target` now carries the target's policy labels as well as its
+kind and fields: `resource`, `env`, `owner`, `admin`, `tags` and `adhoc`.
+`resolveTarget` in `internal/cerbapi/audit_trail.go` looks up the registered
+resource the call names, by one of its target fields or the usual `id` and
+`resource` keys, and the target inherits that resource's labels: a container
+from its host, a namespace from its cluster. `admin` is the value for the part
+this operation touches, from the resource's per-kind `admin` map
+(`target.Admin.For`: the target kind, then the connector id, then the default).
+A target with no registered resource, or whose labels are unset, records
+`unknown` (Decision 17). A call that carries a local-scoped input, meaning
+connection settings such as `docker --host`, is marked `adhoc`.
+
+The admin lane, the runtime mutators and the monitor's restarts resolve against
+their process's config; a pipeline run does not (CERB-GAP-861). Nothing is
+decided on the labels yet: the policy engine evaluates them in shadow mode in
+P2-4, and enforcement arrives with approvals in P3.
