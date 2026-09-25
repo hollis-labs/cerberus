@@ -2,13 +2,13 @@
 id: "CERB-CAP-604"
 class: "capability"
 name: "Destructive-operation acknowledgment, and the absence of an audit trail"
-summary: "Every destructive connector operation demands an explicit --ack and most preview under --dry-run, but nothing records who acknowledged what: the only trace is a method-and-path line with no caller, no arguments and no outcome."
+summary: "Every destructive connector operation demands an explicit --ack, a dry run either previews or is refused without executing, and the gate fails closed on an undeclared operation, but nothing records who acknowledged what: the only trace is a method-and-path line with no caller, no arguments and no outcome."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.95
-confidence_label: "gate and dry-run exercised live; log field inventory taken from the full 3050-line log; remedy and its constraints recorded in WP-S1 on 2026-09-18"
-last_reviewed: "2026-09-18"
+confidence_label: "gate and dry-run exercised live at audit time; P0 gate changes re-read on main after P0 (#48 to #54); log field inventory taken from the full 3050-line log; remedy recorded in WP-S1 on 2026-09-18"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -40,23 +40,40 @@ relationships:
     note: "the gate is satisfied by the caller being gated"
   - type: "relates_to"
     target: "CERB-CAP-200"
+  - type: "relates_to"
+    target: "CERB-GAP-846"
+    note: "an in-process caller is not classified as a principal"
+  - type: "relates_to"
+    target: "CERB-GAP-851"
+    note: "the gate runs after credential resolution"
 ---
 
 # Destructive-operation acknowledgment, and the absence of an audit trail
 
-The gate works, and it is strict. `cerberus ssh exec muctlvaig -- id -nG` with
+The gate works, and it is strict. `cerberus ssh exec <work-host> -- id -nG` with
 no flags exits 1 with `acknowledgment_required: destructive operation "exec"
 requires operator acknowledgment`. Adding `--dry-run` alone returns a clean
 preview DTO naming the connector, operation, resolved target and the command
 that would run, without executing it. That is the intended shape and it behaves
 as documented.
 
+P0 tightened the gate in three ways, all in PR #49. It fails closed: an
+operation the connector does not declare, or a connector with no definition, is
+refused as `operation_unsupported` rather than waved through. A dry run never
+executes: an operation with no preview returns `preview_unsupported`. And a
+plugin's destructive operation needs `--ack` whatever its manifest's
+`requires_ack` says. Three writes that took no `--ack` now do:
+`digitalocean create_droplet`, `digitalocean stop` and
+`forge update_deployment_script`. None of that changes what this record is
+about. The gate is still satisfied by the caller being gated (CERB-GAP-838), and
+it still leaves no record.
+
 What does not exist is any record of the acknowledgment. Cerberus logs socket
 requests, and only socket requests: across the whole 3050-line log, every one of
 the 2621 `daemon.socket.request` entries carries `time`, `level`, `msg`,
 `method` and `path`, and nothing else. The path is genuinely informative —
 `POST /connectors/digitalocean/operations/list_droplets`,
-`POST /resources/tunnel-muctlvaig/apply`,
+`POST /resources/<tunnel-resource>/apply`,
 `POST /connectors/ssh/operations/exec` — so you can reconstruct which operation
 was invoked and when. You cannot reconstruct anything else.
 

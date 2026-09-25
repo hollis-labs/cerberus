@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.9
-confidence_label: "list/load/health/exec run live against the daemon; install/unload/uninstall left unrun as mutations and rest on tests"
-last_reviewed: "2026-09-17"
+confidence_label: "list/load/health/exec run live against the daemon at audit time; install, state shape and web routes re-read on main after P0 (#48 to #54)"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -37,6 +37,9 @@ relationships:
   - type: "relates_to"
     target: "CERB-CAP-404"
     note: "console lacks uninstall and exec; MCP lacks everything"
+  - type: "blocks"
+    target: "CERB-GAP-849"
+    note: "install by path still crosses the socket"
 ---
 
 # Daemon-managed plugin lifecycle
@@ -44,14 +47,17 @@ relationships:
 `cerberus connectors plugin managed {install,list,load,unload,uninstall,health,exec}`
 drives a plugin host that lives inside the daemon, over the Unix socket at
 `~/.cerberus/cerberus.sock`. Install reads and validates `plugin.yaml`, refuses a
-reserved connector id, hashes the entrypoint, evaluates the trust policy and
-adds the result to an in-memory inventory. Load launches the subprocess,
+reserved connector id, fingerprints the entrypoint, records an install origin
+(`installed`, or `dev` on a devmode build) and adds the result to an in-memory
+inventory. Load launches the subprocess,
 resolves declared secrets, sends `plugin/init`, checks the protocol integer,
 sends `plugin/load` and keeps the process. Unload sends `plugin/unload`, closes
 stdin, and kills the child after a three-second grace. Uninstall unloads first
 if needed, then drops the inventory entry. Every one of those persists
 `~/.cerberus/plugin-connectors.json`, whose entries are exactly
-`{plugin_dir, trust, loaded}`.
+`{plugin_dir, options, loaded}`. Before PR #51 the middle field was `trust`;
+an old entry still loads, and its `trust` object is read for `dev_mode`
+alone.
 
 Restore at daemon start is the part that has already drawn blood. It
 re-installs every persisted entry and re-loads the ones marked loaded, and it
@@ -70,16 +76,19 @@ fails pending calls, but the manager only deletes from `m.running` in `Unload`,
 so a crashed plugin remains `loaded: true` in `managed list` and returns a
 transport error from every operation until someone unloads it by hand. Nothing
 restarts it. Second, the inventory is not a version record. There is no pin, no
-recorded version, no comparison against the hash computed at install — that hash
-is computed, stored on the in-memory `InstalledPlugin`, and then never
-persisted, never compared and never surfaced by `managed list`, so "a binary
-replaced underneath us is detectable" is currently a property of the data model
-rather than of any code that runs.
+recorded version, and no comparison against the hash computed at install. Since
+PR #51 `managed list` reports that hash as `entrypoint_sha256`, but it is not
+persisted and nothing compares it, so a replaced binary is visible to someone
+comparing two listings and detected by nothing (CERB-GAP-336).
 
 Surface coverage is uneven and the uneven part is the destructive part. CLI has
-all seven verbs. The socket/HTTP API has all seven. The web console
-(`web/src/pages/plugins.tsx`) has install, load/unload toggle, list and a
-health probe of a directory — no uninstall and no exec. MCP has nothing at all:
+all seven verbs. The socket has all seven, and install is the one that still
+takes a path (CERB-GAP-849). The web console (`web/src/pages/plugins.tsx`) had
+install and a health probe of a directory at audit time. PR #50 retired both:
+web install-by-path and the directory routes answer 410, the page shows the
+`cerberus connectors plugin managed install <dir>` command instead, and managed
+exec over the web refuses a `plugin_dir` field. The page keeps list, health by
+id and the load/unload toggle. There is no uninstall and no exec on the page. MCP has nothing at all:
 none of the 51 tools registered in `cmd/cerberus/cmd_mcp.go` touches a plugin,
 and there is no dynamic tool generation, so an agent cannot install, inspect,
 load or run a plugin.

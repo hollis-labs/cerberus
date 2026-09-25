@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "shipped"
 review_status: "reviewed"
 confidence_score: 0.93
-confidence_label: "Routes read from source; /health, /ping, /connectors queried live against the running daemon"
-last_reviewed: "2026-09-17"
+confidence_label: "routes and refusals re-read on main after P0 (#48 to #54)"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -41,6 +41,12 @@ relationships:
   - type: "relates_to"
     target: "CERB-CAP-106"
     note: "the guard lives in cerbapi/daemon_self_guard.go"
+  - type: "relates_to"
+    target: "CERB-DEC-813"
+    note: "ssh and docker configs are limited to a resource id on the socket"
+  - type: "blocks"
+    target: "CERB-GAP-849"
+    note: "install by path is the one socket route that still takes a directory"
 ---
 
 # Daemon socket API
@@ -61,8 +67,8 @@ GET  /pipelines                                     /pipelines/{id}/run
 GET  /connectors                               GET  /connectors/live
 POST /connectors/{id}/operations/{op}
 GET  /plugins/connectors                            /plugins/connectors/{id}/…
-POST /plugins/connectors/health
-POST /plugins/connectors/operations/{op}
+POST /plugins/connectors/health               (410 since PR #50)
+POST /plugins/connectors/operations/{op}      (410 since PR #50)
 ```
 
 `/resources/{id}/{action}` covers `doctor`, `inspect`, `status`, `logs` (GET)
@@ -74,11 +80,17 @@ in the API those two call.
 Two things make this the most complete surface:
 
 **A generic connector route.** `POST /connectors/{id}/operations/{op}` takes an
-`ExternalConnectorOperationArgs` body — arbitrary `config`, `dry_run`,
-`acknowledged` — and hands it to `ExecuteConnectorOperation`, which resolves
-built-in and managed-plugin connectors alike. All 48 operations across the 9
-registered connectors are reachable without a line of per-operation code.
-`/plugins/connectors/{id}/operations/{op}` is the plugin-scoped equivalent.
+`ExternalConnectorOperationArgs` body (`config`, `dry_run`, `acknowledged`) and
+hands it to `ExecuteConnectorOperation`, which resolves built-in and
+managed-plugin connectors alike. Every declared operation is reachable without a
+line of per-operation code. Since P0, `config` is not arbitrary for two
+connectors. An ssh operation takes a resource `id` plus its operation fields,
+and a docker operation takes `resource`, the container keys and `id`/`lines`.
+The socket refuses everything else by name, and the daemon resolves the id
+against its live config (CERB-DEC-813). A dry run returns a preview or
+`preview_unsupported` and never executes.
+`/plugins/connectors/{id}/operations/{op}` is the managed-plugin equivalent, and
+refuses a `plugin_dir` field.
 
 **NDJSON progress streaming.** A request carrying `X-Cerberus-Progress: 1` gets
 `application/x-ndjson` back: a stream of `{"type":"notification"|"result"|
@@ -92,6 +104,14 @@ uid as the daemon, which is the correct model for a local socket. API versioning
 is via `X-Cerberus-Api`, and the wrapper rejects a *mismatched* header but
 accepts a *missing* one, so version negotiation is opt-in and an unversioned
 client is served silently.
+
+Same-uid is also why P0 took one capability away from the socket rather than
+guarding it. Before PR #50, `/plugins/connectors/health` and
+`/plugins/connectors/operations/` installed, loaded and ran the entrypoint of
+whatever `plugin_dir` a caller named. Both answer 410 now, and the daemon no
+longer builds a `PluginConnectorService`, so no surface can make the daemon run
+a directory it was not told to install. `POST /plugins/connectors/install` still
+takes a path, for the CLI (CERB-GAP-849).
 
 The daemon deliberately refuses one class of call: `daemon_self_guard.go` blocks
 resource mutations targeting the daemon's own resource, because deploying the

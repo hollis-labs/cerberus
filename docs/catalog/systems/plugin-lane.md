@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.9
-confidence_label: "Both installed plugins exercised live through both hosts; unsupervised subprocess and MCP absence verified"
-last_reviewed: "2026-09-17"
+confidence_label: "manager, installer and policy re-read on main after P0 (#48 to #54); plugin inventory as observed at audit time"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -30,13 +30,19 @@ relationships:
     note: "a plugin's credentials arrive over the Init config channel"
   - type: "depends_on"
     target: "CERB-CAP-306"
-    note: "install records a trust tier that every operation is checked against"
+    note: "install records an origin (installed or dev) that every operation is checked against"
   - type: "relates_to"
     target: "CERB-CAP-200"
     note: "a loaded plugin id is dispatched ahead of the built-in registry in ExternalConnectorService.Execute"
   - type: "blocks"
     target: "CERB-GAP-330"
     note: "no plugin operation reaches MCP or gets a CLI verb"
+  - type: "relates_to"
+    target: "CERB-DEC-814"
+    note: "a plugin dry run is forwarded only when declared, and is plugin-claimed"
+  - type: "relates_to"
+    target: "CERB-DEC-815"
+    note: "origin replaced the trust tiers"
 ---
 
 # Plugin lane (subprocess connector plugins)
@@ -55,7 +61,9 @@ thereafter routes operations to it by MCP tool name
 There are two hosts, and the difference matters. The **one-shot host** behind
 `cerberus connectors plugin health` and `cerberus connectors plugin exec`
 installs, loads, runs one call and unloads, in the CLI process. It registers
-nothing and persists nothing. The **daemon-managed host** behind
+nothing and persists nothing. Since PR #50 nothing but a CLI process can reach
+it: its socket and web routes answer 410, and the daemon no longer builds a
+`PluginConnectorService` (CERB-GAP-846). The **daemon-managed host** behind
 `cerberus connectors plugin managed …` keeps an inventory in
 `~/.cerberus/plugin-connectors.json`, holds the subprocess open for the
 daemon's lifetime, and restores the inventory at daemon start. A plugin loaded
@@ -67,9 +75,10 @@ a built-in produces.
 
 Two plugins exist and both are loaded on this machine, as children of the
 daemon: `contextforge` (4 read operations against the ContextForge MCP gateway)
-and `azure` (6 read operations against the Azure estate). Both are v0.1.0, both
-`trust_tier: unsigned`, both installed from
-`~/Projects-apps/cerberus-plugins/dist/`. Both compile against
+and `azure` (6 read operations against an Azure subscription). Both were v0.1.0,
+both recorded as `trust_tier: unsigned` (since PR #51 that field is
+`origin: installed`), and both were built from the separate plugins
+repository. Both compile against
 `github.com/hollis-labs/cerberus v0.4.0-beta.2` — the authoring contract they
 were built against is a pre-release tag, not the tree the host runs. Runtime
 compatibility is not left to that: `Manager.Load` compares the plugin's reported
@@ -78,11 +87,19 @@ protocol integer against `SDKProtocolVersion` and refuses a mismatch.
 What the lane does *not* do is the interesting half. It does not supervise: the
 manager holds the `Process` until something calls `Unload`, and nothing watches
 for the subprocess dying, so a crashed plugin stays `loaded: true` and fails
-every call. It does not version: the persisted inventory records a directory, a
-trust assertion and a loaded flag — no version, no hash, no pin, so rebuilding
+every call. It does not version: the persisted inventory records a directory,
+install options and a loaded flag — no version, no hash, no pin, so rebuilding
 `dist/` and restarting the daemon silently swaps the implementation. It does not
 reach every surface: despite the promise in both this repo's `AGENTS.md` and the
 plugins repo's README that a manifest operation becomes "a CLI command, an API
 operation and an MCP tool", no plugin operation has an MCP tool or a CLI verb of
 its own — only the socket/HTTP API gives a plugin operation a first-class
 endpoint.
+
+Two host-side rules changed in PR #49, on both hosts, at their one shared choke
+point, `pluginhost.Manager.ExecuteOperation`. The host demands `--ack` for any
+operation the manifest marks `destructive`, whatever `requires_ack` says, so a
+manifest can no longer opt out of the gate. And a dry run reaches the plugin only
+for an operation that declares `supports_dry`; anything else is refused as
+`preview_unsupported` without calling the plugin. A forwarded dry run is the
+plugin's own claim, which the host cannot verify (CERB-DEC-814).

@@ -7,8 +7,8 @@ state_field: "maturity"
 state_label: "shipped"
 review_status: "draft"
 confidence_score: 0.85
-confidence_label: "Contract read in full and both real plugins compile against it; the manifest env field is documented but unused by the host"
-last_reviewed: "2026-09-17"
+confidence_label: "pkg/plugin and manifest validation re-read on main after P0 (#48 to #54)"
+last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -40,7 +40,7 @@ relationships:
 
 `pkg/plugin` is the public authoring surface. A plugin module outside this
 repository imports it together with `pkg/connector` and `pkg/resource`, and
-nothing else: the manager, installer, trust policy and launcher stay in
+nothing else: the manager, installer, install policy and launcher stay in
 `internal/pluginhost` because they are host decisions and must not be something
 a plugin can influence. `internal/pluginhost/plugin_yaml.go` is type aliases
 back onto `pkg/plugin` so the host side reads as it always did.
@@ -62,7 +62,8 @@ Validation reports every problem at once rather than the first. `PluginYAML.Vali
 checks the envelope and requires `plugin.id == cerberus.connector.id`;
 `Manifest.Validate` requires at least one resource type and one operation, an
 `input_schema` on every operation, `requires_ack: true` on every `destructive`
-operation, unique field/secret/operation names, and — a detail that repays
+operation (deprecated since PR #49: this host gates on `destructive` alone, but
+the flag is still required so an older host that ANDs the two keeps gating), unique field/secret/operation names, and — a detail that repays
 reading — refuses a secret whose name collides with a config field, because both
 land in the same `plugin/init` map and which one won would depend on map
 ordering. It also requires every secret to declare either `required: true` or an
