@@ -193,13 +193,36 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if s == nil {
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, errors.New("connector registry is not configured"))
 	}
+	// A caller that did not begin a request still gets a scope here, so a
+	// credential resolved during this call is removed from its error.
+	ctx, scope := redact.EnsureScope(ctx)
 	call, err := beginAudit(ctx, s.audit, s.logger, s.auditSpec(args))
 	if err != nil {
 		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}
 	result, err := s.execute(call.withTelemetry(ctx), args)
 	call.finish(err)
-	return result, err
+	return result, scopeError(scope, err)
+}
+
+// scopeError renders err through the request's scope, where the credentials
+// resolved for the call are still known. A connector error's cause — often
+// text a vendor SDK composed around the credential it was handed — is
+// wrapped in place, so the error keeps its type and code. Anything else is
+// wrapped whole: a wrapping error fixed its message when it was made, and
+// only its outermost Error() sees all of it. errors.As reaches through
+// either.
+func scopeError(scope *redact.Scope, err error) error {
+	if err == nil {
+		return nil
+	}
+	if connErr, ok := err.(*ExternalConnectorError); ok { //nolint:errorlint // the top-level error only; a wrapped one is handled below
+		if connErr.Err != nil {
+			connErr.Err = scope.Error(connErr.Err)
+		}
+		return connErr
+	}
+	return scope.Error(err)
 }
 
 // auditSpec describes a request for its records, from the contract when the

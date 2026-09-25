@@ -187,7 +187,7 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 		}
 		w.Header().Set(APIHeaderName, APIVersion)
 		s.logger.Info("daemon.socket.request", "method", r.Method, "path", r.URL.Path)
-		h.ServeHTTP(w, r.WithContext(BeginRequest(r.Context(), SurfaceSocket)))
+		h.ServeHTTP(BeginHTTPRequest(w, r, SurfaceSocket))
 	})
 }
 
@@ -713,7 +713,7 @@ func decodeJSONBody(r *http.Request, dst interface{}) error {
 func writeJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	data, err := redact.MarshalIndent(body, "", "  ")
+	data, err := ResponseScope(w).MarshalIndent(body, "", "  ")
 	if err == nil {
 		_ = json.NewEncoder(w).Encode(json.RawMessage(data))
 	}
@@ -734,8 +734,9 @@ func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn f
 	flusher.Flush()
 
 	bw := bufio.NewWriter(w)
+	scope := redact.ScopeFrom(r.Context())
 	writeEnvelope := func(env StreamEnvelope) {
-		data, err := redact.Marshal(env)
+		data, err := scope.Marshal(env)
 		if err != nil {
 			return
 		}
@@ -755,7 +756,7 @@ func (s *SocketServer) handleStream(w http.ResponseWriter, r *http.Request, fn f
 		writeEnvelope(StreamEnvelope{Type: "error", Error: err.Error(), connectorErrorWire: connectorErrorWireFor(err)})
 		return true
 	}
-	data, err := redact.Marshal(result)
+	data, err := scope.Marshal(result)
 	if err != nil {
 		writeEnvelope(StreamEnvelope{Type: "error", Error: fmt.Sprintf("marshal result: %v", err)})
 		return true

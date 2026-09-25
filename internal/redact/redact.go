@@ -196,7 +196,9 @@ func redactPairs(pattern *regexp.Regexp, value string) string {
 }
 
 func Text(value string) string { return (Redactor{}).Text(value) }
-func (r Redactor) Text(value string) string {
+
+// ReplaceValues removes r's known values and applies none of the rules.
+func (r Redactor) ReplaceValues(value string) string {
 	for _, secret := range r.values {
 		if len(secret) >= 4 {
 			value = strings.ReplaceAll(value, secret, Marker)
@@ -204,6 +206,11 @@ func (r Redactor) Text(value string) string {
 			value = Marker
 		}
 	}
+	return value
+}
+
+func (r Redactor) Text(value string) string {
+	value = r.ReplaceValues(value)
 	value = privateKey.ReplaceAllString(value, Marker)
 	value = providerKey.ReplaceAllString(value, Marker)
 	value = bearer.ReplaceAllStringFunc(value, func(match string) string {

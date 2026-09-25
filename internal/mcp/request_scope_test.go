@@ -2,7 +2,14 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/hollis-labs/go-mcp/budget"
+	gmcp "github.com/hollis-labs/go-mcp/server"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -72,5 +79,63 @@ func TestServedToolsBeginARequestScope(t *testing.T) {
 	}
 	if got := redact.ScopeFrom(client.ctx).Text(labeledSecret); got == labeledSecret || got != redact.Text(labeledSecret) {
 		t.Fatalf("unwrapped handler rendered %q, want the regex net", got)
+	}
+}
+
+// Whatever a served tool hands back is rendered through its call's scope:
+// a string result, a structured result, each kind of error go-mcp reads, and
+// a notification sent mid-call.
+func TestServedToolOutputRendersThroughTheCallScope(t *testing.T) {
+	const sentinel = "q7Zr2mXv9pLw" //nolint:gosec // a test sentinel, not a credential
+	run := func(ret func(ctx context.Context) (any, error)) (any, []gmcp.Notification, error) {
+		var sent []gmcp.Notification
+		ctx := gmcp.WithNotifier(context.Background(), func(n gmcp.Notification) { sent = append(sent, n) })
+		tool := withRequestScope(Tool{Name: "t", Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			redact.ScopeFrom(ctx).Add("github/token", sentinel)
+			gmcp.NotifyMessage(ctx, "error", "stage printed "+sentinel)
+			return ret(ctx)
+		}})
+		result, err := tool.Handler(ctx, nil)
+		return result, sent, err
+	}
+	leaks := func(v any) bool {
+		data, _ := json.Marshal(v)
+		return strings.Contains(string(data), sentinel) || strings.Contains(fmt.Sprint(v), sentinel)
+	}
+
+	for name, ret := range map[string]func(context.Context) (any, error){
+		"string":      func(context.Context) (any, error) { return `{"stdout":"` + sentinel + `"}`, nil },
+		"structured":  func(context.Context) (any, error) { return map[string]any{"stdout": sentinel}, nil },
+		"plain error": func(context.Context) (any, error) { return nil, fmt.Errorf("upstream echoed %s", sentinel) },
+		"tool failure": func(context.Context) (any, error) {
+			return nil, toolFailure{message: "failed: " + sentinel, content: map[string]any{"error": sentinel}}
+		},
+		"budget error": func(context.Context) (any, error) {
+			return nil, &budget.ToolError{Code: "x", Message: "bad " + sentinel, NextStep: "retry " + sentinel}
+		},
+	} {
+		result, sent, err := run(ret)
+		if leaks(result) {
+			t.Errorf("%s: result leaked: %v", name, result)
+		}
+		if err != nil {
+			if strings.Contains(err.Error(), sentinel) {
+				t.Errorf("%s: error text leaked: %v", name, err)
+			}
+			var structured budget.StructuredError
+			if errors.As(err, &structured) && leaks(structured.ToolErrorContent()) {
+				t.Errorf("%s: error content leaked: %s", name, structured.ToolErrorContent())
+			}
+			var toolErr *budget.ToolError
+			if errors.As(err, &toolErr) && (leaks(toolErr.Message) || leaks(toolErr.NextStep)) {
+				t.Errorf("%s: tool error leaked: %+v", name, toolErr)
+			}
+		}
+		if len(sent) != 1 || leaks(sent[0].Params) {
+			t.Errorf("%s: notification = %+v", name, sent)
+		}
+		if params, ok := sent[0].Params.(map[string]any); !ok || params["level"] != "error" {
+			t.Errorf("%s: notification params lost their shape: %#v", name, sent[0].Params)
+		}
 	}
 }

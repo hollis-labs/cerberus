@@ -71,7 +71,12 @@ type localConnectorExecutor struct {
 }
 
 func (l localConnectorExecutor) Execute(ctx context.Context, args cerbapi.ExternalConnectorOperationArgs) (cerbapi.ExternalConnectorOperationResult, error) {
-	return l.svc.Execute(cerbapi.BeginRequest(ctx, cerbapi.SurfaceInProcess), args)
+	ctx = cerbapi.BeginRequest(ctx, cerbapi.SurfaceInProcess)
+	result, err := l.svc.Execute(ctx, args)
+	if err != nil {
+		return result, err
+	}
+	return cerbapi.RenderInProcessResult(ctx, args, result)
 }
 
 func newLocalConnectorExecutor() connectorExecutor {
