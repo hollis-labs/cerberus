@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
-	forge "github.com/hollis-labs/cerberus/internal/connector/forge"
 	gh "github.com/hollis-labs/cerberus/internal/connector/github"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
 )
@@ -22,14 +21,6 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 	switch args.Connector + "/" + args.Operation {
 	case "docker/list_containers":
 		return decodePayload[[]docker.Container](raw)
-	case "forge/list_servers":
-		return decodePayload[[]forge.Server](raw)
-	case "forge/get_server":
-		return decodePayload[*forge.Server](raw)
-	case "forge/list_sites":
-		return decodePayload[[]forge.Site](raw)
-	case "forge/exec_site_command":
-		return decodePayload[*forge.SiteCommand](raw)
 	case "github/status":
 		return decodePayload[*gh.RepoStatus](raw)
 	case "github/list_releases":
@@ -42,7 +33,7 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 		return decodePayload[*ssh.TransferResult](raw)
 	case "ssh/put_dir", "ssh/get_dir":
 		return decodePayload[*ssh.DirTransferResult](raw)
-	case "docker/logs", "forge/get_deployment_script", "ssh/status", "docker/status":
+	case "docker/logs", "ssh/status", "docker/status":
 		return decodePayload[string](raw)
 	default:
 		return raw, nil // retain unknown/plugin payloads without losing fields

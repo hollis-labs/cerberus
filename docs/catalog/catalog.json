@@ -1281,12 +1281,12 @@
       "id": "CERB-CAP-206",
       "class": "capability",
       "name": "Laravel Forge connector",
-      "summary": "Reads Forge servers and sites, rewrites deployment scripts, and runs arbitrary commands on a site — with no test files in the package.",
+      "summary": "Reads Forge servers and sites, rewrites deployment scripts with a diff preview, deploys, and runs commands on a site, as the forge plugin in hollis-labs/cerberus-plugins; no longer compiled in.",
       "state_field": "maturity",
       "state_label": "partial",
       "review_status": "reviewed",
       "confidence_score": 0.8,
-      "confidence_label": "No token on the audit machine and zero test files in the package; flags re-read on main after P0 (#48 to #54)",
+      "confidence_label": "35 tests in the plugin, including the diff preview and the scrubber; no Forge token on this machine, so live reads wait for the operator's UAT",
       "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
@@ -1294,38 +1294,31 @@
         "cerberus",
         "class:capability",
         "connector",
-        "deploy",
         "forge",
-        "migrating-to-plugin",
-        "remote-exec",
-        "untested",
-        "locus:core"
+        "exec",
+        "plugin",
+        "locus:plugin"
       ],
       "relationships": [
         {
           "type": "implements",
           "target": "CERB-CAP-200",
-          "note": "Compiled in today, scheduled to migrate out"
+          "note": "A plugin connector since 2026-09-25, reached through the admin lane"
         },
         {
           "type": "relates_to",
           "target": "CERB-DEC-291",
-          "note": "Last in the migration order, having no SDK to shed"
+          "note": "The last of the four to migrate"
         },
         {
-          "type": "blocks",
-          "target": "CERB-GAP-279",
-          "note": "update_deployment_script was not flagged destructive; closed in PR #49"
-        },
-        {
-          "type": "blocks",
+          "type": "relates_to",
           "target": "CERB-GAP-280",
-          "note": "Zero test files in the package that owns arbitrary remote command execution"
+          "note": "The built-in had no tests; the plugin has them"
         }
       ],
-      "body": "> Reads Forge servers and sites, rewrites deployment scripts, and runs arbitrary commands on a site — with no test files in the package.\n\nSeven operations, and the interesting thing about them is the distribution of\nrisk against the distribution of care.\n\n`deploy_site` and `exec_site_command` are correctly flagged: destructive,\ndry-runnable, with previews that name the server, the site and — for exec — the\ncommand, which is what an operator reads before acknowledging.\n`exec_site_command` is the broadest write verb anywhere in the lane; it runs an\narbitrary command inside a production site.\n\n`update_deployment_script` replaces the script that runs on *every future\ndeploy* of that site. At audit time it was flagged neither destructive nor\ndry-runnable. PR #49 made it destructive, since the script is what `deploy_site`\nruns next, so `cerberus forge set-script` now demands the `--ack` it already\nbound. It still offers no preview; `--dry-run` returns `preview_unsupported` and\nruns nothing (CERB-GAP-279). It is also CLI-only —\n`cerberus forge set-script` — with no MCP tool, which limits the blast radius\nfor an agent caller but not for a person. Its read counterpart,\n`get_deployment_script`, is likewise CLI-only.\n\n`internal/connector/forge/` has **no test files**. `go test\n./internal/connector/...` reports `[no test files]`. The package holding the\nlane's arbitrary-remote-execution verb has no tests of its own; what coverage\nexists is the service-level dispatch test in `internal/cerbapi`. Forge is also\nthe connector with no vendor SDK to shed, which is why it is last in the\nmigration order to plugins — the 33MB Cloudflare win comes first — so the\nuntested state is not something a migration will incidentally fix.\n\nThere was no Forge token on the audit machine, `live` read `no`, and nothing here\nwas run.\n\n## Owns\n\n- Forge server list and get\n- Site list per server\n- Deployment script read, and ack-gated replace\n- Triggering a site deployment\n- Running an arbitrary command inside a site\n\n## Does not own\n\n- Provisioning servers. Forge creates them; this connector only reads them\n- Site creation, SSL, queues, daemons or scheduled jobs\n- Any vendor SDK — it is a hand-written HTTP client\n- Its own tests. There are none",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "> Reads Forge servers and sites, rewrites deployment scripts with a diff preview, deploys, and runs commands on a site, as the forge plugin in hollis-labs/cerberus-plugins; no longer compiled in.\n\nSeven operations:\n\n- `list_servers`, `get_server` and `list_sites` are `read`.\n- `get_deployment_script` is `read_sensitive` with free-text output, because a\n  deployment script is text Cerberus did not write and can carry secrets.\n- `update_deployment_script` is `write`.\n- `deploy_site` is `lifecycle`.\n- `exec_site_command` is `exec`: it runs a caller-supplied command on the\n  server, which is the class that always needs approval once the policy\n  engine lands (Decision 5).\n\nSince 2026-09-25 this is a plugin, not a built-in\n(`docs/plans/provider-plugin-extraction.md`, H7), and it was the last provider\nconnector compiled into the binary. The id and the secret name are unchanged,\nso `CERBERUS_FORGE_API_TOKEN`, a `forge: api_token:` entry in\n`connector-secrets.yaml` and `keychain://forge/api_token` resolve exactly as\nbefore.\n\nWhat changed for a caller:\n\n- **CLI.** `cerberus forge …` is gone, with no tombstone.\n  `cerberus connectors exec forge <op>` runs any operation.\n- **MCP.** The hand-written `cerberus_forge_servers`, `_server`, `_sites`,\n  `_deploy` and `_exec` are gone. The generated tools are\n  `cerberus_forge_<op>`, served for the operations the operator lists under\n  `forge: mcp: expose:` in `connector-config.yaml`. The suggested default is\n  the three structured reads only.\n- **A preview for the script rewrite.** `update_deployment_script`'s dry run\n  reads the current script and returns a line diff against the proposed one.\n  The proposed content itself appears only as `{bytes, sha256}`, and the diff\n  is scrubbed of the token. The preview is plugin-claimed and makes a network\n  read, so it needs the token. The built-in had no preview at all.\n- **Tighter than the built-in.** `server_id` and `site_id` must be positive\n  whole numbers, whitespace-only script content is refused, the writes return\n  `{server_id, site_id, action}` rather than null, calls time out after 30\n  seconds, and health makes no network call.\n\n## Owns\n\n- Server and site reads\n- Deployment script read and rewrite, deploy, and site command execution\n- The Forge HTTP client, confined to one file behind a DTO-returning backend\n\n## Does not own\n\n- Server provisioning. That is DigitalOcean and, later, OpenTofu\n- The deploy itself: Forge runs it, Cerberus only asks\n- A place in the Cerberus binary",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "owns": [
           "Forge server list and get",
@@ -2474,7 +2467,7 @@
         "class:capability",
         "locus:core"
       ],
-      "body": "`cerberus` is a cobra command tree with 26 top-level commands, and it is the\nonly surface that covers every capability Cerberus has. Verified against the\ninstalled binary at `~/go/bin/cerberus`, whose `--version` reports\n`dev (commit 4ab19d0, built 2026-09-17T13:59:11Z)` — a commit that is an\nancestor of the audited `HEAD`, differing only in `AGENTS.md`. So for this area\nsource and binary agree, and a claim verified against one holds for the other.\n\nThere is no `cerberus version` subcommand, but `cerberus --version` / `-v`\nexists and is stamped via `-ldflags` in the Makefile.\n\nThe tree is organised into three cobra groups plus ungrouped extras:\n\n- **V2 Resource Commands** — `resource` (13 subcommands), `project`, `pipeline`,\n  `register`, `deregister`, `registry`.\n- **Daemon And Runtime Commands** — `config`, `daemon`, `init`, `install`,\n  `uninstall`, `mcp`, `path`, `validate`, `web`.\n- **Platform And Connector Commands** — `cloudflare`, `connectors`, `dns`,\n  `docker`, `domain`, `forge`, `github`, `server`, `ssh`.\n- **Ungrouped** — `mcp-http`, `run-secrets`, `completion`, `help`.\n\nMost commands route to the daemon over the unix socket. These exceptions do\nnot, and the difference matters:\n\n- `resource show` resolves the config locally through\n  `registry.ResolveConfig(cfgPath)` and never asks the daemon, so it reports the\n  calling shell's view of the registry rather than the running daemon's.\n  `resource list` asks the daemon. The two can disagree.\n- `connectors` / `connectors describe` merge a local definition list with the\n  daemon's, and deliberately take **liveness from the daemon** — the comment in\n  `connectorDefinitions` says why: this process has the operator's shell `PATH`\n  and credentials, the daemon has launchd's, and reporting the CLI's view is how\n  a connector reads `LIVE=yes` while every call against it fails.\n- `connectors plugin exec` / `plugin health` (without `managed`) install, load\n  and run a plugin **in the calling process**, bypassing the daemon's plugin\n  host entirely. `connectors plugin managed …` is the daemon-hosted path. Since\n  PR #50 nothing else can run a plugin directory: the socket and web routes for\n  it answer 410.\n- `cerberus docker` with `--host`, `--context` or `-f` runs **in-process**,\n  because since PR #52 the socket refuses ad-hoc docker targets\n  (CERB-DEC-813).\n- An explicit `--config` forces connector verbs in-process (PR #50), so a\n  resource id is never resolved against a config other than the one the\n  operator named.\n\nThose in-process paths keep free-form power that no remote surface has, which\nis why in-process is not a trust boundary (CERB-GAP-846).\n\nThe CLI is the only surface for daemon lifecycle (`daemon start|stop|restart|\nstatus`), launch-agent management (`install`, `uninstall`), layout introspection\n(`path`), secret-reference expansion (`run-secrets`), config creation (`init`)\nand plugin scaffolding (`connectors write-plugin-prototype`). Those are\ngenuinely local-process concerns and their absence elsewhere is not a gap.\n\nThe generic escape hatch for connector operations is `connectors exec <id>\n<op>` (CERB-GAP-437, closed). It runs any operation on any connector, built-in\nor loaded plugin, through the admin lane (`ExternalConnectorService.Execute`),\nso dry-run, acknowledgment and redaction apply exactly as they do for a\nhand-written subcommand. Arguments are typed from the operation's input schema:\n`--arg k=v` is parsed as the declared integer, number or boolean, a repeated key\nbuilds an array, `--arg-json k=<JSON>` carries objects, and `--input <file|->`\ntakes a whole argument object. An argument a closed schema does not declare is\nrefused before anything is sent. `connectors plugin managed exec` is now the\nsame command limited to installed plugins, and the one-shot `connectors plugin\nexec <dir>` types its arguments from the directory's `plugin.yaml`. That is\nalso the CLI path to `namecheap`'s `get_dns_record_set` and `set_dns_record_set`\n(CERB-GAP-436), with the authoritative records passed as `--arg-json records=…`\nor `--input`. A generic verb is still a worse operator experience than a typed\nsubcommand with real flags, which is why the everyday verbs keep theirs.",
+      "body": "`cerberus` is a cobra command tree with 26 top-level commands, and it is the\nonly surface that covers every capability Cerberus has. Verified against the\ninstalled binary at `~/go/bin/cerberus`, whose `--version` reports\n`dev (commit 4ab19d0, built 2026-09-17T13:59:11Z)` — a commit that is an\nancestor of the audited `HEAD`, differing only in `AGENTS.md`. So for this area\nsource and binary agree, and a claim verified against one holds for the other.\n\nThere is no `cerberus version` subcommand, but `cerberus --version` / `-v`\nexists and is stamped via `-ldflags` in the Makefile.\n\nThe tree is organised into three cobra groups plus ungrouped extras:\n\n- **V2 Resource Commands** — `resource` (13 subcommands), `project`, `pipeline`,\n  `register`, `deregister`, `registry`.\n- **Daemon And Runtime Commands** — `config`, `daemon`, `init`, `install`,\n  `uninstall`, `mcp`, `path`, `validate`, `web`.\n- **Platform And Connector Commands** — `cloudflare`, `connectors`, `dns`,\n  `docker`, `domain`, `forge`, `github`, `server`, `ssh`.\n- **Ungrouped** — `mcp-http`, `run-secrets`, `completion`, `help`.\n\nMost commands route to the daemon over the unix socket. These exceptions do\nnot, and the difference matters:\n\n- `resource show` resolves the config locally through\n  `registry.ResolveConfig(cfgPath)` and never asks the daemon, so it reports the\n  calling shell's view of the registry rather than the running daemon's.\n  `resource list` asks the daemon. The two can disagree.\n- `connectors` / `connectors describe` merge a local definition list with the\n  daemon's, and deliberately take **liveness from the daemon** — the comment in\n  `connectorDefinitions` says why: this process has the operator's shell `PATH`\n  and credentials, the daemon has launchd's, and reporting the CLI's view is how\n  a connector reads `LIVE=yes` while every call against it fails.\n- `connectors plugin exec` / `plugin health` (without `managed`) install, load\n  and run a plugin **in the calling process**, bypassing the daemon's plugin\n  host entirely. `connectors plugin managed …` is the daemon-hosted path. Since\n  PR #50 nothing else can run a plugin directory: the socket and web routes for\n  it answer 410.\n- `cerberus docker` with `--host`, `--context` or `-f` runs **in-process**,\n  because since PR #52 the socket refuses ad-hoc docker targets\n  (CERB-DEC-813).\n- An explicit `--config` forces connector verbs in-process (PR #50), so a\n  resource id is never resolved against a config other than the one the\n  operator named.\n\nThose in-process paths keep free-form power that no remote surface has, which\nis why in-process is not a trust boundary (CERB-GAP-846).\n\nThe CLI is the only surface for daemon lifecycle (`daemon start|stop|restart|\nstatus`), launch-agent management (`install`, `uninstall`), layout introspection\n(`path`), secret-reference expansion (`run-secrets`), config creation (`init`)\nand plugin scaffolding (`connectors write-plugin-prototype`). Those are\ngenuinely local-process concerns and their absence elsewhere is not a gap.\n\nThe generic escape hatch for connector operations is `connectors exec <id>\n<op>` (CERB-GAP-437, closed). It runs any operation on any connector, built-in\nor loaded plugin, through the admin lane (`ExternalConnectorService.Execute`),\nso dry-run, acknowledgment and redaction apply exactly as they do for a\nhand-written subcommand. Arguments are typed from the operation's input schema:\n`--arg k=v` is parsed as the declared integer, number or boolean, a repeated key\nbuilds an array, `--arg-json k=<JSON>` carries objects, and `--input <file|->`\ntakes a whole argument object. What the CLI knows about the operation (an\nunknown connector or operation, an argument a closed schema does not declare, a\nvalue that does not fit its type) is printed as a hint, and the call is sent\nanyway, so the admin lane refuses it and records the attempt in the audit log.\nOnly a command line that cannot form a request, such as `--arg` without `=`, is\nrefused locally. `connectors plugin managed exec` is now the\nsame command limited to installed plugins, and the one-shot `connectors plugin\nexec <dir>` types its arguments from the directory's `plugin.yaml`. That is\nalso the CLI path to `namecheap`'s `get_dns_record_set` and `set_dns_record_set`\n(CERB-GAP-436), with the authoritative records passed as `--arg-json records=…`\nor `--input`. A generic verb is still a worse operator experience than a typed\nsubcommand with real flags, which is why the everyday verbs keep theirs.",
       "pointer_locator": "cmd/cerberus/",
       "data": {
         "owns": [
@@ -5128,7 +5121,7 @@
           "note": "Last, having no SDK to shed"
         }
       ],
-      "body": "The rule is that a provider integration is a plugin. Four provider connectors\nare compiled in anyway, and that is a decision rather than an inconsistency —\nwith a sequence attached.\n\n**Do not migrate them yet.** They work, and moving them is cost with no feature\nbenefit. The stronger reason is sequencing: migrating them first would have\nmeant moving working code onto a lane that had never carried a plugin authored\nas one from day one. ContextForge was built first precisely to learn what\nauthoring feels like, and it found real gaps in the lane — the host secret\nchannel among them — that a migration would have hit while also carrying the\nrisk of regressing something that already worked.\n\n**The order follows the payoff.** `cloudflare-go/v4` is 33MB, the largest\ndependency win available in the binary, so cloudflare goes first. `godo` is\n2.7MB, so digitalocean follows. Forge and Namecheap have no vendor SDK at all —\nboth are hand-written HTTP clients — so they are last, and their migration buys\nmodularity rather than size.\n\n**And no fifth is added.** This is the part with teeth, because the natural\nreading of \"four are compiled in\" is that compiling one in is an available\noption. It is not. The four are legacy with a migration plan; the rule for\nanything new is the plugin lane.\n\nThere is a mechanism backing the decision rather than only a note.\n`Registry.BuiltInIDs` is derived from what is actually registered rather than\nhardcoded, and it is the set a plugin may not claim — so when cloudflare moves\nout it stops being reserved on its own, and a cloudflare plugin becomes\ninstallable the same day. The reservation shrinks by itself as the migration\nhappens.\n\n**Under way since 2026-09-25.** The deferral ended with `docs/plans/provider-plugin-extraction.md`. `cloudflare` moved first, as ordered here, and a stripped build fell from 62.8MB to 23.6MB, far more than the SDK's symbol sizes predicted. The reserved-id set shrank by itself, as designed. `digitalocean`, `namecheap` and `forge` follow in that order; their plugins are built, and each built-in is removed once the one before it is live.\n\n**digitalocean followed on 2026-09-25**, taking `godo` and two hashicorp HTTP modules out of the binary (23.7MB → 21.8MB stripped). `namecheap` and `forge` remain.\n\n**namecheap followed on 2026-09-25.** It had no SDK to shed, so the binary barely changed. The move gave its record-set operations a CLI verb and fixed the console's `client_ip`. `forge` remains.",
+      "body": "The rule is that a provider integration is a plugin. Four provider connectors\nare compiled in anyway, and that is a decision rather than an inconsistency —\nwith a sequence attached.\n\n**Do not migrate them yet.** They work, and moving them is cost with no feature\nbenefit. The stronger reason is sequencing: migrating them first would have\nmeant moving working code onto a lane that had never carried a plugin authored\nas one from day one. ContextForge was built first precisely to learn what\nauthoring feels like, and it found real gaps in the lane — the host secret\nchannel among them — that a migration would have hit while also carrying the\nrisk of regressing something that already worked.\n\n**The order follows the payoff.** `cloudflare-go/v4` is 33MB, the largest\ndependency win available in the binary, so cloudflare goes first. `godo` is\n2.7MB, so digitalocean follows. Forge and Namecheap have no vendor SDK at all —\nboth are hand-written HTTP clients — so they are last, and their migration buys\nmodularity rather than size.\n\n**And no fifth is added.** This is the part with teeth, because the natural\nreading of \"four are compiled in\" is that compiling one in is an available\noption. It is not. The four are legacy with a migration plan; the rule for\nanything new is the plugin lane.\n\nThere is a mechanism backing the decision rather than only a note.\n`Registry.BuiltInIDs` is derived from what is actually registered rather than\nhardcoded, and it is the set a plugin may not claim — so when cloudflare moves\nout it stops being reserved on its own, and a cloudflare plugin becomes\ninstallable the same day. The reservation shrinks by itself as the migration\nhappens.\n\n**Under way since 2026-09-25.** The deferral ended with `docs/plans/provider-plugin-extraction.md`. `cloudflare` moved first, as ordered here, and a stripped build fell from 62.8MB to 23.6MB, far more than the SDK's symbol sizes predicted. The reserved-id set shrank by itself, as designed. `digitalocean`, `namecheap` and `forge` follow in that order; their plugins are built, and each built-in is removed once the one before it is live.\n\n**digitalocean followed on 2026-09-25**, taking `godo` and two hashicorp HTTP modules out of the binary (23.7MB → 21.8MB stripped). `namecheap` and `forge` remain.\n\n**namecheap followed on 2026-09-25.** It had no SDK to shed, so the binary barely changed. The move gave its record-set operations a CLI verb and fixed the console's `client_ip`. `forge` remains.\n\n**forge moved last, on 2026-09-25**, and with it no provider connector remains compiled in. The core set is what the decision names: `local`, `ssh`, `docker` and `github`.",
       "locus": "core",
       "pointer_locator": "docs/plans/connector-work-packages.md",
       "data": {
@@ -16547,7 +16540,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.7,
       "confidence_label": "No Forge token on this machine and the forge package has zero test files",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16556,7 +16549,7 @@
         "connector",
         "forge",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16566,9 +16559,9 @@
           "note": "An operation of the forge connector"
         }
       ],
-      "body": "Lists the Laravel Forge servers the API token can see.\n\nReachable as `cerberus forge servers` and as the MCP tool `cerberus_forge_servers`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "Lists the Laravel Forge servers the API token can see.\n\nReachable as `cerberus forge servers` and as the MCP tool `cerberus_forge_servers`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.\n\n**A plugin operation since 2026-09-25.** Served by the forge plugin, not the binary: `cerberus connectors exec forge list_servers` on the CLI, and the generated MCP tool `cerberus_forge_list_servers` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-206",
         "invocation": "cerberus forge servers",
@@ -16598,7 +16591,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.7,
       "confidence_label": "No Forge token on this machine and the forge package has zero test files",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16607,7 +16600,7 @@
         "connector",
         "forge",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16617,9 +16610,9 @@
           "note": "An operation of the forge connector"
         }
       ],
-      "body": "Reports one Forge server by id.\n\nReachable as `cerberus forge server <server-id>` and as the MCP tool `cerberus_forge_server`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "Reports one Forge server by id.\n\nReachable as `cerberus forge server <server-id>` and as the MCP tool `cerberus_forge_server`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.\n\n**A plugin operation since 2026-09-25.** Served by the forge plugin, not the binary: `cerberus connectors exec forge get_server` on the CLI, and the generated MCP tool `cerberus_forge_get_server` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-206",
         "invocation": "cerberus forge server <server-id>",
@@ -16649,7 +16642,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.7,
       "confidence_label": "No Forge token on this machine and the forge package has zero test files",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16658,7 +16651,7 @@
         "connector",
         "forge",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16668,9 +16661,9 @@
           "note": "An operation of the forge connector"
         }
       ],
-      "body": "Lists the sites on one Forge server.\n\nReachable as `cerberus forge sites <server-id>` and as the MCP tool `cerberus_forge_sites`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "Lists the sites on one Forge server.\n\nReachable as `cerberus forge sites <server-id>` and as the MCP tool `cerberus_forge_sites`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.\n\n**A plugin operation since 2026-09-25.** Served by the forge plugin, not the binary: `cerberus connectors exec forge list_sites` on the CLI, and the generated MCP tool `cerberus_forge_list_sites` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-206",
         "invocation": "cerberus forge sites <server-id>",
@@ -16700,7 +16693,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.7,
       "confidence_label": "No Forge token on this machine and the forge package has zero test files",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16709,7 +16702,7 @@
         "connector",
         "forge",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -16719,9 +16712,9 @@
           "note": "An operation of the forge connector"
         }
       ],
-      "body": "Reads a site's deployment script. CLI-only; no MCP tool exposes it.\n\nReachable as `cerberus forge script <server-id> <site-id>`. There is no MCP tool for it.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "Reads a site's deployment script. CLI-only; no MCP tool exposes it.\n\nReachable as `cerberus forge script <server-id> <site-id>`. There is no MCP tool for it.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified. No Forge token on this machine and the forge package has zero test files.\n\n**A plugin operation since 2026-09-25.** Served by the forge plugin, not the binary: `cerberus connectors exec forge get_deployment_script` on the CLI, and the generated MCP tool `cerberus_forge_get_deployment_script` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-206",
         "invocation": "cerberus forge script <server-id> <site-id>",
@@ -16759,7 +16752,7 @@
         "connector",
         "forge",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16770,9 +16763,9 @@
           "note": "An operation of the forge connector"
         }
       ],
-      "body": "Replaces a site's deployment script, which is what `deploy_site` runs next and on every deploy after.\n\nReachable as `cerberus forge set-script <server-id> <site-id> <content> --ack`. There is no MCP tool for it.\n\nDeclared destructive since PR #49, so the admin lane refuses it without an acknowledgment. The CLI already bound `--ack` and now it is demanded. It has no preview; `--dry-run` returns `preview_unsupported` and runs nothing (CERB-GAP-279).\n\nUnverified. Never run against a real site.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "Replaces a site's deployment script, which is what `deploy_site` runs next and on every deploy after.\n\nReachable as `cerberus forge set-script <server-id> <site-id> <content> --ack`. There is no MCP tool for it.\n\nDeclared destructive since PR #49, so the admin lane refuses it without an acknowledgment. The CLI already bound `--ack` and now it is demanded. It has no preview; `--dry-run` returns `preview_unsupported` and runs nothing (CERB-GAP-279).\n\nUnverified. Never run against a real site.\n\n**A plugin operation since 2026-09-25.** Served by the forge plugin, not the binary: `cerberus connectors exec forge update_deployment_script` on the CLI, and the generated MCP tool `cerberus_forge_update_deployment_script` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-206",
         "invocation": "cerberus forge set-script <server-id> <site-id> <content> --ack",
@@ -16801,7 +16794,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.75,
       "confidence_label": "No Forge token, the audit forbids --ack, and the package has no tests",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16811,7 +16804,7 @@
         "dry-run",
         "forge",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16822,9 +16815,9 @@
           "note": "An operation of the forge connector"
         }
       ],
-      "body": "Triggers a Forge site deployment. Destructive with a dry-run preview naming server and site.\n\nReachable as `cerberus forge deploy <server-id> <site-id> [--dry-run|--ack]` and as the MCP tool `cerberus_forge_deploy`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Forge token, the audit forbids --ack, and the package has no tests.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "Triggers a Forge site deployment. Destructive with a dry-run preview naming server and site.\n\nReachable as `cerberus forge deploy <server-id> <site-id> [--dry-run|--ack]` and as the MCP tool `cerberus_forge_deploy`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Forge token, the audit forbids --ack, and the package has no tests.\n\n**A plugin operation since 2026-09-25.** Served by the forge plugin, not the binary: `cerberus connectors exec forge deploy_site` on the CLI, and the generated MCP tool `cerberus_forge_deploy_site` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-206",
         "invocation": "cerberus forge deploy <server-id> <site-id> [--dry-run|--ack]",
@@ -16854,7 +16847,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.75,
       "confidence_label": "No Forge token, the audit forbids --ack, and the package has no tests",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-25",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -16864,7 +16857,7 @@
         "dry-run",
         "forge",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified",
         "destructive"
       ],
@@ -16875,9 +16868,9 @@
           "note": "An operation of the forge connector"
         }
       ],
-      "body": "Runs an arbitrary command inside a Forge site. The broadest write verb in the lane, in the only connector package with no tests.\n\nReachable as `cerberus forge exec <server-id> <site-id> <command> [--dry-run|--ack]` and as the MCP tool `cerberus_forge_exec`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Forge token, the audit forbids --ack, and the package has no tests.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/forge/connector.go",
+      "body": "Runs an arbitrary command inside a Forge site. The broadest write verb in the lane, in the only connector package with no tests.\n\nReachable as `cerberus forge exec <server-id> <site-id> <command> [--dry-run|--ack]` and as the MCP tool `cerberus_forge_exec`.\n\nDeclared destructive, so the admin lane refuses it without an acknowledgment, and dry-runnable, so `--dry-run` returns a preview of the resolved target and input instead of acting.\n\nUnverified. No Forge token, the audit forbids --ack, and the package has no tests.\n\n**A plugin operation since 2026-09-25.** Served by the forge plugin, not the binary: `cerberus connectors exec forge exec_site_command` on the CLI, and the generated MCP tool `cerberus_forge_exec_site_command` when the operator exposes it in `connector-config.yaml`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:forge/internal/forgeplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-206",
         "invocation": "cerberus forge exec <server-id> <site-id> <command> [--dry-run|--ack]",

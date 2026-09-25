@@ -10,7 +10,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
@@ -21,7 +20,6 @@ import (
 func builtinConnectorDefinitions() []contract.Definition {
 	return []contract.Definition{
 		dockerconn.Definition(),
-		forgeconn.Definition(),
 		ghconn.Definition(),
 		sshconn.Definition(),
 	}
@@ -135,10 +133,8 @@ func TestDryRunNeverExecutes(t *testing.T) {
 // the mutation.
 func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 	docker := &fakeDockerBackend{}
-	forge := &fakeForgeBackend{}
 	registry := connector.NewRegistry()
 	registry.Register(dockerconn.NewWithBackend(docker))
-	registry.Register(forgeconn.NewWithBackend(forge))
 	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
 	for _, def := range svc.Definitions() {
@@ -151,9 +147,6 @@ func TestDryRunNeverExecutesAgainstFakes(t *testing.T) {
 	// A dry run calls nothing on the backend, reads included.
 	if docker.started != "" || docker.logName != "" {
 		t.Errorf("docker backend called under dry run: %+v", docker)
-	}
-	if forge.serverID != 0 || forge.siteID != 0 || forge.command != "" {
-		t.Errorf("forge backend called under dry run: %+v", forge)
 	}
 }
 
@@ -192,7 +185,6 @@ func TestAckGateStillRequiresAckForDeclaredDestructive(t *testing.T) {
 // contract they are write and lifecycle, which Decision 14 gates.
 func TestReclassifiedOperationsRequireAck(t *testing.T) {
 	for _, tc := range []struct{ connector, operation string }{
-		{"forge", "update_deployment_script"},
 		{"docker", "stop"},
 	} {
 		found := false

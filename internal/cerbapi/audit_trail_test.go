@@ -64,6 +64,8 @@ func TestAdminLaneRecordsEveryExit(t *testing.T) {
 		{"ack refusal", ExternalConnectorOperationArgs{Connector: "docker", Operation: "destroy", Config: map[string]any{"container": "web"}}, audit.DecisionRefused, "acknowledgment_required", "destructive"},
 		{"argument refusal", ExternalConnectorOperationArgs{Connector: "docker", Operation: "logs", Config: map[string]any{"bogus": 1, "container": "web"}}, audit.DecisionRefused, "invalid_args", "read_sensitive"},
 		{"undeclared", ExternalConnectorOperationArgs{Connector: "docker", Operation: "wipe"}, audit.DecisionRefused, "operation_unsupported", ""},
+		// What `connectors exec` now sends rather than refusing locally.
+		{"unknown connector", ExternalConnectorOperationArgs{Connector: "nope", Operation: "x"}, audit.DecisionRefused, "operation_unsupported", ""},
 		{"dry run with no preview", ExternalConnectorOperationArgs{Connector: "docker", Operation: "stop", DryRun: true, Acknowledged: true, Config: map[string]any{"container": "web"}}, audit.DecisionRefused, "preview_unsupported", "lifecycle"},
 		{"acknowledged lifecycle", ExternalConnectorOperationArgs{Connector: "docker", Operation: "start", Acknowledged: true, Config: map[string]any{"container": "web"}}, audit.DecisionAllowed, audit.OutcomeOK, "lifecycle"},
 	} {

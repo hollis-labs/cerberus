@@ -15,7 +15,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	forgeconn "github.com/hollis-labs/cerberus/internal/connector/forge"
 	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
@@ -89,51 +88,6 @@ type fakeGitHubBackend struct {
 	owner string
 	repo  string
 	limit int
-}
-
-type fakeForgeBackend struct {
-	serverID int
-	siteID   int
-	command  string
-}
-
-func (b *fakeForgeBackend) ListServers(_ context.Context) ([]forgeconn.Server, error) {
-	return []forgeconn.Server{{ID: 1, Name: "prod"}}, nil
-}
-
-func (b *fakeForgeBackend) GetServer(_ context.Context, serverID int) (*forgeconn.Server, error) {
-	b.serverID = serverID
-	return &forgeconn.Server{ID: serverID, Name: "prod", IsReady: true}, nil
-}
-
-func (b *fakeForgeBackend) ListSites(_ context.Context, serverID int) ([]forgeconn.Site, error) {
-	b.serverID = serverID
-	return []forgeconn.Site{{ID: 2, ServerID: serverID, Name: "app"}}, nil
-}
-
-func (b *fakeForgeBackend) GetDeploymentScript(_ context.Context, serverID, siteID int) (string, error) {
-	b.serverID = serverID
-	b.siteID = siteID
-	return "deploy.sh", nil
-}
-
-func (b *fakeForgeBackend) UpdateDeploymentScript(_ context.Context, serverID, siteID int, _ string, _ bool) error {
-	b.serverID = serverID
-	b.siteID = siteID
-	return nil
-}
-
-func (b *fakeForgeBackend) DeploySite(_ context.Context, serverID, siteID int) error {
-	b.serverID = serverID
-	b.siteID = siteID
-	return nil
-}
-
-func (b *fakeForgeBackend) ExecuteSiteCommand(_ context.Context, serverID, siteID int, command string) (*forgeconn.SiteCommand, error) {
-	b.serverID = serverID
-	b.siteID = siteID
-	b.command = command
-	return &forgeconn.SiteCommand{ID: 7, ServerID: serverID, SiteID: siteID, Command: command, Status: "running"}, nil
 }
 
 type fakeSSHBackend struct {
@@ -356,34 +310,6 @@ func TestExternalConnectorServiceRequiresAcknowledgmentForDestructiveOperation(t
 	}
 	if connErr.Code != ExternalConnectorAckRequired {
 		t.Fatalf("Code = %q, want %q", connErr.Code, ExternalConnectorAckRequired)
-	}
-}
-
-func TestExternalConnectorServiceExecutesForgeOperation(t *testing.T) {
-	backend := &fakeForgeBackend{}
-	registry := connector.NewRegistry()
-	registry.Register(forgeconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector:    "forge",
-		Operation:    "exec_site_command",
-		Acknowledged: true,
-		Config: map[string]any{
-			"server_id": 1,
-			"site_id":   2,
-			"command":   "php artisan migrate",
-		},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	command, ok := result.Data.(*forgeconn.SiteCommand)
-	if !ok || command.Command != "php artisan migrate" {
-		t.Fatalf("Data = %#v, want forge command", result.Data)
-	}
-	if backend.serverID != 1 || backend.siteID != 2 || backend.command != "php artisan migrate" {
-		t.Fatalf("backend = %+v", backend)
 	}
 }
 
