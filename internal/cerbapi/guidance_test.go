@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/approval"
+	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/target"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/connector"
@@ -71,6 +75,17 @@ func TestConvertedRefusalsSurviveEveryLane(t *testing.T) {
 		"plugin missing secret": managedPluginExecuteError(args, &pluginhost.MissingSecretsError{Connector: "contextforge", Secrets: []string{"token"},
 			Err: errors.New("401 from the gateway")}),
 	}
+	pending := approval.Approval{ID: "apr_0123456789ab", Rule: "baseline.lifecycle.agent", Channel: approval.ChannelOutOfBand, ExpiresAt: time.Date(2026, 9, 26, 13, 0, 0, 0, time.UTC)}
+	sites["approval_pending"] = approvalPendingError(args, pending)
+	sites["approval_expired"] = approvalExpiredError(args, pending)
+	sites["plan_stale"] = planStaleError(args, pending)
+	withPDP(t, constantPDP{decision: policy.Deny})
+	sites["policy_denied"] = enforceDecision(context.Background(), nil, auditSpec{connector: "gatefake", operation: "create_thing"}, policy.Request{})
+	withPDP(t, constantPDP{decision: policy.Approve})
+	sites["approval_required, no daemon"] = requestApproval(context.Background(), nil, auditSpec{connector: "gatefake", operation: "create_thing"},
+		policy.Request{Target: tgt(target.EnvDev, target.OwnerSelf, target.AdminSelf)}, constantPDP{decision: policy.Approve}.Authorize(policy.Request{}))
+	sites["approval_pending, no daemon"] = requestApproval(context.Background(), nil, auditSpec{connector: "gatefake", operation: "create_thing"},
+		policy.Request{}, constantPDP{decision: policy.Approve}.Authorize(policy.Request{}))
 	sites["principal_refused"] = (&SocketServer{uid: os.Getuid()}).checkPeer(withPeer(context.Background(), peerCred{uid: os.Getuid() + 1}))
 	_, sites["ssh input refusal"] = sshSvc.declaredOperation(context.Background(),
 		ExternalConnectorOperationArgs{Connector: "ssh", Operation: "exec", Config: map[string]any{"host": "box", "command": "uptime"}})

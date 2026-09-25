@@ -176,7 +176,13 @@ var refusalCodes = map[string]bool{
 	string(ExternalConnectorAckRequired):        true,
 	string(ExternalConnectorUnsupported):        true,
 	string(ExternalConnectorPreviewUnsupported): true,
-	string(ExternalConnectorAuditUnavailable):   true,
+	// Policy's refusals, where enforcement is on.
+	string(ExternalConnectorPolicyDenied):     true,
+	string(ExternalConnectorApprovalRequired): true,
+	string(ExternalConnectorApprovalPending):  true,
+	string(ExternalConnectorApprovalExpired):  true,
+	string(ExternalConnectorPlanStale):        true,
+	string(ExternalConnectorAuditUnavailable): true,
 }
 
 func outcomeCode(err error) string {

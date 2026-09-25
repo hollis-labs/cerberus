@@ -380,3 +380,41 @@ intent and outcome with code `policy_snapshot_changed`, naming both hashes
 (`RecordPolicyLoad`). `cerberus policy apply` is itself an `admin` event
 recorded before the snapshot is written, with the new hash and the number of
 sampled decisions that flip.
+
+## Approvals in the record (P3-1)
+
+The approval broker (`internal/approval`, wrapped by `internal/cerbapi/approvals.go`)
+writes one audit record per transition, each carrying an `approval` reference
+(`audit.ApprovalRef`: id, status, channel, scope, rule, plan hash, expiry,
+and for a decision who decided and with which enrolled key):
+
+- `approval_requested`: linked to the asking call's intent by `operation_id`;
+- `approval_decided`;
+- `approval_consumed`: linked to the intent of the operation it let through;
+- `approval_expired`: written by the daemon's sweeper;
+- `approval_revoked`.
+
+The broker's own store, `~/.cerberus/approvals/events.jsonl` (0600,
+append-only, fsynced, hash-chained), is folded into state when the daemon
+starts. A line that does not parse, a broken chain or a transition the
+lifecycle does not allow is reported and skipped, never fatal. Consume is
+write-ahead: the consumed event is durable before the operation runs, so an
+approval lets at most one call through.
+
+Every gated path now starts through `beginGated`, which is `beginAudit` plus
+enforcement where an `Enforcement` hook says it is on. Nothing installs one
+until P3-7, so shadow mode is unchanged: `TestShadowAsksForNoApproval` and
+`TestShadowPolicyNeverChangesAnOutcome` both fail if the `enforced()` guard is
+removed. Where enforcement is on, a deny answers `policy_denied`, an approve
+asks the broker and answers `approval_pending` with `{id, expires_at,
+approve_with}`, and with no broker (the in-process CLI without a daemon) a
+`tty_confirm` answers `approval_required` and an out-of-band one names
+`cerberus daemon`. Out of band is chosen for prod or unknown env, a shared
+admin, or an owner other than self (Decision 3). Policy's codes are refusals
+in the outcome record.
+
+The store is not trusted on its word. An out-of-band decision must carry a
+presence proof that a `PresenceVerifier` accepts, at decide and again at
+consume. None is installed until P3-4, so no out-of-band approval can be
+approved or consumed yet, and a forged "approved" line lets nothing through
+(`TestForgedApprovalDoesNotConsume`, CERB-GAP-857).

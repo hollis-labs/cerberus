@@ -70,6 +70,8 @@ type connectorErrorWire struct {
 	Connector string                     `json:"connector,omitempty"`
 	Operation string                     `json:"operation,omitempty"`
 	Detail    string                     `json:"detail,omitempty"`
+	// Approval is approval_pending's {id, expires_at, approve_with}.
+	Approval *ApprovalRef `json:"approval,omitempty"`
 
 	// Rendered says the daemon rendered this error's text once, where it
 	// was made: Cerberus's prose kept, the detail redacted. A client trusts
@@ -84,7 +86,7 @@ func connectorErrorWireFor(err error) connectorErrorWire {
 	if !errors.As(err, &connErr) {
 		return connectorErrorWire{}
 	}
-	wire := connectorErrorWire{Code: connErr.Code, Connector: connErr.Connector, Operation: connErr.Operation}
+	wire := connectorErrorWire{Code: connErr.Code, Connector: connErr.Connector, Operation: connErr.Operation, Approval: connErr.Approval}
 	if connErr.Err != nil {
 		wire.Detail = connErr.Err.Error()
 	}
@@ -105,7 +107,7 @@ func daemonError(msg string, wire connectorErrorWire) error {
 		}
 		return fmt.Errorf("daemon: %s", msg)
 	}
-	connErr := &ExternalConnectorError{Code: wire.Code, Connector: wire.Connector, Operation: wire.Operation, rendered: wire.Rendered}
+	connErr := &ExternalConnectorError{Code: wire.Code, Connector: wire.Connector, Operation: wire.Operation, Approval: wire.Approval, rendered: wire.Rendered}
 	if wire.Detail != "" {
 		if wire.Rendered {
 			connErr.Err = renderedDaemonError{text: wire.Detail}

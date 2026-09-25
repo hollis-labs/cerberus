@@ -146,3 +146,32 @@ Every recorded operation carries its decision:
 The error codes `policy_denied`, `approval_required`, `approval_pending`,
 `approval_expired` and `plan_stale` are reserved for enforcement. Nothing
 returns them yet.
+
+## Approvals
+
+Once enforcement is on for an operation, which a later release switches on
+scope by scope, an `approve` decision becomes an **approval request**. The
+daemon holds requests in `~/.cerberus/approvals/events.jsonl` (mode 0600,
+append-only, replayed at start), and each one moves through a lifecycle:
+
+- `pending` → `approved`, `denied`, or `expired`;
+- `approved` → `consumed` (used by exactly one call), `expired`, or `revoked`.
+
+Every transition is an audit record: `approval_requested`,
+`approval_decided`, `approval_consumed`, `approval_expired` and
+`approval_revoked`. The caller gets `approval_pending` with the approval's
+id, expiry and the command that decides it.
+
+```bash
+cerberus approvals list [--status pending]
+cerberus approvals show <id>
+```
+
+With the daemon down, these read the store directly. The in-process CLI
+without a daemon can only confirm a call on the terminal itself. A call that
+needs out-of-band approval is answered with how to start the daemon.
+
+**The store is not trusted on its own word.** Anything running as your user
+can edit it. An out-of-band approval therefore carries proof that a person
+was present, and that proof is verified again when the approval is used, so a
+forged "approved" line lets nothing through.

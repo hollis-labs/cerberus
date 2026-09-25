@@ -157,3 +157,10 @@ did.
 - `report` groups the recorded `would_block` decisions from the audit log.
 
 Policy is never changed over the socket, the web console or MCP.
+
+## Since P3-1
+
+`cerberus approvals list [--status …]` and `cerberus approvals show <id>` show
+the approval requests (CERB-TOOL-870, CERB-TOOL-871). They ask the daemon, and
+with the daemon down read the store directly and say so. Nothing here decides
+an approval.

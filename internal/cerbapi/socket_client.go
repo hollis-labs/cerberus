@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/approval"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
@@ -638,4 +639,19 @@ func (c *SocketClient) WhoAmI(ctx context.Context) (Principal, error) {
 		return Principal{}, err
 	}
 	return out, nil
+}
+
+// ListApprovals is the daemon broker's approvals, newest first. A read, off
+// the Client interface.
+func (c *SocketClient) ListApprovals(ctx context.Context) (ApprovalList, error) {
+	var out ApprovalList
+	err := c.doJSON(ctx, http.MethodGet, "/approvals", nil, &out)
+	return out, err
+}
+
+// GetApproval is one of the daemon broker's approvals.
+func (c *SocketClient) GetApproval(ctx context.Context, id string) (approval.Approval, error) {
+	var out approval.Approval
+	err := c.doJSON(ctx, http.MethodGet, "/approvals/"+url.PathEscape(id), nil, &out)
+	return out, err
 }
