@@ -22869,7 +22869,7 @@
       "state_field": "maturity",
       "state_label": "shipped",
       "confidence_score": 0.8,
-      "confidence_label": "TestPipelinePlanOnRequest, TestPipelinePlanRoute and TestPipelineRunTakesAnApproval on the P3-2c branch",
+      "confidence_label": "TestPipelinePlanOnRequest, TestPipelinePlanRoute and TestPipelineRunTakesAnApproval on the P3-2c branch, TestPipelinePlanBindsEachResourceAction, TestPipelineBuildBindsTheCheckout",
       "tags": [
         "cerberus",
         "class:tool",
@@ -22902,7 +22902,7 @@
         "verified": "test",
         "vendor": []
       },
-      "body": "`cerberus pipeline plan` asks the run for its plan (`WithPlan`), over `POST /pipelines/{id}/run/plan` or in process, which a daemon predating plans answers with 404. The gate treats it as the plan step and records it as a dry run; the answer is `{plan_hash, plan}` from `planPipeline`, the function an approval of the run is asked for and used with: every action of every stage in order (a shell command with its directory, or the resource verb), and the pipeline's definition and each named resource's definition as keyed digests. Nothing runs.",
+      "body": "`cerberus pipeline plan` asks the run for its plan (`WithPlan`), over `POST /pipelines/{id}/run/plan` or in process, which a daemon predating plans answers with 404. The gate treats it as the plan step and records it as a dry run; the answer is `{plan_hash, plan}` from `planPipeline`, the function an approval of the run is asked for and used with: every action of every stage in order (a shell command with its directory, or the resource verb), and the pipeline's definition and each named resource's definition as keyed digests. Nothing runs.\n\nEach action that changes a resource (build, deploy, start, stop) carries that verb's own plan from `planResourceDef`, computed against the pipeline's snapshot as `cerberus resource plan` would compute it, and a shell action lists the names of the variables it inherits (never values). The plan recipe is version 2.",
       "id": "CERB-TOOL-881"
     }
   ]
