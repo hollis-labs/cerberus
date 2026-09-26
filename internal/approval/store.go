@@ -393,7 +393,7 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 		return view, ErrNotApproved
 	case check.Connector != a.Connector || check.Operation != a.Operation:
 		return view, ErrOtherOperation
-	case !sameRequester(a.Principal, check.Principal):
+	case !SameRequester(a.Principal, check.Principal):
 		return view, ErrOtherPrincipal
 	case check.ArgsDigest != a.ArgsDigest:
 		return view, ErrArgsMismatch
@@ -419,8 +419,8 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 	return *s.state[id], nil
 }
 
-// sameRequester reports whether user is the principal that asked.
-func sameRequester(asked, user audit.Principal) bool {
+// SameRequester reports whether user is the principal that asked.
+func SameRequester(asked, user audit.Principal) bool {
 	if asked.Kind != user.Kind || asked.Via != user.Via {
 		return false
 	}

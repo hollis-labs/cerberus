@@ -260,19 +260,23 @@ func (c *SocketClient) mutation(ctx context.Context, id, verb string, stream boo
 	}
 	body := ApplyMutationOptions(options)
 	path := "/resources/" + url.PathEscape(id) + "/" + verb
-	if body.Plan {
+	var send any = body
+	explain := func(err error) error { return err }
+	switch {
+	case body.ConfirmedPlanHash != "":
+		path += "/confirm"
+		send, explain = confirmedBody{body, body.ConfirmedPlanHash}, confirmRoute
+	case body.Plan:
 		path += "/plan"
+		explain = planRoute
 	}
 	var out OpResult
 	do := c.doJSON
 	if stream {
 		do = c.doJSONStream
 	}
-	if err := do(ctx, http.MethodPost, path, body, &out); err != nil {
-		if body.Plan {
-			return nil, planRoute(err)
-		}
-		return nil, err
+	if err := do(ctx, http.MethodPost, path, send, &out); err != nil {
+		return nil, explain(err)
 	}
 	return &out, nil
 }
@@ -327,6 +331,12 @@ func (c *SocketClient) RunPipeline(ctx context.Context, id string, options ...Mu
 	var out PipelineRunResult
 	body := ApplyMutationOptions(options)
 	path := "/pipelines/" + url.PathEscape(id) + "/run"
+	if body.ConfirmedPlanHash != "" {
+		if err := c.doJSONStream(ctx, http.MethodPost, path+"/confirm", confirmedBody{body, body.ConfirmedPlanHash}, &out); err != nil {
+			return nil, confirmRoute(err)
+		}
+		return &out, nil
+	}
 	if body.Plan {
 		if err := c.doJSONStream(ctx, http.MethodPost, path+"/plan", body, &out); err != nil {
 			return nil, planRoute(err)
@@ -390,7 +400,37 @@ func (c *SocketClient) executeConnectorOperation(ctx context.Context, args Exter
 	if args.Plan {
 		return planRoute(c.doJSONStream(ctx, http.MethodPost, path+"/plan", args, out))
 	}
+	if args.ConfirmedPlanHash != "" {
+		body := struct {
+			ExternalConnectorOperationArgs
+			ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+		}{args, args.ConfirmedPlanHash}
+		return confirmRoute(c.doJSONStream(ctx, http.MethodPost, path+"/confirm", body, out))
+	}
 	return c.doJSONStream(ctx, http.MethodPost, path, args, out)
+}
+
+// confirmedBody is a mutation's options with the confirmed plan hash, which
+// MutationOpts never serializes: it travels only to a confirm route.
+type confirmedBody struct {
+	MutationOpts
+	ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+}
+
+// confirmRoute explains a confirmation an older daemon refused: it asks on
+// a route of its own (…/confirm) so that a daemon predating confirmation
+// answers 404 instead of running the call unconfirmed.
+func confirmRoute(err error) error {
+	if err != nil && olderDaemonRefusal(err.Error()) {
+		return redact.GuidanceWrap(err, "the running daemon predates confirming on the call, so it refused the confirmation and nothing ran; restart the daemon on this build, then retry")
+	}
+	return err
+}
+
+// olderDaemonRefusal is the 404 an older daemon answers a route it does not
+// have with.
+func olderDaemonRefusal(msg string) bool {
+	return strings.Contains(msg, "expected /connectors/{id}/operations/{operation}") || strings.Contains(msg, "unknown resource action") || strings.Contains(msg, "unknown pipeline action")
 }
 
 // planRoute explains a plan request an older daemon refused. A plan is
@@ -401,8 +441,7 @@ func planRoute(err error) error {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "expected /connectors/{id}/operations/{operation}") || strings.Contains(msg, "unknown resource action") || strings.Contains(msg, "unknown pipeline action") {
+	if olderDaemonRefusal(err.Error()) {
 		return redact.GuidanceWrap(err, "the running daemon predates plans, so it refused the plan request and nothing ran; restart the daemon on this build, then retry")
 	}
 	return err

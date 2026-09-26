@@ -218,13 +218,13 @@ var resourceReloadCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, reloadErr := client.ReloadResource(cmd.Context(), id, ackOption(cmd))
+			out, reloadErr := confirmResourceVerb(cmd.Context(), cmd, id, client.ReloadResource, ackOption(cmd))
 			if reloadErr != nil {
 				return withHint(reloadErr, hint)
 			}
 			return withHint(printResourceOpResult(out, fmt.Sprintf("Reloaded resource %s", id)), hint)
 		}
-		out, err := newResourceRuntimeService().ReloadResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
+		out, err := confirmResourceVerb(inProcessContext(cmd.Context()), cmd, id, newResourceRuntimeService().ReloadResource, ackOption(cmd))
 		if err != nil {
 			return withHint(err, hint)
 		}
@@ -246,13 +246,13 @@ var resourceStopCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, stopErr := client.StopResource(cmd.Context(), id, ackOption(cmd))
+			out, stopErr := confirmResourceVerb(cmd.Context(), cmd, id, client.StopResource, ackOption(cmd))
 			if stopErr != nil {
 				return withHint(stopErr, hint)
 			}
 			return withHint(printResourceOpResult(out, fmt.Sprintf("Stopped resource %s", id)), hint)
 		}
-		out, err := newResourceRuntimeService().StopResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
+		out, err := confirmResourceVerb(inProcessContext(cmd.Context()), cmd, id, newResourceRuntimeService().StopResource, ackOption(cmd))
 		if err != nil {
 			return withHint(err, hint)
 		}
@@ -275,14 +275,14 @@ var resourceApplyCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, applyErr := client.ApplyResource(cmd.Context(), id, ackOption(cmd))
+			out, applyErr := confirmResourceVerb(cmd.Context(), cmd, id, client.ApplyResource, ackOption(cmd))
 			if applyErr != nil {
 				return withHint(applyErr, hint)
 			}
 			return withHint(printResourceOpResult(out, fmt.Sprintf("Applied resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().ApplyResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
+		out, err := confirmResourceVerb(inProcessContext(cmd.Context()), cmd, id, newResourceRuntimeService().ApplyResource, ackOption(cmd))
 		if err != nil {
 			return withHint(err, hint)
 		}
@@ -311,14 +311,14 @@ var resourceDeployCmd = &cobra.Command{
 			return err
 		}
 		if socketClient != nil {
-			out, deployErr := socketClient.DeployResource(cmd.Context(), id, deployOpts...)
+			out, deployErr := confirmResourceVerb(cmd.Context(), cmd, id, socketClient.DeployResource, deployOpts...)
 			if deployErr != nil {
 				return withHint(deployErr, hint)
 			}
 			return withHint(printResourceOpResult(out, fmt.Sprintf("Deployed resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().DeployResource(inProcessContext(cmd.Context()), id, deployOpts...)
+		out, err := confirmResourceVerb(inProcessContext(cmd.Context()), cmd, id, newResourceRuntimeService().DeployResource, deployOpts...)
 		if err != nil {
 			return withHint(err, hint)
 		}
@@ -578,14 +578,14 @@ var resourceSyncCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, syncErr := client.SyncResource(cmd.Context(), id, ackOption(cmd))
+			out, syncErr := confirmResourceVerb(cmd.Context(), cmd, id, client.SyncResource, ackOption(cmd))
 			if syncErr != nil {
 				return withHint(syncErr, hint)
 			}
 			return withHint(printResourceOpResult(out, fmt.Sprintf("Synced resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().SyncResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
+		out, err := confirmResourceVerb(inProcessContext(cmd.Context()), cmd, id, newResourceRuntimeService().SyncResource, ackOption(cmd))
 		if err != nil {
 			return withHint(err, hint)
 		}
@@ -608,14 +608,14 @@ var resourceRemoveCmd = &cobra.Command{
 			return err
 		}
 		if client != nil {
-			out, removeErr := client.RemoveResource(cmd.Context(), id, ackOption(cmd))
+			out, removeErr := confirmResourceVerb(cmd.Context(), cmd, id, client.RemoveResource, ackOption(cmd))
 			if removeErr != nil {
 				return withHint(removeErr, hint)
 			}
 			return withHint(printResourceOpResult(out, fmt.Sprintf("Removed resource %s", id)), hint)
 		}
 
-		out, err := newResourceRuntimeService().RemoveResource(inProcessContext(cmd.Context()), id, ackOption(cmd))
+		out, err := confirmResourceVerb(inProcessContext(cmd.Context()), cmd, id, newResourceRuntimeService().RemoveResource, ackOption(cmd))
 		if err != nil {
 			return withHint(err, hint)
 		}
@@ -1037,4 +1037,27 @@ func init() {
 	resourcePlanCmd.Flags().Bool("ack", false, "plan the verb as it would be sent with --ack")
 	resourceCmd.AddCommand(resourcePlanCmd)
 
+}
+
+// confirmResourceVerb runs a resource verb and, where policy wants a person
+// to confirm it on their own terminal, shows its plan, takes the typed
+// target and runs it again confirmed.
+func confirmResourceVerb(ctx context.Context, cmd *cobra.Command, id string, call func(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error), opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	out, err := call(ctx, id, opts...)
+	ref, ok := confirmable(err)
+	if !ok {
+		return out, err
+	}
+	shown, perr := call(ctx, id, append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithPlan())...)
+	if perr != nil {
+		return nil, perr
+	}
+	if shown == nil {
+		return nil, err
+	}
+	hash, cerr := confirmOnTerminal(cmd.InOrStdin(), cmd.ErrOrStderr(), shown.Plan)
+	if cerr != nil {
+		return nil, cerr
+	}
+	return call(ctx, id, append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithApprovalID(ref.ID), cerbapi.WithConfirmedPlanHash(hash))...)
 }

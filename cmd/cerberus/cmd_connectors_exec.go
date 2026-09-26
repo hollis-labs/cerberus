@@ -143,7 +143,7 @@ func runConnectorExec(ctx context.Context, out, errOut io.Writer, stdin io.Reade
 	for _, hint := range hints {
 		fmt.Fprintf(errOut, "hint: %s %s: %s\n", connectorID, operation, hint)
 	}
-	result, err := svc.Execute(ctx, cerbapi.ExternalConnectorOperationArgs{
+	args := cerbapi.ExternalConnectorOperationArgs{
 		Connector:    connectorID,
 		Operation:    operation,
 		Config:       cfg,
@@ -151,7 +151,28 @@ func runConnectorExec(ctx context.Context, out, errOut io.Writer, stdin io.Reade
 		Acknowledged: flags.ack,
 		ApprovalID:   flags.approval,
 		Plan:         flags.plan,
-	})
+	}
+	result, err := svc.Execute(ctx, args)
+	if ref, ok := confirmable(err); ok && !flags.plan {
+		// Policy wants a person to confirm this on their own terminal: show
+		// the plan, take the typed target, send it again confirmed.
+		planArgs := args
+		planArgs.Plan = true
+		shown, perr := svc.Execute(ctx, planArgs)
+		if perr != nil {
+			return perr
+		}
+		p, perr := planFrom(shown.Data)
+		if perr != nil {
+			return perr
+		}
+		hash, cerr := confirmOnTerminal(stdin, errOut, p)
+		if cerr != nil {
+			return cerr
+		}
+		args.ConfirmedPlanHash, args.ApprovalID = hash, ref.ID
+		result, err = svc.Execute(ctx, args)
+	}
 	if err != nil {
 		return err
 	}
