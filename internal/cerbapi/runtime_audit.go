@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/hollis-labs/cerberus/internal/plan"
+
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 )
@@ -69,12 +71,27 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	}
 	def := localconn.Definition()
 	op, known := def.Operation(operation)
-	call, err := beginGated(ctx, s.audit, s.logger, auditSpec{
+	spec := auditSpec{
 		connector: def.ID, operation: operation, op: op, known: known,
 		config: config, acknowledged: opts.Acknowledged, resources: s.ResourceDef,
-	})
+		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan,
+	}
+	if opts.Plan {
+		spec.approvalID = ""
+	}
+	planSpec := spec
+	spec.plan = func(ctx context.Context) (plan.Plan, error) { return s.planResource(ctx, planSpec, id) }
+	call, err := beginGated(ctx, s.audit, s.logger, spec)
 	if err != nil {
 		return nil, err
+	}
+	if opts.Plan {
+		shown, planErr := showPlan(ctx, spec)
+		call.finish(planErr)
+		if planErr != nil {
+			return nil, planErr
+		}
+		return &OpResult{Success: true, ServiceID: id, Message: "plan only; nothing ran", Plan: shown}, nil
 	}
 	out, err := run(ctx, id, options...)
 	call.finish(resultError(err, out != nil && !out.Success))

@@ -212,6 +212,21 @@ This is recorded like a dry run. It runs the operation's preview, and for a
 plugin that means a call to the plugin, so a plan is computed only when you
 ask for one or when an approval is asked for or used.
 
+A resource verb's plan is the resource's definition (as a keyed digest, since
+its environment can carry values), the build output `apply` and `sync` would
+install with its sha256, the checkout's commit and dirty flag for `deploy`,
+the launch agent `apply` and `deploy` would write (as a keyed digest), and the
+resource's observed state. An approval to stop a service does not stop it
+after it has been redefined or restarted as something else.
+
+```bash
+cerberus resource plan <id> deploy|apply|reload|stop|sync|remove
+cerberus resource stop <id> --ack --approval <id>
+```
+
+A plan is asked for on its own route. A daemon that predates plans refuses
+the request rather than running the verb, and the CLI says to restart it.
+
 **The store is not trusted on its own word.** Anything running as your user
 can edit it. An out-of-band approval therefore carries proof that a person
 was present, and that proof is verified again when the approval is used, so a

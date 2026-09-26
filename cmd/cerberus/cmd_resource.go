@@ -326,10 +326,69 @@ var resourceDeployCmd = &cobra.Command{
 	},
 }
 
-// ackOption reads a command's --ack into the mutation's options.
+// ackOption reads a command's --ack, and its --approval where it has one,
+// into the mutation's options.
 func ackOption(cmd *cobra.Command) cerbapi.MutationOption {
 	ack, _ := cmd.Flags().GetBool("ack")
-	return cerbapi.WithAcknowledged(ack)
+	approvalID, _ := cmd.Flags().GetString("approval")
+	return func(o *cerbapi.MutationOpts) {
+		cerbapi.WithAcknowledged(ack)(o)
+		cerbapi.WithApprovalID(approvalID)(o)
+	}
+}
+
+var resourcePlanCmd = &cobra.Command{
+	Use:   "plan <resource-id> <deploy|apply|reload|stop|sync|remove>",
+	Short: "Show the plan an approval of a resource verb would bind to",
+	Long: `Compute and print the plan for one resource verb, and its hash, without
+running it: the resource's definition (as a keyed digest), the checkout's
+commit and dirty flag for deploy, the build output apply and sync would
+install, the launch agent apply and deploy would write (as a keyed digest),
+and the resource's observed state.
+
+This is the same function an approval is asked for and used with, so the hash
+printed is the one an approval of the verb would record. It is recorded like a
+dry run, and writes nothing.`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id, verb := args[0], args[1]
+		opts := []cerbapi.MutationOption{ackOption(cmd), cerbapi.WithPlan()}
+		client, err := resourceMutationSocket(cmd.Context())
+		if err != nil {
+			return err
+		}
+		var runner resourceVerbs = client
+		ctx := cmd.Context()
+		if client == nil {
+			runner, ctx = newResourceRuntimeService(), inProcessContext(ctx)
+		}
+		verbs := map[string]func(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error){
+			"deploy": runner.DeployResource, "apply": runner.ApplyResource, "reload": runner.ReloadResource,
+			"stop": runner.StopResource, "sync": runner.SyncResource, "remove": runner.RemoveResource,
+		}
+		run, ok := verbs[verb]
+		if !ok {
+			return fmt.Errorf("resource plan: unknown verb %q; want deploy, apply, reload, stop, sync or remove", verb)
+		}
+		out, err := run(ctx, id, opts...)
+		if err != nil {
+			return err
+		}
+		if out == nil || out.Plan == nil {
+			return fmt.Errorf("resource plan %s %s: the serving Cerberus returned no plan; it may predate plans, so restart the daemon on this build", id, verb)
+		}
+		return writeJSON(cmd.OutOrStdout(), out.Plan)
+	},
+}
+
+// resourceVerbs are the resource mutations a plan can be asked of.
+type resourceVerbs interface {
+	DeployResource(ctx context.Context, id string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error)
+	ApplyResource(ctx context.Context, id string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error)
+	ReloadResource(ctx context.Context, id string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error)
+	StopResource(ctx context.Context, id string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error)
+	SyncResource(ctx context.Context, id string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error)
+	RemoveResource(ctx context.Context, id string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error)
 }
 
 // resolveDeployFlags collapses the --install-after-build / --no-install-after-build
@@ -972,7 +1031,10 @@ func init() {
 	// remove is destructive. ensure-fresh passes it to whichever it runs.
 	for _, c := range []*cobra.Command{resourceDeployCmd, resourceEnsureFreshCmd, resourceApplyCmd, resourceReloadCmd, resourceStopCmd, resourceSyncCmd, resourceRemoveCmd} {
 		c.Flags().Bool("ack", false, "acknowledge the operation; every resource mutation requires it")
+		c.Flags().String("approval", "", "run under this approved approval id")
 	}
 	resourceCmd.AddCommand(resourceRemoveCmd)
+	resourcePlanCmd.Flags().Bool("ack", false, "plan the verb as it would be sent with --ack")
+	resourceCmd.AddCommand(resourcePlanCmd)
 
 }

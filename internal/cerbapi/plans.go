@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -72,20 +74,34 @@ type ConnectorPlan struct {
 // one an approval is asked for and used with — so what is shown is what
 // would be bound. It runs nothing but the preview.
 func (s *ExternalConnectorService) showPlan(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	p, err := s.planOperation(ctx, args)
+	shown, err := showPlan(ctx, s.auditSpec(args))
+	if err != nil {
+		return ExternalConnectorOperationResult{}, err
+	}
+	return ExternalConnectorOperationResult{Connector: args.Connector, Operation: args.Operation, Data: *shown}, nil
+}
+
+// showPlan computes a spec's plan through its lane's plan function and
+// hashes it, for a caller that asked to see it.
+func showPlan(ctx context.Context, spec auditSpec) (*ConnectorPlan, error) {
+	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
+	if spec.plan == nil {
+		return nil, externalConnectorError(args, ExternalConnectorUnsupported, redact.Guidance("%s %s has no plan to show", spec.connector, spec.operation))
+	}
+	p, err := spec.plan(ctx)
 	if err != nil {
 		var coded *ExternalConnectorError
 		if errors.As(err, &coded) {
-			return ExternalConnectorOperationResult{}, err
+			return nil, err
 		}
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		return nil, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 	}
 	p.V = plan.Version
 	hash, err := p.Hash()
 	if err != nil {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
+		return nil, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 	}
-	return ExternalConnectorOperationResult{Connector: args.Connector, Operation: args.Operation, Data: ConnectorPlan{PlanHash: hash, Plan: p}}, nil
+	return &ConnectorPlan{PlanHash: hash, Plan: p}, nil
 }
 
 // planPlugin adds a plugin's part of a plan: its fingerprints, and its own
@@ -111,25 +127,28 @@ func (s *ManagedPluginConnectorService) planPlugin(ctx context.Context, p *plan.
 // environment), the profile's definition, and the checkout it deploys —
 // its commit and whether it has uncommitted changes. An edited profile, a
 // new commit or a dirty tree is a different plan (CERB-GAP-853).
-func planDeploymentProfile(ctx context.Context, spec auditSpec, sink interface{ Digest(any) string }, secrets secret.Provider, profile infra.DeploymentProfile) (plan.Plan, error) {
+//
+// It returns the deployment plan it described too, so that a run checked
+// against an approval runs those steps and does not plan again.
+func planDeploymentProfile(ctx context.Context, spec auditSpec, sink interface{ Digest(any) string }, secrets secret.Provider, profile infra.DeploymentProfile) (plan.Plan, *infra.DeploymentPlan, error) {
 	tgt, _ := auditTarget(spec)
 	p := plan.Plan{Lane: plan.LaneDeployProfile, Connector: spec.connector, Operation: spec.operation, Effect: string(spec.op.Effect),
 		Target: tgt, ArgsDigest: sink.Digest(spec.config)}
 	dp := infra.PlanDeployment(ctx, secrets, profile)
 	if dp.Error != "" {
-		return plan.Plan{}, redact.Guidance("deploy profile %q cannot be planned: %s", profile.ID, dp.Error)
+		return plan.Plan{}, nil, redact.Guidance("deploy profile %q cannot be planned: %s", profile.ID, dp.Error)
 	}
 	for _, step := range dp.Steps {
 		p.Steps = append(p.Steps, plan.Step{Name: step.Name, Command: step.Command, Dir: profile.RepoPath, Env: step.Env})
 	}
 	def, err := plan.Canonical(profile)
 	if err != nil {
-		return plan.Plan{}, err
+		return plan.Plan{}, nil, err
 	}
 	sum := sha256.Sum256(def)
 	p.Digests = map[string]string{"profile": "sha256:" + hex.EncodeToString(sum[:])}
 	p.Source = gitSource(ctx, profile.RepoPath)
-	return p, nil
+	return p, dp, nil
 }
 
 // gitSource is a checkout's commit and dirty flag. A directory that is not a
@@ -186,4 +205,70 @@ func gitBinary() string {
 		}
 	}
 	return ""
+}
+
+// planResource is a resource verb's plan: the resource's definition (as a
+// keyed digest, since its environment can carry values), what the verb
+// would install and from where, and the state it would change.
+//   - deploy builds: the checkout's commit and dirty flag, and the build
+//     output it would install.
+//   - apply and sync install the build output as it is now: its path and
+//     sha256.
+//   - apply and deploy write a launch agent: the rendered plist, as a keyed
+//     digest.
+//   - every verb: the observed state, so an approval to stop a running
+//     service does not stop it after it was restarted as something else.
+func (s *ResourceRuntimeService) planResource(ctx context.Context, spec auditSpec, id string) (plan.Plan, error) {
+	res, pspec, err := s.requireLocalProcessSpec(id)
+	if err != nil {
+		return plan.Plan{}, err
+	}
+	tgt, _ := auditTarget(spec)
+	p := plan.Plan{Lane: plan.LaneResource, Connector: spec.connector, Operation: spec.operation, Effect: string(spec.op.Effect),
+		Target: tgt, ArgsDigest: s.audit.Digest(spec.config), Digests: map[string]string{"spec": s.audit.Digest(res)}}
+	installs := spec.operation == localconn.OpDeploy || spec.operation == localconn.OpApply || spec.operation == localconn.OpSync
+	if spec.operation == localconn.OpDeploy && localconn.HasBuildStrategy(pspec) {
+		p.Source = gitSource(ctx, pspec.Dir)
+	}
+	if installs && pspec.RunFrom == localconn.ProcessRunFromArtifact {
+		if path, perr := localconn.ResolveArtifactSourcePath(pspec); perr == nil {
+			p.Artifact = path
+			// A deploy builds before it installs, so the output as it is now
+			// is not what it would install; the source binds that instead.
+			if spec.operation != localconn.OpDeploy {
+				p.Digests["artifact"] = fileDigest(path)
+			}
+		} else {
+			p.Artifact = "(unresolved: " + perr.Error() + ")"
+		}
+	}
+	dr := resourceDefToDomain(res)
+	if spec.operation == localconn.OpDeploy || spec.operation == localconn.OpApply {
+		if rendered, ok, perr := s.localConnector().PreviewPlist(dr); perr != nil {
+			return plan.Plan{}, fmt.Errorf("render the launch agent %q would install: %w", id, perr)
+		} else if ok {
+			p.Digests["plist"] = s.audit.Digest(string(rendered))
+		}
+	}
+	state, err := s.statusWithTimeout(ctx, dr)
+	if err != nil {
+		p.State = "unknown: " + err.Error()
+	} else {
+		p.State = string(state)
+	}
+	return p, nil
+}
+
+// fileDigest is a file's sha256, or why it has none.
+func fileDigest(path string) string {
+	f, err := os.Open(path) //nolint:gosec // a resource's own build output
+	if err != nil {
+		return "(missing)"
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "(unreadable)"
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
