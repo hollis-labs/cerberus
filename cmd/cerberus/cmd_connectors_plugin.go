@@ -15,6 +15,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/policy"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/spf13/cobra"
 )
@@ -95,12 +96,19 @@ upgrade, shown as a diff against the review you accepted before. The running
 daemon is then asked to reload the plugin by id.
 
 Every load compares the installed bundle with the one you accepted and refuses
-a plugin that changed (plugin_changed); see 'load --accept-changes'.`,
+a plugin that changed (plugin_changed); see 'load --accept-changes'. Under the
+permissive posture a changed plugin loads anyway, with a warning and an audit
+record.
+
+--yes accepts the review without the typed confirmation, and needs no
+terminal, but only under the permissive posture ('cerberus posture set
+permissive'). The review is still printed and the acceptance is recorded as
+unattended.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runPluginReview(cmd, func(ctx context.Context, r *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error) {
+		return runPluginReviewOpts(cmd, func(ctx context.Context, r *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error) {
 			return r.PrepareInstall(ctx, args[0], connectorsPluginDev)
-		}, false)
+		}, false, connectorsPluginYes)
 	},
 }
 
@@ -121,6 +129,9 @@ longer matches its accepted review is shown as a diff.`,
 }
 
 var connectorsPluginAcceptChanges bool
+
+// connectorsPluginYes is install --yes.
+var connectorsPluginYes bool
 
 var connectorsPluginManagedListCmd = &cobra.Command{
 	Use:   "list",
@@ -223,6 +234,7 @@ func init() {
 	addPluginInstallFlags(connectorsPluginExecCmd)
 	addPluginInstallFlags(connectorsPluginManagedInstallCmd)
 	connectorsPluginExecFlags.register(connectorsPluginExecCmd)
+	connectorsPluginManagedInstallCmd.Flags().BoolVar(&connectorsPluginYes, "yes", false, "accept the review without typing the plugin id; only under the permissive posture")
 	connectorsPluginManagedLoadCmd.Flags().BoolVar(&connectorsPluginAcceptChanges, "accept-changes", false, "review what changed since the accepted review and accept it (interactive terminal only)")
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedInstallCmd)
 	connectorsPluginManagedCmd.AddCommand(connectorsPluginManagedReviewCmd)
@@ -293,7 +305,19 @@ var reloadManagedPlugin = func(ctx context.Context, id string) (cerbapi.ManagedP
 // "nothing to review" a success, for load --accept-changes on a plugin that
 // has not changed.
 func runPluginReview(cmd *cobra.Command, prepare func(context.Context, *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error), quietIfNothing bool) error {
-	if !pluginReviewIsTerminal() {
+	return runPluginReviewOpts(cmd, prepare, quietIfNothing, false)
+}
+
+// runPluginReviewOpts is runPluginReview, and with unattended the install
+// --yes path: allowed only under the permissive posture, which the reviewer
+// checks again before it accepts.
+func runPluginReviewOpts(cmd *cobra.Command, prepare func(context.Context, *cerbapi.PluginReviewer) (*cerbapi.PendingReview, error), quietIfNothing, unattended bool) error {
+	switch {
+	case unattended:
+		if currentPosture().Global != policy.PosturePermissive {
+			return cerbapi.ErrPluginYesNeedsPermissive
+		}
+	case !pluginReviewIsTerminal():
 		return errPluginReviewNotInteractive
 	}
 	ctx := inProcessContext(cmd.Context())
@@ -314,13 +338,19 @@ func runPluginReview(cmd *cobra.Command, prepare func(context.Context, *cerbapi.
 		return err
 	}
 	_, _ = fmt.Fprint(out, pending.Text())
-	_, _ = fmt.Fprint(out, "\n"+pending.Prompt())
-	line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	if readErr != nil && !errors.Is(readErr, io.EOF) {
-		reviewer.Discard(pending)
-		return readErr
+	var state cerbapi.ManagedPluginConnectorState
+	if unattended {
+		_, _ = fmt.Fprintln(out, "\nAccepting without a confirmation: --yes, and the posture is permissive. This is recorded as unattended.")
+		state, err = reviewer.AcceptUnattended(ctx, pending)
+	} else {
+		_, _ = fmt.Fprint(out, "\n"+pending.Prompt())
+		line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			reviewer.Discard(pending)
+			return readErr
+		}
+		state, err = reviewer.Accept(ctx, pending, line)
 	}
-	state, err := reviewer.Accept(ctx, pending, line)
 	if err != nil {
 		return err
 	}
