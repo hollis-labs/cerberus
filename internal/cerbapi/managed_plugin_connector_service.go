@@ -67,7 +67,11 @@ type ManagedPluginConnectorState struct {
 	// when empty, so "nothing exposed" is visible rather than inferred.
 	ConfigFields []string `json:"config_fields"`
 	MCPExpose    []string `json:"mcp_expose"`
-	ConfigSHA256 string   `json:"config_sha256,omitempty"`
+	// MCPExposeByPosture marks an exposure that came from the permissive
+	// posture, because connector-config.yaml has no mcp.expose list for the
+	// plugin, rather than from the operator's list.
+	MCPExposeByPosture bool   `json:"mcp_expose_by_posture,omitempty"`
+	ConfigSHA256       string `json:"config_sha256,omitempty"`
 	// ConfigProblems is why the plugin's settings were refused, which is why
 	// it is not loaded. Always present, as [] when there are none.
 	ConfigProblems []string `json:"config_problems"`
@@ -492,6 +496,13 @@ func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin,
 		if settings, ok := s.manager.Settings(plugin.ID); ok {
 			out.ConfigFields = settings.Fields
 			out.MCPExpose = settings.Expose
+			// mcp.expose narrows under every posture. Only a plugin the
+			// operator said nothing about is opened by a global permissive
+			// posture; a scoped rule never reaches a host-wide switch.
+			if !settings.ExposeDeclared && PolicyDecisionPoint().GlobalPosture() == policy.PosturePermissive {
+				out.MCPExpose = pluginhost.ExposableOperations(plugin)
+				out.MCPExposeByPosture = true
+			}
 			out.ConfigSHA256 = settings.SHA256
 		}
 	}
