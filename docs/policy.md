@@ -225,8 +225,13 @@ cerberus resource stop <id> --ack --approval <id>
 ```
 
 A pipeline run's plan is every action of every stage in order (a shell
-command with its directory, or the resource verb), and the pipeline's
-definition and each resource it names, as keyed digests. An approved run
+command with its directory and the names, never the values, of the
+environment variables it inherits, or the resource verb), and the pipeline's
+definition and each resource it names, as keyed digests. Each action that
+changes a resource (build, deploy, start, stop) also carries that verb's own
+plan, exactly as `cerberus resource plan` would compute it, so a pipeline that
+deploys a resource binds that deploy's checkout, build output and launch
+agent. An approved run
 executes the definition the plan was checked against, not the config as it
 reads a moment later.
 

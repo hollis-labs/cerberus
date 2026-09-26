@@ -206,3 +206,66 @@ func TestPipelinePlanRoute(t *testing.T) {
 		t.Fatalf("old daemon: %v, ran %d", err, ran.Load())
 	}
 }
+
+// Each action that changes a resource carries that verb's own plan, with
+// the resource's labels from the snapshot; a shell action lists the names
+// of the variables it inherits, never their values.
+func TestPipelinePlanBindsEachResourceAction(t *testing.T) {
+	t.Setenv("CERBERUS_PLAN_TEST_VALUE", "must-not-appear")
+	dir := t.TempDir()
+	svc := NewResourceRuntimeService(audit.NewMemory())
+	setPipelines(svc, []config.ResourceDef{devResource(t, nil)}, shellPipeline(dir, "ran"))
+	spec := auditSpec{connector: "pipeline", operation: "run", config: map[string]any{"id": "ship"}}
+	p, _, err := svc.planPipeline(context.Background(), spec, "ship")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Actions) != 1 {
+		t.Fatalf("actions %+v", p.Actions)
+	}
+	stop := p.Actions[0]
+	if stop.Lane != plan.LaneResource || stop.Operation != "stop" || stop.Target.Resource != "svc" || stop.Target.Env != "dev" || stop.State == "" || stop.Digests["spec"] == "" {
+		t.Fatalf("stop action plan %+v", stop)
+	}
+	names := strings.Join(p.Steps[0].Env, ",")
+	if !strings.Contains(names, "CERBERUS_PLAN_TEST_VALUE") || !strings.Contains(names, "PATH") {
+		t.Fatalf("shell env names %s", names)
+	}
+	if data, _ := plan.Canonical(p); strings.Contains(string(data), "must-not-appear") {
+		t.Fatal("an environment value reached the plan")
+	}
+}
+
+// A pipeline that builds a resource binds the build as `resource plan`
+// would: a new commit in the resource's checkout is a different plan, though
+// neither the pipeline nor the resource definition changed.
+func TestPipelineBuildBindsTheCheckout(t *testing.T) {
+	repo := t.TempDir()
+	testGit(t, repo, "init", "-q")
+	testGit(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
+	res := devResource(t, map[string]any{"dir": repo, "build_strategy": map[string]any{"kind": "make_standard", "rules": map[string]any{"output": "./app"}}})
+	svc := NewResourceRuntimeService(audit.NewMemory())
+	build := config.PipelineDef{ID: "ship", Name: "Ship", Stages: []config.StageDef{{Name: "one", Actions: []config.ActionDef{{Type: "build", Resource: "svc"}}}}}
+	setPipelines(svc, []config.ResourceDef{res}, build)
+	spec := auditSpec{connector: "pipeline", operation: "run", config: map[string]any{"id": "ship"}}
+	hash := func() string {
+		t.Helper()
+		p, _, err := svc.planPipeline(context.Background(), spec, "ship")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Actions) != 1 || p.Actions[0].Source == nil || len(p.Actions[0].Source.HEAD) != 40 {
+			t.Fatalf("build action plan %+v", p.Actions)
+		}
+		h, err := p.Hash()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	first := hash()
+	testGit(t, repo, "commit", "-q", "--allow-empty", "-m", "two")
+	if hash() == first {
+		t.Fatal("a new commit in the built resource's checkout is the same pipeline plan")
+	}
+}
