@@ -364,10 +364,30 @@ label in that text still gets through, which is why the value boundary exists.
 A rule change can still eat vendor wording, but it can no longer eat an
 instruction written as Guidance.
 
+**The eleventh came after WP-S2, from the edge's key walk rather than the
+text rules.** Every JSON response is walked by key, and a key whose *name*
+looks credential-shaped has its value replaced whatever it holds. WebAuthn's
+own `allowCredentials` came back `[REDACTED]` in the passkey challenge, and
+Chrome refused the options. An enrollment field named `token` was blanked the
+same way. Both are protocol fields, public by construction: a challenge, a
+relying party, credential ids. The unit tests passed, because their software
+authenticator ignored `allowCredentials`. Only a run through a real browser
+(a CDP virtual authenticator) caught it. The options now travel as base64url of
+their JSON (`cerbapi.WebAuthnOptions`), and the CLI keeps the enrollment token
+and hands the daemon its sha256, so no credential is in a response at all.
+
 The rules that remain:
 
 - **Do not run redaction over a value that is a name by construction.** Declare
   it: a secret that is a path or a name says `kind: path` or `kind: name`.
+- **A response field that is public by construction but credential-named is
+  encoded or exempted by schema, never renamed to slip past.** Encode it as an
+  opaque value, as `WebAuthnOptions` does, or exempt it by schema where the
+  schema proves it cannot hold a value (`namesOnlyKeys`). If it is a real
+  credential, it does not belong in the response: hand over a digest instead.
+  Either way it gets a test through a real client (a browser, or the real
+  socket client and response writer), because a lenient fake reads past the
+  damage.
 - **Write a refusal or recovery instruction as `redact.Guidance`, with names as
   its arguments**, never a provider's text. Add a test that it reaches the
   operator intact on every lane, as `TestConvertedRefusalsSurviveEveryLane`

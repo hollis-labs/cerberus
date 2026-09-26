@@ -130,3 +130,25 @@ func TestConsoleIsLocalhostForPasskeys(t *testing.T) {
 		t.Fatal("the Origin check must accept exactly localhost on the listen port")
 	}
 }
+
+// The console answers a daemon refusal with the daemon's status, for every
+// class, and a connector refusal whose code has no status of its own falls
+// back to the daemon's rather than to 500.
+func TestConsolePassesOnTheDaemonsStatus(t *testing.T) {
+	d, h, token := approvalsConsole(t)
+	for _, status := range []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusLocked,
+		http.StatusInternalServerError, http.StatusServiceUnavailable} {
+		d.err = &cerbapi.DaemonStatusError{Status: status, Err: errors.New("daemon: refused")}
+		if rec := consolePost(h, token, "/api/approvals/apr_1/decide", `{"approve":false}`); rec.Code != status || !strings.Contains(rec.Body.String(), "daemon: refused") {
+			t.Errorf("%d: console answered %d %s", status, rec.Code, rec.Body.String())
+		}
+	}
+	d.err = &cerbapi.DaemonStatusError{Status: http.StatusConflict, Err: &cerbapi.ExternalConnectorError{Code: "some_new_code", Connector: "approvals", Operation: "decide", Err: errors.New("no")}}
+	if rec := consolePost(h, token, "/api/approvals/apr_1/decide", `{"approve":false}`); rec.Code != http.StatusConflict {
+		t.Errorf("an unmapped connector code: %d", rec.Code)
+	}
+	d.err = errors.New("not from the daemon")
+	if rec := consolePost(h, token, "/api/approvals/apr_1/decide", `{"approve":false}`); rec.Code != http.StatusInternalServerError {
+		t.Errorf("a local error: %d", rec.Code)
+	}
+}
