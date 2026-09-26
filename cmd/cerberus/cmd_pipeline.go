@@ -62,7 +62,40 @@ var pipelineRunCmd = &cobra.Command{
 		ctx, cancel := signal.NotifyContext(inProcessContext(cmd.Context()), syscall.SIGINT, syscall.SIGTERM)
 		defer cancel()
 		ack, _ := cmd.Flags().GetBool("ack")
-		return runPipelineCommand(ctx, client, args[0], os.Stdout, cerbapi.WithAcknowledged(ack))
+		approvalID, _ := cmd.Flags().GetString("approval")
+		return runPipelineCommand(ctx, client, args[0], os.Stdout, cerbapi.WithAcknowledged(ack), cerbapi.WithApprovalID(approvalID))
+	},
+}
+
+var pipelinePlanCmd = &cobra.Command{
+	Use:   "plan <pipeline-id>",
+	Short: "Show the plan an approval of a pipeline run would bind to",
+	Long: `Compute and print the plan for one pipeline run, and its hash, without
+running it: every action of every stage in order (a shell command with its
+directory, or the resource verb), and the pipeline's definition and each
+named resource's definition as keyed digests.
+
+This is the same function an approval is asked for and used with, so the hash
+printed is the one an approval of the run would record. It is recorded like a
+dry run, and runs nothing.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newPipelineClient(cmd)
+		if err != nil {
+			return err
+		}
+		ack, _ := cmd.Flags().GetBool("ack")
+		result, err := client.RunPipeline(inProcessContext(cmd.Context()), args[0], cerbapi.WithAcknowledged(ack), cerbapi.WithPlan())
+		if err != nil {
+			return err
+		}
+		if result == nil || result.Plan == nil {
+			if result != nil && result.Error != "" {
+				return errors.New(result.Error)
+			}
+			return fmt.Errorf("pipeline plan %s: the serving Cerberus returned no plan; restart the daemon on this build", args[0])
+		}
+		return writeJSON(cmd.OutOrStdout(), result.Plan)
 	},
 }
 
@@ -168,6 +201,9 @@ func init() {
 	pipelineCmd.AddCommand(pipelineListCmd)
 	// A run is exec: a stage can be a shell action (Decision 11).
 	pipelineRunCmd.Flags().Bool("ack", false, "acknowledge the run; a pipeline stage can run shell commands, so every run requires it")
+	pipelineRunCmd.Flags().String("approval", "", "run under this approved approval id")
+	pipelinePlanCmd.Flags().Bool("ack", false, "plan the run as it would be sent with --ack")
+	pipelineCmd.AddCommand(pipelinePlanCmd)
 	pipelineCmd.AddCommand(pipelineRunCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)
 }

@@ -224,6 +224,17 @@ cerberus resource plan <id> deploy|apply|reload|stop|sync|remove
 cerberus resource stop <id> --ack --approval <id>
 ```
 
+A pipeline run's plan is every action of every stage in order (a shell
+command with its directory, or the resource verb), and the pipeline's
+definition and each resource it names, as keyed digests. An approved run
+executes the definition the plan was checked against, not the config as it
+reads a moment later.
+
+```bash
+cerberus pipeline plan <id>
+cerberus pipeline run <id> --ack --approval <id>
+```
+
 A plan is asked for on its own route. A daemon that predates plans refuses
 the request rather than running the verb, and the CLI says to restart it.
 

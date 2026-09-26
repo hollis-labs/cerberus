@@ -50,14 +50,36 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 	opts := ApplyMutationOptions(options)
 	def := pipeline.Definition()
 	op, known := def.Operation(pipeline.OpRun)
-	call, err := beginGated(ctx, s.audit, s.logger, auditSpec{
+	spec := auditSpec{
 		connector: def.ID, operation: pipeline.OpRun, op: op, known: known,
 		config: map[string]any{"id": id}, acknowledged: opts.Acknowledged,
-	})
+		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan,
+	}
+	if opts.Plan {
+		spec.approvalID = ""
+	}
+	planSpec := spec
+	// checked is the definition the gate hashed, when it hashed one: the run
+	// executes it rather than reading the config again.
+	var checked *pipelineSnapshot
+	spec.plan = func(ctx context.Context) (plan.Plan, error) {
+		p, snap, err := s.planPipeline(ctx, planSpec, id)
+		checked = snap
+		return p, err
+	}
+	call, err := beginGated(ctx, s.audit, s.logger, spec)
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.runPipeline(ctx, id, options...)
+	if opts.Plan {
+		shown, planErr := showPlan(ctx, spec)
+		call.finish(planErr)
+		if planErr != nil {
+			return nil, planErr
+		}
+		return &PipelineRunResult{Success: true, Plan: shown}, nil
+	}
+	out, err := s.runPipeline(ctx, id, checked, options...)
 	call.finish(resultError(err, out != nil && !out.Success))
 	return out, err
 }

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/plan"
@@ -271,4 +272,43 @@ func fileDigest(path string) string {
 		return "(unreadable)"
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+// planPipeline is a pipeline run's plan: every action of every stage, in
+// order, as it would run (a shell command with its directory, or the
+// resource verb), the pipeline's definition and the definition of each
+// resource it names, both as keyed digests. It returns the snapshot it
+// described, so a run checked against an approval runs that snapshot.
+func (s *ResourceRuntimeService) planPipeline(_ context.Context, spec auditSpec, id string) (plan.Plan, *pipelineSnapshot, error) {
+	snap, problem := s.lookupPipeline(id)
+	if snap == nil {
+		return plan.Plan{}, nil, redact.Guidance("pipeline %q cannot be planned: %s", id, problem)
+	}
+	tgt, _ := auditTarget(spec)
+	p := plan.Plan{Lane: plan.LanePipeline, Connector: spec.connector, Operation: spec.operation, Effect: string(spec.op.Effect),
+		Target: tgt, ArgsDigest: s.audit.Digest(spec.config), Digests: map[string]string{"pipeline": s.audit.Digest(snap.def)}}
+	resources := map[string]config.ResourceDef{}
+	for _, r := range snap.resources {
+		resources[r.ID] = r
+	}
+	for _, stage := range snap.def.Stages {
+		for _, action := range stage.Actions {
+			step := plan.Step{Name: stage.Name + "/" + action.Type, Command: action.Type}
+			switch {
+			case action.Command != "":
+				step.Command, step.Dir = action.Command, action.Dir
+			case action.Resource != "":
+				step.Command = action.Type + " " + action.Resource
+			}
+			if action.Resource != "" {
+				if def, ok := resources[action.Resource]; ok {
+					p.Digests["resource:"+action.Resource] = s.audit.Digest(def)
+				} else {
+					p.Digests["resource:"+action.Resource] = "(not defined)"
+				}
+			}
+			p.Steps = append(p.Steps, step)
+		}
+	}
+	return p, snap, nil
 }
