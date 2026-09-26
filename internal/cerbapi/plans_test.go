@@ -45,7 +45,7 @@ func TestDeployProfilePlanBindsProfileAndCheckout(t *testing.T) {
 	profile := infra.DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: repo, DeployCommand: "true"}
 	hash := func(p infra.DeploymentProfile) (plan.Plan, string) {
 		t.Helper()
-		pl, err := planDeploymentProfile(context.Background(), spec, sink, nil, p)
+		pl, _, err := planDeploymentProfile(context.Background(), spec, sink, nil, p)
 		if err != nil {
 			t.Fatal(err)
 		}

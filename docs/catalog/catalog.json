@@ -16608,7 +16608,7 @@
         "unlocks_when": "Closed by P3-2a for the admin lane and deploy profiles; P3-2b and P3-2c extend it to resource verbs and pipelines.",
         "effort": "medium"
       },
-      "body": "`Broker.Consume` checks the args digest, the plan hash, a re-evaluated deny and, for out of band, presence, and writes the consumed event before anything runs. Nothing calls it from a gated path yet: `enforceDecision` asks for an approval and answers `approval_pending`, but a retry carrying the approval id is not read, and approvals have no plan hash until P3-2 computes one. `approvalExpiredError` and `planStaleError` exist as Guidance for that consume path.\n\n## Since P3-2a\n\n`consumeApproval` in `internal/cerbapi/approvals.go` is the consume path. A call carrying `approval_id` (`cerberus connectors exec --approval <id>`, the socket's `approval_id`, `MutationOpts.ApprovalID`) recomputes its plan through the lane's `spec.plan` and consumes: expired is `approval_expired`, another plan, other arguments or another operation is `plan_stale`, a spent or denied approval is `approval_required` naming how to ask again, and a pending one is still `approval_pending`. An approval is its requester's: the consumer's principal kind and via must match, and its session where the request had one, or it is `approval_required` saying the approval belongs to another caller (`ErrOtherPrincipal`, `TestApprovalBelongsToItsRequester`). A policy that relaxed to allow still spends the approval (D8). Resource verbs and pipelines follow in P3-2b and P3-2c.",
+      "body": "`Broker.Consume` checks the args digest, the plan hash, a re-evaluated deny and, for out of band, presence, and writes the consumed event before anything runs. Nothing calls it from a gated path yet: `enforceDecision` asks for an approval and answers `approval_pending`, but a retry carrying the approval id is not read, and approvals have no plan hash until P3-2 computes one. `approvalExpiredError` and `planStaleError` exist as Guidance for that consume path.\n\n## Since P3-2a\n\n`consumeApproval` in `internal/cerbapi/approvals.go` is the consume path. A call carrying `approval_id` (`cerberus connectors exec --approval <id>`, the socket's `approval_id`, `MutationOpts.ApprovalID`) recomputes its plan through the lane's `spec.plan` and consumes: expired is `approval_expired`, another plan, other arguments or another operation is `plan_stale`, a spent or denied approval is `approval_required` naming how to ask again, and a pending one is still `approval_pending`. An approval is its requester's: the consumer's principal kind and via must match, and its session where the request had one, or it is `approval_required` saying the approval belongs to another caller (`ErrOtherPrincipal`, `TestApprovalBelongsToItsRequester`). A policy that relaxed to allow still spends the approval (D8). Resource verbs and pipelines follow in P3-2b and P3-2c.\n\n## Since P3-2b\n\nResource verbs consume by id too (`recordMutation`, `cerberus resource <verb> --approval <id>`), against `planResource`'s plan.",
       "id": "CERB-GAP-874"
     },
     {
@@ -16659,11 +16659,11 @@
       "locus": "core",
       "class": "gap",
       "name": "A deploy-profile run re-plans after its approval is checked",
-      "summary": "The gate checks the recomputed deploy-profile plan against the approval, then RunDeployment plans the steps again from the profile on disk, so a profile or checkout changed in that window runs unchecked.",
+      "summary": "A deploy-profile run under an approval runs the deployment plan the gate hashed and checked; it no longer plans again after the check (P3-2b).",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "confidence_score": 0.85,
-      "confidence_label": "read on the P3-2a branch",
+      "confidence_label": "TestApprovedDeployRunsTheCheckedPlan on the P3-2b branch, mutation-checked",
       "tags": [
         "cerberus",
         "class:gap",
@@ -16685,10 +16685,10 @@
         "capability": "CERB-CAP-403",
         "priority": "nice-to-have",
         "blocked_by": [],
-        "unlocks_when": "RunDeployment executes the plan object the gate hashed rather than planning again",
+        "unlocks_when": "Closed by P3-2b.",
         "effort": "small"
       },
-      "body": "`RunDeploymentProfile` hands `planDeploymentProfile` to the gate, which hashes it and consumes the approval, and then calls `infra.RunDeployment`, which calls `PlanDeployment` again. The two plans are computed milliseconds apart, but they are two computations: the design's \"execute exactly the plan\" wants the run to take the checked plan's steps. The fix is for the run to accept the planned steps, which also removes the second secret lookup. The commit and dirty flag cannot be pinned the same way without building from a snapshot of the tree, which is a larger change.",
+      "body": "`RunDeploymentProfile` hands `planDeploymentProfile` to the gate, which hashes it and consumes the approval, and then calls `infra.RunDeployment`, which calls `PlanDeployment` again. The two plans are computed milliseconds apart, but they are two computations: the design's \"execute exactly the plan\" wants the run to take the checked plan's steps. The fix is for the run to accept the planned steps, which also removes the second secret lookup. The commit and dirty flag cannot be pinned the same way without building from a snapshot of the tree, which is a larger change.\n\n## Since P3-2b\n\n`planDeploymentProfile` returns the `infra.DeploymentPlan` it described, and `RunDeploymentProfile` keeps the one the gate last hashed. When the gate computed a plan (an approval asked for or used), the run executes it through `infra.RunPlannedDeployment`; otherwise it plans as before. The commit and dirty flag are checked, not pinned: a checkout changed in the milliseconds between check and run still builds what is on disk.",
       "id": "CERB-GAP-878"
     },
     {
@@ -22808,6 +22808,54 @@
       },
       "body": "`cerberus connectors plan` sends the call with `plan: true` through the admin lane, which runs the gate as for a dry run (a plan request is the plan step, whatever the operation's preview) and answers with `{plan_hash, plan}` from `planOperation`, the same function an approval is asked for and used with. The plan names the operation, the resolved target and its labels, the keyed args digest, the dry-run preview where the operation declares one and, for a plugin, its entrypoint and config digests. Computing it runs the preview, which for a plugin is a call to the plugin, so a plan is only computed on request or when an approval is asked for or used. Nothing else runs.\n\nOver the socket a plan is asked for on its own route, `POST /connectors/{id}/operations/{op}/plan`, never as a body field on the operation's route: a daemon that predates plans would ignore the field and run the operation. An older daemon answers the plan route with 404, which the client turns into Guidance that nothing ran and the daemon needs restarting on the new build (`TestPlanRequestNeverRunsOnAnOlderDaemon`).",
       "id": "CERB-TOOL-876"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "tool",
+      "name": "cerberus resource plan",
+      "summary": "Computes and prints the plan an approval of one resource verb would bind to, with its hash, without running the verb; recorded like a dry run.",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "TestResourcePlanOnRequest, TestResourcePlanRoute and TestResourceVerbsTakeAnApproval on the P3-2b branch; run against a scratch HOME",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "approvals",
+        "diagnostic",
+        "locus:core",
+        "verified:test"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_resource.go, internal/cerbapi/plans.go",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-400",
+          "note": "a verb of the CLI"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-TOOL-876",
+          "note": "the admin lane's counterpart"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "invocation": "cerberus resource plan <resource-id> <deploy|apply|reload|stop|sync|remove> [--ack]",
+        "surfaces": [
+          "cli",
+          "socket"
+        ],
+        "destructive": false,
+        "verified": "test",
+        "vendor": []
+      },
+      "body": "`cerberus resource plan` asks the verb for its plan (`WithPlan`), over `POST /resources/{id}/{verb}/plan` or in process. The gate treats it as the plan step, records it as a dry run and answers with `{plan_hash, plan}` from `planResource`, the function an approval of the verb is asked for and used with: the resource definition as a keyed digest, the checkout's commit and dirty flag for deploy, the build output apply and sync would install with its sha256, the launch agent apply and deploy would write as a keyed digest (rendered by the same function apply writes it with, and not written), and the observed state. A daemon that predates plans answers the route with 404 and runs nothing.",
+      "id": "CERB-TOOL-880"
     }
   ]
 }

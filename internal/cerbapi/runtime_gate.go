@@ -42,8 +42,13 @@ func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.P
 		approvalID:  opts.ApprovalID,
 	}
 	planSpec := spec
+	// checked is the deployment plan the gate hashed, when it hashed one:
+	// the run executes it rather than planning again (CERB-GAP-878).
+	var checked *infra.DeploymentPlan
 	spec.plan = func(ctx context.Context) (plan.Plan, error) {
-		return planDeploymentProfile(ctx, planSpec, sink, secrets, profile)
+		p, dp, err := planDeploymentProfile(ctx, planSpec, sink, secrets, profile)
+		checked = dp
+		return p, err
 	}
 	call, err := beginGated(ctx, sink, slog.Default(), spec)
 	if err != nil {
@@ -53,7 +58,12 @@ func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.P
 		call.finish(gateErr)
 		return nil, gateErr
 	}
-	result, err := infra.RunDeployment(ctx, secrets, profile)
+	var result *infra.DeploymentRunResult
+	if checked != nil {
+		result, err = infra.RunPlannedDeployment(ctx, checked, profile)
+	} else {
+		result, err = infra.RunDeployment(ctx, secrets, profile)
+	}
 	call.finish(resultError(err, result != nil && !result.Success))
 	return result, err
 }

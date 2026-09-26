@@ -61,6 +61,8 @@ type Plan struct {
 	Digests map[string]string `json:"digests,omitempty"`
 	// Source is the checkout a lane builds or deploys from.
 	Source *Source `json:"source,omitempty"`
+	// Artifact is the build output a lane would install.
+	Artifact string `json:"artifact,omitempty"`
 	// State is the observed state the operation would change.
 	State string `json:"state,omitempty"`
 }
