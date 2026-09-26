@@ -213,6 +213,9 @@ type PluginReview struct {
 	Source        string   `json:"source,omitempty"`
 	Gaps          []string `json:"gaps,omitempty"`
 	Changes       []string `json:"changes,omitempty"`
+	// Unattended marks a review accepted without the typed confirmation:
+	// `install --yes` under the permissive posture (section 13).
+	Unattended bool `json:"unattended,omitempty"`
 }
 
 // PolicyDecision is a policy result as recorded: the decision, every rule
