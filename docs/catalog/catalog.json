@@ -16738,6 +16738,46 @@
       "id": "CERB-GAP-879"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A pipeline plan differs between the daemon and the in-process CLI",
+      "summary": "A pipeline's shell steps list the names of the environment variables of the process that would run them, so the same run plans, and hashes, differently in the daemon and in the in-process CLI; a shown plan says which computed it.",
+      "state_field": "status",
+      "state_label": "deferred",
+      "confidence_score": 0.85,
+      "confidence_label": "read on the plan-computed-by branch; accepted by the lead",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "plan-binding",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/plans.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-TOOL-881",
+          "note": "the plan this describes"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "Only if plans computed in different processes need to agree; approvals are asked for and used in the same one",
+        "effort": "small"
+      },
+      "body": "`processEnvNames` lists the variables a pipeline's shell action inherits, which is the environment of the process that runs the pipeline: the daemon's launchd environment, or the operator's shell for the in-process CLI. The plan is right in each, and an approval is asked for and used in the same process, so nothing is misbound. But a plan shown by `cerberus pipeline plan` in process does not hash like the daemon's. `ConnectorPlan.computed_by` (socket, in_process, web) says which process computed a shown plan, outside the hash, so an operator comparing two is not misled.",
+      "id": "CERB-GAP-882"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
