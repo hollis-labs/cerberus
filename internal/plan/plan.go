@@ -21,7 +21,7 @@ import (
 // Version is the plan recipe. Changing what a lane puts in its plan, or how
 // it is encoded, bumps it, so an approval taken under one recipe is stale
 // under another rather than matching by accident.
-const Version = 1
+const Version = 2
 
 // Lanes.
 const (
@@ -63,6 +63,10 @@ type Plan struct {
 	Source *Source `json:"source,omitempty"`
 	// Artifact is the build output a lane would install.
 	Artifact string `json:"artifact,omitempty"`
+	// Actions are the plans of the operations this one runs, for a lane
+	// that runs others: a pipeline's resource actions, each as that
+	// resource verb's own plan.
+	Actions []Plan `json:"actions,omitempty"`
 	// State is the observed state the operation would change.
 	State string `json:"state,omitempty"`
 }
