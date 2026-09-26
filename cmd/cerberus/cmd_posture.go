@@ -273,8 +273,8 @@ type hostWideRow struct {
 var hostWide = []hostWideRow{
 	{Switch: "plugin install", Secure: "review summary and a confirmation on a terminal", Permissive: "summary printed; --yes skips the confirmation", Live: true},
 	{Switch: "changed plugin", Secure: "refused until re-reviewed", Permissive: "loaded, with a warning and an audit record", Live: true},
-	{Switch: "MCP exposure of plugin operations", Secure: "only what connector-config.yaml exposes", Permissive: "every declared operation, narrowed by connector-config.yaml"},
-	{Switch: "mcp-http listen", Secure: "loopback only", Permissive: "--insecure-listen allowed, with a warning and an audit record"},
+	{Switch: "MCP exposure of plugin operations", Secure: "only what connector-config.yaml exposes", Permissive: "every declared operation, narrowed by connector-config.yaml", Live: true},
+	{Switch: "mcp-http listen", Secure: "loopback only", Permissive: "--insecure-listen allowed, with a warning and an audit record", Live: true},
 }
 
 // hostWideRows is the table with the side the posture selects.
