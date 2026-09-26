@@ -62,10 +62,10 @@ func (b *Broker) Get(id string) (approval.Approval, bool) { return b.store.Get(i
 func (b *Broker) Problems() []string { return append([]string(nil), b.store.Problems...) }
 
 // Request records a pending approval for the call behind intent.
-func (b *Broker) Request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration) (approval.Approval, error) {
+func (b *Broker) Request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration, planHash string) (approval.Approval, error) {
 	a, err := b.store.Request(approval.Approval{
 		Principal: intent.Principal, Connector: intent.Connector, Operation: intent.Operation, Effect: intent.Effect,
-		Target: intent.Target, ArgsDigest: intent.ArgsDigest, Rule: decidingRule(res), Reason: res.Reason(),
+		Target: intent.Target, ArgsDigest: intent.ArgsDigest, PlanHash: planHash, Rule: decidingRule(res), Reason: res.Reason(),
 		Channel: channel, Scope: scope, RequestOperationID: intent.OperationID,
 	}, ttl)
 	if err != nil {
@@ -219,6 +219,11 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
 	switch res.Decision {
 	case policy.Allow:
+		// A policy that relaxed to allow since the approval was given still
+		// spends it, so the record shows it was used (D8).
+		if spec.approvalID != "" {
+			return consumeApproval(ctx, call, spec)
+		}
 		return nil
 	case policy.DryRunOnly:
 		if req.DryRun {
@@ -229,6 +234,9 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 	case policy.Approve:
 		if req.DryRun {
 			return nil
+		}
+		if spec.approvalID != "" {
+			return consumeApproval(ctx, call, spec)
 		}
 		return requestApproval(ctx, call, spec, req, res)
 	case policy.Deny:
@@ -258,11 +266,85 @@ func requestApproval(ctx context.Context, call *auditCall, spec auditSpec, req p
 		return externalConnectorError(args, ExternalConnectorApprovalPending,
 			redact.Guidance("%s %s needs an out-of-band approval (rule %s), and only the daemon can hold one; start it with `cerberus daemon`, then retry", spec.connector, spec.operation, decidingRule(res)))
 	}
-	a, err := broker.Request(ctx, call.intent, res, channel, scope, ttl)
+	planHash, err := specPlanHash(ctx, spec)
+	if err != nil {
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.GuidanceWrap(err, "%s %s needs approval, and approval binds to a plan, which could not be computed", spec.connector, spec.operation))
+	}
+	a, err := broker.Request(ctx, call.intent, res, channel, scope, ttl, planHash)
 	if err != nil {
 		return externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}
 	return approvalPendingError(args, a)
+}
+
+// specPlanHash is the lane's plan for the call, hashed. A lane without a
+// plan function binds its approvals to the arguments alone.
+func specPlanHash(ctx context.Context, spec auditSpec) (string, error) {
+	if spec.plan == nil {
+		return "", nil
+	}
+	p, err := spec.plan(ctx)
+	if err != nil {
+		return "", err
+	}
+	return p.Hash()
+}
+
+// consumeApproval spends the call's approval, write-ahead, after
+// recomputing its plan the same way it was computed when the approval was
+// asked for (I6). What the call runs under is written on its records: the
+// outcome carries approval_id and plan_hash.
+func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec) error {
+	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
+	broker := ProcessBroker()
+	if broker == nil {
+		return externalConnectorError(args, ExternalConnectorApprovalPending,
+			redact.Guidance("approval %s is held by the daemon, which is not running; start it with `cerberus daemon`, then retry", spec.approvalID))
+	}
+	planHash, err := specPlanHash(ctx, spec)
+	if err != nil {
+		return externalConnectorError(args, ExternalConnectorPlanStale,
+			redact.GuidanceWrap(err, "approval %s cannot be checked against the plan, which could not be computed now, so nothing ran", spec.approvalID))
+	}
+	a, err := broker.Consume(ctx, spec.approvalID, approval.ConsumeCheck{Connector: spec.connector, Operation: spec.operation, Principal: call.intent.Principal,
+		ArgsDigest: call.intent.ArgsDigest, PlanHash: planHash, OperationID: call.intent.OperationID})
+	if err != nil {
+		return consumeRefusal(args, spec.approvalID, a, err)
+	}
+	call.intent.ApprovalID, call.intent.PlanHash = a.ID, planHash
+	return nil
+}
+
+// consumeRefusal codes a consume the broker refused.
+func consumeRefusal(args ExternalConnectorOperationArgs, id string, a approval.Approval, err error) error {
+	switch {
+	case errors.Is(err, approval.ErrExpired):
+		return approvalExpiredError(args, a)
+	case errors.Is(err, approval.ErrPlanStale):
+		return planStaleError(args, a)
+	case errors.Is(err, approval.ErrArgsMismatch):
+		return externalConnectorError(args, ExternalConnectorPlanStale,
+			redact.Guidance("approval %s was for other arguments; resend exactly the arguments that were approved, or retry without the approval id to ask again", a.ID))
+	case errors.Is(err, approval.ErrOtherOperation):
+		return externalConnectorError(args, ExternalConnectorPlanStale,
+			redact.Guidance("approval %s is for %s %s, not this operation; nothing ran", a.ID, a.Connector, a.Operation))
+	case errors.Is(err, approval.ErrOtherPrincipal):
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("approval %s belongs to another caller (it was asked for by %s over %s); nothing ran. Retry without the approval id to ask for your own", a.ID, a.Principal.Kind, a.Principal.Via))
+	case errors.Is(err, approval.ErrNotApproved) && a.Status == approval.Pending:
+		return approvalPendingError(args, a)
+	case errors.Is(err, approval.ErrNotApproved):
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("approval %s is %s and cannot be used; retry without it to ask again", a.ID, a.Status))
+	case errors.Is(err, approval.ErrNotFound):
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("there is no approval %s; retry without it to ask for one", id))
+	case errors.Is(err, approval.ErrNoPresence):
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("approval %s needs a presence proof this Cerberus can verify, and has none; nothing ran", a.ID))
+	}
+	return externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 }
 
 // approvalTerms is how an approve decision is to be met: the strongest

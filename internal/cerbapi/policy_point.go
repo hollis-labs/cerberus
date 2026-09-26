@@ -43,8 +43,9 @@ func policyRequest(ctx context.Context, spec auditSpec, t target.Target) policy.
 		r.Effect = spec.op.Effect
 		r.EffectUndeclared = spec.op.EffectUndeclared
 	}
-	// A dry run counts as the plan step only where there is a preview.
-	r.DryRun = spec.dryRun && spec.op.Preview != contract.PreviewNone
+	// A dry run counts as the plan step only where there is a preview. A
+	// plan request is the plan step itself: it runs nothing but the preview.
+	r.DryRun = spec.planOnly || spec.dryRun && spec.op.Preview != contract.PreviewNone
 	if p, ok := PrincipalFrom(ctx); ok {
 		r.Principal = policy.Principal{Kind: string(p.Kind), Client: p.Client, Session: p.Session}
 	}

@@ -112,6 +112,10 @@ type MutationOpts struct {
 	// invocation when non-nil. Highest-precedence layer; corresponds to the
 	// --install-after-build / --no-install-after-build CLI flags.
 	InstallAfterBuildOverride *bool `json:"install_after_build_override,omitempty"`
+
+	// ApprovalID is the approval this call runs under, where policy wants
+	// one (P3-2): the retry after it was approved, with the same arguments.
+	ApprovalID string `json:"approval_id,omitempty"`
 }
 
 // MutationOption is a functional option for a resource mutation or a
@@ -121,6 +125,11 @@ type MutationOption func(*MutationOpts)
 // WithAcknowledged records the caller's acknowledgment for this call.
 func WithAcknowledged(v bool) MutationOption {
 	return func(o *MutationOpts) { o.Acknowledged = v }
+}
+
+// WithApprovalID runs the call under an approval (P3-2).
+func WithApprovalID(id string) MutationOption {
+	return func(o *MutationOpts) { o.ApprovalID = id }
 }
 
 // WithInstallAfterBuildOverride sets the per-invocation install_after_build

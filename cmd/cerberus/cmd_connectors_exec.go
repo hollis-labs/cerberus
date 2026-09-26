@@ -25,14 +25,21 @@ type connectorExecFlags struct {
 	input    string
 	dryRun   bool
 	ack      bool
+	approval string
+	plan     bool
 }
 
 func (f *connectorExecFlags) register(cmd *cobra.Command) {
+	f.registerArgs(cmd)
+	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "preview the operation without executing it, where the operation supports a preview")
+	cmd.Flags().BoolVar(&f.ack, "ack", false, "acknowledge an operation the gate requires acknowledgment for")
+}
+
+// registerArgs registers the flags that build an operation's arguments.
+func (f *connectorExecFlags) registerArgs(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&f.args, "arg", nil, "operation argument as key=value, typed by the operation's input schema; repeat a key to build an array")
 	cmd.Flags().StringArrayVar(&f.jsonArgs, "arg-json", nil, "operation argument as key=<JSON value>, for objects, arrays of objects, or exact types")
 	cmd.Flags().StringVar(&f.input, "input", "", "JSON object of operation arguments, from a file or - for stdin; --arg and --arg-json override its keys")
-	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "preview the operation without executing it, where the operation supports a preview")
-	cmd.Flags().BoolVar(&f.ack, "ack", false, "acknowledge an operation the gate requires acknowledgment for")
 }
 
 var connectorsExecFlags connectorExecFlags
@@ -68,9 +75,45 @@ Arguments are typed from the operation's input schema, which
 	},
 }
 
+var connectorsPlanFlags connectorExecFlags
+
+var connectorsPlanCmd = &cobra.Command{
+	Use:   "plan <connector-id> <operation>",
+	Short: "Show the plan an approval of a connector operation would bind to",
+	Long: `Compute and print the plan for one connector operation, and its hash,
+without running it: the operation, its resolved target and labels, the keyed
+digest of its arguments, its dry-run preview where it has one, and for a
+plugin which binary and config would run.
+
+This is the same function an approval is asked for and used with, so the hash
+printed is the one an approval of these arguments would record. Asking for a
+plan is recorded like a dry run, and it runs the operation's preview; for a
+plugin, that is a call to the plugin. Arguments are given as for
+'cerberus connectors exec'.`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		defs, _, err := connectorDefinitions(cmd.Context())
+		if err != nil {
+			return err
+		}
+		svc, closeFn, err := newExternalConnectorService(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer closeFn()
+		flags := connectorsPlanFlags
+		flags.plan = true
+		return runConnectorExec(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cmd.InOrStdin(), svc, defs, args[0], args[1], flags)
+	},
+}
+
 func init() {
 	connectorsExecFlags.register(connectorsExecCmd)
+	connectorsExecCmd.Flags().StringVar(&connectorsExecFlags.approval, "approval", "", "run under this approved approval id, with exactly the arguments it was approved for")
 	connectorsCmd.AddCommand(connectorsExecCmd)
+	connectorsPlanFlags.registerArgs(connectorsPlanCmd)
+	connectorsPlanCmd.Flags().BoolVar(&connectorsPlanFlags.ack, "ack", false, "plan the call as it would be sent with --ack")
+	connectorsCmd.AddCommand(connectorsPlanCmd)
 }
 
 // runConnectorExec types the arguments against the operation's schema, where
@@ -106,6 +149,8 @@ func runConnectorExec(ctx context.Context, out, errOut io.Writer, stdin io.Reade
 		Config:       cfg,
 		DryRun:       flags.dryRun,
 		Acknowledged: flags.ack,
+		ApprovalID:   flags.approval,
+		Plan:         flags.plan,
 	})
 	if err != nil {
 		return err

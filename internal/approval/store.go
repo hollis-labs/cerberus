@@ -14,6 +14,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 )
 
 // Event types, one per transition.
@@ -57,6 +59,8 @@ var (
 	ErrNotApproved    = errors.New("the approval is not approved")
 	ErrExpired        = errors.New("the approval has expired")
 	ErrArgsMismatch   = errors.New("the call's arguments are not the ones approved")
+	ErrOtherOperation = errors.New("the approval is for another operation")
+	ErrOtherPrincipal = errors.New("the approval belongs to another caller")
 	ErrPlanStale      = errors.New("the plan no longer matches the one approved")
 	ErrNoPresence     = errors.New("the out-of-band decision carries no presence proof this Cerberus can verify")
 	ErrPolicyNowDenys = errors.New("policy now denies the operation")
@@ -355,6 +359,13 @@ func (s *Store) Decide(id string, d Decision, verifier PresenceVerifier) (Approv
 // ConsumeCheck is what a consume must match: the call's arguments and plan,
 // the audit operation it will run as, and policy re-evaluated now (D8).
 type ConsumeCheck struct {
+	// Connector and Operation must be the approval's.
+	Connector string
+	Operation string
+	// Principal is who is using the approval. A once approval is the
+	// requester's: kind and via must match, and the session must too where
+	// the request had one.
+	Principal   audit.Principal
 	ArgsDigest  string
 	PlanHash    string
 	OperationID string
@@ -380,6 +391,10 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 		return view, ErrExpired
 	case view.Status != Approved:
 		return view, ErrNotApproved
+	case check.Connector != a.Connector || check.Operation != a.Operation:
+		return view, ErrOtherOperation
+	case !sameRequester(a.Principal, check.Principal):
+		return view, ErrOtherPrincipal
 	case check.ArgsDigest != a.ArgsDigest:
 		return view, ErrArgsMismatch
 	case a.PlanHash != "" && check.PlanHash != a.PlanHash:
@@ -402,6 +417,14 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 		return Approval{}, err
 	}
 	return *s.state[id], nil
+}
+
+// sameRequester reports whether user is the principal that asked.
+func sameRequester(asked, user audit.Principal) bool {
+	if asked.Kind != user.Kind || asked.Via != user.Via {
+		return false
+	}
+	return asked.Session == "" || asked.Session == user.Session
 }
 
 // Revoke withdraws an approved approval before it is used.
