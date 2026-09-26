@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -49,15 +50,17 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 // consoleDecision is what the approvals page sends: approve or deny, the
 // target typed to confirm an approve, and a reason.
 type consoleDecision struct {
-	Approve bool   `json:"approve"`
-	Typed   string `json:"typed,omitempty"`
-	Reason  string `json:"reason,omitempty"`
+	Approve   bool            `json:"approve"`
+	Typed     string          `json:"typed,omitempty"`
+	Reason    string          `json:"reason,omitempty"`
+	Assertion json.RawMessage `json:"assertion,omitempty"`
 }
 
 // handleApprovalByID is GET /api/approvals/{id}, and POST
 // /api/approvals/{id}/decide and /revoke on a signed-in session with its
 // action token. An approve is confirmed by typing the target, as on a
-// terminal. The daemon decides whether it counts: the console's session is
+// terminal, and an out-of-band approve carries the passkey assertion made
+// for it. The daemon decides whether it counts: the console's session is
 // the decider, a request made through the console cannot be approved here,
 // and an out-of-band request counts only with a verified passkey assertion.
 func (s *Server) handleApprovalByID(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +72,10 @@ func (s *Server) handleApprovalByID(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/approvals/")
 	id, action, _ := strings.Cut(rest, "/")
+	if id == "keys" {
+		s.handlePasskeys(w, r, action)
+		return
+	}
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "approval id required")
 		return
@@ -94,6 +101,10 @@ func (s *Server) handleApprovalByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if action == "challenge" {
+		s.handleApprovalChallenge(w, r, id)
+		return
+	}
 	var body consoleDecision
 	if err := decodeJSONBody(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -112,7 +123,7 @@ func (s *Server) handleApprovalByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		a, err := c.DecideApproval(r.Context(), id, cerbapi.ApprovalDecisionArgs{Approve: body.Approve, Reason: body.Reason})
+		a, err := c.DecideApproval(r.Context(), id, cerbapi.ApprovalDecisionArgs{Approve: body.Approve, Reason: body.Reason, Assertion: body.Assertion})
 		if err != nil {
 			writeClientError(w, err)
 			return

@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Button, Callout, EmptyState, Input } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type ApprovalInfo, type ApprovalPrincipal } from '../api/client'
+import { apiClient, type ApprovalInfo, type ApprovalPrincipal, type EnrollBegin, type PasskeyCeremony } from '../api/client'
+import { assertPasskey, createPasskey } from '../webauthn'
 
 // The approvals page (P3-4): every request, who asked, and the plan it would
 // run. A pending request is approved by typing its target, as on a terminal,
 // or denied. One that must be approved out of band is approved here with a
-// passkey; the daemon refuses it without one.
+// passkey; the daemon refuses it without one. The passkeys that can do that
+// are listed, enrolled and removed here too.
 export function ApprovalsPage() {
   const approvals = usePoll((signal) => apiClient.listApprovals(signal), 5000)
   const [token, setToken] = useState('')
-  const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(window.location.search).get('id'))
+  const [params] = useState(() => new URLSearchParams(window.location.search))
+  const [selected, setSelected] = useState<string | null>(() => params.get('id'))
 
   useEffect(() => {
     let cancelled = false
@@ -79,6 +82,7 @@ export function ApprovalsPage() {
         </table>
       )}
       {current && <ApprovalDetail approval={current} token={token} onChanged={approvals.refetch} />}
+      <PasskeysPanel token={token} enrollToken={params.get('enroll') ?? ''} label={params.get('label') ?? ''} remove={params.get('remove') ?? ''} />
     </div>
   )
 }
@@ -140,7 +144,11 @@ function ApprovalDetail({ approval: a, token, onChanged }: { approval: ApprovalI
           {a.decision.key_fingerprint ? ` with key ${a.decision.key_fingerprint}` : ''}
         </p>
       )}
-      {error && <Callout tone="danger">{error}</Callout>}
+      {error && (
+        <div data-testid="approval-error">
+          <Callout tone="danger">{error}</Callout>
+        </div>
+      )}
       {a.status === 'pending' && (
         <div className="space-y-2">
           {outOfBand && (
@@ -160,9 +168,16 @@ function ApprovalDetail({ approval: a, token, onChanged }: { approval: ApprovalI
             <Button
               data-testid="approve"
               disabled={busy || !token || typed !== target}
-              onClick={() => act(() => apiClient.decideApproval(a.id, token, true, typed, reason))}
+              onClick={() =>
+                act(async () => {
+                  if (!outOfBand) return apiClient.decideApproval(a.id, token, true, typed, reason)
+                  const c = await apiClient.approvalChallenge(a.id, token)
+                  const assertion = { ceremony: c.ceremony, credential: await assertPasskey(c.options) }
+                  return apiClient.decideApproval(a.id, token, true, typed, reason, assertion)
+                })
+              }
             >
-              Approve
+              {outOfBand ? 'Approve with passkey' : 'Approve'}
             </Button>
             <Button
               data-testid="deny"
@@ -195,4 +210,112 @@ function who(p?: ApprovalPrincipal): string {
   if (p.client) s += ` (${p.client})`
   if (p.session) s += `, session ${p.session}`
   return s
+}
+
+// PasskeysPanel lists the passkeys that approve out-of-band requests, and
+// runs the enrollment a `cerberus approvals enroll` link opens and the
+// removal `cerberus approvals keys remove` opens. After the first key, both
+// need an assertion from a key already enrolled.
+function PasskeysPanel({ token, enrollToken, label, remove }: { token: string; enrollToken: string; label: string; remove: string }) {
+  const keys = usePoll((signal) => apiClient.getPasskeys(signal), 15000)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function act(run: () => Promise<string>) {
+    setBusy(true)
+    setError(null)
+    setDone(null)
+    try {
+      setDone(await run())
+      keys.refetch()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const enroll = () =>
+    act(async () => {
+      const begin = await apiClient.passkeyAction<EnrollBegin>('register/begin', token, { token: enrollToken, label })
+      const authorize = begin.authorize ? await assertPasskey(begin.authorize) : undefined
+      const credential = await createPasskey(begin.creation)
+      const key = await apiClient.passkeyAction<{ fingerprint: string }>('register/finish', token, { ceremony: begin.ceremony, credential, authorize })
+      return `Enrolled passkey ${key.fingerprint}.`
+    })
+
+  const removeKey = (fingerprint: string) =>
+    act(async () => {
+      const begin = await apiClient.passkeyAction<PasskeyCeremony>('remove/begin', token, { fingerprint })
+      const credential = await assertPasskey(begin.options)
+      await apiClient.passkeyAction('remove/finish', token, { ceremony: begin.ceremony, credential })
+      return `Removed passkey ${fingerprint}.`
+    })
+
+  const st = keys.data
+  return (
+    <div className="mt-6 space-y-2 rounded border border-border p-4" data-testid="passkeys">
+      <h2 className="text-base font-semibold">Passkeys for out-of-band approval</h2>
+      {keys.error ? <Callout tone="warning">{keys.error instanceof Error ? keys.error.message : String(keys.error)}</Callout> : null}
+      {st?.state === 'cooldown' && (
+        <Callout tone="danger" data-testid="cooldown">
+          The passkey registry changed outside <code>cerberus approvals enroll</code>. Out-of-band approvals are refused until{' '}
+          {st.cooldown_until ? new Date(st.cooldown_until).toLocaleString() : 'the cool-down ends'}.
+        </Callout>
+      )}
+      {st && st.keys.length === 0 && st.state !== 'cooldown' && (
+        <Callout tone="warning" data-testid="not-set-up">
+          Out-of-band approval is not set up: run <code>cerberus approvals enroll</code> in a terminal.
+        </Callout>
+      )}
+      {st && st.keys.length > 0 && (
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="text-text-muted">
+              <th className="p-2">Fingerprint</th>
+              <th className="p-2">Label</th>
+              <th className="p-2">Enrolled</th>
+              <th className="p-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {st.keys.map((k) => (
+              <tr key={k.fingerprint} className={`border-t border-border ${k.fingerprint === remove ? 'bg-bg-soft' : ''}`} data-testid={`passkey-${k.fingerprint}`}>
+                <td className="p-2 font-mono">{k.fingerprint}</td>
+                <td className="p-2">{k.label || '-'}</td>
+                <td className="p-2">{new Date(k.enrolled_at).toLocaleString()}</td>
+                <td className="p-2">
+                  <Button variant="outline" disabled={busy || !token} onClick={() => removeKey(k.fingerprint)} data-testid={`remove-${k.fingerprint}`}>
+                    Remove
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {enrollToken && (
+        <div className="space-y-2">
+          <p className="text-sm">
+            Create a passkey{label ? ` (${label})` : ''} for approving out-of-band requests.
+            {st && st.keys.length > 0 ? ' A passkey already enrolled has to authorize it first.' : ' This first key is trusted on first use.'}
+          </p>
+          <Button data-testid="enroll" disabled={busy || !token} onClick={enroll}>
+            Create passkey
+          </Button>
+        </div>
+      )}
+      {error && (
+        <div data-testid="passkeys-error">
+          <Callout tone="danger">{error}</Callout>
+        </div>
+      )}
+      {done && (
+        <div data-testid="passkeys-done">
+          <Callout tone="success">{done}</Callout>
+        </div>
+      )}
+    </div>
+  )
 }

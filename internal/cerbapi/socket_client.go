@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
+	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
@@ -704,4 +705,47 @@ func (c *SocketClient) RevokeApproval(ctx context.Context, id string, args Appro
 	var out approval.Approval
 	err := c.doJSON(ctx, http.MethodPost, "/approvals/"+url.PathEscape(id)+"/revoke", args, &out)
 	return out, err
+}
+
+// ApprovalChallenge starts the passkey ceremony for approving id.
+func (c *SocketClient) ApprovalChallenge(ctx context.Context, id string, args ApprovalChallengeArgs) (PasskeyCeremony, error) {
+	var out PasskeyCeremony
+	err := c.doJSON(ctx, http.MethodPost, "/approvals/"+url.PathEscape(id)+"/challenge", args, &out)
+	return out, err
+}
+
+// PasskeyStatus is the passkey registry's state.
+func (c *SocketClient) PasskeyStatus(ctx context.Context) (presence.Status, error) {
+	var out presence.Status
+	err := c.doJSON(ctx, http.MethodGet, "/approvals/keys", nil, &out)
+	return out, err
+}
+
+// PasskeyAllowEnrollment has the daemon accept the enrollment token whose
+// digest this is.
+func (c *SocketClient) PasskeyAllowEnrollment(ctx context.Context, args EnrollAllowArgs) error {
+	return c.doJSON(ctx, http.MethodPost, "/approvals/keys/enroll-allow", args, &struct{}{})
+}
+
+// PasskeyEnrollBegin and the rest are the enrollment and removal ceremonies.
+func (c *SocketClient) PasskeyEnrollBegin(ctx context.Context, args EnrollBeginArgs) (EnrollCeremony, error) {
+	var out EnrollCeremony
+	err := c.doJSON(ctx, http.MethodPost, "/approvals/keys/register/begin", args, &out)
+	return out, err
+}
+
+func (c *SocketClient) PasskeyEnrollFinish(ctx context.Context, args EnrollFinishArgs) (presence.KeyInfo, error) {
+	var out presence.KeyInfo
+	err := c.doJSON(ctx, http.MethodPost, "/approvals/keys/register/finish", args, &out)
+	return out, err
+}
+
+func (c *SocketClient) PasskeyRemoveBegin(ctx context.Context, args RemoveBeginArgs) (PasskeyCeremony, error) {
+	var out PasskeyCeremony
+	err := c.doJSON(ctx, http.MethodPost, "/approvals/keys/remove/begin", args, &out)
+	return out, err
+}
+
+func (c *SocketClient) PasskeyRemoveFinish(ctx context.Context, args RemoveFinishArgs) error {
+	return c.doJSON(ctx, http.MethodPost, "/approvals/keys/remove/finish", args, &struct{}{})
 }

@@ -46,7 +46,7 @@ var consoleApprovalURL = func(id string) (string, error) {
 	return webui.MintLoginURLTo(webui.LoginKeyPath(home, webListenAddr), "/approvals?id="+id)
 }
 
-var errApprovalsNotInteractive = errors.New("approvals are decided only from an interactive terminal or the console's approvals page, where the request is shown in full; run this in your terminal, not from a script or an agent")
+var errApprovalsNotInteractive = errors.New("approvals are decided, and passkeys enrolled, only from an interactive terminal or the console's approvals page, where the request is shown in full; run this in your terminal, not from a script or an agent")
 
 var approvalsApproveCmd = &cobra.Command{
 	Use:   "approve <approval-id>",

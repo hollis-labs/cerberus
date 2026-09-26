@@ -18,6 +18,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/presence"
 )
 
 var statusOutput string
@@ -27,7 +28,7 @@ var statusOutput string
 // cannot read is shown as unavailable rather than failing the rest.
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show Cerberus at a glance: daemon, posture, who you are, plugins, audit, web console",
+	Short: "Show Cerberus at a glance: daemon, posture, who you are, plugins, audit, web console, passkeys",
 	Long: `Show the state an operator needs at a glance, read-only:
 
   daemon    running or not (details: cerberus daemon status)
@@ -37,6 +38,9 @@ var statusCmd = &cobra.Command{
   audit     whether the hash chain verifies, and the last record's time
             (cerberus audit verify)
   web       the web consoles running on this machine, and where
+  passkeys  out-of-band approval: not set up, how many keys, a recent
+            enrollment, or a cool-down after the key registry changed by
+            other means (cerberus approvals keys)
 
 A part that cannot be read is reported as unavailable; the rest still shows.`,
 	Args: cobra.NoArgs,
@@ -66,12 +70,20 @@ var currentPosture = func() policy.PostureSummary {
 }
 
 type statusReport struct {
-	Daemon  statusDaemon          `json:"daemon"`
-	Posture policy.PostureSummary `json:"posture"`
-	You     statusYou             `json:"you"`
-	Plugins statusPlugins         `json:"plugins"`
-	Audit   statusAudit           `json:"audit"`
-	Web     []statusWebApp        `json:"web"`
+	Daemon   statusDaemon          `json:"daemon"`
+	Posture  policy.PostureSummary `json:"posture"`
+	You      statusYou             `json:"you"`
+	Plugins  statusPlugins         `json:"plugins"`
+	Audit    statusAudit           `json:"audit"`
+	Web      []statusWebApp        `json:"web"`
+	Passkeys statusPasskeys        `json:"passkeys"`
+}
+
+type statusPasskeys struct {
+	Status  *presence.Status `json:"status,omitempty"`
+	Summary string           `json:"summary,omitempty"`
+	Alert   bool             `json:"alert"`
+	Note    string           `json:"note,omitempty"`
 }
 
 type statusDaemon struct {
@@ -121,11 +133,11 @@ func gatherStatus(ctx context.Context) statusReport {
 	client, err := newResourceSocketClient()
 	switch {
 	case !ready:
-		r.You.Note, r.Plugins.Note = notRunning, notRunning
+		r.You.Note, r.Plugins.Note, r.Passkeys.Note = notRunning, notRunning, notRunning
 	case err != nil:
-		r.You.Note, r.Plugins.Note = err.Error(), err.Error()
+		r.You.Note, r.Plugins.Note, r.Passkeys.Note = err.Error(), err.Error(), err.Error()
 	default:
-		r.You, r.Plugins = statusFromDaemon(ctx, client)
+		r.You, r.Plugins, r.Passkeys = statusFromDaemon(ctx, client)
 	}
 	r.Audit = statusOfAudit()
 	r.Web = statusOfWebConsoles()
@@ -135,8 +147,9 @@ func gatherStatus(ctx context.Context) statusReport {
 // statusFromDaemon asks the daemon who this caller is and what it has loaded.
 // Neither falls back to reading files in-process: the point is the daemon's
 // view.
-func statusFromDaemon(ctx context.Context, client statusDaemonClient) (statusYou, statusPlugins) {
+func statusFromDaemon(ctx context.Context, client statusDaemonClient) (statusYou, statusPlugins, statusPasskeys) {
 	var you statusYou
+	var passkeys statusPasskeys
 	plugins := statusPlugins{ReviewPending: []string{}}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -152,10 +165,16 @@ func statusFromDaemon(ctx context.Context, client statusDaemonClient) (statusYou
 	} else {
 		you.Principal = &p
 	}
+	if st, err := client.PasskeyStatus(ctx); err != nil {
+		passkeys.Note = unavailable(err)
+	} else {
+		passkeys.Status = &st
+		passkeys.Summary, passkeys.Alert = st.Summary(time.Now())
+	}
 	list, err := client.ListManagedPlugins(ctx)
 	if err != nil {
 		plugins.Note = unavailable(err)
-		return you, plugins
+		return you, plugins, passkeys
 	}
 	plugins.Installed = len(list)
 	for _, p := range list {
@@ -163,11 +182,12 @@ func statusFromDaemon(ctx context.Context, client statusDaemonClient) (statusYou
 			plugins.ReviewPending = append(plugins.ReviewPending, p.ID)
 		}
 	}
-	return you, plugins
+	return you, plugins, passkeys
 }
 
-// statusDaemonClient is the two daemon calls status makes.
+// statusDaemonClient is the daemon calls status makes.
 type statusDaemonClient interface {
+	PasskeyStatus(context.Context) (presence.Status, error)
 	WhoAmI(context.Context) (cerbapi.Principal, error)
 	ListManagedPlugins(context.Context) ([]cerbapi.ManagedPluginConnectorState, error)
 }
@@ -292,6 +312,14 @@ func writeStatus(w io.Writer, r statusReport) error {
 		} else {
 			line("web", "not answering at %s (a console that exited without cleaning up)", app.URL)
 		}
+	}
+	switch {
+	case r.Passkeys.Note != "":
+		line("passkeys", "unavailable (%s)", r.Passkeys.Note)
+	case r.Passkeys.Alert:
+		line("passkeys", "! %s", r.Passkeys.Summary)
+	default:
+		line("passkeys", "%s", r.Passkeys.Summary)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
