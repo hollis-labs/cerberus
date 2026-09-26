@@ -515,6 +515,7 @@ func runDaemonBody() error {
 		logger.Warn("daemon.approvals.open_failed", "error", brokerErr.Error())
 	} else {
 		cerbapi.SetBroker(broker)
+		cerbapi.SetPresence(newPresenceService(logger, approvalsDir))
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

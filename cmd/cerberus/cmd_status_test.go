@@ -16,12 +16,18 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/presence"
 )
 
 type statusFakeDaemon struct {
 	principal cerbapi.Principal
 	plugins   []cerbapi.ManagedPluginConnectorState
+	passkeys  presence.Status
 	err       error
+}
+
+func (f statusFakeDaemon) PasskeyStatus(context.Context) (presence.Status, error) {
+	return f.passkeys, f.err
 }
 
 func (f statusFakeDaemon) WhoAmI(context.Context) (cerbapi.Principal, error) {
@@ -34,7 +40,7 @@ func (f statusFakeDaemon) ListManagedPlugins(context.Context) ([]cerbapi.Managed
 // You and plugins are the daemon's view: who it sees and which plugins are
 // still waiting for review.
 func TestStatusReportsTheDaemonsView(t *testing.T) {
-	you, plugins := statusFromDaemon(context.Background(), statusFakeDaemon{
+	you, plugins, _ := statusFromDaemon(context.Background(), statusFakeDaemon{
 		principal: cerbapi.Principal{Kind: cerbapi.PrincipalHuman, Via: cerbapi.ViaCLI, UID: 501, UIDVerified: true},
 		plugins:   []cerbapi.ManagedPluginConnectorState{{ID: "azure"}, {ID: "forge", ReviewPending: true}, {ID: "legacy", ReviewPending: true}},
 	})
@@ -45,8 +51,8 @@ func TestStatusReportsTheDaemonsView(t *testing.T) {
 		t.Fatalf("plugins = %+v", plugins)
 	}
 
-	you, plugins = statusFromDaemon(context.Background(), statusFakeDaemon{err: &cerbapi.DaemonUnreachableError{Err: errors.New("dial")}})
-	if you.Note != "the daemon is not running" || plugins.Note != "the daemon is not running" || you.Principal != nil {
+	you, plugins, passkeys := statusFromDaemon(context.Background(), statusFakeDaemon{err: &cerbapi.DaemonUnreachableError{Err: errors.New("dial")}})
+	if you.Note != "the daemon is not running" || plugins.Note != "the daemon is not running" || passkeys.Note != "the daemon is not running" || you.Principal != nil {
 		t.Fatalf("unreachable: you = %+v, plugins = %+v", you, plugins)
 	}
 }
@@ -119,12 +125,13 @@ func TestStatusTextIsCompact(t *testing.T) {
 	last := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	var out bytes.Buffer
 	err := writeStatus(&out, statusReport{
-		Daemon:  statusDaemon{Running: true, PID: 42},
-		Posture: policy.PostureSummary{Global: policy.PostureSecure},
-		You:     statusYou{Principal: &cerbapi.Principal{Kind: cerbapi.PrincipalAgent, Via: cerbapi.ViaCLI, UID: 501, UIDVerified: true}},
-		Plugins: statusPlugins{Installed: 7, ReviewPending: []string{"forge"}},
-		Audit:   statusAudit{Intact: true, Records: 12, LastRecord: &last},
-		Web:     []statusWebApp{{URL: "http://127.0.0.1:4783", Running: true}},
+		Daemon:   statusDaemon{Running: true, PID: 42},
+		Posture:  policy.PostureSummary{Global: policy.PostureSecure},
+		You:      statusYou{Principal: &cerbapi.Principal{Kind: cerbapi.PrincipalAgent, Via: cerbapi.ViaCLI, UID: 501, UIDVerified: true}},
+		Plugins:  statusPlugins{Installed: 7, ReviewPending: []string{"forge"}},
+		Audit:    statusAudit{Intact: true, Records: 12, LastRecord: &last},
+		Web:      []statusWebApp{{URL: "http://127.0.0.1:4783", Running: true}},
+		Passkeys: statusPasskeys{Summary: "out-of-band approval not set up: run `cerberus approvals enroll`", Alert: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,12 +143,37 @@ func TestStatusTextIsCompact(t *testing.T) {
 		"plugins  7 installed, 1 review pending: forge",
 		"audit    chain intact, 12 records, last ",
 		"web      running at http://127.0.0.1:4783",
+		"passkeys ! out-of-band approval not set up: run `cerberus approvals enroll`",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status lacks %q:\n%s", want, out.String())
 		}
 	}
-	if lines := strings.Count(out.String(), "\n"); lines != 7 {
-		t.Errorf("status is %d lines, want 7:\n%s", lines, out.String())
+	if lines := strings.Count(out.String(), "\n"); lines != 8 {
+		t.Errorf("status is %d lines, want 8:\n%s", lines, out.String())
+	}
+}
+
+// The passkeys line is loud while nothing is enrolled, for a day after an
+// enrollment (so one the operator did not make is seen), and during a
+// cool-down; quiet otherwise.
+func TestStatusPasskeysLine(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	keys := []presence.KeyInfo{{Fingerprint: "aa"}, {Fingerprint: "bb"}}
+	for _, tc := range []struct {
+		name  string
+		st    presence.Status
+		want  string
+		alert bool
+	}{
+		{"none", presence.Status{State: presence.StateNotSetUp}, "not set up: run `cerberus approvals enroll`", true},
+		{"recent", presence.Status{State: presence.StateOK, Keys: keys, LastEnrolledAt: now.Add(-time.Hour)}, "key enrolled ", true},
+		{"settled", presence.Status{State: presence.StateOK, Keys: keys, LastEnrolledAt: now.Add(-48 * time.Hour)}, "2 keys enrolled", false},
+		{"cooldown", presence.Status{State: presence.StateCooldown, Keys: keys, CooldownUntil: now.Add(time.Hour)}, "COOL-DOWN", true},
+	} {
+		got, alert := tc.st.Summary(now)
+		if !strings.Contains(got, tc.want) || alert != tc.alert {
+			t.Errorf("%s: %q alert=%v", tc.name, got, alert)
+		}
 	}
 }

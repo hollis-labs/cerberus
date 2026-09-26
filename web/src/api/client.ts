@@ -8,6 +8,44 @@ export interface SessionInfo {
   action_token: string
   session?: string
   posture?: PostureInfo
+  passkeys?: PasskeysAlert | null
+}
+
+// PasskeysAlert is the header's line about out-of-band approval: loud while
+// no passkey is enrolled, for a day after an enrollment, and during a
+// cool-down after the key registry changed by other means.
+export interface PasskeysAlert {
+  summary: string
+  alert: boolean
+  state: string
+  keys: number
+}
+
+export interface PasskeyInfo {
+  fingerprint: string
+  label?: string
+  enrolled_at: string
+}
+
+export interface PasskeyStatus {
+  state: 'not_set_up' | 'ok' | 'cooldown' | string
+  keys: PasskeyInfo[]
+  cooldown_until?: string
+  last_enrolled_at?: string
+  registry_hash: string
+}
+
+// PasskeyCeremony is one ceremony's id and the options the browser needs,
+// as base64url of their JSON (see webauthn.ts for why they travel opaque).
+export interface PasskeyCeremony {
+  ceremony: string
+  options: string
+}
+
+export interface EnrollBegin {
+  ceremony: string
+  creation: string
+  authorize?: string
 }
 
 // PostureInfo is the applied posture (section 13): shown in the header so a
@@ -491,8 +529,17 @@ export interface ApprovalListResponse {
 
 export const apiClient = {
   listApprovals: (signal?: AbortSignal) => http.get<ApprovalListResponse>('/api/approvals', { signal }),
-  decideApproval: (id: string, token: string, approve: boolean, typed: string, reason: string) =>
-    http.post<ApprovalInfo>(`/api/approvals/${encodeURIComponent(id)}/decide`, { approve, typed, reason } as JsonObject, {
+  decideApproval: (id: string, token: string, approve: boolean, typed: string, reason: string, assertion?: unknown) =>
+    http.post<ApprovalInfo>(`/api/approvals/${encodeURIComponent(id)}/decide`, { approve, typed, reason, assertion } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  approvalChallenge: (id: string, token: string) =>
+    http.post<PasskeyCeremony>(`/api/approvals/${encodeURIComponent(id)}/challenge`, {} as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  getPasskeys: (signal?: AbortSignal) => http.get<PasskeyStatus>('/api/approvals/keys', { signal }),
+  passkeyAction: <T>(action: 'register/begin' | 'register/finish' | 'remove/begin' | 'remove/finish', token: string, body: Record<string, unknown>) =>
+    http.post<T>(`/api/approvals/keys/${action}`, body as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   revokeApproval: (id: string, token: string, reason: string) =>

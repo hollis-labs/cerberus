@@ -429,3 +429,27 @@ func randomToken() (string, error) {
 func sameToken(a, b string) bool {
 	return a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
+
+// ConsoleOrigins are the origins of the consoles running for home, read from
+// their key files: where a passkey may be used. A file that cannot be read
+// is skipped; a console that is not running has no file.
+func ConsoleOrigins(home string) []string {
+	paths, _ := filepath.Glob(filepath.Join(home, ".cerberus", "web", "login-*.key"))
+	var origins []string
+	for _, path := range paths {
+		data, err := os.ReadFile(path) //nolint:gosec // the operator's own key files under ~/.cerberus/web
+		if err != nil {
+			continue
+		}
+		var file loginKeyFile
+		if json.Unmarshal(data, &file) != nil {
+			continue
+		}
+		u, err := url.Parse(file.URL)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		origins = append(origins, strings.TrimRight(ConsoleBaseURL(u.Host), "/"))
+	}
+	return origins
+}

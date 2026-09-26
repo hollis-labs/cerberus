@@ -72,6 +72,11 @@ func (b *Broker) DecideAs(ctx context.Context, id string, args ApprovalDecisionA
 	if err := checkDecider(a, d); err != nil {
 		return a, err
 	}
+	if d.Approve {
+		if err := sealAssertion(&d, id, args.Assertion); err != nil {
+			return a, err
+		}
+	}
 	return b.Decide(ctx, id, d)
 }
 
@@ -99,6 +104,9 @@ func approvalErrorStatus(err error, id string) (int, string) {
 		return http.StatusForbidden, redact.Guidance("approval %s must be approved out of band, with a passkey enrolled for this Cerberus: approve it on the console's approvals page (`cerberus approvals approve %s` opens it), after `cerberus approvals enroll`", id, id).Error()
 	case errors.Is(err, errMCPNeverApproves), errors.Is(err, errApproverNotHuman), errors.Is(err, errSelfApproval), errors.Is(err, errUnknownSurface):
 		return http.StatusForbidden, err.Error()
+	}
+	if status, msg := presenceErrorStatus(err); status != http.StatusBadRequest {
+		return status, msg
 	}
 	return http.StatusInternalServerError, redact.Text(err.Error())
 }
