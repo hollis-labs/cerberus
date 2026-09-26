@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
+	"strings"
 )
 
 // SocketClient satisfies Client by forwarding each call over a unix
@@ -370,7 +372,24 @@ func (c *SocketClient) executeConnectorOperation(ctx context.Context, args Exter
 		return errors.New("connector operation required")
 	}
 	path := "/connectors/" + url.PathEscape(args.Connector) + "/operations/" + url.PathEscape(args.Operation)
+	if args.Plan {
+		return planRoute(c.doJSONStream(ctx, http.MethodPost, path+"/plan", args, out))
+	}
 	return c.doJSONStream(ctx, http.MethodPost, path, args, out)
+}
+
+// planRoute explains a plan request an older daemon refused. A plan is
+// asked for on a route of its own (…/plan) so that a daemon predating plans
+// answers 404, rather than ignoring a body field it does not know and
+// running the operation.
+func planRoute(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "expected /connectors/{id}/operations/{operation}") {
+		return redact.GuidanceWrap(err, "the running daemon predates plans, so it refused the plan request and nothing ran; restart the daemon on this build, then retry")
+	}
+	return err
 }
 
 func (c *SocketClient) ReloadManagedPlugin(ctx context.Context, id string) (ManagedPluginConnectorState, error) {
