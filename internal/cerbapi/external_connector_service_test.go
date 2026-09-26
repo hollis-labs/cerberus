@@ -32,6 +32,7 @@ type fakeDockerBackend struct {
 	upFile   string
 	stopFile string
 	lists    int
+	stopped  string
 }
 
 func (b *fakeDockerBackend) WithTarget(target dockerconn.Target) dockerconn.Backend {
@@ -53,7 +54,8 @@ func (b *fakeDockerBackend) StartContainer(_ context.Context, nameOrID string) e
 	return nil
 }
 
-func (b *fakeDockerBackend) StopContainer(_ context.Context, _ string) error {
+func (b *fakeDockerBackend) StopContainer(_ context.Context, nameOrID string) error {
+	b.stopped = nameOrID
 	return nil
 }
 

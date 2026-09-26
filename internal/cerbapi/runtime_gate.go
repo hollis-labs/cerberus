@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/plan"
 
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/infra"
@@ -33,12 +34,18 @@ func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.P
 	opts := ApplyMutationOptions(options)
 	def := infra.Definition()
 	op, known := def.Operation(infra.OpRunProfile)
-	call, err := beginGated(ctx, sink, slog.Default(), auditSpec{
+	spec := auditSpec{
 		connector: def.ID, operation: infra.OpRunProfile, op: op, known: known,
 		config: map[string]any{"id": profile.ID}, acknowledged: opts.Acknowledged,
 		// The run reads the Vercel token and scope to pass on the command line.
 		credentials: []string{"vercel/scope", "vercel/token"},
-	})
+		approvalID:  opts.ApprovalID,
+	}
+	planSpec := spec
+	spec.plan = func(ctx context.Context) (plan.Plan, error) {
+		return planDeploymentProfile(ctx, planSpec, sink, secrets, profile)
+	}
+	call, err := beginGated(ctx, sink, slog.Default(), spec)
 	if err != nil {
 		return nil, err
 	}

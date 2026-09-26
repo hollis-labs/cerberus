@@ -171,6 +171,47 @@ With the daemon down, these read the store directly. The in-process CLI
 without a daemon can only confirm a call on the terminal itself. A call that
 needs out-of-band approval is answered with how to start the daemon.
 
+### Plans, and using an approval
+
+An approval is for one **plan**: what the call would do, hashed. The plan
+names the operation, the resolved target with its labels, a keyed digest of
+the arguments (never the arguments), the operation's dry-run preview where it
+has one, and for a plugin, the digests of the binary and the config that would
+run. A deploy profile's plan is its steps as they would run, with the
+variables each step is given named but never valued, the profile's
+definition, and the commit and dirty flag of the checkout it deploys. A plan
+never contains a credential value.
+
+The plan is computed when the approval is asked for and again when it is
+used, by the same function. Once an approval is decided, retry the call with
+exactly the same arguments and its id:
+
+```bash
+cerberus connectors exec <connector> <operation> --arg … --ack --approval <id>
+```
+
+The approval is spent before anything runs, so it runs at most once. The
+outcome's audit record carries `approval_id` and `plan_hash`. A retry is
+refused, and nothing runs, when:
+
+- the approval has expired: `approval_expired`;
+- anything in the plan changed, such as an argument, the target's labels, the
+  preview, or the plugin binary: `plan_stale`. Ask again without the id;
+- it was already used, denied or revoked: `approval_required`;
+- it belongs to another caller: `approval_required`. An approval is the
+  requester's. The principal's kind and channel must match, and so must its
+  session where the request carried one.
+
+To see the plan and its hash without running anything:
+
+```bash
+cerberus connectors plan <connector> <operation> --arg …
+```
+
+This is recorded like a dry run. It runs the operation's preview, and for a
+plugin that means a call to the plugin, so a plan is computed only when you
+ask for one or when an approval is asked for or used.
+
 **The store is not trusted on its own word.** Anything running as your user
 can edit it. An out-of-band approval therefore carries proof that a person
 was present, and that proof is verified again when the approval is used, so a
