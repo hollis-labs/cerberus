@@ -39,7 +39,7 @@ func newStore(t *testing.T) (*Store, *clock, string) {
 
 func request(t *testing.T, s *Store, channel string) Approval {
 	t.Helper()
-	a, err := s.Request(Approval{Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio"}, Connector: "kubernetes", Operation: "delete_pod",
+	a, err := s.Request(Approval{Principal: asker, Connector: "kubernetes", Operation: "delete_pod",
 		Effect: "destructive", Target: audit.Target{Kind: "kubernetes.pod", Env: "prod"}, ArgsDigest: "hmac:args", PlanHash: "sha256:plan",
 		Rule: "builtin.env-prod", Channel: channel}, time.Hour)
 	if err != nil {
@@ -67,14 +67,16 @@ func TestLifecycle(t *testing.T) {
 	if _, err = s.Decide(a.ID, Decision{Approve: true, By: human}, fakePresence{}); !errors.Is(err, ErrNotPending) {
 		t.Fatalf("decided twice: %v", err)
 	}
-	check := ConsumeCheck{ArgsDigest: "hmac:args", PlanHash: "sha256:plan", OperationID: "op1"}
+	check := ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:plan", OperationID: "op1"}
 	for name, c := range map[string]struct {
 		check ConsumeCheck
 		want  error
 	}{
-		"swapped args":  {ConsumeCheck{ArgsDigest: "hmac:other", PlanHash: "sha256:plan"}, ErrArgsMismatch},
-		"another plan":  {ConsumeCheck{ArgsDigest: "hmac:args", PlanHash: "sha256:new"}, ErrPlanStale},
-		"policy denies": {ConsumeCheck{ArgsDigest: "hmac:args", PlanHash: "sha256:plan", ReauthorizedDeny: true}, ErrPolicyNowDenys},
+		"swapped args":   {ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:other", PlanHash: "sha256:plan"}, ErrArgsMismatch},
+		"another plan":   {ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:new"}, ErrPlanStale},
+		"policy denies":  {ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:plan", ReauthorizedDeny: true}, ErrPolicyNowDenys},
+		"another caller": {ConsumeCheck{Principal: audit.Principal{Kind: "agent", Via: "mcp_http"}, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:plan"}, ErrOtherPrincipal},
+		"another op":     {ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "scale_workload", ArgsDigest: "hmac:args", PlanHash: "sha256:plan"}, ErrOtherOperation},
 	} {
 		if _, cerr := s.Consume(a.ID, c.check, fakePresence{}); !errors.Is(cerr, c.want) {
 			t.Errorf("%s: %v, want %v", name, cerr, c.want)
@@ -160,7 +162,7 @@ func TestForgedApprovalDoesNotConsume(t *testing.T) {
 	if got, _ := reopened.Get(a.ID); got.Status != Approved {
 		t.Fatalf("the forged line did not fold: %s", got.Status)
 	}
-	check := ConsumeCheck{ArgsDigest: "hmac:args", PlanHash: "sha256:plan"}
+	check := ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:plan"}
 	for name, v := range map[string]PresenceVerifier{"no verifier": NoPresence{}, "a real verifier": fakePresence{}} {
 		if _, err := reopened.Consume(a.ID, check, v); !errors.Is(err, ErrNoPresence) {
 			t.Errorf("%s consumed a forged approval: %v", name, err)
@@ -188,3 +190,6 @@ func TestDamagedStoreFoldsAndReports(t *testing.T) {
 		t.Fatalf("mode %v", info.Mode())
 	}
 }
+
+// asker is the principal the tests' approvals are asked for by.
+var asker = audit.Principal{Kind: "agent", Via: "mcp_stdio"}

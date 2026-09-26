@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -400,7 +401,8 @@ func (s *ManagedPluginConnectorService) Health(ctx context.Context, id string) (
 // Execute runs a plugin operation on the direct plugin route, recording it
 // the way the admin lane records its operations.
 func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
-	spec := auditSpec{connector: id, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun}
+	spec := auditSpec{connector: id, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun,
+		approvalID: args.ApprovalID}
 	if args.DryRun {
 		spec.preview = audit.PreviewPluginClaimed
 	}
@@ -410,6 +412,14 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 			spec.op, spec.known = def.Operation(args.Operation)
 			spec.credentials = credentialNames(def)
 		}
+	}
+	// The direct route's plan is the admin lane's plugin plan: the same
+	// function, so an approval binds the same thing whichever route asks.
+	planSpec := spec
+	spec.plan = func(ctx context.Context) (plan.Plan, error) {
+		tgt, _ := auditTarget(planSpec)
+		p := plan.Plan{Lane: plan.LaneAdmin, Connector: id, Operation: args.Operation, Effect: string(planSpec.op.Effect), Target: tgt, ArgsDigest: s.audit.Digest(args.Config)}
+		return p, s.planPlugin(ctx, &p, planSpec.op, id, args.Config, args.Acknowledged)
 	}
 	call, err := beginGated(ctx, s.audit, s.logger, spec)
 	if err != nil {

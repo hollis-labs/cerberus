@@ -208,6 +208,29 @@ func TestRunConnectorExecSendsTypedArgsDryRunAndAck(t *testing.T) {
 	}
 }
 
+// --approval names the approval the call runs under; connectors plan asks
+// for the plan instead of running.
+func TestRunConnectorExecSendsApprovalAndPlan(t *testing.T) {
+	exec := &recordingExecutor{}
+	if err := runConnectorExec(context.Background(), io.Discard, io.Discard, nil, exec, []contract.Definition{execTestDefinition()}, "dnsdemo", "set_records",
+		connectorExecFlags{args: []string{"domain=example.com"}, ack: true, approval: "apr_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if exec.got.ApprovalID != "apr_1" || exec.got.Plan {
+		t.Fatalf("args = %#v", exec.got)
+	}
+	if err := runConnectorExec(context.Background(), io.Discard, io.Discard, nil, exec, []contract.Definition{execTestDefinition()}, "dnsdemo", "set_records",
+		connectorExecFlags{args: []string{"domain=example.com"}, plan: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !exec.got.Plan || exec.got.ApprovalID != "" {
+		t.Fatalf("args = %#v", exec.got)
+	}
+	if cmd, _, err := rootCmd.Find([]string{"connectors", "plan"}); err != nil || cmd.Name() != "plan" || cmd.Flags().Lookup("dry-run") != nil {
+		t.Fatalf("connectors plan: %v", err)
+	}
+}
+
 // An unknown connector or operation still reaches the admin lane, which
 // refuses and records it; the operator gets the hint first, naming what
 // exists.

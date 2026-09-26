@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/target"
@@ -50,6 +51,13 @@ type auditSpec struct {
 	preview string
 	// review is an install review's record.
 	review *audit.PluginReview
+	// approvalID is the approval the call runs under, and plan computes the
+	// plan an approval binds to (P3-2): the lane's one plan function, used
+	// when the approval is asked for and when it is used.
+	approvalID string
+	// planOnly marks a request for the plan alone (connectors plan).
+	planOnly bool
+	plan     func(context.Context) (plan.Plan, error)
 }
 
 // auditCall is one operation's pair of records.

@@ -147,6 +147,12 @@ type Record struct {
 	// what enforcement would do.
 	Policy *PolicyDecision `json:"policy,omitempty"`
 
+	// ApprovalID and PlanHash are the approval an operation ran under and
+	// the plan it was bound to (I6): a verifier joins the request, the
+	// decision, the consume and this outcome on them.
+	ApprovalID string `json:"approval_id,omitempty"`
+	PlanHash   string `json:"plan_hash,omitempty"`
+
 	// Approval is the approval a broker record is about.
 	Approval *ApprovalRef `json:"approval,omitempty"`
 

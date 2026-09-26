@@ -46,6 +46,8 @@ type GitStatus struct {
 type PlannedStep struct {
 	Name    string `json:"name"`
 	Command string `json:"command"`
+	// Env names the variables the step is given, never their values.
+	Env []string `json:"env,omitempty"`
 }
 
 // DeploymentPlan is what running a profile will do: the steps, in order, and
@@ -99,9 +101,19 @@ func PlanDeployment(ctx context.Context, secrets secret.Provider, profile Deploy
 		plan.Error = fmt.Sprintf("unsupported deployment provider %q", profile.Provider)
 	}
 	for _, step := range plan.steps {
-		plan.Steps = append(plan.Steps, PlannedStep{Name: step.name, Command: step.display})
+		plan.Steps = append(plan.Steps, PlannedStep{Name: step.name, Command: step.display, Env: envNames(step.env)})
 	}
 	return plan
+}
+
+// envNames is the names of NAME=value entries.
+func envNames(env []string) []string {
+	var names []string
+	for _, entry := range env {
+		name, _, _ := strings.Cut(entry, "=")
+		names = append(names, name)
+	}
+	return names
 }
 
 func planVercel(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) ([]deployStep, string) {
