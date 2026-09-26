@@ -11,6 +11,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
@@ -140,4 +141,34 @@ func TestPluginInstallIsAnInteractiveReview(t *testing.T) {
 			t.Fatalf("%q (%v)", out, err)
 		}
 	})
+}
+
+// install --yes needs no terminal and no typed id, but only under the
+// permissive posture; under secure it is refused with the command that
+// changes that, and installs nothing.
+func TestPluginInstallYesNeedsThePermissivePosture(t *testing.T) {
+	src, statePath, reloaded := reviewFixture(t, false, nil)
+	connectorsPluginYes = true
+	oldPosture := currentPosture
+	t.Cleanup(func() { connectorsPluginYes, currentPosture = false, oldPosture; cerbapi.SetPolicyDecisionPoint(nil) })
+
+	currentPosture = func() policy.PostureSummary { return policy.PostureSummary{Global: policy.PostureSecure} }
+	_, err := runInstall(t, "", src)
+	if !errors.Is(err, cerbapi.ErrPluginYesNeedsPermissive) || len(*reloaded) != 0 {
+		t.Fatalf("--yes under secure: %v, reloaded %v", err, *reloaded)
+	}
+	if got := redact.Text(err.Error()); got != err.Error() {
+		t.Fatalf("redaction rewrote the refusal: %q", got)
+	}
+	if _, statErr := os.Stat(statePath); !os.IsNotExist(statErr) {
+		t.Fatal("a refused --yes wrote state")
+	}
+
+	permissive := policy.File{Version: policy.FileVersion, Posture: policy.PosturePermissive}
+	currentPosture = func() policy.PostureSummary { return permissive.PostureSummary("test") }
+	cerbapi.SetPolicyDecisionPoint(policy.NewEvaluator(permissive, "test"))
+	out, err := runInstall(t, "", src)
+	if err != nil || !strings.Contains(out, "Plugin: widget") || !strings.Contains(out, "recorded as unattended") || len(*reloaded) != 1 {
+		t.Fatalf("--yes under permissive: %v, reloaded %v\n%s", err, *reloaded, out)
+	}
 }

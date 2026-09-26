@@ -11,6 +11,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
@@ -159,6 +160,7 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 		pluginhost.WithSecretResolver(cfg.secrets),
 		pluginhost.WithConnectorConfig(connectorConfigLoader(cfg.configPath)),
 		pluginhost.WithLoadWarning(func(line string) { service.warnf("%s", line) }),
+		pluginhost.WithChangedBundles(service.acceptChangedBundle),
 	)
 	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
 		return nil, err
@@ -199,7 +201,7 @@ func (s *ManagedPluginConnectorService) Reload(ctx context.Context, id string) (
 	if wasLoaded || entry.Loaded {
 		// Checked before the running plugin is stopped: a refused bundle
 		// leaves what is running alone.
-		if err := pluginhost.CheckBundle(next); err != nil {
+		if err := s.manager.CheckBundle(next); err != nil {
 			return ManagedPluginConnectorState{}, managedLoadError(err)
 		}
 	}
@@ -557,6 +559,52 @@ func (s *ManagedPluginConnectorService) persist() error {
 		}
 		return nil
 	})
+}
+
+// PluginChangedAcceptedByPosture is the outcome code of a load that let a
+// changed bundle through because the global posture is permissive.
+const PluginChangedAcceptedByPosture = "plugin_changed_accepted_by_posture"
+
+// acceptChangedBundle is the permissive posture's "load, and warn" for a
+// plugin that is not the bundle its review accepted (section 13). Under the
+// secure posture it refuses, as always. Under a global permissive posture —
+// a scoped rule never reaches a host-wide switch — it writes an audit record
+// first, and refuses if that record cannot be written, then warns and lets
+// the load go on.
+func (s *ManagedPluginConnectorService) acceptChangedBundle(changed *pluginhost.ChangedError) bool {
+	if PolicyDecisionPoint().GlobalPosture() != policy.PosturePermissive {
+		return false
+	}
+	if err := recordChangedBundleAccepted(s.audit, changed); err != nil {
+		s.warnf("plugin %q changed since its review and was NOT loaded: the permissive posture loads it only with an audit record, and the record could not be written: %s", changed.ID, redact.Text(err.Error()))
+		return false
+	}
+	s.warnf("WARNING: plugin %q is not the bundle you reviewed (it is %s, the review was for %s); it is loading anyway because the posture is permissive. Review it with `cerberus connectors plugin managed load %s --accept-changes`",
+		changed.ID, changed.Found, changed.Accepted, changed.ID)
+	return true
+}
+
+// recordChangedBundleAccepted writes the intent and outcome of a changed
+// bundle loaded under the permissive posture, naming both digests. It is
+// Cerberus acting on the operator's posture, so the principal is automation.
+func recordChangedBundleAccepted(sink audit.Sink, changed *pluginhost.ChangedError) error {
+	if sink == nil {
+		return errors.New("no audit sink")
+	}
+	id := audit.NewID()
+	rec := audit.Record{Kind: audit.KindIntent, OperationID: id,
+		Principal: audit.Principal{Kind: audit.PrincipalAutomation, Surface: string(SurfaceUnknown), Via: "posture"},
+		Connector: "plugin", Operation: "load", Effect: string(contract.EffectAdmin),
+		Target:  audit.Target{Kind: "plugin", Fields: map[string]string{"id": changed.ID, "accepted": changed.Accepted, "found": changed.Found}},
+		Reason:  "the bundle is not the one its review accepted, and the global posture is permissive, which loads it with a warning",
+		Posture: policy.PosturePermissive}
+	if _, err := sink.Write(rec); err != nil {
+		return err
+	}
+	rec.Kind, rec.ID = audit.KindOutcome, ""
+	rec.Decision, rec.OutcomeCode = audit.DecisionAllowed, PluginChangedAcceptedByPosture
+	_, err := sink.Write(rec)
+	return err
 }
 
 // managedLoadError codes a refused load: a bundle that is not the one

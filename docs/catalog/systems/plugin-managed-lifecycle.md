@@ -183,3 +183,23 @@ the bundle digest checked against the accepted review, or
 `unchecked: its review is pending`. It carries the entrypoint digest too.
 Before this, a restart left no trace, even though a restart is exactly when a
 pending plugin starts new code (`TestRestoreRecordsEachPluginLoad`).
+
+## Since P2-5d: the permissive posture
+
+Two plugin gates follow the global posture (section 13). A scoped posture rule
+never reaches either, because neither has a target.
+
+- **`install --yes`.** Under a global `permissive` posture,
+  `cerberus connectors plugin managed install <dir> --yes` prints the review and
+  accepts it without the typed plugin id, and it needs no terminal. The
+  reviewer checks the posture itself (`PluginReviewer.AcceptUnattended`), so it
+  holds whoever calls it. The review record is marked `unattended: true` and
+  carries `posture: permissive`. Under secure, `--yes` is refused with the
+  command that changes the posture. It never applies to a migration review or
+  to `--accept-changes`.
+- **A changed bundle.** Under a global `permissive` posture, a plugin that is
+  not the bundle its review accepted loads anyway. First, an intent and outcome
+  are written, coded `plugin_changed_accepted_by_posture`, naming both digests.
+  If that record cannot be written, the load is refused. Then a warning names
+  `load --accept-changes`. A plugin built for another host contract is still
+  refused.
