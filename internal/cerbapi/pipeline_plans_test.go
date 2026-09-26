@@ -269,3 +269,17 @@ func TestPipelineBuildBindsTheCheckout(t *testing.T) {
 		t.Fatal("a new commit in the built resource's checkout is the same pipeline plan")
 	}
 }
+
+// A shown plan says which process computed it, outside the hash: the same
+// pipeline plans differently in the daemon and in process.
+func TestShownPlanNamesWhereItWasComputed(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewResourceRuntimeService(audit.NewMemory())
+	setPipelines(svc, []config.ResourceDef{devResource(t, nil)}, shellPipeline(dir, "ran"))
+	for _, surface := range []CallerSurface{SurfaceInProcess, SurfaceSocket} {
+		out, err := svc.RunPipeline(BeginRequest(context.Background(), surface), "ship", WithAcknowledged(true), WithPlan())
+		if err != nil || out.Plan == nil || out.Plan.ComputedBy != surface {
+			t.Fatalf("%s: %+v %v", surface, out, err)
+		}
+	}
+}
