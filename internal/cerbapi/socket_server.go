@@ -537,6 +537,12 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 
 	rest := strings.TrimPrefix(r.URL.Path, "/connectors/")
 	parts := strings.Split(rest, "/")
+	// …/plan asks for the call's plan. It is a route of its own so that a
+	// daemon predating plans refuses it rather than running the operation.
+	planOnly := len(parts) == 4 && parts[3] == "plan"
+	if planOnly {
+		parts = parts[:3]
+	}
 	if len(parts) != 3 || parts[0] == "" || parts[1] != "operations" || parts[2] == "" {
 		writeJSONError(w, http.StatusNotFound, "expected /connectors/{id}/operations/{operation}")
 		return
@@ -549,6 +555,9 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 	}
 	args.Connector = parts[0]
 	args.Operation = parts[2]
+	if planOnly {
+		args.Plan = true
+	}
 	if args.Config == nil {
 		args.Config = map[string]any{}
 	}
