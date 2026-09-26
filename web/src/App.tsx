@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Boxes, Cable, Gauge, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
+import { Boxes, Cable, CheckCheck, Gauge, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
 import { ApiError, createRouter } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type PostureInfo } from './api/client'
+import { ApprovalsPage } from './pages/approvals'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
 import { OverviewPage } from './pages/overview'
@@ -18,6 +19,7 @@ const ROUTES = [
   'resources',
   'projects',
   'pipelines',
+  'approvals',
   'registry',
   'deployments',
   'connectors',
@@ -31,6 +33,7 @@ const TITLES: Record<RouteKey, string> = {
   resources: 'Resources',
   projects: 'Projects',
   pipelines: 'Pipelines',
+  approvals: 'Approvals',
   registry: 'Registry',
   deployments: 'Deployments',
   connectors: 'Connectors',
@@ -141,6 +144,13 @@ function Console({ onSignOut, posture }: { onSignOut: () => void; posture?: Post
       onSelect: () => navigate('pipelines'),
     },
     {
+      key: 'approvals',
+      label: 'Approvals',
+      icon: <CheckCheck className="h-4 w-4" />,
+      active: route === 'approvals',
+      onSelect: () => navigate('approvals'),
+    },
+    {
       key: 'registry',
       label: 'Registry',
       icon: <Waypoints className="h-4 w-4" />,
@@ -223,6 +233,8 @@ function RouteView({ route }: { route: RouteKey }) {
       return <ResourcesPage />
     case 'projects':
       return <ProjectsPage />
+    case 'approvals':
+      return <ApprovalsPage />
     case 'pipelines':
       return <PipelinesPage />
     case 'registry':

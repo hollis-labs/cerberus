@@ -453,7 +453,52 @@ export interface PluginHealth {
 
 export type ResourceAction = 'apply' | 'deploy' | 'reload' | 'stop' | 'sync' | 'remove'
 
+// An approval request, as the daemon's broker holds it (P3).
+export interface ApprovalPrincipal {
+  kind?: string
+  surface?: string
+  via?: string
+  uid?: number
+  client?: string
+  session?: string
+}
+
+export interface ApprovalInfo {
+  id: string
+  status: 'pending' | 'approved' | 'denied' | 'expired' | 'consumed' | 'revoked'
+  created_at: string
+  expires_at: string
+  principal: ApprovalPrincipal
+  connector: string
+  operation: string
+  effect?: string
+  target: { kind?: string; resource?: string; env?: string; owner?: string; admin?: string; fields?: Record<string, string> }
+  args_digest: string
+  plan_hash?: string
+  rule?: string
+  reason?: string
+  channel: string
+  scope: string
+  decision?: { approve: boolean; by: ApprovalPrincipal; at: string; key_fingerprint?: string; reason?: string }
+  consumed_at?: string
+  revoked_at?: string
+}
+
+export interface ApprovalListResponse {
+  approvals: ApprovalInfo[] | null
+  problems?: string[]
+}
+
 export const apiClient = {
+  listApprovals: (signal?: AbortSignal) => http.get<ApprovalListResponse>('/api/approvals', { signal }),
+  decideApproval: (id: string, token: string, approve: boolean, typed: string, reason: string) =>
+    http.post<ApprovalInfo>(`/api/approvals/${encodeURIComponent(id)}/decide`, { approve, typed, reason } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  revokeApproval: (id: string, token: string, reason: string) =>
+    http.post<ApprovalInfo>(`/api/approvals/${encodeURIComponent(id)}/revoke`, { reason } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
   getSession: (signal?: AbortSignal) => http.get<SessionInfo>('/api/session', { signal }),
   logout: (token: string) =>
     http.post<{ success: boolean }>('/api/logout', {} as JsonObject, {
