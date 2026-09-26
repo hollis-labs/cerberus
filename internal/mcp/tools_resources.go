@@ -238,7 +238,7 @@ func NewCerberusResourceReloadTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.ReloadResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := client.ReloadResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}
@@ -274,7 +274,7 @@ func NewCerberusResourceStopTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.StopResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := client.StopResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}
@@ -310,7 +310,7 @@ func NewCerberusResourceDeployTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.DeployResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := client.DeployResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}
@@ -347,7 +347,7 @@ func NewCerberusResourceEnsureFreshTool(client cerbapi.Client) Tool {
 				})
 			}
 			force, _ := args["force"].(bool)
-			res, err := cerbapi.EnsureFresh(ctx, client, resourceID, force, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := cerbapi.EnsureFresh(ctx, client, resourceID, force, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}
@@ -386,7 +386,7 @@ func NewCerberusResourceApplyTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.ApplyResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := client.ApplyResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}
@@ -418,7 +418,7 @@ func NewCerberusResourceSyncTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.SyncResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := client.SyncResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}
@@ -454,7 +454,7 @@ func NewCerberusResourceRemoveTool(client cerbapi.Client) Tool {
 					Error:   "resource_id is required",
 				})
 			}
-			res, err := client.RemoveResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := client.RemoveResource(ctx, resourceID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}

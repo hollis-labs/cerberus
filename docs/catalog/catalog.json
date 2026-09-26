@@ -16862,6 +16862,86 @@
       "id": "CERB-GAP-886"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "state_field": "status",
+      "state_label": "planned",
+      "name": "An MCP client that connects and expects list_changed at once can miss the first one",
+      "summary": "The go-sdk client sends subscriptions/listen without waiting for it, so Connect returns before the server has registered the subscription, and a tools/list_changed sent in that window reaches no one.",
+      "confidence_score": 0.8,
+      "confidence_label": "read in go-sdk v1.8.0 (callSubscriptionsListen, Server.notifySessions) and reproduced as the TestPluginToolSyncFollowsTheDaemon flake (#116)",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "mcp",
+        "upstream",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/mcp/plugin_tools.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-402",
+          "note": "the MCP adapter's plugin tool sync"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-402",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "go-sdk makes Connect wait for the subscription's acknowledgment, or Cerberus re-announces the tool list once a session's subscription is acknowledged",
+        "effort": "small"
+      },
+      "body": "Under the SEP-2575 protocol a server sends `notifications/tools/list_changed` only to sessions with an active `subscriptions/listen` stream (`Server.notifySessions`). The go-sdk v1.8.0 client opens that stream fire-and-forget (`callSubscriptionsListen`) and returns from `Connect`, so there is a window in which the server has the session but not its subscription. A tool-list change in that window, such as `PluginToolSync.Reconcile` exposing a plugin operation just after a client connects, notifies nobody, and the client keeps the list it fetched until something else changes it.\n\nIt showed as a test flake under load (#116), fixed in the test by waiting for the server's `notifications/subscriptions/acknowledged`. A real client is exposed only if it lists tools, and a change lands, inside that window; it gets the change on its next list or the next notification. Cerberus cannot close it from the server side without re-announcing after each acknowledgment.",
+      "id": "CERB-GAP-888"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "state_field": "status",
+      "state_label": "planned",
+      "name": "Resource logs are read_sensitive but never pass the gate",
+      "summary": "local.logs is classified read_sensitive, which baseline policy approves for agents, but ResourceLogs reads the log file directly without beginGated, so it is neither recorded as an operation nor enforceable, while docker logs is.",
+      "confidence_score": 0.8,
+      "confidence_label": "read on the P3-6 branch; found by TestGatedToolsPassApprovalID",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "agent-safety",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/resource_runtime_service.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-843",
+          "note": "one enforcement point (I1)"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "ResourceLogs runs through beginGated like the other runtime operations, and cerberus_resource_logs takes approval_id",
+        "effort": "small"
+      },
+      "body": "`localconn.OpLogs` is declared `read_sensitive`: a workload's log can carry what it was handed. Baseline policy answers `approve` for an agent on `read_sensitive` (`internal/policy/evaluate.go`), and `docker logs` meets that through the admin lane's gate. `ResourceRuntimeService.ResourceLogs` does not call `beginGated` at all, so an agent reading a local resource's log over MCP is neither recorded as an operation nor subject to enforcement once P3-7 switches it on. That breaks I1 for one read. P3-6 leaves `approval_id` off `cerberus_resource_logs` for that reason (`ungatedTools` in `internal/mcp/approvals.go`), rather than offering an argument that would do nothing.",
+      "id": "CERB-GAP-889"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
@@ -23124,6 +23204,54 @@
       },
       "body": "`enroll` runs only on an interactive terminal. It makes a one-time token, gives the daemon only its digest (`POST /approvals/keys/enroll-allow`), and prints and opens a console sign-in link that lands on the approvals page carrying the token; the browser creates the passkey there with user verification required, good once and for ten minutes. The first key is trusted on first use; after it, adding a key needs an enrolled key's assertion. `keys` prints the registry's state and each key's fingerprint, label and enrollment time. `keys remove <fingerprint>` opens the console page where the removal is confirmed with an enrolled key. Every change is an `enrollment_changed` audit record carrying the registry's new hash, raises a notification, and shows in `cerberus status` for 24h; a registry changed any other way starts a 24h cool-down.",
       "id": "CERB-TOOL-884"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "tool",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "name": "cerberus_approval_wait (MCP)",
+      "summary": "Waits up to a minute for an approval to change state and reports it, with the next step: what an agent calls after an approval_pending answer, before retrying with approval_id. A read; it never decides anything.",
+      "confidence_score": 0.8,
+      "confidence_label": "TestAgentApprovalRoundTrip drives it with a real go-mcp client against a real socket server with the gate enforcing, on the P3-6 branch",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "approvals",
+        "mcp",
+        "agent-safety",
+        "locus:core",
+        "verified:test"
+      ],
+      "pointer_locator": "internal/mcp/approvals.go",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-402",
+          "note": "an MCP tool"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-843",
+          "note": "the agent's side of the enforcement path"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-402",
+        "invocation": "cerberus_approval_wait {id, timeout_seconds (1-60, default 30)}",
+        "surfaces": [
+          "mcp"
+        ],
+        "destructive": false,
+        "verified": "test",
+        "vendor": []
+      },
+      "body": "Bound to the control plane's `approval_wait` read, so its hints say read-only. It reads the approval (the socket's `GET /approvals/{id}`, or the process's broker on the daemon's own MCP server) every half second until its status leaves `pending` or the timeout passes, and answers `ApprovalView`: id, status, operation, target, channel, times, and who decided, as a kind and a surface. It deliberately leaves out the decision's key fingerprint and sealed assertion, the args digest and the plan hash. Each answer carries a `next_step`: retry with `approval_id` once approved, do not retry when denied or revoked, retry without it when expired.\n\nThe rest of P3-6 is in the refusal body every MCP tool returns. `approval_pending` carries its code, the approval `{id, expires_at, channel, approve_with}` and a `next_step` naming what to ask the operator (a terminal approve for `tty_confirm`, a passkey on the console for out of band). Every tool over a non-read operation takes `approval_id` and passes it on, derived from the contract as the hints are (`TestGatedToolsPassApprovalID`). The retry is consumed by id with the requester binding intact, and no MCP principal can decide (`TestMCPNeverDecides`).",
+      "id": "CERB-TOOL-887"
     }
   ]
 }
