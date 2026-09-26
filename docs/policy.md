@@ -167,6 +167,56 @@ cerberus approvals list [--status pending]
 cerberus approvals show <id>
 ```
 
+### Deciding an approval
+
+```bash
+cerberus approvals approve <id>
+cerberus approvals deny <id>
+cerberus approvals revoke <id>     # withdraw an approval before it is used
+```
+
+These run only on an interactive terminal, never from a script or an agent.
+`approve` shows the request in full, including who asked and the plan hash,
+and is confirmed by typing the target's name. The console's Approvals page
+does the same.
+
+The surface a request came from can never approve it. A request made over MCP
+is approved on the terminal or the console, and an MCP client never approves
+anything. Anyone can deny.
+
+### Out-of-band approval, with a passkey
+
+A request whose target is production or has no env label, has a shared
+admin, or is owned by someone other than you is approved **out of band**: on
+the console, with a passkey (Touch ID or a security key) enrolled for this
+Cerberus. That is proof a person was there, and an agent running as you
+cannot produce it. For such a request, `cerberus approvals approve <id>`
+prints and opens a one-time link to its page on the console.
+
+Enroll a passkey once, from a terminal:
+
+```bash
+cerberus web                         # the console, if it is not running
+cerberus approvals enroll [--label "laptop touch id"]
+cerberus approvals keys              # what is enrolled
+cerberus approvals keys remove <fingerprint>
+```
+
+`enroll` prints and opens a console link, good once and for ten minutes,
+where the browser creates the passkey. The first key is trusted on first use.
+After it, adding a key or removing one has to be confirmed with a key that is
+already enrolled. Passkeys work on `localhost`, so the console's links use
+`http://localhost:<port>`. `--listen` names a console on another port.
+
+Every enrollment is recorded in the audit log and raises a notification.
+`cerberus status` shows it for a day, so you notice an enrollment you did not
+make. Until a key is enrolled, `status` and the console header say that
+out-of-band approval is not set up.
+
+The key registry is checked against the audit log. If it is changed any other
+way, for example by editing the file, out-of-band approvals are refused for 24
+hours. `status` and the console show the cool-down and when it ends.
+
 With the daemon down, these read the store directly. The in-process CLI
 without a daemon can only confirm a call on the terminal itself. A call that
 needs out-of-band approval is answered with how to start the daemon.

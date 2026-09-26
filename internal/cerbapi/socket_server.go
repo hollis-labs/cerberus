@@ -913,6 +913,20 @@ func (s *SocketServer) handleApprovalAction(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		a, err = broker.RevokeAs(r.Context(), id, args)
+	case "challenge":
+		var args ApprovalChallengeArgs
+		if err = decodeJSONBody(r, &args); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		c, cerr := approvalChallenge(broker, id, args)
+		if cerr != nil {
+			status, msg := approvalErrorStatus(cerr, id)
+			writeJSONError(w, status, msg)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
+		return
 	default:
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown approval action %q", action))
 		return
@@ -941,6 +955,10 @@ func (s *SocketServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/approvals"), "/")
+	if id == "keys" || strings.HasPrefix(id, "keys/") {
+		s.handleApprovalKeys(w, r, strings.TrimPrefix(strings.TrimPrefix(id, "keys"), "/"))
+		return
+	}
 	if head, action, ok := strings.Cut(id, "/"); ok {
 		s.handleApprovalAction(w, r, broker, head, action)
 		return
