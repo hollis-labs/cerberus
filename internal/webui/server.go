@@ -394,7 +394,8 @@ func writeErrorBody(w http.ResponseWriter, status int, msg string, code cerbapi.
 }
 
 // writeClientError maps a service error to a status. A connector refusal
-// reads its status from the table the socket server uses too, so the console
+// reads its status from the table the socket server uses too, and any other
+// daemon refusal keeps the status the daemon answered with, so the console
 // answers a refusal the way the daemon does rather than with a 500.
 func writeClientError(w http.ResponseWriter, err error) {
 	var connErr *cerbapi.ExternalConnectorError
@@ -404,10 +405,19 @@ func writeClientError(w http.ResponseWriter, err error) {
 	case isTimeoutError(err):
 		writeError(w, http.StatusServiceUnavailable, "cerberus daemon timed out while gathering resource state; check 'cerberus daemon status'")
 	case errors.As(err, &connErr):
-		writeErrorBody(w, cerbapi.ExternalConnectorHTTPStatus(err, http.StatusInternalServerError), err.Error(), connErr.Code)
+		writeErrorBody(w, cerbapi.ExternalConnectorHTTPStatus(err, daemonStatus(err)), err.Error(), connErr.Code)
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, daemonStatus(err), err.Error())
 	}
+}
+
+// daemonStatus is the status the daemon refused with (a 403, 404, 409 and so
+// on), or 500 for an error that did not come from a daemon refusal.
+func daemonStatus(err error) int {
+	if status, ok := cerbapi.DaemonHTTPStatus(err); ok {
+		return status
+	}
+	return http.StatusInternalServerError
 }
 
 func isDaemonUnavailable(err error) bool {

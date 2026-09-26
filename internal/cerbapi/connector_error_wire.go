@@ -153,3 +153,34 @@ func errorResponseFor(err error) ErrorResponse {
 func writeServiceError(w http.ResponseWriter, fallback int, err error) {
 	writeJSON(w, ExternalConnectorHTTPStatus(err, fallback), errorResponseFor(err))
 }
+
+// DaemonStatusError is a daemon refusal with the HTTP status the daemon
+// answered it with, so an edge that serves HTTP itself (the web console) can
+// pass on a 403, 404 or 409 rather than turning every refusal into a 500.
+// It is transparent: its text, its rendering and its chain are the wrapped
+// error's.
+type DaemonStatusError struct {
+	Status int
+	Err    error
+}
+
+func (e *DaemonStatusError) Error() string { return e.Err.Error() }
+func (e *DaemonStatusError) Unwrap() error { return e.Err }
+
+// RenderRedacted renders the wrapped error: Render uses a Renderer only
+// on the outermost error, and daemon-rendered prose must stay prose.
+func (e *DaemonStatusError) RenderRedacted(s *redact.Scope) string { return redact.Render(s, e.Err) }
+
+func withDaemonStatus(status int, err error) error {
+	return &DaemonStatusError{Status: status, Err: err}
+}
+
+// DaemonHTTPStatus is the status the daemon answered err with, when err is
+// a refusal the daemon sent and the status is an error status.
+func DaemonHTTPStatus(err error) (int, bool) {
+	var statusErr *DaemonStatusError
+	if errors.As(err, &statusErr) && statusErr.Status >= 400 && statusErr.Status <= 599 {
+		return statusErr.Status, true
+	}
+	return 0, false
+}
