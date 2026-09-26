@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
@@ -230,9 +231,7 @@ func inspectGitRepo(ctx context.Context, profile DeploymentProfile) GitStatus {
 }
 
 func runGitOutput(ctx context.Context, cwd string, args ...string) string {
-	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec
-	cmd.Dir = cwd
-	out, err := cmd.Output()
+	out, err := gitenv.Command(ctx, cwd, args...).Output()
 	if err != nil {
 		return ""
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -157,16 +158,11 @@ func planDeploymentProfile(ctx context.Context, spec auditSpec, sink interface{ 
 // than failing the plan: the plan still binds everything else.
 func gitSource(ctx context.Context, dir string) *plan.Source {
 	src := &plan.Source{Path: dir}
-	git := gitBinary()
-	if git == "" {
+	if _, err := exec.LookPath(gitenv.Binary()); err != nil {
 		src.HEAD = "(git not found)"
 		return src
 	}
-	run := func(args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, git, append([]string{"-C", dir}, args...)...) //nolint:gosec // a resolved git binary on the profile's own checkout
-		cmd.Env = gitEnv()
-		return cmd.Output()
-	}
+	run := func(args ...string) ([]byte, error) { return gitenv.Command(ctx, dir, args...).Output() }
 	head, err := run("rev-parse", "HEAD")
 	if err != nil {
 		src.HEAD = "(not a git checkout)"
@@ -176,36 +172,6 @@ func gitSource(ctx context.Context, dir string) *plan.Source {
 	status, err := run("status", "--porcelain")
 	src.Dirty = err != nil || len(strings.TrimSpace(string(status))) > 0
 	return src
-}
-
-// gitEnv is the process environment without the variables that point git
-// at a repository. A caller running inside a git hook has GIT_DIR set, and
-// `git -C dir` would read that repository instead of dir.
-func gitEnv() []string {
-	var env []string
-	for _, entry := range os.Environ() {
-		name, _, _ := strings.Cut(entry, "=")
-		switch name {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX":
-			continue
-		}
-		env = append(env, entry)
-	}
-	return env
-}
-
-// gitBinary resolves git per call: the daemon's PATH is launchd's minimal
-// one, so a PATH lookup alone is not enough.
-func gitBinary() string {
-	if path, err := exec.LookPath("git"); err == nil {
-		return path
-	}
-	for _, candidate := range []string{"/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"} {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
-		}
-	}
-	return ""
 }
 
 // planResource is a resource verb's plan: the resource's definition (as a
