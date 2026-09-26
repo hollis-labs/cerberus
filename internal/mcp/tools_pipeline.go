@@ -60,7 +60,7 @@ func NewCerberusPipelineRunTool(client cerbapi.Client) Tool {
 					Error:   "pipeline_id is required",
 				})
 			}
-			res, err := client.RunPipeline(ctx, pipelineID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")))
+			res, err := client.RunPipeline(ctx, pipelineID, cerbapi.WithAcknowledged(boolArg(args, "acknowledged")), cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}

@@ -29,5 +29,7 @@ func Instructions(p policy.PostureSummary) string {
 			"and acknowledged=true is still required where an operation demands it."
 	}
 	return fmt.Sprintf("Cerberus runs, deploys and inspects the operator's infrastructure. Every call is recorded in an audit log. "+
-		"Set acknowledged=true only when the person you work for asked for that operation. Posture: %s. %s", posture, meaning)
+		"Set acknowledged=true only when the person you work for asked for that operation. "+
+		"A call answered approval_pending needs your operator's approval, which you cannot give: tell them what its next_step says, "+
+		"wait with cerberus_approval_wait, then retry the same call with approval_id. Posture: %s. %s", posture, meaning)
 }

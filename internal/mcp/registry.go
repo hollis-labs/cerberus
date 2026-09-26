@@ -36,6 +36,7 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusPipelineRunTool(client),
 		NewCerberusConnectorListTool(client),
 		NewCerberusConnectorDescribeTool(client),
+		NewCerberusApprovalWaitTool(client),
 		NewCerberusGithubStatusTool(client),
 		NewCerberusGithubReleasesTool(client),
 		NewCerberusGithubRunsTool(client),
@@ -120,6 +121,11 @@ func scopedToolError(scope *redact.Scope, err error) error {
 	var structured budget.StructuredError
 	if errors.As(err, &structured) {
 		return scopedStructuredError{source: structured, scope: scope}
+	}
+	// A coded refusal a tool returned as it came — a resource verb's
+	// approval_pending, say — keeps its code, approval and next step.
+	if isCoded(err) {
+		return scopedStructuredError{source: refusalFailure(scope, err), scope: scope}
 	}
 	return errors.New(scope.ErrorText(err))
 }
