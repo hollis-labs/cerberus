@@ -324,7 +324,15 @@ func (c *SocketClient) RunPipeline(ctx context.Context, id string, options ...Mu
 		return nil, errors.New("pipeline id required")
 	}
 	var out PipelineRunResult
-	if err := c.doJSONStream(ctx, http.MethodPost, "/pipelines/"+url.PathEscape(id)+"/run", ApplyMutationOptions(options), &out); err != nil {
+	body := ApplyMutationOptions(options)
+	path := "/pipelines/" + url.PathEscape(id) + "/run"
+	if body.Plan {
+		if err := c.doJSONStream(ctx, http.MethodPost, path+"/plan", body, &out); err != nil {
+			return nil, planRoute(err)
+		}
+		return &out, nil
+	}
+	if err := c.doJSONStream(ctx, http.MethodPost, path, body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -393,7 +401,7 @@ func planRoute(err error) error {
 		return nil
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "expected /connectors/{id}/operations/{operation}") || strings.Contains(msg, "unknown resource action") {
+	if strings.Contains(msg, "expected /connectors/{id}/operations/{operation}") || strings.Contains(msg, "unknown resource action") || strings.Contains(msg, "unknown pipeline action") {
 		return redact.GuidanceWrap(err, "the running daemon predates plans, so it refused the plan request and nothing ran; restart the daemon on this build, then retry")
 	}
 	return err

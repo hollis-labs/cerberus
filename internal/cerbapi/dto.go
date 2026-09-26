@@ -450,6 +450,8 @@ type PipelineRunResult struct {
 	// Raw preserves the existing pipeline-result wire format used by MCP
 	// and the console. Formatting clients can use Execution to decode it.
 	Raw []byte `json:"raw,omitempty"`
+	// Plan is the run's plan, for a plan request; nothing ran.
+	Plan *ConnectorPlan `json:"plan,omitempty"`
 }
 
 // Execution decodes the existing wire result without changing MCP/web responses.
