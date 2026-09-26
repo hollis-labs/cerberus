@@ -510,9 +510,9 @@ func (c *SocketClient) doJSON(ctx context.Context, method, path string, body int
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var errResp ErrorResponse
 		if jerr := json.Unmarshal(data, &errResp); jerr == nil && errResp.Error != "" {
-			return daemonError(errResp.Error, errResp.connectorErrorWire)
+			return withDaemonStatus(resp.StatusCode, daemonError(errResp.Error, errResp.connectorErrorWire))
 		}
-		return fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, string(data))
+		return withDaemonStatus(resp.StatusCode, fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, string(data)))
 	}
 
 	if out == nil {
@@ -560,9 +560,9 @@ func (c *SocketClient) doJSONStream(ctx context.Context, method, path string, bo
 		}
 		var errResp ErrorResponse
 		if jerr := json.Unmarshal(data, &errResp); jerr == nil && errResp.Error != "" {
-			return daemonError(errResp.Error, errResp.connectorErrorWire)
+			return withDaemonStatus(resp.StatusCode, daemonError(errResp.Error, errResp.connectorErrorWire))
 		}
-		return fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, string(data))
+		return withDaemonStatus(resp.StatusCode, fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, string(data)))
 	}
 
 	scanner := bufio.NewScanner(io.LimitReader(resp.Body, 10<<20))
