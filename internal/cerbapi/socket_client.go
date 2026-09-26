@@ -655,3 +655,19 @@ func (c *SocketClient) GetApproval(ctx context.Context, id string) (approval.App
 	err := c.doJSON(ctx, http.MethodGet, "/approvals/"+url.PathEscape(id), nil, &out)
 	return out, err
 }
+
+// DecideApproval approves or denies a pending approval as this caller. The
+// daemon checks the no-self-approval rule, and for out of band the presence
+// assertion.
+func (c *SocketClient) DecideApproval(ctx context.Context, id string, args ApprovalDecisionArgs) (approval.Approval, error) {
+	var out approval.Approval
+	err := c.doJSON(ctx, http.MethodPost, "/approvals/"+url.PathEscape(id)+"/decide", args, &out)
+	return out, err
+}
+
+// RevokeApproval withdraws an approved approval before it is used.
+func (c *SocketClient) RevokeApproval(ctx context.Context, id string, args ApprovalRevokeArgs) (approval.Approval, error) {
+	var out approval.Approval
+	err := c.doJSON(ctx, http.MethodPost, "/approvals/"+url.PathEscape(id)+"/revoke", args, &out)
+	return out, err
+}

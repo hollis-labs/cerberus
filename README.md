@@ -161,6 +161,7 @@ cerberus mcp-http     # HTTP MCP endpoint at http://127.0.0.1:4785/mcp by defaul
 cerberus status       # at a glance: daemon, posture, who you are, plugin review, audit chain, web console
 cerberus posture show # the posture (secure by default) and what it relaxes; `posture set` changes it, in a terminal
 cerberus whoami       # how Cerberus classifies this caller: human, agent or automation
+cerberus approvals list|show|approve|deny|revoke  # approval requests; decided on a terminal or the console, never MCP
 cerberus --config /path/to/config.yaml  # use alternate config
 ```
 
