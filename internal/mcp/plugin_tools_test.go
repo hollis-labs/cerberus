@@ -280,13 +280,33 @@ func TestPluginToolSyncFollowsTheDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ss.Close() })
-	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, &mcpsdk.ClientOptions{
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, &mcpsdk.ClientOptions{
 		ToolListChangedHandler: func(context.Context, *mcpsdk.ToolListChangedRequest) { changed <- struct{}{} },
-	}).Connect(context.Background(), clientT, nil)
+	})
+	// The client opens its subscriptions/listen stream without waiting for
+	// it, so Connect returns before the server has registered the
+	// subscription, and a change made in that window notifies no one. The
+	// server acknowledges once it is registered; wait for that.
+	subscribed := make(chan struct{})
+	var once sync.Once
+	client.AddReceivingMiddleware(func(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
+		return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
+			if method == "notifications/subscriptions/acknowledged" {
+				once.Do(func() { close(subscribed) })
+			}
+			return next(ctx, method, req)
+		}
+	})
+	cs, err := client.Connect(context.Background(), clientT, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cs.Close() })
+	select {
+	case <-subscribed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the server never acknowledged the tools/list_changed subscription")
+	}
 
 	listed := func() []string {
 		res, err := cs.ListTools(context.Background(), nil)
