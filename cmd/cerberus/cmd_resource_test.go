@@ -88,3 +88,27 @@ func TestResolveDeployFlags(t *testing.T) {
 }
 
 func ptrBool(b bool) *bool { return &b }
+
+// Every resource mutation takes --approval, which ackOption carries with
+// --ack; resource plan exists and plans only.
+func TestResourceVerbsTakeAnApproval(t *testing.T) {
+	for _, verb := range []string{"deploy", "ensure-fresh", "apply", "reload", "stop", "sync", "remove"} {
+		sub, _, err := rootCmd.Find([]string{"resource", verb})
+		if err != nil || sub.Flags().Lookup("approval") == nil {
+			t.Fatalf("resource %s has no --approval: %v", verb, err)
+		}
+	}
+	cmd := &cobra.Command{Use: "stop"}
+	cmd.Flags().Bool("ack", false, "")
+	cmd.Flags().String("approval", "", "")
+	_ = cmd.Flags().Set("ack", "true")
+	_ = cmd.Flags().Set("approval", "apr_1")
+	opts := cerbapi.ApplyMutationOptions([]cerbapi.MutationOption{ackOption(cmd)})
+	if !opts.Acknowledged || opts.ApprovalID != "apr_1" || opts.Plan {
+		t.Fatalf("opts %+v", opts)
+	}
+	plan, _, err := rootCmd.Find([]string{"resource", "plan"})
+	if err != nil || plan.Name() != "plan" || plan.Flags().Lookup("approval") != nil {
+		t.Fatalf("resource plan: %v", err)
+	}
+}

@@ -386,8 +386,10 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
+	case "deploy/plan", "apply/plan", "reload/plan", "stop/plan", "sync/plan", "remove/plan":
+		s.handleResourceMutation(w, r, id, strings.TrimSuffix(action, "/plan"), true)
 	case "deploy", "apply", "reload", "stop", "sync", "remove":
-		s.handleResourceMutation(w, r, id, action)
+		s.handleResourceMutation(w, r, id, action, false)
 	default:
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown resource action %q", action))
 	}
@@ -473,7 +475,7 @@ var resourceMutations = map[string]struct {
 // handleResourceMutation serves one resource mutation. Its options —
 // the caller's acknowledgment among them — come from the request body, and a
 // refusal keeps its code and status.
-func (s *SocketServer) handleResourceMutation(w http.ResponseWriter, r *http.Request, id, action string) {
+func (s *SocketServer) handleResourceMutation(w http.ResponseWriter, r *http.Request, id, action string, planOnly bool) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -483,6 +485,9 @@ func (s *SocketServer) handleResourceMutation(w http.ResponseWriter, r *http.Req
 	if decodeErr != nil {
 		writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
 		return
+	}
+	if planOnly {
+		opts = append(opts, WithPlan())
 	}
 	if mutation.stream && s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
 		return mutation.call(s.client, ctx, id, opts...)
@@ -838,6 +843,9 @@ func decodeMutationOptions(body io.Reader) ([]MutationOption, error) {
 		return nil, fmt.Errorf("decode mutation body: %w", err)
 	}
 	options := []MutationOption{WithAcknowledged(opts.Acknowledged), WithApprovalID(opts.ApprovalID)}
+	if opts.Plan {
+		options = append(options, WithPlan())
+	}
 	if opts.InstallAfterBuildOverride != nil {
 		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))
 	}
