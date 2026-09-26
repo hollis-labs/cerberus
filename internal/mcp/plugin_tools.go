@@ -124,7 +124,7 @@ func pluginTool(client cerbapi.Client, connectorID string, op contract.Operation
 		props = map[string]any{}
 		schema["properties"] = props
 	}
-	for _, reservedArg := range []string{argDryRun, argAcknowledged} {
+	for _, reservedArg := range []string{argDryRun, argAcknowledged, argApprovalID} {
 		if _, clash := props[reservedArg]; clash {
 			return Tool{}, fmt.Errorf("plugin %q operation %q declares an argument named %q, which the host adds itself; not generated", connectorID, op.Name, reservedArg)
 		}
@@ -148,15 +148,15 @@ func pluginTool(client cerbapi.Client, connectorID string, op contract.Operation
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			cfg := make(map[string]any, len(args))
 			for key, value := range args {
-				if key == argDryRun || key == argAcknowledged {
+				if key == argDryRun || key == argAcknowledged || key == argApprovalID {
 					continue
 				}
 				cfg[key] = value
 			}
-			return executeConnectorMCP(ctx, client, connectorID, operation, cfg, boolArg(args, argDryRun), boolArg(args, argAcknowledged))
+			return executeConnectorMCP(ctx, client, connectorID, operation, cfg, boolArg(args, argDryRun), boolArg(args, argAcknowledged), stringArg(args, argApprovalID))
 		},
 	}
-	return withRequestScope(WithHints(tool, op)), nil
+	return withRequestScope(withApprovalArg(WithHints(tool, op), op)), nil
 }
 
 // ReservedToolNames is the set of names the hand-written tools occupy.

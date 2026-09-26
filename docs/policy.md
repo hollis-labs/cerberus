@@ -340,6 +340,36 @@ claim it. The same goes for "a console session" as the daemon hears it,
 since the console's claim travels over the socket. Confirming on the call protects against an agent that follows
 the rules. Out-of-band approval with a passkey is the boundary.
 
+### When an agent asks
+
+An agent working through MCP can't approve anything. There is no MCP tool that
+decides an approval, and the daemon refuses a decision from an MCP client
+whatever it claims to be. When one of its calls needs approval, the tool
+answers with an error the agent can act on:
+
+```json
+{
+  "success": false,
+  "code": "approval_pending",
+  "error": "docker stop needs approval (tty_confirm, rule …): approval apr_… is pending until …",
+  "approval": {
+    "id": "apr_…",
+    "expires_at": "…",
+    "channel": "tty_confirm",
+    "approve_with": "cerberus approvals approve apr_…"
+  },
+  "next_step": "ask your operator to run `cerberus approvals approve apr_…` in their terminal, …"
+}
+```
+
+`next_step` says what to ask you for. For an out-of-band approval, that's a
+passkey on the console. The agent then calls `cerberus_approval_wait` with the
+id, which returns when the approval changes state or after at most a minute.
+Once you have approved it, the agent retries the same call with
+`approval_id`. The approval is the agent's own: it runs that call once, with
+those arguments, for that caller. `expired`, `plan_stale` and
+`policy_denied` answers carry a `next_step` too.
+
 **The store is not trusted on its own word.** Anything running as your user
 can edit it. An out-of-band approval therefore carries proof that a person
 was present, and that proof is verified again when the approval is used, so a

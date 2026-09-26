@@ -8,6 +8,9 @@ const (
 	OpProjectList       = "project_list"
 	OpConnectorList     = "connector_list"
 	OpConnectorDescribe = "connector_describe"
+	// OpApprovalWait waits, for a bounded time, for an approval to change
+	// state (P3-6): what an agent calls after approval_pending.
+	OpApprovalWait = "approval_wait"
 )
 
 // ControlPlaneDefinition is the contract of the control plane's own reads —
@@ -32,6 +35,9 @@ func ControlPlaneDefinition() contract.Definition {
 			read(OpProjectList, "List registered projects.", "cerberus.registry"),
 			read(OpConnectorList, "List connectors.", "cerberus.connectors"),
 			read(OpConnectorDescribe, "Describe one connector's contract.", "cerberus.connectors", contract.RequiredField("id", contract.StringSchema("Connector ID."))),
+			read(OpApprovalWait, "Wait for an approval to be decided, up to a bounded time.", "cerberus.approvals",
+				contract.RequiredField("id", contract.StringSchema("Approval ID, from approval_pending.")),
+				contract.Field("timeout_seconds", contract.IntegerSchema("How long to wait, 1 to 60 seconds; 30 when omitted."))),
 		},
 	})
 }
