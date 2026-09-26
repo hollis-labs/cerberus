@@ -1,18 +1,19 @@
 package local
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 )
 
 const artifactManifestName = "install-manifest.json"
@@ -425,31 +426,11 @@ func inspectArtifactRepoState(spec ProcessSpec) (*artifactRepoState, error) {
 }
 
 func gitOutput(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...) //nolint:gosec // arguments are fixed internal git queries, not user shell input
-	cmd.Dir = dir
-	cmd.Env = gitEnvWithoutRepo()
-	out, err := cmd.Output()
+	out, err := gitenv.Command(context.Background(), dir, args...).Output()
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-// gitEnvWithoutRepo is the process environment without the variables that
-// point git at a repository. Under a git hook GIT_DIR is set, and git would
-// read the hook's repository instead of dir: the class of bug that once had
-// a test commit "Test User" junk into the repository running the hook.
-func gitEnvWithoutRepo() []string {
-	var env []string
-	for _, entry := range os.Environ() {
-		name, _, _ := strings.Cut(entry, "=")
-		switch name {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX":
-			continue
-		}
-		env = append(env, entry)
-	}
-	return env
 }
 
 func hashString(v string) string {
