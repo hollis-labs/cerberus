@@ -26,6 +26,25 @@ import (
 // agent that follows the rules, not a boundary (CERB-GAP-857,
 // CERB-GAP-862). Out of band (P3-4) is the boundary.
 
+// canConfirmOnCall is who may confirm their own call: a human at the CLI,
+// or a human in a signed-in console session (P3-3b). The console marks the
+// session on its principal only after requireSession has checked the
+// cookie, so a web caller without a session id, such as a socket POST that
+// only claims to be the console, cannot confirm. Both labels are
+// self-reported over the socket (CERB-GAP-862): a floor, not a boundary.
+func canConfirmOnCall(p audit.Principal) bool {
+	if p.Kind != string(PrincipalHuman) {
+		return false
+	}
+	switch p.Via {
+	case ViaCLI:
+		return true
+	case ViaWeb:
+		return p.Session != ""
+	}
+	return false
+}
+
 // ConfirmSurface is the Surface a decision made by confirming on the call
 // records.
 const ConfirmSurface = "tty_confirm"
@@ -69,9 +88,9 @@ func confirmOnCall(ctx context.Context, call *auditCall, spec auditSpec, req pol
 		return requestApproval(ctx, call, spec, req, res)
 	}
 	p := call.intent.Principal
-	if p.Kind != string(PrincipalHuman) || p.Via != ViaCLI {
+	if !canConfirmOnCall(p) {
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
-			redact.Guidance("confirming on the call is for a person at their own terminal, and this caller is %s over %s; the approval has to be decided with `cerberus approvals approve` instead", p.Kind, p.Via))
+			redact.Guidance("confirming on the call is for a person at their own terminal or a signed-in console session, and this caller is %s over %s; the approval has to be decided with `cerberus approvals approve` instead", p.Kind, p.Via))
 	}
 	planHash, err := confirmedPlan(ctx, spec)
 	if err != nil {

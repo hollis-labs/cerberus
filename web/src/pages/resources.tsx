@@ -24,6 +24,7 @@ import { refreshPolledData, usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type LogLines, type OpResult, type ResourceAction, type ResourceInfo, type ResourceRuntimeStatus } from '../api/client'
 import { ResolveNotice } from '../components/resolve-notice'
 import { ActionConfirm, RESOURCE_ACTION_EFFECT, type PendingConfirm } from '../components/action-confirm'
+import { useConfirmOnCall } from '../components/plan-confirm'
 
 type StatusFilter = 'all' | 'running' | 'attention' | 'stopped'
 
@@ -214,6 +215,7 @@ function ResourceTable({
   // busy holds the single in-flight quick action (one at a time, across all
   // rows) so the action menu can disable while one is running.
   const [busy, setBusy] = useState<{ id: string; action: ResourceAction } | null>(null)
+  const withConfirm = useConfirmOnCall()
   const [actionError, setActionError] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingConfirm | null>(null)
   const anyBusy = busy !== null
@@ -234,7 +236,10 @@ function ResourceTable({
     setBusy({ id: item.id, action })
     setActionError(null)
     try {
-      const result = await apiClient.runResourceAction(item.id, action, token, true)
+      const result = await withConfirm(() => apiClient.runResourceAction(item.id, action, token, true), {
+        plan: () => apiClient.planResourceAction(item.id, action, token),
+        confirm: (c) => apiClient.confirmResourceAction(item.id, action, token, c),
+      })
       if (!result.success) {
         setActionError(result.error || `${action} failed for ${item.name || item.id}`)
       }
@@ -491,6 +496,7 @@ function ResourceDetailDialog({
   const [error, setError] = useState<string | null>(null)
   const [opResult, setOpResult] = useState<OpResult | null>(null)
   const [runningAction, setRunningAction] = useState<ResourceAction | null>(null)
+  const withConfirm = useConfirmOnCall()
   const [pending, setPending] = useState<PendingConfirm | null>(null)
 
   useEffect(() => {
@@ -539,7 +545,10 @@ function ResourceDetailDialog({
     setRunningAction(action)
     setError(null)
     try {
-      const result = await apiClient.runResourceAction(resourceID, action, actionToken, true)
+      const result = await withConfirm(() => apiClient.runResourceAction(resourceID, action, actionToken, true), {
+        plan: () => apiClient.planResourceAction(resourceID, action, actionToken),
+        confirm: (c) => apiClient.confirmResourceAction(resourceID, action, actionToken, c),
+      })
       setOpResult(result)
       const [nextDetail, nextLogs] = await Promise.all([apiClient.getResource(resourceID), apiClient.getLogs(resourceID, stream)])
       setDetail(nextDetail)

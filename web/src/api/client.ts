@@ -1,4 +1,4 @@
-import { createApiClient, type JsonObject } from '@hollis-labs/sysop-ui/api'
+import { ApiError, createApiClient, type JsonObject } from '@hollis-labs/sysop-ui/api'
 
 const http = createApiClient({ baseUrl: '' })
 
@@ -527,6 +527,89 @@ export interface ApprovalListResponse {
   problems?: string[]
 }
 
+
+// A call's plan, as an approval of it binds it (P3-2), and the hash the
+// console's confirm step sends back (P3-3b).
+export interface PlanTarget {
+  kind?: string
+  fields?: Record<string, string>
+  resource?: string
+  env?: string
+  owner?: string
+  admin?: string
+  tags?: string[]
+}
+
+export interface PlanStep {
+  name: string
+  command: string
+  dir?: string
+  env?: string[]
+}
+
+export interface PlanView {
+  v: number
+  lane: string
+  connector: string
+  operation: string
+  effect?: string
+  target: PlanTarget
+  args_digest: string
+  preview_kind?: string
+  preview?: unknown
+  plugin_entrypoint_sha256?: string
+  steps?: PlanStep[]
+  digests?: Record<string, string>
+  source?: { path: string; head: string; dirty: boolean }
+  artifact?: string
+  state?: string
+  actions?: PlanView[]
+}
+
+export interface ConnectorPlan {
+  plan_hash: string
+  computed_by: string
+  plan: PlanView
+}
+
+// The approval a refusal names (approval_pending / approval_required).
+export interface ApprovalRef {
+  id: string
+  expires_at?: string
+  approve_with?: string
+  channel?: string
+}
+
+// confirmableApproval is the approval of a refusal the operator can meet in
+// the console's confirm step: one policy wants confirmed on the call
+// (tty_confirm). Anything else, including an out-of-band approval, is
+// answered with the approvals page.
+export function refusalApproval(err: unknown): ApprovalRef | null {
+  if (!(err instanceof ApiError)) return null
+  const data = err.data as { approval?: ApprovalRef } | undefined
+  return data?.approval ?? null
+}
+
+export function confirmableApproval(err: unknown): ApprovalRef | null {
+  const ref = refusalApproval(err)
+  return ref && ref.channel === 'tty_confirm' ? ref : null
+}
+
+// confirmTarget is what the operator types to confirm a plan: the resource,
+// else the target's first field, else its kind.
+export function confirmTarget(p: PlanView): string {
+  if (p.target.resource) return p.target.resource
+  const fields = p.target.fields ?? {}
+  const keys = Object.keys(fields).sort()
+  if (keys.length > 0) return fields[keys[0]]
+  return p.target.kind || `${p.connector}.${p.operation}`
+}
+
+interface ConfirmArgs {
+  approval_id?: string
+  confirmed_plan_hash: string
+}
+
 export const apiClient = {
   listApprovals: (signal?: AbortSignal) => http.get<ApprovalListResponse>('/api/approvals', { signal }),
   decideApproval: (id: string, token: string, approve: boolean, typed: string, reason: string, assertion?: unknown) =>
@@ -625,6 +708,40 @@ export const apiClient = {
   // acknowledged is true only when the operator confirmed the action.
   runResourceAction: (id: string, action: ResourceAction, token: string, acknowledged: boolean) =>
     http.post<OpResult>(`/api/resources/${encodeURIComponent(id)}/${action}`, { acknowledged } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  // The confirm step (P3-3b): each call's plan, and the call confirmed
+  // against it on its own route.
+  planResourceAction: (id: string, action: ResourceAction, token: string) =>
+    http.post<ConnectorPlan>(`/api/resources/${encodeURIComponent(id)}/${action}/plan`, { acknowledged: true } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  confirmResourceAction: (id: string, action: ResourceAction, token: string, confirm: ConfirmArgs) =>
+    http.post<OpResult>(`/api/resources/${encodeURIComponent(id)}/${action}/confirm`, { acknowledged: true, ...confirm } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  planPipeline: (id: string, token: string) =>
+    http.post<ConnectorPlan>(`/api/pipelines/${encodeURIComponent(id)}/run/plan`, { acknowledged: true } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  confirmPipeline: (id: string, token: string, confirm: ConfirmArgs) =>
+    http.post<PipelineRunResult>(`/api/pipelines/${encodeURIComponent(id)}/run/confirm`, { acknowledged: true, ...confirm } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  planDeploymentRun: (id: string, token: string) =>
+    http.post<ConnectorPlan>(`/api/deployments/${encodeURIComponent(id)}/run/plan`, { acknowledged: true } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  confirmDeploymentRun: (id: string, token: string, confirm: ConfirmArgs) =>
+    http.post<DeploymentRunResult>(`/api/deployments/${encodeURIComponent(id)}/run/confirm`, { acknowledged: true, ...confirm } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  planConnectorOperation: (id: string, operation: string, body: ConnectorOperationRequest, token: string) =>
+    http.post<ConnectorPlan>(`/api/connectors/${encodeURIComponent(id)}/operations/${encodeURIComponent(operation)}/plan`, body as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  confirmConnectorOperation: (id: string, operation: string, body: ConnectorOperationRequest, token: string, confirm: ConfirmArgs) =>
+    http.post<ConnectorOperationResult>(`/api/connectors/${encodeURIComponent(id)}/operations/${encodeURIComponent(operation)}/confirm`, { ...body, ...confirm } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
 }

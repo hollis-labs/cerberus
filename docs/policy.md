@@ -325,9 +325,19 @@ doesn't replace it. Without a daemon, a confirmation is recorded in the
 audit log (requested, decided and consumed) under an id of its own, since
 nothing holds it.
 
+**In the console**, the confirm dialog does the same thing for resource
+actions, pipeline runs, deployment-profile runs and connector operations.
+It shows the effect, target, labels and which process computed the plan in
+bold, then what would run and the full plan hash, and it enables **Confirm
+and run** only once the target is typed. Only a signed-in console session
+can confirm. The console marks its session on the request after checking
+the cookie, and a web request without that session is refused. An approval
+that must be met out of band sends you to the approvals page instead.
+
 **This is a floor, not a boundary.** "A person at the CLI" is what the
 terminal says about itself, so a program driving a pseudo-terminal could
-claim it. Confirming on the call protects against an agent that follows
+claim it. The same goes for "a console session" as the daemon hears it,
+since the console's claim travels over the socket. Confirming on the call protects against an agent that follows
 the rules. Out-of-band approval with a passkey is the boundary.
 
 **The store is not trusted on its own word.** Anything running as your user

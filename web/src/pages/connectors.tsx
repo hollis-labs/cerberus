@@ -12,12 +12,14 @@ import {
 } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type ConnectorDefinition, type ConnectorOperation, type ResourceInfo } from '../api/client'
+import { useConfirmOnCall } from '../components/plan-confirm'
 
 export function ConnectorsPage() {
   const connectors = usePoll((signal) => apiClient.listConnectors(signal), 5000)
   const resources = usePoll((signal) => apiClient.listResources(signal), 15000)
   const [sessionToken, setSessionToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const withConfirm = useConfirmOnCall()
   const [configByOp, setConfigByOp] = useState<Record<string, string>>({})
   const [fieldsByOp, setFieldsByOp] = useState<Record<string, Record<string, string>>>({})
   const [dryRunByOp, setDryRunByOp] = useState<Record<string, boolean>>({})
@@ -67,16 +69,11 @@ export function ConnectorsPage() {
         const raw = configByOp[key]?.trim()
         config = raw ? parseJSONConfig(raw) : undefined
       }
-      const result = await apiClient.runConnectorOperation(
-        connector.id,
-        operation,
-        {
-          config,
-          dry_run: !!dryRunByOp[key],
-          acknowledged: !!ackByOp[key],
-        },
-        sessionToken,
-      )
+      const body = { config, dry_run: !!dryRunByOp[key], acknowledged: !!ackByOp[key] }
+      const result = await withConfirm(() => apiClient.runConnectorOperation(connector.id, operation, body, sessionToken), {
+        plan: () => apiClient.planConnectorOperation(connector.id, operation, body, sessionToken),
+        confirm: (c) => apiClient.confirmConnectorOperation(connector.id, operation, body, sessionToken, c),
+      })
       setResultByOp((current) => ({
         ...current,
         [key]: JSON.stringify(result.data, null, 2),
