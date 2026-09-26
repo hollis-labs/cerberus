@@ -105,6 +105,11 @@ type ResolvedSettings struct {
 	Fields []string
 	// Expose names the operations whose MCP tools are served.
 	Expose []string
+	// ExposeDeclared is true when connector-config.yaml has an mcp.expose
+	// list for the plugin, even an empty one. Without one the posture
+	// decides: nothing under secure, every declared operation under
+	// permissive (ExposableOperations).
+	ExposeDeclared bool
 	// Problems are why the settings were refused. Any problem refuses the
 	// plugin's load, because a field that was meant to choose a target and
 	// was dropped would leave the plugin acting on its default instead.
@@ -170,6 +175,7 @@ func (c ConnectorConfig) ForPlugin(plugin InstalledPlugin) ResolvedSettings {
 	for _, name := range plugin.Spec.Cerberus.Surfaces.CLIOnly {
 		cliOnly[name] = true
 	}
+	out.ExposeDeclared = entry.MCP.Expose != nil
 	seen := map[string]bool{}
 	for _, name := range entry.MCP.Expose {
 		switch {
@@ -183,6 +189,24 @@ func (c ConnectorConfig) ForPlugin(plugin InstalledPlugin) ResolvedSettings {
 		}
 	}
 	sort.Strings(out.Expose)
+	return out
+}
+
+// ExposableOperations are every operation the plugin declares that it does
+// not keep CLI-only: what the permissive posture exposes to MCP when
+// connector-config.yaml says nothing (section 13).
+func ExposableOperations(plugin InstalledPlugin) []string {
+	cliOnly := map[string]bool{}
+	for _, name := range plugin.Spec.Cerberus.Surfaces.CLIOnly {
+		cliOnly[name] = true
+	}
+	out := []string{}
+	for _, op := range plugin.Manifest.Operations {
+		if !cliOnly[op.Name] {
+			out = append(out, op.Name)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 

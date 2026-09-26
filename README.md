@@ -191,6 +191,14 @@ loopback name, which defeats DNS rebinding. An SSH local forward
 forwards a public hostname does not. For browser-based MCP clients,
 `mcp-http --allow-origin` adds exact origins to the loopback set.
 
+Under the permissive posture only, `mcp-http --insecure-listen` accepts a
+non-loopback `--listen`, and `--allow-host` names the host names and
+addresses that clients reach it by. It has no authentication, so anyone who can
+reach the address can call every tool. It warns at start and is recorded in the
+audit log before it listens. The web console stays loopback-only in every
+posture until it serves TLS. `cerberus posture show` lists everything the
+posture changes.
+
 ## Runtime Models
 
 Cerberus now has one local runtime lane:
