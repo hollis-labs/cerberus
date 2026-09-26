@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Boxes, Cable, CheckCheck, Gauge, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
+import { ConfirmOnCallProvider } from './components/plan-confirm'
 import { ApiError, createRouter } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type PasskeysAlert, type PostureInfo } from './api/client'
 import { ApprovalsPage } from './pages/approvals'
@@ -209,6 +210,7 @@ function Console({ onSignOut, posture, passkeys }: { onSignOut: () => void; post
 
   return (
     <TooltipProvider>
+      <ConfirmOnCallProvider>
       <div className="flex h-dvh w-dvw overflow-hidden bg-bg text-text">
         <NavRail
           items={nav}
@@ -240,6 +242,7 @@ function Console({ onSignOut, posture, passkeys }: { onSignOut: () => void; post
           </main>
         </div>
       </div>
+      </ConfirmOnCallProvider>
       <Toaster />
     </TooltipProvider>
   )

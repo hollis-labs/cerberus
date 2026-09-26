@@ -33,14 +33,7 @@ func RuntimeDefinitions() []contract.Definition {
 func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Provider, profile infra.DeploymentProfile, options ...MutationOption) (*infra.DeploymentRunResult, error) {
 	opts := ApplyMutationOptions(options)
 	def := infra.Definition()
-	op, known := def.Operation(infra.OpRunProfile)
-	spec := auditSpec{
-		connector: def.ID, operation: infra.OpRunProfile, op: op, known: known,
-		config: map[string]any{"id": profile.ID}, acknowledged: opts.Acknowledged,
-		// The run reads the Vercel token and scope to pass on the command line.
-		credentials: []string{"vercel/scope", "vercel/token"},
-		approvalID:  opts.ApprovalID,
-	}
+	spec := deployProfileSpec(profile, opts)
 	planSpec := spec
 	// checked is the deployment plan the gate hashed, when it hashed one:
 	// the run executes it rather than planning again (CERB-GAP-878).
@@ -66,6 +59,42 @@ func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.P
 	}
 	call.finish(resultError(err, result != nil && !result.Success))
 	return result, err
+}
+
+// deployProfileSpec is a deploy-profile run's audit spec.
+func deployProfileSpec(profile infra.DeploymentProfile, opts MutationOpts) auditSpec {
+	def := infra.Definition()
+	op, known := def.Operation(infra.OpRunProfile)
+	return auditSpec{
+		connector: def.ID, operation: infra.OpRunProfile, op: op, known: known,
+		config: map[string]any{"id": profile.ID}, acknowledged: opts.Acknowledged,
+		// The run reads the Vercel token and scope to pass on the command line.
+		credentials:       []string{"vercel/scope", "vercel/token"},
+		approvalID:        opts.ApprovalID,
+		confirmedPlanHash: opts.ConfirmedPlanHash,
+	}
+}
+
+// PlanDeploymentProfile is a deploy-profile run's plan and its hash, as an
+// approval of the run would bind it: the console's confirm step shows it
+// and sends the hash back (P3-3b). It runs nothing and is recorded as a dry
+// run; it resolves the Vercel token to plan, as a run does.
+func PlanDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Provider, profile infra.DeploymentProfile, options ...MutationOption) (*ConnectorPlan, error) {
+	opts := ApplyMutationOptions(options)
+	spec := deployProfileSpec(profile, opts)
+	spec.planOnly, spec.dryRun, spec.approvalID, spec.confirmedPlanHash = true, true, "", ""
+	planSpec := spec
+	spec.plan = func(ctx context.Context) (plan.Plan, error) {
+		p, _, err := planDeploymentProfile(ctx, planSpec, sink, secrets, profile)
+		return p, err
+	}
+	call, err := beginGated(ctx, sink, slog.Default(), spec)
+	if err != nil {
+		return nil, err
+	}
+	shown, err := showPlan(ctx, spec)
+	call.finish(err)
+	return shown, err
 }
 
 // runtimeGate is the contract gate for a resource mutation or a pipeline run:

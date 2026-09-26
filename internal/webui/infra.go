@@ -229,7 +229,7 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
-	action := parts[1]
+	action := strings.Join(parts[1:], "/")
 
 	switch action {
 	case "delete":
@@ -277,6 +277,37 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 		opts, err := decodeMutationBody(r)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		result, err := cerbapi.RunDeploymentProfile(r.Context(), s.audit, s.secrets, profile, opts...)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	case "run/plan", "run/confirm":
+		route := strings.TrimPrefix(action, "run/")
+		opts, ok := s.planOrConfirm(w, r, route)
+		if !ok {
+			return
+		}
+		state, err := infra.LoadState(s.configPath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		profile, found := state.Profile(id)
+		if !found {
+			writeError(w, http.StatusNotFound, "deployment profile not found")
+			return
+		}
+		if route == "plan" {
+			p, perr := cerbapi.PlanDeploymentProfile(r.Context(), s.audit, s.secrets, profile, opts...)
+			if perr != nil {
+				writeClientError(w, perr)
+				return
+			}
+			writePlan(w, p)
 			return
 		}
 		result, err := cerbapi.RunDeploymentProfile(r.Context(), s.audit, s.secrets, profile, opts...)

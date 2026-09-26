@@ -5,11 +5,13 @@ import { Panel } from '@hollis-labs/sysop-ui/widgets'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient } from '../api/client'
 import { ActionConfirm, type PendingConfirm } from '../components/action-confirm'
+import { useConfirmOnCall } from '../components/plan-confirm'
 
 export function PipelinesPage() {
   const pipelines = usePoll((signal) => apiClient.listPipelines(signal), 5000)
   const [sessionToken, setSessionToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const withConfirm = useConfirmOnCall()
   const [output, setOutput] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingConfirm | null>(null)
@@ -54,7 +56,10 @@ export function PipelinesPage() {
     setBusy(id)
     setError(null)
     try {
-      const result = await apiClient.runPipeline(id, sessionToken, true)
+      const result = await withConfirm(() => apiClient.runPipeline(id, sessionToken, true), {
+        plan: () => apiClient.planPipeline(id, sessionToken),
+        confirm: (c) => apiClient.confirmPipeline(id, sessionToken, c),
+      })
       const raw = result.raw ? decodeRunResult(result.raw) : ''
       setOutput((current) => ({
         ...current,
