@@ -104,7 +104,7 @@ func (s *Server) Handler(guard *loopback.Guard) http.Handler {
 	}
 	s.guard = guard
 	mux := s.routes()
-	return s.withLogging(guard.Middleware(markWebSurface(s.requireSession(mux))))
+	return s.withLogging(guard.Middleware(toLocalhost(markWebSurface(s.requireSession(mux)))))
 }
 
 // markWebSurface begins every console request as the web surface, so a
@@ -128,6 +128,8 @@ func (s *Server) routeTable() []route {
 	return []route{
 		{"/api/session", s.handleSession},
 		{"/api/logout", s.handleLogout},
+		{"/api/approvals", s.handleApprovals},
+		{"/api/approvals/", s.handleApprovalByID},
 		{"/api/resources", s.handleResources},
 		{"/api/resources/", s.handleResourceByID},
 		// Full cerbapi.Client domain (CW-20260517-0039). Handlers stay thin

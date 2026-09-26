@@ -100,6 +100,7 @@ var guardedRoutes = map[string][]string{
 		"/api/resources/app/stop", "/api/resources/app/sync", "/api/resources/app/remove",
 	},
 	"/api/logout":                 {"/api/logout"},
+	"/api/approvals/":             {"/api/approvals/a/decide", "/api/approvals/a/revoke"},
 	"/api/pipelines/":             {"/api/pipelines/p/run"},
 	"/api/registry/register":      {"/api/registry/register"},
 	"/api/registry/deregister":    {"/api/registry/deregister"},
@@ -144,7 +145,7 @@ var readOnlyRoutes = map[string]bool{
 	"/api/registry/health": true, "/api/config/validate": true,
 	"/api/config/resolve": true, "/api/config/migrate/preview": true,
 	"/api/config/backups": true, "/api/connectors": true, "/api/infra": true,
-	"/api/plugins/connectors": true,
+	"/api/plugins/connectors": true, "/api/approvals": true,
 }
 
 // actionWords are the path segments any handler dispatches on. The probe
@@ -154,6 +155,7 @@ var actionWords = []string{
 	"apply", "deploy", "reload", "stop", "sync", "remove", "run", "delete",
 	"install", "load", "unload", "health", "operations", "logs", "inspect",
 	"doctor", "restore", "register", "deregister", "migrate", "preview",
+	"decide", "revoke",
 }
 
 func TestEveryRouteIsClassified(t *testing.T) {

@@ -67,7 +67,7 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 			return err
 		}
 
-		url := "http://" + webListenAddr
+		url := webui.ConsoleBaseURL(webListenAddr)
 		srv := &http.Server{
 			Handler:           webSrv.Handler(guard),
 			ReadHeaderTimeout: 5 * time.Second,
