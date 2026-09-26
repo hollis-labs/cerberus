@@ -71,6 +71,12 @@ func (s *ExternalConnectorService) planOperation(ctx context.Context, args Exter
 type ConnectorPlan struct {
 	PlanHash string    `json:"plan_hash"`
 	Plan     plan.Plan `json:"plan"`
+	// ComputedBy is the surface of the process that computed the plan:
+	// socket (the daemon), in_process (the CLI's own) or web. It is not part
+	// of the plan: the same call can plan differently in different
+	// processes, since a pipeline's shell steps list the environment of the
+	// process that runs them (CERB-GAP-882).
+	ComputedBy CallerSurface `json:"computed_by"`
 }
 
 // showPlan answers a plan request with the lane's own plan function — the
@@ -104,7 +110,7 @@ func showPlan(ctx context.Context, spec auditSpec) (*ConnectorPlan, error) {
 	if err != nil {
 		return nil, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
 	}
-	return &ConnectorPlan{PlanHash: hash, Plan: p}, nil
+	return &ConnectorPlan{PlanHash: hash, Plan: p, ComputedBy: CallerSurfaceFrom(ctx)}, nil
 }
 
 // planPlugin adds a plugin's part of a plan: its fingerprints, and its own
