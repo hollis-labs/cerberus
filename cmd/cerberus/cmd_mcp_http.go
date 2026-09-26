@@ -11,18 +11,25 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/mcp"
+	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/service"
 	httptransport "github.com/hollis-labs/go-mcp/transport/http"
 	"github.com/spf13/cobra"
 )
 
 var (
-	mcpHTTPListen  = "127.0.0.1:4785"
-	mcpHTTPPath    = "/mcp"
-	mcpHTTPOrigins []string
+	mcpHTTPListen   = "127.0.0.1:4785"
+	mcpHTTPPath     = "/mcp"
+	mcpHTTPOrigins  []string
+	mcpHTTPInsecure bool
+	mcpHTTPHosts    []string
+	// mcpHTTPAuditSink is where --insecure-listen is recorded. Tests swap it.
+	mcpHTTPAuditSink = app.AuditSink
 )
 
 var mcpHTTPCmd = &cobra.Command{
@@ -37,9 +44,15 @@ The endpoint performs no authentication yet (WP-S8 in
 docs/plans/agent-authority-and-secrets.md), so it is loopback-only: --listen
 must be 127.0.0.1, localhost or [::1], and a request whose Host header is not
 a loopback name is refused. An SSH local forward onto any local port works;
-a tunnel or reverse proxy that forwards a public hostname does not.`,
+a tunnel or reverse proxy that forwards a public hostname does not.
+
+Under the permissive posture only, --insecure-listen accepts a non-loopback
+--listen, and --allow-host names the hostnames and addresses clients reach it
+by. Anyone who can reach that address can call every tool it serves. It prints
+a warning at start and is recorded in the audit log before it listens. The web
+console is loopback-only in every posture.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := loopback.CheckListen("cerberus mcp-http", mcpHTTPListen); err != nil {
+		if err := checkMCPHTTPListen(); err != nil {
 			return err
 		}
 		service.InitLifecycleLog()
@@ -74,6 +87,14 @@ a tunnel or reverse proxy that forwards a public hostname does not.`,
 			_ = ln.Close()
 			return err
 		}
+		if mcpHTTPInsecure {
+			guard.AllowHosts(mcpHTTPHosts...)
+			if err = cerbapi.RecordInsecureListen(inProcessContext(cmd.Context()), mcpHTTPAuditSink(), "mcp-http", mcpHTTPListen, mcpHTTPHosts); err != nil {
+				_ = ln.Close()
+				return fmt.Errorf("mcp-http did not start: --insecure-listen is recorded in the audit log before it listens, and the record could not be written: %w", err)
+			}
+			fmt.Fprint(os.Stderr, insecureListenWarning(mcpHTTPListen))
+		}
 
 		mcpServer := buildCerberusMCPServer(socketClient)
 		startPluginToolSync(cmd.Context(), mcpServer, socketClient, logger)
@@ -106,6 +127,33 @@ a tunnel or reverse proxy that forwards a public hostname does not.`,
 	},
 }
 
+// checkMCPHTTPListen is the listen guard: loopback only, unless the global
+// posture is permissive and --insecure-listen says otherwise (section 13).
+// A scoped posture rule never reaches it.
+func checkMCPHTTPListen() error {
+	if !mcpHTTPInsecure {
+		if len(mcpHTTPHosts) > 0 {
+			return errors.New("--allow-host is for --insecure-listen; a loopback listener already accepts localhost, 127.0.0.1 and [::1]")
+		}
+		return loopback.CheckListen("cerberus mcp-http", mcpHTTPListen)
+	}
+	if currentPosture().Global != policy.PosturePermissive {
+		return errInsecureListenNeedsPermissive
+	}
+	if _, _, err := net.SplitHostPort(mcpHTTPListen); err != nil {
+		return fmt.Errorf("cerberus mcp-http: invalid --listen %q: %w", mcpHTTPListen, err)
+	}
+	return nil
+}
+
+var errInsecureListenNeedsPermissive = redact.Guidance("--insecure-listen is allowed only under the permissive posture, and the posture is secure; keep mcp-http on loopback and reach it with an SSH local forward, or run `cerberus posture set permissive` in a terminal first")
+
+func insecureListenWarning(listen string) string {
+	return fmt.Sprintf("\nWARNING: cerberus mcp-http is listening on %s, off loopback, with NO authentication.\n"+
+		"Anyone who can reach that address can call every tool it serves. This is allowed because the posture is permissive,\n"+
+		"and it is recorded in the audit log. Stop it, or return to loopback, when you no longer need it.\n\n", listen)
+}
+
 // mcpHTTPHandler wires the MCP endpoint and /health behind guard. go-mcp's
 // own origin list is given the guard's set, which is never empty: an empty
 // AllowedOrigins means "every origin" to go-mcp.
@@ -124,5 +172,7 @@ func mcpHTTPHandler(server *mcp.Server, path string, guard *loopback.Guard) http
 func init() {
 	mcpHTTPCmd.Flags().StringVar(&mcpHTTPListen, "listen", mcpHTTPListen, "listen address for the HTTP MCP endpoint; must be loopback (127.0.0.1, localhost or [::1]) because the endpoint has no authentication yet")
 	mcpHTTPCmd.Flags().StringVar(&mcpHTTPPath, "path", mcpHTTPPath, "HTTP path for the MCP endpoint")
+	mcpHTTPCmd.Flags().BoolVar(&mcpHTTPInsecure, "insecure-listen", false, "under the permissive posture only: accept a non-loopback --listen, with no authentication; warned and audited")
+	mcpHTTPCmd.Flags().StringSliceVar(&mcpHTTPHosts, "allow-host", nil, "with --insecure-listen: host names or addresses clients reach the endpoint by (Host header)")
 	mcpHTTPCmd.Flags().StringSliceVar(&mcpHTTPOrigins, "allow-origin", mcpHTTPOrigins, "additional exact Origin values (scheme://host:port) for browser-based HTTP MCP requests; loopback origins on the listen port are always allowed")
 }

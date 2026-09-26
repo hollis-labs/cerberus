@@ -53,13 +53,14 @@ func CheckListen(surface, addr string) error {
 type Guard struct {
 	hosts   map[string]struct{}
 	origins map[string]struct{}
+	port    string
 }
 
 // NewGuard builds a guard for a server listening on listenHost:port. port is
 // the port actually bound. extraOrigins are exact Origin values the operator
 // allowed on top of the loopback set, such as mcp-http's --allow-origin.
 func NewGuard(listenHost, port string, extraOrigins ...string) *Guard {
-	g := &Guard{hosts: map[string]struct{}{}, origins: map[string]struct{}{}}
+	g := &Guard{hosts: map[string]struct{}{}, origins: map[string]struct{}{}, port: port}
 	names := append([]string{}, loopbackNames...)
 	if listenHost != "" {
 		names = append(names, listenHost)
@@ -77,6 +78,24 @@ func NewGuard(listenHost, port string, extraOrigins ...string) *Guard {
 		}
 	}
 	return g
+}
+
+// AllowHosts adds exact host names to the allow-list, with their origins on
+// the bound port. It is for a surface the operator deliberately put off
+// loopback (mcp-http --insecure-listen), where clients name the machine by
+// its own hostname or address: the guard still refuses every other name, so
+// a rebinding page carrying its own hostname is still turned away.
+func (g *Guard) AllowHosts(names ...string) {
+	for _, name := range names {
+		name = strings.ToLower(strings.Trim(strings.TrimSpace(name), "[]"))
+		if name == "" {
+			continue
+		}
+		g.hosts[name] = struct{}{}
+		hostPort := net.JoinHostPort(name, g.port)
+		g.origins["http://"+hostPort] = struct{}{}
+		g.origins["https://"+hostPort] = struct{}{}
+	}
 }
 
 // NewGuardForAddr builds a guard from the configured --listen value and the
