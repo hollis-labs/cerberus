@@ -349,10 +349,6 @@ func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (Inst
 		return InstallLayout{}, "", "", false, false, err
 	}
 	artifactChanged := syncRes.Performed && syncRes.Changed
-	programArgs, err := launchdProgramArguments(layout, spec)
-	if err != nil {
-		return InstallLayout{}, "", "", false, false, err
-	}
 
 	logDir := filepath.Join(layout.RootDir, "logs")
 	if mkErr := os.MkdirAll(logDir, 0755); mkErr != nil { //nolint:gosec
@@ -362,6 +358,26 @@ func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (Inst
 		return InstallLayout{}, "", "", false, false, fmt.Errorf("create launch agents dir: %w", mkErr)
 	}
 
+	rendered, err := b.renderPlist(res, spec, layout)
+	if err != nil {
+		return InstallLayout{}, "", "", false, false, err
+	}
+	plistChanged, err := writeFileIfChanged(layout.PlistPath, rendered, 0600)
+	if err != nil {
+		return InstallLayout{}, "", "", false, false, fmt.Errorf("write plist: %w", err)
+	}
+
+	return layout, layout.PlistPath, layout.ServiceName, artifactChanged, plistChanged, nil
+}
+
+// renderPlist is the launch agent a resource installs as, rendered without
+// writing anything: writePlist writes it, and a plan hashes it.
+func (b launchdBackend) renderPlist(res *domain.Resource, spec ProcessSpec, layout InstallLayout) ([]byte, error) {
+	programArgs, err := launchdProgramArguments(layout, spec)
+	if err != nil {
+		return nil, err
+	}
+	logDir := filepath.Join(layout.RootDir, "logs")
 	data := plistTemplateData{
 		Label:             layout.ServiceName,
 		ProgramArguments:  programArgs,
@@ -377,21 +393,38 @@ func (b launchdBackend) writePlist(res *domain.Resource, spec ProcessSpec) (Inst
 	if secretref.EnvHasRefs(data.Environment) {
 		shim, shimErr := b.cerberusPath()
 		if shimErr != nil {
-			return InstallLayout{}, "", "", false, false, fmt.Errorf("resource %q uses secret references but the cerberus executable could not be located to front it: %w", res.ID, shimErr)
+			return nil, fmt.Errorf("resource %q uses secret references but the cerberus executable could not be located to front it: %w", res.ID, shimErr)
 		}
 		data.ProgramArguments = append([]string{shim, "run-secrets", "--"}, data.ProgramArguments...)
 	}
+	return renderLaunchdPlist(data)
+}
 
-	rendered, err := renderLaunchdPlist(data)
+// PreviewPlist is the launch agent an os_service resource under launchd
+// would be installed with, rendered and not written, and false for a
+// resource that is not one. It is the same rendering apply writes.
+func (c *Connector) PreviewPlist(res *domain.Resource) ([]byte, bool, error) {
+	spec, err := SpecFromResourceConfig(res.Config)
 	if err != nil {
-		return InstallLayout{}, "", "", false, false, err
+		return nil, false, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
 	}
-	plistChanged, err := writeFileIfChanged(layout.PlistPath, rendered, 0600)
+	if spec.Mode != ProcessModeOSService {
+		return nil, false, nil
+	}
+	if supervisor, supErr := effectiveSupervisor(spec); supErr != nil || supervisor != ProcessSupervisorLaunchd {
+		return nil, false, nil //nolint:nilerr // not a launchd service: there is no plist to preview
+	}
+	svc, ok := c.service.(osServiceBackend)
+	if !ok {
+		return nil, false, nil
+	}
+	b := svc.launchdBackend()
+	layout, err := defaultInstallLayoutFromBackend(b, res, spec)
 	if err != nil {
-		return InstallLayout{}, "", "", false, false, fmt.Errorf("write plist: %w", err)
+		return nil, false, err
 	}
-
-	return layout, layout.PlistPath, layout.ServiceName, artifactChanged, plistChanged, nil
+	rendered, err := b.renderPlist(res, spec, layout)
+	return rendered, err == nil, err
 }
 
 func (b launchdBackend) loadedState(ctx context.Context, label string) (bool, domain.State, error) {

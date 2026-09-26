@@ -93,6 +93,8 @@ type OpResult struct {
 	InstallOutput  string                        `json:"install_output,omitempty"`
 	InstallSkipped bool                          `json:"install_skipped,omitempty"`
 	Error          string                        `json:"error,omitempty"`
+	// Plan is the call's plan, for a plan request; nothing ran.
+	Plan *ConnectorPlan `json:"plan,omitempty"`
 }
 
 // MutationOpts carries the per-invocation options of a resource mutation or a
@@ -116,6 +118,10 @@ type MutationOpts struct {
 	// ApprovalID is the approval this call runs under, where policy wants
 	// one (P3-2): the retry after it was approved, with the same arguments.
 	ApprovalID string `json:"approval_id,omitempty"`
+
+	// Plan asks for the call's plan instead of running it (P3-2): what an
+	// approval would bind to, and its hash. It is recorded as a dry run.
+	Plan bool `json:"plan,omitempty"`
 }
 
 // MutationOption is a functional option for a resource mutation or a
@@ -130,6 +136,11 @@ func WithAcknowledged(v bool) MutationOption {
 // WithApprovalID runs the call under an approval (P3-2).
 func WithApprovalID(id string) MutationOption {
 	return func(o *MutationOpts) { o.ApprovalID = id }
+}
+
+// WithPlan asks for the call's plan instead of running it.
+func WithPlan() MutationOption {
+	return func(o *MutationOpts) { o.Plan = true }
 }
 
 // WithInstallAfterBuildOverride sets the per-invocation install_after_build

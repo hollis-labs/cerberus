@@ -259,12 +259,18 @@ func (c *SocketClient) mutation(ctx context.Context, id, verb string, stream boo
 	}
 	body := ApplyMutationOptions(options)
 	path := "/resources/" + url.PathEscape(id) + "/" + verb
+	if body.Plan {
+		path += "/plan"
+	}
 	var out OpResult
 	do := c.doJSON
 	if stream {
 		do = c.doJSONStream
 	}
 	if err := do(ctx, http.MethodPost, path, body, &out); err != nil {
+		if body.Plan {
+			return nil, planRoute(err)
+		}
 		return nil, err
 	}
 	return &out, nil
@@ -386,7 +392,8 @@ func planRoute(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "expected /connectors/{id}/operations/{operation}") {
+	msg := err.Error()
+	if strings.Contains(msg, "expected /connectors/{id}/operations/{operation}") || strings.Contains(msg, "unknown resource action") {
 		return redact.GuidanceWrap(err, "the running daemon predates plans, so it refused the plan request and nothing ran; restart the daemon on this build, then retry")
 	}
 	return err

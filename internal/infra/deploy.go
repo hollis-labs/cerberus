@@ -175,8 +175,14 @@ func planVercel(ctx context.Context, secrets secret.Provider, profile Deployment
 // displayed one, and a credential reaches the child only through its
 // environment.
 func RunDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) (*DeploymentRunResult, error) {
+	return RunPlannedDeployment(ctx, PlanDeployment(ctx, secrets, profile), profile)
+}
+
+// RunPlannedDeployment runs a plan PlanDeployment made, exactly as planned:
+// a caller that checked the plan against an approval runs the steps it
+// checked rather than planning again.
+func RunPlannedDeployment(ctx context.Context, plan *DeploymentPlan, profile DeploymentProfile) (*DeploymentRunResult, error) {
 	result := &DeploymentRunResult{ProfileID: profile.ID, Provider: profile.Provider}
-	plan := PlanDeployment(ctx, secrets, profile)
 	if plan.Error != "" && len(plan.steps) == 0 {
 		result.Error = plan.Error
 		return result, nil
