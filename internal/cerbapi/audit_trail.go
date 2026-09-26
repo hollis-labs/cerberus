@@ -36,7 +36,11 @@ type auditSpec struct {
 	// automation marks Cerberus acting on its own. Its record is written but
 	// never gates the action: an unwritable log is logged, not a refusal.
 	automation bool
-	reason     string
+	// automationVia names which part of Cerberus acted, for an automation
+	// record that is not the monitor's: daemon_start for a plugin restored
+	// when the daemon starts.
+	automationVia string
+	reason        string
 	// For a loaded plugin: its config and entrypoint fingerprints.
 	pluginConfigSHA256     string
 	pluginEntrypointSHA256 string
@@ -130,6 +134,9 @@ func principalFor(ctx context.Context, spec auditSpec) audit.Principal {
 		p.Kind = audit.PrincipalAutomation
 		p.Surface = string(SurfaceMonitor)
 		p.Via = ViaMonitor
+		if spec.automationVia != "" {
+			p.Surface, p.Via = "daemon", spec.automationVia
+		}
 		p.SelfReported = false
 	}
 	return p
