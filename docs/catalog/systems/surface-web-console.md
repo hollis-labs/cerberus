@@ -144,8 +144,10 @@ operation's `requires_ack` and shows its effect.
 command a profile run will execute and the directory it runs in, from
 `GET /api/deployments/{id}/plan` (CERB-TOOL-418). The Vercel token appears as
 `VERCEL_TOKEN=<vercel token>` and reaches the child only in its environment,
-never in argv or a shell string. The run is not yet bound to the plan it showed
-(CERB-GAP-853).
+never in argv or a shell string. A run under an approval is bound to its plan
+(CERB-GAP-853): the steps, the profile, and the checkout's commit and dirty
+flag. The confirm step carries the plan hash from P3-3; until then a console
+run is confirmed but not bound.
 
 The console marks every request as the `web` surface, so an in-process client
 behind it refuses local-only inputs just as the daemon would.

@@ -827,7 +827,7 @@ func decodeMutationOptions(body io.Reader) ([]MutationOption, error) {
 	if err := json.Unmarshal(data, &opts); err != nil {
 		return nil, fmt.Errorf("decode mutation body: %w", err)
 	}
-	options := []MutationOption{WithAcknowledged(opts.Acknowledged)}
+	options := []MutationOption{WithAcknowledged(opts.Acknowledged), WithApprovalID(opts.ApprovalID)}
 	if opts.InstallAfterBuildOverride != nil {
 		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))
 	}

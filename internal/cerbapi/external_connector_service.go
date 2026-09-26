@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
@@ -142,6 +143,13 @@ type ExternalConnectorOperationArgs struct {
 	Config       map[string]any `json:"config,omitempty"`
 	DryRun       bool           `json:"dry_run,omitempty"`
 	Acknowledged bool           `json:"acknowledged,omitempty"`
+	// ApprovalID is the approval the call runs under (P3-2): the retry
+	// after it was approved, with the same arguments.
+	ApprovalID string `json:"approval_id,omitempty"`
+	// Plan asks for the call's plan instead of running it: what an approval
+	// would bind to, and its hash. It is recorded as a dry run, and computes
+	// the operation's preview, which for a plugin is a call to the plugin.
+	Plan bool `json:"plan,omitempty"`
 }
 
 type ExternalConnectorOperationResult struct {
@@ -246,9 +254,17 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	// A caller that did not begin a request still gets a scope here, so a
 	// credential resolved during this call is removed from its error.
 	ctx, scope := redact.EnsureScope(ctx)
+	if args.Plan {
+		args.DryRun, args.ApprovalID = true, ""
+	}
 	call, err := beginGated(ctx, s.audit, s.logger, s.auditSpec(args))
 	if err != nil {
 		return ExternalConnectorOperationResult{}, err
+	}
+	if args.Plan {
+		result, planErr := s.showPlan(call.withTelemetry(ctx), args)
+		call.finish(planErr)
+		return result, scopeError(scope, planErr)
 	}
 	result, err := s.execute(call.withTelemetry(ctx), args)
 	call.finish(err)
@@ -284,7 +300,8 @@ func scopeError(scope *redact.Scope, err error) error {
 // auditSpec describes a request for its records, from the contract when the
 // operation declares one. It checks nothing: the gates in execute do that.
 func (s *ExternalConnectorService) auditSpec(args ExternalConnectorOperationArgs) auditSpec {
-	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun, resources: s.resources}
+	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun, resources: s.resources,
+		approvalID: args.ApprovalID, planOnly: args.Plan, plan: func(ctx context.Context) (plan.Plan, error) { return s.planOperation(ctx, args) }}
 	if def, ok := s.definitionFor(args.Connector); ok {
 		spec.op, spec.known = def.Operation(args.Operation)
 		spec.credentials = credentialNames(def)

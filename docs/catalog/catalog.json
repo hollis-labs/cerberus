@@ -2942,7 +2942,7 @@
         "class:capability",
         "locus:core"
       ],
-      "body": "`cerberus web` serves a React SPA plus a JSON API on a loopback address\n(default `127.0.0.1:4783`). Since PR #48 `--listen` refuses anything but\n`localhost` or a literal loopback IP (CERB-DEC-811). The bundle is `go:embed`-ed from `internal/webui/dist`.\n\n**It is the only surface that is mechanically complete for connectors.** The\nConnectors page fetches `/api/connectors`, iterates `connector.operations` from\nthe discovery metadata, and renders for every operation a Run button, a\nconfig input, a dry-run checkbox and an acknowledge checkbox (the latter two\ndisabled unless the metadata says `supports_dry` / `destructive`). The config\ninput is a free-form JSON box, except for ssh and docker, which since PR #54 get\na resource picker filtered by connector, an optional local container name for\ndocker, and one field per remaining schema input.\n`POST /api/connectors/{id}/operations/{op}` forwards to the socket's generic\nroute. Because `ListConnectors` includes managed plugins, this renders Azure's\nsix operations and ContextForge's four as well. A new connector operation\nappears in the console the moment the connector declares it — which is exactly\nthe property the MCP surface does not have.\n\nIt also owns capability that exists nowhere else:\n\n- **`/api/overview`** — a 24-hour trend built from\n  `~/.cerberus/state/overview_snapshots.json`, written by a recorder goroutine\n  in the daemon on a one-minute tick. `Overview` appears in no CLI command, no\n  socket route and no MCP tool.\n- **`/api/infra`, `/api/deployments`** — a provider/deployment-profile subsystem\n  backed by `~/.cerberus/infra.yaml`. `internal/infra` is imported by exactly one\n  file, `internal/webui/infra.go`. It used to carry a hardcoded suggestion for\n  another user's site path; PR #63 removed it and the suggestions feature with\n  it.\n- **`/api/settings`**, **`/api/config/backups`**, **`/api/registry/register`**\n  and **`/api/registry/deregister`** — config-adjacent operations with CLI\n  equivalents but no MCP tools.\n\nAuthorisation, since PR #48: every request, GETs included, first passes\n`loopback.Guard`. It returns 403 unless `Host` is a loopback name or the listen\nhost, whatever the port, and, when an Origin is sent, unless it matches a\nloopback origin on the listen port exactly (CERB-DEC-810). That closed DNS\nrebinding. Before, a hostile page that re-pointed its own name at `127.0.0.1`\ncould read the token same-origin and pass the old Origin check, which compared\nagainst the attacker-controlled `r.Host`. Mutating routes then go through\n`allowStateChangingRequest`, which requires `Content-Type: application/json`, a\nmatching `X-Cerberus-Web-Token`, and the same exact Origin match when an Origin\nis present. Routes are built from one `routeTable()`, and tests require every\nroute to be classified and every mutation to go through the guard. The token is\na per-process 32-byte random value handed out unauthenticated at\n`GET /api/session`. Verified live at audit time: the token is readable with a\nplain `curl`, and a token-less POST to a mutating route returns\n`403 state-changing request rejected`. That is CSRF defence, now sound against\nrebinding, and still not authentication against a local process\n(CERB-GAP-442).\n\nTwo retired surfaces are tombstoned rather than deleted: `POST\n/api/config/migrate` and `GET /api/config/migrate/preview` return `410 Gone`\nwith `centralized config migration is retired`, and\n`TestCentralizedMigrationEndpointsAreGone` holds them there. PR #50 retired\nthree plugin routes the same way: install-by-path and the two `plugin_dir`\nroutes answer 410, and the plugins page shows the CLI install command\ninstead.\n\nThe build-order trap is real and worse than documented. `internal/webui/dist` is\ngitignored and its `.gitkeep` placeholder was removed in `a54daa8`, so a fresh\nclone or worktree has no `dist` directory at all and `//go:embed all:dist`\nfails. Verified live in the audit worktree: `go vet ./internal/webui/` and\n`go test ./cmd/cerberus` both fail with `pattern all:dist: no matching files\nfound`. The console does not embed a stale bundle — the module does not compile.\n\n## Since P1 (PRs #57, #60 and #63)\n\n**Refusals render.** Since PR #57 a connector refusal answers with its status\nfrom the shared table (400, 404, 409, 422, 503; 502 for `operation_failed`\nsince PR #60), and the body carries `message`, which the console's API client\nrenders, and `code`.\n\n**Every mutation asks first.** A shared `ActionConfirm` dialog (sysop-ui\n`ConfirmDialog`) is the only thing in the console that sends\n`acknowledged: true`, and it names the operation's effect. It fronts every\nresource action (row quick actions and the detail dialog), pipeline Run and\ndeployment-profile Run. The Connectors page's Acknowledge checkbox follows the\noperation's `requires_ack` and shows its effect.\n\n**A deployment is confirmed against its plan.** The confirm dialog lists every\ncommand a profile run will execute and the directory it runs in, from\n`GET /api/deployments/{id}/plan` (CERB-TOOL-418). The Vercel token appears as\n`VERCEL_TOKEN=<vercel token>` and reaches the child only in its environment,\nnever in argv or a shell string. The run is not yet bound to the plan it showed\n(CERB-GAP-853).\n\nThe console marks every request as the `web` surface, so an in-process client\nbehind it refuses local-only inputs just as the daemon would.\n\n## Since P2-1\n\nEvery console request is labelled `kind: human, via: web`, marked\nself-reported, and nothing the browser sends is read as a claim. The console\npasses that label on to the daemon, which verifies the uid of the web process,\nnot of whoever is at the browser. The label becomes real when P2-2 adds a login\n(CERB-GAP-442).\n\n## Since P2-2 (Decision 20)\n\n**The console has a login.** `cerberus web` prints and opens a one-time URL.\n`cerberus web open` mints another from the key the running console keeps at\n`~/.cerberus/web/login-<listen>.key`, mode 0600 in a 0700 directory and removed\non shutdown. A token is an expiry, a nonce and an HMAC under that per-process\nkey. It is good for two minutes and one use. `GET /login` checks it, spends the\nnonce, and sets `cerberus_session` (`HttpOnly`, `SameSite=Strict`, `Path=/`),\nthen answers 303 to `/` with `Cache-Control: no-store` and\n`Referrer-Policy: no-referrer`, so the token leaves the address bar.\n\nEvery `/api/` route needs a live session, and one without answers 401\n`login_required` with the command that signs in. A session ends after 30 minutes\nidle (`--session-idle`), after twelve hours in any case, on\n`POST /api/logout`, or when `cerberus web` exits, because keys, nonces and\nsessions live only in memory. The SPA shows a sign-in screen on 401 and has a\nSign out control.\n\n**The action token stays, per session.** `GET /api/session` serves a token\nonly to a signed-in session, and each session has its own. A state-changing\nrequest needs the cookie *and* that session's token, as well as the JSON content\ntype and the Host and Origin guards. The cookie alone is not enough, for two\nreasons. `SameSite` treats every port on `127.0.0.1` as one site, so a page\nserved by any other local web app is same-site and would carry the cookie. And\nthe Origin check passes a request that sends no `Origin`. The per-session token\nis readable only by a page that can read `/api/session` as that session, which\nsame-origin policy confines to the console itself.\n\n**The principal is the session.** A signed-in request carries\n`kind: human, via: web, session: <public id>`. The id is never the cookie's\nvalue. It reaches the daemon's audit record through the socket client's\nprincipal claim, and the daemon adds the verified uid of the console process.\n\nVerified in headless Chrome over CDP on a scratch `HOME`:\n\n- signed out, the page shows the sign-in screen and `/api/session` is 401;\n- the link signs in, and the cookie is `HttpOnly` and `Strict`, invisible to\n  `document.cookie`;\n- a reused link is refused;\n- a POST without the session token is 403;\n- Sign out clears the cookie and returns to the sign-in screen;\n- a `cerberus web open` link signs in;\n- after restarting `cerberus web`, the old session and the old link are both\n  refused, and the key file is gone;\n- a connector call made from the browser is audited as\n  `{kind: human, via: web, session: …, uid_verified: true}`.\n\nThe login separates the operator's account from everything else, not a person\nfrom an agent running as that account. Any same-uid process can mint a link,\nrecorded as CERB-GAP-862.",
+      "body": "`cerberus web` serves a React SPA plus a JSON API on a loopback address\n(default `127.0.0.1:4783`). Since PR #48 `--listen` refuses anything but\n`localhost` or a literal loopback IP (CERB-DEC-811). The bundle is `go:embed`-ed from `internal/webui/dist`.\n\n**It is the only surface that is mechanically complete for connectors.** The\nConnectors page fetches `/api/connectors`, iterates `connector.operations` from\nthe discovery metadata, and renders for every operation a Run button, a\nconfig input, a dry-run checkbox and an acknowledge checkbox (the latter two\ndisabled unless the metadata says `supports_dry` / `destructive`). The config\ninput is a free-form JSON box, except for ssh and docker, which since PR #54 get\na resource picker filtered by connector, an optional local container name for\ndocker, and one field per remaining schema input.\n`POST /api/connectors/{id}/operations/{op}` forwards to the socket's generic\nroute. Because `ListConnectors` includes managed plugins, this renders Azure's\nsix operations and ContextForge's four as well. A new connector operation\nappears in the console the moment the connector declares it — which is exactly\nthe property the MCP surface does not have.\n\nIt also owns capability that exists nowhere else:\n\n- **`/api/overview`** — a 24-hour trend built from\n  `~/.cerberus/state/overview_snapshots.json`, written by a recorder goroutine\n  in the daemon on a one-minute tick. `Overview` appears in no CLI command, no\n  socket route and no MCP tool.\n- **`/api/infra`, `/api/deployments`** — a provider/deployment-profile subsystem\n  backed by `~/.cerberus/infra.yaml`. `internal/infra` is imported by exactly one\n  file, `internal/webui/infra.go`. It used to carry a hardcoded suggestion for\n  another user's site path; PR #63 removed it and the suggestions feature with\n  it.\n- **`/api/settings`**, **`/api/config/backups`**, **`/api/registry/register`**\n  and **`/api/registry/deregister`** — config-adjacent operations with CLI\n  equivalents but no MCP tools.\n\nAuthorisation, since PR #48: every request, GETs included, first passes\n`loopback.Guard`. It returns 403 unless `Host` is a loopback name or the listen\nhost, whatever the port, and, when an Origin is sent, unless it matches a\nloopback origin on the listen port exactly (CERB-DEC-810). That closed DNS\nrebinding. Before, a hostile page that re-pointed its own name at `127.0.0.1`\ncould read the token same-origin and pass the old Origin check, which compared\nagainst the attacker-controlled `r.Host`. Mutating routes then go through\n`allowStateChangingRequest`, which requires `Content-Type: application/json`, a\nmatching `X-Cerberus-Web-Token`, and the same exact Origin match when an Origin\nis present. Routes are built from one `routeTable()`, and tests require every\nroute to be classified and every mutation to go through the guard. The token is\na per-process 32-byte random value handed out unauthenticated at\n`GET /api/session`. Verified live at audit time: the token is readable with a\nplain `curl`, and a token-less POST to a mutating route returns\n`403 state-changing request rejected`. That is CSRF defence, now sound against\nrebinding, and still not authentication against a local process\n(CERB-GAP-442).\n\nTwo retired surfaces are tombstoned rather than deleted: `POST\n/api/config/migrate` and `GET /api/config/migrate/preview` return `410 Gone`\nwith `centralized config migration is retired`, and\n`TestCentralizedMigrationEndpointsAreGone` holds them there. PR #50 retired\nthree plugin routes the same way: install-by-path and the two `plugin_dir`\nroutes answer 410, and the plugins page shows the CLI install command\ninstead.\n\nThe build-order trap is real and worse than documented. `internal/webui/dist` is\ngitignored and its `.gitkeep` placeholder was removed in `a54daa8`, so a fresh\nclone or worktree has no `dist` directory at all and `//go:embed all:dist`\nfails. Verified live in the audit worktree: `go vet ./internal/webui/` and\n`go test ./cmd/cerberus` both fail with `pattern all:dist: no matching files\nfound`. The console does not embed a stale bundle — the module does not compile.\n\n## Since P1 (PRs #57, #60 and #63)\n\n**Refusals render.** Since PR #57 a connector refusal answers with its status\nfrom the shared table (400, 404, 409, 422, 503; 502 for `operation_failed`\nsince PR #60), and the body carries `message`, which the console's API client\nrenders, and `code`.\n\n**Every mutation asks first.** A shared `ActionConfirm` dialog (sysop-ui\n`ConfirmDialog`) is the only thing in the console that sends\n`acknowledged: true`, and it names the operation's effect. It fronts every\nresource action (row quick actions and the detail dialog), pipeline Run and\ndeployment-profile Run. The Connectors page's Acknowledge checkbox follows the\noperation's `requires_ack` and shows its effect.\n\n**A deployment is confirmed against its plan.** The confirm dialog lists every\ncommand a profile run will execute and the directory it runs in, from\n`GET /api/deployments/{id}/plan` (CERB-TOOL-418). The Vercel token appears as\n`VERCEL_TOKEN=<vercel token>` and reaches the child only in its environment,\nnever in argv or a shell string. A run under an approval is bound to its plan\n(CERB-GAP-853): the steps, the profile, and the checkout's commit and dirty\nflag. The confirm step carries the plan hash from P3-3; until then a console\nrun is confirmed but not bound.\n\nThe console marks every request as the `web` surface, so an in-process client\nbehind it refuses local-only inputs just as the daemon would.\n\n## Since P2-1\n\nEvery console request is labelled `kind: human, via: web`, marked\nself-reported, and nothing the browser sends is read as a claim. The console\npasses that label on to the daemon, which verifies the uid of the web process,\nnot of whoever is at the browser. The label becomes real when P2-2 adds a login\n(CERB-GAP-442).\n\n## Since P2-2 (Decision 20)\n\n**The console has a login.** `cerberus web` prints and opens a one-time URL.\n`cerberus web open` mints another from the key the running console keeps at\n`~/.cerberus/web/login-<listen>.key`, mode 0600 in a 0700 directory and removed\non shutdown. A token is an expiry, a nonce and an HMAC under that per-process\nkey. It is good for two minutes and one use. `GET /login` checks it, spends the\nnonce, and sets `cerberus_session` (`HttpOnly`, `SameSite=Strict`, `Path=/`),\nthen answers 303 to `/` with `Cache-Control: no-store` and\n`Referrer-Policy: no-referrer`, so the token leaves the address bar.\n\nEvery `/api/` route needs a live session, and one without answers 401\n`login_required` with the command that signs in. A session ends after 30 minutes\nidle (`--session-idle`), after twelve hours in any case, on\n`POST /api/logout`, or when `cerberus web` exits, because keys, nonces and\nsessions live only in memory. The SPA shows a sign-in screen on 401 and has a\nSign out control.\n\n**The action token stays, per session.** `GET /api/session` serves a token\nonly to a signed-in session, and each session has its own. A state-changing\nrequest needs the cookie *and* that session's token, as well as the JSON content\ntype and the Host and Origin guards. The cookie alone is not enough, for two\nreasons. `SameSite` treats every port on `127.0.0.1` as one site, so a page\nserved by any other local web app is same-site and would carry the cookie. And\nthe Origin check passes a request that sends no `Origin`. The per-session token\nis readable only by a page that can read `/api/session` as that session, which\nsame-origin policy confines to the console itself.\n\n**The principal is the session.** A signed-in request carries\n`kind: human, via: web, session: <public id>`. The id is never the cookie's\nvalue. It reaches the daemon's audit record through the socket client's\nprincipal claim, and the daemon adds the verified uid of the console process.\n\nVerified in headless Chrome over CDP on a scratch `HOME`:\n\n- signed out, the page shows the sign-in screen and `/api/session` is 401;\n- the link signs in, and the cookie is `HttpOnly` and `Strict`, invisible to\n  `document.cookie`;\n- a reused link is refused;\n- a POST without the session token is 403;\n- Sign out clears the cookie and returns to the sign-in screen;\n- a `cerberus web open` link signs in;\n- after restarting `cerberus web`, the old session and the old link are both\n  refused, and the key file is gone;\n- a connector call made from the browser is audited as\n  `{kind: human, via: web, session: …, uid_verified: true}`.\n\nThe login separates the operator's account from everything else, not a person\nfrom an agent running as that account. Any same-uid process can mint a link,\nrecorded as CERB-GAP-862.",
       "pointer_locator": "internal/webui/server.go",
       "data": {
         "owns": [
@@ -15343,12 +15343,12 @@
           "note": "adhoc_targets is now evaluated in shadow"
         }
       ],
-      "body": "Cerberus has three gates and an operator can change none of them.\n\nThe install policy decides at install time whether a plugin may run at all,\nand records an origin (`installed` or `dev`) from rules defined in Go. A\nconnector definition or plugin manifest marks an operation `destructive`, and\nsince PR #49 that flag alone decides whether acknowledgment is needed. The\nrequest then carries an `Acknowledged` boolean. That is the whole authorisation surface, and all of\nit is either compiled in or declared by the thing being gated.\n\nSo there is no way for an operator to say any of the following, which are\nordinary things to want: `destroy_droplet` needs a second approver; nothing\nwrites to a production host outside a change window; this connector is read-only when\nthe caller is an agent; a plugin from outside the organisation may not reach\nthe SSH connector at all.\n\n**Distinct from `CERB-CAP-306`,** which is sometimes read as covering this.\nInstall origin answers *is this plugin allowed to run, and with what\nrestriction*, once, at install, based on how it was installed. A policy engine answers *is this call allowed*, per invocation,\nbased on what is being done and to what. A plugin can be perfectly trusted and\nthe specific operation still be one an operator wants to stop.\n\n**Distinct from `CERB-GAP-838`,** and the two should be fixed together. That\nrecord says the acknowledgment gate is satisfied by the caller being gated. A\npolicy engine is precisely what turns that into a gate the caller cannot\nsatisfy for itself — 838 names the defect, this names the missing mechanism.\n\n`docs/plans/agent-authority-and-secrets.md` owns this as WP-S5, and the\nsequencing is already argued there: it consumes WP-S1's audit record, because a\npolicy decision is only meaningful if it is recorded, and it wants\n`CERB-GAP-840`'s fan-out point if operator-supplied rules are ever to arrive as\nplugins rather than as configuration.\n\n## Direction since P0\n\n`docs/plans/live-systems-security-target.md` now carries the design: a small\nYAML policy language with one combining rule (most restrictive wins, Decision\n1), a strict baseline for humans and agents alike (Decision 2), and `Authorize`\nwired into every path in shadow mode in P2, before enforcement is switched on\nwith the approval paths in P3. The signing tiers this record used to name as one\nof the three gates were removed in PR #51 (CERB-DEC-815).\n\n## Since P2-3\n\nThe target half of the policy input exists. Every audit record's target carries `env`, `owner`, `admin` (for the kind the operation touches), `tags`, the resource it was resolved through, and `adhoc`, from `internal/target`, with unknown for anything undeclared (Decision 17). The engine that decides on them is still P2-4.\n\n## Since P2-4\n\nThe engine exists (`internal/policy`) and runs in **shadow mode**. `shadowDecision` in `internal/cerbapi/policy_point.go` is called from `beginAudit` for every operation that is not the monitor's automation, so every path the gates cover is authorized (I1). The result goes on the intent and the outcome as `policy: {decision, matched_rules, would_block, snapshot, shadow}`, and no outcome changes: `TestShadowPolicyNeverChangesAnOutcome` runs every gated lane under a decision point that denies everything and finds identical results, errors and outcome codes.\n\nThe evaluator has one combining rule, the most restrictive match wins (`deny > approve > dry_run_only > allow`), behind a narrow `PDP` interface (Decision 1). It combines these layers:\n- a built-in baseline by effect and principal kind, aligned with Decision 14 and including Decision 11's local-dev exception;\n- target defaults from Decisions 17 and 18: `admin: owner` or unknown denies changes, `admin: shared` approves destructive and exec, unknown env reads as prod, and an ad hoc target needs `adhoc_targets`;\n- provider, target and principal rules from `~/.cerberus/policy/*.yaml`.\n\nOnly the applied snapshot decides (Decision 10). `cerberus policy apply` writes it on a TTY with a flip preview and a typed confirmation, and a snapshot failing its hash falls back to the baseline. The refusal codes are reserved and not returned.\n\nWhat remains is enforcement. That is P3, with approvals.\n\n## Since P3-1\n\nThe enforcement path exists. Every gated operation starts through\n`beginGated` (`internal/cerbapi/approvals.go`), which, where an `Enforcement`\nhook says enforcement is on, answers a deny with `policy_denied` and an\napprove with `approval_pending`, asking the daemon's approval broker\n(`internal/approval`) for a request the operator decides. The hook is off by\ndefault and nothing installs it until P3-7, so shadow mode is unchanged and\nheld by `TestShadowAsksForNoApproval`. Approving a request comes with P3-3\n(`tty_confirm`) and P3-4 (out of band), and using one by id with the plan\nhash with P3-2.",
+      "body": "Cerberus has three gates and an operator can change none of them.\n\nThe install policy decides at install time whether a plugin may run at all,\nand records an origin (`installed` or `dev`) from rules defined in Go. A\nconnector definition or plugin manifest marks an operation `destructive`, and\nsince PR #49 that flag alone decides whether acknowledgment is needed. The\nrequest then carries an `Acknowledged` boolean. That is the whole authorisation surface, and all of\nit is either compiled in or declared by the thing being gated.\n\nSo there is no way for an operator to say any of the following, which are\nordinary things to want: `destroy_droplet` needs a second approver; nothing\nwrites to a production host outside a change window; this connector is read-only when\nthe caller is an agent; a plugin from outside the organisation may not reach\nthe SSH connector at all.\n\n**Distinct from `CERB-CAP-306`,** which is sometimes read as covering this.\nInstall origin answers *is this plugin allowed to run, and with what\nrestriction*, once, at install, based on how it was installed. A policy engine answers *is this call allowed*, per invocation,\nbased on what is being done and to what. A plugin can be perfectly trusted and\nthe specific operation still be one an operator wants to stop.\n\n**Distinct from `CERB-GAP-838`,** and the two should be fixed together. That\nrecord says the acknowledgment gate is satisfied by the caller being gated. A\npolicy engine is precisely what turns that into a gate the caller cannot\nsatisfy for itself — 838 names the defect, this names the missing mechanism.\n\n`docs/plans/agent-authority-and-secrets.md` owns this as WP-S5, and the\nsequencing is already argued there: it consumes WP-S1's audit record, because a\npolicy decision is only meaningful if it is recorded, and it wants\n`CERB-GAP-840`'s fan-out point if operator-supplied rules are ever to arrive as\nplugins rather than as configuration.\n\n## Direction since P0\n\n`docs/plans/live-systems-security-target.md` now carries the design: a small\nYAML policy language with one combining rule (most restrictive wins, Decision\n1), a strict baseline for humans and agents alike (Decision 2), and `Authorize`\nwired into every path in shadow mode in P2, before enforcement is switched on\nwith the approval paths in P3. The signing tiers this record used to name as one\nof the three gates were removed in PR #51 (CERB-DEC-815).\n\n## Since P2-3\n\nThe target half of the policy input exists. Every audit record's target carries `env`, `owner`, `admin` (for the kind the operation touches), `tags`, the resource it was resolved through, and `adhoc`, from `internal/target`, with unknown for anything undeclared (Decision 17). The engine that decides on them is still P2-4.\n\n## Since P2-4\n\nThe engine exists (`internal/policy`) and runs in **shadow mode**. `shadowDecision` in `internal/cerbapi/policy_point.go` is called from `beginAudit` for every operation that is not the monitor's automation, so every path the gates cover is authorized (I1). The result goes on the intent and the outcome as `policy: {decision, matched_rules, would_block, snapshot, shadow}`, and no outcome changes: `TestShadowPolicyNeverChangesAnOutcome` runs every gated lane under a decision point that denies everything and finds identical results, errors and outcome codes.\n\nThe evaluator has one combining rule, the most restrictive match wins (`deny > approve > dry_run_only > allow`), behind a narrow `PDP` interface (Decision 1). It combines these layers:\n- a built-in baseline by effect and principal kind, aligned with Decision 14 and including Decision 11's local-dev exception;\n- target defaults from Decisions 17 and 18: `admin: owner` or unknown denies changes, `admin: shared` approves destructive and exec, unknown env reads as prod, and an ad hoc target needs `adhoc_targets`;\n- provider, target and principal rules from `~/.cerberus/policy/*.yaml`.\n\nOnly the applied snapshot decides (Decision 10). `cerberus policy apply` writes it on a TTY with a flip preview and a typed confirmation, and a snapshot failing its hash falls back to the baseline. The refusal codes are reserved and not returned.\n\nWhat remains is enforcement. That is P3, with approvals.\n\n## Since P3-1\n\nThe enforcement path exists. Every gated operation starts through\n`beginGated` (`internal/cerbapi/approvals.go`), which, where an `Enforcement`\nhook says enforcement is on, answers a deny with `policy_denied` and an\napprove with `approval_pending`, asking the daemon's approval broker\n(`internal/approval`) for a request the operator decides. The hook is off by\ndefault and nothing installs it until P3-7, so shadow mode is unchanged and\nheld by `TestShadowAsksForNoApproval`. Approving a request comes with P3-3\n(`tty_confirm`) and P3-4 (out of band), and using one by id with the plan\nhash with P3-2.\n\n## Since P3-2a\n\nApprovals bind to a plan hash and can be used by id on the admin lane and deploy profiles; `cerberus connectors plan` shows the plan an approval would bind to.",
       "data": {
         "capability": "CERB-CAP-604",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "P3-2 to P3-6 give approvals a plan hash and channels, and P3-7 turns enforcement on scope by scope",
+        "unlocks_when": "P3-2b/c give resource verbs and pipelines a plan hash, P3-3 to P3-6 add the channels, and P3-7 turns enforcement on scope by scope",
         "effort": "large"
       }
     },
@@ -15850,11 +15850,11 @@
       "id": "CERB-GAP-853",
       "class": "gap",
       "name": "The deploy-profile confirm is not bound to the plan it showed",
-      "summary": "The console confirms a deployment-profile run against its plan, but the run recomputes the plan, so a profile edited between confirm and run runs the new commands.",
+      "summary": "A deploy-profile run under an approval is bound to its plan: the steps as run, the profile's definition and the checkout's HEAD and dirty flag are hashed when the approval is asked for and again when it is used, and any difference is plan_stale (P3-2a).",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "confidence_score": 0.9,
-      "confidence_label": "pkg/connector/contract.go, hints.go, runtime_gate.go, internal/mcp/hints.go and the gate tests read on the P1-3 branch after #60 and #63",
+      "confidence_label": "TestDeployProfilePlanBindsProfileAndCheckout and the gate's plan_stale tests on the P3-2a branch",
       "tags": [
         "cerberus",
         "class:gap",
@@ -15877,14 +15877,14 @@
           "note": "the run"
         }
       ],
-      "body": "`GET /api/deployments/{id}/plan` returns the commands `infra.PlanDeployment` computes, and the confirm dialog lists them. `POST .../run` with `acknowledged: true` then calls `RunDeployment`, which plans again from the profile on disk. Nothing ties the acknowledgment to the plan the operator saw. This is invariant I6 (approve what you saw) and the `plan_stale` error of P3.",
+      "body": "`GET /api/deployments/{id}/plan` returns the commands `infra.PlanDeployment` computes, and the confirm dialog lists them. `POST .../run` with `acknowledged: true` then calls `RunDeployment`, which plans again from the profile on disk. Nothing ties the acknowledgment to the plan the operator saw. This is invariant I6 (approve what you saw) and the `plan_stale` error of P3.\n\n## Since P3-2a\n\n`planDeploymentProfile` (`internal/cerbapi/plans.go`) is the deploy-profile lane's one plan function: the steps `infra.PlanDeployment` computes, with the directory and the names (never values) of the variables each step is given, the sha256 of the profile's definition, and the checkout's HEAD and dirty flag. `RunDeploymentProfile` hands it to the gate, which hashes it when an approval is asked for and again when a retry names the approval, and refuses with `plan_stale` on any difference. An edited profile, a new commit or uncommitted changes are each a different plan. The console's confirm step does not yet carry the approval id or show the hash; that arrives with `tty_confirm` in P3-3, and while enforcement is off (until P3-7) a console run is not bound.",
       "locus": "core",
-      "pointer_locator": "internal/webui/infra.go",
+      "pointer_locator": "internal/cerbapi/plans.go, internal/cerbapi/runtime_gate.go",
       "data": {
         "capability": "CERB-CAP-403",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "The run takes a plan hash from the confirm step and refuses with plan_stale when the recomputed plan differs.",
+        "unlocks_when": "Closed by P3-2a for runs under an approval; the console confirm step carries the hash with P3-3.",
         "effort": "small"
       },
       "namespace": "cerberus",
@@ -16578,11 +16578,11 @@
       "review_status": "draft",
       "class": "gap",
       "name": "An approved request cannot yet be used by id",
-      "summary": "P3-1 builds consume in the store and broker, but no gated path accepts an approval id yet, so an approved request lets nothing through; retrying with the approval id, bound to the args digest and the plan hash, is P3-2.",
+      "summary": "A retry naming an approved request runs under it: the admin lane, managed plugins and deploy profiles recompute the call's plan, consume the approval write-ahead against the requester, the args digest, operation and plan hash, and record approval_id and plan_hash on the outcome (P3-2a).",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "confidence_score": 0.85,
-      "confidence_label": "read and tested on the P3-1 branch",
+      "confidence_label": "TestApprovalIsUsedByID, TestChangedCallIsPlanStale and TestChangedPreviewOrPluginIsPlanStale on the P3-2a branch, TestApprovalBelongsToItsRequester",
       "tags": [
         "cerberus",
         "class:gap",
@@ -16605,11 +16605,91 @@
         "capability": "CERB-CAP-604",
         "priority": "nice-to-have",
         "blocked_by": [],
-        "unlocks_when": "P3-2 adds the plan hash and apply by approval id",
+        "unlocks_when": "Closed by P3-2a for the admin lane and deploy profiles; P3-2b and P3-2c extend it to resource verbs and pipelines.",
         "effort": "medium"
       },
-      "body": "`Broker.Consume` checks the args digest, the plan hash, a re-evaluated deny and, for out of band, presence, and writes the consumed event before anything runs. Nothing calls it from a gated path yet: `enforceDecision` asks for an approval and answers `approval_pending`, but a retry carrying the approval id is not read, and approvals have no plan hash until P3-2 computes one. `approvalExpiredError` and `planStaleError` exist as Guidance for that consume path.",
+      "body": "`Broker.Consume` checks the args digest, the plan hash, a re-evaluated deny and, for out of band, presence, and writes the consumed event before anything runs. Nothing calls it from a gated path yet: `enforceDecision` asks for an approval and answers `approval_pending`, but a retry carrying the approval id is not read, and approvals have no plan hash until P3-2 computes one. `approvalExpiredError` and `planStaleError` exist as Guidance for that consume path.\n\n## Since P3-2a\n\n`consumeApproval` in `internal/cerbapi/approvals.go` is the consume path. A call carrying `approval_id` (`cerberus connectors exec --approval <id>`, the socket's `approval_id`, `MutationOpts.ApprovalID`) recomputes its plan through the lane's `spec.plan` and consumes: expired is `approval_expired`, another plan, other arguments or another operation is `plan_stale`, a spent or denied approval is `approval_required` naming how to ask again, and a pending one is still `approval_pending`. An approval is its requester's: the consumer's principal kind and via must match, and its session where the request had one, or it is `approval_required` saying the approval belongs to another caller (`ErrOtherPrincipal`, `TestApprovalBelongsToItsRequester`). A policy that relaxed to allow still spends the approval (D8). Resource verbs and pipelines follow in P3-2b and P3-2c.",
       "id": "CERB-GAP-874"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "An approved provider write is not applied conditionally on the version it was planned against",
+      "summary": "The plan hash binds a plugin's preview, including any version token it carries, but the apply is not sent conditionally on that token, so a provider object changed between the recomputed plan and the write is still overwritten.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "read on the P3-2a branch; out of scope for P3-2 by agreement",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "plan-binding",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/plans.go, pkg/plugin",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-874",
+          "note": "the consume path whose last step this would be"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "The plugin contract carries the planned version token into the real call (resourceVersion, etag, serial) and a plugin sends it as a precondition where the provider's API allows",
+        "effort": "medium"
+      },
+      "body": "The design (P3-2) asks for the apply to be conditional on the provider's version token where the API allows. P3-2a recomputes the plan, including the plugin's preview and whatever token it carries, immediately before consuming, which narrows the window to the time between that preview and the plugin's write. Closing it needs the plugin contract to pass the planned token into the real call and each plugin to send it as a precondition (an `If-Match`, a `resourceVersion`, a zone serial). That is plugin-contract work and was agreed out of scope.",
+      "id": "CERB-GAP-877"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A deploy-profile run re-plans after its approval is checked",
+      "summary": "The gate checks the recomputed deploy-profile plan against the approval, then RunDeployment plans the steps again from the profile on disk, so a profile or checkout changed in that window runs unchecked.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.85,
+      "confidence_label": "read on the P3-2a branch",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "plan-binding",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/runtime_gate.go, internal/infra/deploy.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-853",
+          "note": "what the plan hash closed; this is the window left"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-403",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "RunDeployment executes the plan object the gate hashed rather than planning again",
+        "effort": "small"
+      },
+      "body": "`RunDeploymentProfile` hands `planDeploymentProfile` to the gate, which hashes it and consumes the approval, and then calls `infra.RunDeployment`, which calls `PlanDeployment` again. The two plans are computed milliseconds apart, but they are two computations: the design's \"execute exactly the plan\" wants the run to take the checked plan's steps. The fix is for the run to accept the planned steps, which also removes the second secret lookup. The commit and dirty flag cannot be pinned the same way without building from a snapshot of the tree, which is a larger change.",
+      "id": "CERB-GAP-878"
     },
     {
       "id": "CERB-TOOL-110",
@@ -22634,6 +22714,54 @@
         "verified": "test"
       },
       "id": "CERB-TOOL-875"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "tool",
+      "name": "cerberus connectors plan",
+      "summary": "Computes and prints the plan an approval of one connector operation would bind to, with its hash, without running the operation; recorded like a dry run.",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "TestPlanOnRequestIsTheApprovedPlan and TestRunConnectorExecSendsApprovalAndPlan on the P3-2a branch",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "approvals",
+        "diagnostic",
+        "locus:core",
+        "verified:test"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_connectors_exec.go, internal/cerbapi/plans.go",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-400",
+          "note": "a verb of the CLI"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-874",
+          "note": "shows the plan a retry by approval id is checked against"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "invocation": "cerberus connectors plan <connector-id> <operation> [--arg k=v] [--arg-json k=<json>] [--input file] [--ack]",
+        "surfaces": [
+          "cli",
+          "socket"
+        ],
+        "destructive": false,
+        "verified": "test",
+        "vendor": []
+      },
+      "body": "`cerberus connectors plan` sends the call with `plan: true` through the admin lane, which runs the gate as for a dry run (a plan request is the plan step, whatever the operation's preview) and answers with `{plan_hash, plan}` from `planOperation`, the same function an approval is asked for and used with. The plan names the operation, the resolved target and its labels, the keyed args digest, the dry-run preview where the operation declares one and, for a plugin, its entrypoint and config digests. Computing it runs the preview, which for a plugin is a call to the plugin, so a plan is only computed on request or when an approval is asked for or used. Nothing else runs.",
+      "id": "CERB-TOOL-876"
     }
   ]
 }

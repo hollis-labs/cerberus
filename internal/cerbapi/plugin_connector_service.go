@@ -66,6 +66,8 @@ type PluginConnectorExecArgs struct {
 	DryRun       bool                 `json:"dry_run,omitempty"`
 	Acknowledged bool                 `json:"acknowledged,omitempty"`
 	Options      PluginInstallOptions `json:"options"`
+	// ApprovalID is the approval a managed plugin call runs under (P3-2).
+	ApprovalID string `json:"approval_id,omitempty"`
 }
 
 type PluginConnectorHealth struct {

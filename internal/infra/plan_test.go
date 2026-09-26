@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -46,18 +47,19 @@ func TestPlanDeploymentShowsCommandsWithoutSecrets(t *testing.T) {
 		t.Fatalf("plan error: %s", plan.Error)
 	}
 	want := []PlannedStep{
-		{"preflight", "pnpm check"},
-		{"build", "pnpm build"},
-		{"deploy", vercelTokenDisplay + "vercel --prod --yes"},
+		{Name: "preflight", Command: "pnpm check"},
+		{Name: "build", Command: "pnpm build"},
+		// The token reaches the step in its environment, named here.
+		{Name: "deploy", Command: vercelTokenDisplay + "vercel --prod --yes", Env: []string{"VERCEL_TOKEN"}},
 	}
 	if len(plan.Steps) != len(want) {
 		t.Fatalf("steps = %+v, want %+v", plan.Steps, want)
 	}
 	for i, step := range plan.Steps {
-		if step != want[i] {
+		if !reflect.DeepEqual(step, want[i]) {
 			t.Errorf("step %d = %+v, want %+v", i, step, want[i])
 		}
-		if strings.Contains(step.Command, token) {
+		if strings.Contains(step.Command, token) || strings.Contains(strings.Join(step.Env, " "), token) {
 			t.Fatalf("plan shows the token: %q", step.Command)
 		}
 	}
