@@ -1,6 +1,8 @@
 package local
 
 import (
+	"context"
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -14,9 +16,7 @@ func TestGitOutputIgnoresInheritedGitDir(t *testing.T) {
 	}
 	repo, other := t.TempDir(), t.TempDir()
 	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=Artifact Test", "-c", "user.email=artifact@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "one"}} {
-		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...) //nolint:gosec // a test's own git, on its temp dir
-		cmd.Env = gitEnvWithoutRepo()
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := gitenv.Command(context.Background(), repo, args...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}

@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 )
 
 func TestResolveArtifactSource(t *testing.T) {
@@ -285,8 +287,7 @@ func TestStatusIgnoresRepoStateWhenSourceBinaryUnchanged(t *testing.T) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...) //nolint:gosec // test helper executes fixed git subcommands against a temp repo
-	cmd.Dir = dir
+	cmd := gitenv.Command(context.Background(), dir, args...)
 	// cmd.Dir does NOT win against GIT_DIR. Git exports GIT_DIR, GIT_WORK_TREE
 	// and GIT_INDEX_FILE into hook environments, and lefthook's pre-push runs
 	// `go test ./...` — so without this, every git call below operates on the
@@ -296,27 +297,10 @@ func runGit(t *testing.T, dir string, args ...string) {
 	// was being pushed, the second of which deletes every tracked file because
 	// `commit -am` stages the absence of a temp fixture's files from the real
 	// work tree.
-	cmd.Env = gitScrubbedEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
-}
-
-// gitScrubbedEnv returns the environment with every GIT_* variable removed, so
-// a git subprocess is directed only by cmd.Dir. Dropping the whole prefix
-// rather than a known list because the set grows between git versions, and the
-// failure mode of missing one is silent corruption of the caller's repository.
-func gitScrubbedEnv() []string {
-	parent := os.Environ()
-	out := make([]string, 0, len(parent))
-	for _, entry := range parent {
-		if strings.HasPrefix(entry, "GIT_") {
-			continue
-		}
-		out = append(out, entry)
-	}
-	return out
 }
 
 //nolint:gosec // executable fixtures and file paths are confined to t.TempDir
@@ -432,16 +416,12 @@ func TestRunGitIgnoresAmbientGitDir(t *testing.T) {
 	runGit(t, work, "commit", "-m", "initial")
 
 	// The victim must be untouched: no commit, and its identity intact.
-	log := exec.Command("git", "log", "--oneline")
-	log.Dir = victim
-	log.Env = gitScrubbedEnv()
+	log := gitenv.Command(context.Background(), victim, "log", "--oneline")
 	if out, err := log.CombinedOutput(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
 		t.Fatalf("the ambient GIT_DIR repository received commits: %s", out)
 	}
 
-	cfg := exec.Command("git", "config", "--get", "user.email")
-	cfg.Dir = victim
-	cfg.Env = gitScrubbedEnv()
+	cfg := gitenv.Command(context.Background(), victim, "config", "--get", "user.email")
 	out, err := cfg.CombinedOutput()
 	if err != nil {
 		t.Fatalf("read victim config: %v\n%s", err, out)
