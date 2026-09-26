@@ -293,6 +293,43 @@ cerberus pipeline run <id> --ack --approval <id>
 A plan is asked for on its own route. A daemon that predates plans refuses
 the request rather than running the verb, and the CLI says to restart it.
 
+### Confirming on your own terminal
+
+When policy wants a `tty_confirm` approval and you run the command yourself
+in an interactive terminal, you don't need a second command. Cerberus shows
+the plan: the effect, the target with its labels and which process computed
+the plan in bold, then what would run and the full plan hash. It asks you to
+type the target:
+
+```
+Type the target (notes-api) to confirm, or anything else to cancel:
+```
+
+`y` is not a confirmation. Typing the target sends the call again on its
+confirm route with the hash of the plan you were shown. That one call
+decides the approval the first attempt asked for, spends it, and runs, so
+nothing is left pending. If the plan changed in between, the call is
+refused as `plan_stale` and nothing runs.
+
+A confirmation is refused, and the approval is left as it was, when:
+
+- the target is `env: prod`, shared or not yours, or the rule asks for out
+  of band. Those are approved with `cerberus approvals approve` and a
+  passkey;
+- the caller is not a person at the CLI: an agent, an MCP client, or a
+  command whose stdin or stdout is not a terminal;
+- the approval named belongs to another caller or is no longer pending.
+
+`--ack` is still needed where the operation requires it. A confirmation
+doesn't replace it. Without a daemon, a confirmation is recorded in the
+audit log (requested, decided and consumed) under an id of its own, since
+nothing holds it.
+
+**This is a floor, not a boundary.** "A person at the CLI" is what the
+terminal says about itself, so a program driving a pseudo-terminal could
+claim it. Confirming on the call protects against an agent that follows
+the rules. Out-of-band approval with a passkey is the boundary.
+
 **The store is not trusted on its own word.** Anything running as your user
 can edit it. An out-of-band approval therefore carries proof that a person
 was present, and that proof is verified again when the approval is used, so a
