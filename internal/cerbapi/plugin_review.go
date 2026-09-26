@@ -13,6 +13,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
 )
 
@@ -322,7 +323,35 @@ func (r *PluginReviewer) Discard(p *PendingReview) {
 // plugin id. The record is written before anything changes — an unwritable
 // log refuses the review — and a confirmation that does not match is
 // recorded as a refusal and changes nothing.
-func (r *PluginReviewer) Accept(ctx context.Context, p *PendingReview, typed string) (_ ManagedPluginConnectorState, retErr error) {
+func (r *PluginReviewer) Accept(ctx context.Context, p *PendingReview, typed string) (ManagedPluginConnectorState, error) {
+	return r.accept(ctx, p, typed, false)
+}
+
+// AcceptUnattended accepts an install or upgrade review without the typed
+// confirmation: `install --yes`, which the permissive posture allows
+// (section 13: "summary is printed; --yes skips the confirmation"). It
+// checks the posture itself, so it holds whoever calls it: under the secure
+// posture, or for any other kind of review, it refuses and changes
+// nothing. The review record is marked unattended.
+func (r *PluginReviewer) AcceptUnattended(ctx context.Context, p *PendingReview) (ManagedPluginConnectorState, error) {
+	args := ExternalConnectorOperationArgs{Connector: "plugin", Operation: p.Kind}
+	if p.Kind != ReviewInstall && p.Kind != ReviewUpgrade {
+		r.Discard(p)
+		return ManagedPluginConnectorState{}, externalConnectorError(args, ExternalConnectorAckRequired,
+			redact.Guidance("a plugin %s is always confirmed by typing the plugin id; --yes applies only to install", p.Kind))
+	}
+	if PolicyDecisionPoint().GlobalPosture() != policy.PosturePermissive {
+		r.Discard(p)
+		return ManagedPluginConnectorState{}, externalConnectorError(args, ExternalConnectorAckRequired, ErrPluginYesNeedsPermissive)
+	}
+	return r.accept(ctx, p, p.Review.ID, true)
+}
+
+// ErrPluginYesNeedsPermissive refuses `install --yes` under the secure
+// posture.
+var ErrPluginYesNeedsPermissive = redact.Guidance("--yes skips the install confirmation only under the permissive posture, and the posture is secure; install from a terminal and type the plugin id, or run `cerberus posture set permissive` in a terminal first")
+
+func (r *PluginReviewer) accept(ctx context.Context, p *PendingReview, typed string, unattended bool) (_ ManagedPluginConnectorState, retErr error) {
 	if err := requireInProcess(ctx, p.Kind); err != nil {
 		r.Discard(p)
 		return ManagedPluginConnectorState{}, err
@@ -334,7 +363,7 @@ func (r *PluginReviewer) Accept(ctx context.Context, p *PendingReview, typed str
 		acknowledged: strings.TrimSpace(typed) == review.ID,
 		review: &audit.PluginReview{
 			Kind: p.Kind, SummarySHA256: review.SummaryDigest(), BundleDigest: review.BundleDigest,
-			Source: review.Source, Gaps: review.Gaps, Changes: p.Changes,
+			Source: review.Source, Gaps: review.Gaps, Changes: p.Changes, Unattended: unattended,
 		},
 	})
 	if err != nil {

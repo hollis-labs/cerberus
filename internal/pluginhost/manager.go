@@ -42,6 +42,9 @@ type Manager struct {
 	secrets   SecretResolver
 	settings  func() (ConnectorConfig, error)
 	warn      func(string)
+	// acceptChanged decides whether a bundle that is not the one reviewed
+	// may load anyway (WithChangedBundles). Nil refuses, as before.
+	acceptChanged func(*ChangedError) bool
 
 	// configProblems holds why each plugin's settings were last refused, so
 	// a plugin that did not load can say why. Cleared by a successful load.
@@ -101,6 +104,27 @@ func WithLoadWarning(warn func(string)) ManagerOption {
 	return func(m *Manager) { m.warn = warn }
 }
 
+// WithChangedBundles lets a plugin whose bundle no longer matches its
+// accepted review load anyway when accept says so: the permissive posture's
+// "load, and warn" (section 13). accept is called with the mismatch before
+// the plugin starts, and is where the warning and the audit record are
+// written; returning false refuses the load as the secure posture does. A
+// plugin built for another host contract is refused whatever accept says.
+func WithChangedBundles(accept func(*ChangedError) bool) ManagerOption {
+	return func(m *Manager) { m.acceptChanged = accept }
+}
+
+// CheckBundle is the package's CheckBundle, with a changed bundle allowed
+// through when the manager's WithChangedBundles hook accepts it.
+func (m *Manager) CheckBundle(p InstalledPlugin) error {
+	err := CheckBundle(p)
+	var changed *ChangedError
+	if err != nil && errors.As(err, &changed) && m.acceptChanged != nil && m.acceptChanged(changed) {
+		return nil
+	}
+	return err
+}
+
 func NewManager(installer Installer, launcher Launcher, hostVersion string, opts ...ManagerOption) *Manager {
 	m := &Manager{
 		installer: installer,
@@ -154,7 +178,7 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	// The bundle is checked before anything else runs: a plugin that is not
 	// the one the operator reviewed, or was built for another contract, is
 	// refused before its code starts.
-	if err := CheckBundle(plugin); err != nil {
+	if err := m.CheckBundle(plugin); err != nil {
 		return err
 	}
 
