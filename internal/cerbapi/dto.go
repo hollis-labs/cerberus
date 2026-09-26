@@ -122,6 +122,10 @@ type MutationOpts struct {
 	// Plan asks for the call's plan instead of running it (P3-2): what an
 	// approval would bind to, and its hash. It is recorded as a dry run.
 	Plan bool `json:"plan,omitempty"`
+
+	// ConfirmedPlanHash is the plan a person confirmed on their own
+	// terminal (P3-3); only a confirm route sets it, never a request body.
+	ConfirmedPlanHash string `json:"-"`
 }
 
 // MutationOption is a functional option for a resource mutation or a
@@ -136,6 +140,12 @@ func WithAcknowledged(v bool) MutationOption {
 // WithApprovalID runs the call under an approval (P3-2).
 func WithApprovalID(id string) MutationOption {
 	return func(o *MutationOpts) { o.ApprovalID = id }
+}
+
+// WithConfirmedPlanHash sends the call as confirmed on the caller's own
+// terminal, for the plan with this hash (P3-3).
+func WithConfirmedPlanHash(hash string) MutationOption {
+	return func(o *MutationOpts) { o.ConfirmedPlanHash = hash }
 }
 
 // WithPlan asks for the call's plan instead of running it.

@@ -201,6 +201,14 @@ func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 	_, resolved := auditTarget(spec)
 	req := policyRequest(ctx, spec, resolved)
 	if !enforced(req) {
+		// A confirmed plan is checked whether or not policy asked for
+		// one: whoever confirmed it was shown it (I6).
+		if spec.confirmedPlanHash != "" {
+			if refusal := checkConfirmedPlan(ctx, spec); refusal != nil {
+				call.finish(refusal)
+				return nil, refusal
+			}
+		}
 		return call, nil
 	}
 	if refusal := enforceDecision(ctx, call, spec, req); refusal != nil {
@@ -219,6 +227,9 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
 	switch res.Decision {
 	case policy.Allow:
+		if spec.confirmedPlanHash != "" {
+			return checkConfirmedPlan(ctx, spec)
+		}
 		// A policy that relaxed to allow since the approval was given still
 		// spends it, so the record shows it was used (D8).
 		if spec.approvalID != "" {
@@ -234,6 +245,9 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 	case policy.Approve:
 		if req.DryRun {
 			return nil
+		}
+		if spec.confirmedPlanHash != "" {
+			return confirmOnCall(ctx, call, spec, req, res)
 		}
 		if spec.approvalID != "" {
 			return consumeApproval(ctx, call, spec)
@@ -260,8 +274,15 @@ func requestApproval(ctx context.Context, call *auditCall, spec auditSpec, req p
 	broker := ProcessBroker()
 	if broker == nil {
 		if channel == approval.ChannelTTYConfirm {
-			return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			err := externalConnectorError(args, ExternalConnectorApprovalRequired,
 				redact.Guidance("%s %s needs your confirmation (rule %s): run it from an interactive terminal, where Cerberus shows the plan and asks you to type the target", spec.connector, spec.operation, decidingRule(res)))
+			var coded *ExternalConnectorError
+			if errors.As(err, &coded) {
+				// No id: without a daemon nothing holds it. The channel is
+				// what tells the CLI it can confirm on the call itself.
+				coded.Approval = &ApprovalRef{Channel: approval.ChannelTTYConfirm}
+			}
+			return err
 		}
 		return externalConnectorError(args, ExternalConnectorApprovalPending,
 			redact.Guidance("%s %s needs an out-of-band approval (rule %s), and only the daemon can hold one; start it with `cerberus daemon`, then retry", spec.connector, spec.operation, decidingRule(res)))
@@ -381,6 +402,9 @@ type ApprovalRef struct {
 	ID          string    `json:"id"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	ApproveWith string    `json:"approve_with"`
+	// Channel is how the approval is met. tty_confirm tells a CLI on a
+	// terminal it can show the plan and confirm on the call (P3-3).
+	Channel string `json:"channel,omitempty"`
 }
 
 // approvalPendingError is approval_pending for a, as Guidance: every part of
@@ -391,7 +415,7 @@ func approvalPendingError(args ExternalConnectorOperationArgs, a approval.Approv
 			args.Connector, args.Operation, a.Channel, a.Rule, a.ID, a.ExpiresAt.UTC().Format(time.RFC3339), a.ApproveWith()))
 	var coded *ExternalConnectorError
 	if errors.As(err, &coded) {
-		coded.Approval = &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith()}
+		coded.Approval = &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith(), Channel: a.Channel}
 	}
 	return err
 }
