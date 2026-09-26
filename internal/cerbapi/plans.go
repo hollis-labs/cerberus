@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/config"
@@ -186,23 +187,40 @@ func gitSource(ctx context.Context, dir string) *plan.Source {
 //   - every verb: the observed state, so an approval to stop a running
 //     service does not stop it after it was restarted as something else.
 func (s *ResourceRuntimeService) planResource(ctx context.Context, spec auditSpec, id string) (plan.Plan, error) {
-	res, pspec, err := s.requireLocalProcessSpec(id)
+	res, err := s.requireLocalProcessResource(id)
 	if err != nil {
 		return plan.Plan{}, err
 	}
+	return s.planResourceDef(ctx, spec, res, spec.operation)
+}
+
+// verbBuild is a pipeline's build action: deploy's build half, which binds
+// the checkout and the output path and installs nothing.
+const verbBuild = "build"
+
+// planResourceDef is planResource for a definition in hand, as a pipeline's
+// checked snapshot holds it, planning what verb would do: one of the local
+// connector's operations, or verbBuild.
+func (s *ResourceRuntimeService) planResourceDef(ctx context.Context, spec auditSpec, res *config.ResourceDef, verb string) (plan.Plan, error) {
+	pspec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return plan.Plan{}, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
+	}
+	id := res.ID
 	tgt, _ := auditTarget(spec)
 	p := plan.Plan{Lane: plan.LaneResource, Connector: spec.connector, Operation: spec.operation, Effect: string(spec.op.Effect),
 		Target: tgt, ArgsDigest: s.audit.Digest(spec.config), Digests: map[string]string{"spec": s.audit.Digest(res)}}
-	installs := spec.operation == localconn.OpDeploy || spec.operation == localconn.OpApply || spec.operation == localconn.OpSync
-	if spec.operation == localconn.OpDeploy && localconn.HasBuildStrategy(pspec) {
+	builds := verb == localconn.OpDeploy || verb == verbBuild
+	installs := builds || verb == localconn.OpApply || verb == localconn.OpSync
+	if builds && localconn.HasBuildStrategy(pspec) {
 		p.Source = gitSource(ctx, pspec.Dir)
 	}
 	if installs && pspec.RunFrom == localconn.ProcessRunFromArtifact {
 		if path, perr := localconn.ResolveArtifactSourcePath(pspec); perr == nil {
 			p.Artifact = path
-			// A deploy builds before it installs, so the output as it is now
-			// is not what it would install; the source binds that instead.
-			if spec.operation != localconn.OpDeploy {
+			// A build comes before the install, so the output as it is now
+			// is not what would be installed; the source binds that instead.
+			if !builds {
 				p.Digests["artifact"] = fileDigest(path)
 			}
 		} else {
@@ -210,7 +228,7 @@ func (s *ResourceRuntimeService) planResource(ctx context.Context, spec auditSpe
 		}
 	}
 	dr := resourceDefToDomain(res)
-	if spec.operation == localconn.OpDeploy || spec.operation == localconn.OpApply {
+	if verb == localconn.OpDeploy || verb == localconn.OpApply {
 		if rendered, ok, perr := s.localConnector().PreviewPlist(dr); perr != nil {
 			return plan.Plan{}, fmt.Errorf("render the launch agent %q would install: %w", id, perr)
 		} else if ok {
@@ -224,6 +242,19 @@ func (s *ResourceRuntimeService) planResource(ctx context.Context, spec auditSpe
 		p.State = string(state)
 	}
 	return p, nil
+}
+
+// processEnvNames is the names of the variables in this process's
+// environment, sorted: what a pipeline's shell action inherits. Names only,
+// never values, so an approver can see a PATH or LD_* surprise.
+func processEnvNames() []string {
+	var names []string
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // fileDigest is a file's sha256, or why it has none.
@@ -240,12 +271,26 @@ func fileDigest(path string) string {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
+// pipelineVerbs maps a pipeline action that changes a resource to the verb
+// it performs, whose plan it is bound by. health_wait only reads, and a
+// shell action naming a resource is bound by its command and the
+// resource's definition.
+var pipelineVerbs = map[string]string{
+	"build": verbBuild, "build_app": verbBuild,
+	"deploy": localconn.OpDeploy, "deploy_app": localconn.OpDeploy,
+	"start": localconn.OpApply, "stop": localconn.OpStop,
+}
+
 // planPipeline is a pipeline run's plan: every action of every stage, in
-// order, as it would run (a shell command with its directory, or the
-// resource verb), the pipeline's definition and the definition of each
-// resource it names, both as keyed digests. It returns the snapshot it
-// described, so a run checked against an approval runs that snapshot.
-func (s *ResourceRuntimeService) planPipeline(_ context.Context, spec auditSpec, id string) (plan.Plan, *pipelineSnapshot, error) {
+// order, as it would run (a shell command with its directory and the names
+// of the environment variables it inherits, or the resource verb), the
+// pipeline's definition and the definition of each resource it names, both
+// as keyed digests, and for each action that changes a resource, that
+// verb's own plan, as `cerberus resource plan` would compute it (I6: a
+// pipeline that deploys a resource binds that deploy). It returns the
+// snapshot it described, so a run checked against an approval runs that
+// snapshot.
+func (s *ResourceRuntimeService) planPipeline(ctx context.Context, spec auditSpec, id string) (plan.Plan, *pipelineSnapshot, error) {
 	snap, problem := s.lookupPipeline(id)
 	if snap == nil {
 		return plan.Plan{}, nil, redact.Guidance("pipeline %q cannot be planned: %s", id, problem)
@@ -257,12 +302,18 @@ func (s *ResourceRuntimeService) planPipeline(_ context.Context, spec auditSpec,
 	for _, r := range snap.resources {
 		resources[r.ID] = r
 	}
+	lookup := func(rid string) (*config.ResourceDef, bool) {
+		def, ok := resources[rid]
+		return &def, ok
+	}
+	env := processEnvNames()
+	localDef := localconn.Definition()
 	for _, stage := range snap.def.Stages {
 		for _, action := range stage.Actions {
 			step := plan.Step{Name: stage.Name + "/" + action.Type, Command: action.Type}
 			switch {
 			case action.Command != "":
-				step.Command, step.Dir = action.Command, action.Dir
+				step.Command, step.Dir, step.Env = action.Command, action.Dir, env
 			case action.Resource != "":
 				step.Command = action.Type + " " + action.Resource
 			}
@@ -272,6 +323,27 @@ func (s *ResourceRuntimeService) planPipeline(_ context.Context, spec auditSpec,
 				} else {
 					p.Digests["resource:"+action.Resource] = "(not defined)"
 				}
+			}
+			if verb, changes := pipelineVerbs[action.Type]; changes && action.Resource != "" {
+				def, ok := lookup(action.Resource)
+				if !ok || def.Type != "process" || def.Connector != "local" {
+					// The run cannot resolve it either, and refuses; the digest
+					// above already says so.
+					p.Steps = append(p.Steps, step)
+					continue
+				}
+				opName := verb
+				if verb == verbBuild {
+					opName = localconn.OpDeploy
+				}
+				op, known := localDef.Operation(opName)
+				nested := auditSpec{connector: localDef.ID, operation: action.Type, op: op, known: known,
+					config: map[string]any{localconn.InputID: action.Resource}, resources: lookup}
+				np, err := s.planResourceDef(ctx, nested, def, verb)
+				if err != nil {
+					return plan.Plan{}, nil, redact.GuidanceWrap(err, "pipeline %q cannot be planned: its %s/%s action on %q", id, stage.Name, action.Type, action.Resource)
+				}
+				p.Actions = append(p.Actions, np)
 			}
 			p.Steps = append(p.Steps, step)
 		}
