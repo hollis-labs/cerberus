@@ -415,6 +415,60 @@ in the outcome record.
 
 The store is not trusted on its word. An out-of-band decision must carry a
 presence proof that a `PresenceVerifier` accepts, at decide and again at
-consume. None is installed until P3-4, so no out-of-band approval can be
-approved or consumed yet, and a forged "approved" line lets nothing through
-(`TestForgedApprovalDoesNotConsume`, CERB-GAP-857).
+consume, so a forged "approved" line lets nothing through
+(`TestForgedApprovalDoesNotConsume`, CERB-GAP-857). The daemon installs the
+passkey service below as that verifier; a process without one (a test, or a
+daemon whose service did not start) has `NoPresence`, and every out-of-band
+approve fails closed.
+
+## Deciding, and passkeys (P3-4)
+
+Decisions reach the broker on the daemon socket (`POST /approvals/{id}/decide`
+and `/revoke`), from `cerberus approvals approve|deny|revoke` on a terminal or
+from the console's approvals page. `Broker.DecideAs` makes the caller the
+decider and checks no self-approval first: an approve comes from a human,
+never from an MCP client or an unknown surface, and never through the surface
+the request came from. A deny needs none of that.
+
+Out of band, the decider's labels are not enough. The approval counts only
+with a WebAuthn assertion from an enrolled passkey (`internal/presence`,
+built on go-webauthn with user verification required). The console asks the
+daemon for a challenge (`POST /approvals/{id}/challenge`), which is bound to
+the approval: its id, plan hash, args digest, operation and requester, plus a
+nonce. The browser signs it, the console sends the assertion with the
+decision, and the daemon seals it into `Decision.Assertion` with the key's
+fingerprint. The store verifies it at decide, where the ceremony is spent, and
+again at consume. A key that is not enrolled, an assertion without user
+verification, another origin, a signature counter that went backwards, a
+replayed decide and an assertion made for another approval are each refused
+(`internal/presence` and `internal/cerbapi/approval_presence_test.go`).
+
+The relying party is `localhost`, and the origin a passkey is used from must
+be a running console's (`webui.ConsoleOrigins`, from the consoles' key
+files).
+
+**Enrollment.** `cerberus approvals enroll` runs on a terminal. It makes a
+one-time token, hands the daemon only its digest (`POST
+/approvals/keys/enroll-allow`), and prints a console link that carries the
+token; the passkey is created there. The first key is trusted on first use.
+After it, adding a key or removing one needs an assertion from an enrolled
+key. Each change is an `enrollment_changed` audit record carrying the
+registry's new hash, and raises a notification.
+
+**The registry is checked against that record.** The registry
+(`~/.cerberus/approvals/passkeys/keys.json`, 0600) is hashed on every use and
+compared with the hash in the last `enrollment_changed` record. A registry
+changed any other way starts a 24-hour cool-down, recorded as
+`enrollment_changed` with `change: unaudited`, during which out-of-band
+approvals and enrollment are refused. The cool-down is read back from the
+audit log when the daemon restarts. When it ends, the current registry is
+adopted with `change: accepted_after_cooldown`. `cerberus status` and the
+console header show the state: not set up, a key enrolled in the last 24h, or
+the cool-down.
+
+**WebAuthn options travel opaque.** The socket's responses pass the redactor,
+which walks JSON by key, and WebAuthn's own `allowCredentials` and
+`excludeCredentials` match its credential marker. So the options are sent as
+base64url of their JSON (`cerbapi.WebAuthnOptions`). They are public by
+construction: a challenge, the relying party and credential ids.
+`TestPasskeyOptionsSurviveResponseRedaction` holds this.

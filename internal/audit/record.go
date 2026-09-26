@@ -39,6 +39,12 @@ const (
 	KindApprovalExpired   = "approval_expired"
 	KindApprovalConsumed  = "approval_consumed"
 	KindApprovalRevoked   = "approval_revoked"
+	// KindEnrollmentChanged is a change to the passkeys out-of-band
+	// approvals are verified against (P3-4): a key enrolled or removed, a
+	// registry changed outside Cerberus (which starts the cool-down), or a
+	// cool-down ended. It carries the registry's hash, which is how the next
+	// load knows the file is the one Cerberus wrote.
+	KindEnrollmentChanged = "enrollment_changed"
 )
 
 // SchemaVersion is the record format version.

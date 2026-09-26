@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Boxes, Cable, CheckCheck, Gauge, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
 import { ApiError, createRouter } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type PostureInfo } from './api/client'
+import { apiClient, type PasskeysAlert, type PostureInfo } from './api/client'
 import { ApprovalsPage } from './pages/approvals'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
@@ -51,7 +51,7 @@ const useRoute = createRouter({
 type SessionState =
   | { kind: 'checking' }
   | { kind: 'signed-out' }
-  | { kind: 'signed-in'; token: string; posture?: PostureInfo }
+  | { kind: 'signed-in'; token: string; posture?: PostureInfo; passkeys?: PasskeysAlert | null }
 
 // The console needs a signed-in session (`cerberus web open`). Without one
 // every API route answers 401, so the app shows how to sign in instead.
@@ -62,7 +62,7 @@ export function App() {
     const controller = new AbortController()
     apiClient
       .getSession(controller.signal)
-      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture }))
+      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture, passkeys: info.passkeys }))
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) setSession({ kind: 'signed-out' })
       })
@@ -74,7 +74,7 @@ export function App() {
   const signOut = () => {
     void apiClient.logout(session.token).finally(() => setSession({ kind: 'signed-out' }))
   }
-  return <Console onSignOut={signOut} posture={session.posture} />
+  return <Console onSignOut={signOut} posture={session.posture} passkeys={session.passkeys} />
 }
 
 function SignedOut() {
@@ -111,7 +111,26 @@ function PostureBadge({ posture }: { posture?: PostureInfo }) {
   )
 }
 
-function Console({ onSignOut, posture }: { onSignOut: () => void; posture?: PostureInfo }) {
+// PasskeysBadge is the header's alert about out-of-band approval: shown only
+// while it is one (not set up, a recent enrollment, a cool-down).
+function PasskeysBadge({ passkeys }: { passkeys?: PasskeysAlert | null }) {
+  if (!passkeys?.alert) return null
+  return (
+    <span
+      data-testid="passkeys-alert"
+      title={passkeys.summary}
+      className={
+        passkeys.state === 'cooldown'
+          ? 'rounded border border-red-500 bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-600'
+          : 'rounded border border-amber-500 bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600'
+      }
+    >
+      {passkeys.summary}
+    </span>
+  )
+}
+
+function Console({ onSignOut, posture, passkeys }: { onSignOut: () => void; posture?: PostureInfo; passkeys?: PasskeysAlert | null }) {
   const { route, navigate } = useRoute()
 
   const nav: NavRailItem[] = [
@@ -214,6 +233,7 @@ function Console({ onSignOut, posture }: { onSignOut: () => void; posture?: Post
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <PageHeader title={TITLES[route]}>
             <PostureBadge posture={posture} />
+            <PasskeysBadge passkeys={passkeys} />
           </PageHeader>
           <main className="flex min-h-0 flex-1 flex-col">
             <RouteView route={route} />

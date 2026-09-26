@@ -199,7 +199,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	posture := s.currentPosture()
 	_ = json.NewEncoder(w).Encode(map[string]any{"action_token": sess.actionToken, "session": sess.ID,
-		"posture": map[string]any{"summary": posture.String(), "permissive": posture.Permissive(), "detail": posture}})
+		"posture":  map[string]any{"summary": posture.String(), "permissive": posture.Permissive(), "detail": posture},
+		"passkeys": s.passkeysAlert(r.Context())})
 }
 
 func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
