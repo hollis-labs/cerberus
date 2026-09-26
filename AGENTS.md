@@ -251,6 +251,19 @@ resource mutations targeting itself. Build to a temp path, `mv` it over the
 artifact, then `launchctl kickstart -k
 gui/$(id -u)/com.fragments-engine.cerberus`.
 
+**A request field that restricts or changes a mutation must not be ignorable
+by an older daemon.** A daemon that does not know a JSON field ignores it and
+runs the plain operation. So a field that asks for less than the operation
+(plan only, dry-run-like) or binds it to something (a plan hash, a
+confirmation) must travel on a route or an API version that an older daemon
+refuses. It must never be an extra body field. In #103, `connectors plan` was
+sent as `plan: true` on the operation's own route, so an older daemon would have
+run the operation. It now uses `…/operations/{op}/plan`, which older daemons
+answer with a 404. Test any such field against the old handler, as
+`TestPlanRequestNeverRunsOnAnOlderDaemon` does. A field that licenses a call,
+such as `approval_id` or `acknowledged`, is safe to add as a body field: an
+older daemon that ignores it also predates the gate it satisfies.
+
 **`DaemonUnreachableError` means the request was never delivered.** It is not
 "the daemon looks down" — it is the token that licenses a caller to re-run an
 operation in-process, so returning it for a post-delivery error silently
