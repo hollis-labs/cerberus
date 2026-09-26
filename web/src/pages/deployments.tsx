@@ -4,11 +4,13 @@ import { Button, Callout, EmptyState, Input, Pill, SettingsPanel, SummaryCards, 
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type DeploymentProfile, type DeploymentRunResult, type InfraProvider } from '../api/client'
 import { ActionConfirm, type PendingConfirm } from '../components/action-confirm'
+import { useConfirmOnCall } from '../components/plan-confirm'
 
 export function DeploymentsPage() {
   const infra = usePoll((signal) => apiClient.getInfra(signal), 5000)
   const [sessionToken, setSessionToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const withConfirm = useConfirmOnCall()
   const [providerDrafts, setProviderDrafts] = useState<Record<string, Record<string, string>>>({})
   const [profileDrafts, setProfileDrafts] = useState<Record<string, DeploymentProfile>>({})
   const [secretDrafts, setSecretDrafts] = useState<Record<string, Record<string, string>>>({})
@@ -142,7 +144,10 @@ export function DeploymentsPage() {
     setBusy(`run:${profileID}`)
     setError(null)
     try {
-      const result = await apiClient.runDeployment(profileID, sessionToken, true)
+      const result = await withConfirm(() => apiClient.runDeployment(profileID, sessionToken, true), {
+        plan: () => apiClient.planDeploymentRun(profileID, sessionToken),
+        confirm: (c) => apiClient.confirmDeploymentRun(profileID, sessionToken, c),
+      })
       setRunResults((current) => ({ ...current, [profileID]: result }))
       await infra.refetch()
     } catch (err) {

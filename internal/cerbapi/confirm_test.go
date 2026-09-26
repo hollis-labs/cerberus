@@ -10,6 +10,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
@@ -102,6 +103,10 @@ func TestConfirmRefusals(t *testing.T) {
 			a.ConfirmedPlanHash = hash
 			return a
 		}, ExternalConnectorApprovalRequired, "a person at their own terminal"},
+		"web without a session": {Principal{Kind: PrincipalHuman, Via: ViaWeb}, func(a ExternalConnectorOperationArgs, _, hash string) ExternalConnectorOperationArgs {
+			a.ConfirmedPlanHash = hash
+			return a
+		}, ExternalConnectorApprovalRequired, "signed-in console session"},
 		"someone else's approval": {Principal{Kind: PrincipalHuman, Via: ViaCLI, Session: "other"}, func(a ExternalConnectorOperationArgs, id, hash string) ExternalConnectorOperationArgs {
 			a.ApprovalID, a.ConfirmedPlanHash = id, hash
 			return a
@@ -262,5 +267,57 @@ func TestConfirmNeverRunsOnAnOlderDaemon(t *testing.T) {
 	}
 	if got := redact.Text(err.Error()); got != err.Error() {
 		t.Fatalf("redaction ate the recovery:\n  %s\n  %s", err.Error(), got)
+	}
+}
+
+// A signed-in console session confirms its own call like the CLI does.
+func TestConsoleSessionConfirmsOnTheCall(t *testing.T) {
+	sink := audit.NewMemory()
+	broker := enforcedBroker(t, sink)
+	svc, backend := dockerLane(t, sink)
+	// As the console does: the request is marked web, then requireSession
+	// puts the signed-in session's principal on it.
+	ctx := WithPrincipal(BeginRequest(context.Background(), SurfaceWeb), WebSessionPrincipal("sess-1"))
+	_, err := svc.Execute(ctx, devStop())
+	var coded *ExternalConnectorError
+	if !errors.As(err, &coded) || coded.Approval == nil || coded.Approval.Channel != approval.ChannelTTYConfirm {
+		t.Fatalf("asking: %v", err)
+	}
+	args := devStop()
+	args.ApprovalID, args.ConfirmedPlanHash = coded.Approval.ID, shownHash(ctx, t, svc, devStop())
+	if _, err := svc.Execute(ctx, args); err != nil || backend.stopped != "web" {
+		t.Fatalf("confirmed from the console: %v", err)
+	}
+	if a, _ := broker.Get(coded.Approval.ID); a.Status != approval.Consumed || a.Decision.By.Via != ViaWeb || a.Decision.By.Session != "sess-1" {
+		t.Fatalf("approval %+v", a)
+	}
+}
+
+// The console plans and runs a deploy profile in its own process, where no
+// broker holds approvals: its confirmation is recorded, not stored, and the
+// run executes the plan whose hash was confirmed.
+func TestConsoleConfirmsADeployProfile(t *testing.T) {
+	withPDP(t, constantPDP{decision: policy.Approve})
+	withEnforcement(t, nil)
+	sink := audit.NewMemory()
+	profile := infra.DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: linkedVercelRepo(t), DeployCommand: "true", VercelScope: "team"}
+	ctx := WithPrincipal(BeginRequest(context.Background(), SurfaceWeb), WebSessionPrincipal("sess-1"))
+	_, err := RunDeploymentProfile(ctx, sink, noSecrets{}, profile, WithAcknowledged(true))
+	var coded *ExternalConnectorError
+	// A deploy profile's target is unlabeled, so out of band: the console
+	// cannot confirm it on the call, and says it needs the daemon.
+	if !errors.As(err, &coded) || coded.Code != ExternalConnectorApprovalPending {
+		t.Fatalf("unlabeled profile: %v", err)
+	}
+	shown, err := PlanDeploymentProfile(ctx, sink, noSecrets{}, profile, WithAcknowledged(true))
+	if err != nil || !strings.HasPrefix(shown.PlanHash, "sha256:") || shown.ComputedBy != SurfaceWeb {
+		t.Fatalf("plan: %+v %v", shown, err)
+	}
+	if o := outcome(sink.Records()); !o.DryRun {
+		t.Fatalf("a plan was not recorded as a dry run: %+v", o)
+	}
+	_, err = RunDeploymentProfile(ctx, sink, noSecrets{}, profile, WithAcknowledged(true), WithConfirmedPlanHash(shown.PlanHash))
+	if !errors.As(err, &coded) || coded.Code != ExternalConnectorApprovalPending {
+		t.Fatalf("a confirmation met an out-of-band approval: %v", err)
 	}
 }

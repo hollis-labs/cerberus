@@ -304,6 +304,23 @@ func (s *Server) handleResourceByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
+	case "apply/plan", "deploy/plan", "reload/plan", "stop/plan", "sync/plan", "remove/plan",
+		"apply/confirm", "deploy/confirm", "reload/confirm", "stop/confirm", "sync/confirm", "remove/confirm":
+		verb, route, _ := strings.Cut(action, "/")
+		opts, ok := s.planOrConfirm(w, r, route)
+		if !ok {
+			return
+		}
+		out, err := s.performAction(r.Context(), id, verb, opts...)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		if route == "plan" {
+			writePlan(w, out.Plan)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
 	default:
 		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown resource action %q", action))
 	}
@@ -337,6 +354,54 @@ func (s *Server) allowStateChangingRequest(r *http.Request) bool {
 // pipeline run: the operator's acknowledgment, given in the confirm step.
 type mutationBody struct {
 	Acknowledged bool `json:"acknowledged"`
+}
+
+// confirmBody is a call confirmed in the console's dialog (P3-3b): the
+// acknowledgment, the pending approval the first attempt asked for, and the
+// hash of the plan the dialog showed. It is read only on a confirm route.
+type confirmBody struct {
+	Acknowledged      bool   `json:"acknowledged"`
+	ApprovalID        string `json:"approval_id"`
+	ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+}
+
+// planOrConfirm checks a plan or confirm request and reads its options. A
+// plan is recorded as a dry run and so is state-changing in the same sense
+// as the call; a confirm must name the plan it confirms.
+func (s *Server) planOrConfirm(w http.ResponseWriter, r *http.Request, route string) ([]cerbapi.MutationOption, bool) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return nil, false
+	}
+	if !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return nil, false
+	}
+	var body confirmBody
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return nil, false
+	}
+	opts := []cerbapi.MutationOption{cerbapi.WithAcknowledged(body.Acknowledged)}
+	if route == "plan" {
+		return append(opts, cerbapi.WithPlan()), true
+	}
+	if body.ConfirmedPlanHash == "" {
+		writeError(w, http.StatusBadRequest, errConfirmWithoutHash)
+		return nil, false
+	}
+	return append(opts, cerbapi.WithApprovalID(body.ApprovalID), cerbapi.WithConfirmedPlanHash(body.ConfirmedPlanHash)), true
+}
+
+const errConfirmWithoutHash = "a confirmation needs confirmed_plan_hash, the hash of the plan you were shown; nothing ran"
+
+// writePlan answers a plan request, or says the serving Cerberus sent none.
+func writePlan(w http.ResponseWriter, p *cerbapi.ConnectorPlan) {
+	if p == nil {
+		writeError(w, http.StatusBadGateway, "the serving Cerberus returned no plan; restart the daemon on this build")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 func decodeMutationBody(r *http.Request) ([]cerbapi.MutationOption, error) {
@@ -405,7 +470,13 @@ func writeClientError(w http.ResponseWriter, err error) {
 	case isTimeoutError(err):
 		writeError(w, http.StatusServiceUnavailable, "cerberus daemon timed out while gathering resource state; check 'cerberus daemon status'")
 	case errors.As(err, &connErr):
-		writeErrorBody(w, cerbapi.ExternalConnectorHTTPStatus(err, daemonStatus(err)), err.Error(), connErr.Code)
+		body := map[string]any{"success": false, "error": err.Error(), "message": err.Error(), "code": connErr.Code}
+		if connErr.Approval != nil {
+			// The approval the refusal names, with its channel: tty_confirm
+			// is what lets the console's dialog confirm it on the call.
+			body["approval"] = connErr.Approval
+		}
+		writeJSON(w, cerbapi.ExternalConnectorHTTPStatus(err, daemonStatus(err)), body)
 	default:
 		writeError(w, daemonStatus(err), err.Error())
 	}
@@ -531,6 +602,24 @@ func (s *Server) handlePipelineByID(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 {
 		action = parts[1]
 	}
+	if id != "" && (action == "run/plan" || action == "run/confirm") {
+		route := strings.TrimPrefix(action, "run/")
+		opts, ok := s.planOrConfirm(w, r, route)
+		if !ok {
+			return
+		}
+		out, err := s.client.RunPipeline(r.Context(), id, opts...)
+		if err != nil {
+			writeClientError(w, err)
+			return
+		}
+		if route == "plan" {
+			writePlan(w, out.Plan)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	if id == "" || action != "run" {
 		writeError(w, http.StatusNotFound, "expected POST /api/pipelines/{id}/run")
 		return
@@ -579,6 +668,11 @@ func (s *Server) handleConnectorByID(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/api/connectors/")
 	parts := strings.Split(rest, "/")
+	// …/plan and …/confirm are the console's confirm step (P3-3b).
+	route := ""
+	if len(parts) == 4 && (parts[3] == "plan" || parts[3] == "confirm") {
+		route, parts = parts[3], parts[:3]
+	}
 	if len(parts) != 3 || parts[0] == "" || parts[1] != "operations" || parts[2] == "" {
 		writeError(w, http.StatusNotFound, "expected POST /api/connectors/{id}/operations/{operation}")
 		return
@@ -587,19 +681,42 @@ func (s *Server) handleConnectorByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "state-changing request rejected")
 		return
 	}
-	var args cerbapi.ExternalConnectorOperationArgs
-	if err := decodeJSONBody(r, &args); err != nil {
+	var body struct {
+		cerbapi.ExternalConnectorOperationArgs
+		ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	args := body.ExternalConnectorOperationArgs
 	args.Connector = parts[0]
 	args.Operation = parts[2]
 	if args.Config == nil {
 		args.Config = map[string]any{}
 	}
+	switch route {
+	case "plan":
+		args.Plan = true
+	case "confirm":
+		if body.ConfirmedPlanHash == "" {
+			writeError(w, http.StatusBadRequest, errConfirmWithoutHash)
+			return
+		}
+		args.ConfirmedPlanHash = body.ConfirmedPlanHash
+	}
 	out, err := s.client.ExecuteConnectorOperation(r.Context(), args)
 	if err != nil {
 		writeClientError(w, err)
+		return
+	}
+	if route == "plan" {
+		p, perr := planOf(out.Data)
+		if perr != nil {
+			writeError(w, http.StatusBadGateway, perr.Error())
+			return
+		}
+		writePlan(w, p)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -722,4 +839,24 @@ func (s *Server) handleManagedPluginByID(w http.ResponseWriter, r *http.Request)
 	default:
 		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown managed plugin action %q", action))
 	}
+}
+
+// planOf reads a connector plan result: in process the value, over the
+// socket a decoded JSON object.
+func planOf(data any) (*cerbapi.ConnectorPlan, error) {
+	switch v := data.(type) {
+	case cerbapi.ConnectorPlan:
+		return &v, nil
+	case *cerbapi.ConnectorPlan:
+		return v, nil
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	var p cerbapi.ConnectorPlan
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, fmt.Errorf("decode the plan: %w", err)
+	}
+	return &p, nil
 }
