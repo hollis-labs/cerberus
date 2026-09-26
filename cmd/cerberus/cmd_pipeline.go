@@ -159,6 +159,21 @@ func runPipelineCommand(ctx context.Context, client pipelineClient, id string, o
 	// The run is gated, so nothing is announced until it has been let
 	// through: a refused run prints only the refusal.
 	result, err := client.RunPipeline(ctx, id, opts...)
+	if ref, ok := confirmable(err); ok {
+		// Policy wants a person to confirm the run on their own terminal.
+		shown, perr := client.RunPipeline(ctx, id, append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithPlan())...)
+		if perr != nil {
+			return perr
+		}
+		if shown == nil {
+			return withHint(err, hint)
+		}
+		hash, cerr := confirmOnTerminal(os.Stdin, os.Stderr, shown.Plan)
+		if cerr != nil {
+			return cerr
+		}
+		result, err = client.RunPipeline(ctx, id, append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithApprovalID(ref.ID), cerbapi.WithConfirmedPlanHash(hash))...)
+	}
 	if err != nil {
 		return withHint(err, hint)
 	}

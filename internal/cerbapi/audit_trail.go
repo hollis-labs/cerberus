@@ -57,7 +57,10 @@ type auditSpec struct {
 	approvalID string
 	// planOnly marks a request for the plan alone (connectors plan).
 	planOnly bool
-	plan     func(context.Context) (plan.Plan, error)
+	// confirmedPlanHash is the plan a person confirmed on their own
+	// terminal (P3-3), from a confirm route only.
+	confirmedPlanHash string
+	plan              func(context.Context) (plan.Plan, error)
 }
 
 // auditCall is one operation's pair of records.

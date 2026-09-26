@@ -387,9 +387,11 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 		}
 		writeJSON(w, http.StatusOK, out)
 	case "deploy/plan", "apply/plan", "reload/plan", "stop/plan", "sync/plan", "remove/plan":
-		s.handleResourceMutation(w, r, id, strings.TrimSuffix(action, "/plan"), true)
+		s.handleResourceMutation(w, r, id, strings.TrimSuffix(action, "/plan"), routePlan)
+	case "deploy/confirm", "apply/confirm", "reload/confirm", "stop/confirm", "sync/confirm", "remove/confirm":
+		s.handleResourceMutation(w, r, id, strings.TrimSuffix(action, "/confirm"), routeConfirm)
 	case "deploy", "apply", "reload", "stop", "sync", "remove":
-		s.handleResourceMutation(w, r, id, action, false)
+		s.handleResourceMutation(w, r, id, action, routeRun)
 	default:
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown resource action %q", action))
 	}
@@ -434,8 +436,14 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 	}
 	// run/plan asks for the run's plan, on a route of its own so that a
 	// daemon predating plans refuses it rather than running the pipeline.
-	planOnly := action == "run/plan"
-	if action != "run" && !planOnly {
+	route := routeRun
+	switch action {
+	case "run/plan":
+		route = routePlan
+	case "run/confirm":
+		route = routeConfirm
+	}
+	if action != "run" && route == routeRun {
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown pipeline action %q", action))
 		return
 	}
@@ -443,13 +451,10 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	opts, decodeErr := decodeMutationOptions(r.Body)
+	opts, decodeErr := decodeMutationOptions(r.Body, route)
 	if decodeErr != nil {
 		writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
 		return
-	}
-	if planOnly {
-		opts = append(opts, WithPlan())
 	}
 	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
 		return s.client.RunPipeline(ctx, id, opts...)
@@ -481,19 +486,16 @@ var resourceMutations = map[string]struct {
 // handleResourceMutation serves one resource mutation. Its options —
 // the caller's acknowledgment among them — come from the request body, and a
 // refusal keeps its code and status.
-func (s *SocketServer) handleResourceMutation(w http.ResponseWriter, r *http.Request, id, action string, planOnly bool) {
+func (s *SocketServer) handleResourceMutation(w http.ResponseWriter, r *http.Request, id, action string, route mutationRoute) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	mutation := resourceMutations[action]
-	opts, decodeErr := decodeMutationOptions(r.Body)
+	opts, decodeErr := decodeMutationOptions(r.Body, route)
 	if decodeErr != nil {
 		writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
 		return
-	}
-	if planOnly {
-		opts = append(opts, WithPlan())
 	}
 	if mutation.stream && s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
 		return mutation.call(s.client, ctx, id, opts...)
@@ -551,7 +553,11 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 	// …/plan asks for the call's plan. It is a route of its own so that a
 	// daemon predating plans refuses it rather than running the operation.
 	planOnly := len(parts) == 4 && parts[3] == "plan"
-	if planOnly {
+	// …/confirm is the call confirmed on the caller's own terminal (P3-3),
+	// likewise a route of its own, and the only place a confirmed plan hash
+	// is read.
+	confirm := len(parts) == 4 && parts[3] == "confirm"
+	if planOnly || confirm {
 		parts = parts[:3]
 	}
 	if len(parts) != 3 || parts[0] == "" || parts[1] != "operations" || parts[2] == "" {
@@ -559,15 +565,26 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var args ExternalConnectorOperationArgs
-	if err := decodeJSONBody(r, &args); err != nil {
+	var body struct {
+		ExternalConnectorOperationArgs
+		ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	args := body.ExternalConnectorOperationArgs
 	args.Connector = parts[0]
 	args.Operation = parts[2]
 	if planOnly {
 		args.Plan = true
+	}
+	if confirm {
+		if body.ConfirmedPlanHash == "" {
+			writeJSONError(w, http.StatusBadRequest, errConfirmWithoutHash.Error())
+			return
+		}
+		args.ConfirmedPlanHash = body.ConfirmedPlanHash
 	}
 	if args.Config == nil {
 		args.Config = map[string]any{}
@@ -833,24 +850,46 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 // decodeMutationOptions parses a mutation's request body into options. An
 // empty body is valid and yields none — which carries no acknowledgment, so
 // a gated operation is refused.
-func decodeMutationOptions(body io.Reader) ([]MutationOption, error) {
-	if body == nil {
-		return nil, nil
+// mutationRoute is which route a mutation arrived on: the verb itself, its
+// plan, or its confirmation on the caller's terminal.
+type mutationRoute int
+
+const (
+	routeRun mutationRoute = iota
+	routePlan
+	routeConfirm
+)
+
+// errConfirmWithoutHash refuses a confirm that names no plan: a confirmation
+// is of a plan, and without one there is nothing to hold the call to.
+var errConfirmWithoutHash = redact.Guidance("a confirm route needs confirmed_plan_hash, the hash of the plan you were shown; nothing ran")
+
+func decodeMutationOptions(body io.Reader, route mutationRoute) ([]MutationOption, error) {
+	var data []byte
+	if body != nil {
+		var err error
+		if data, err = io.ReadAll(io.LimitReader(body, 1<<20)); err != nil {
+			return nil, fmt.Errorf("read mutation body: %w", err)
+		}
 	}
-	data, err := io.ReadAll(io.LimitReader(body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("read mutation body: %w", err)
+	var opts struct {
+		MutationOpts
+		ConfirmedPlanHash string `json:"confirmed_plan_hash"`
 	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var opts MutationOpts
-	if err := json.Unmarshal(data, &opts); err != nil {
-		return nil, fmt.Errorf("decode mutation body: %w", err)
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &opts); err != nil {
+			return nil, fmt.Errorf("decode mutation body: %w", err)
+		}
 	}
 	options := []MutationOption{WithAcknowledged(opts.Acknowledged), WithApprovalID(opts.ApprovalID)}
-	if opts.Plan {
+	if opts.Plan || route == routePlan {
 		options = append(options, WithPlan())
+	}
+	if route == routeConfirm {
+		if opts.ConfirmedPlanHash == "" {
+			return nil, errConfirmWithoutHash
+		}
+		options = append(options, WithConfirmedPlanHash(opts.ConfirmedPlanHash))
 	}
 	if opts.InstallAfterBuildOverride != nil {
 		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))

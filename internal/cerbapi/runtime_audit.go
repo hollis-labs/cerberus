@@ -53,10 +53,10 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 	spec := auditSpec{
 		connector: def.ID, operation: pipeline.OpRun, op: op, known: known,
 		config: map[string]any{"id": id}, acknowledged: opts.Acknowledged,
-		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan,
+		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan, confirmedPlanHash: opts.ConfirmedPlanHash,
 	}
 	if opts.Plan {
-		spec.approvalID = ""
+		spec.approvalID, spec.confirmedPlanHash = "", ""
 	}
 	planSpec := spec
 	// checked is the definition the gate hashed, when it hashed one: the run
@@ -96,10 +96,10 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	spec := auditSpec{
 		connector: def.ID, operation: operation, op: op, known: known,
 		config: config, acknowledged: opts.Acknowledged, resources: s.ResourceDef,
-		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan,
+		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan, confirmedPlanHash: opts.ConfirmedPlanHash,
 	}
 	if opts.Plan {
-		spec.approvalID = ""
+		spec.approvalID, spec.confirmedPlanHash = "", ""
 	}
 	planSpec := spec
 	spec.plan = func(ctx context.Context) (plan.Plan, error) { return s.planResource(ctx, planSpec, id) }
