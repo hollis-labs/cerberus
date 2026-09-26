@@ -432,7 +432,10 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	if action != "run" {
+	// run/plan asks for the run's plan, on a route of its own so that a
+	// daemon predating plans refuses it rather than running the pipeline.
+	planOnly := action == "run/plan"
+	if action != "run" && !planOnly {
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown pipeline action %q", action))
 		return
 	}
@@ -444,6 +447,9 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 	if decodeErr != nil {
 		writeJSONError(w, http.StatusBadRequest, decodeErr.Error())
 		return
+	}
+	if planOnly {
+		opts = append(opts, WithPlan())
 	}
 	if s.handleStream(w, r, func(ctx context.Context) (interface{}, error) {
 		return s.client.RunPipeline(ctx, id, opts...)

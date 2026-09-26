@@ -119,3 +119,15 @@ func TestPipelineListAndShowOutput(t *testing.T) {
 		t.Fatalf("show = %q, want %q", out.String(), want)
 	}
 }
+
+// pipeline run takes --approval; pipeline plan plans only.
+func TestPipelineRunTakesAnApproval(t *testing.T) {
+	run, _, err := rootCmd.Find([]string{"pipeline", "run"})
+	if err != nil || run.Flags().Lookup("approval") == nil {
+		t.Fatalf("pipeline run has no --approval: %v", err)
+	}
+	plan, _, err := rootCmd.Find([]string{"pipeline", "plan"})
+	if err != nil || plan.Name() != "plan" || plan.Flags().Lookup("approval") != nil {
+		t.Fatalf("pipeline plan: %v", err)
+	}
+}
