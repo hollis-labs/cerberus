@@ -16692,6 +16692,52 @@
       "id": "CERB-GAP-878"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-25",
+      "created_at": "2026-09-25",
+      "review_status": "draft",
+      "class": "gap",
+      "name": "A same-uid process can deny an approval, and can enroll the first passkey",
+      "summary": "Decisions reach the broker over the socket, which any process running as the operator can use: it cannot approve (no self-approval, and out of band needs a passkey assertion), but it can deny a pending request, and while no passkey is enrolled it can enroll its own.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.85,
+      "confidence_label": "follows from the P3-4 design; the deny path is tested, enrollment lands in P3-4b",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "same-uid",
+        "agent-safety",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/approval_decide.go",
+      "body": "P3-4 puts decisions on the daemon socket, because the console is a separate process and reaches the broker only that way. An agent running as the operator can reach the same socket. That is safe for approvals: the request's own surface can never approve it, an MCP client never approves, an agent-classified caller never approves, and an out-of-band request counts only with a presence assertion the broker verifies, which an agent's process cannot produce. Two things remain.\n\n**Deny.** A deny needs none of that, because refusing is never the dangerous direction for what runs. A same-uid process can deny a pending request, and the operator's operation does not run until it is asked again. That is a denial of service, not an escalation, and each deny is an audit record naming its principal.\n\n**The first passkey.** Enrollment is trust on first use (the P3 cut, D1): the first key is enrolled from a one-time link. While no key is enrolled, a same-uid process could mint that link and enroll a virtual authenticator of its own. After the first key, adding one needs an assertion from an enrolled key. Mitigations, from the P3-4 review: enrollment raises a macOS notification and a loud `cerberus status` line for 24h, and while no key is enrolled, `status` and the console header say out-of-band approval is not set up. The operator enrolls right after the release, which closes the window.\n\nBoth are the same boundary as CERB-GAP-857 and CERB-GAP-862, and what closes them is an identity the agent's process does not hold: a separate uid for the broker, or hardware-bound enrollment.",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-862",
+          "note": "the same-uid boundary, for web sessions"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-857",
+          "note": "the same-uid boundary, for plugin reviews"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "Deciding an approval and enrolling a key need an identity the operator's other processes do not hold: a separate uid for the broker, or hardware-bound enrollment",
+        "effort": "large"
+      },
+      "id": "CERB-GAP-879"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

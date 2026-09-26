@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -864,20 +865,67 @@ func (s *SocketServer) handleWhoAmI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
-// handleApprovals answers GET /approvals and GET /approvals/{id} from the
-// daemon's broker. Read-only: deciding an approval is P3-4, and never over
-// a surface an agent can drive.
-func (s *SocketServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+// handleApprovalAction is POST /approvals/{id}/decide and /revoke.
+func (s *SocketServer) handleApprovalAction(w http.ResponseWriter, r *http.Request, broker *Broker, id, action string) {
+	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	var (
+		a   approval.Approval
+		err error
+	)
+	switch action {
+	case "decide":
+		var args ApprovalDecisionArgs
+		if err = decodeJSONBody(r, &args); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		a, err = broker.DecideAs(r.Context(), id, args)
+	case "revoke":
+		var args ApprovalRevokeArgs
+		if err = decodeJSONBody(r, &args); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		a, err = broker.RevokeAs(r.Context(), id, args)
+	default:
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown approval action %q", action))
+		return
+	}
+	if err != nil {
+		status, msg := approvalErrorStatus(err, id)
+		writeJSONError(w, status, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+// handleApprovals answers GET /approvals and GET /approvals/{id} from the
+// daemon's broker, and POST /approvals/{id}/decide and /revoke (P3-4).
+//
+// A decision arrives over the socket from the CLI or the console, and an
+// agent can reach the socket too. That is safe because the transport is not
+// what makes a decision count: the requester's own surface can never
+// approve, an MCP client never approves, and an out-of-band approval counts
+// only with a presence assertion the broker verifies, which an agent's
+// process cannot produce.
+func (s *SocketServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	broker := ProcessBroker()
 	if broker == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "this daemon has no approval broker; see its log for why the approvals store did not open")
 		return
 	}
 	id := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/approvals"), "/")
+	if head, action, ok := strings.Cut(id, "/"); ok {
+		s.handleApprovalAction(w, r, broker, head, action)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	if id == "" {
 		writeJSON(w, http.StatusOK, ApprovalList{Approvals: broker.List(), Problems: broker.Problems()})
 		return

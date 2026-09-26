@@ -25,9 +25,14 @@ var approvalsCmd = &cobra.Command{
 approval moves from pending to approved or denied, and an approved one is used
 once (consumed), expires, or is revoked. Every transition is in the audit log.
 
-The daemon holds the requests. With the daemon down, these commands read its
-store directly and say so. Deciding an approval comes in a later release, on a
-terminal or the console's approvals page, and never from MCP.`,
+The daemon holds the requests. With the daemon down, list and show read its
+store directly and say so.
+
+A request is decided on an interactive terminal ('approve', 'deny', 'revoke') or
+on the console's approvals page, and never from MCP. The surface a request came
+through can never approve it. A request that must be approved out of band (a
+production, shared or not-ours target) is approved on the console with a
+passkey: 'approve' prints and opens that page.`,
 }
 
 var approvalsListCmd = &cobra.Command{

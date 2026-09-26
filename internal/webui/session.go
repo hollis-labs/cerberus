@@ -12,7 +12,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -242,7 +244,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge: int(s.sessions.max / time.Second),
 	})
 	s.logger.Info("webui.session.started", "session", sess.ID)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
 }
 
 // handleLogout ends the session and clears its cookie.
@@ -321,9 +323,66 @@ func (s *Server) WriteLoginKey(path, base string) (func(), error) {
 	return func() { _ = os.Remove(path) }, nil
 }
 
+// ConsoleBaseURL is the address the console hands out for listenAddr. A
+// console on 127.0.0.1 or [::1] is named http://localhost:<port>: a passkey
+// (WebAuthn) cannot be used on an IP address, only on a name, and the
+// session cookie belongs to the host it was set on, so every link — sign-in
+// and approval alike — has to use the same one. Any other loopback address
+// keeps its literal form.
+func ConsoleBaseURL(listenAddr string) string {
+	host, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return "http://" + listenAddr
+	}
+	switch strings.ToLower(host) {
+	case "127.0.0.1", "::1", "localhost":
+		return "http://" + net.JoinHostPort("localhost", port)
+	}
+	return "http://" + listenAddr
+}
+
+// toLocalhost sends a visit to a passkey page made on 127.0.0.1 or [::1] to
+// the same path on localhost, where WebAuthn works. The pages it covers are
+// the approvals and enrollment pages; everything else is served where it is.
+func toLocalhost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && (r.URL.Path == "/approvals" || strings.HasPrefix(r.URL.Path, "/approvals/")) {
+			host, port, err := net.SplitHostPort(r.Host)
+			if err == nil && (host == "127.0.0.1" || host == "::1") {
+				target := "http://" + net.JoinHostPort("localhost", port) + r.URL.RequestURI()
+				http.Redirect(w, r, target, http.StatusFound)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// safeNext is where a sign-in lands: a path on this console, or "/". An
+// absolute URL, a scheme-relative "//host" and a backslash are refused, so a
+// sign-in link can never send the browser anywhere else.
+func safeNext(next string) string {
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.ContainsAny(next, "\\\r\n") {
+		return "/"
+	}
+	return next
+}
+
 // MintLoginURL is `cerberus web open`: a one-time sign-in URL for the console
 // whose key file is at path.
-func MintLoginURL(path string) (string, error) {
+func MintLoginURL(path string) (string, error) { return MintLoginURLTo(path, "") }
+
+// MintLoginURLTo is MintLoginURL landing on next, a path on the console such
+// as an approval's page, after the sign-in.
+func MintLoginURLTo(path, next string) (string, error) {
+	link, err := mintLoginURL(path)
+	if err != nil || next == "" {
+		return link, err
+	}
+	return link + "&next=" + url.QueryEscape(safeNext(next)), nil
+}
+
+func mintLoginURL(path string) (string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the operator's own key file under ~/.cerberus/web
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
