@@ -26,6 +26,7 @@ func NewCerberusSSHExecTool(client cerbapi.Client) Tool {
 				Config:       sshToolConfig(resourceID, command),
 				DryRun:       boolArg(args, "dry_run"),
 				Acknowledged: boolArg(args, "acknowledged"),
+				ApprovalID:   stringArg(args, argApprovalID),
 			})
 			if err != nil {
 				return connectorFailure(ctx, err)
@@ -148,6 +149,7 @@ func runSSHTransfer(ctx context.Context, client cerbapi.Client, operation string
 		Config:       opConfig,
 		DryRun:       dryRun,
 		Acknowledged: acknowledged,
+		ApprovalID:   stringArg(args, argApprovalID),
 	})
 	if err != nil {
 		return connectorFailure(ctx, err)

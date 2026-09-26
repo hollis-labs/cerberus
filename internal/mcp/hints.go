@@ -23,6 +23,7 @@ var toolOperations = map[string]opRef{
 	"cerberus_project_list":       {cerbapi.ControlPlaneDefinition, cerbapi.OpProjectList},
 	"cerberus_connector_list":     {cerbapi.ControlPlaneDefinition, cerbapi.OpConnectorList},
 	"cerberus_connector_describe": {cerbapi.ControlPlaneDefinition, cerbapi.OpConnectorDescribe},
+	"cerberus_approval_wait":      {cerbapi.ControlPlaneDefinition, cerbapi.OpApprovalWait},
 
 	"cerberus_resource_list":         {localconn.Definition, localconn.OpList},
 	"cerberus_resource_status":       {localconn.Definition, localconn.OpStatus},
@@ -95,5 +96,5 @@ func contractTool(t Tool) Tool {
 	if !ok {
 		panic(fmt.Sprintf("mcp: tool %q has no contract binding in toolOperations", t.Name))
 	}
-	return WithHints(t, op)
+	return withApprovalArg(WithHints(t, op), op)
 }

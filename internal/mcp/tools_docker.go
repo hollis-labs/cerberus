@@ -62,6 +62,7 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 					"container": container,
 					"lines":     lines,
 				},
+				ApprovalID: stringArg(args, argApprovalID),
 			})
 			if err != nil {
 				return connectorFailure(ctx, err)
@@ -147,6 +148,7 @@ func newDockerLifecycleTool(client cerbapi.Client, name, operation, description,
 				Operation:    operation,
 				Config:       cfg,
 				Acknowledged: boolArg(args, "acknowledged"),
+				ApprovalID:   stringArg(args, argApprovalID),
 			}); err != nil {
 				return connectorFailure(ctx, err)
 			}
