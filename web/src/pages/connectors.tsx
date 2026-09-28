@@ -52,7 +52,7 @@ export function ConnectorsPage() {
   const items = (connectors.data ?? []).slice().sort((a, b) => a.id.localeCompare(b.id))
   const cards = [
     { label: 'Connectors', value: items.length, accentColor: 'var(--color-text)' },
-    { label: 'Operations', value: items.reduce((sum, item) => sum + item.operations.length, 0), accentColor: 'var(--color-status-done)' },
+    { label: 'Operations', value: items.reduce((sum, item) => sum + (item.operations ?? []).length, 0), accentColor: 'var(--color-status-done)' },
     { label: 'Secret requirements', value: items.reduce((sum, item) => sum + (item.config.secrets?.length ?? 0), 0), accentColor: 'var(--color-warning)' },
   ]
 
@@ -105,7 +105,7 @@ export function ConnectorsPage() {
                     <div>
                       <div className="text-sm text-text">{connector.id}</div>
                       <div className="mt-1 text-xs text-text-soft">
-                        v{connector.version} · {connector.resource_types.join(', ') || 'no resource types'}
+                        v{connector.version} · {(connector.resource_types ?? []).join(', ') || 'no resource types'}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -116,10 +116,10 @@ export function ConnectorsPage() {
                   </div>
 
                   <SettingsGrid>
-                    <Field label="Operations" value={String(connector.operations.length)} />
+                    <Field label="Operations" value={String((connector.operations ?? []).length)} />
                     <Field label="Fields" value={String(connector.config.fields?.length ?? 0)} />
                     <Field label="Secrets" value={String(connector.config.secrets?.length ?? 0)} />
-                    <Field label="Resource types" value={connector.resource_types.join(', ') || 'none'} />
+                    <Field label="Resource types" value={(connector.resource_types ?? []).join(', ') || 'none'} />
                   </SettingsGrid>
 
                   <div className="grid gap-4 xl:grid-cols-[.78fr_1.22fr]">
@@ -162,7 +162,7 @@ export function ConnectorsPage() {
 
                     <SettingsPanel title="Operations" className="border-b-0">
                       <div className="space-y-0">
-                        {connector.operations.map((operation, operationIndex) => {
+                        {(connector.operations ?? []).map((operation, operationIndex) => {
                           const key = `${connector.id}:${operation.name}`
                           return (
                             <div key={key} className={operationIndex > 0 ? 'border-t border-border-soft px-4 py-3' : 'px-4 py-3'}>

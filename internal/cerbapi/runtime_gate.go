@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/plan"
 
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
@@ -72,6 +73,14 @@ func deployProfileSpec(profile infra.DeploymentProfile, opts MutationOpts) audit
 		credentials:       []string{"vercel/scope", "vercel/token"},
 		approvalID:        opts.ApprovalID,
 		confirmedPlanHash: opts.ConfirmedPlanHash,
+		// The target is labeled by the profile itself (CERB-GAP-886).
+		resources: func(id string) (*config.ResourceDef, bool) {
+			if id != profile.ID {
+				return nil, false
+			}
+			def := profile.ResourceDef()
+			return &def, true
+		},
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 // InProcessClient satisfies Client by driving the daemon's shared runtime
@@ -22,6 +23,7 @@ type InProcessClient struct {
 	runtime        *ResourceRuntimeService
 	external       *ExternalConnectorService
 	managedPlugins *ManagedPluginConnectorService
+	deploySecrets  secret.Provider
 
 	// Construction options forwarded to the shared runtime.
 	cfgPath string

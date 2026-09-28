@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -57,6 +58,14 @@ func (refusingClient) GetResourceRuntime(context.Context, string) (*cerbapi.Reso
 }
 func (refusingClient) RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
 	return &cerbapi.PipelineRunResult{Success: false, Error: "pipeline stage smoke failed"}, nil
+}
+
+func (refusingClient) RunDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*infra.DeploymentRunResult, error) {
+	return &infra.DeploymentRunResult{}, nil
+}
+
+func (refusingClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
+	return &cerbapi.ConnectorPlan{}, nil
 }
 
 // connectTools serves tools from a real go-mcp server over an in-memory

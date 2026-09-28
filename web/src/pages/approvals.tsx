@@ -264,12 +264,12 @@ function PasskeysPanel({ token, enrollToken, label, remove }: { token: string; e
           {st.cooldown_until ? new Date(st.cooldown_until).toLocaleString() : 'the cool-down ends'}.
         </Callout>
       )}
-      {st && st.keys.length === 0 && st.state !== 'cooldown' && (
+      {st && (st.keys ?? []).length === 0 && st.state !== 'cooldown' && (
         <Callout tone="warning" data-testid="not-set-up">
           Out-of-band approval is not set up: run <code>cerberus approvals enroll</code> in a terminal.
         </Callout>
       )}
-      {st && st.keys.length > 0 && (
+      {st && (st.keys ?? []).length > 0 && (
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="text-text-muted">
@@ -280,7 +280,7 @@ function PasskeysPanel({ token, enrollToken, label, remove }: { token: string; e
             </tr>
           </thead>
           <tbody>
-            {st.keys.map((k) => (
+            {(st.keys ?? []).map((k) => (
               <tr key={k.fingerprint} className={`border-t border-border ${k.fingerprint === remove ? 'bg-bg-soft' : ''}`} data-testid={`passkey-${k.fingerprint}`}>
                 <td className="p-2 font-mono">{k.fingerprint}</td>
                 <td className="p-2">{k.label || '-'}</td>
@@ -299,7 +299,7 @@ function PasskeysPanel({ token, enrollToken, label, remove }: { token: string; e
         <div className="space-y-2">
           <p className="text-sm">
             Create a passkey{label ? ` (${label})` : ''} for approving out-of-band requests.
-            {st && st.keys.length > 0 ? ' A passkey already enrolled has to authorize it first.' : ' This first key is trusted on first use.'}
+            {st && (st.keys ?? []).length > 0 ? ' A passkey already enrolled has to authorize it first.' : ' This first key is trusted on first use.'}
           </p>
           <Button data-testid="enroll" disabled={busy || !token} onClick={enroll}>
             Create passkey

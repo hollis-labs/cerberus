@@ -503,6 +503,7 @@ func runDaemonBody() error {
 		cerbapi.WithExternalConnectorService(external),
 		cerbapi.WithManagedPluginConnectorService(managedPlugins),
 		cerbapi.WithInProcessLogger(logger),
+		cerbapi.WithDeploySecrets(app.ConnectorSecrets(cfgPath)),
 	)
 
 	// The approval broker (P3-1): the daemon is its one writer. A store it

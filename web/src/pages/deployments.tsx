@@ -122,7 +122,7 @@ export function DeploymentsPage() {
     setError(null)
     try {
       const plan = await apiClient.planDeployment(profileID)
-      if (plan.error && plan.steps.length === 0) {
+      if (plan.error && (plan.steps ?? []).length === 0) {
         setError(plan.error)
         return
       }
@@ -130,7 +130,7 @@ export function DeploymentsPage() {
         verb: 'Run',
         subject: name,
         effect: 'exec',
-        commands: plan.steps.map((step) => `# ${step.name}\n${step.command}`),
+        commands: (plan.steps ?? []).map((step) => `# ${step.name}\n${step.command}`),
         cwd: plan.repo_path,
         run: () => runProfile(profileID),
       })
@@ -174,7 +174,7 @@ export function DeploymentsPage() {
                     <div className="mt-1 text-xs text-text-soft">{provider.id}</div>
                   </div>
                   <Pill tone="neutral">
-                    {provider.fields.length} fields · {provider.secrets.length} secrets
+                    {(provider.fields ?? []).length} fields · {(provider.secrets ?? []).length} secrets
                   </Pill>
                 </div>
                 <div className="space-y-3">
@@ -311,6 +311,14 @@ function DeploymentCard({
       </div>
       <div className="mt-3">
         <Field label="Deploy command" value={profile.deploy_command ?? ''} onChange={(value) => onChange({ ...profile, deploy_command: value })} />
+        <Field label="Env (dev, lab, prod)" value={profile.env ?? ''} onChange={(value) => onChange({ ...profile, env: value })} />
+        <Field label="Owner (self or a team)" value={profile.owner ?? ''} onChange={(value) => onChange({ ...profile, owner: value })} />
+        <Field label="Admin (self, owner, shared)" value={profile.admin ?? ''} onChange={(value) => onChange({ ...profile, admin: value })} />
+        <Field
+          label="Tags (comma-separated)"
+          value={(profile.tags ?? []).join(',')}
+          onChange={(value) => onChange({ ...profile, tags: value.split(',').map((t) => t.trim()).filter(Boolean) })}
+        />
       </div>
       {result && (
         <div className="mt-4 space-y-3">
@@ -324,7 +332,7 @@ function DeploymentCard({
             <div className="text-text-soft">Dirty: {result.git.dirty ? 'yes' : 'no'}</div>
             <div className="text-text-soft">URL: {result.deployment_url || '-'}</div>
           </div>
-          {result.steps.map((step) => (
+          {(result.steps ?? []).map((step) => (
             <Textarea
               key={`${profile.id}:${step.name}`}
               readOnly

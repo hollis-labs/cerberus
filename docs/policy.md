@@ -334,6 +334,13 @@ can confirm. The console marks its session on the request after checking
 the cookie, and a web request without that session is refused. An approval
 that must be met out of band sends you to the approvals page instead.
 
+Deploy-profile runs are asked for, confirmed and run by the daemon, like
+resource verbs. The console is a client, so the approval lives with the
+broker. A profile carries `env`, `owner`, `admin` and `tags` like a
+resource. An unlabeled profile reads as unknown and needs out-of-band
+approval. `make smoke-confirm` drives the dialog in headless Chrome
+against a scratch daemon.
+
 **This is a floor, not a boundary.** "A person at the CLI" is what the
 terminal says about itself, so a program driving a pseudo-terminal could
 claim it. The same goes for "a console session" as the daemon hears it,
