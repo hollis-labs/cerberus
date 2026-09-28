@@ -22820,12 +22820,12 @@
     },
     {
       "namespace": "cerberus",
-      "last_reviewed": "2026-09-25",
+      "last_reviewed": "2026-09-28",
       "created_at": "2026-09-25",
       "review_status": "draft",
       "class": "tool",
       "name": "cerberus policy report",
-      "summary": "Summarizes the operations shadow-mode policy would have blocked, from the decisions recorded in the audit log, grouped by operation, target, principal kind and deciding rule.",
+      "summary": "Reads the audit log's shadow decisions and reports what enforcing policy would block: re-decided under the policy applied now, grouped by rule, principal kind and target with their operations, the approval channel each needs and whether it is ready, optionally within an enforcement scope. The data for choosing P3-7's first scope.",
       "state_field": "maturity",
       "state_label": "shipped",
       "confidence_score": 0.8,
@@ -22855,7 +22855,7 @@
       ],
       "data": {
         "capability": "CERB-CAP-400",
-        "invocation": "cerberus policy report [--since <t>] [--until <t>] [-o json]",
+        "invocation": "cerberus policy report [--since <t>] [--until <t>] [--scope key=value,...] [-o json]",
         "surfaces": [
           "cli"
         ],
@@ -22863,7 +22863,7 @@
         "verified": "test",
         "vendor": []
       },
-      "body": "`cerberus policy report` reads the audit log directly and counts the intents whose recorded policy decision has `would_block`, out of all decided ones. It groups them by operation, target (resource or kind, marked ad hoc or unlabeled), principal kind, decision and the deciding rule, most frequent first, with the last time each was seen. It is the operator's list of what to label, write a rule for or call differently before P3 turns enforcement on.",
+      "body": "`cerberus policy report` reads the audit log directly and counts the intents whose recorded policy decision has `would_block`, out of all decided ones. It groups them by operation, target (resource or kind, marked ad hoc or unlabeled), principal kind, decision and the deciding rule, most frequent first, with the last time each was seen. It is the operator's list of what to label, write a rule for or call differently before P3 turns enforcement on.\n\n## For the switch-on (P3-7)\n\nEach would-block intent is authorized again against the applied snapshot (`explainPDP`), from its recorded connector, operation, effect, principal and target labels, so a decision the current policy no longer blocks is counted apart. For an approve it names the channel via `cerbapi.ApprovalChannel`, the gate's own `approvalTerms`: out of band on prod, unknown, shared or not-self targets, or where a rule asks for it, and tty_confirm otherwise. It then checks readiness against the daemon, with a passkey status read: out of band needs an enrolled passkey outside a cool-down, an agent's terminal approval needs the daemon to hold it, and a rule with two or more approvers cannot be met yet. It counts the would-blocks that enforcing now would refuse with no way to approve.\n\n`--scope` takes the terms an enforcement scope would (`principal`, `env`, `effect`, `connector`, `target`, `rule`, comma-separated, all matching). Run read-only against the live log on 2026-09-28, it found no shadow decisions yet. The records before that day predate principal and policy recording, and since then the daemon has recorded only its own plugin loads, which are automation and are not authorized. One passkey is enrolled, so out of band is ready.",
       "id": "CERB-TOOL-866"
     },
     {

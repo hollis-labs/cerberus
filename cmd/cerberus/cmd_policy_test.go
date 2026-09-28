@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
-	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -133,21 +132,89 @@ func TestPolicyApply(t *testing.T) {
 	})
 }
 
+func reportRecord(op, effect, kind, env, rule string) audit.Record {
+	return audit.Record{Kind: audit.KindIntent, Connector: "local", Operation: op, Effect: effect, Principal: audit.Principal{Kind: kind},
+		Target: audit.Target{Resource: "notes-api", Env: env, Owner: "self", Admin: "self"},
+		Policy: &audit.PolicyDecision{Decision: "approve", WouldBlock: true, MatchedRules: []audit.MatchedRule{{Rule: rule, Decision: "approve"}}}}
+}
+
+// The report groups would-blocks by rule, principal kind and target, with
+// their operations, decides each again under the current policy, and names
+// the channel each would need.
 func TestPolicyReportGroupsWouldBlock(t *testing.T) {
-	block := func(op, kind, rule string) audit.Record {
-		return audit.Record{Kind: audit.KindIntent, Connector: "local", Operation: op, Principal: audit.Principal{Kind: kind},
-			Target: audit.Target{Resource: "notes-api", Env: "dev"},
-			Policy: &audit.PolicyDecision{Decision: "approve", WouldBlock: true, MatchedRules: []audit.MatchedRule{{Rule: rule, Decision: "approve"}}}}
-	}
-	allow := block("deploy", "human", "x")
+	allow := reportRecord("deploy", "lifecycle", "human", "dev", "x")
 	allow.Policy = &audit.PolicyDecision{Decision: "allow"}
-	recs := []audit.Record{block("stop", "agent", "baseline.lifecycle.agent"), block("stop", "agent", "baseline.lifecycle.agent"), block("remove", "human", "baseline.destructive.human"), allow,
-		{Kind: audit.KindOutcome, Policy: &audit.PolicyDecision{WouldBlock: true}}}
-	rows, total, decided := policyReport(recs, zeroTime, zeroTime)
-	if total != 3 || decided != 4 || len(rows) != 2 || rows[0].Count != 2 || rows[0].Operation != "local.stop" || rows[0].Rule != "baseline.lifecycle.agent" {
-		t.Fatalf("rows %+v total %d decided %d", rows, total, decided)
+	recs := []audit.Record{
+		reportRecord("stop", "lifecycle", "agent", "dev", "baseline.lifecycle.agent"),
+		reportRecord("deploy", "lifecycle", "agent", "dev", "baseline.lifecycle.agent"),
+		reportRecord("stop", "lifecycle", "agent", "dev", "baseline.lifecycle.agent"),
+		reportRecord("remove", "destructive", "human", "prod", "baseline.destructive.human"),
+		allow,
+		{Kind: audit.KindOutcome, Policy: &audit.PolicyDecision{WouldBlock: true}},
 	}
-	_ = cerbapi.SurfaceInProcess
+	ready := channelReadiness{Daemon: true, OutOfBand: true, Keys: 1}
+	rep := policyReport(recs, reportOptions{pdp: policy.BaselineOnly("baseline"), source: "the baseline", channels: ready})
+	if rep.WouldBlock != 4 || rep.Decided != 5 || rep.StillBlock != 4 || len(rep.Groups) != 2 {
+		t.Fatalf("report %+v", rep)
+	}
+	top := rep.Groups[0]
+	if top.Count != 3 || top.Rule != "baseline.lifecycle.agent" || strings.Join(top.Operations, ",") != "local.deploy,local.stop" ||
+		top.Channel != "tty_confirm" || !top.Ready {
+		t.Fatalf("top group %+v", top)
+	}
+	if prod := rep.Groups[1]; prod.Channel != "out_of_band" || !prod.Ready || !strings.Contains(prod.Need, "1 enrolled") {
+		t.Fatalf("prod group %+v", prod)
+	}
+	if rep.ByChannel["tty_confirm"] != 3 || rep.ByChannel["out_of_band"] != 1 || rep.NotReady != 0 {
+		t.Fatalf("by channel %v, not ready %d", rep.ByChannel, rep.NotReady)
+	}
+
+	// With no passkey the prod group cannot be approved, and with no
+	// daemon neither can an agent's.
+	rep = policyReport(recs, reportOptions{pdp: policy.BaselineOnly("baseline"), channels: channelReadiness{Daemon: true, Note: "no passkey is enrolled"}})
+	if rep.NotReady != 1 || rep.Groups[1].Ready || !strings.Contains(rep.Groups[1].Need, "no passkey") {
+		t.Fatalf("no keys: %+v", rep)
+	}
+	rep = policyReport(recs, reportOptions{pdp: policy.BaselineOnly("baseline"), channels: channelReadiness{Note: "the daemon is not running"}})
+	if rep.NotReady != 4 {
+		t.Fatalf("no daemon: not ready %d", rep.NotReady)
+	}
+	var out bytes.Buffer
+	if err := writePolicyReport(&out, rep); err != nil || !strings.Contains(out.String(), "NOT READY") || !strings.Contains(out.String(), "4 would-block decision(s) need a channel that is not ready") {
+		t.Fatalf("text:\n%s", out.String())
+	}
+}
+
+// --scope narrows to what an enforcement scope would cover.
+func TestPolicyReportScope(t *testing.T) {
+	recs := []audit.Record{
+		reportRecord("stop", "lifecycle", "agent", "dev", "baseline.lifecycle.agent"),
+		reportRecord("remove", "destructive", "human", "prod", "baseline.destructive.human"),
+		reportRecord("remove", "destructive", "agent", "", "baseline.destructive.agent"),
+	}
+	for raw, want := range map[string]int{"principal=agent": 2, "env=prod": 1, "env=unknown": 1, "principal=agent,effect=destructive": 1, "rule=baseline.lifecycle.agent": 1, "target=other": 0} {
+		scope, err := parseReportScope(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := policyReport(recs, reportOptions{scope: scope}).WouldBlock; got != want {
+			t.Errorf("%s: %d, want %d", raw, got, want)
+		}
+	}
+	for _, bad := range []string{"principal", "who=agent", "env="} {
+		if _, err := parseReportScope(bad); err == nil {
+			t.Errorf("%q parsed", bad)
+		}
+	}
+}
+
+// A decision the current policy no longer blocks is counted apart.
+func TestPolicyReportDecidesAgain(t *testing.T) {
+	recs := []audit.Record{reportRecord("status", "read", "agent", "dev", "old.rule")}
+	rep := policyReport(recs, reportOptions{pdp: policy.BaselineOnly("baseline")})
+	if rep.NoLonger != 1 || rep.StillBlock != 0 || rep.Groups[0].Now != "allow" || !rep.Groups[0].Ready {
+		t.Fatalf("report %+v", rep)
+	}
 }
 
 var zeroTime = func() (t time.Time) { return }()
