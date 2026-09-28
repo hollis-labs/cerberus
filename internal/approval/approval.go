@@ -90,7 +90,18 @@ type Approval struct {
 
 	RevokedAt time.Time        `json:"revoked_at,omitzero"`
 	RevokedBy *audit.Principal `json:"revoked_by,omitempty"`
+
+	// A grant (scope session or window, P3-5) is valid for TTL from when it
+	// is approved, and counts its uses; it is not spent by one.
+	TTL                 time.Duration `json:"ttl,omitempty"`
+	Uses                int           `json:"uses,omitempty"`
+	LastUsedAt          time.Time     `json:"last_used_at,omitzero"`
+	LastUsedOperationID string        `json:"last_used_operation_id,omitempty"`
 }
+
+// IsGrant reports a session or window approval: reusable until it expires
+// or is revoked.
+func (a Approval) IsGrant() bool { return a.Scope == ScopeSession || a.Scope == ScopeWindow }
 
 // Decision is who approved or denied, how, and with what proof.
 type Decision struct {

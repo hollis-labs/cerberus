@@ -25,6 +25,9 @@ const (
 	EventExpired   = "expired"
 	EventConsumed  = "consumed"
 	EventRevoked   = "revoked"
+	// EventUsed is one use of a grant (a session or window approval, P3-5),
+	// which, unlike a once approval, is not spent by it.
+	EventUsed = "used"
 )
 
 // Event is one line of the store: a transition of one approval, hash-chained
@@ -166,6 +169,10 @@ func (s *Store) apply(ev Event) error {
 		a.Decision = &d
 		if d.Approve {
 			a.Status = Approved
+			// A grant is valid for its TTL from when it was approved.
+			if a.IsGrant() && a.TTL > 0 {
+				a.ExpiresAt = d.At.Add(a.TTL)
+			}
 		} else {
 			a.Status = Denied
 		}
@@ -179,6 +186,12 @@ func (s *Store) apply(ev Event) error {
 			return fmt.Errorf("consumed from %s", a.Status)
 		}
 		a.Status, a.ConsumedAt, a.ConsumedOperationID = Consumed, ev.Time, ev.OperationID
+	case EventUsed:
+		if a.Status != Approved || !a.IsGrant() {
+			return fmt.Errorf("used from %s (scope %s)", a.Status, a.Scope)
+		}
+		a.Uses++
+		a.LastUsedAt, a.LastUsedOperationID = ev.Time, ev.OperationID
 	case EventRevoked:
 		if a.Status != Approved {
 			return fmt.Errorf("revoked from %s", a.Status)
@@ -255,6 +268,14 @@ func (s *Store) Request(a Approval, ttl time.Duration) (Approval, error) {
 	}
 	if a.Scope == "" {
 		a.Scope = ScopeOnce
+	}
+	// A session grant is the requester's session's; with no session to
+	// bind it to, it is a once approval (P3-5).
+	if a.Scope == ScopeSession && a.Principal.Session == "" {
+		a.Scope = ScopeOnce
+	}
+	if a.IsGrant() {
+		a.TTL = ttl
 	}
 	a.Decision = nil
 	if err := s.append(Event{Type: EventRequested, ApprovalID: a.ID, Approval: &a}); err != nil {
@@ -365,7 +386,9 @@ type ConsumeCheck struct {
 	// Principal is who is using the approval. A once approval is the
 	// requester's: kind and via must match, and the session must too where
 	// the request had one.
-	Principal   audit.Principal
+	Principal audit.Principal
+	// Target is the call's target, which a grant must cover.
+	Target      audit.Target
 	ArgsDigest  string
 	PlanHash    string
 	OperationID string
@@ -386,6 +409,12 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 		return Approval{}, ErrNotFound
 	}
 	view := a.viewAt(s.now())
+	if a.IsGrant() {
+		// A retry naming a grant uses it: bound to the operation, target
+		// and requester, not to one call's arguments.
+		return s.use(a, view, GrantCheck{Connector: check.Connector, Operation: check.Operation, Target: check.Target,
+			Principal: check.Principal, OperationID: check.OperationID, ReauthorizedDeny: check.ReauthorizedDeny}, verifier)
+	}
 	switch {
 	case view.Status == Expired:
 		return view, ErrExpired

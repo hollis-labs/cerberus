@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/approval"
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/presence"
@@ -23,7 +25,12 @@ type statusFakeDaemon struct {
 	principal cerbapi.Principal
 	plugins   []cerbapi.ManagedPluginConnectorState
 	passkeys  presence.Status
+	approvals []approval.Approval
 	err       error
+}
+
+func (f statusFakeDaemon) ListApprovals(context.Context) (cerbapi.ApprovalList, error) {
+	return cerbapi.ApprovalList{Approvals: f.approvals}, f.err
 }
 
 func (f statusFakeDaemon) PasskeyStatus(context.Context) (presence.Status, error) {
@@ -144,13 +151,14 @@ func TestStatusTextIsCompact(t *testing.T) {
 		"audit    chain intact, 12 records, last ",
 		"web      running at http://127.0.0.1:4783",
 		"passkeys ! out-of-band approval not set up: run `cerberus approvals enroll`",
+		"grants   none active",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status lacks %q:\n%s", want, out.String())
 		}
 	}
-	if lines := strings.Count(out.String(), "\n"); lines != 8 {
-		t.Errorf("status is %d lines, want 8:\n%s", lines, out.String())
+	if lines := strings.Count(out.String(), "\n"); lines != 9 {
+		t.Errorf("status is %d lines, want 9:\n%s", lines, out.String())
 	}
 }
 
@@ -174,6 +182,35 @@ func TestStatusPasskeysLine(t *testing.T) {
 		got, alert := tc.st.Summary(now)
 		if !strings.Contains(got, tc.want) || alert != tc.alert {
 			t.Errorf("%s: %q alert=%v", tc.name, got, alert)
+		}
+	}
+}
+
+// Status lists the grants usable now, with how to revoke each, and is loud
+// about one on a prod, shared or not-ours target.
+func TestStatusListsActiveGrants(t *testing.T) {
+	until := time.Date(2026, 9, 25, 12, 30, 0, 0, time.UTC)
+	grants := statusOfGrants(context.Background(), statusFakeDaemon{approvals: []approval.Approval{
+		{ID: "apr_dev", Status: approval.Approved, Scope: approval.ScopeWindow, Connector: "local", Operation: "reload", Uses: 2, ExpiresAt: until,
+			Target: audit.Target{Kind: "local.resource", Resource: "notes-api", Env: "dev", Owner: "self", Admin: "self"}, Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio"}},
+		{ID: "apr_prod", Status: approval.Approved, Scope: approval.ScopeSession, Connector: "docker", Operation: "stop", ExpiresAt: until,
+			Target: audit.Target{Kind: "docker.container", Resource: "api", Env: "prod", Owner: "self"}, Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio", Session: "s1"}},
+		{ID: "apr_once", Status: approval.Approved, Scope: approval.ScopeOnce, Connector: "local", Operation: "stop"},
+		{ID: "apr_gone", Status: approval.Revoked, Scope: approval.ScopeWindow, Connector: "local", Operation: "stop"},
+	}})
+	if len(grants.Active) != 2 || grants.Protected != 1 {
+		t.Fatalf("grants %+v", grants)
+	}
+	var out bytes.Buffer
+	_ = writeStatus(&out, statusReport{Posture: policy.PostureSummary{Global: policy.PostureSecure}, Grants: grants})
+	for _, want := range []string{
+		"grants   ! 2 active, 1 on a prod, shared or not-ours target",
+		"  apr_dev local.reload on notes-api, window grant for agent via mcp_stdio, 2 use(s)",
+		"! apr_prod docker.stop on api, session grant",
+		"revoke: cerberus approvals revoke apr_prod",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("status lacks %q:\n%s", want, out.String())
 		}
 	}
 }

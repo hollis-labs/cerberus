@@ -15391,12 +15391,12 @@
           "note": "adhoc_targets is now evaluated in shadow"
         }
       ],
-      "body": "Cerberus has three gates and an operator can change none of them.\n\nThe install policy decides at install time whether a plugin may run at all,\nand records an origin (`installed` or `dev`) from rules defined in Go. A\nconnector definition or plugin manifest marks an operation `destructive`, and\nsince PR #49 that flag alone decides whether acknowledgment is needed. The\nrequest then carries an `Acknowledged` boolean. That is the whole authorisation surface, and all of\nit is either compiled in or declared by the thing being gated.\n\nSo there is no way for an operator to say any of the following, which are\nordinary things to want: `destroy_droplet` needs a second approver; nothing\nwrites to a production host outside a change window; this connector is read-only when\nthe caller is an agent; a plugin from outside the organisation may not reach\nthe SSH connector at all.\n\n**Distinct from `CERB-CAP-306`,** which is sometimes read as covering this.\nInstall origin answers *is this plugin allowed to run, and with what\nrestriction*, once, at install, based on how it was installed. A policy engine answers *is this call allowed*, per invocation,\nbased on what is being done and to what. A plugin can be perfectly trusted and\nthe specific operation still be one an operator wants to stop.\n\n**Distinct from `CERB-GAP-838`,** and the two should be fixed together. That\nrecord says the acknowledgment gate is satisfied by the caller being gated. A\npolicy engine is precisely what turns that into a gate the caller cannot\nsatisfy for itself — 838 names the defect, this names the missing mechanism.\n\n`docs/plans/agent-authority-and-secrets.md` owns this as WP-S5, and the\nsequencing is already argued there: it consumes WP-S1's audit record, because a\npolicy decision is only meaningful if it is recorded, and it wants\n`CERB-GAP-840`'s fan-out point if operator-supplied rules are ever to arrive as\nplugins rather than as configuration.\n\n## Direction since P0\n\n`docs/plans/live-systems-security-target.md` now carries the design: a small\nYAML policy language with one combining rule (most restrictive wins, Decision\n1), a strict baseline for humans and agents alike (Decision 2), and `Authorize`\nwired into every path in shadow mode in P2, before enforcement is switched on\nwith the approval paths in P3. The signing tiers this record used to name as one\nof the three gates were removed in PR #51 (CERB-DEC-815).\n\n## Since P2-3\n\nThe target half of the policy input exists. Every audit record's target carries `env`, `owner`, `admin` (for the kind the operation touches), `tags`, the resource it was resolved through, and `adhoc`, from `internal/target`, with unknown for anything undeclared (Decision 17). The engine that decides on them is still P2-4.\n\n## Since P2-4\n\nThe engine exists (`internal/policy`) and runs in **shadow mode**. `shadowDecision` in `internal/cerbapi/policy_point.go` is called from `beginAudit` for every operation that is not the monitor's automation, so every path the gates cover is authorized (I1). The result goes on the intent and the outcome as `policy: {decision, matched_rules, would_block, snapshot, shadow}`, and no outcome changes: `TestShadowPolicyNeverChangesAnOutcome` runs every gated lane under a decision point that denies everything and finds identical results, errors and outcome codes.\n\nThe evaluator has one combining rule, the most restrictive match wins (`deny > approve > dry_run_only > allow`), behind a narrow `PDP` interface (Decision 1). It combines these layers:\n- a built-in baseline by effect and principal kind, aligned with Decision 14 and including Decision 11's local-dev exception;\n- target defaults from Decisions 17 and 18: `admin: owner` or unknown denies changes, `admin: shared` approves destructive and exec, unknown env reads as prod, and an ad hoc target needs `adhoc_targets`;\n- provider, target and principal rules from `~/.cerberus/policy/*.yaml`.\n\nOnly the applied snapshot decides (Decision 10). `cerberus policy apply` writes it on a TTY with a flip preview and a typed confirmation, and a snapshot failing its hash falls back to the baseline. The refusal codes are reserved and not returned.\n\nWhat remains is enforcement. That is P3, with approvals.\n\n## Since P3-1\n\nThe enforcement path exists. Every gated operation starts through\n`beginGated` (`internal/cerbapi/approvals.go`), which, where an `Enforcement`\nhook says enforcement is on, answers a deny with `policy_denied` and an\napprove with `approval_pending`, asking the daemon's approval broker\n(`internal/approval`) for a request the operator decides. The hook is off by\ndefault and nothing installs it until P3-7, so shadow mode is unchanged and\nheld by `TestShadowAsksForNoApproval`. Approving a request comes with P3-3\n(`tty_confirm`) and P3-4 (out of band), and using one by id with the plan\nhash with P3-2.\n\n## Since P3-2a\n\nApprovals bind to a plan hash and can be used by id on the admin lane and deploy profiles; `cerberus connectors plan` shows the plan an approval would bind to.\n\n## Since P3-2c\n\nEvery lane's approvals bind to a plan hash: the admin lane, deploy profiles, resource verbs and pipelines.\n\n## Since P3-3\n\nA `tty_confirm` approval can be met on the call itself: the CLI shows the plan on an interactive terminal, the person types the target, and the confirm route (`…/confirm`, carrying `confirmed_plan_hash`) requests or takes the pending approval, decides and consumes it in one call. Only for `tty_confirm`, only a human at the CLI, only for the exact plan (`internal/cerbapi/confirm.go`). The console's confirm dialog is P3-3b.\n\n## Since P3-3b\n\nThe console's confirm dialog meets a `tty_confirm` approval on the call for resource actions, pipeline runs, deployment-profile runs and connector operations: it shows the plan and full hash, enables confirm once the target is typed, and posts to the call's `…/confirm` route. `confirmOnCall` accepts a human over web only with a signed-in session id, which the console sets after `requireSession`.\n\n## Since CERB-GAP-886\n\nDeploy-profile runs are gated in the daemon with the broker, and profiles are labeled, so every lane P3-7 enforces can be approved where it runs.",
+      "body": "Cerberus has three gates and an operator can change none of them.\n\nThe install policy decides at install time whether a plugin may run at all,\nand records an origin (`installed` or `dev`) from rules defined in Go. A\nconnector definition or plugin manifest marks an operation `destructive`, and\nsince PR #49 that flag alone decides whether acknowledgment is needed. The\nrequest then carries an `Acknowledged` boolean. That is the whole authorisation surface, and all of\nit is either compiled in or declared by the thing being gated.\n\nSo there is no way for an operator to say any of the following, which are\nordinary things to want: `destroy_droplet` needs a second approver; nothing\nwrites to a production host outside a change window; this connector is read-only when\nthe caller is an agent; a plugin from outside the organisation may not reach\nthe SSH connector at all.\n\n**Distinct from `CERB-CAP-306`,** which is sometimes read as covering this.\nInstall origin answers *is this plugin allowed to run, and with what\nrestriction*, once, at install, based on how it was installed. A policy engine answers *is this call allowed*, per invocation,\nbased on what is being done and to what. A plugin can be perfectly trusted and\nthe specific operation still be one an operator wants to stop.\n\n**Distinct from `CERB-GAP-838`,** and the two should be fixed together. That\nrecord says the acknowledgment gate is satisfied by the caller being gated. A\npolicy engine is precisely what turns that into a gate the caller cannot\nsatisfy for itself — 838 names the defect, this names the missing mechanism.\n\n`docs/plans/agent-authority-and-secrets.md` owns this as WP-S5, and the\nsequencing is already argued there: it consumes WP-S1's audit record, because a\npolicy decision is only meaningful if it is recorded, and it wants\n`CERB-GAP-840`'s fan-out point if operator-supplied rules are ever to arrive as\nplugins rather than as configuration.\n\n## Direction since P0\n\n`docs/plans/live-systems-security-target.md` now carries the design: a small\nYAML policy language with one combining rule (most restrictive wins, Decision\n1), a strict baseline for humans and agents alike (Decision 2), and `Authorize`\nwired into every path in shadow mode in P2, before enforcement is switched on\nwith the approval paths in P3. The signing tiers this record used to name as one\nof the three gates were removed in PR #51 (CERB-DEC-815).\n\n## Since P2-3\n\nThe target half of the policy input exists. Every audit record's target carries `env`, `owner`, `admin` (for the kind the operation touches), `tags`, the resource it was resolved through, and `adhoc`, from `internal/target`, with unknown for anything undeclared (Decision 17). The engine that decides on them is still P2-4.\n\n## Since P2-4\n\nThe engine exists (`internal/policy`) and runs in **shadow mode**. `shadowDecision` in `internal/cerbapi/policy_point.go` is called from `beginAudit` for every operation that is not the monitor's automation, so every path the gates cover is authorized (I1). The result goes on the intent and the outcome as `policy: {decision, matched_rules, would_block, snapshot, shadow}`, and no outcome changes: `TestShadowPolicyNeverChangesAnOutcome` runs every gated lane under a decision point that denies everything and finds identical results, errors and outcome codes.\n\nThe evaluator has one combining rule, the most restrictive match wins (`deny > approve > dry_run_only > allow`), behind a narrow `PDP` interface (Decision 1). It combines these layers:\n- a built-in baseline by effect and principal kind, aligned with Decision 14 and including Decision 11's local-dev exception;\n- target defaults from Decisions 17 and 18: `admin: owner` or unknown denies changes, `admin: shared` approves destructive and exec, unknown env reads as prod, and an ad hoc target needs `adhoc_targets`;\n- provider, target and principal rules from `~/.cerberus/policy/*.yaml`.\n\nOnly the applied snapshot decides (Decision 10). `cerberus policy apply` writes it on a TTY with a flip preview and a typed confirmation, and a snapshot failing its hash falls back to the baseline. The refusal codes are reserved and not returned.\n\nWhat remains is enforcement. That is P3, with approvals.\n\n## Since P3-1\n\nThe enforcement path exists. Every gated operation starts through\n`beginGated` (`internal/cerbapi/approvals.go`), which, where an `Enforcement`\nhook says enforcement is on, answers a deny with `policy_denied` and an\napprove with `approval_pending`, asking the daemon's approval broker\n(`internal/approval`) for a request the operator decides. The hook is off by\ndefault and nothing installs it until P3-7, so shadow mode is unchanged and\nheld by `TestShadowAsksForNoApproval`. Approving a request comes with P3-3\n(`tty_confirm`) and P3-4 (out of band), and using one by id with the plan\nhash with P3-2.\n\n## Since P3-2a\n\nApprovals bind to a plan hash and can be used by id on the admin lane and deploy profiles; `cerberus connectors plan` shows the plan an approval would bind to.\n\n## Since P3-2c\n\nEvery lane's approvals bind to a plan hash: the admin lane, deploy profiles, resource verbs and pipelines.\n\n## Since P3-3\n\nA `tty_confirm` approval can be met on the call itself: the CLI shows the plan on an interactive terminal, the person types the target, and the confirm route (`…/confirm`, carrying `confirmed_plan_hash`) requests or takes the pending approval, decides and consumes it in one call. Only for `tty_confirm`, only a human at the CLI, only for the exact plan (`internal/cerbapi/confirm.go`). The console's confirm dialog is P3-3b.\n\n## Since P3-3b\n\nThe console's confirm dialog meets a `tty_confirm` approval on the call for resource actions, pipeline runs, deployment-profile runs and connector operations: it shows the plan and full hash, enables confirm once the target is typed, and posts to the call's `…/confirm` route. `confirmOnCall` accepts a human over web only with a signed-in session id, which the console sets after `requireSession`.\n\n## Since CERB-GAP-886\n\nDeploy-profile runs are gated in the daemon with the broker, and profiles are labeled, so every lane P3-7 enforces can be approved where it runs.\n\n## Since P3-5a\n\nApprovals can be grants: `scope: session|window` with a TTL, reusable by the same operation on the same target by the same requester (kind and via; session too), re-checked against policy and presence on every use, never past a deny, revocable, listed in `cerberus status` and on the console, and loud on protected targets.",
       "data": {
         "capability": "CERB-CAP-604",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "P3-3b (console confirm), P3-5 and P3-6, then P3-7 turns enforcement on scope by scope",
+        "unlocks_when": "P3-5b (break glass), then P3-7 turns enforcement on scope by scope",
         "effort": "large"
       }
     },
@@ -16988,6 +16988,85 @@
       },
       "body": "`localconn.OpLogs` is declared `read_sensitive`: a workload's log can carry what it was handed. Baseline policy answers `approve` for an agent on `read_sensitive` (`internal/policy/evaluate.go`), and `docker logs` meets that through the admin lane's gate. `ResourceRuntimeService.ResourceLogs` does not call `beginGated` at all, so an agent reading a local resource's log over MCP is neither recorded as an operation nor subject to enforcement once P3-7 switches it on. That breaks I1 for one read. P3-6 leaves `approval_id` off `cerberus_resource_logs` for that reason (`ungatedTools` in `internal/mcp/approvals.go`), rather than offering an argument that would do nothing.\n\n## Since the fix\n\n`ResourceRuntimeService.ResourceLogs` calls `beginGated` with the `local.logs` contract before reading, and finishes the call with the read's error, so a log read is an intent and an outcome in the audit log from every surface: MCP, the CLI, the socket and the console, which all reach it. Where policy is enforced, baseline policy's `approve` for an agent on `read_sensitive` now applies: the read answers `approval_pending`, and the retry carries the id (`cerberus_resource_logs` `approval_id`, `cerberus resource logs --approval`, the socket's `approval_id` query parameter). The socket's logs route now writes a refusal with its code instead of a plain 404. `ungatedTools` in `internal/mcp/approvals.go` is empty.\n\nThe sweep for other sensitive reads that skip the gate found none. Every other `read_sensitive` operation (docker logs, ssh get and get_dir, plugin operations) runs through the admin or plugin lane, which calls `beginGated`. That includes the CLI's docker logs, which uses the same service in-process. The runtime's status, inspect, doctor, list and health are `read`. Their fields are composed by Cerberus: the launchd highlights are five fixed fields and the raw `launchctl print` text is never returned. They are not gated, which policy does not need, since reads are always allowed, but it means they are not recorded either.",
       "id": "CERB-GAP-889"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-28",
+      "created_at": "2026-09-28",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A stale confirmation leaves its approval pending until it expires",
+      "summary": "When a confirmation on the call is refused as plan_stale, the pending approval the first attempt asked for is left as it was, by the rule that a refused confirmation changes nothing, and stays in the queue until it expires; a retry asks for a new one.",
+      "state_field": "status",
+      "state_label": "deferred",
+      "confidence_score": 0.85,
+      "confidence_label": "seen in the confirm-dialog smoke (make smoke-confirm); accepted as designed by the lead",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "console",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/confirm.go, web/src/components/plan-confirm.tsx",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-843",
+          "note": "the confirm path"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "A retry from the dialog or the CLI reuses the still-pending approval, which it names, instead of asking for a new one",
+        "effort": "small"
+      },
+      "body": "`confirmOnCall` refuses a confirmation whose recomputed plan differs from the confirmed hash with `plan_stale`, and a refused confirmation leaves the approval it named untouched: nothing is decided on a plan the person did not see. The person then runs the command again, which asks for a fresh approval, so the first one waits in `approvals list` as pending until its TTL. It lets nothing through, and it is visible, but it is clutter.",
+      "id": "CERB-GAP-891"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-28",
+      "created_at": "2026-09-28",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A grant covers exactly one target, not a set of them",
+      "summary": "A session or window grant binds the target it was asked for (kind, resource and fields), so \"restarts on anything in dev-cluster for 30 minutes\" is one grant per workload rather than one for the cluster.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "read on the P3-5a branch",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/approval/grants.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-843",
+          "note": "grants"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "A grant can be asked for at a target scope (a resource and everything under it) named by the rule, with the widening shown when it is approved",
+        "effort": "medium"
+      },
+      "body": "`sameTarget` compares the recorded target's kind, resource and identifying fields. That is the conservative reading of \"allow restarts on dev-cluster for 30 minutes\": the approver approves one thing and the grant covers that thing. The design's example is broader, a cluster and its workloads. Supporting it needs the rule to name the scope a grant may cover and the approval to show that scope, so the person approving sees the widening.",
+      "id": "CERB-GAP-892"
     },
     {
       "id": "CERB-TOOL-110",

@@ -526,6 +526,8 @@ export interface ApprovalInfo {
   decision?: { approve: boolean; by: ApprovalPrincipal; at: string; key_fingerprint?: string; reason?: string }
   consumed_at?: string
   revoked_at?: string
+  // A grant's uses (scope session or window, P3-5).
+  uses?: number
 }
 
 export interface ApprovalListResponse {
