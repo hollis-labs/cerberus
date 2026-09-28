@@ -16,7 +16,10 @@ import (
 // and SocketClient.
 type Client interface {
 	// ResourceLogs returns the last N lines of the resource log for a given stream.
-	ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error)
+	// Logs are read_sensitive, so the read passes the gate: it is recorded,
+	// and where policy is enforced an agent needs an approval, passed as
+	// WithApprovalID.
+	ResourceLogs(ctx context.Context, id string, lines int, stream string, opts ...MutationOption) (*LogLines, error)
 
 	// Health returns daemon + runtime health state. If id is empty, all
 	// known v2 resources are included.

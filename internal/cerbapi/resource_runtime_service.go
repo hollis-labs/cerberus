@@ -1111,21 +1111,40 @@ func (s *ResourceRuntimeService) removeResource(ctx context.Context, id string, 
 	}, nil
 }
 
-func (s *ResourceRuntimeService) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
+// ResourceLogs reads the last lines of a resource's log. Logs are text the
+// workload wrote, so the read is read_sensitive and passes the gate like
+// every operation (I1): an intent and outcome are recorded, and where policy
+// is enforced an agent needs an approval (CERB-GAP-889).
+func (s *ResourceRuntimeService) ResourceLogs(ctx context.Context, id string, lines int, stream string, options ...MutationOption) (*LogLines, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	res, spec, err := s.requireLocalProcessSpec(id)
-	if err != nil {
 		return nil, err
 	}
 	if lines <= 0 {
 		lines = 50
+	}
+	opts := ApplyMutationOptions(options)
+	def := localconn.Definition()
+	op, known := def.Operation(localconn.OpLogs)
+	config := map[string]any{localconn.InputID: id, "lines": lines}
+	if stream != "" {
+		config["stream"] = stream
+	}
+	call, err := beginGated(ctx, s.audit, s.logger, auditSpec{
+		connector: def.ID, operation: localconn.OpLogs, op: op, known: known,
+		config: config, resources: s.ResourceDef, approvalID: opts.ApprovalID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out, err := s.readResourceLogs(ctx, id, lines, stream)
+	call.finish(err)
+	return out, err
+}
+
+func (s *ResourceRuntimeService) readResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
+	res, spec, err := s.requireLocalProcessSpec(id)
+	if err != nil {
+		return nil, err
 	}
 	logPath, err := s.resourceLogPath(resourceDefToDomain(res), spec, stream)
 	if err != nil {

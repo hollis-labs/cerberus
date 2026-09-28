@@ -213,8 +213,8 @@ func (c *InProcessClient) ExecuteManagedPlugin(ctx context.Context, id string, a
 }
 
 // ResourceLogs implements Client.
-func (c *InProcessClient) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
-	return c.runtime.ResourceLogs(ctx, id, lines, stream)
+func (c *InProcessClient) ResourceLogs(ctx context.Context, id string, lines int, stream string, opts ...MutationOption) (*LogLines, error) {
+	return c.runtime.ResourceLogs(ctx, id, lines, stream, opts...)
 }
 
 // Health implements Client.

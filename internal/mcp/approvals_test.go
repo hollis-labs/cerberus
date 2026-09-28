@@ -418,3 +418,8 @@ func TestApprovalWaitBoundsAndErrors(t *testing.T) {
 		t.Fatalf("no broker: %s", resultText(res))
 	}
 }
+
+func (r *recordingClient) ResourceLogs(_ context.Context, id string, _ int, stream string, o ...cerbapi.MutationOption) (*cerbapi.LogLines, error) {
+	r.seen = cerbapi.ApplyMutationOptions(o).ApprovalID
+	return &cerbapi.LogLines{ResourceID: id, Stream: stream}, nil
+}

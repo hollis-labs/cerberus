@@ -250,7 +250,7 @@ type fakeClient struct {
 // nothing ran.
 func (f *fakeClient) calls() int { return f.mutations }
 
-func (f *fakeClient) ResourceLogs(context.Context, string, int, string) (*cerbapi.LogLines, error) {
+func (f *fakeClient) ResourceLogs(context.Context, string, int, string, ...cerbapi.MutationOption) (*cerbapi.LogLines, error) {
 	return &cerbapi.LogLines{}, nil
 }
 

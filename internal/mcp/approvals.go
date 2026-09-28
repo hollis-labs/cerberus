@@ -51,12 +51,10 @@ func withApprovalArg(t Tool, op contract.Operation) Tool {
 
 // ungatedTools are tools over a non-read operation that does not pass the
 // gate, so an approval can neither be asked for nor used there, and the
-// tool does not offer approval_id. Each says why.
-var ungatedTools = map[string]string{
-	// local.logs is read_sensitive, but the runtime reads the log file
-	// directly and never calls beginGated (CERB-GAP-889).
-	"cerberus_resource_logs": "resource logs are read without the gate",
-}
+// tool does not offer approval_id. Each says why. It is empty, and should
+// stay so: one enforcement point, no exceptions (I1). Resource logs were
+// the last (CERB-GAP-889).
+var ungatedTools = map[string]string{}
 
 func approvalArgSchema() map[string]any {
 	return map[string]any{"type": "string", "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale."}

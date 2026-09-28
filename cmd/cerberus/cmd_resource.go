@@ -522,6 +522,12 @@ var resourceStatusCmd = &cobra.Command{
 	},
 }
 
+// logsApproval is logs' --approval.
+func logsApproval(cmd *cobra.Command) cerbapi.MutationOption {
+	id, _ := cmd.Flags().GetString("approval")
+	return cerbapi.WithApprovalID(id)
+}
+
 var resourceLogsCmd = &cobra.Command{
 	Use:   "logs <resource-id>",
 	Short: "Show local process resource logs",
@@ -537,7 +543,7 @@ var resourceLogsCmd = &cobra.Command{
 		}
 
 		if client, sockErr := newResourceSocketClient(); sockErr == nil {
-			out, logErr := client.ResourceLogs(cmd.Context(), res.ID, resourceLogsLines, resourceLogsStream)
+			out, logErr := client.ResourceLogs(cmd.Context(), res.ID, resourceLogsLines, resourceLogsStream, logsApproval(cmd))
 			if logErr == nil {
 				fmt.Print(out.Content)
 				if !strings.HasSuffix(out.Content, "\n") {
@@ -551,7 +557,7 @@ var resourceLogsCmd = &cobra.Command{
 			}
 		}
 
-		out, err := newResourceRuntimeService().ResourceLogs(inProcessContext(cmd.Context()), res.ID, resourceLogsLines, resourceLogsStream)
+		out, err := newResourceRuntimeService().ResourceLogs(inProcessContext(cmd.Context()), res.ID, resourceLogsLines, resourceLogsStream, logsApproval(cmd))
 		if err != nil {
 			return err
 		}
@@ -1024,6 +1030,9 @@ func init() {
 	resourceCmd.AddCommand(resourceStatusCmd)
 	resourceLogsCmd.Flags().IntVarP(&resourceLogsLines, "lines", "n", 50, "number of log lines to return")
 	resourceLogsCmd.Flags().StringVar(&resourceLogsStream, "stream", "stdout", "log stream to read: stdout or stderr")
+	// Logs are read_sensitive: the read is gated and, where policy asks, it
+	// runs under an approval.
+	resourceLogsCmd.Flags().String("approval", "", "read under this approved approval id")
 	resourceCmd.AddCommand(resourceLogsCmd)
 	resourceCmd.AddCommand(resourceSyncCmd)
 	// Every resource mutation needs acknowledgment (Decisions 11 and 14):
