@@ -1041,6 +1041,8 @@ func init() {
 	for _, c := range []*cobra.Command{resourceDeployCmd, resourceEnsureFreshCmd, resourceApplyCmd, resourceReloadCmd, resourceStopCmd, resourceSyncCmd, resourceRemoveCmd} {
 		c.Flags().Bool("ack", false, "acknowledge the operation; every resource mutation requires it")
 		c.Flags().String("approval", "", "run under this approved approval id")
+		c.Flags().Bool("break-glass", false, "get past an approve decision yourself, loudly: needs a terminal, --reason and the target typed; never gets past a deny")
+		c.Flags().String("reason", "", "why you are breaking glass (required with --break-glass; it goes on the record)")
 	}
 	resourceCmd.AddCommand(resourceRemoveCmd)
 	resourcePlanCmd.Flags().Bool("ack", false, "plan the verb as it would be sent with --ack")
@@ -1052,6 +1054,21 @@ func init() {
 // to confirm it on their own terminal, shows its plan, takes the typed
 // target and runs it again confirmed.
 func confirmResourceVerb(ctx context.Context, cmd *cobra.Command, id string, call func(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.OpResult, error), opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {
+	if bg := resourceBreakGlass(cmd); bg.on {
+		// Break glass shows the plan and takes the typed target first.
+		shown, perr := call(ctx, id, append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithPlan())...)
+		if perr != nil {
+			return nil, perr
+		}
+		if shown == nil {
+			return nil, errors.New("the serving Cerberus returned no plan to break glass on; nothing ran")
+		}
+		typed, berr := breakGlassOnTerminal(cmd.InOrStdin(), cmd.ErrOrStderr(), shown.Plan, bg)
+		if berr != nil {
+			return nil, berr
+		}
+		return call(ctx, id, append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithBreakGlass(bg.reason, typed))...)
+	}
 	out, err := call(ctx, id, opts...)
 	ref, ok := confirmable(err)
 	if !ok {
@@ -1069,4 +1086,11 @@ func confirmResourceVerb(ctx context.Context, cmd *cobra.Command, id string, cal
 		return nil, cerr
 	}
 	return call(ctx, id, append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithApprovalID(ref.ID), cerbapi.WithConfirmedPlanHash(hash))...)
+}
+
+// resourceBreakGlass reads a resource verb's --break-glass and --reason.
+func resourceBreakGlass(cmd *cobra.Command) breakGlassFlags {
+	on, _ := cmd.Flags().GetBool("break-glass")
+	reason, _ := cmd.Flags().GetString("reason")
+	return breakGlassFlags{on: on, reason: reason}
 }

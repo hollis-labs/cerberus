@@ -110,12 +110,13 @@ var policyExplainCmd = &cobra.Command{
 			grantWarnings = ev.File().GrantWarnings()
 		}
 		if policyExplainFlags.output == outputFormatJSON {
-			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules, "grant_warnings": grantWarnings})
+			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules, "grant_warnings": grantWarnings, "break_glass": policy.BreakGlassLimitsOf(pdp)})
 		}
 		if err = writeExplain(cmd.OutOrStdout(), req, res, source); err != nil {
 			return err
 		}
 		writeGrantWarnings(cmd.OutOrStdout(), grantWarnings)
+		fmt.Fprintf(cmd.OutOrStdout(), "\nBreak glass: gets past an approve, never a deny; at most %s.\n", policy.BreakGlassLimitsOf(pdp))
 		why := "the global posture"
 		if len(postureRules) > 0 {
 			why = fmt.Sprintf("posture_rules%v", postureRules)

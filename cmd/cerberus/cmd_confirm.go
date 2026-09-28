@@ -13,6 +13,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/plan"
+	"github.com/spf13/cobra"
 )
 
 // tty_confirm on the call (P3-3): when policy wants a person to confirm an
@@ -178,4 +179,44 @@ func labelOrUnknown(s string) string {
 		return "unknown"
 	}
 	return s
+}
+
+// breakGlassFlags are --break-glass and --reason (P3-5b).
+type breakGlassFlags struct {
+	on     bool
+	reason string
+}
+
+func (f *breakGlassFlags) register(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&f.on, "break-glass", false, "get past an approve decision yourself, loudly: needs a terminal, --reason and the target typed; never gets past a deny")
+	cmd.Flags().StringVar(&f.reason, "reason", "", "why you are breaking glass (required with --break-glass; it goes on the record)")
+}
+
+// breakGlassOnTerminal shows the plan under a BREAK GLASS banner and asks
+// for the target. It returns what was typed, which the server checks.
+func breakGlassOnTerminal(in io.Reader, out io.Writer, shown *cerbapi.ConnectorPlan, f breakGlassFlags) (string, error) {
+	if !confirmIsTerminal() {
+		return "", errors.New("break glass runs only from an interactive terminal, where it shows the plan and you type the target; nothing ran")
+	}
+	if strings.TrimSpace(f.reason) == "" {
+		return "", errors.New("break glass needs --reason \"…\", which goes on its record; nothing ran")
+	}
+	if shown == nil || shown.PlanHash == "" {
+		return "", errors.New("the serving Cerberus returned no plan to break glass on; nothing ran")
+	}
+	fmt.Fprintln(out, "\x1b[1;31mBREAK GLASS\x1b[0m: this gets past an approval policy asks for. It is recorded, the operator is notified,")
+	fmt.Fprintln(out, "and it stays in `cerberus status` until acknowledged. It never gets past a deny.")
+	fmt.Fprintf(out, "Reason: %s\n\n", f.reason)
+	writeConfirmPlan(out, shown)
+	name := confirmTargetName(shown.Plan)
+	fmt.Fprintf(out, "\nType the target (%s) to BREAK GLASS, or anything else to cancel: ", name)
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	typed := strings.TrimSpace(line)
+	if typed != name {
+		return "", errors.New("the confirmation did not match the target; nothing ran")
+	}
+	return typed, nil
 }

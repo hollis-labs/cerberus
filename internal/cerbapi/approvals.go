@@ -64,10 +64,14 @@ func (b *Broker) Problems() []string { return append([]string(nil), b.store.Prob
 
 // Request records a pending approval for the call behind intent.
 func (b *Broker) Request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration, planHash string) (approval.Approval, error) {
+	return b.request(ctx, intent, res, channel, scope, ttl, planHash, nil)
+}
+
+func (b *Broker) request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration, planHash string, bg *approval.BreakGlass) (approval.Approval, error) {
 	a, err := b.store.Request(approval.Approval{
 		Principal: intent.Principal, Connector: intent.Connector, Operation: intent.Operation, Effect: intent.Effect,
 		Target: intent.Target, ArgsDigest: intent.ArgsDigest, PlanHash: planHash, Rule: decidingRule(res), Reason: res.Reason(),
-		Channel: channel, Scope: scope, RequestOperationID: intent.OperationID,
+		Channel: channel, Scope: scope, RequestOperationID: intent.OperationID, BreakGlass: bg,
 	}, ttl)
 	if err != nil {
 		return approval.Approval{}, err
@@ -233,16 +237,31 @@ func enforced(req policy.Request) bool {
 // Where enforcement is off — everywhere, until P3-7 — this is beginAudit
 // and nothing more: shadow mode is unchanged.
 func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec auditSpec) (*auditCall, error) {
-	call, err := beginAudit(ctx, sink, logger, spec)
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
-	if err != nil {
-		return nil, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
-	}
 	if spec.automation {
+		call, err := beginAudit(ctx, sink, logger, spec)
+		if err != nil {
+			return nil, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
+		}
 		return call, nil
 	}
 	_, resolved := auditTarget(spec)
 	req := policyRequest(ctx, spec, resolved)
+	if spec.breakGlass != nil && !spec.automation {
+		// The break-glass record comes before the call's intent (P3-5b), so
+		// the log says someone broke glass even if nothing after it is
+		// written. It is written only where there is an approve to get past.
+		if enforced(req) && PolicyDecisionPoint().Authorize(req).Decision == policy.Approve {
+			spec.operationID = audit.NewID()
+			if err := recordBreakGlass(ctx, sink, spec, resolved); err != nil {
+				return nil, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
+			}
+		}
+	}
+	call, err := beginAudit(ctx, sink, logger, spec)
+	if err != nil {
+		return nil, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
+	}
 	if !enforced(req) {
 		// A confirmed plan is checked whether or not policy asked for
 		// one: whoever confirmed it was shown it (I6).
@@ -289,6 +308,9 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 		if req.DryRun {
 			return nil
 		}
+		if spec.breakGlass != nil {
+			return breakGlassOnCall(ctx, call, spec, req, res)
+		}
 		if spec.confirmedPlanHash != "" {
 			return confirmOnCall(ctx, call, spec, req, res)
 		}
@@ -304,6 +326,11 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 	reason := res.Reason()
 	if reason == "" {
 		reason = "no rule allows it"
+	}
+	if spec.breakGlass != nil {
+		return externalConnectorError(args, ExternalConnectorPolicyDenied,
+			redact.Guidance("policy denies %s %s: %s (rule %s); break glass gets past an approve, never a deny, so nothing ran",
+				spec.connector, spec.operation, reason, decidingRule(res)))
 	}
 	return externalConnectorError(args, ExternalConnectorPolicyDenied,
 		redact.Guidance("policy denies %s %s: %s (rule %s); `cerberus policy explain %s.%s` shows every rule that matched",

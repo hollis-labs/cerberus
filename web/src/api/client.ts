@@ -9,11 +9,19 @@ export interface SessionInfo {
   session?: string
   posture?: PostureInfo
   passkeys?: PasskeysAlert | null
+  break_glass?: BreakGlassAlert | null
 }
 
 // PasskeysAlert is the header's line about out-of-band approval: loud while
 // no passkey is enrolled, for a day after an enrollment, and during a
 // cool-down after the key registry changed by other means.
+// BreakGlassAlert is the header's break-glass badge (P3-5b).
+export interface BreakGlassAlert {
+  recent: number
+  open: number
+  summary: string
+}
+
 export interface PasskeysAlert {
   summary: string
   alert: boolean
@@ -528,6 +536,8 @@ export interface ApprovalInfo {
   revoked_at?: string
   // A grant's uses (scope session or window, P3-5).
   uses?: number
+  // A break-glass use (P3-5b): why, what was typed, and its follow-up.
+  break_glass?: { reason: string; typed: string; acked_at?: string }
 }
 
 export interface ApprovalListResponse {

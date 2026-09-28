@@ -44,6 +44,11 @@ const (
 	KindGrantCreated = "grant_created"
 	KindGrantUsed    = "grant_used"
 	KindGrantRevoked = "grant_revoked"
+	// KindBreakGlass is a person getting past an approve decision on their
+	// own call (P3-5b), written before the call's intent; KindBreakGlassAcked
+	// is the operator closing its follow-up.
+	KindBreakGlass      = "break_glass"
+	KindBreakGlassAcked = "break_glass_acked"
 	// KindEnrollmentChanged is a change to the passkeys out-of-band
 	// approvals are verified against (P3-4): a key enrolled or removed, a
 	// registry changed outside Cerberus (which starts the cool-down), or a
@@ -166,6 +171,9 @@ type Record struct {
 
 	// Approval is the approval a broker record is about.
 	Approval *ApprovalRef `json:"approval,omitempty"`
+	// BreakGlass is a break-glass use's reason and whether its target is
+	// protected, on a break_glass record (P3-5b).
+	BreakGlass *BreakGlassRef `json:"break_glass,omitempty"`
 
 	// PluginReview is what an install review showed and what was accepted.
 	PluginReview *PluginReview `json:"plugin_review,omitempty"`
@@ -272,4 +280,14 @@ type ApprovalRef struct {
 	// a prod, shared, not-ours or unlabeled target: policy allowed it, and
 	// it is loud (P3-5, D5).
 	GrantOnProtectedTarget bool `json:"grant_on_protected_target,omitempty"`
+}
+
+// BreakGlassRef is a break-glass use as the audit log records it.
+type BreakGlassRef struct {
+	Reason string `json:"reason"`
+	// Protected is a prod, shared, not-ours or unlabeled target, where the
+	// use is completed with a passkey on the console.
+	Protected bool `json:"protected"`
+	// ApprovalID is the break-glass approval, on an acknowledgment.
+	ApprovalID string `json:"approval_id,omitempty"`
 }

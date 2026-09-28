@@ -268,6 +268,9 @@ func (c *SocketClient) mutation(ctx context.Context, id, verb string, stream boo
 	var send any = body
 	explain := func(err error) error { return err }
 	switch {
+	case body.BreakGlass != nil:
+		path += "/break-glass"
+		send, explain = breakGlassBody{body, body.BreakGlass}, breakGlassRoute
 	case body.ConfirmedPlanHash != "":
 		path += "/confirm"
 		send, explain = confirmedBody{body, body.ConfirmedPlanHash}, confirmRoute
@@ -336,6 +339,12 @@ func (c *SocketClient) RunPipeline(ctx context.Context, id string, options ...Mu
 	var out PipelineRunResult
 	body := ApplyMutationOptions(options)
 	path := "/pipelines/" + url.PathEscape(id) + "/run"
+	if body.BreakGlass != nil {
+		if err := c.doJSONStream(ctx, http.MethodPost, path+"/break-glass", breakGlassBody{body, body.BreakGlass}, &out); err != nil {
+			return nil, breakGlassRoute(err)
+		}
+		return &out, nil
+	}
 	if body.ConfirmedPlanHash != "" {
 		if err := c.doJSONStream(ctx, http.MethodPost, path+"/confirm", confirmedBody{body, body.ConfirmedPlanHash}, &out); err != nil {
 			return nil, confirmRoute(err)
@@ -405,6 +414,13 @@ func (c *SocketClient) executeConnectorOperation(ctx context.Context, args Exter
 	if args.Plan {
 		return planRoute(c.doJSONStream(ctx, http.MethodPost, path+"/plan", args, out))
 	}
+	if args.BreakGlass != nil {
+		body := struct {
+			ExternalConnectorOperationArgs
+			BreakGlass *BreakGlassRequest `json:"break_glass"`
+		}{args, args.BreakGlass}
+		return breakGlassRoute(c.doJSONStream(ctx, http.MethodPost, path+"/break-glass", body, out))
+	}
 	if args.ConfirmedPlanHash != "" {
 		body := struct {
 			ExternalConnectorOperationArgs
@@ -420,6 +436,28 @@ func (c *SocketClient) executeConnectorOperation(ctx context.Context, args Exter
 type confirmedBody struct {
 	MutationOpts
 	ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+}
+
+// breakGlassBody is a mutation's options with its break glass, which travels
+// only to a break-glass route.
+type breakGlassBody struct {
+	MutationOpts
+	BreakGlass *BreakGlassRequest `json:"break_glass"`
+}
+
+// breakGlassRoute explains a break glass an older daemon refused.
+func breakGlassRoute(err error) error {
+	if err != nil && olderDaemonRefusal(err.Error()) {
+		return redact.GuidanceWrap(err, "the running daemon predates break glass, so it refused and nothing ran; restart the daemon on this build, then retry")
+	}
+	return err
+}
+
+// AckBreakGlass closes a break-glass use's follow-up.
+func (c *SocketClient) AckBreakGlass(ctx context.Context, id, note string) (approval.Approval, error) {
+	var out approval.Approval
+	err := c.doJSON(ctx, http.MethodPost, "/approvals/"+url.PathEscape(id)+"/ack-break-glass", map[string]string{"note": note}, &out)
+	return out, err
 }
 
 // confirmRoute explains a confirmation an older daemon refused: it asks on

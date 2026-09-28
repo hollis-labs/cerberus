@@ -79,6 +79,19 @@ type statusReport struct {
 	Web      []statusWebApp        `json:"web"`
 	Passkeys statusPasskeys        `json:"passkeys"`
 	Grants   statusGrants          `json:"grants"`
+	// BreakGlass are the break-glass uses whose follow-up is still open: a
+	// use stays here until acknowledged (P3-5b), so it is not slept through.
+	BreakGlass []statusBreakGlass `json:"break_glass"`
+}
+
+type statusBreakGlass struct {
+	ID        string    `json:"id"`
+	Operation string    `json:"operation"`
+	Target    string    `json:"target"`
+	By        string    `json:"by"`
+	Reason    string    `json:"reason"`
+	At        time.Time `json:"at"`
+	Protected bool      `json:"protected"`
 }
 
 // statusGrants are the session and window grants usable now (P3-5): each
@@ -162,7 +175,7 @@ func gatherStatus(ctx context.Context) statusReport {
 		r.You.Note, r.Plugins.Note, r.Passkeys.Note, r.Grants.Note = err.Error(), err.Error(), err.Error(), err.Error()
 	default:
 		r.You, r.Plugins, r.Passkeys = statusFromDaemon(ctx, client)
-		r.Grants = statusOfGrants(ctx, client)
+		r.Grants, r.BreakGlass = statusOfGrants(ctx, client)
 	}
 	r.Audit = statusOfAudit()
 	r.Web = statusOfWebConsoles()
@@ -210,17 +223,23 @@ func statusFromDaemon(ctx context.Context, client statusDaemonClient) (statusYou
 	return you, plugins, passkeys
 }
 
-// statusOfGrants is the daemon's active grants.
-func statusOfGrants(ctx context.Context, client statusDaemonClient) statusGrants {
+// statusOfGrants is the daemon's active grants, and its break-glass uses
+// with an open follow-up.
+func statusOfGrants(ctx context.Context, client statusDaemonClient) (statusGrants, []statusBreakGlass) {
 	out := statusGrants{Active: []statusGrant{}}
+	glass := []statusBreakGlass{}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	list, err := client.ListApprovals(ctx)
 	if err != nil {
 		out.Note = strings.TrimSpace(err.Error())
-		return out
+		return out, glass
 	}
 	for _, a := range list.Approvals {
+		if bg := a.BreakGlass; bg != nil && bg.AckedAt.IsZero() && a.Status == approval.Consumed {
+			glass = append(glass, statusBreakGlass{ID: a.ID, Operation: a.Connector + "." + a.Operation, Target: approvalTargetName(a),
+				By: a.Principal.Kind + " via " + a.Principal.Via, Reason: bg.Reason, At: a.ConsumedAt, Protected: cerbapi.ProtectedTarget(a.Target)})
+		}
 		if !a.IsGrant() || a.Status != approval.Approved {
 			continue
 		}
@@ -231,7 +250,7 @@ func statusOfGrants(ctx context.Context, client statusDaemonClient) statusGrants
 		}
 		out.Active = append(out.Active, g)
 	}
-	return out
+	return out, glass
 }
 
 // statusDaemonClient is the daemon calls status makes.
@@ -380,6 +399,13 @@ func writeStatus(w io.Writer, r statusReport) error {
 		line("grants", "! %d active, %d on a prod, shared or not-ours target", len(r.Grants.Active), r.Grants.Protected)
 	default:
 		line("grants", "%d active", len(r.Grants.Active))
+	}
+	if len(r.BreakGlass) > 0 {
+		line("glass", "! %d break-glass use(s) to acknowledge", len(r.BreakGlass))
+	}
+	for _, g := range r.BreakGlass {
+		fmt.Fprintf(&b, "          ! %s %s on %s by %s at %s: %q (ack: cerberus approvals ack-break-glass %s)\n",
+			g.ID, g.Operation, g.Target, g.By, g.At.Local().Format("Jan 2 15:04"), g.Reason, g.ID)
 	}
 	for _, g := range r.Grants.Active {
 		mark := " "

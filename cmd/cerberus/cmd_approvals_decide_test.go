@@ -17,6 +17,12 @@ type fakeApprovals struct {
 	a       approval.Approval
 	decided []cerbapi.ApprovalDecisionArgs
 	revoked int
+	acked   []string
+}
+
+func (f *fakeApprovals) AckBreakGlass(_ context.Context, id, note string) (approval.Approval, error) {
+	f.acked = append(f.acked, id+":"+note)
+	return f.a, nil
 }
 
 func (f *fakeApprovals) GetApproval(context.Context, string) (approval.Approval, error) {
@@ -111,5 +117,24 @@ func TestOutOfBandApproveGoesToTheConsole(t *testing.T) {
 	}
 	if _, err = runApprovals(t, "", "revoke", "apr_1"); err != nil || f.revoked != 1 {
 		t.Fatalf("revoke: %v", err)
+	}
+}
+
+// A break-glass follow-up is acknowledged on a terminal, with a note, and
+// only for a break-glass use whose follow-up is open.
+func TestApprovalsAckBreakGlass(t *testing.T) {
+	f := approvalsFixture(t, true, approval.ChannelBreakGlass)
+	f.a.Status, f.a.BreakGlass = approval.Consumed, &approval.BreakGlass{Reason: "the incident", Typed: "web"}
+	out, err := runApprovals(t, "", "ack-break-glass", "apr_1", "--note", "reviewed")
+	if err != nil || len(f.acked) != 1 || f.acked[0] != "apr_1:reviewed" || !strings.Contains(out, `BREAK GLASS:  "the incident"`) {
+		t.Fatalf("ack: %v %v\n%s", err, f.acked, out)
+	}
+	f.a.BreakGlass = nil
+	if _, err := runApprovals(t, "", "ack-break-glass", "apr_1"); err == nil || len(f.acked) != 1 {
+		t.Fatalf("acknowledged a plain approval: %v", err)
+	}
+	approvalsIsTerminal = func() bool { return false }
+	if _, err := runApprovals(t, "", "ack-break-glass", "apr_1"); !errors.Is(err, errApprovalsNotInteractive) {
+		t.Fatalf("no terminal: %v", err)
 	}
 }

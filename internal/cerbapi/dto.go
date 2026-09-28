@@ -126,6 +126,22 @@ type MutationOpts struct {
 	// ConfirmedPlanHash is the plan a person confirmed on their own
 	// terminal (P3-3); only a confirm route sets it, never a request body.
 	ConfirmedPlanHash string `json:"-"`
+
+	// BreakGlass is a person breaking glass on their own call (P3-5b); only
+	// a break-glass route sets it, never a request body.
+	BreakGlass *BreakGlassRequest `json:"-"`
+}
+
+// BreakGlassRequest is what a person gives to break glass: why, and the
+// target, typed.
+type BreakGlassRequest struct {
+	Reason string `json:"reason"`
+	Typed  string `json:"typed"`
+}
+
+// WithBreakGlass sends the call as breaking glass (P3-5b).
+func WithBreakGlass(reason, typed string) MutationOption {
+	return func(o *MutationOpts) { o.BreakGlass = &BreakGlassRequest{Reason: reason, Typed: typed} }
 }
 
 // MutationOption is a functional option for a resource mutation or a

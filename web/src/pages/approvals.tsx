@@ -93,7 +93,10 @@ export function ApprovalsPage() {
                 className={`cursor-pointer border-t border-border ${a.id === selected ? 'bg-bg-soft' : ''}`}
                 onClick={() => setSelected(a.id)}
               >
-                <td className="p-2">{a.status}</td>
+                <td className="p-2">
+                  {a.break_glass && <span className="mr-1 rounded bg-red-500/15 px-1 text-xs font-bold text-red-600">BREAK GLASS</span>}
+                  {a.status}
+                </td>
                 <td className="p-2 font-mono">
                   {a.connector}.{a.operation}
                 </td>
@@ -136,6 +139,18 @@ function ApprovalDetail({ approval: a, token, onChanged }: { approval: ApprovalI
 
   return (
     <div className="mt-4 space-y-2 rounded border border-border p-4" data-testid="approval-detail">
+      {a.break_glass && (
+        <div data-testid="break-glass-banner" className="rounded border-2 border-red-500 bg-red-500/15 p-3 text-red-700">
+          <div className="text-lg font-bold tracking-wide">BREAK GLASS</div>
+          <div className="text-sm">
+            {who(a.principal)} is getting past an approval policy asks for, on a prod, shared or not-ours target. This is not an ordinary
+            approval: approving it with your passkey lets the call run once, and it stays in `cerberus status` until acknowledged.
+          </div>
+          <div className="mt-1 text-sm">
+            Reason: <span className="font-semibold">{a.break_glass.reason}</span>
+          </div>
+        </div>
+      )}
       <h2 className="text-base font-semibold">
         {a.connector}.{a.operation} on {target} — {a.status}
       </h2>

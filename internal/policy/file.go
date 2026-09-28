@@ -45,6 +45,10 @@ type File struct {
 	Providers  map[string]Provider `yaml:"providers,omitempty"`
 	Targets    []TargetBlock       `yaml:"targets,omitempty"`
 	Principals []PrincipalBlock    `yaml:"principals,omitempty"`
+
+	// BreakGlass is the rate limit on breaking glass (P3-5b); omitted, it
+	// is DefaultBreakGlassPerTarget per DefaultBreakGlassWindow.
+	BreakGlass *BreakGlass `yaml:"break_glass,omitempty"`
 }
 
 // Postures.
@@ -261,6 +265,7 @@ func (f File) Validate() []string {
 	if f.Posture != "" && f.Posture != PostureSecure && f.Posture != PosturePermissive {
 		problems = append(problems, fmt.Sprintf("posture %q is not secure or permissive", f.Posture))
 	}
+	problems = append(problems, f.BreakGlass.problems()...)
 	for i, r := range f.PostureRules {
 		if r.Posture != PostureSecure && r.Posture != PosturePermissive {
 			problems = append(problems, fmt.Sprintf("posture_rules[%d].posture %q is not secure or permissive", i, r.Posture))

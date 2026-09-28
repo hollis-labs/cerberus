@@ -325,6 +325,9 @@ func writePostureShow(w io.Writer, s policy.PostureSummary) error {
 			fmt.Fprintf(w, "  %s: %s\n", r.Match, r.Posture)
 		}
 	}
+	if s.BreakGlass.PerTarget > 0 {
+		fmt.Fprintf(w, "\nBreak glass: at most %s (break_glass in policy; change it with `cerberus policy apply`).\n", s.BreakGlass)
+	}
 	_, err := fmt.Fprintln(w, "\nNever relaxed: the audit log, credential redaction, the --ack gate, and the deny on a target labeled admin: owner.")
 	return err
 }

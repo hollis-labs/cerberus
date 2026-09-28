@@ -63,7 +63,23 @@ var pipelineRunCmd = &cobra.Command{
 		defer cancel()
 		ack, _ := cmd.Flags().GetBool("ack")
 		approvalID, _ := cmd.Flags().GetString("approval")
-		return runPipelineCommand(ctx, client, args[0], os.Stdout, cerbapi.WithAcknowledged(ack), cerbapi.WithApprovalID(approvalID))
+		opts := []cerbapi.MutationOption{cerbapi.WithAcknowledged(ack), cerbapi.WithApprovalID(approvalID)}
+		if pipelineBreakGlass.on {
+			// Break glass shows the plan and takes the typed target first.
+			shown, err := client.RunPipeline(ctx, args[0], append(append([]cerbapi.MutationOption(nil), opts...), cerbapi.WithPlan())...)
+			if err != nil {
+				return err
+			}
+			if shown == nil {
+				return errors.New("the serving Cerberus returned no plan to break glass on; nothing ran")
+			}
+			typed, err := breakGlassOnTerminal(os.Stdin, os.Stderr, shown.Plan, pipelineBreakGlass)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, cerbapi.WithBreakGlass(pipelineBreakGlass.reason, typed))
+		}
+		return runPipelineCommand(ctx, client, args[0], os.Stdout, opts...)
 	},
 }
 
@@ -212,11 +228,15 @@ func printPipelineExecution(out io.Writer, id string, result *cerbapi.PipelineEx
 	return nil
 }
 
+// pipelineBreakGlass is pipeline run's --break-glass and --reason.
+var pipelineBreakGlass breakGlassFlags
+
 func init() {
 	pipelineCmd.AddCommand(pipelineListCmd)
 	// A run is exec: a stage can be a shell action (Decision 11).
 	pipelineRunCmd.Flags().Bool("ack", false, "acknowledge the run; a pipeline stage can run shell commands, so every run requires it")
 	pipelineRunCmd.Flags().String("approval", "", "run under this approved approval id")
+	pipelineBreakGlass.register(pipelineRunCmd)
 	pipelinePlanCmd.Flags().Bool("ack", false, "plan the run as it would be sent with --ack")
 	pipelineCmd.AddCommand(pipelinePlanCmd)
 	pipelineCmd.AddCommand(pipelineRunCmd)

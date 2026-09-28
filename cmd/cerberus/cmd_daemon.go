@@ -505,6 +505,9 @@ func runDaemonBody() error {
 		cerbapi.WithInProcessLogger(logger),
 		cerbapi.WithDeploySecrets(app.ConnectorSecrets(cfgPath)),
 	)
+	// A break glass tells the operator on the desktop, as passkey
+	// enrollment does (P3-5b).
+	cerbapi.SetNotifier(func(title, message string) { go notifyOperator(title, message) })
 
 	// The approval broker (P3-1): the daemon is its one writer. A store it
 	// cannot open leaves the daemon without one, so an operation that

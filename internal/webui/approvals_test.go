@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -150,5 +151,27 @@ func TestConsolePassesOnTheDaemonsStatus(t *testing.T) {
 	d.err = errors.New("not from the daemon")
 	if rec := consolePost(h, token, "/api/approvals/apr_1/decide", `{"approve":false}`); rec.Code != http.StatusInternalServerError {
 		t.Errorf("a local error: %d", rec.Code)
+	}
+}
+
+// The console header carries a break-glass badge while a use from the last
+// day or an unacknowledged one exists, and none otherwise.
+func TestSessionCarriesTheBreakGlassBadge(t *testing.T) {
+	d, h, _ := approvalsConsole(t)
+	session := func() string {
+		rec := serve(h, newTestRequest(http.MethodGet, "/api/session", nil))
+		return rec.Body.String()
+	}
+	if body := session(); !strings.Contains(body, `"break_glass":null`) {
+		t.Fatalf("no break glass: %s", body)
+	}
+	d.a.Status, d.a.ConsumedAt = approval.Consumed, time.Now()
+	d.a.BreakGlass = &approval.BreakGlass{Reason: "the incident", Typed: "web"}
+	if body := session(); !strings.Contains(body, `"open":1`) || !strings.Contains(body, `"recent":1`) {
+		t.Fatalf("an open break glass: %s", body)
+	}
+	d.a.BreakGlass.AckedAt, d.a.ConsumedAt = time.Now(), time.Now().Add(-48*time.Hour)
+	if body := session(); !strings.Contains(body, `"break_glass":null`) {
+		t.Fatalf("an old, acknowledged break glass: %s", body)
 	}
 }

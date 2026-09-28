@@ -128,6 +128,14 @@ func writeApprovalList(w io.Writer, list cerbapi.ApprovalList, source string) er
 
 func writeApproval(w io.Writer, a approval.Approval, source string) error {
 	fmt.Fprintf(w, "Approval %s: %s\n", a.ID, a.Status)
+	if bg := a.BreakGlass; bg != nil {
+		fmt.Fprintf(w, "  BREAK GLASS:  %q (target typed: %s)\n", bg.Reason, bg.Typed)
+		if bg.AckedAt.IsZero() {
+			fmt.Fprintf(w, "  Follow-up:    open; close it with `cerberus approvals ack-break-glass %s`\n", a.ID)
+		} else {
+			fmt.Fprintf(w, "  Follow-up:    acknowledged at %s\n", bg.AckedAt.UTC().Format(time.RFC3339))
+		}
+	}
 	fmt.Fprintf(w, "  Operation:    %s.%s [%s]\n", a.Connector, a.Operation, a.Effect)
 	fmt.Fprintf(w, "  Target:       %s\n", approvalTarget(a))
 	fmt.Fprintf(w, "  Requested by: %s at %s\n", who(a.Principal.Kind, a.Principal.Via, a.Principal.Client), a.CreatedAt.UTC().Format(time.RFC3339))

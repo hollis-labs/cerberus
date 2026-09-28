@@ -155,6 +155,9 @@ type ExternalConnectorOperationArgs struct {
 	// route sets it, so a daemon that does not know confirming refuses the
 	// route instead of running the call unconfirmed.
 	ConfirmedPlanHash string `json:"-"`
+	// BreakGlass is a person breaking glass on their own call (P3-5b).
+	// Like ConfirmedPlanHash, only a break-glass route sets it.
+	BreakGlass *BreakGlassRequest `json:"-"`
 }
 
 type ExternalConnectorOperationResult struct {
@@ -260,7 +263,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	// credential resolved during this call is removed from its error.
 	ctx, scope := redact.EnsureScope(ctx)
 	if args.Plan {
-		args.DryRun, args.ApprovalID, args.ConfirmedPlanHash = true, "", ""
+		args.DryRun, args.ApprovalID, args.ConfirmedPlanHash, args.BreakGlass = true, "", "", nil
 	}
 	call, err := beginGated(ctx, s.audit, s.logger, s.auditSpec(args))
 	if err != nil {
@@ -306,7 +309,7 @@ func scopeError(scope *redact.Scope, err error) error {
 // operation declares one. It checks nothing: the gates in execute do that.
 func (s *ExternalConnectorService) auditSpec(args ExternalConnectorOperationArgs) auditSpec {
 	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun, resources: s.resources,
-		approvalID: args.ApprovalID, planOnly: args.Plan, confirmedPlanHash: args.ConfirmedPlanHash, plan: func(ctx context.Context) (plan.Plan, error) { return s.planOperation(ctx, args) }}
+		approvalID: args.ApprovalID, planOnly: args.Plan, confirmedPlanHash: args.ConfirmedPlanHash, breakGlass: args.BreakGlass, plan: func(ctx context.Context) (plan.Plan, error) { return s.planOperation(ctx, args) }}
 	if def, ok := s.definitionFor(args.Connector); ok {
 		spec.op, spec.known = def.Operation(args.Operation)
 		spec.credentials = credentialNames(def)

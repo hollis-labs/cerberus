@@ -27,6 +27,7 @@ type connectorExecFlags struct {
 	ack      bool
 	approval string
 	plan     bool
+	bg       breakGlassFlags
 }
 
 func (f *connectorExecFlags) register(cmd *cobra.Command) {
@@ -110,6 +111,7 @@ plugin, that is a call to the plugin. Arguments are given as for
 func init() {
 	connectorsExecFlags.register(connectorsExecCmd)
 	connectorsExecCmd.Flags().StringVar(&connectorsExecFlags.approval, "approval", "", "run under this approved approval id, with exactly the arguments it was approved for")
+	connectorsExecFlags.bg.register(connectorsExecCmd)
 	connectorsCmd.AddCommand(connectorsExecCmd)
 	connectorsPlanFlags.registerArgs(connectorsPlanCmd)
 	connectorsPlanCmd.Flags().BoolVar(&connectorsPlanFlags.ack, "ack", false, "plan the call as it would be sent with --ack")
@@ -152,8 +154,26 @@ func runConnectorExec(ctx context.Context, out, errOut io.Writer, stdin io.Reade
 		ApprovalID:   flags.approval,
 		Plan:         flags.plan,
 	}
+	if flags.bg.on && !flags.plan {
+		// Break glass shows the plan and takes the typed target first.
+		planArgs := args
+		planArgs.Plan, planArgs.ApprovalID = true, ""
+		shown, perr := svc.Execute(ctx, planArgs)
+		if perr != nil {
+			return perr
+		}
+		p, perr := planFrom(shown.Data)
+		if perr != nil {
+			return perr
+		}
+		typed, berr := breakGlassOnTerminal(stdin, errOut, p, flags.bg)
+		if berr != nil {
+			return berr
+		}
+		args.BreakGlass = &cerbapi.BreakGlassRequest{Reason: flags.bg.reason, Typed: typed}
+	}
 	result, err := svc.Execute(ctx, args)
-	if ref, ok := confirmable(err); ok && !flags.plan {
+	if ref, ok := confirmable(err); ok && !flags.plan && !flags.bg.on {
 		// Policy wants a person to confirm this on their own terminal: show
 		// the plan, take the typed target, send it again confirmed.
 		planArgs := args

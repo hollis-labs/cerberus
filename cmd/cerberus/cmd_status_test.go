@@ -190,7 +190,7 @@ func TestStatusPasskeysLine(t *testing.T) {
 // about one on a prod, shared or not-ours target.
 func TestStatusListsActiveGrants(t *testing.T) {
 	until := time.Date(2026, 9, 25, 12, 30, 0, 0, time.UTC)
-	grants := statusOfGrants(context.Background(), statusFakeDaemon{approvals: []approval.Approval{
+	grants, _ := statusOfGrants(context.Background(), statusFakeDaemon{approvals: []approval.Approval{
 		{ID: "apr_dev", Status: approval.Approved, Scope: approval.ScopeWindow, Connector: "local", Operation: "reload", Uses: 2, ExpiresAt: until,
 			Target: audit.Target{Kind: "local.resource", Resource: "notes-api", Env: "dev", Owner: "self", Admin: "self"}, Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio"}},
 		{ID: "apr_prod", Status: approval.Approved, Scope: approval.ScopeSession, Connector: "docker", Operation: "stop", ExpiresAt: until,
@@ -209,6 +209,29 @@ func TestStatusListsActiveGrants(t *testing.T) {
 		"! apr_prod docker.stop on api, session grant",
 		"revoke: cerberus approvals revoke apr_prod",
 	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("status lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// A break-glass use stays in status until acknowledged, with how to.
+func TestStatusKeepsBreakGlassUntilAcknowledged(t *testing.T) {
+	at := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	_, glass := statusOfGrants(context.Background(), statusFakeDaemon{approvals: []approval.Approval{
+		{ID: "apr_open", Status: approval.Consumed, Connector: "local", Operation: "stop", ConsumedAt: at,
+			Target: audit.Target{Kind: "local.resource", Resource: "web"}, Principal: audit.Principal{Kind: "human", Via: "cli"},
+			BreakGlass: &approval.BreakGlass{Reason: "the incident"}},
+		{ID: "apr_done", Status: approval.Consumed, Connector: "local", Operation: "stop",
+			BreakGlass: &approval.BreakGlass{Reason: "old", AckedAt: at}},
+		{ID: "apr_pending", Status: approval.Pending, Connector: "local", Operation: "stop", BreakGlass: &approval.BreakGlass{Reason: "asked"}},
+	}})
+	if len(glass) != 1 || glass[0].ID != "apr_open" {
+		t.Fatalf("break glass %+v", glass)
+	}
+	var out bytes.Buffer
+	_ = writeStatus(&out, statusReport{Posture: policy.PostureSummary{Global: policy.PostureSecure}, BreakGlass: glass})
+	for _, want := range []string{"glass    ! 1 break-glass use(s) to acknowledge", `local.stop on web by human via cli`, `"the incident"`, "ack: cerberus approvals ack-break-glass apr_open"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status lacks %q:\n%s", want, out.String())
 		}
