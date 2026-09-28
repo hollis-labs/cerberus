@@ -7,10 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -255,101 +253,6 @@ func writeFlips(w io.Writer, flips []policy.Flip) {
 	_ = tw.Flush()
 }
 
-var policyReportFlags struct{ since, until, output string }
-
-var policyReportCmd = &cobra.Command{
-	Use:   "report",
-	Short: "Summarize what policy would block, from the audit log",
-	Long: `Summarize the operations policy would have blocked, from the decisions shadow
-mode recorded in the audit log: grouped by operation, target, principal kind
-and the rule that decided, most frequent first. This is the list to work
-through — label targets, write rules, or change how things are called —
-before enforcement is turned on.`,
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		since, err := parseAuditTime(policyReportFlags.since)
-		if err != nil {
-			return fmt.Errorf("--since: %w", err)
-		}
-		until, err := parseAuditTime(policyReportFlags.until)
-		if err != nil {
-			return fmt.Errorf("--until: %w", err)
-		}
-		recs, err := readAuditRecords()
-		if err != nil {
-			return err
-		}
-		rows, total, decided := policyReport(recs, since, until)
-		if policyReportFlags.output == outputFormatJSON {
-			return printJSON(map[string]any{"decided": decided, "would_block": total, "groups": rows})
-		}
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "%d of %d recorded decision(s) would be blocked once enforced.\n", total, decided)
-		if len(rows) == 0 {
-			return nil
-		}
-		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "COUNT\tOPERATION\tTARGET\tPRINCIPAL\tDECISION\tRULE\tLAST")
-		for _, r := range rows {
-			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Count, r.Operation, r.Target, r.Principal, r.Decision, r.Rule, r.Last.UTC().Format(time.RFC3339))
-		}
-		return tw.Flush()
-	},
-}
-
-// reportRow is one group of would-block decisions.
-type reportRow struct {
-	Operation string    `json:"operation"`
-	Target    string    `json:"target"`
-	Principal string    `json:"principal"`
-	Decision  string    `json:"decision"`
-	Rule      string    `json:"rule"`
-	Count     int       `json:"count"`
-	Last      time.Time `json:"last"`
-}
-
-// policyReport groups the intents whose recorded decision would block.
-func policyReport(recs []audit.Record, since, until time.Time) ([]reportRow, int, int) {
-	groups := map[string]*reportRow{}
-	total, decided := 0, 0
-	for _, rec := range recs {
-		if rec.Kind != audit.KindIntent || rec.Policy == nil {
-			continue
-		}
-		if (!since.IsZero() && rec.Time.Before(since)) || (!until.IsZero() && !rec.Time.Before(until)) {
-			continue
-		}
-		decided++
-		if !rec.Policy.WouldBlock {
-			continue
-		}
-		total++
-		row := reportRow{Operation: rec.Connector + "." + rec.Operation, Target: recordTarget(rec.Target), Principal: rec.Principal.Kind,
-			Decision: rec.Policy.Decision, Rule: decidingRule(rec.Policy)}
-		key := strings.Join([]string{row.Operation, row.Target, row.Principal, row.Decision, row.Rule}, "|")
-		g, ok := groups[key]
-		if !ok {
-			g = &row
-			groups[key] = g
-		}
-		g.Count++
-		if rec.Time.After(g.Last) {
-			g.Last = rec.Time
-		}
-	}
-	rows := make([]reportRow, 0, len(groups))
-	for _, g := range groups {
-		rows = append(rows, *g)
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].Count != rows[j].Count {
-			return rows[i].Count > rows[j].Count
-		}
-		return rows[i].Operation < rows[j].Operation
-	})
-	return rows, total, decided
-}
-
 // decidingRule is the first matched rule with the decision's own value.
 func decidingRule(p *audit.PolicyDecision) string {
 	for _, m := range p.MatchedRules {
@@ -457,9 +360,6 @@ func init() {
 	f.BoolVar(&policyExplainFlags.adhoc, "adhoc", false, "evaluate a target named by connection settings rather than a registered resource")
 	f.BoolVar(&policyExplainFlags.working, "working", false, "evaluate the working files instead of the applied snapshot")
 	addOutputFlag(policyExplainCmd, &policyExplainFlags.output)
-	policyReportCmd.Flags().StringVar(&policyReportFlags.since, "since", "", "decisions at or after this date or time")
-	policyReportCmd.Flags().StringVar(&policyReportFlags.until, "until", "", "decisions before this date or time")
-	addOutputFlag(policyReportCmd, &policyReportFlags.output)
 	policyCmd.AddCommand(policyExplainCmd, policyApplyCmd, policyReportCmd)
 	rootCmd.AddCommand(policyCmd)
 }

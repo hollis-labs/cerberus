@@ -103,6 +103,7 @@ cerberus policy explain local.deploy --target notes-api            # as this ter
 cerberus policy explain docker.stop --adhoc --as agent --working   # against your unapplied files
 cerberus policy apply                                              # interactive
 cerberus policy report --since 2026-09-01                          # what would be blocked
+cerberus policy report --scope principal=agent,env=prod            # ...within one enforcement scope
 ```
 
 - **`explain`** prints the decision and every rule that matched. It uses
@@ -114,9 +115,23 @@ cerberus policy report --since 2026-09-01                          # what would 
   the confirmation. It writes `applied.yaml` and its hash, `applied.sha256`,
   and records the apply in the audit log. Policy never changes through the
   socket, the web console or MCP.
-- **`report`** summarizes the recorded decisions that would be blocked,
-  grouped by operation, target, caller and deciding rule. This is the list to
-  work through before enforcement.
+- **`report`** summarizes the recorded decisions that would be blocked. This
+  is the list to work through before enforcement, and the data for choosing
+  what to enforce first.
+  - Each decision is made again under the policy applied now, and one the
+    current policy no longer blocks is counted apart.
+  - Decisions are grouped by deciding rule, caller kind and target, and each
+    group lists its operations.
+  - Each group names the approval it would need and its channel: a
+    confirmation on your terminal, or out of band with a passkey. It also
+    says whether that channel is ready. Out of band needs the daemon and an
+    enrolled passkey outside a cool-down. An agent's terminal approval needs
+    the daemon to hold it. A rule asking for two approvers can't be met yet.
+    The report flags every decision that enforcing now would refuse with no
+    way to approve.
+  - `--scope` narrows the report to what one enforcement scope would cover,
+    with comma-separated `key=value` terms: `principal`, `env`, `effect`,
+    `connector`, `target` and `rule`.
 
 ## The snapshot is checked
 
