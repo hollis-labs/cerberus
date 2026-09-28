@@ -129,9 +129,16 @@ python3 docs/catalog/add_record.py add record.json  # allocate, insert, write; p
 python3 docs/catalog/add_record.py resolve          # during a rebase or merge conflict
 python3 docs/catalog/add_record.py sync             # capability bodies from systems/*.md
 python3 docs/catalog/add_record.py sort             # canonical order
+python3 docs/catalog/add_record.py check            # a number held by two ids (validate.py runs it)
+python3 docs/catalog/add_record.py renumber <id>    # give your record a free number
 python3 docs/catalog/test_add_record.py             # its tests, against real git repos
 ```
 
+- **One id per number.** A number belongs to one id whatever its class, so
+  `CERB-GAP-890` beside `CERB-DEC-890` is a collision. Git can't see it: the
+  two land in different class blocks and merge cleanly, so `resolve` never
+  runs. `validate.py` refuses it, and `check` names the `renumber` that fixes
+  your side. Only 820–822 predate the rule and are grandfathered.
 - **Canonical order.** Records are sorted by class (capability, decision, gap,
   tool), then by number, and `validate.py` refuses any other order. A new gap
   lands at the end of the gap block and a new tool at the end of the tool

@@ -6,6 +6,8 @@ editing it too.
     python3 docs/catalog/add_record.py resolve           # settle a merge/rebase conflict
     python3 docs/catalog/add_record.py sort              # put records in canonical order
     python3 docs/catalog/add_record.py sync              # capability bodies from systems/*.md
+    python3 docs/catalog/add_record.py check             # fail on a number two ids share
+    python3 docs/catalog/add_record.py renumber <id>     # give one of your records a free number
 
 Why it exists: more than one agent writes catalog records at once. Ids are
 numbered globally across classes, so two branches that each take "the next
@@ -24,6 +26,13 @@ Two rules fix that:
     checkout *and* on origin/main (fetched first), so run it after rebasing
     onto current main, just before you push. When two branches still take
     the same number, `resolve` renumbers yours.
+
+A number belongs to one id, whatever its class: CERB-GAP-890 beside
+CERB-DEC-890 is a collision. Canonical order hides one from git, because the
+two land in different class blocks and merge without a conflict, so `resolve`
+never runs. `check`, which validate.py runs too, is the net: it names the
+shared numbers, and for each id not on origin/main, the `renumber` that frees
+it. 820–822 predate the rule and are grandfathered.
 
 `resolve` is for a conflict in catalog.json during `git rebase` or
 `git merge`. It reads the three versions git staged — the merge base, the
@@ -55,6 +64,9 @@ REL = "docs/catalog/catalog.json"
 CLASS_ORDER = ["capability", "decision", "gap", "tool"]
 PREFIX = {"capability": "CAP", "tool": "TOOL", "gap": "GAP", "decision": "DEC"}
 ID_RE = re.compile(r"^CERB-([A-Z]+)-(\d+)$")
+
+# Numbers two ids shared before the global-number rule was enforced.
+GRANDFATHERED = {820, 821, 822}
 
 
 def die(msg):
@@ -177,6 +189,62 @@ def cmd_add(args):
     print(rec["id"])
 
 
+def shared_numbers(records):
+    """The numbers more than one id holds, grandfathered ones aside, as
+    {number: [ids]}."""
+    held = {}
+    for rec in records:
+        n = number(rec.get("id"))
+        if n is not None and n not in GRANDFATHERED:
+            held.setdefault(n, set()).add(rec["id"])
+    return {n: sorted(ids) for n, ids in sorted(held.items()) if len(ids) > 1}
+
+
+def cmd_check(args):
+    shared = shared_numbers(read_local()["records"])
+    if not shared:
+        print("every number belongs to one id")
+        return
+    upstream = main_catalog("--no-fetch" not in args)
+    on_main = {r["id"] for r in upstream["records"]} if upstream else set()
+    lines = []
+    for n, ids in shared.items():
+        mine = [i for i in ids if i not in on_main]
+        fix = "; ".join(f"python3 docs/catalog/add_record.py renumber {i}" for i in mine) or "both are on origin/main: renumber one by hand"
+        lines.append(f"  {n} is held by {', '.join(ids)} -> {fix}")
+    die("a number belongs to one id, whatever its class:\n" + "\n".join(lines))
+
+
+def cmd_renumber(args):
+    ids = [a for a in args if not a.startswith("--")]
+    if len(ids) != 1:
+        die("usage: add_record.py renumber <id> [--no-fetch]")
+    old = ids[0]
+    doc = read_local()
+    rec = next((r for r in doc["records"] if r.get("id") == old), None)
+    if rec is None:
+        die(f"no record {old}")
+    if rec.get("class") == "capability":
+        die("a capability's id is in its systems/*.md frontmatter: change it there and in the record by hand")
+    upstream = main_catalog("--no-fetch" not in args)
+    if upstream and any(r.get("id") == old for r in upstream["records"]):
+        die(f"{old} is on origin/main; renumber the record your branch added instead")
+    new = f"CERB-{PREFIX[rec['class']]}-{next_free(doc, upstream)}"
+    # Every reference in the catalog and the systems documents follows,
+    # matched as a whole id so CERB-GAP-89 never touches CERB-GAP-890.
+    pattern = re.compile(re.escape(old) + r"(?!\d)")
+    doc = load(pattern.sub(new, json.dumps(doc, ensure_ascii=False)))
+    write(doc)
+    for path in glob.glob(os.path.join(SYSTEMS, "*.md")):
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        if pattern.search(text):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(pattern.sub(new, text))
+            print(f"renumbered references in {os.path.relpath(path, HERE)}")
+    print(f"renumbered {old} -> {new}: fix any code, commit message or PR description that names {old}")
+
+
 def cmd_sort(_):
     doc = read_local()
     write(doc)
@@ -278,7 +346,8 @@ def cmd_resolve(_):
     print("catalog.json resolved and staged; run python3 docs/catalog/validate.py")
 
 
-COMMANDS = {"add": cmd_add, "resolve": cmd_resolve, "sort": cmd_sort, "sync": cmd_sync}
+COMMANDS = {"add": cmd_add, "resolve": cmd_resolve, "sort": cmd_sort, "sync": cmd_sync,
+            "check": cmd_check, "--check": cmd_check, "renumber": cmd_renumber}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
