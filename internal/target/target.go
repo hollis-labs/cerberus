@@ -280,6 +280,15 @@ type ResourceLabels struct {
 	Labels
 }
 
+// ValidEnv is whether v is an env label: one of Envs, unknown included.
+// Policy matches validate against it, so a typo fails instead of matching
+// nothing.
+func ValidEnv(v string) bool { return validEnv(Env(v)) }
+
+// ValidAdmin is whether v is an admin value a target can resolve to, unknown
+// included.
+func ValidAdmin(v string) bool { return v == AdminUnknown || validAdmin(v) }
+
 func validEnv(e Env) bool {
 	for _, known := range Envs {
 		if e == known {

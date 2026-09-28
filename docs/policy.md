@@ -108,6 +108,13 @@ cerberus policy report --scope principal=agent,env=prod            # ...within o
 
 - **`explain`** prints the decision and every rule that matched. It uses
   the applied snapshot, or the working files with `--working`.
+- **Every policy file is read strictly.** An unknown key is an error, and so
+  is a value outside its vocabulary: decision, effect, principal kind,
+  approval channel and scope, `env` and `admin` in a match, posture, and
+  grants. A typo can't silently widen or weaken a rule. A misspelled `ops`
+  on an allow rule, read loosely, would allow every operation. `apply` and
+  `explain --working` report the problem, and an applied snapshot that fails
+  to read falls back to the baseline.
 - **`apply`** runs only from an interactive terminal. It samples every
   declared operation, against every registered resource of its connector
   plus an unregistered and an ad hoc target, for a human, an agent and
