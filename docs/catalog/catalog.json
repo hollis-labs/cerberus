@@ -16911,17 +16911,17 @@
     },
     {
       "namespace": "cerberus",
-      "last_reviewed": "2026-09-25",
+      "last_reviewed": "2026-09-28",
       "created_at": "2026-09-25",
       "review_status": "draft",
       "locus": "core",
       "class": "gap",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "name": "An MCP client that connects and expects list_changed at once can miss the first one",
-      "summary": "The go-sdk client sends subscriptions/listen without waiting for it, so Connect returns before the server has registered the subscription, and a tools/list_changed sent in that window reaches no one.",
+      "summary": "The go-sdk client does not wait for its subscriptions/listen, so a tools/list_changed sent between Connect and the server registering the subscription reached no one; Cerberus's MCP server now sends each session a list_changed right after acknowledging its subscription, so the client lists again and sees what it missed.",
       "confidence_score": 0.8,
-      "confidence_label": "read in go-sdk v1.8.0 (callSubscriptionsListen, Server.notifySessions) and reproduced as the TestPluginToolSyncFollowsTheDaemon flake (#116)",
+      "confidence_label": "TestSubscribingClientIsToldToListAgain and TestAcknowledgedSubscriptionIsAnnounced, with a real go-sdk client over in-memory transports",
       "tags": [
         "cerberus",
         "class:gap",
@@ -16931,7 +16931,7 @@
         "locus:core",
         "priority:nice-to-have"
       ],
-      "pointer_locator": "internal/mcp/plugin_tools.go",
+      "pointer_locator": "internal/mcp/server_alias.go",
       "relationships": [
         {
           "type": "relates_to",
@@ -16943,10 +16943,10 @@
         "capability": "CERB-CAP-402",
         "priority": "nice-to-have",
         "blocked_by": [],
-        "unlocks_when": "go-sdk makes Connect wait for the subscription's acknowledgment, or Cerberus re-announces the tool list once a session's subscription is acknowledged",
+        "unlocks_when": "Closed: announceToolsOnSubscribe, a sending middleware on every Cerberus MCP server.",
         "effort": "small"
       },
-      "body": "Under the SEP-2575 protocol a server sends `notifications/tools/list_changed` only to sessions with an active `subscriptions/listen` stream (`Server.notifySessions`). The go-sdk v1.8.0 client opens that stream fire-and-forget (`callSubscriptionsListen`) and returns from `Connect`, so there is a window in which the server has the session but not its subscription. A tool-list change in that window, such as `PluginToolSync.Reconcile` exposing a plugin operation just after a client connects, notifies nobody, and the client keeps the list it fetched until something else changes it.\n\nIt showed as a test flake under load (#116), fixed in the test by waiting for the server's `notifications/subscriptions/acknowledged`. A real client is exposed only if it lists tools, and a change lands, inside that window; it gets the change on its next list or the next notification. Cerberus cannot close it from the server side without re-announcing after each acknowledgment.",
+      "body": "Under the SEP-2575 protocol a server sends `notifications/tools/list_changed` only to sessions with an active `subscriptions/listen` stream (`Server.notifySessions`). The go-sdk v1.8.0 client opens that stream fire-and-forget (`callSubscriptionsListen`) and returns from `Connect`, so there is a window in which the server has the session but not its subscription. A tool-list change in that window, such as `PluginToolSync.Reconcile` exposing a plugin operation just after a client connects, notifies nobody, and the client keeps the list it fetched until something else changes it.\n\nIt showed as a test flake under load (#116), fixed in the test by waiting for the server's `notifications/subscriptions/acknowledged`. A real client is exposed only if it lists tools, and a change lands, inside that window; it gets the change on its next list or the next notification. Cerberus cannot close it from the server side without re-announcing after each acknowledgment.\n\n## Since the fix\n\n`mcp.NewServer` installs `announceToolsOnSubscribe` as sending middleware, so it covers every Cerberus MCP server: the daemon's stdio server, `cerberus mcp` and `mcp-http`. The server sends `notifications/subscriptions/acknowledged` only after registering the session's subscription. When that acknowledgment opts in to tool-list changes, the middleware follows it with one `notifications/tools/list_changed` to that session, carrying the subscription id the client demultiplexes on. A client that connected just before a change therefore lists again once it can be told, and sees the change. The cost is one extra list per connecting client. Legacy sessions, which predate subscriptions, were never in the window. The #116 test's wait for the acknowledgment stays, as belt and braces.",
       "id": "CERB-GAP-888"
     },
     {

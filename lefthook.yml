@@ -66,3 +66,11 @@ pre-push:
       glob: "*.go"
       skip_empty: true
       run: go test ./...
+
+    catalog-tools-test:
+      # The catalog's own tooling (add_record.py, validate.py) against real
+      # git repositories in a temp dir. Its git calls drop the hook's GIT_*
+      # variables, so a push never gains the tests' commits. ~4s.
+      glob: "docs/catalog/*.py"
+      skip_empty: true
+      run: python3 docs/catalog/test_add_record.py
