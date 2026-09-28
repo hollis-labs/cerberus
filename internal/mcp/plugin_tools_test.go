@@ -368,3 +368,77 @@ func TestPluginToolSyncFollowsTheDaemon(t *testing.T) {
 		t.Fatalf("an unloaded plugin's tools are still listed: %v", got)
 	}
 }
+
+// A client told of changes is told once more as soon as its subscription
+// is acknowledged (CERB-GAP-888): the go-sdk client does not wait for the
+// subscription, so a change made between Connect and it would otherwise
+// reach no one. Here nothing changes, and the client still hears, and a
+// tool exposed before it could have subscribed is in the list it takes.
+func TestSubscribingClientIsToldToListAgain(t *testing.T) {
+	daemon := newPluginDaemon(true, "list_things")
+	srv := NewServer("cerberus", "test")
+	static := NewCerberusHealthTool(fakeSocketProgressClient{})
+	srv.RegisterTool(static)
+	syncer := NewPluginToolSync(srv, daemon, map[string]bool{static.Name: true}, nil)
+
+	changed := make(chan struct{}, 8)
+	serverT, clientT := mcpsdk.NewInMemoryTransports()
+	ss, err := srv.SDKServer().Connect(context.Background(), serverT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, &mcpsdk.ClientOptions{
+		ToolListChangedHandler: func(context.Context, *mcpsdk.ToolListChangedRequest) { changed <- struct{}{} },
+	}).Connect(context.Background(), clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	// Straight after Connect, without waiting: the window the client left.
+	if err = syncer.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the subscribing client was never told to list again")
+	}
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tool := range res.Tools {
+		names = append(names, tool.Name)
+	}
+	if !strings.Contains(strings.Join(names, ","), "cerberus_demo_list_things") {
+		t.Fatalf("listed %v", names)
+	}
+}
+
+// Even with nothing to change, the acknowledgment is followed by one
+// list_changed for that session.
+func TestAcknowledgedSubscriptionIsAnnounced(t *testing.T) {
+	srv := NewServer("cerberus", "test")
+	srv.RegisterTool(NewCerberusHealthTool(fakeSocketProgressClient{}))
+	changed := make(chan struct{}, 8)
+	serverT, clientT := mcpsdk.NewInMemoryTransports()
+	ss, err := srv.SDKServer().Connect(context.Background(), serverT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ss.Close() })
+	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "0"}, &mcpsdk.ClientOptions{
+		ToolListChangedHandler: func(context.Context, *mcpsdk.ToolListChangedRequest) { changed <- struct{}{} },
+	}).Connect(context.Background(), clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no list_changed after the subscription was acknowledged")
+	}
+}

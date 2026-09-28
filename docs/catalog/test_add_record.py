@@ -8,6 +8,12 @@ import json, os, shutil, subprocess, sys, tempfile, unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL = os.path.join(HERE, "add_record.py")
 
+# A git hook runs these tests with GIT_DIR, GIT_INDEX_FILE and friends set
+# for the repository being pushed. Inherited, they would point every git
+# call here at that repository instead of the temp one, committing test
+# records into it. Every subprocess gets the environment without them.
+CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
 
 def rec(rid, cls, **extra):
     r = {"id": rid, "class": cls, "name": rid, "body": extra.pop("body", ""), "relationships": extra.pop("relationships", [])}
@@ -26,13 +32,13 @@ class Repo:
         self.git("config", "user.name", "t")
 
     def git(self, *args, ok=True):
-        out = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True)
+        out = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, env=CLEAN_ENV)
         if ok and out.returncode != 0:
             raise AssertionError(f"git {args}: {out.stdout}{out.stderr}")
         return out
 
     def tool(self, *args):
-        return subprocess.run([sys.executable, os.path.join(self.cat, "add_record.py"), *args], cwd=self.root, capture_output=True, text=True)
+        return subprocess.run([sys.executable, os.path.join(self.cat, "add_record.py"), *args], cwd=self.root, capture_output=True, text=True, env=CLEAN_ENV)
 
     def write_catalog(self, records):
         with open(os.path.join(self.cat, "catalog.json"), "w", encoding="utf-8") as f:
@@ -60,6 +66,22 @@ BASE = [rec("CERB-CAP-100", "capability"), rec("CERB-DEC-200", "decision"), rec(
 
 
 class AddRecordTest(unittest.TestCase):
+    def test_a_hook_environment_does_not_reach_the_pushed_repository(self):
+        # Run one test the way a pre-push hook runs the suite: with GIT_DIR
+        # naming the repository being pushed. It must commit into its own
+        # temp repository, never that one.
+        sentinel = tempfile.mkdtemp(prefix="pushed-")
+        try:
+            subprocess.run(["git", "init", "-q", "-b", "main", sentinel], check=True, capture_output=True, env=CLEAN_ENV)
+            env = dict(CLEAN_ENV, GIT_DIR=os.path.join(sentinel, ".git"), GIT_WORK_TREE=sentinel)
+            out = subprocess.run([sys.executable, os.path.abspath(__file__), "AddRecordTest.test_different_classes_merge_without_a_conflict"],
+                                 capture_output=True, text=True, env=env)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            log = subprocess.run(["git", "-C", sentinel, "log", "--oneline"], capture_output=True, text=True, env=CLEAN_ENV)
+            self.assertEqual(log.stdout.strip(), "", "the test committed into the repository the hook named")
+        finally:
+            shutil.rmtree(sentinel)
+
     def setUp(self):
         self.r = Repo()
         self.r.write_catalog(list(BASE))
@@ -115,7 +137,7 @@ class AddRecordTest(unittest.TestCase):
         self.assertIn("See CERB-GAP-403.", self.r.read("systems/web.md"))
         self.assertIn("See CERB-GAP-403.", by_id["CERB-CAP-100"]["body"])
         self.r.git("add", "-A")
-        env = dict(os.environ, GIT_EDITOR="true")
+        env = dict(CLEAN_ENV, GIT_EDITOR="true")
         done = subprocess.run(["git", "rebase", "--continue"], cwd=self.r.root, capture_output=True, text=True, env=env)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
