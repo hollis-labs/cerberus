@@ -39,6 +39,11 @@ const (
 	KindApprovalExpired   = "approval_expired"
 	KindApprovalConsumed  = "approval_consumed"
 	KindApprovalRevoked   = "approval_revoked"
+	// Grants (P3-5): a session or window approval given, used by a call,
+	// and withdrawn.
+	KindGrantCreated = "grant_created"
+	KindGrantUsed    = "grant_used"
+	KindGrantRevoked = "grant_revoked"
 	// KindEnrollmentChanged is a change to the passkeys out-of-band
 	// approvals are verified against (P3-4): a key enrolled or removed, a
 	// registry changed outside Cerberus (which starts the cool-down), or a
@@ -261,4 +266,10 @@ type ApprovalRef struct {
 	// enrolled key when it was out of band.
 	DecidedBy      *Principal `json:"decided_by,omitempty"`
 	KeyFingerprint string     `json:"key_fingerprint,omitempty"`
+	// Uses is a grant's count of uses, with this one.
+	Uses int `json:"uses,omitempty"`
+	// GrantOnProtectedTarget marks the use of a session or window grant on
+	// a prod, shared, not-ours or unlabeled target: policy allowed it, and
+	// it is loud (P3-5, D5).
+	GrantOnProtectedTarget bool `json:"grant_on_protected_target,omitempty"`
 }

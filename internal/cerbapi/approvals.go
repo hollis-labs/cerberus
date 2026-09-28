@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -82,6 +83,9 @@ func (b *Broker) Decide(ctx context.Context, id string, d approval.Decision) (ap
 		return a, err
 	}
 	b.record(ctx, audit.KindApprovalDecided, a, "")
+	if d.Approve && a.IsGrant() {
+		b.record(ctx, audit.KindGrantCreated, a, "")
+	}
 	return a, nil
 }
 
@@ -93,8 +97,36 @@ func (b *Broker) Consume(ctx context.Context, id string, check approval.ConsumeC
 	if err != nil {
 		return a, err
 	}
+	if a.IsGrant() {
+		// Named by id, a grant is used, not spent.
+		b.recordUse(ctx, a, check.OperationID)
+		return a, nil
+	}
 	b.record(ctx, audit.KindApprovalConsumed, a, check.OperationID)
 	return a, nil
+}
+
+// UseGrant uses the active grant that covers the call, if one does
+// (approval.ErrNotFound when none does), recorded as grant_used.
+func (b *Broker) UseGrant(ctx context.Context, check approval.GrantCheck) (approval.Approval, error) {
+	a, err := b.store.UseGrant(check, b.verifier)
+	if err != nil {
+		return a, err
+	}
+	b.recordUse(ctx, a, check.OperationID)
+	return a, nil
+}
+
+// ActiveGrants are the grants usable now.
+func (b *Broker) ActiveGrants() []approval.Approval { return b.store.ActiveGrants() }
+
+// recordUse is a grant's grant_used record, marked when it is on a
+// protected target.
+func (b *Broker) recordUse(ctx context.Context, a approval.Approval, operationID string) {
+	b.recordWith(ctx, audit.KindGrantUsed, a, operationID, func(ref *audit.ApprovalRef) {
+		ref.Uses = a.Uses
+		ref.GrantOnProtectedTarget = protectedTarget(auditTargetLabels(a.Target))
+	})
 }
 
 // Revoke withdraws an approved approval.
@@ -103,7 +135,11 @@ func (b *Broker) Revoke(ctx context.Context, id string, by approval.Decision) (a
 	if err != nil {
 		return a, err
 	}
-	b.record(ctx, audit.KindApprovalRevoked, a, "")
+	kind := audit.KindApprovalRevoked
+	if a.IsGrant() {
+		kind = audit.KindGrantRevoked
+	}
+	b.record(ctx, kind, a, "")
 	return a, nil
 }
 
@@ -136,10 +172,17 @@ func (b *Broker) RunSweeper(ctx context.Context, interval time.Duration) {
 // store is written first; a failure here is logged loudly, and the missing
 // record shows as a store event with no audit record.
 func (b *Broker) record(ctx context.Context, kind string, a approval.Approval, operationID string) {
+	b.recordWith(ctx, kind, a, operationID, nil)
+}
+
+func (b *Broker) recordWith(ctx context.Context, kind string, a approval.Approval, operationID string, with func(*audit.ApprovalRef)) {
 	ref := &audit.ApprovalRef{ID: a.ID, Status: string(a.Status), Channel: a.Channel, Scope: a.Scope, Rule: a.Rule, PlanHash: a.PlanHash, ExpiresAt: a.ExpiresAt}
 	if a.Decision != nil {
 		by := a.Decision.By
 		ref.DecidedBy, ref.KeyFingerprint = &by, a.Decision.KeyFingerprint
+	}
+	if with != nil {
+		with(ref)
 	}
 	rec := audit.Record{Kind: kind, OperationID: operationID, Principal: principalFor(ctx, auditSpec{}), Connector: a.Connector,
 		Operation: a.Operation, Effect: a.Effect, Target: a.Target, ArgsDigest: a.ArgsDigest, Approval: ref, Posture: audit.PostureSecure}
@@ -252,6 +295,9 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 		if spec.approvalID != "" {
 			return consumeApproval(ctx, call, spec)
 		}
+		if used, err := useGrant(ctx, call, spec, req, res); used || err != nil {
+			return err
+		}
 		return requestApproval(ctx, call, spec, req, res)
 	case policy.Deny:
 	}
@@ -312,6 +358,33 @@ func specPlanHash(ctx context.Context, spec auditSpec) (string, error) {
 	return p.Hash()
 }
 
+// useGrant runs the call under an active grant that covers it (P3-5), and
+// reports whether one did. A grant is looked for only when policy as it
+// reads now still asks for a grant (session or window): a rule narrowed
+// to once, or to out of band where the grant was met on a terminal, is
+// not covered by the grant it gave before. It never widens a deny: only
+// the approve branch calls it.
+func useGrant(ctx context.Context, call *auditCall, spec auditSpec, req policy.Request, res policy.Result) (bool, error) {
+	broker := ProcessBroker()
+	if broker == nil {
+		return false, nil
+	}
+	channel, scope, _ := approvalTerms(req.Target, res)
+	if scope != approval.ScopeSession && scope != approval.ScopeWindow {
+		return false, nil
+	}
+	a, err := broker.UseGrant(ctx, approval.GrantCheck{Connector: spec.connector, Operation: spec.operation, Target: call.intent.Target,
+		Principal: call.intent.Principal, OperationID: call.intent.OperationID, RequireOutOfBand: channel == approval.ChannelOutOfBand})
+	switch {
+	case errors.Is(err, approval.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return true, consumeRefusal(ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}, a.ID, a, err)
+	}
+	call.intent.ApprovalID = a.ID
+	return true, nil
+}
+
 // consumeApproval spends the call's approval, write-ahead, after
 // recomputing its plan the same way it was computed when the approval was
 // asked for (I6). What the call runs under is written on its records: the
@@ -328,7 +401,7 @@ func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec) error
 		return externalConnectorError(args, ExternalConnectorPlanStale,
 			redact.GuidanceWrap(err, "approval %s cannot be checked against the plan, which could not be computed now, so nothing ran", spec.approvalID))
 	}
-	a, err := broker.Consume(ctx, spec.approvalID, approval.ConsumeCheck{Connector: spec.connector, Operation: spec.operation, Principal: call.intent.Principal,
+	a, err := broker.Consume(ctx, spec.approvalID, approval.ConsumeCheck{Connector: spec.connector, Operation: spec.operation, Principal: call.intent.Principal, Target: call.intent.Target,
 		ArgsDigest: call.intent.ArgsDigest, PlanHash: planHash, OperationID: call.intent.OperationID})
 	if err != nil {
 		return consumeRefusal(args, spec.approvalID, a, err)
@@ -347,6 +420,9 @@ func consumeRefusal(args ExternalConnectorOperationArgs, id string, a approval.A
 	case errors.Is(err, approval.ErrArgsMismatch):
 		return externalConnectorError(args, ExternalConnectorPlanStale,
 			redact.Guidance("approval %s was for other arguments; resend exactly the arguments that were approved, or retry without the approval id to ask again", a.ID))
+	case errors.Is(err, approval.ErrOtherTarget):
+		return externalConnectorError(args, ExternalConnectorPlanStale,
+			redact.Guidance("approval %s is a grant for another target; nothing ran. Retry without the approval id to ask for this one", a.ID))
 	case errors.Is(err, approval.ErrOtherOperation):
 		return externalConnectorError(args, ExternalConnectorPlanStale,
 			redact.Guidance("approval %s is for %s %s, not this operation; nothing ran", a.ID, a.Connector, a.Operation))
@@ -388,12 +464,26 @@ func approvalTerms(t target.Target, res policy.Result) (channel, scope string, t
 			ttl = m.Approval.TTL
 		}
 	}
-	protected := t.Env == target.EnvProd || t.Env == target.EnvUnknown || t.Env == "" ||
-		t.AdminFor == target.AdminShared || (t.Owner != target.OwnerSelf)
-	if protected {
+	if protectedTarget(t) {
 		channel = approval.ChannelOutOfBand
 	}
 	return channel, scope, ttl
+}
+
+// protectedTarget is a prod, shared or not-ours target, or one whose labels
+// are unknown (Decision 3): out of band, and a grant on it is loud.
+func protectedTarget(t target.Target) bool {
+	return t.Env == target.EnvProd || t.Env == target.EnvUnknown || t.Env == "" ||
+		t.AdminFor == target.AdminShared || (t.Owner != target.OwnerSelf)
+}
+
+// ProtectedTarget reports a recorded target that is prod, shared, not ours
+// or unlabeled: where a grant is loud.
+func ProtectedTarget(t audit.Target) bool { return protectedTarget(auditTargetLabels(t)) }
+
+// auditTargetLabels is a recorded target's labels, for protectedTarget.
+func auditTargetLabels(t audit.Target) target.Target {
+	return target.Target{Labels: target.Labels{Env: target.Env(t.Env), Owner: t.Owner}, AdminFor: t.Admin}
 }
 
 // ApprovalRef is the machine-readable half of approval_pending: which
@@ -410,9 +500,15 @@ type ApprovalRef struct {
 // approvalPendingError is approval_pending for a, as Guidance: every part of
 // it is Cerberus's own.
 func approvalPendingError(args ExternalConnectorOperationArgs, a approval.Approval) error {
+	grant := ""
+	if a.IsGrant() {
+		// Once approved, a grant covers the same operation on this target by
+		// this caller for its TTL, with no approval id needed.
+		grant = fmt.Sprintf("; it is a %s grant, good for %s once approved", a.Scope, a.TTL)
+	}
 	err := externalConnectorError(args, ExternalConnectorApprovalPending,
-		redact.Guidance("%s %s needs approval (%s, rule %s): approval %s is pending until %s; decide it with `%s`, then retry with the approval id",
-			args.Connector, args.Operation, a.Channel, a.Rule, a.ID, a.ExpiresAt.UTC().Format(time.RFC3339), a.ApproveWith()))
+		redact.Guidance("%s %s needs approval (%s, rule %s): approval %s is pending until %s%s; decide it with `%s`, then retry with the approval id",
+			args.Connector, args.Operation, a.Channel, a.Rule, a.ID, a.ExpiresAt.UTC().Format(time.RFC3339), grant, a.ApproveWith()))
 	var coded *ExternalConnectorError
 	if errors.As(err, &coded) {
 		coded.Approval = &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith(), Channel: a.Channel}

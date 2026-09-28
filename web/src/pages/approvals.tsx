@@ -38,6 +38,9 @@ export function ApprovalsPage() {
   }
   const items = approvals.data?.approvals ?? []
   const current = items.find((a) => a.id === selected)
+  // Grants usable now (P3-5): each covers every call of its operation on its
+  // target by its requester until it expires or is revoked.
+  const grants = items.filter((a) => a.status === 'approved' && (a.scope === 'session' || a.scope === 'window'))
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-auto p-3" data-testid="approvals-page">
@@ -46,6 +49,27 @@ export function ApprovalsPage() {
           {p}
         </Callout>
       ))}
+      {grants.length > 0 && (
+        <div className="mb-3 space-y-1" data-testid="active-grants">
+          <div className="text-sm font-semibold">Active grants</div>
+          {grants.map((g) => (
+            <div
+              key={g.id}
+              className="flex cursor-pointer flex-wrap items-center gap-2 rounded border border-border p-2 text-sm"
+              onClick={() => setSelected(g.id)}
+            >
+              {protectedTarget(g) && <span className="rounded bg-status-blocked/15 px-1 font-semibold text-status-blocked">protected target</span>}
+              <span className="font-mono">
+                {g.connector}.{g.operation}
+              </span>
+              <span>on {targetName(g)}</span>
+              <span className="text-text-soft">
+                {g.scope} grant for {who(g.principal)}, {g.uses ?? 0} use(s), until {new Date(g.expires_at).toLocaleTimeString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {items.length === 0 ? (
         <EmptyState variant="no-results" title="No approval requests." description="Operations that policy says need approval wait here." />
       ) : (
@@ -57,6 +81,7 @@ export function ApprovalsPage() {
               <th className="p-2">Target</th>
               <th className="p-2">Requested by</th>
               <th className="p-2">Channel</th>
+              <th className="p-2">Scope</th>
               <th className="p-2">Expires</th>
             </tr>
           </thead>
@@ -75,6 +100,7 @@ export function ApprovalsPage() {
                 <td className="p-2">{targetName(a)}</td>
                 <td className="p-2">{who(a.principal)}</td>
                 <td className="p-2">{a.channel}</td>
+                <td className="p-2">{a.scope}</td>
                 <td className="p-2">{new Date(a.expires_at).toLocaleString()}</td>
               </tr>
             ))}
@@ -318,4 +344,11 @@ function PasskeysPanel({ token, enrollToken, label, remove }: { token: string; e
       )}
     </div>
   )
+}
+
+// protectedTarget is a prod, shared, not-ours or unlabeled target, where a
+// grant is the operator's loud choice (D5).
+function protectedTarget(a: ApprovalInfo): boolean {
+  const env = a.target.env ?? ''
+  return !(env === 'dev' || env === 'lab') || a.target.owner !== 'self' || a.target.admin === 'shared'
 }

@@ -362,6 +362,45 @@ claim it. The same goes for "a console session" as the daemon hears it,
 since the console's claim travels over the socket. Confirming on the call protects against an agent that follows
 the rules. Out-of-band approval with a passkey is the boundary.
 
+### Grants: approving more than one call
+
+An approve rule can ask for a **grant** instead of a single-use approval:
+
+```yaml
+targets:
+  - match: { env: dev, owner: self, admin: self }
+    rules:
+      - { id: dev-restarts, ops: [reload], decision: approve,
+          approval: { scope: window, ttl: 30m } }
+```
+
+- `once` (the default) is spent by one call and bound to its plan.
+- `window` covers every call of the same operation, on the same target, by
+  the same requester (the same kind and channel, so an agent's grant never
+  covers your own call, or the reverse), for the TTL from when it was
+  approved.
+- `session` also binds the requester's session. With no session to bind to,
+  it is a once approval.
+
+Once approved, a grant needs no approval id: a later call it covers runs
+under it, and each use is recorded as `grant_used`. Approving one records
+`grant_created`. A grant is re-checked on every use:
+
+- it never widens a `deny`;
+- a rule narrowed to `once`, or to out of band where the grant was met on
+  a terminal, is not covered by the grant it gave;
+- an out-of-band grant's passkey proof is verified again.
+
+Revoke a grant with `cerberus approvals revoke <id>` or from the console's
+approvals page (`grant_revoked`). `cerberus status` and the approvals page
+list every active grant.
+
+Grants are allowed wherever your policy allows them. On a prod, shared or
+not-ours target that is your choice, and it is loud. `policy apply` and
+`policy explain` flag any rule that could give one there, `cerberus status`
+marks each active one with `!`, and every use carries
+`grant_on_protected_target: true`.
+
 ### When an agent asks
 
 An agent working through MCP can't approve anything. There is no MCP tool that

@@ -104,15 +104,18 @@ var policyExplainCmd = &cobra.Command{
 		}
 		res := pdp.Authorize(req)
 		posture, postureRules := res.Posture, []int(nil)
+		var grantWarnings []string
 		if ev, ok := pdp.(*policy.Evaluator); ok {
 			_, postureRules = ev.File().PostureFor(req)
+			grantWarnings = ev.File().GrantWarnings()
 		}
 		if policyExplainFlags.output == outputFormatJSON {
-			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules})
+			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules, "grant_warnings": grantWarnings})
 		}
 		if err = writeExplain(cmd.OutOrStdout(), req, res, source); err != nil {
 			return err
 		}
+		writeGrantWarnings(cmd.OutOrStdout(), grantWarnings)
 		why := "the global posture"
 		if len(postureRules) > 0 {
 			why = fmt.Sprintf("posture_rules%v", postureRules)
@@ -215,6 +218,7 @@ check is not used: the baseline decides until you apply again.`,
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Applying %s over %s.\n", shortHash(hash), status.Snapshot)
 		writeFlips(out, flips)
+		writeGrantWarnings(out, working.GrantWarnings())
 		phrase := "apply " + shortHash(hash)
 		fmt.Fprintf(out, "\nType %q to apply: ", phrase)
 		line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
@@ -234,6 +238,18 @@ check is not used: the baseline decides until you apply again.`,
 }
 
 var errPolicyApplyNotInteractive = errors.New("policy apply runs only from an interactive terminal, where it shows the decisions that change and asks you to type a confirmation; run it from a terminal, not a script or an agent")
+
+// writeGrantWarnings is the loud part of D5: a session or window grant on
+// a prod, shared or not-ours target is the operator's choice, and says so.
+func writeGrantWarnings(w io.Writer, warnings []string) {
+	if len(warnings) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n! %d rule(s) allow a grant on a protected target:\n", len(warnings))
+	for _, warning := range warnings {
+		fmt.Fprintf(w, "  ! %s\n", warning)
+	}
+}
 
 func writeFlips(w io.Writer, flips []policy.Flip) {
 	if len(flips) == 0 {

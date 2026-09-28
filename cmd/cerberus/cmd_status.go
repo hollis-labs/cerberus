@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/policy"
@@ -77,6 +78,28 @@ type statusReport struct {
 	Audit    statusAudit           `json:"audit"`
 	Web      []statusWebApp        `json:"web"`
 	Passkeys statusPasskeys        `json:"passkeys"`
+	Grants   statusGrants          `json:"grants"`
+}
+
+// statusGrants are the session and window grants usable now (P3-5): each
+// covers every call of its operation on its target by its requester until
+// it expires or is revoked, so status lists them, loudly on a protected
+// target.
+type statusGrants struct {
+	Active    []statusGrant `json:"active"`
+	Protected int           `json:"protected"`
+	Note      string        `json:"note,omitempty"`
+}
+
+type statusGrant struct {
+	ID        string    `json:"id"`
+	Operation string    `json:"operation"`
+	Target    string    `json:"target"`
+	Scope     string    `json:"scope"`
+	Requester string    `json:"requester"`
+	Uses      int       `json:"uses"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Protected bool      `json:"protected"`
 }
 
 type statusPasskeys struct {
@@ -131,13 +154,15 @@ func gatherStatus(ctx context.Context) statusReport {
 	// line of status and not a page of dial warnings.
 	const notRunning = "the daemon is not running"
 	client, err := newResourceSocketClient()
+	r.Grants.Active = []statusGrant{}
 	switch {
 	case !ready:
-		r.You.Note, r.Plugins.Note, r.Passkeys.Note = notRunning, notRunning, notRunning
+		r.You.Note, r.Plugins.Note, r.Passkeys.Note, r.Grants.Note = notRunning, notRunning, notRunning, notRunning
 	case err != nil:
-		r.You.Note, r.Plugins.Note, r.Passkeys.Note = err.Error(), err.Error(), err.Error()
+		r.You.Note, r.Plugins.Note, r.Passkeys.Note, r.Grants.Note = err.Error(), err.Error(), err.Error(), err.Error()
 	default:
 		r.You, r.Plugins, r.Passkeys = statusFromDaemon(ctx, client)
+		r.Grants = statusOfGrants(ctx, client)
 	}
 	r.Audit = statusOfAudit()
 	r.Web = statusOfWebConsoles()
@@ -185,8 +210,33 @@ func statusFromDaemon(ctx context.Context, client statusDaemonClient) (statusYou
 	return you, plugins, passkeys
 }
 
+// statusOfGrants is the daemon's active grants.
+func statusOfGrants(ctx context.Context, client statusDaemonClient) statusGrants {
+	out := statusGrants{Active: []statusGrant{}}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	list, err := client.ListApprovals(ctx)
+	if err != nil {
+		out.Note = strings.TrimSpace(err.Error())
+		return out
+	}
+	for _, a := range list.Approvals {
+		if !a.IsGrant() || a.Status != approval.Approved {
+			continue
+		}
+		g := statusGrant{ID: a.ID, Operation: a.Connector + "." + a.Operation, Target: approvalTargetName(a), Scope: a.Scope,
+			Requester: a.Principal.Kind + " via " + a.Principal.Via, Uses: a.Uses, ExpiresAt: a.ExpiresAt, Protected: cerbapi.ProtectedTarget(a.Target)}
+		if g.Protected {
+			out.Protected++
+		}
+		out.Active = append(out.Active, g)
+	}
+	return out
+}
+
 // statusDaemonClient is the daemon calls status makes.
 type statusDaemonClient interface {
+	ListApprovals(context.Context) (cerbapi.ApprovalList, error)
 	PasskeyStatus(context.Context) (presence.Status, error)
 	WhoAmI(context.Context) (cerbapi.Principal, error)
 	ListManagedPlugins(context.Context) ([]cerbapi.ManagedPluginConnectorState, error)
@@ -320,6 +370,24 @@ func writeStatus(w io.Writer, r statusReport) error {
 		line("passkeys", "! %s", r.Passkeys.Summary)
 	default:
 		line("passkeys", "%s", r.Passkeys.Summary)
+	}
+	switch {
+	case r.Grants.Note != "":
+		line("grants", "unavailable (%s)", r.Grants.Note)
+	case len(r.Grants.Active) == 0:
+		line("grants", "none active")
+	case r.Grants.Protected > 0:
+		line("grants", "! %d active, %d on a prod, shared or not-ours target", len(r.Grants.Active), r.Grants.Protected)
+	default:
+		line("grants", "%d active", len(r.Grants.Active))
+	}
+	for _, g := range r.Grants.Active {
+		mark := " "
+		if g.Protected {
+			mark = "!"
+		}
+		fmt.Fprintf(&b, "          %s %s %s on %s, %s grant for %s, %d use(s), until %s (revoke: cerberus approvals revoke %s)\n",
+			mark, g.ID, g.Operation, g.Target, g.Scope, g.Requester, g.Uses, g.ExpiresAt.Local().Format("15:04"), g.ID)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

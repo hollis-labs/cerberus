@@ -280,6 +280,9 @@ func (f File) Validate() []string {
 					problems = append(problems, fmt.Sprintf("%s: effect %q is not an effect class", at, e))
 				}
 			}
+			if r.Approval != nil && r.Approval.Scope != "" && r.Approval.Scope != ScopeOnce && !r.Approval.IsGrant() {
+				problems = append(problems, fmt.Sprintf("%s: approval scope %q is not once, session or window", at, r.Approval.Scope))
+			}
 			if r.Principal != nil && r.Principal.Kind != "" && !validKind(strings.TrimPrefix(r.Principal.Kind, "!")) {
 				problems = append(problems, fmt.Sprintf("%s: principal kind %q is not human, agent or automation", at, r.Principal.Kind))
 			}
