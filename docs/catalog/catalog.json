@@ -9330,6 +9330,54 @@
       "review_status": "draft"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-28",
+      "created_at": "2026-09-28",
+      "review_status": "draft",
+      "class": "decision",
+      "name": "Runtime reads are not gated, and so are not recorded",
+      "summary": "The resource runtime's status, inspect, doctor, list and health reads do not pass beginGated, deliberately: they are read, Cerberus composes every field they return, policy allows reads unconditionally, and the console polls them, so recording them would fill the audit log with pairs that say nothing.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "taken with the CERB-GAP-889 sweep; the DTOs read in internal/cerbapi/dto.go and the launchd record in internal/connector/local/launchd.go",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p3",
+        "approvals",
+        "audit",
+        "class:decision"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/resource_runtime_service.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-889",
+          "note": "the sweep that found resource logs ungated, and these not needing it"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "the audit log"
+        }
+      ],
+      "data": {
+        "decision": "The runtime's status, inspect, doctor, list and health stay read and ungated: not passed through beginGated, not recorded. Anything returning text Cerberus did not compose is read_sensitive and gated.",
+        "alternatives_considered": [
+          "Gate every runtime read, recording an intent and outcome per call",
+          "Reclassify inspect and doctor as read_sensitive",
+          "Record runtime reads sampled or rate-limited"
+        ],
+        "rationale": "A gate on a read decides nothing, since reads are always allowed; it only adds records. These reads return only Cerberus-composed, bounded fields, and they are polled by the console and by agents around deploys, so recording them would bury the operations that change something. The line that matters, text of unknown origin, is drawn by read_sensitive, and every read_sensitive operation is gated.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "I1 says every operation goes through one `Authorize`. For the runtime's own reads, `local.status`, `local.inspect`, `local.doctor`, `local.list` and `cerberus.health`, that is kept by classification rather than by the call. They are declared `read`, and `read` is allowed for every principal under every posture, so a gate would decide nothing. What the gate would add is recording, and that is declined:\n\n- **Their content is Cerberus's own.** Every field is composed by Cerberus from config and runtime state: ids, paths, the recommended action, dependency and config warnings, and doctor checks written as Cerberus's sentences. The launchd fields are five fixed values (state, pid, last exit code, runs, reason) plus a diagnosis Cerberus writes. The raw `launchctl print` text, which carries the job's environment, is never returned. None of it is text of unknown origin, which is what `read_sensitive` means.\n- **They are polled.** The console refreshes status every few seconds, and an agent checks it around every deploy. An intent and outcome per poll would bury the operations that change something under pairs that record nothing.\n\nAnything that returns text Cerberus did not compose is `read_sensitive` and gated: resource logs since CERB-GAP-889, docker logs, ssh downloads and plugin operations. If a runtime read ever gains such a field, such as a log tail in doctor or raw launchd output in inspect, it moves to `read_sensitive` and through the gate with it. Reads in the admin lane are recorded because that lane gates every operation it runs, not because the reads need it.",
+      "id": "CERB-DEC-890"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
