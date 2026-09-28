@@ -51,7 +51,7 @@ func request(t *testing.T, s *Store, channel string) Approval {
 var human = audit.Principal{Kind: "human", Via: "web"}
 
 func TestLifecycle(t *testing.T) {
-	s, _, dir := newStore(t)
+	s, c, dir := newStore(t)
 	a := request(t, s, ChannelOutOfBand)
 	if a.Status != Pending || a.Scope != ScopeOnce || !strings.HasPrefix(a.ID, "apr_") || a.ApproveWith() != "cerberus approvals approve "+a.ID {
 		t.Fatalf("requested %+v", a)
@@ -68,7 +68,7 @@ func TestLifecycle(t *testing.T) {
 		t.Fatalf("decided twice: %v", err)
 	}
 	check := ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:plan", OperationID: "op1"}
-	for name, c := range map[string]struct {
+	for name, tc := range map[string]struct {
 		check ConsumeCheck
 		want  error
 	}{
@@ -78,8 +78,8 @@ func TestLifecycle(t *testing.T) {
 		"another caller": {ConsumeCheck{Principal: audit.Principal{Kind: "agent", Via: "mcp_http"}, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:plan"}, ErrOtherPrincipal},
 		"another op":     {ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "scale_workload", ArgsDigest: "hmac:args", PlanHash: "sha256:plan"}, ErrOtherOperation},
 	} {
-		if _, cerr := s.Consume(a.ID, c.check, fakePresence{}); !errors.Is(cerr, c.want) {
-			t.Errorf("%s: %v, want %v", name, cerr, c.want)
+		if _, cerr := s.Consume(a.ID, tc.check, fakePresence{}); !errors.Is(cerr, tc.want) {
+			t.Errorf("%s: %v, want %v", name, cerr, tc.want)
 		}
 	}
 	a, err = s.Consume(a.ID, check, fakePresence{})
@@ -90,8 +90,9 @@ func TestLifecycle(t *testing.T) {
 		t.Fatalf("consumed twice: %v", err)
 	}
 
-	// A restart folds the same state back.
-	again, err := Open(dir)
+	// A restart folds the same state back. It reopens on the test's clock:
+	// Open's is the wall clock, which passes the fixture's expiry.
+	again, err := open(dir, c.now)
 	if err != nil || len(again.Problems) != 0 {
 		t.Fatalf("reopen: %v %v", err, again.Problems)
 	}
@@ -141,10 +142,10 @@ func TestDenyRevokeAndExpiry(t *testing.T) {
 // chain rebuilt by whoever wrote it — is folded, but an out-of-band
 // approval without a verifiable presence proof is never consumed.
 func TestForgedApprovalDoesNotConsume(t *testing.T) {
-	s, _, dir := newStore(t)
+	s, c, dir := newStore(t)
 	a := request(t, s, ChannelOutOfBand)
 	path := filepath.Join(dir, FileName)
-	forged := Event{V: eventVersion, Seq: s.seq + 1, Time: time.Now().UTC(), Type: EventDecided, ApprovalID: a.ID,
+	forged := Event{V: eventVersion, Seq: s.seq + 1, Time: c.now().UTC(), Type: EventDecided, ApprovalID: a.ID,
 		Decision: &Decision{Approve: true, By: human, Assertion: []byte("forged")}, PrevHash: s.last}
 	forged.Hash = hashEvent(forged)
 	line, _ := json.Marshal(forged)
@@ -155,7 +156,7 @@ func TestForgedApprovalDoesNotConsume(t *testing.T) {
 	_, _ = f.Write(append(line, '\n'))
 	_ = f.Close()
 
-	reopened, err := Open(dir)
+	reopened, err := open(dir, c.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,14 +172,14 @@ func TestForgedApprovalDoesNotConsume(t *testing.T) {
 }
 
 func TestDamagedStoreFoldsAndReports(t *testing.T) {
-	s, _, dir := newStore(t)
+	s, c, dir := newStore(t)
 	request(t, s, ChannelTTYConfirm)
 	path := filepath.Join(dir, FileName)
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // the test's own store
 	_, _ = f.WriteString("{not json\n")
 	_, _ = f.WriteString(`{"v":1,"seq":9,"type":"consumed","approval_id":"apr_ghost","prev_hash":"x","hash":"y"}` + "\n")
 	_ = f.Close()
-	reopened, err := Open(dir)
+	reopened, err := open(dir, c.now)
 	if err != nil {
 		t.Fatal(err)
 	}
