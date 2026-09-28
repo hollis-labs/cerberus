@@ -146,6 +146,45 @@ class AddRecordTest(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("CERB-DEC-200", out.stderr)
 
+    def test_check_catches_a_cross_class_collision_git_merged_cleanly(self):
+        self.r.git("remote", "add", "origin", self.r.root)
+        self.r.git("checkout", "-q", "-b", "mine")
+        self.r.write_catalog(self.r.records() + [rec("CERB-GAP-402", "gap"),
+            rec("CERB-TOOL-403", "tool", body="see CERB-GAP-402, not CERB-GAP-4020", relationships=[{"type": "relates_to", "target": "CERB-GAP-402"}])])
+        self.r.commit("mine: a gap and a tool naming it")
+        self.r.git("checkout", "-q", "main")
+        self.r.write_catalog(self.r.records() + [rec("CERB-DEC-402", "decision")])
+        self.r.commit("main: a decision")
+        self.r.git("fetch", "-q", "origin")
+        self.r.git("checkout", "-q", "mine")
+        self.assertEqual(self.r.git("rebase", "origin/main", ok=False).returncode, 0, "git saw the collision")
+
+        out = self.r.tool("check", "--no-fetch")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("402 is held by CERB-DEC-402, CERB-GAP-402", out.stderr)
+        self.assertIn("renumber CERB-GAP-402", out.stderr)
+        self.assertNotIn("renumber CERB-DEC-402", out.stderr, "suggested renumbering main's record")
+
+        refused = self.r.tool("renumber", "CERB-DEC-402", "--no-fetch")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("on origin/main", refused.stderr)
+
+        out = self.r.tool("renumber", "CERB-GAP-402", "--no-fetch")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("CERB-GAP-402 -> CERB-GAP-404", out.stdout)
+        by_id = {x["id"]: x for x in self.r.records()}
+        self.assertIn("CERB-GAP-404", by_id)
+        self.assertNotIn("CERB-GAP-402", by_id)
+        tool = by_id["CERB-TOOL-403"]
+        self.assertEqual(tool["relationships"][0]["target"], "CERB-GAP-404")
+        self.assertEqual(tool["body"], "see CERB-GAP-404, not CERB-GAP-4020")
+        self.assertEqual(self.r.tool("check", "--no-fetch").returncode, 0)
+
+    def test_the_grandfathered_numbers_pass(self):
+        self.r.write_catalog(self.r.records() + [rec("CERB-DEC-820", "decision"), rec("CERB-GAP-820", "gap")])
+        out = self.r.tool("check", "--no-fetch")
+        self.assertEqual(out.returncode, 0, out.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

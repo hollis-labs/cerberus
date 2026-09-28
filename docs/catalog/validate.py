@@ -57,6 +57,14 @@ for rid in {i for i in ids if ids.count(i) > 1}:
     err(f"duplicate id {rid}")
 idset = set(ids)
 
+# A number belongs to one id, whatever its class (add_record.py check). Git
+# cannot see a cross-class collision: the two records land in different
+# class blocks and merge cleanly.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from add_record import shared_numbers  # noqa: E402
+for n, held in shared_numbers(records).items():
+    err(f"number {n} is held by {', '.join(held)}; a number belongs to one id: python3 docs/catalog/add_record.py check")
+
 # Canonical order: by class, then number (add_record.py). Tail appends from
 # two branches always touch the same lines; in this order a new record lands
 # at the end of its own class, so branches adding different classes merge.
