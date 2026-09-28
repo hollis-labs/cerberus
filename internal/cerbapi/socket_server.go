@@ -380,9 +380,11 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		stream := r.URL.Query().Get("stream")
-		out, err := s.client.ResourceLogs(r.Context(), id, lines, stream)
+		out, err := s.client.ResourceLogs(r.Context(), id, lines, stream, WithApprovalID(r.URL.Query().Get("approval_id")))
 		if err != nil {
-			writeJSONError(w, http.StatusNotFound, err.Error())
+			// A refusal keeps its code (approval_pending and its approval);
+			// anything else is the resource or its log not being found.
+			writeServiceError(w, http.StatusNotFound, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, out)

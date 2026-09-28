@@ -146,11 +146,16 @@ func (c *SocketClient) DialPath() string {
 	return c.dialPath
 }
 
-func (c *SocketClient) ResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
+func (c *SocketClient) ResourceLogs(ctx context.Context, id string, lines int, stream string, opts ...MutationOption) (*LogLines, error) {
 	if id == "" {
 		return nil, errors.New("resource id required")
 	}
 	q := url.Values{}
+	// A licensing field, so a query parameter an older daemon may ignore:
+	// one that predates it does not gate logs either.
+	if approvalID := ApplyMutationOptions(opts).ApprovalID; approvalID != "" {
+		q.Set("approval_id", approvalID)
+	}
 	if lines > 0 {
 		q.Set("lines", strconv.Itoa(lines))
 	}

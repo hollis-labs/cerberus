@@ -202,7 +202,7 @@ func NewCerberusResourceLogsTool(client cerbapi.Client) Tool {
 				lines = int(raw)
 			}
 			stream, _ := args["stream"].(string)
-			out, err := client.ResourceLogs(ctx, resourceID, lines, stream)
+			out, err := client.ResourceLogs(ctx, resourceID, lines, stream, cerbapi.WithApprovalID(stringArg(args, argApprovalID)))
 			if err != nil {
 				return "", err
 			}

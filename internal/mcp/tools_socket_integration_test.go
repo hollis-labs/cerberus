@@ -153,7 +153,7 @@ func startDaemonSocketWithClient(t *testing.T, client cerbapi.Client) *cerbapi.S
 
 type fakeSocketProgressClient struct{}
 
-func (fakeSocketProgressClient) ResourceLogs(context.Context, string, int, string) (*cerbapi.LogLines, error) {
+func (fakeSocketProgressClient) ResourceLogs(context.Context, string, int, string, ...cerbapi.MutationOption) (*cerbapi.LogLines, error) {
 	return nil, errors.New("not implemented")
 }
 func (fakeSocketProgressClient) Health(context.Context, string) (*cerbapi.DaemonHealth, error) {

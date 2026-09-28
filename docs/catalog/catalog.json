@@ -16909,11 +16909,11 @@
       "locus": "core",
       "class": "gap",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "name": "Resource logs are read_sensitive but never pass the gate",
-      "summary": "local.logs is classified read_sensitive, which baseline policy approves for agents, but ResourceLogs reads the log file directly without beginGated, so it is neither recorded as an operation nor enforceable, while docker logs is.",
+      "summary": "local.logs is read_sensitive, and ResourceLogs now runs through beginGated like every operation: each read is recorded as local.logs, and where policy is enforced an agent needs an approval, passed as approval_id on the MCP tool, --approval on the CLI and approval_id over the socket.",
       "confidence_score": 0.8,
-      "confidence_label": "read on the P3-6 branch; found by TestGatedToolsPassApprovalID",
+      "confidence_label": "TestResourceLogsAreRecorded, TestResourceLogsNeedAnApprovalWhereEnforced and TestResourceLogsApprovalOverTheSocket, and TestGatedToolsPassApprovalID with ungatedTools empty",
       "tags": [
         "cerberus",
         "class:gap",
@@ -16935,10 +16935,10 @@
         "capability": "CERB-CAP-604",
         "priority": "nice-to-have",
         "blocked_by": [],
-        "unlocks_when": "ResourceLogs runs through beginGated like the other runtime operations, and cerberus_resource_logs takes approval_id",
+        "unlocks_when": "Closed: ResourceLogs passes the gate, and cerberus_resource_logs takes approval_id.",
         "effort": "small"
       },
-      "body": "`localconn.OpLogs` is declared `read_sensitive`: a workload's log can carry what it was handed. Baseline policy answers `approve` for an agent on `read_sensitive` (`internal/policy/evaluate.go`), and `docker logs` meets that through the admin lane's gate. `ResourceRuntimeService.ResourceLogs` does not call `beginGated` at all, so an agent reading a local resource's log over MCP is neither recorded as an operation nor subject to enforcement once P3-7 switches it on. That breaks I1 for one read. P3-6 leaves `approval_id` off `cerberus_resource_logs` for that reason (`ungatedTools` in `internal/mcp/approvals.go`), rather than offering an argument that would do nothing.",
+      "body": "`localconn.OpLogs` is declared `read_sensitive`: a workload's log can carry what it was handed. Baseline policy answers `approve` for an agent on `read_sensitive` (`internal/policy/evaluate.go`), and `docker logs` meets that through the admin lane's gate. `ResourceRuntimeService.ResourceLogs` does not call `beginGated` at all, so an agent reading a local resource's log over MCP is neither recorded as an operation nor subject to enforcement once P3-7 switches it on. That breaks I1 for one read. P3-6 leaves `approval_id` off `cerberus_resource_logs` for that reason (`ungatedTools` in `internal/mcp/approvals.go`), rather than offering an argument that would do nothing.\n\n## Since the fix\n\n`ResourceRuntimeService.ResourceLogs` calls `beginGated` with the `local.logs` contract before reading, and finishes the call with the read's error, so a log read is an intent and an outcome in the audit log from every surface: MCP, the CLI, the socket and the console, which all reach it. Where policy is enforced, baseline policy's `approve` for an agent on `read_sensitive` now applies: the read answers `approval_pending`, and the retry carries the id (`cerberus_resource_logs` `approval_id`, `cerberus resource logs --approval`, the socket's `approval_id` query parameter). The socket's logs route now writes a refusal with its code instead of a plain 404. `ungatedTools` in `internal/mcp/approvals.go` is empty.\n\nThe sweep for other sensitive reads that skip the gate found none. Every other `read_sensitive` operation (docker logs, ssh get and get_dir, plugin operations) runs through the admin or plugin lane, which calls `beginGated`. That includes the CLI's docker logs, which uses the same service in-process. The runtime's status, inspect, doctor, list and health are `read`. Their fields are composed by Cerberus: the launchd highlights are five fixed fields and the raw `launchctl print` text is never returned. They are not gated, which policy does not need, since reads are always allowed, but it means they are not recorded either.",
       "id": "CERB-GAP-889"
     },
     {
