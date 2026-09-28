@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/target"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,6 +41,20 @@ type DeploymentProfile struct {
 	PreflightCommand string `yaml:"preflight_command,omitempty"`
 	BuildCommand     string `yaml:"build_command,omitempty"`
 	DeployCommand    string `yaml:"deploy_command,omitempty"`
+
+	// Env, Owner, Admin and Tags label the profile's target for policy, as
+	// a resource's do (Decision 18). Unlabeled reads as unknown, which is
+	// strict: it needs out-of-band approval wherever policy asks for one.
+	Env   target.Env   `yaml:"env,omitempty"`
+	Owner string       `yaml:"owner,omitempty"`
+	Admin target.Admin `yaml:"admin,omitempty"`
+	Tags  []string     `yaml:"tags,omitempty"`
+}
+
+// ResourceDef is the profile as the resource its target is resolved
+// through: its labels, under its id.
+func (p DeploymentProfile) ResourceDef() config.ResourceDef {
+	return config.ResourceDef{ID: p.ID, Env: p.Env, Owner: p.Owner, Admin: p.Admin, Tags: append([]string(nil), p.Tags...)}
 }
 
 func StatePathFor(configPath string) (string, error) {

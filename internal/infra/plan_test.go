@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -189,5 +190,22 @@ func TestDeployOutputNeverShowsTheResolvedToken(t *testing.T) {
 	}
 	if strings.Contains(string(rendered), token) || !strings.Contains(string(rendered), redact.Marker) {
 		t.Fatalf("rendered result = %s", rendered)
+	}
+}
+
+// A plan or run that fails before it has steps still says so with an empty
+// list, never null: the console counts and lists them.
+func TestFailedPlanAndRunHaveNoNullSteps(t *testing.T) {
+	profile := DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: filepath.Join(t.TempDir(), "missing")}
+	plan := PlanDeployment(context.Background(), nil, profile)
+	run, err := RunDeployment(context.Background(), nil, profile)
+	if err != nil || plan.Error == "" || run.Error == "" {
+		t.Fatalf("plan %+v run %+v %v", plan, run, err)
+	}
+	for name, v := range map[string]any{"plan": plan, "run": run} {
+		data, _ := json.Marshal(v)
+		if strings.Contains(string(data), `"steps":null`) {
+			t.Fatalf("%s steps are null: %s", name, data)
+		}
 	}
 }

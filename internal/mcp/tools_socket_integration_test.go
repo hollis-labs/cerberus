@@ -17,6 +17,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
+	"github.com/hollis-labs/cerberus/internal/infra"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
@@ -219,6 +220,14 @@ func (fakeSocketProgressClient) RunPipeline(ctx context.Context, _ string, _ ...
 		return nil, err
 	}
 	return &cerbapi.PipelineRunResult{Success: true, Raw: raw}, nil
+}
+
+func (fakeSocketProgressClient) RunDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*infra.DeploymentRunResult, error) {
+	return &infra.DeploymentRunResult{}, nil
+}
+
+func (fakeSocketProgressClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
+	return &cerbapi.ConnectorPlan{}, nil
 }
 func (fakeSocketProgressClient) ListConnectors(context.Context) ([]contract.Definition, error) {
 	return nil, errors.New("not implemented")

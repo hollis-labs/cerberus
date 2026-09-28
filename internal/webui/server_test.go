@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
@@ -324,6 +325,14 @@ func (f *fakeClient) ListPipelines(context.Context) ([]cerbapi.PipelineInfo, err
 func (f *fakeClient) RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
 	f.mutations++
 	return &cerbapi.PipelineRunResult{}, nil
+}
+
+func (f *fakeClient) RunDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*infra.DeploymentRunResult, error) {
+	return &infra.DeploymentRunResult{}, nil
+}
+
+func (f *fakeClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
+	return &cerbapi.ConnectorPlan{}, nil
 }
 
 func (f *fakeClient) ListConnectors(context.Context) ([]contract.Definition, error) {

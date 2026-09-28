@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/target"
 )
 
 type infraResponse struct {
@@ -65,6 +65,11 @@ type infraDeploymentDTO struct {
 	PreflightCommand string `json:"preflight_command,omitempty"`
 	BuildCommand     string `json:"build_command,omitempty"`
 	DeployCommand    string `json:"deploy_command,omitempty"`
+	// The profile's target labels (CERB-GAP-886).
+	Env   string   `json:"env,omitempty"`
+	Owner string   `json:"owner,omitempty"`
+	Admin string   `json:"admin,omitempty"`
+	Tags  []string `json:"tags,omitempty"`
 }
 
 func (s *Server) handleInfra(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +210,12 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "id, name, provider, and repo_path are required")
 			return
 		}
+		// Labels are checked as a resource's are: a misspelled env must not
+		// quietly read as unknown.
+		if problems := profile.ResourceDef().TargetLabels().Validate(); len(problems) > 0 {
+			writeError(w, http.StatusBadRequest, "deployment profile labels: "+strings.Join(problems, "; "))
+			return
+		}
 		state, err := infra.LoadState(s.configPath)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -264,22 +275,13 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "state-changing request rejected")
 			return
 		}
-		state, err := infra.LoadState(s.configPath)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		profile, ok := state.Profile(id)
-		if !ok {
-			writeError(w, http.StatusNotFound, "deployment profile not found")
-			return
-		}
 		opts, err := decodeMutationBody(r)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		result, err := cerbapi.RunDeploymentProfile(r.Context(), s.audit, s.secrets, profile, opts...)
+		// The daemon runs it, where the approval broker is (CERB-GAP-886).
+		result, err := s.client.RunDeploymentProfile(r.Context(), id, opts...)
 		if err != nil {
 			writeClientError(w, err)
 			return
@@ -291,18 +293,8 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		state, err := infra.LoadState(s.configPath)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		profile, found := state.Profile(id)
-		if !found {
-			writeError(w, http.StatusNotFound, "deployment profile not found")
-			return
-		}
 		if route == "plan" {
-			p, perr := cerbapi.PlanDeploymentProfile(r.Context(), s.audit, s.secrets, profile, opts...)
+			p, perr := s.client.PlanDeploymentProfile(r.Context(), id, opts...)
 			if perr != nil {
 				writeClientError(w, perr)
 				return
@@ -310,7 +302,7 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 			writePlan(w, p)
 			return
 		}
-		result, err := cerbapi.RunDeploymentProfile(r.Context(), s.audit, s.secrets, profile, opts...)
+		result, err := s.client.RunDeploymentProfile(r.Context(), id, opts...)
 		if err != nil {
 			writeClientError(w, err)
 			return
@@ -369,9 +361,11 @@ func (s *Server) providerDTOs(r *http.Request, state *infra.State) []infraProvid
 	for _, id := range order {
 		spec := catalog[id]
 		dto := infraProviderDTO{
-			ID:      id,
-			Label:   spec.Label,
-			Fields:  append([]infraProviderFieldDTO(nil), spec.Fields...),
+			ID:    id,
+			Label: spec.Label,
+			// Never null: a provider with no fields is an empty list, which
+			// the Deployments page counts (a null crashed it).
+			Fields:  append(make([]infraProviderFieldDTO, 0, len(spec.Fields)), spec.Fields...),
 			Secrets: make([]infraProviderSecretDTO, 0, len(spec.Secrets)),
 			Values:  map[string]string{},
 		}
@@ -478,6 +472,10 @@ func dtoFromProfile(profile infra.DeploymentProfile) infraDeploymentDTO {
 		PreflightCommand: profile.PreflightCommand,
 		BuildCommand:     profile.BuildCommand,
 		DeployCommand:    profile.DeployCommand,
+		Env:              string(profile.Env),
+		Owner:            profile.Owner,
+		Admin:            profile.Admin.Default,
+		Tags:             profile.Tags,
 	}
 }
 
@@ -501,5 +499,9 @@ func (d infraDeploymentDTO) toProfile() infra.DeploymentProfile {
 		PreflightCommand: strings.TrimSpace(d.PreflightCommand),
 		BuildCommand:     strings.TrimSpace(d.BuildCommand),
 		DeployCommand:    strings.TrimSpace(d.DeployCommand),
+		Env:              target.Env(strings.TrimSpace(d.Env)),
+		Owner:            strings.TrimSpace(d.Owner),
+		Admin:            target.Admin{Default: strings.TrimSpace(d.Admin)},
+		Tags:             d.Tags,
 	}
 }

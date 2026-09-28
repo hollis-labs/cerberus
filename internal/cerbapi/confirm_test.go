@@ -293,9 +293,10 @@ func TestConsoleSessionConfirmsOnTheCall(t *testing.T) {
 	}
 }
 
-// The console plans and runs a deploy profile in its own process, where no
-// broker holds approvals: its confirmation is recorded, not stored, and the
-// run executes the plan whose hash was confirmed.
+// RunDeploymentProfile and PlanDeploymentProfile called without a broker,
+// as an in-process CLI would: an unlabeled profile needs out of band, which
+// only the daemon can hold, so a confirmation does not meet it. (The
+// console goes through the daemon: TestDeployProfileRunsInTheDaemon.)
 func TestConsoleConfirmsADeployProfile(t *testing.T) {
 	withPDP(t, constantPDP{decision: policy.Approve})
 	withEnforcement(t, nil)

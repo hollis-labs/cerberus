@@ -1,4 +1,4 @@
-.PHONY: all build homebrew-install go-install uninstall test lint lint-go typecheck ui-build ui-dev package-release release-beta clean
+.PHONY: all build homebrew-install go-install uninstall test lint lint-go typecheck smoke-confirm ui-build ui-dev package-release release-beta clean
 
 GO_PACKAGES := ./cmd/cerberus ./internal/... ./pkg/...
 GO_LINT_CACHE_DIR := /tmp/cerberus-go-build
@@ -55,6 +55,11 @@ lint-go:
 
 typecheck:
 	cd web && npm run typecheck
+
+# Browser smoke of the console confirm dialog (headless Chrome, scratch HOME).
+# Build the bundle first: `make all`.
+smoke-confirm:
+	internal/smoke/confirmdialog/run.sh
 
 # `package-release` builds multi-arch release tarballs + checksums for upload.
 # `release-beta` is the legacy alias still referenced in docs.

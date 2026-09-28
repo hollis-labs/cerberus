@@ -236,6 +236,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/connectors", s.handleConnectors)
 	mux.HandleFunc("/connectors/live", s.handleConnectorsLive)
 	mux.HandleFunc("/connectors/", s.handleConnectorsID)
+	mux.HandleFunc("/deployments/", s.handleDeploymentsID)
 	mux.HandleFunc("/plugins/connectors", s.handleManagedPluginConnectors)
 	mux.HandleFunc("/plugins/connectors/", s.handleManagedPluginConnectorsID)
 	mux.HandleFunc("/plugins/connectors/health", s.handlePluginDirRetired)

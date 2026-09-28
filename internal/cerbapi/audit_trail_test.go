@@ -220,7 +220,8 @@ func TestServicesAreConstructedOnlyInApp(t *testing.T) {
 	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true, "NewResourceRuntimeService": true}
 	// The one construction outside internal/app that is allowed, and why.
 	allowed := map[string]string{
-		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService": "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
+		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService":           "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
+		filepath.Join("internal", "smoke", "confirmdialog", "main.go") + ":NewResourceRuntimeService": "the confirm-dialog browser smoke's scratch daemon, with its own sink",
 	}
 	root := filepath.Join("..", "..")
 	fset := token.NewFileSet()
@@ -301,11 +302,13 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 	)
 	classification := map[string]string{
 		"ExecuteConnectorOperation": audited,
-		"ReloadManagedPlugin":       audited,
-		"LoadManagedPlugin":         audited,
-		"UnloadManagedPlugin":       audited,
-		"UninstallManagedPlugin":    audited,
-		"ExecuteManagedPlugin":      audited,
+		// A deploy-profile run and its plan go through the gate (CERB-GAP-886).
+		"RunDeploymentProfile": audited, "PlanDeploymentProfile": audited,
+		"ReloadManagedPlugin":    audited,
+		"LoadManagedPlugin":      audited,
+		"UnloadManagedPlugin":    audited,
+		"UninstallManagedPlugin": audited,
+		"ExecuteManagedPlugin":   audited,
 
 		"DeployResource": audited, "ApplyResource": audited, "ReloadResource": audited, "StopResource": audited,
 		"SyncResource": audited, "RemoveResource": audited, "RunPipeline": audited,
@@ -335,7 +338,8 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 	managed := leakyManagedService(t)
 	managed.audit = sink
 	runtime := NewResourceRuntimeService(sink, WithResourceRuntimeConfigV2(&config.ConfigV2{}))
-	client := NewInProcessClient(WithExternalConnectorService(auditedDockerService(sink)), WithManagedPluginConnectorService(managed), WithResourceRuntimeService(runtime))
+	client := NewInProcessClient(WithExternalConnectorService(auditedDockerService(sink)), WithManagedPluginConnectorService(managed), WithResourceRuntimeService(runtime),
+		WithConfigPath(filepath.Join(t.TempDir(), "config.yaml")))
 	ctx := context.Background()
 	calls := map[string]func(){
 		"ExecuteConnectorOperation": func() {
@@ -355,6 +359,9 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		"SyncResource":   func() { _, _ = client.SyncResource(ctx, "svc") },
 		"RemoveResource": func() { _, _ = client.RemoveResource(ctx, "svc") },
 		"RunPipeline":    func() { _, _ = client.RunPipeline(ctx, "p") },
+		// A profile that is not saved is still a recorded attempt.
+		"RunDeploymentProfile":  func() { _, _ = client.RunDeploymentProfile(ctx, "site") },
+		"PlanDeploymentProfile": func() { _, _ = client.PlanDeploymentProfile(ctx, "site") },
 	}
 	for name, kind := range classification {
 		if kind != audited {

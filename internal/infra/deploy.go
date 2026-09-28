@@ -86,7 +86,8 @@ const vercelTokenDisplay = "VERCEL_TOKEN=<vercel token> " //nolint:gosec // the 
 // without running any of them. It reads credentials only to know whether a
 // flag will be passed; their values stay out of the plan.
 func PlanDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) *DeploymentPlan {
-	plan := &DeploymentPlan{ProfileID: profile.ID, Provider: profile.Provider, RepoPath: profile.RepoPath}
+	// Steps is never null: the console lists it even for a plan that failed.
+	plan := &DeploymentPlan{ProfileID: profile.ID, Provider: profile.Provider, RepoPath: profile.RepoPath, Steps: []PlannedStep{}}
 	if profile.RepoPath == "" {
 		plan.Error = "repo_path is required"
 		return plan
@@ -183,7 +184,7 @@ func RunDeployment(ctx context.Context, secrets secret.Provider, profile Deploym
 // a caller that checked the plan against an approval runs the steps it
 // checked rather than planning again.
 func RunPlannedDeployment(ctx context.Context, plan *DeploymentPlan, profile DeploymentProfile) (*DeploymentRunResult, error) {
-	result := &DeploymentRunResult{ProfileID: profile.ID, Provider: profile.Provider}
+	result := &DeploymentRunResult{ProfileID: profile.ID, Provider: profile.Provider, Steps: []DeploymentStep{}}
 	if plan.Error != "" && len(plan.steps) == 0 {
 		result.Error = plan.Error
 		return result, nil

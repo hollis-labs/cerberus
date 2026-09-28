@@ -31,7 +31,7 @@ const columns: ColumnDef<ProjectInfo>[] = [
     cell: (item) =>
       item.capabilities?.length ? (
         <div className="flex flex-wrap gap-1">
-          {item.capabilities.map((capability) => (
+          {(item.capabilities ?? []).map((capability) => (
             <Pill key={capability} tone="neutral">
               {capability}
             </Pill>
@@ -47,8 +47,8 @@ const columns: ColumnDef<ProjectInfo>[] = [
     header: 'Links',
     cell: (item) =>
       item.links?.length ? (
-        <span className="text-[11px] text-text-soft" title={item.links.map((l) => `${l.kind}: ${l.target}`).join('\n')}>
-          {item.links.map((l) => l.kind).join(', ')}
+        <span className="text-[11px] text-text-soft" title={(item.links ?? []).map((l) => `${l.kind}: ${l.target}`).join('\n')}>
+          {(item.links ?? []).map((l) => l.kind).join(', ')}
         </span>
       ) : (
         <span className="text-[11px] text-text-subtle">—</span>

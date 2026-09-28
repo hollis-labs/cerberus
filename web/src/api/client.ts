@@ -368,6 +368,12 @@ export interface DeploymentProfile {
   preflight_command?: string
   build_command?: string
   deploy_command?: string
+  // Target labels for policy (env dev|lab|prod, owner self|<team>, admin
+  // self|owner|shared, tags). Unlabeled reads as unknown: out of band.
+  env?: string
+  owner?: string
+  admin?: string
+  tags?: string[]
 }
 
 export interface DeploymentRunStep {

@@ -63,7 +63,12 @@ func TestWebDeploymentRunConfirmsAgainstThePlan(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(&fakeClient{}, audit.NewMemory(), cfgPath, nil, nil)
+	// The run goes to the daemon (CERB-GAP-886); an in-process client
+	// stands in for it, with the same gate.
+	sink := audit.NewMemory()
+	client := cerbapi.NewInProcessClient(cerbapi.WithConfigPath(cfgPath), cerbapi.WithInProcessAudit(sink),
+		cerbapi.WithResourceRuntimeService(cerbapi.NewResourceRuntimeService(sink, cerbapi.WithResourceRuntimeConfigV2(&config.ConfigV2{}))))
+	srv, err := New(client, sink, cfgPath, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,5 +94,59 @@ func TestWebDeploymentRunConfirmsAgainstThePlan(t *testing.T) {
 	}
 	if rec := run(`{"acknowledged":true}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"success":true`) {
 		t.Fatalf("confirmed run: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A profile's labels are saved and read back, and a misspelled one is
+// refused rather than quietly reading as unknown.
+func TestDeploymentProfileLabels(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	srv, err := New(&fakeClient{}, audit.NewMemory(), cfgPath, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := signedIn(t, srv, testGuard())
+	token := sessionToken(t, handler)
+	save := func(body string) *httptest.ResponseRecorder {
+		req := newTestRequest(http.MethodPost, "/api/deployments", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Cerberus-Web-Token", token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+	base := `"id":"site","name":"Site","provider":"vercel","repo_path":"/tmp/site"`
+	if rec := save(`{` + base + `,"env":"devv"}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "labels") {
+		t.Fatalf("a misspelled env: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := save(`{` + base + `,"env":"dev","owner":"self","admin":"self","tags":["web"]}`); rec.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	state, err := infra.LoadState(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := state.Profile("site")
+	if !ok || p.Env != "dev" || p.Owner != "self" || p.Admin.Default != "self" || len(p.Tags) != 1 {
+		t.Fatalf("saved %+v", p)
+	}
+}
+
+// Every provider's fields and secrets are lists, never null: the
+// Deployments page counts them, and a null (Namecheap declares no fields)
+// crashed the page.
+func TestInfraProvidersHaveNoNullLists(t *testing.T) {
+	srv, err := New(&fakeClient{}, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := signedIn(t, srv, testGuard())
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/infra", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("infra: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"fields":null`) || strings.Contains(rec.Body.String(), `"secrets":null`) {
+		t.Fatalf("a provider list is null: %s", rec.Body.String())
 	}
 }
