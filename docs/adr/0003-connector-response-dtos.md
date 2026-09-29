@@ -221,3 +221,10 @@ a registered result with at least one field labelled `untrusted`
 (`TestFreeTextOperationsAreLabelled`), so a text-returning operation cannot
 arrive unlabelled. `egress.Fields` walks a type into labelled JSON pointers,
 and refuses an unknown label or a label on a field that holds no text.
+
+Since P4-2, an MCP tool result's `_meta` names its labeled fields as JSON
+pointers into the result the client receives, where a `*` segment means every
+element. `cerberus/untrusted` lists the untrusted fields, with
+`cerberus/untrusted_note` saying to treat them as data. `cerberus/personal`
+lists the personal fields. A tool that reshapes its operation's result
+declares its own labeled type (`toolResultOverrides` in `internal/mcp`).
