@@ -46,6 +46,9 @@ const (
 	ChannelTTYConfirm = "tty_confirm"
 	ChannelOutOfBand  = "out_of_band"
 	ChannelElicit     = "elicit"
+	// ChannelBreakGlass is a person breaking glass on their own call, on a
+	// target that does not need a passkey for it (P3-5b).
+	ChannelBreakGlass = "break_glass"
 )
 
 // Scopes (section 5, design §5).
@@ -93,10 +96,24 @@ type Approval struct {
 
 	// A grant (scope session or window, P3-5) is valid for TTL from when it
 	// is approved, and counts its uses; it is not spent by one.
+	// BreakGlass marks a person getting past an approve decision on their
+	// own call, and why (P3-5b). It stays a follow-up until acknowledged.
+	BreakGlass *BreakGlass `json:"break_glass,omitempty"`
+
 	TTL                 time.Duration `json:"ttl,omitempty"`
 	Uses                int           `json:"uses,omitempty"`
 	LastUsedAt          time.Time     `json:"last_used_at,omitzero"`
 	LastUsedOperationID string        `json:"last_used_operation_id,omitempty"`
+}
+
+// BreakGlass is a break-glass use: the reason given, the target typed, and
+// the operator's acknowledgment of the follow-up it opens.
+type BreakGlass struct {
+	Reason  string           `json:"reason"`
+	Typed   string           `json:"typed"`
+	AckedAt time.Time        `json:"acked_at,omitzero"`
+	AckedBy *audit.Principal `json:"acked_by,omitempty"`
+	AckNote string           `json:"ack_note,omitempty"`
 }
 
 // IsGrant reports a session or window approval: reusable until it expires

@@ -3,7 +3,7 @@ import { Boxes, Cable, CheckCheck, Gauge, LayoutDashboard, LogOut, Plug, Rocket,
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
 import { ConfirmOnCallProvider } from './components/plan-confirm'
 import { ApiError, createRouter } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type PasskeysAlert, type PostureInfo } from './api/client'
+import { apiClient, type PasskeysAlert, type PostureInfo, type BreakGlassAlert } from './api/client'
 import { ApprovalsPage } from './pages/approvals'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
@@ -52,7 +52,7 @@ const useRoute = createRouter({
 type SessionState =
   | { kind: 'checking' }
   | { kind: 'signed-out' }
-  | { kind: 'signed-in'; token: string; posture?: PostureInfo; passkeys?: PasskeysAlert | null }
+  | { kind: 'signed-in'; token: string; posture?: PostureInfo; passkeys?: PasskeysAlert | null; breakGlass?: BreakGlassAlert | null }
 
 // The console needs a signed-in session (`cerberus web open`). Without one
 // every API route answers 401, so the app shows how to sign in instead.
@@ -63,7 +63,7 @@ export function App() {
     const controller = new AbortController()
     apiClient
       .getSession(controller.signal)
-      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture, passkeys: info.passkeys }))
+      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture, passkeys: info.passkeys, breakGlass: info.break_glass }))
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) setSession({ kind: 'signed-out' })
       })
@@ -75,7 +75,7 @@ export function App() {
   const signOut = () => {
     void apiClient.logout(session.token).finally(() => setSession({ kind: 'signed-out' }))
   }
-  return <Console onSignOut={signOut} posture={session.posture} passkeys={session.passkeys} />
+  return <Console onSignOut={signOut} posture={session.posture} passkeys={session.passkeys} breakGlass={session.breakGlass} />
 }
 
 function SignedOut() {
@@ -131,7 +131,32 @@ function PasskeysBadge({ passkeys }: { passkeys?: PasskeysAlert | null }) {
   )
 }
 
-function Console({ onSignOut, posture, passkeys }: { onSignOut: () => void; posture?: PostureInfo; passkeys?: PasskeysAlert | null }) {
+// BreakGlassBadge is the header's break-glass alert (P3-5b): red while any
+// use in the last day or any unacknowledged one exists.
+function BreakGlassBadge({ breakGlass }: { breakGlass?: BreakGlassAlert | null }) {
+  if (!breakGlass) return null
+  return (
+    <span
+      data-testid="break-glass-alert"
+      title={breakGlass.summary}
+      className="rounded border border-red-500 bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-600"
+    >
+      BREAK GLASS · {breakGlass.recent} today · {breakGlass.open} to acknowledge
+    </span>
+  )
+}
+
+function Console({
+  onSignOut,
+  posture,
+  passkeys,
+  breakGlass,
+}: {
+  onSignOut: () => void
+  posture?: PostureInfo
+  passkeys?: PasskeysAlert | null
+  breakGlass?: BreakGlassAlert | null
+}) {
   const { route, navigate } = useRoute()
 
   const nav: NavRailItem[] = [
@@ -236,6 +261,7 @@ function Console({ onSignOut, posture, passkeys }: { onSignOut: () => void; post
           <PageHeader title={TITLES[route]}>
             <PostureBadge posture={posture} />
             <PasskeysBadge passkeys={passkeys} />
+            <BreakGlassBadge breakGlass={breakGlass} />
           </PageHeader>
           <main className="flex min-h-0 flex-1 flex-col">
             <RouteView route={route} />

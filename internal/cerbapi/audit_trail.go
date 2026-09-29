@@ -60,7 +60,13 @@ type auditSpec struct {
 	// confirmedPlanHash is the plan a person confirmed on their own
 	// terminal (P3-3), from a confirm route only.
 	confirmedPlanHash string
-	plan              func(context.Context) (plan.Plan, error)
+	// breakGlass is a person breaking glass on their own call (P3-5b),
+	// from a break-glass route only.
+	breakGlass *BreakGlassRequest
+	// operationID, when set, is the id the call's records carry: a
+	// break-glass record is written before the intent, and links to it.
+	operationID string
+	plan        func(context.Context) (plan.Plan, error)
 }
 
 // auditCall is one operation's pair of records.
@@ -89,7 +95,7 @@ func (spec auditSpec) recordRequired() bool {
 func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec auditSpec) (*auditCall, error) {
 	intent := audit.Record{
 		Kind:         audit.KindIntent,
-		OperationID:  audit.NewID(),
+		OperationID:  spec.operationIDOrNew(),
 		Principal:    principalFor(ctx, spec),
 		Reason:       spec.reason,
 		Connector:    spec.connector,
@@ -296,4 +302,11 @@ func auditTelemetry(t pluginhost.Telemetry) *audit.PluginTelemetry {
 		out.Events = append(out.Events, audit.PluginEvent{Kind: e.Kind, Message: e.Message, Target: e.Target})
 	}
 	return out
+}
+
+func (spec auditSpec) operationIDOrNew() string {
+	if spec.operationID != "" {
+		return spec.operationID
+	}
+	return audit.NewID()
 }

@@ -3,8 +3,10 @@ package webui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
@@ -148,4 +150,38 @@ func approvalTargetName(a approval.Approval) string {
 		return a.Target.Resource
 	}
 	return a.Target.Kind
+}
+
+// breakGlassAlert is the header's break-glass badge (P3-5b): the uses in the
+// last day, and the follow-ups still open, which stay until acknowledged.
+// Nil when there are none, or the daemon cannot say.
+func (s *Server) breakGlassAlert(ctx context.Context) map[string]any {
+	c, ok := s.client.(approvalsClient)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	list, err := c.ListApprovals(ctx)
+	if err != nil {
+		return nil
+	}
+	since := time.Now().Add(-24 * time.Hour)
+	recent, open := 0, 0
+	for _, a := range list.Approvals {
+		if a.BreakGlass == nil || a.Status != approval.Consumed {
+			continue
+		}
+		if a.ConsumedAt.After(since) {
+			recent++
+		}
+		if a.BreakGlass.AckedAt.IsZero() {
+			open++
+		}
+	}
+	if recent == 0 && open == 0 {
+		return nil
+	}
+	return map[string]any{"recent": recent, "open": open,
+		"summary": fmt.Sprintf("BREAK GLASS: %d in the last day, %d to acknowledge (`cerberus approvals ack-break-glass`)", recent, open)}
 }

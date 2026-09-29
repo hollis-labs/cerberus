@@ -200,7 +200,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	posture := s.currentPosture()
 	_ = json.NewEncoder(w).Encode(map[string]any{"action_token": sess.actionToken, "session": sess.ID,
 		"posture":  map[string]any{"summary": posture.String(), "permissive": posture.Permissive(), "detail": posture},
-		"passkeys": s.passkeysAlert(r.Context())})
+		"passkeys": s.passkeysAlert(r.Context()), "break_glass": s.breakGlassAlert(r.Context())})
 }
 
 func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {

@@ -28,6 +28,9 @@ const (
 	// EventUsed is one use of a grant (a session or window approval, P3-5),
 	// which, unlike a once approval, is not spent by it.
 	EventUsed = "used"
+	// EventAcked is the operator acknowledging a break-glass use's
+	// follow-up (P3-5b).
+	EventAcked = "acked"
 )
 
 // Event is one line of the store: a transition of one approval, hash-chained
@@ -192,6 +195,14 @@ func (s *Store) apply(ev Event) error {
 		}
 		a.Uses++
 		a.LastUsedAt, a.LastUsedOperationID = ev.Time, ev.OperationID
+	case EventAcked:
+		if a.BreakGlass == nil || !a.BreakGlass.AckedAt.IsZero() || ev.Decision == nil {
+			return errors.New("acked: not an unacknowledged break glass")
+		}
+		bg := *a.BreakGlass
+		by := ev.Decision.By
+		bg.AckedAt, bg.AckedBy, bg.AckNote = ev.Time, &by, ev.Decision.Reason
+		a.BreakGlass = &bg
 	case EventRevoked:
 		if a.Status != Approved {
 			return fmt.Errorf("revoked from %s", a.Status)

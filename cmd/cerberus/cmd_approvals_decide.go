@@ -31,6 +31,7 @@ type approvalsClient interface {
 	GetApproval(ctx context.Context, id string) (approval.Approval, error)
 	DecideApproval(ctx context.Context, id string, args cerbapi.ApprovalDecisionArgs) (approval.Approval, error)
 	RevokeApproval(ctx context.Context, id string, args cerbapi.ApprovalRevokeArgs) (approval.Approval, error)
+	AckBreakGlass(ctx context.Context, id, note string) (approval.Approval, error)
 }
 
 var newApprovalsClient = func() (approvalsClient, error) { return newResourceSocketClient() }
@@ -170,10 +171,48 @@ func approvalTargetName(a approval.Approval) string {
 	return a.Target.Kind
 }
 
+var approvalsAckBreakGlassCmd = &cobra.Command{
+	Use:   "ack-break-glass <approval-id>",
+	Short: "Acknowledge a break-glass use, closing its follow-up (interactive)",
+	Long: `A break-glass use stays in ` + "`cerberus status`" + ` until someone acknowledges it here,
+so one is not slept through. This shows it in full and records who acknowledged
+it, with an optional --note. It runs only on an interactive terminal.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !approvalsIsTerminal() {
+			return errApprovalsNotInteractive
+		}
+		client, err := newApprovalsClient()
+		if err != nil {
+			return err
+		}
+		ctx := inProcessContext(cmd.Context())
+		a, err := client.GetApproval(ctx, args[0])
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		if err = writeApproval(out, a, "the daemon"); err != nil {
+			return err
+		}
+		if a.BreakGlass == nil || !a.BreakGlass.AckedAt.IsZero() {
+			return fmt.Errorf("approval %s is not a break-glass use with an open follow-up", a.ID)
+		}
+		acked, err := client.AckBreakGlass(ctx, a.ID, approvalsDecideFlags.reason)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "Acknowledged the break glass %s; it leaves `cerberus status`.\n", acked.ID)
+		return err
+	},
+}
+
 func init() {
 	for _, c := range []*cobra.Command{approvalsApproveCmd, approvalsDenyCmd, approvalsRevokeCmd} {
 		c.Flags().StringVar(&approvalsDecideFlags.reason, "reason", "", "why, for the record")
 	}
+	approvalsAckBreakGlassCmd.Flags().StringVar(&approvalsDecideFlags.reason, "note", "", "a note for the record")
+	approvalsCmd.AddCommand(approvalsAckBreakGlassCmd)
 	approvalsApproveCmd.Flags().BoolVar(&approvalsDecideFlags.browser, "browser", true, "for an out-of-band approval, open the console page as well as printing it")
 	approvalsCmd.AddCommand(approvalsApproveCmd, approvalsDenyCmd, approvalsRevokeCmd)
 }

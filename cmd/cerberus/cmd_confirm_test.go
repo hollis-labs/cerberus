@@ -29,7 +29,7 @@ func (s *scriptedExecutor) Execute(_ context.Context, args cerbapi.ExternalConne
 		return cerbapi.ExternalConnectorOperationResult{Data: map[string]any{"plan_hash": confirmTestHash, "computed_by": "socket",
 			"plan": plan.Plan{Connector: "dnsdemo", Operation: "set_records", Effect: "write",
 				Target: audit.Target{Kind: "dnsdemo.domain", Resource: "site", Env: "dev", Owner: "self", Admin: "self"}}}}, nil
-	case args.ConfirmedPlanHash != "":
+	case args.ConfirmedPlanHash != "", args.BreakGlass != nil:
 		return cerbapi.ExternalConnectorOperationResult{Data: map[string]any{"ok": true}}, nil
 	}
 	return cerbapi.ExternalConnectorOperationResult{}, &cerbapi.ExternalConnectorError{Code: cerbapi.ExternalConnectorApprovalPending,
@@ -105,4 +105,37 @@ func cerbapiCode(err error) cerbapi.ExternalConnectorErrorCode {
 		return coded.Code
 	}
 	return ""
+}
+
+// Break glass shows the plan under its banner, takes the typed target, and
+// sends the reason with it; without a terminal or a reason nothing is sent.
+func TestConnectorExecBreaksGlass(t *testing.T) {
+	withTerminal(t, true)
+	run := func(typed string, bg breakGlassFlags) (*scriptedExecutor, string, error) {
+		exec := &scriptedExecutor{}
+		var errOut bytes.Buffer
+		err := runConnectorExec(context.Background(), &bytes.Buffer{}, &errOut, strings.NewReader(typed), exec, []contract.Definition{execTestDefinition()}, "dnsdemo", "set_records",
+			connectorExecFlags{args: []string{"domain=example.com"}, ack: true, bg: bg})
+		return exec, errOut.String(), err
+	}
+	exec, shown, err := run("site\n", breakGlassFlags{on: true, reason: "the incident"})
+	if err != nil || len(exec.calls) != 2 || !exec.calls[0].Plan {
+		t.Fatalf("break glass: %v %+v", err, exec.calls)
+	}
+	if bg := exec.calls[1].BreakGlass; bg == nil || bg.Reason != "the incident" || bg.Typed != "site" {
+		t.Fatalf("sent %+v", exec.calls[1])
+	}
+	if !strings.Contains(shown, "BREAK GLASS") || !strings.Contains(shown, "Reason: the incident") || !strings.Contains(shown, confirmTestHash) {
+		t.Fatalf("the prompt:\n%s", shown)
+	}
+	if exec, _, err := run("y\n", breakGlassFlags{on: true, reason: "the incident"}); err == nil || len(exec.calls) != 1 {
+		t.Fatalf("a wrong target: %v", err)
+	}
+	if exec, _, err := run("site\n", breakGlassFlags{on: true}); err == nil || !strings.Contains(err.Error(), "--reason") || len(exec.calls) != 1 {
+		t.Fatalf("no reason: %v", err)
+	}
+	withTerminal(t, false)
+	if exec, _, err := run("site\n", breakGlassFlags{on: true, reason: "why"}); err == nil || !strings.Contains(err.Error(), "interactive terminal") || len(exec.calls) != 1 {
+		t.Fatalf("no terminal: %v", err)
+	}
 }

@@ -393,6 +393,8 @@ func (s *SocketServer) handleResourcesID(w http.ResponseWriter, r *http.Request)
 		s.handleResourceMutation(w, r, id, strings.TrimSuffix(action, "/plan"), routePlan)
 	case "deploy/confirm", "apply/confirm", "reload/confirm", "stop/confirm", "sync/confirm", "remove/confirm":
 		s.handleResourceMutation(w, r, id, strings.TrimSuffix(action, "/confirm"), routeConfirm)
+	case "deploy/break-glass", "apply/break-glass", "reload/break-glass", "stop/break-glass", "sync/break-glass", "remove/break-glass":
+		s.handleResourceMutation(w, r, id, strings.TrimSuffix(action, "/break-glass"), routeBreakGlass)
 	case "deploy", "apply", "reload", "stop", "sync", "remove":
 		s.handleResourceMutation(w, r, id, action, routeRun)
 	default:
@@ -445,6 +447,8 @@ func (s *SocketServer) handlePipelinesID(w http.ResponseWriter, r *http.Request)
 		route = routePlan
 	case "run/confirm":
 		route = routeConfirm
+	case "run/break-glass":
+		route = routeBreakGlass
 	}
 	if action != "run" && route == routeRun {
 		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown pipeline action %q", action))
@@ -560,7 +564,10 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 	// likewise a route of its own, and the only place a confirmed plan hash
 	// is read.
 	confirm := len(parts) == 4 && parts[3] == "confirm"
-	if planOnly || confirm {
+	// …/break-glass is a person breaking glass on their own call (P3-5b),
+	// the only place its reason and typed target are read.
+	breakGlass := len(parts) == 4 && parts[3] == "break-glass"
+	if planOnly || confirm || breakGlass {
 		parts = parts[:3]
 	}
 	if len(parts) != 3 || parts[0] == "" || parts[1] != "operations" || parts[2] == "" {
@@ -570,13 +577,21 @@ func (s *SocketServer) handleConnectorsID(w http.ResponseWriter, r *http.Request
 
 	var body struct {
 		ExternalConnectorOperationArgs
-		ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+		ConfirmedPlanHash string             `json:"confirmed_plan_hash"`
+		BreakGlass        *BreakGlassRequest `json:"break_glass"`
 	}
 	if err := decodeJSONBody(r, &body); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	args := body.ExternalConnectorOperationArgs
+	if breakGlass {
+		if body.BreakGlass == nil || strings.TrimSpace(body.BreakGlass.Reason) == "" {
+			writeJSONError(w, http.StatusBadRequest, errBreakGlassWithoutReason.Error())
+			return
+		}
+		args.BreakGlass = body.BreakGlass
+	}
 	args.Connector = parts[0]
 	args.Operation = parts[2]
 	if planOnly {
@@ -861,7 +876,12 @@ const (
 	routeRun mutationRoute = iota
 	routePlan
 	routeConfirm
+	routeBreakGlass
 )
+
+// errBreakGlassWithoutReason refuses a break-glass request that gives no
+// reason: the reason goes on its record.
+var errBreakGlassWithoutReason = redact.Guidance("a break-glass route needs break_glass.reason, which goes on its record; nothing ran")
 
 // errConfirmWithoutHash refuses a confirm that names no plan: a confirmation
 // is of a plan, and without one there is nothing to hold the call to.
@@ -877,7 +897,8 @@ func decodeMutationOptions(body io.Reader, route mutationRoute) ([]MutationOptio
 	}
 	var opts struct {
 		MutationOpts
-		ConfirmedPlanHash string `json:"confirmed_plan_hash"`
+		ConfirmedPlanHash string             `json:"confirmed_plan_hash"`
+		BreakGlass        *BreakGlassRequest `json:"break_glass"`
 	}
 	if len(data) > 0 {
 		if err := json.Unmarshal(data, &opts); err != nil {
@@ -893,6 +914,12 @@ func decodeMutationOptions(body io.Reader, route mutationRoute) ([]MutationOptio
 			return nil, errConfirmWithoutHash
 		}
 		options = append(options, WithConfirmedPlanHash(opts.ConfirmedPlanHash))
+	}
+	if route == routeBreakGlass {
+		if opts.BreakGlass == nil || strings.TrimSpace(opts.BreakGlass.Reason) == "" {
+			return nil, errBreakGlassWithoutReason
+		}
+		options = append(options, WithBreakGlass(opts.BreakGlass.Reason, opts.BreakGlass.Typed))
 	}
 	if opts.InstallAfterBuildOverride != nil {
 		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))
@@ -955,6 +982,23 @@ func (s *SocketServer) handleApprovalAction(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		a, err = broker.RevokeAs(r.Context(), id, args)
+	case "ack-break-glass":
+		var args struct {
+			Note string `json:"note"`
+		}
+		if err = decodeJSONBody(r, &args); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		a, err = broker.AckBreakGlassAs(r.Context(), id, args.Note)
+		if errors.Is(err, errAckNotHuman) {
+			writeJSONError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, approval.ErrNotBreakGlass) {
+			writeJSONError(w, http.StatusConflict, redact.Guidance("approval %s is not a break-glass use with an open follow-up; `cerberus status` lists the ones that are", id).Error())
+			return
+		}
 	case "challenge":
 		var args ApprovalChallengeArgs
 		if err = decodeJSONBody(r, &args); err != nil {

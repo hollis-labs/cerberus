@@ -401,6 +401,44 @@ not-ours target that is your choice, and it is loud. `policy apply` and
 marks each active one with `!`, and every use carries
 `grant_on_protected_target: true`.
 
+### Break glass
+
+When policy asks for an approval you can't get in time, you can break glass
+on your own call:
+
+```bash
+cerberus resource stop <id> --ack --break-glass --reason "the incident needs it now"
+```
+
+Cerberus shows the plan under a **BREAK GLASS** banner and asks you to type
+the target. The call then gets past the `approve`, whatever channel or number
+of approvers it asked for. It **never gets past a `deny`**.
+
+Break glass requires all of these:
+
+- an interactive terminal;
+- a person at the CLI (not an agent, MCP or the console);
+- a reason;
+- the target typed;
+- a running daemon, which keeps its record.
+
+On a prod, shared, not-ours or unlabeled target, a terminal isn't enough.
+The call asks for a passkey instead: approve it on the console, where it is
+labeled BREAK GLASS with its reason and plan, then run the command again with
+`--break-glass --approval <id>`.
+
+It is loud:
+
+- a `break_glass` audit record is written before the call's intent;
+- the operator gets a desktop notification;
+- the console header shows a red badge for a day;
+- `cerberus status` lists it until someone acknowledges it with
+  `cerberus approvals ack-break-glass <id>` on a terminal.
+
+Break glass is limited per target: by default 3 uses per rolling 24h, set in
+policy with `break_glass: {per_target: 3, window: 24h}` and changed with
+`cerberus policy apply`. `policy explain` and `posture show` print the limit.
+
 ### When an agent asks
 
 An agent working through MCP can't approve anything. There is no MCP tool that
