@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +26,13 @@ import (
 // The decision point uses only the applied snapshot, never the working
 // files (Decision 10), and a snapshot that no longer matches its hash is
 // not used at all (D6).
-type Store struct{ Dir string }
+type Store struct {
+	Dir string
+	// AuditDir is the audit log a snapshot that fails its hash check is
+	// enforced from: the last verified enforcement recorded there
+	// (LastVerifiedEnforcement). Empty, such a snapshot enforces everything.
+	AuditDir string
+}
 
 const (
 	appliedName = "applied.yaml"
@@ -93,6 +100,9 @@ type LoadStatus struct {
 	// Recorded and Found are the two hashes of a mismatch.
 	Recorded, Found string
 	Problem         string
+	// Enforcement is what a mismatch enforces, as a person reads it: the
+	// last verified scopes and when they were applied, or everything.
+	Enforcement string
 }
 
 // Mismatch reports an applied snapshot that failed its hash check.
@@ -126,6 +136,25 @@ func (s Store) Load() (*Evaluator, LoadStatus) {
 		return BaselineOnly(SnapshotMismatch), LoadStatus{Snapshot: SnapshotMismatch, Recorded: recorded, Found: found, Problem: strings.Join(problems, "; ")}
 	}
 	return NewEvaluator(f, found), LoadStatus{Snapshot: found}
+}
+
+// LoadVerified is Load, with a snapshot that fails its hash check enforced
+// as it was last verified (P3-7): the enforcement the newest apply recorded
+// in the hash-chained audit log, or, when that cannot be determined,
+// everything. The baseline decides either way.
+func (s Store) LoadVerified() (*Evaluator, LoadStatus) {
+	ev, status := s.Load()
+	if !status.Mismatch() {
+		return ev, status
+	}
+	if e, at, ok := LastVerifiedEnforcement(s.AuditDir); ok {
+		ev.fallback = &e
+		status.Enforcement = fmt.Sprintf("snapshot mismatch: enforcing the last verified enforcement, from %s: %s", at.Local().Format(time.RFC3339), e.Summary())
+	} else {
+		status.Enforcement = "snapshot mismatch: enforcing everything (the last verified enforcement cannot be read from the audit log)"
+	}
+	ev.fallbackNote = status.Enforcement
+	return ev, status
 }
 
 // Encode is a file as the snapshot writes it.
@@ -251,6 +280,16 @@ func (r *Reloading) GlobalPosture() string {
 	return r.reloadIfChanged().GlobalPosture()
 }
 
+// File is the applied snapshot's file, as it reads now.
+func (r *Reloading) File() File { return r.reloadIfChanged().File() }
+
+// Enforced reports whether req is enforced under the applied snapshot.
+func (r *Reloading) Enforced(req Request) (bool, string) { return r.reloadIfChanged().Enforced(req) }
+
+// Enforcement is what the applied snapshot enforces, and a note when it is
+// a mismatch's fallback.
+func (r *Reloading) Enforcement() (Enforcement, string) { return r.reloadIfChanged().Enforcement() }
+
 func (r *Reloading) reloadIfChanged() *Evaluator {
 	stamp := r.stampNow()
 	r.mu.Lock()
@@ -258,7 +297,7 @@ func (r *Reloading) reloadIfChanged() *Evaluator {
 	if r.current != nil && stamp == r.stamp {
 		return r.current
 	}
-	pdp, status := r.store.Load()
+	pdp, status := r.store.LoadVerified()
 	r.current, r.stamp = pdp, stamp
 	if r.onLoad != nil {
 		r.onLoad(status)

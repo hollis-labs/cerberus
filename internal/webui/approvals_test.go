@@ -12,6 +12,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/policy"
 )
 
 // approvalsDaemon is the console's client with the daemon's approvals.
@@ -173,5 +174,20 @@ func TestSessionCarriesTheBreakGlassBadge(t *testing.T) {
 	d.a.BreakGlass.AckedAt, d.a.ConsumedAt = time.Now(), time.Now().Add(-48*time.Hour)
 	if body := session(); !strings.Contains(body, `"break_glass":null`) {
 		t.Fatalf("an old, acknowledged break glass: %s", body)
+	}
+}
+
+// The console header carries what is enforced.
+func TestSessionCarriesEnforcement(t *testing.T) {
+	_, h, _ := approvalsConsole(t)
+	store := policy.Store{Dir: t.TempDir()}
+	if _, err := store.Apply(policy.File{Version: policy.FileVersion, Enforcement: &policy.Enforcement{Enforce: []policy.EnforceEntry{{ID: "agents", Principal: "agent"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	cerbapi.SetPolicyDecisionPoint(policy.NewReloading(store, nil))
+	t.Cleanup(func() { cerbapi.SetPolicyDecisionPoint(nil) })
+	body := serve(h, newTestRequest(http.MethodGet, "/api/session", nil)).Body.String()
+	if !strings.Contains(body, `"enforced":true`) || !strings.Contains(body, "agents: every target principal=agent") {
+		t.Fatalf("session %s", body)
 	}
 }

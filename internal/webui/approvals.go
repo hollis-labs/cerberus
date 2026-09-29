@@ -10,6 +10,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/policy"
 )
 
 // approvalsClient is the daemon's approvals as the console reaches them.
@@ -184,4 +185,17 @@ func (s *Server) breakGlassAlert(ctx context.Context) map[string]any {
 	}
 	return map[string]any{"recent": recent, "open": open,
 		"summary": fmt.Sprintf("BREAK GLASS: %d in the last day, %d to acknowledge (`cerberus approvals ack-break-glass`)", recent, open)}
+}
+
+// enforcementAlert is the header's enforcement line (P3-7): what is
+// enforced, and, loudly, a snapshot mismatch and the path it took.
+func enforcementAlert() map[string]any {
+	e, ok := cerbapi.PolicyDecisionPoint().(interface {
+		Enforcement() (policy.Enforcement, string)
+	})
+	if !ok {
+		return nil
+	}
+	enf, note := e.Enforcement()
+	return map[string]any{"summary": enf.Summary(), "enforced": enf.Mode == policy.EnforceAll || len(enf.Enforce) > 0, "mismatch": note}
 }

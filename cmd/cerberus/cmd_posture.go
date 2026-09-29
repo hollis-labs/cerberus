@@ -48,6 +48,9 @@ var postureShowCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		summary := currentPosture()
+		if st := statusOfEnforcement(); st.Mismatch != "" {
+			summary.Enforcement = st.Mismatch
+		}
 		if postureFlags.output == outputFormatJSON {
 			return printJSON(map[string]any{"posture": summary, "host_wide": hostWideRows(summary.Global)})
 		}
@@ -324,6 +327,9 @@ func writePostureShow(w io.Writer, s policy.PostureSummary) error {
 		for _, r := range s.Rules {
 			fmt.Fprintf(w, "  %s: %s\n", r.Match, r.Posture)
 		}
+	}
+	if s.Enforcement != "" {
+		fmt.Fprintf(w, "\nEnforcement: %s (change it with `cerberus policy enforce`).\n", s.Enforcement)
 	}
 	if s.BreakGlass.PerTarget > 0 {
 		fmt.Fprintf(w, "\nBreak glass: at most %s (break_glass in policy; change it with `cerberus policy apply`).\n", s.BreakGlass)

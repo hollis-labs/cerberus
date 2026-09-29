@@ -12,6 +12,7 @@ package audit
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"time"
 )
 
@@ -49,6 +50,9 @@ const (
 	// is the operator closing its follow-up.
 	KindBreakGlass      = "break_glass"
 	KindBreakGlassAcked = "break_glass_acked"
+	// KindEnforcementChanged is what is enforced changing (P3-7): the
+	// section before, in Note, and after, in Enforcement.
+	KindEnforcementChanged = "enforcement_changed"
 	// KindEnrollmentChanged is a change to the passkeys out-of-band
 	// approvals are verified against (P3-4): a key enrolled or removed, a
 	// registry changed outside Cerberus (which starts the cool-down), or a
@@ -174,6 +178,10 @@ type Record struct {
 	// BreakGlass is a break-glass use's reason and whether its target is
 	// protected, on a break_glass record (P3-5b).
 	BreakGlass *BreakGlassRef `json:"break_glass,omitempty"`
+	// Enforcement is a policy snapshot apply's enforcement section (P3-7),
+	// so a snapshot that later fails its hash check is enforced as it was
+	// last verified, from this hash-chained record.
+	Enforcement json.RawMessage `json:"enforcement,omitempty"`
 
 	// PluginReview is what an install review showed and what was accepted.
 	PluginReview *PluginReview `json:"plugin_review,omitempty"`

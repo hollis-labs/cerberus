@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -63,6 +64,10 @@ type auditSpec struct {
 	// breakGlass is a person breaking glass on their own call (P3-5b),
 	// from a break-glass route only.
 	breakGlass *BreakGlassRequest
+	// enforcement is a policy apply's enforcement section, recorded on its
+	// intent and outcome so a snapshot that later fails its hash check is
+	// enforced as it was last verified (P3-7).
+	enforcement json.RawMessage
 	// operationID, when set, is the id the call's records carry: a
 	// break-glass record is written before the intent, and links to it.
 	operationID string
@@ -109,6 +114,7 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 		PluginEntrypointSHA256: spec.pluginEntrypointSHA256,
 		Preview:                spec.preview,
 		PluginReview:           spec.review,
+		Enforcement:            spec.enforcement,
 	}
 	var resolved target.Target
 	intent.Target, resolved = auditTarget(spec)

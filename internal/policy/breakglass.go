@@ -44,9 +44,11 @@ func (f File) BreakGlassLimits() BreakGlass {
 
 // BreakGlassLimitsOf is the limit pdp decides with: its file's, or the
 // defaults for a decision point with no file.
+// The installed decision point is a Reloading, so this reads any PDP with a
+// file, not only an *Evaluator.
 func BreakGlassLimitsOf(pdp PDP) BreakGlass {
-	if ev, ok := pdp.(*Evaluator); ok {
-		return ev.file.BreakGlassLimits()
+	if withFile, ok := pdp.(interface{ File() File }); ok {
+		return withFile.File().BreakGlassLimits()
 	}
 	return File{}.BreakGlassLimits()
 }

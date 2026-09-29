@@ -176,14 +176,20 @@ func installPolicy() {
 	if err != nil {
 		return
 	}
-	cerbapi.SetPolicyDecisionPoint(policy.NewReloading(policy.Store{Dir: dir}, func(status policy.LoadStatus) {
+	auditDir, _ := AuditDir()
+	cerbapi.SetPolicyDecisionPoint(policy.NewReloading(policy.Store{Dir: dir, AuditDir: auditDir}, func(status policy.LoadStatus) {
 		if err := cerbapi.RecordPolicyLoad(auditSink, status); err != nil {
 			slog.Default().Error("policy.load_record_failed", "error", redact.Text(err.Error()))
 		}
 		if status.Mismatch() {
-			slog.Default().Warn("policy.snapshot_changed", "problem", status.Problem, "consequence", "the baseline decides until `cerberus policy apply` runs again")
+			slog.Default().Warn("policy.snapshot_changed", "problem", status.Problem, "enforcement", status.Enforcement,
+				"consequence", "the baseline decides until `cerberus policy apply` runs again")
+			cerbapi.Notify("Cerberus: policy snapshot mismatch", status.Enforcement+". Review the policy and run `cerberus policy apply`.")
 		}
 	}))
+	// The switch-on (P3-7): what the snapshot enforces is enforced; the
+	// rest stays shadow. Nothing is enforced until the operator scopes it.
+	cerbapi.SetEnforcement(cerbapi.SnapshotEnforcement{})
 }
 
 // ApprovalsDir is ~/.cerberus/approvals.

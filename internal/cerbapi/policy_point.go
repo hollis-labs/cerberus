@@ -131,7 +131,7 @@ func ApplyPolicy(ctx context.Context, sink audit.Sink, store policy.Store, file 
 	op := contract.Operation{Name: "apply", Effect: contract.EffectAdmin, Target: contract.TargetDescriptor{Kind: "policy.snapshot", From: []string{"hash"}},
 		Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites}.Finalize()
 	call, err := beginGated(ctx, sink, slog.Default(), auditSpec{connector: "policy", operation: "apply", op: op, known: true, acknowledged: true,
-		config: map[string]any{"hash": hash, "flips": flips}})
+		config: map[string]any{"hash": hash, "flips": flips}, enforcement: file.EnforcementOf().Record()})
 	if err != nil {
 		return "", err
 	}
@@ -141,4 +141,17 @@ func ApplyPolicy(ctx context.Context, sink audit.Sink, store policy.Store, file 
 		return "", err
 	}
 	return written, nil
+}
+
+// RecordEnforcementChange records, loudly, that what is enforced changed
+// (P3-7): an enforcement_changed record with the section before and after,
+// and a notification where the process has a notifier.
+func RecordEnforcementChange(ctx context.Context, sink audit.Sink, before, after policy.Enforcement) error {
+	rec := audit.Record{Kind: audit.KindEnforcementChanged, Principal: principalFor(ctx, auditSpec{}), Connector: "policy", Operation: "enforce",
+		Effect: string(contract.EffectAdmin), Note: before.Summary(), Enforcement: after.Record(), Posture: audit.PostureSecure}
+	if _, err := sink.Write(rec); err != nil {
+		return err
+	}
+	notify("Cerberus: enforcement changed", "now "+after.Summary()+" (was "+before.Summary()+")")
+	return nil
 }

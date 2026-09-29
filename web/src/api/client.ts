@@ -10,11 +10,20 @@ export interface SessionInfo {
   posture?: PostureInfo
   passkeys?: PasskeysAlert | null
   break_glass?: BreakGlassAlert | null
+  enforcement?: EnforcementAlert | null
 }
 
 // PasskeysAlert is the header's line about out-of-band approval: loud while
 // no passkey is enrolled, for a day after an enrollment, and during a
 // cool-down after the key registry changed by other means.
+// EnforcementAlert is the header's enforcement badge (P3-7): what is
+// enforced, and a snapshot mismatch's path, loudly.
+export interface EnforcementAlert {
+  summary: string
+  enforced: boolean
+  mismatch?: string
+}
+
 // BreakGlassAlert is the header's break-glass badge (P3-5b).
 export interface BreakGlassAlert {
   recent: number

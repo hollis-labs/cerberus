@@ -35,6 +35,37 @@ var changes = []contract.Effect{contract.EffectWrite, contract.EffectLifecycle, 
 type Evaluator struct {
 	file     File
 	snapshot string
+	// fallback is what a mismatch enforces: the last verified enforcement,
+	// or nil for everything (Store.LoadVerified).
+	fallback     *Enforcement
+	fallbackNote string
+}
+
+// Enforcement is what the evaluator enforces, and a note when it is a
+// snapshot mismatch's fallback. A mismatch with no verified record of the
+// enforcement enforces everything: fail closed.
+func (e *Evaluator) Enforcement() (Enforcement, string) {
+	if e.snapshot != SnapshotMismatch {
+		return e.file.EnforcementOf(), ""
+	}
+	note := e.fallbackNote
+	if note == "" {
+		note = "snapshot mismatch: enforcing everything"
+	}
+	if e.fallback != nil {
+		return *e.fallback, note
+	}
+	return Enforcement{Mode: EnforceAll}, note
+}
+
+// Enforced reports whether req is enforced, and by what.
+func (e *Evaluator) Enforced(req Request) (bool, string) {
+	enf, note := e.Enforcement()
+	ok, by := enf.Enforced(req)
+	if ok && note != "" {
+		by = note + " (" + by + ")"
+	}
+	return ok, by
 }
 
 // NewEvaluator evaluates against file, whose snapshot identity (its hash,
