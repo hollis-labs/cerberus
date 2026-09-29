@@ -107,9 +107,12 @@ func ManifestFromDefinition(def Definition) Manifest {
 			Output:      op.Output,
 			Cost:        op.Cost,
 			LocalFS:     op.LocalFS,
-			Destructive: op.RequiresAck,
-			SupportsDry: op.SupportsDry,
-			RequiresAck: op.RequiresAck,
+			// Labels travel with the operation: a plugin that sets them in
+			// its Go definition writes them into plugin.yaml.
+			OutputSchema: cloneSchema(op.OutputSchema),
+			Destructive:  op.RequiresAck,
+			SupportsDry:  op.SupportsDry,
+			RequiresAck:  op.RequiresAck,
 		})
 	}
 	return Manifest{

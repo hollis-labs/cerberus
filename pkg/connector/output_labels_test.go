@@ -51,3 +51,19 @@ func TestManifestOutputSchema(t *testing.T) {
 		t.Fatalf("output schema lost: %v", op.OutputSchema)
 	}
 }
+
+// Labels set on a Go definition survive into the manifest it writes
+// (plugin.yaml, via write-dist) and back into the host's contract.
+func TestOutputSchemaRoundTrips(t *testing.T) {
+	schema := map[string]any{"properties": map[string]any{"msg": map[string]any{"type": "string", "x-cerberus-label": "untrusted"}}}
+	def := Definition{ID: "demo", Version: "1", ResourceTypes: []string{"demo"}, Operations: []Operation{
+		{Name: "list", Effect: EffectRead, Output: OutputStructured, OutputSchema: schema, InputSchema: ObjectSchema(map[string]any{})},
+	}}
+	m := ManifestFromDefinition(def)
+	if !reflect.DeepEqual(m.Operations[0].OutputSchema, schema) {
+		t.Fatalf("manifest lost the output schema: %v", m.Operations[0].OutputSchema)
+	}
+	if back := DefinitionFromManifest(m); !reflect.DeepEqual(back.Operations[0].OutputSchema, schema) {
+		t.Fatalf("definition lost the output schema: %v", back.Operations[0].OutputSchema)
+	}
+}
