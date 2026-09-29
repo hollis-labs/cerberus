@@ -204,3 +204,20 @@ boundary.
   `contextforge/internal/cfplugin/dto.go` and `azure/internal/azplugin/dto.go`
   in `hollis-labs/cerberus-plugins`, each with a test asserting that a fully
   populated credential does not serialize.
+
+## Addendum, 2026-09-29: labels (P4-1)
+
+A DTO field that holds text Cerberus did not compose carries
+`cerb:"untrusted"`: workload or command output, vendor messages, and names or
+descriptions that anyone who can push can set. A field holding personal data
+carries `cerb:"personal"`. A field can carry both
+(`cerb:"untrusted,personal"`). The DTO still decides what exists. The label
+says what it is, so a surface can mark it for the client and policy can shape
+it.
+
+A built-in operation's result type is registered in
+`internal/egress/results`. An operation declared `Output: free_text` must have
+a registered result with at least one field labelled `untrusted`
+(`TestFreeTextOperationsAreLabelled`), so a text-returning operation cannot
+arrive unlabelled. `egress.Fields` walks a type into labelled JSON pointers,
+and refuses an unknown label or a label on a field that holds no text.

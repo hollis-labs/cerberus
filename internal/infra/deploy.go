@@ -22,15 +22,15 @@ type DeploymentRunResult struct {
 	DeploymentURL string           `json:"deployment_url,omitempty"`
 	Git           GitStatus        `json:"git"`
 	Steps         []DeploymentStep `json:"steps"`
-	Error         string           `json:"error,omitempty"`
+	Error         string           `json:"error,omitempty" cerb:"untrusted"`
 }
 
 type DeploymentStep struct {
 	Name    string `json:"name"`
 	Command string `json:"command"`
 	Success bool   `json:"success"`
-	Output  string `json:"output,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Output  string `json:"output,omitempty" cerb:"untrusted"`
+	Error   string `json:"error,omitempty" cerb:"untrusted"`
 }
 
 type GitStatus struct {
