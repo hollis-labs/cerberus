@@ -237,3 +237,22 @@ func TestStatusKeepsBreakGlassUntilAcknowledged(t *testing.T) {
 		}
 	}
 }
+
+// Status names what is enforced, and is loud about a snapshot mismatch and
+// the path it took.
+func TestStatusNamesEnforcement(t *testing.T) {
+	for _, tc := range []struct {
+		e    statusEnforcement
+		want string
+	}{
+		{statusEnforcement{Summary: "shadow (nothing enforced)"}, "enforce  shadow (nothing enforced)"},
+		{statusEnforcement{Summary: "shadow, with 1 enforced scope(s): agents-prod", Enforced: true}, "enforce  ! shadow, with 1 enforced scope(s)"},
+		{statusEnforcement{Summary: "enforce (everything)", Enforced: true, Mismatch: "snapshot mismatch: enforcing everything"}, "enforce  ! snapshot mismatch: enforcing everything"},
+	} {
+		var out bytes.Buffer
+		_ = writeStatus(&out, statusReport{Posture: policy.PostureSummary{Global: policy.PostureSecure}, Enforcement: tc.e})
+		if !strings.Contains(out.String(), tc.want) {
+			t.Errorf("status lacks %q:\n%s", tc.want, out.String())
+		}
+	}
+}

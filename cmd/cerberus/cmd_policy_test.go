@@ -59,7 +59,7 @@ func TestPolicyExplain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Decision: allow", "builtin.local-dev-lifecycle", "the built-in baseline", "Shadow mode: nothing is refused today", "Posture:  secure"} {
+	for _, want := range []string{"Decision: allow", "builtin.local-dev-lifecycle", "the built-in baseline", "Enforcement: shadow for this call", "Posture:  secure"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("explain is missing %q:\n%s", want, out)
 		}
@@ -218,3 +218,63 @@ func TestPolicyReportDecidesAgain(t *testing.T) {
 }
 
 var zeroTime = func() (t time.Time) { return }()
+
+// policy enforce scopes enforcement on a typed confirmation, through the
+// snapshot path, loudly; --off returns the scope to shadow; it refuses
+// without a terminal or with a scope term it cannot enforce by.
+func TestPolicyEnforce(t *testing.T) {
+	store, sink := policyFixture(t, true)
+	dir := t.TempDir()
+	oldAudit, oldReady := auditDir, currentChannelReadiness
+	auditDir = func() (string, error) { return dir, nil }
+	currentChannelReadiness = func(context.Context) channelReadiness { return channelReadiness{Note: "test: no daemon"} }
+	t.Cleanup(func() {
+		auditDir, currentChannelReadiness = oldAudit, oldReady
+		policyEnforceFlags.scope, policyEnforceFlags.id, policyEnforceFlags.all, policyEnforceFlags.off = "", "", false, false
+	})
+	run := func(stdin string, args ...string) (string, error) {
+		policyEnforceFlags.scope, policyEnforceFlags.id, policyEnforceFlags.all, policyEnforceFlags.off = "", "", false, false
+		return runPolicy(t, stdin, append([]string{"enforce"}, args...)...)
+	}
+	if _, err := run("", "--scope", "rule=x"); err == nil || !strings.Contains(err.Error(), "not rule") {
+		t.Fatalf("a rule scope: %v", err)
+	}
+	out, err := run("yes\n", "--scope", "principal=agent,env=prod", "--id", "agents-prod")
+	if err == nil || !strings.Contains(out, "Enforcement: shadow (nothing enforced)") || !strings.Contains(out, "agents-prod") {
+		t.Fatalf("a wrong confirmation: %v\n%s", err, out)
+	}
+	if _, st := store.Load(); st.Snapshot != policy.SnapshotBaseline {
+		t.Fatal("a wrong confirmation applied")
+	}
+	out, err = run("enforce principal=agent,env=prod\n", "--scope", "principal=agent,env=prod", "--id", "agents-prod")
+	if err != nil {
+		t.Fatalf("enforce: %v\n%s", err, out)
+	}
+	ev, _ := store.Load()
+	enf := ev.File().EnforcementOf()
+	if len(enf.Enforce) != 1 || enf.Enforce[0].Principal != "agent" || enf.Enforce[0].Match.Env != "prod" {
+		t.Fatalf("applied enforcement %+v", enf)
+	}
+	if _, statErr := os.Stat(filepath.Join(store.Dir, policy.EnforcementFileName)); statErr != nil {
+		t.Fatalf("enforcement.yaml: %v", statErr)
+	}
+	var changed bool
+	for _, r := range sink.Records() {
+		if r.Kind == audit.KindEnforcementChanged && strings.Contains(r.Note, "shadow (nothing enforced)") && strings.Contains(string(r.Enforcement), "agents-prod") {
+			changed = true
+		}
+	}
+	if !changed {
+		t.Fatal("the enforcement change was not recorded")
+	}
+	if _, err = run("shadow principal=agent,env=prod\n", "--off", "--scope", "principal=agent,env=prod"); err != nil {
+		t.Fatalf("off: %v", err)
+	}
+	if ev, _ = store.Load(); len(ev.File().EnforcementOf().Enforce) != 0 {
+		t.Fatalf("still enforced: %+v", ev.File().EnforcementOf())
+	}
+	policyIsTerminal = func() bool { return false }
+	if _, err := run("", "--all"); !errors.Is(err, errPolicyEnforceNotInteractive) {
+		t.Fatalf("no terminal: %v", err)
+	}
+}

@@ -29,7 +29,10 @@ import (
 var (
 	policyStore = func() (policy.Store, error) {
 		dir, err := app.PolicyDir()
-		return policy.Store{Dir: dir}, err
+		// The audit log is where a snapshot that fails its hash check is
+		// enforced from (P3-7).
+		auditDir, _ := app.AuditDir()
+		return policy.Store{Dir: dir, AuditDir: auditDir}, err
 	}
 	policyIsTerminal = func() bool {
 		return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
@@ -116,6 +119,24 @@ var policyExplainCmd = &cobra.Command{
 			return err
 		}
 		writeGrantWarnings(cmd.OutOrStdout(), grantWarnings)
+		if e, ok := pdp.(interface {
+			Enforced(policy.Request) (bool, string)
+			Enforcement() (policy.Enforcement, string)
+		}); ok {
+			on, by := e.Enforced(req)
+			_, note := e.Enforcement()
+			switch {
+			case connectorID == "policy":
+				fmt.Fprintln(cmd.OutOrStdout(), "\nEnforcement: never for policy changes, which have their own terminal gate.")
+			case on:
+				fmt.Fprintf(cmd.OutOrStdout(), "\nEnforcement: ENFORCED, by %s: this decision is applied, not only recorded.\n", by)
+			default:
+				fmt.Fprintln(cmd.OutOrStdout(), "\nEnforcement: shadow for this call: the decision is recorded and nothing is refused.")
+			}
+			if note != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "! %s\n", note)
+			}
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "\nBreak glass: gets past an approve, never a deny; at most %s.\n", policy.BreakGlassLimitsOf(pdp))
 		why := "the global posture"
 		if len(postureRules) > 0 {
@@ -133,7 +154,7 @@ func explainPDP(working bool) (policy.PDP, string, error) {
 		return nil, "", err
 	}
 	if !working {
-		pdp, status := store.Load()
+		pdp, status := store.LoadVerified()
 		source := "the applied snapshot " + status.Snapshot
 		switch {
 		case status.Snapshot == policy.SnapshotBaseline:
@@ -168,7 +189,7 @@ func writeExplain(w io.Writer, req policy.Request, res policy.Result, source str
 	if res.WouldBlock {
 		block = "would be blocked once enforced"
 	}
-	fmt.Fprintf(w, "Decision: %s (%s). Shadow mode: nothing is refused today.\nPolicy:   %s\n\nMatched rules:\n", res.Decision, block, source)
+	fmt.Fprintf(w, "Decision: %s (%s).\nPolicy:   %s\n\nMatched rules:\n", res.Decision, block, source)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, m := range res.Matched {
 		fmt.Fprintf(tw, "  %s\t%s\t%s\n", m.Decision, m.Rule, m.Reason)

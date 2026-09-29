@@ -82,6 +82,27 @@ type statusReport struct {
 	// BreakGlass are the break-glass uses whose follow-up is still open: a
 	// use stays here until acknowledged (P3-5b), so it is not slept through.
 	BreakGlass []statusBreakGlass `json:"break_glass"`
+	// Enforcement is what is enforced (P3-7), and loud about a snapshot
+	// that fails its hash check.
+	Enforcement statusEnforcement `json:"enforcement"`
+}
+
+type statusEnforcement struct {
+	Summary  string `json:"summary"`
+	Enforced bool   `json:"enforced"`
+	Mismatch string `json:"mismatch,omitempty"`
+}
+
+// statusOfEnforcement reads the applied snapshot as the daemon does,
+// fallback included.
+var statusOfEnforcement = func() statusEnforcement {
+	store, err := policyStore()
+	if err != nil {
+		return statusEnforcement{Summary: "unknown (" + err.Error() + ")"}
+	}
+	ev, _ := store.LoadVerified()
+	e, note := ev.Enforcement()
+	return statusEnforcement{Summary: e.Summary(), Enforced: e.Mode == policy.EnforceAll || len(e.Enforce) > 0, Mismatch: note}
 }
 
 type statusBreakGlass struct {
@@ -152,7 +173,7 @@ type statusWebApp struct {
 }
 
 func gatherStatus(ctx context.Context) statusReport {
-	r := statusReport{Posture: currentPosture(), Web: []statusWebApp{}}
+	r := statusReport{Posture: currentPosture(), Web: []statusWebApp{}, Enforcement: statusOfEnforcement()}
 	r.Plugins.ReviewPending = []string{}
 
 	ready := false
@@ -389,6 +410,14 @@ func writeStatus(w io.Writer, r statusReport) error {
 		line("passkeys", "! %s", r.Passkeys.Summary)
 	default:
 		line("passkeys", "%s", r.Passkeys.Summary)
+	}
+	switch {
+	case r.Enforcement.Mismatch != "":
+		line("enforce", "! %s", r.Enforcement.Mismatch)
+	case r.Enforcement.Enforced:
+		line("enforce", "! %s", r.Enforcement.Summary)
+	case r.Enforcement.Summary != "":
+		line("enforce", "%s", r.Enforcement.Summary)
 	}
 	switch {
 	case r.Grants.Note != "":

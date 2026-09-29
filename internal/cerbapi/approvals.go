@@ -225,6 +225,34 @@ func SetEnforcement(e Enforcement) {
 	enforcementPoint.Store(&enforcementHolder{e: e})
 }
 
+// SnapshotEnforcement enforces what the applied policy snapshot's
+// enforcement section says (P3-7): its scoped entries, or everything under
+// mode enforce, and for a snapshot that fails its hash check, the last
+// verified enforcement. Everything else stays shadow.
+type SnapshotEnforcement struct{}
+
+// Enforced implements Enforcement. Changing policy itself (`policy apply`,
+// `policy enforce`, `posture set`) is never enforced: it has its own gate,
+// a terminal and a typed confirmation in the operator's own process, where
+// no broker could hold an approval, so enforcing it would let enforcement
+// lock the way back to shadow.
+func (SnapshotEnforcement) Enforced(req policy.Request) bool {
+	if req.Connector == "policy" {
+		return false
+	}
+	if e, ok := PolicyDecisionPoint().(interface {
+		Enforced(policy.Request) (bool, string)
+	}); ok {
+		on, _ := e.Enforced(req)
+		return on
+	}
+	return false
+}
+
+// Notify tells the operator something they should see now, where the
+// process has a notifier (the daemon's desktop notification).
+func Notify(title, message string) { notify(title, message) }
+
 func enforced(req policy.Request) bool {
 	h := enforcementPoint.Load()
 	return h != nil && h.e.Enforced(req)

@@ -49,6 +49,10 @@ type File struct {
 	// BreakGlass is the rate limit on breaking glass (P3-5b); omitted, it
 	// is DefaultBreakGlassPerTarget per DefaultBreakGlassWindow.
 	BreakGlass *BreakGlass `yaml:"break_glass,omitempty"`
+
+	// Enforcement is the switch-on (P3-7): what is enforced rather than
+	// recorded in shadow. Omitted, nothing is.
+	Enforcement *Enforcement `yaml:"enforcement,omitempty"`
 }
 
 // Postures.
@@ -266,6 +270,7 @@ func (f File) Validate() []string {
 		problems = append(problems, fmt.Sprintf("posture %q is not secure or permissive", f.Posture))
 	}
 	problems = append(problems, f.BreakGlass.problems()...)
+	problems = append(problems, f.Enforcement.problems()...)
 	for i, r := range f.PostureRules {
 		if r.Posture != PostureSecure && r.Posture != PosturePermissive {
 			problems = append(problems, fmt.Sprintf("posture_rules[%d].posture %q is not secure or permissive", i, r.Posture))
@@ -406,6 +411,21 @@ func Merge(files ...File) File {
 		}
 		out.Targets = append(out.Targets, f.Targets...)
 		out.Principals = append(out.Principals, f.Principals...)
+		// The break-glass limit: the last file that sets it.
+		if f.BreakGlass != nil {
+			bg := *f.BreakGlass
+			out.BreakGlass = &bg
+		}
+		// Enforcement: the last mode set, and every file's scopes.
+		if f.Enforcement != nil {
+			if out.Enforcement == nil {
+				out.Enforcement = &Enforcement{}
+			}
+			if f.Enforcement.Mode != "" {
+				out.Enforcement.Mode = f.Enforcement.Mode
+			}
+			out.Enforcement.Enforce = append(out.Enforcement.Enforce, f.Enforcement.Enforce...)
+		}
 	}
 	return out
 }

@@ -19,6 +19,8 @@ type PostureSummary struct {
 	Snapshot string `json:"snapshot"`
 	// BreakGlass is the rate limit on breaking glass.
 	BreakGlass BreakGlass `json:"break_glass"`
+	// Enforcement is what is enforced, as a person reads it.
+	Enforcement string `json:"enforcement,omitempty"`
 }
 
 // PostureRuleSummary is one posture rule: what it matches, and the posture.
@@ -29,7 +31,7 @@ type PostureRuleSummary struct {
 
 // PostureSummary summarizes f's posture.
 func (f File) PostureSummary(snapshot string) PostureSummary {
-	s := PostureSummary{Global: f.GlobalPosture(), Snapshot: snapshot, BreakGlass: f.BreakGlassLimits()}
+	s := PostureSummary{Global: f.GlobalPosture(), Snapshot: snapshot, BreakGlass: f.BreakGlassLimits(), Enforcement: f.EnforcementOf().Summary()}
 	for _, r := range f.PostureRules {
 		s.Rules = append(s.Rules, PostureRuleSummary{Match: r.Match.String(), Posture: r.Posture})
 	}

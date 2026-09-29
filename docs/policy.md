@@ -1,8 +1,8 @@
 # Policy
 
-> **Status: pre-release.** Policy runs in **shadow mode**: every decision is
-> recorded, and nothing is refused on its account yet. Enforcement arrives
-> with approvals in a later release.
+> **Status: pre-release.** Policy runs in **shadow mode** until you switch
+> it on: every decision is recorded, and nothing is refused on its account
+> except in the scopes you enforce with `cerberus policy enforce`.
 
 Cerberus authorizes every operation it runs against a policy, on every
 surface: the CLI, the daemon socket, the web console and MCP. The decision is
@@ -169,10 +169,54 @@ The error codes `policy_denied`, `approval_required`, `approval_pending`,
 `approval_expired` and `plan_stale` are reserved for enforcement. Nothing
 returns them yet.
 
+## Switching enforcement on
+
+Until you switch it on, policy runs in **shadow**: every decision is recorded
+and nothing is refused. `cerberus policy report` shows what policy would have
+blocked, and what enforcing it would need. When the shadow data says a scope
+is ready, enforce it:
+
+```bash
+cerberus policy report --since 2026-09-01 --scope principal=agent,env=prod
+cerberus policy enforce --scope principal=agent,env=prod --id agents-prod
+```
+
+`policy enforce` runs on a terminal. It shows the report for the scope over
+`--since` (seven days by default), including the would-blocks that would now
+be refused with no channel ready to approve them. It then shows the
+enforcement before and after and asks for a typed confirmation. It writes
+`enforcement.yaml`, the working file it owns, and applies through the same
+snapshot path as `policy apply`:
+
+```yaml
+enforcement:
+  mode: shadow          # or enforce: everything
+  enforce:
+    - id: agents-prod
+      match: { env: prod }
+      principal: agent  # or "!human"
+      effect: [destructive, exec]
+```
+
+A scope is enforced; everything else stays shadow. `--all` enforces
+everything, and `--off` returns a scope, or with `--all` the mode, to shadow.
+Every change is recorded (`enforcement_changed`, and the apply record
+carries the section), notifies, and shows in `cerberus status`, `posture show`,
+`policy explain` and the console header. Changing policy itself is never
+enforced: it has its own terminal gate, and enforcing it would lock the way
+back to shadow.
+
+If the applied snapshot fails its hash check, the baseline decides and
+enforcement doesn't silently switch off. Cerberus enforces the last
+verified enforcement, read from the hash-chained audit log (the newest
+apply's record). If that can't be determined, because the chain doesn't
+verify or no apply is recorded, it enforces everything. Either way it says
+so loudly, and `cerberus policy apply` puts it right.
+
 ## Approvals
 
-Once enforcement is on for an operation, which a later release switches on
-scope by scope, an `approve` decision becomes an **approval request**. The
+Once enforcement is on for an operation, which you switch on scope by scope
+with `cerberus policy enforce` (below), an `approve` decision becomes an **approval request**. The
 daemon holds requests in `~/.cerberus/approvals/events.jsonl` (mode 0600,
 append-only, replayed at start), and each one moves through a lifecycle:
 

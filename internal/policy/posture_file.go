@@ -53,6 +53,12 @@ func (s Store) PostureDeclaredElsewhere() ([]string, error) {
 // working policy a `posture set` would apply, computed before anything is
 // written.
 func (s Store) LoadWorkingWithPosture(p File) (File, []string, error) {
+	return s.loadWorkingReplacing(PostureFileName, p)
+}
+
+// loadWorkingReplacing is LoadWorking with the command-owned working file
+// name replaced by p.
+func (s Store) loadWorkingReplacing(name string, p File) (File, []string, error) {
 	paths, err := s.WorkingFiles()
 	if err != nil {
 		return File{}, nil, err
@@ -60,7 +66,7 @@ func (s Store) LoadWorkingWithPosture(p File) (File, []string, error) {
 	var files []File
 	var problems []string
 	for _, path := range paths {
-		if filepath.Base(path) == PostureFileName && filepath.Dir(path) == s.Dir {
+		if filepath.Base(path) == name && filepath.Dir(path) == s.Dir {
 			continue
 		}
 		f, err := readFile(path)
@@ -75,7 +81,7 @@ func (s Store) LoadWorkingWithPosture(p File) (File, []string, error) {
 	}
 	p.Version = FileVersion
 	for _, problem := range p.Validate() {
-		problems = append(problems, PostureFileName+": "+problem)
+		problems = append(problems, name+": "+problem)
 	}
 	return Merge(append(files, p)...), problems, nil
 }
