@@ -270,6 +270,7 @@ func (f File) Validate() []string {
 		if r.Posture != PostureSecure && r.Posture != PosturePermissive {
 			problems = append(problems, fmt.Sprintf("posture_rules[%d].posture %q is not secure or permissive", i, r.Posture))
 		}
+		problems = append(problems, r.Match.problems(fmt.Sprintf("posture_rules[%d].match", i))...)
 	}
 	check := func(where string, rules []Rule) {
 		for i, r := range rules {
@@ -288,6 +289,7 @@ func (f File) Validate() []string {
 			if r.Approval != nil && r.Approval.Scope != "" && r.Approval.Scope != ScopeOnce && !r.Approval.IsGrant() {
 				problems = append(problems, fmt.Sprintf("%s: approval scope %q is not once, session or window", at, r.Approval.Scope))
 			}
+			problems = append(problems, approvalProblems(at, r)...)
 			if r.Principal != nil && r.Principal.Kind != "" && !validKind(strings.TrimPrefix(r.Principal.Kind, "!")) {
 				problems = append(problems, fmt.Sprintf("%s: principal kind %q is not human, agent or automation", at, r.Principal.Kind))
 			}
@@ -312,6 +314,7 @@ func (f File) Validate() []string {
 		check("providers."+id, p.Rules)
 	}
 	for i, t := range f.Targets {
+		problems = append(problems, t.Match.problems(fmt.Sprintf("targets[%d].match", i))...)
 		check(fmt.Sprintf("targets[%d]", i), t.Rules)
 	}
 	for i, p := range f.Principals {
@@ -329,6 +332,49 @@ func (f File) Validate() []string {
 }
 
 func validKind(k string) bool { return k == "human" || k == "agent" || k == "automation" }
+
+// approvalProblems are a rule's approval terms that would not mean what
+// they say. Each would otherwise be read as the default, and the default
+// is weaker than an out_of_band typo meant: a fail-open.
+func approvalProblems(at string, r Rule) []string {
+	a := r.Approval
+	if a == nil {
+		return nil
+	}
+	var problems []string
+	if r.Decision != Approve {
+		problems = append(problems, fmt.Sprintf("%s: approval terms are set, but the decision is %s; they apply only to approve", at, r.Decision))
+	}
+	switch a.Channel {
+	case "", "tty_confirm", "out_of_band":
+	case "elicit":
+		problems = append(problems, fmt.Sprintf("%s: approval channel elicit is not available yet; use tty_confirm or out_of_band", at))
+	default:
+		problems = append(problems, fmt.Sprintf("%s: approval channel %q is not tty_confirm or out_of_band", at, a.Channel))
+	}
+	if a.Approvers < 0 {
+		problems = append(problems, fmt.Sprintf("%s: approval approvers %d is negative", at, a.Approvers))
+	}
+	if a.TTL < 0 {
+		problems = append(problems, fmt.Sprintf("%s: approval ttl %s is negative", at, a.TTL))
+	}
+	return problems
+}
+
+// problems are match values outside their vocabulary. A target always has
+// an env and an admin (unknown when undeclared), so an unknown value there
+// would match nothing, or with "!" everything: either way not what was
+// written.
+func (m TargetMatch) problems(at string) []string {
+	var problems []string
+	if v := strings.TrimPrefix(m.Env, "!"); m.Env != "" && !target.ValidEnv(v) {
+		problems = append(problems, fmt.Sprintf("%s.env %q is not an env (prod, staging, dev, lab, poc, work or unknown, optionally with !)", at, m.Env))
+	}
+	if v := strings.TrimPrefix(m.Admin, "!"); m.Admin != "" && !target.ValidAdmin(v) {
+		problems = append(problems, fmt.Sprintf("%s.admin %q is not self, shared, owner or unknown (optionally with !)", at, m.Admin))
+	}
+	return problems
+}
 
 // Merge combines files. Rules accumulate; a later baseline cell replaces an
 // earlier one. Nothing a later file says can remove a rule an earlier one

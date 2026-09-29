@@ -1,10 +1,12 @@
 package policy
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -116,8 +118,8 @@ func (s Store) Load() (*Evaluator, LoadStatus) {
 		return BaselineOnly(SnapshotMismatch), LoadStatus{Snapshot: SnapshotMismatch, Recorded: recorded, Found: found,
 			Problem: "applied.yaml does not match the hash `cerberus policy apply` recorded"}
 	}
-	var f File
-	if err := yaml.Unmarshal(data, &f); err != nil {
+	f, err := decodeFile(data)
+	if err != nil {
 		return BaselineOnly(SnapshotMismatch), LoadStatus{Snapshot: SnapshotMismatch, Recorded: recorded, Found: found, Problem: err.Error()}
 	}
 	if problems := f.Validate(); len(problems) > 0 {
@@ -181,8 +183,22 @@ func readFile(path string) (File, error) {
 	if err != nil {
 		return File{}, err
 	}
+	f, err := decodeFile(data)
+	if err != nil {
+		return File{}, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	return f, nil
+}
+
+// decodeFile reads a policy file strictly: a key the file format does not
+// have is an error. Read loosely, a misspelled key is dropped without a
+// word, and a dropped key widens a rule: `ops` misspelled on an allow rule
+// makes it allow every operation. An empty file is an empty File.
+func decodeFile(data []byte) (File, error) {
 	var f File
-	if err := yaml.Unmarshal(data, &f); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
 		return File{}, err
 	}
 	return f, nil
