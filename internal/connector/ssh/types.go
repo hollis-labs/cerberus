@@ -4,8 +4,8 @@ import "time"
 
 // ExecResult holds the output of a remote command execution.
 type ExecResult struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	Stdout   string `json:"stdout" cerb:"untrusted"`
+	Stderr   string `json:"stderr" cerb:"untrusted"`
 	ExitCode int    `json:"exit_code"`
 }
 
@@ -13,5 +13,5 @@ type ExecResult struct {
 type HostStatus struct {
 	Reachable bool          `json:"reachable"`
 	Latency   time.Duration `json:"latency"`
-	OS        string        `json:"os"`
+	OS        string        `json:"os" cerb:"untrusted"`
 }

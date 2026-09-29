@@ -16,7 +16,7 @@ type StageResult struct {
 	Name     string        `json:"name"`
 	Status   domain.State  `json:"status"`
 	Duration time.Duration `json:"duration_ms"`
-	Error    string        `json:"error,omitempty"`
+	Error    string        `json:"error,omitempty" cerb:"untrusted"`
 }
 
 // RunResult captures the outcome of a full pipeline run.
@@ -25,7 +25,7 @@ type RunResult struct {
 	Status     domain.State  `json:"status"`
 	Stages     []StageResult `json:"stages"`
 	Duration   time.Duration `json:"duration_ms"`
-	Error      string        `json:"error,omitempty"`
+	Error      string        `json:"error,omitempty" cerb:"untrusted"`
 }
 
 // Executor runs pipelines by resolving stage dependencies and executing
