@@ -1307,3 +1307,87 @@ the agent what to ask its human.
 
 **Order:** P3-1 → P3-2 → P3-3 → P3-4 → P3-5 → P3-6, then P3-7.
 Channels come before the flip.
+
+## P4 cut — 2026-09-29
+
+P4 is elicitation and egress: I7 applied to text Cerberus did not compose,
+and approval reaching the person where they are. It starts from what is
+already true.
+
+- The contract declares an output kind, and five operations are `free_text`:
+  `local.logs`, `docker.logs`, `ssh.exec`, `pipeline.run` and
+  `infra.run_profile`. Nothing consumes it yet.
+- Baseline policy approves `read_sensitive` for agents, and every
+  `read_sensitive` operation is gated since CERB-GAP-889. That is the
+  exposure control, and P4 does not replace it.
+- Untrusted text also hides inside structured results, so labels go on
+  fields, not only on operations:
+  - build and install output inside lifecycle results;
+  - GitHub branch, release and workflow names and repo descriptions;
+  - vendor error text;
+  - plugin payloads.
+- On MCP protocol 2026-07-28 a server cannot elicit in the middle of a tool
+  call. It returns `input_required` with `InputRequests`, and the client calls
+  again with `InputResponses` and `RequestState` (SEP-2322). The go-sdk bridges
+  older clients. hollis-labs/go-mcp exposes neither direction yet.
+
+**Decisions (the operator's, 2026-09-29):**
+
+1. **Console link first.** URL-mode elicitation delivers an `out_of_band`
+   approval: the client shows a one-time link to the console's approval page,
+   and the passkey is still the approval. Form elicitation, the weak channel
+   limited to dev and lab targets we own (Decision 4), comes later, and the
+   exception that lets the requester decide its own request is deferred with
+   it.
+2. **Egress passes, labelled.** Output is delivered and marked untrusted or
+   personal in the MCP result's `_meta`. Caps, masks and refusals are opt-in
+   policy, recorded in shadow first, and never silent.
+3. **Unlabelled plugin outputs install.** They show as a gap in the install
+   review, and under the secure posture they are treated as untrusted free
+   text.
+4. **The marker lives in `_meta`,** as JSON pointers, not in a wrapper around
+   the result. It doesn't break clients that ignore it.
+5. **Claude Code is the first client.** Other clients' elicitation and
+   URL-mode support are documented as found.
+
+**P4-0: policy enums** (#128, landed). Every enum in a policy file is
+validated, and files are decoded strictly. A misspelled key was being dropped,
+and a dropped `ops` widened an allow rule to every operation.
+
+**P4-1: labels and conformance.** Struct tags `cerb:"untrusted"` and
+`cerb:"personal"` on DTO fields. A reflection conformance test ties
+`Output: free_text` to a labelled field, and the WP-S2 sentinel still never
+serializes. No behavior change.
+
+**P4-2: the untrusted marker.** An MCP result's `_meta` carries
+`cerberus/untrusted` and `cerberus/personal` as JSON pointers to labelled
+fields, and the MCP instructions say what they mean. It does not solve prompt
+injection; it gives the client what it needs to present text as data (ASI06).
+
+**P4-3: plugin labels.** Manifest output schemas carry `x-cerberus-label`. The
+install review names unlabelled outputs as a gap, and under the secure posture
+they are marked untrusted. A cerberus-plugins release labels our seven
+plugins.
+
+**P4-4: egress policy.** A policy `egress:` section keyed by label, principal
+kind and target match, with the actions `pass`, `cap`, `mask` and `refuse`.
+It is recorded in shadow before it acts. Masked or capped content says what was
+withheld and by which rule.
+
+**P4-5: go-mcp multi-round-trip.** Handlers can read `InputResponses` and
+`RequestState` and return `input_required`. This is a go-mcp release in its
+own repository.
+
+**P4-6: out-of-band approval through the client.** When a client supports URL
+elicitation, `approval_pending` for an `out_of_band` approval comes with a
+URL elicitation for the console page. The broker is unchanged: the passkey
+approves, and `cerberus_approval_wait` or the retry sees it.
+
+**Later:** the form `elicit` channel, with Decision 4's floor in the evaluator
+and again in the broker's decide path, a requester-session match, signed
+`RequestState`, and the weak kind recorded. It is its own cut when it is
+wanted.
+
+**PII.** Typed fields are labelled `personal`. The volume is in out-of-tree
+plugins, so the manifest label is the part that matters. Free-text logs get no
+filter: the exposure is labelled, and policy decides who may read them (WP-S7).
