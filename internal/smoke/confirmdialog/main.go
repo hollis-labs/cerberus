@@ -10,6 +10,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -24,6 +26,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/target"
 	"github.com/hollis-labs/cerberus/internal/webui"
 )
@@ -69,7 +72,16 @@ resources:
     config:
       dir: %s
       command: ["/bin/sleep", "300"]
-`, filepath.Join(home, "webdir"))
+  - id: prod-api
+    type: process
+    connector: local
+    env: prod
+    owner: self
+    admin: self
+    config:
+      dir: %s
+      command: ["/bin/sleep", "300"]
+`, filepath.Join(home, "webdir"), filepath.Join(home, "webdir"))
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) { //nolint:gosec // a path under the scratch HOME checked above
 		must(os.MkdirAll(dir, 0o700))                   //nolint:gosec // a path under the scratch HOME checked above
 		must(os.WriteFile(cfgPath, []byte(cfg), 0o600)) //nolint:gosec // a path under the scratch HOME checked above
@@ -88,6 +100,10 @@ resources:
 	broker, err := cerbapi.NewBroker(sink, filepath.Join(dir, "approvals"))
 	must(err)
 	cerbapi.SetBroker(broker)
+	// Passkeys (P3-4b), for the break-glass flow on a protected target.
+	origins := []string{"http://localhost:4799", "http://127.0.0.1:4799"}
+	passkeys := presence.New(filepath.Join(dir, "approvals", "passkeys"), sink, presence.Options{Origins: func() []string { return origins }})
+	cerbapi.SetPresence(passkeys)
 
 	runtime := cerbapi.NewResourceRuntimeService(sink, cerbapi.WithResourceRuntimeConfigPath(cfgPath))
 	inProc := cerbapi.NewInProcessClient(cerbapi.WithConfigPath(cfgPath), cerbapi.WithResourceRuntimeService(runtime),
@@ -121,6 +137,42 @@ resources:
 			return
 		}
 		_, _ = w.Write([]byte(login))
+	})
+	// The CLI's half of break glass on a protected target (the CLI itself
+	// is covered by its Go tests): ask, then retry once the console has
+	// approved it with a passkey.
+	cli := cerbapi.NewSocketClient(sock, cerbapi.WithPrincipalClaim(func(context.Context) cerbapi.Principal {
+		return cerbapi.Principal{Kind: cerbapi.PrincipalHuman, Via: cerbapi.ViaCLI, Client: "cerberus-cli"}
+	}))
+	ctl.HandleFunc("/enroll-token", func(w http.ResponseWriter, _ *http.Request) {
+		token, digest := presence.NewEnrollToken()
+		if err := passkeys.AllowEnrollment(digest); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(token))
+	})
+	breakGlass := func(w http.ResponseWriter, r *http.Request) {
+		opts := []cerbapi.MutationOption{cerbapi.WithAcknowledged(true), cerbapi.WithBreakGlass("prod is down", "prod-api")}
+		if id := r.URL.Query().Get("id"); id != "" {
+			opts = append(opts, cerbapi.WithApprovalID(id))
+		}
+		out, err := cli.StopResource(r.Context(), "prod-api", opts...)
+		result := map[string]any{"result": out}
+		if err != nil {
+			result["error"] = err.Error()
+			var coded *cerbapi.ExternalConnectorError
+			if errors.As(err, &coded) && coded.Approval != nil {
+				result["approval_id"] = coded.Approval.ID
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	}
+	ctl.HandleFunc("/break-glass", breakGlass)
+	ctl.HandleFunc("/follow-ups", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(broker.UnackedBreakGlass())
 	})
 	fmt.Println("READY")
 	must((&http.Server{Addr: "127.0.0.1:4798", Handler: ctl, ReadHeaderTimeout: 5 * time.Second}).ListenAndServe()) //nolint:gosec // smoke

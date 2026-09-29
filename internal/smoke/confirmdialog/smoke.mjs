@@ -133,6 +133,42 @@ try {
   const runs = await evaluate(`fetch('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.operation === 'run_profile'))`)
   check('deploy profile: the run was approved in the daemon, by the console session', runs.some((a) => a.status === 'consumed' && a.decision?.by?.via === 'web'),
     JSON.stringify(runs.map((a) => [a.status, a.decision?.by?.via])))
+
+  // 4. Break glass on a protected target (P3-5b): the CLI asks, the
+  //    console shows it as BREAK GLASS and approves it with a passkey, the
+  //    CLI's retry runs it, and it stays a follow-up.
+  await send('WebAuthn.enable', { enableUI: false })
+  await send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } })
+  const enrollToken = await (await fetch('http://127.0.0.1:4798/enroll-token')).text()
+  await go(`http://localhost:4799/approvals?enroll=${encodeURIComponent(enrollToken)}&label=smoke`)
+  await waitFor(`!!document.querySelector('[data-testid=enroll]')`, 'enroll button')
+  await evaluate(`(document.querySelector('[data-testid=enroll]').click(), true)`)
+  await waitFor(`!!document.querySelector('[data-testid^=passkey-]')`, 'enrolled passkey', 15000)
+  check('break glass: a passkey is enrolled on the console', true)
+
+  const asked = await (await fetch('http://127.0.0.1:4798/break-glass')).json()
+  check('break glass: on a protected target the CLI is told to finish it with a passkey', !!asked.approval_id && /BREAK GLASS/.test(asked.error || ''), (asked.error || '').slice(0, 120))
+  await go(`http://localhost:4799/approvals?id=${asked.approval_id}`)
+  await waitFor(`!!document.querySelector('[data-testid=break-glass-banner]')`, 'break-glass banner')
+  const detail = await evaluate(`(() => { const d = document.querySelector('[data-testid=approval-detail]'); const row = document.querySelector('[data-testid="approval-${asked.approval_id}"]'); return { banner: document.querySelector('[data-testid=break-glass-banner]').textContent, text: d.textContent, row: row ? row.textContent : '', approveDisabled: __btn(d, 'Approve with passkey')?.disabled } })()`)
+  check('break glass: the console labels it BREAK GLASS with the reason', /BREAK GLASS/.test(detail.banner) && detail.banner.includes('prod is down') && /BREAK GLASS/.test(detail.row), detail.banner.slice(0, 120))
+  check('break glass: the plan is shown with it', /sha256:[0-9a-f]{64}/.test(detail.text))
+  check('break glass: approve is disabled until the target is typed', detail.approveDisabled === true)
+  await evaluate(`(__type(document.querySelector('[data-testid=typed]'), 'prod'), true)`)
+  await sleep(150)
+  check('break glass: a wrong target keeps approve disabled', await evaluate(`__btn(document.querySelector('[data-testid=approval-detail]'), 'Approve with passkey').disabled`))
+  await evaluate(`(__type(document.querySelector('[data-testid=typed]'), 'prod-api'), true)`)
+  await sleep(150)
+  await evaluate(`(__btn(document.querySelector('[data-testid=approval-detail]'), 'Approve with passkey').click(), true)`)
+  await waitFor(`fetch('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).some(a => a.id === '${asked.approval_id}' && a.status === 'approved'))`, 'passkey approval', 15000)
+  check('break glass: approved on the console with the passkey', true)
+  const ran = await (await fetch(`http://127.0.0.1:4798/break-glass?id=${asked.approval_id}`)).json()
+  check('break glass: the CLI retry runs under it', !ran.error && ran.result?.success !== false, ran.error || '')
+  const open = await (await fetch('http://127.0.0.1:4798/follow-ups')).json()
+  check('break glass: it stays a follow-up until acknowledged', open.length === 1 && open[0].id === asked.approval_id)
+  await go('http://localhost:4799/')
+  await waitFor(`!!document.querySelector('[data-testid=break-glass-alert]')`, 'header badge')
+  check('break glass: the console header shows the badge', /BREAK GLASS · 1 today · 1 to acknowledge/.test(await evaluate(`document.querySelector('[data-testid=break-glass-alert]').textContent`)))
 } catch (e) {
   check('smoke ran to completion', false, e.message)
   const shot = await send('Page.captureScreenshot', { format: 'png' })
