@@ -56,7 +56,7 @@ lint-go:
 typecheck:
 	cd web && npm run typecheck
 
-# Browser smoke of the console confirm dialog (headless Chrome, scratch HOME).
+# Browser smoke of the console confirm dialog and break glass (headless Chrome, scratch HOME).
 # Build the bundle first: `make all`.
 smoke-confirm:
 	internal/smoke/confirmdialog/run.sh
