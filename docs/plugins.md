@@ -237,6 +237,20 @@ operations:
           note:  { type: string, x-cerberus-label: untrusted }
 ```
 
+A Go plugin doesn't write the schema by hand. It tags its DTO fields the way
+Cerberus's own DTOs are tagged, and derives the schema from the type it
+returns, so the manifest can't drift from the DTO:
+
+```go
+type Worker struct {
+    Name  string `json:"name"  cerb:"personal"`
+    Email string `json:"email" cerb:"personal,untrusted"`
+}
+
+contract.Operation{Name: "list_workers", /* ... */,
+    OutputSchema: contract.OutputSchemaOf[[]Worker]()}
+```
+
 An MCP tool result names its labeled fields in `_meta` (`cerberus/untrusted`
 and `cerberus/personal`, as JSON pointers), so a client can present that text
 as data and not as instructions.

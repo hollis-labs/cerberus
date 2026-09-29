@@ -104,7 +104,9 @@ func (w *walker) walk(t reflect.Type, at string) {
 }
 
 func (w *walker) field(f reflect.StructField, at string) {
-	if !f.IsExported() {
+	// An embedded struct's exported fields are promoted by encoding/json
+	// even when the embedded type itself is unexported.
+	if !f.IsExported() && !f.Anonymous {
 		return
 	}
 	name, inline := jsonName(f)

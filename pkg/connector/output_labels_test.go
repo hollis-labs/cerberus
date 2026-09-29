@@ -67,3 +67,57 @@ func TestOutputSchemaRoundTrips(t *testing.T) {
 		t.Fatalf("definition lost the output schema: %v", back.Operations[0].OutputSchema)
 	}
 }
+
+type labelRow struct {
+	Name  string   `json:"name" cerb:"personal"`
+	Email string   `json:"email,omitempty" cerb:"personal,untrusted"`
+	Tags  []string `json:"tags" cerb:"untrusted"`
+	Count int      `json:"count"`
+}
+
+type labelEmbedded struct {
+	Note string `json:"note" cerb:"untrusted"`
+}
+
+type labelResult struct {
+	labelEmbedded
+	Rows  []labelRow          `json:"rows"`
+	ByID  map[string]labelRow `json:"by_id"`
+	Plain struct {
+		N int `json:"n"`
+	} `json:"plain"`
+}
+
+// A schema derived from a labeled Go type reads back as the pointers the
+// tags mean; an unlabeled type is a reviewed empty object; a bad tag is an
+// error.
+func TestOutputSchemaFor(t *testing.T) {
+	got, err := OutputLabelPointers(OutputSchemaOf[labelResult]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"/note":           {"untrusted"},
+		"/rows/*/name":    {"personal"},
+		"/rows/*/email":   {"personal", "untrusted"},
+		"/rows/*/tags/*":  {"untrusted"},
+		"/by_id/*/name":   {"personal"},
+		"/by_id/*/email":  {"personal", "untrusted"},
+		"/by_id/*/tags/*": {"untrusted"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pointers:\n got %v\nwant %v", got, want)
+	}
+	type plain struct {
+		N int `json:"n"`
+	}
+	if s := OutputSchemaOf[[]plain](); s["type"] != "array" || s["items"] != nil {
+		t.Fatalf("an unlabeled type: %v", s)
+	}
+	type bad struct {
+		N int `json:"n" cerb:"untrusted"`
+	}
+	if _, err := OutputSchemaFor(reflect.TypeFor[bad]()); err == nil {
+		t.Fatal("a label on an int was accepted")
+	}
+}

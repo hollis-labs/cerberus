@@ -17,8 +17,13 @@ type Embedded struct {
 	Note string `json:"note" cerb:"untrusted"`
 }
 
+type hidden struct {
+	Promoted string `json:"promoted" cerb:"untrusted"`
+}
+
 type outer struct {
 	Embedded
+	hidden
 	Items   []inner           `json:"items"`
 	ByName  map[string]*inner `json:"by_name"`
 	Raw     []byte            `json:"raw" cerb:"untrusted"`
@@ -45,7 +50,7 @@ func TestFieldsArePointers(t *testing.T) {
 		got[f.Pointer] = strings.Join(ls, ",")
 	}
 	want := map[string]string{
-		"/note": "untrusted", "/raw": "untrusted", "/a~1b": "untrusted",
+		"/note": "untrusted", "/promoted": "untrusted", "/raw": "untrusted", "/a~1b": "untrusted",
 		"/items/*/line": "untrusted", "/items/*/email": "personal,untrusted", "/items/*/tags/*": "untrusted",
 		"/by_name/*/line": "untrusted", "/by_name/*/email": "personal,untrusted", "/by_name/*/tags/*": "untrusted",
 	}
