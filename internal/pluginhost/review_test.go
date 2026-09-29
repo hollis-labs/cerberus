@@ -22,6 +22,7 @@ func TestReviewReadsGapsStrictly(t *testing.T) {
 		`operation "wipe" declares no effect: treated as exec`,
 		"no telemetry declared for wipe",
 		`operation "wipe" declares no output kind: read as free text`,
+		`operation "wipe" labels no output (no output_schema): its whole result is marked untrusted for agents`,
 		"no host range declared",
 		"Previews: none declared",
 	} {
@@ -48,8 +49,10 @@ func TestDiffNamesEveryDeclaredChange(t *testing.T) {
 	next.Operations = []ReviewOperation{{Name: "list", Effect: contract.EffectWrite, Preview: contract.PreviewPlugin}}
 	next.Capabilities = []string{"ssh_agent"}
 	next.Host = pluginsdk.HostRange{MinContract: 1}
+	next.Operations[0].OutputLabels = canonicalLabels(map[string]any{"properties": map[string]any{"msg": map[string]any{"x-cerberus-label": "untrusted"}}})
 	got := strings.Join(Diff(base, next), "\n")
-	for _, want := range []string{"~ operation list effect read -> write", "~ operation list preview none -> plugin", "+ capability ssh_agent", "~ host contract undeclared -> >= 1"} {
+	for _, want := range []string{"~ operation list effect read -> write", "~ operation list preview none -> plugin", "+ capability ssh_agent", "~ host contract undeclared -> >= 1",
+		"~ operation list output labels unlabeled -> /msg=untrusted"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("diff is missing %q:\n%s", want, got)
 		}

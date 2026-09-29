@@ -40,6 +40,10 @@ type ManifestOperation struct {
 	Output  OutputKind  `json:"output,omitempty" yaml:"output,omitempty"`
 	Cost    Cost        `json:"cost,omitempty" yaml:"cost,omitempty"`
 	LocalFS LocalFS     `json:"local_fs,omitempty" yaml:"local_fs,omitempty"`
+	// OutputSchema describes the result, as far as its labels need: a
+	// property carries x-cerberus-label (OutputLabelKey). Without one the
+	// operation is unlabeled, and its whole result is marked untrusted.
+	OutputSchema map[string]any `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
 
 	// Destructive, SupportsDry and RequiresAck are the pre-contract fields.
 	// With Effect declared, the host derives all three from the contract and
@@ -153,6 +157,8 @@ func (op ManifestOperation) Operation() Operation {
 		Output:      op.Output,
 		Cost:        op.Cost,
 		LocalFS:     op.LocalFS,
+
+		OutputSchema: cloneSchema(op.OutputSchema),
 
 		EffectUndeclared: op.Effect == "",
 	}.Finalize()
@@ -293,6 +299,11 @@ func validateManifestContract(op ManifestOperation) []string {
 	}
 	if op.LocalFS != "" && !contains(localFSKinds, op.LocalFS) {
 		problems = append(problems, fmt.Sprintf("operation %q local_fs %q is not one of %s", op.Name, op.LocalFS, joinKinds(localFSKinds)))
+	}
+	if op.OutputSchema != nil {
+		if _, err := OutputLabelPointers(op.OutputSchema); err != nil {
+			problems = append(problems, fmt.Sprintf("operation %q output_schema: %v", op.Name, err))
+		}
 	}
 	// Pre-contract rule, kept for manifests without an effect: an older host
 	// gated on both flags, so dropping requires_ack would run the operation
