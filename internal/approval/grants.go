@@ -39,7 +39,7 @@ func (a Approval) covers(c GrantCheck) error {
 		return ErrOtherOperation
 	case !sameTarget(a.Target, c.Target):
 		return ErrOtherTarget
-	case a.Principal.Kind != c.Principal.Kind || a.Principal.Via != c.Principal.Via:
+	case a.Principal.Kind != c.Principal.Kind || a.Principal.Via != c.Principal.Via || !sameCaller(a.Principal, c.Principal):
 		return ErrOtherPrincipal
 	case a.Scope == ScopeSession && (a.Principal.Session == "" || a.Principal.Session != c.Principal.Session):
 		return ErrOtherPrincipal

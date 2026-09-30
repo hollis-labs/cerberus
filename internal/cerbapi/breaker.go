@@ -44,9 +44,11 @@ var breakerNow = time.Now
 // breaker count on it.
 func callerKey(p audit.Principal) string {
 	// A verified caller is its token's subject, which outlives any one
-	// session: a suspension survives the agent reconnecting.
+	// session: a suspension survives the agent reconnecting. Nothing the
+	// caller claims is in it, so it cannot vary its way to fresh counters
+	// (M13).
 	if p.AuthMethod == AuthOAuth && !p.SelfReported {
-		return p.Kind + "|oauth:" + p.Issuer + "#" + p.Subject + "|client:" + p.Client
+		return p.Kind + "|oauth:" + p.Issuer + "#" + p.Subject
 	}
 	who := p.Kind + "|" + p.Via + "|"
 	if p.Session != "" {
@@ -57,6 +59,25 @@ func callerKey(p audit.Principal) string {
 		uid = strconv.Itoa(*p.UID)
 	}
 	return who + "client:" + p.Client + "|uid:" + uid
+}
+
+// suspensionOf is the suspension of the caller with key. A verified
+// caller's key once carried its client too ("…|client:<name>"), and a
+// suspension recorded under that key is still its suspension: an upgrade
+// does not lift it.
+func suspensionOf(st brake.State, key string) (brake.Suspension, bool) {
+	if x, ok := st.SuspensionFor(key); ok {
+		return x, true
+	}
+	if !strings.Contains(key, "|oauth:") {
+		return brake.Suspension{}, false
+	}
+	for _, x := range st.Suspensions {
+		if strings.HasPrefix(x.Key, key+"|client:") {
+			return x, true
+		}
+	}
+	return brake.Suspension{}, false
 }
 
 // noteDenial counts a real policy denial of p, and trips the breaker when
@@ -70,7 +91,7 @@ func noteDenial(sink audit.Sink, p audit.Principal, operationID string, at time.
 		return
 	}
 	key := callerKey(p)
-	if _, already := b.Current().SuspensionFor(key); already {
+	if _, already := suspensionOf(b.Current(), key); already {
 		return
 	}
 	n := denials.add(b.AuditDir, *cfg, key, operationID, at)
@@ -139,7 +160,7 @@ func suspensionRefusal(ctx context.Context, spec auditSpec, effect contract.Effe
 		return nil
 	}
 	p := principalFor(ctx, spec)
-	x, ok := b.Current().SuspensionFor(callerKey(p))
+	x, ok := suspensionOf(b.Current(), callerKey(p))
 	if !ok {
 		return nil
 	}

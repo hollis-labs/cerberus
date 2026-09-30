@@ -143,3 +143,47 @@ func TestConsumeByIDUsesAGrant(t *testing.T) {
 		t.Fatalf("grant %+v", got)
 	}
 }
+
+// Every mcp-http caller is an agent over mcp_http with no session, so the
+// token's issuer and subject are what tell two of them apart (M6): one
+// teammate's window grant does not cover another's calls, a once approval
+// is not consumable by another token holder who learns its id, and an
+// unverified caller is neither. A refreshed token, a new token id for the
+// same subject, is the same caller.
+func TestAGrantAndAnApprovalAreTheirTokenSubjects(t *testing.T) {
+	alice := audit.Principal{Kind: "agent", Via: "mcp_http", AuthMethod: "oauth", Issuer: "https://idp", Subject: "alice", TokenID: "t1"}
+	bob := alice
+	bob.Subject, bob.TokenID = "bob", "t2"
+	unverified := audit.Principal{Kind: "agent", Via: "mcp_http"}
+	refreshed := alice
+	refreshed.TokenID = "t3"
+	otherIssuer := alice
+	otherIssuer.Issuer = "https://elsewhere"
+
+	s, _, _ := newStore(t)
+	grant(t, s, ScopeWindow, alice, time.Hour)
+	for name, p := range map[string]audit.Principal{"another subject": bob, "an unverified caller": unverified, "another issuer": otherIssuer} {
+		if _, err := s.UseGrant(use(p, devBox), nil); !errors.Is(err, ErrNotFound) {
+			t.Errorf("window grant, %s: %v", name, err)
+		}
+	}
+	if _, err := s.UseGrant(use(refreshed, devBox), nil); err != nil {
+		t.Fatalf("its subject, with a refreshed token: %v", err)
+	}
+
+	once := grant(t, s, ScopeOnce, alice, time.Hour)
+	check := func(p audit.Principal) ConsumeCheck {
+		return ConsumeCheck{Principal: p, Connector: "local", Operation: "reload", Target: devBox, ArgsDigest: "hmac:args", PlanHash: "sha256:plan", OperationID: "op"}
+	}
+	for name, p := range map[string]audit.Principal{"another subject": bob, "an unverified caller": unverified} {
+		if _, err := s.Consume(once.ID, check(p), nil); !errors.Is(err, ErrOtherPrincipal) {
+			t.Errorf("once approval, %s: %v", name, err)
+		}
+	}
+	if _, err := s.Consume(once.ID, check(refreshed), nil); err != nil {
+		t.Fatalf("its subject consumes it: %v", err)
+	}
+	if !SameRequester(unverified, audit.Principal{Kind: "agent", Via: "mcp_http"}) {
+		t.Fatal("two unverified callers with nothing else to tell them apart stopped matching")
+	}
+}

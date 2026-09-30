@@ -2,7 +2,10 @@ package cerbapi
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/hollis-labs/cerberus/internal/brake"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -200,5 +203,67 @@ func TestTokenRoutes(t *testing.T) {
 	SetAuth(nil)
 	if rec = call(humanCLI, http.MethodGet, "/auth/capabilities", nil); !strings.Contains(rec.Body.String(), `"oauth":false`) {
 		t.Fatalf("no auth: %s", rec.Body.String())
+	}
+}
+
+// A verified caller's client is its token's, or none: a token without a
+// client claim (as some identity providers issue) does not take the
+// caller's own clientInfo, which it could vary per call. And the key the
+// rate limits and the breaker count on is the subject alone (M13).
+func TestAVerifiedCallerIsKeyedOnItsSubjectAlone(t *testing.T) {
+	a := withAuth(t, audit.NewMemory())
+	// A token the issuer knows (its id is recorded), re-signed without the
+	// client claim, as an identity provider's token might come.
+	_, rec := mint(t, a, "issued", "cerberus:read")
+	now := time.Now()
+	tok := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.MapClaims{
+		"iss": a.Config.BuiltinIssuer(), "sub": "user:alice", "aud": a.Config.Resource, "scope": "cerberus:read",
+		"jti": rec.ID, "iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(time.Hour).Unix(),
+	})
+	tok.Header["kid"] = oauth.KeyID(a.Issuer.Key.Public().(ed25519.PublicKey))
+	signed, err := tok.SignedString(a.Issuer.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	for _, claimed := range []string{"agent-one", "agent-two"} {
+		r, err := verifyBearer(bearerRequest(signed, Principal{Kind: PrincipalAgent, Via: ViaMCPHTTP, Client: claimed}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, _ := PrincipalFrom(r.Context())
+		if !p.Verified() || p.Client != "" {
+			t.Fatalf("a token with no client took the claim: %+v", p)
+		}
+		keys[callerKey(principalFor(r.Context(), auditSpec{}))] = true
+	}
+	if len(keys) != 1 {
+		t.Fatalf("varying the claim gave fresh keys: %v", keys)
+	}
+	k1 := callerKey(audit.Principal{Kind: "agent", Via: "mcp_http", AuthMethod: AuthOAuth, Issuer: "i", Subject: "s", Client: "one"})
+	k2 := callerKey(audit.Principal{Kind: "agent", Via: "mcp_http", AuthMethod: AuthOAuth, Issuer: "i", Subject: "s", Client: "two"})
+	if k1 != k2 {
+		t.Fatalf("the client is in the key: %q %q", k1, k2)
+	}
+}
+
+// A suspension recorded under a verified caller's old key, which carried
+// its client, still suspends it after the key dropped the client.
+func TestALegacySuspensionStillHolds(t *testing.T) {
+	key := callerKey(audit.Principal{Kind: "agent", Via: "mcp_http", AuthMethod: AuthOAuth, Issuer: "i", Subject: "s"})
+	st := brake.State{Suspensions: []brake.Suspension{{ID: "sus_1", Key: key + "|client:claude-code"}}}
+	if x, ok := suspensionOf(st, key); !ok || x.ID != "sus_1" {
+		t.Fatal("an upgrade lifted a verified caller's suspension")
+	}
+	other := callerKey(audit.Principal{Kind: "agent", Via: "mcp_http", AuthMethod: AuthOAuth, Issuer: "i", Subject: "s2"})
+	if _, ok := suspensionOf(st, other); ok {
+		t.Fatal("another subject matched the legacy suspension")
+	}
+	// An unverified caller's key is matched exactly: a session named to look
+	// like a legacy key suspends only itself.
+	crafted := callerKey(audit.Principal{Kind: "agent", Via: "mcp_stdio", Session: "abc|client:zzz"})
+	plain := callerKey(audit.Principal{Kind: "agent", Via: "mcp_stdio", Session: "abc"})
+	if _, ok := suspensionOf(brake.State{Suspensions: []brake.Suspension{{ID: "sus_2", Key: crafted}}}, plain); ok {
+		t.Fatal("the legacy match reached an unverified caller")
 	}
 }

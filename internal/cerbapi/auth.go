@@ -76,9 +76,9 @@ func verifyBearer(r *http.Request) (*http.Request, error) {
 	// An OAuth caller is an agent over mcp-http, whatever it claimed.
 	p.Kind, p.Via, p.SelfReported = PrincipalAgent, ViaMCPHTTP, false
 	p.Subject, p.Issuer, p.AuthMethod, p.TokenID, p.Scopes = id.Subject, id.Issuer, AuthOAuth, id.TokenID, id.Scopes
-	if id.Client != "" {
-		p.Client = clip(id.Client)
-	}
+	// The client is the token's, or none: never the caller's own claim,
+	// which it could vary per call (M13).
+	p.Client = clip(id.Client)
 	return r.WithContext(WithPrincipal(ctx, p)), nil
 }
 
