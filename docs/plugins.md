@@ -261,3 +261,98 @@ as data and not as instructions.
   untrusted or personal.
 - An unknown label is refused at install.
 - A change to an operation's labels shows in an upgrade's review diff.
+
+## Deadlines and limits
+
+The host supervises every plugin it runs. A plugin that hangs, floods its
+output or grows without bound costs you one plugin, not the daemon.
+
+**Every protocol call has a deadline.** Here are the defaults and the host
+maximums:
+
+| Call | Default | Maximum |
+|---|---|---|
+| init, load | 20s | 2m |
+| health, unload | 5s | 30s |
+| each operation | 2m | 30m |
+
+You can override any of them per plugin in `connector-config.yaml`, which is
+the file you own. A value over the host maximum is clamped, with a load
+warning:
+
+```yaml
+my-plugin:
+  limits:
+    call_timeout: 10m
+    operations: { deploy: 20m }   # per operation; the names must be declared
+    init_timeout: 60s
+    max_result_bytes: 4194304     # default 1 MiB, at most 16 MiB
+    memory_mib: 4096              # the memory watchdog; default 2048
+    open_files: 2048              # RLIMIT_NOFILE; default 1024
+    file_mib: 4096                # RLIMIT_FSIZE; default 1024
+    cpu_seconds: 0                # RLIMIT_CPU; off by default (see below)
+```
+
+Decoding is strict: an older daemon refuses a file that has `limits:`, and
+with it every plugin load. Update the daemon before you add limits.
+
+**When a plugin misses a deadline:**
+
+- The host kills its whole process group and restarts it with backoff (1s,
+  5s, 30s).
+- The call answers `deadline_exceeded`. For anything but a read, the answer
+  says the operation may have partly run, so check the target before you
+  retry.
+- Other calls in flight to that plugin answer `connector_unavailable`.
+- After three restarts within ten minutes, the host gives up. The plugin stays
+  unloaded until you run `cerberus connectors plugin managed load <id>`. That
+  shows up as a notification, a `!!! PLUGIN` line in `cerberus status`, and in
+  health and `plugin managed list`.
+- A plugin that exits on its own is restarted the same way.
+- Every stop and restart is recorded as automation.
+
+No plugin call holds a lock that other plugins wait on. At daemon start,
+plugins load in parallel, so a plugin that hangs on init delays startup by one
+deadline, not by the sum of them.
+
+**Output is bounded.**
+
+- The host reads at most 16 MiB per message from a plugin. A plugin that
+  sends more is stopped, because its stream can't be recovered. For a read,
+  the call answers `output_too_large`. For anything else, it answers that the
+  operation ran but its reply couldn't be read, so its outcome is unknown.
+- Past `max_result_bytes`:
+  - text is cut, with a visible marker (`[cerberus: output truncated — …]`);
+  - structured output from a read is refused as `output_too_large`, so
+    narrow the request;
+  - structured output from anything else is replaced with a note saying the
+    operation ran and succeeded and its output was withheld. It is never an
+    error an agent would retry.
+- A plugin's stderr reaches the daemon log at up to 64 KiB a minute. Past
+  that, lines are dropped, and one marker line counts them.
+
+**Process limits.** A plugin starts through the cerberus binary's own
+`__plugin-exec`, which the daemon finds as its own executable, never on
+`PATH`. It sets these rlimits before it execs the plugin:
+
+- open files (`RLIMIT_NOFILE`);
+- file size (`RLIMIT_FSIZE`);
+- no core dumps, since a core would carry the plugin's credentials.
+
+The plugin runs in its own process group, and every kill reaches the whole
+group, so children it forked die with it.
+
+**What macOS can't enforce:**
+
+- **Memory.** `RLIMIT_RSS` is ignored, and `RLIMIT_AS` and `RLIMIT_DATA` are
+  unreliable (setting them breaks the Go runtime). Instead, the host checks
+  the process group's resident size every 10 seconds and stops a plugin over
+  `memory_mib`. That check is best effort: a spike between two checks isn't
+  seen.
+- **Per-call CPU.** `RLIMIT_CPU` is a lifetime budget for a process that runs
+  for days, so it is off by default. The wall-clock deadline is what bounds a
+  single call.
+- **A per-plugin process count.** `RLIMIT_NPROC` counts every process of your
+  user, so it isn't used.
+- **A child that escapes.** A child that moves itself to its own session or
+  process group escapes the group kill. macOS has no way to prevent that.

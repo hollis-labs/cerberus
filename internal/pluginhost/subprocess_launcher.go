@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 // TransportFactory turns a launched subprocess command into a protocol-level
@@ -19,6 +20,11 @@ type TransportFactory interface {
 type SubprocessLauncher struct {
 	Transport TransportFactory
 	Env       []string
+	// Shim is the cerberus binary, resolved from the running process
+	// (ExecutablePath), whose __plugin-exec subcommand sets the plugin's
+	// rlimits and execs it. Empty launches the entrypoint directly, with
+	// no rlimits: tests, and a host that cannot find itself.
+	Shim string
 }
 
 var _ Launcher = SubprocessLauncher{}
@@ -36,8 +42,16 @@ func (l SubprocessLauncher) Launch(ctx context.Context, plugin InstalledPlugin) 
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, commandPath, plugin.Spec.Entrypoint.Args...)
+	// The process outlives the context it was launched under: a load
+	// through a request (Reload) must not have the plugin killed when that
+	// request ends. Deadlines bound the protocol calls, not the process.
+	cmd := exec.Command(commandPath, plugin.Spec.Entrypoint.Args...) //nolint:gosec // the resolved, bundle-checked entrypoint
+	if l.Shim != "" {
+		cmd = exec.Command(l.Shim, launchLimitsFrom(ctx).Process.shimArgs(commandPath, plugin.Spec.Entrypoint.Args)...) //nolint:gosec // the running cerberus binary
+	}
 	cmd.Dir = plugin.Path
+	// Its own process group, so a kill reaches every child it forked.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// The base environment carries no credential handle. Anything that does is
 	// unlocked by a capability the plugin declared and the host granted, so a
@@ -80,4 +94,19 @@ func ResolveEntrypoint(pluginDir string, entrypoint Entrypoint) (string, error) 
 		return "", fmt.Errorf("entrypoint command %q is not executable", entrypoint.Command)
 	}
 	return commandPath, nil
+}
+
+type launchLimitsKey struct{}
+
+// withLaunchLimits tells the launcher, through the launch context, the
+// process limits to start the plugin under.
+func withLaunchLimits(ctx context.Context, l Limits) context.Context {
+	return context.WithValue(ctx, launchLimitsKey{}, l)
+}
+
+func launchLimitsFrom(ctx context.Context) Limits {
+	if l, ok := ctx.Value(launchLimitsKey{}).(Limits); ok {
+		return l
+	}
+	return DefaultLimits
 }

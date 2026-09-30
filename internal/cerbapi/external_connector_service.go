@@ -81,6 +81,13 @@ const (
 	// ExternalConnectorSessionSuspended: the circuit breaker suspended
 	// this session (§12, P5-c) until a person resets it.
 	ExternalConnectorSessionSuspended ExternalConnectorErrorCode = "session_suspended"
+	// ExternalConnectorDeadlineExceeded: the plugin did not answer within
+	// its deadline and was stopped (P5-d). Not a refusal: a non-read may
+	// have partly run.
+	ExternalConnectorDeadlineExceeded ExternalConnectorErrorCode = "deadline_exceeded"
+	// ExternalConnectorOutputTooLarge: a read's result was over the
+	// plugin's cap and is withheld (P5-d).
+	ExternalConnectorOutputTooLarge ExternalConnectorErrorCode = "output_too_large"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -89,6 +96,8 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorLockdown,
 	ExternalConnectorFrozen,
 	ExternalConnectorSessionSuspended,
+	ExternalConnectorDeadlineExceeded,
+	ExternalConnectorOutputTooLarge,
 	ExternalConnectorUnavailable,
 	ExternalConnectorCredentialMissing,
 	ExternalConnectorUnsupported,
@@ -887,6 +896,15 @@ func managedPluginExecuteError(args ExternalConnectorOperationArgs, err error) e
 	}
 	if errors.Is(err, pluginhost.ErrOperationUndeclared) {
 		return externalConnectorError(args, ExternalConnectorUnsupported, err)
+	}
+	// Supervision (P5-d): composed by the host from names and sizes.
+	var deadline *pluginhost.DeadlineError
+	if errors.As(err, &deadline) {
+		return externalConnectorError(args, ExternalConnectorDeadlineExceeded, redact.Prose(err))
+	}
+	var tooLarge *pluginhost.OutputTooLargeError
+	if errors.As(err, &tooLarge) {
+		return externalConnectorError(args, ExternalConnectorOutputTooLarge, redact.Prose(err))
 	}
 	if errors.Is(err, pluginhost.ErrNotLoaded) {
 		return externalConnectorError(args, ExternalConnectorUnavailable, err)

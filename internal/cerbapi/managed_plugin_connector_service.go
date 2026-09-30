@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -40,6 +41,10 @@ type ManagedPluginConnectorState struct {
 	// keeps loading, unchecked, until `cerberus connectors plugin managed
 	// review <id>` is run in a terminal. Always present.
 	ReviewPending bool `json:"review_pending"`
+
+	// GaveUp is why the host stopped restarting the plugin after too many
+	// restarts (P5-d); it stays unloaded until loaded again.
+	GaveUp string `json:"gave_up,omitempty"`
 
 	// MissingSecrets names required credentials a loaded plugin did not
 	// receive. Reported so `managed list` is truthful about a plugin that is
@@ -98,6 +103,16 @@ type managedPluginConfig struct {
 	secrets     pluginhost.SecretResolver
 	reservedIDs []string
 	configPath  string
+	// shim is the cerberus binary whose __plugin-exec sets rlimits before
+	// a plugin starts (P5-d); empty launches plugins directly.
+	shim string
+}
+
+// WithPluginShim launches plugins through the cerberus binary at path,
+// which sets their rlimits and execs them. The daemon passes its own
+// executable (pluginhost.ExecutablePath), never a PATH lookup.
+func WithPluginShim(path string) ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.shim = path }
 }
 
 // WithManagedPluginConnectorConfig names connector-config.yaml, the
@@ -160,12 +175,14 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 		pluginhost.SubprocessLauncher{
 			Transport: pluginhost.StdioTransportFactory{Stderr: stderr},
 			Env:       pluginLaunchEnv(),
+			Shim:      cfg.shim,
 		},
 		hostVersion,
 		pluginhost.WithSecretResolver(cfg.secrets),
 		pluginhost.WithConnectorConfig(connectorConfigLoader(cfg.configPath)),
 		pluginhost.WithLoadWarning(func(line string) { service.warnf("%s", line) }),
 		pluginhost.WithChangedBundles(service.acceptChangedBundle),
+		pluginhost.WithRestartObserver(service.onSupervision),
 	)
 	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
 		return nil, err
@@ -517,6 +534,7 @@ func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin,
 		}
 	}
 	out.ConfigProblems = s.manager.ConfigProblems(plugin.ID)
+	out.GaveUp = s.manager.GaveUp(plugin.ID)
 	if out.ConfigFields == nil {
 		out.ConfigFields = []string{}
 	}
@@ -692,4 +710,31 @@ func (s *ManagedPluginConnectorService) fingerprints(id string) (config, entrypo
 		entrypoint = installed.EntrypointSHA256
 	}
 	return config, entrypoint
+}
+
+// onSupervision records what the plugin supervisor did (P5-d): a plugin
+// stopped, restarted or given up on is Cerberus acting on its own, so each
+// is an automation record, and giving up also tells the operator.
+func (s *ManagedPluginConnectorService) onSupervision(ev pluginhost.RestartEvent) {
+	installed, _ := s.manager.Installed(ev.ID)
+	spec := restoreSpec(installed)
+	spec.operation = "supervise"
+	spec.reason = fmt.Sprintf("plugin %s %s: %s", ev.ID, strings.ReplaceAll(ev.Kind, "_", " "), ev.Reason)
+	if ev.Attempt > 0 {
+		spec.reason += fmt.Sprintf(" (restart %d of %d in 10m)", ev.Attempt, 3)
+	}
+	call, _ := beginAudit(context.Background(), s.audit, s.logger, spec)
+	var err error
+	if ev.Err != nil {
+		err = ev.Err
+	}
+	call.finish(err)
+	switch ev.Kind {
+	case "stopped", "restart_failed":
+		s.warnf("%s", spec.reason)
+	case "gave_up":
+		msg := fmt.Sprintf("plugin %s was stopped and restarted 3 times in 10 minutes (%s); it stays unloaded until `cerberus connectors plugin managed load %s`", ev.ID, ev.Reason, ev.ID)
+		s.warnf("%s", msg)
+		notify("Cerberus: plugin "+ev.ID+" stopped", msg)
+	}
 }

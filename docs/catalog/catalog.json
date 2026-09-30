@@ -9571,6 +9571,49 @@
       "id": "CERB-DEC-901"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "Plugins are supervised: deadlines, output caps, process-group kills and bounded restarts",
+      "summary": "Every plugin RPC runs under a deadline (defaults, overridable per plugin in connector-config.yaml up to host maximums). A missed deadline or an over-cap reply kills the plugin's process group and restarts it with backoff, giving up loudly after 3 restarts in 10m. No manager lock is held across plugin I/O, and daemon-start restore is parallel and phased.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "approved in the P5-d design review; built with fake plugins that hang, flood and fork",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p5",
+        "plugins",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/pluginhost/supervise.go, internal/pluginhost/limits.go, internal/pluginhost/subprocess_transport.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "stops and restarts are automation records"
+        }
+      ],
+      "data": {
+        "decision": "Bound every plugin call in time and size, kill by process group, restart with backoff and give up loudly, and apply the effect-aware retry rule: over-cap output from a read is refused, while a non-read that already ran answers with a note, never an error to retry.",
+        "alternatives_considered": [
+          "Deadlines only on CallTool",
+          "Kill and stay unloaded, with no restart",
+          "Refuse every over-cap result",
+          "rlimits set in the daemon before fork"
+        ],
+        "rationale": "A hung plugin used to hold the manager's write lock across Init and hang daemon start, and a flood was decoded into daemon memory. Deadlines on every RPC, with no lock held across plugin I/O, bound all of that. The effect-aware cap follows #137's retry rule: a read can be narrowed and ran nothing, but a write that already ran must not look like a refusal that invites a retry. rlimits go through a re-exec shim (`cerberus __plugin-exec`, found by os.Executable, never PATH), because Go's exec can't set rlimits on darwin and setting them in the daemon would race. Newline framing matches the SDK's writer, and is what makes a per-message cap possible.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "`supervisedCall(rpcCall{Phase, Name, Timeout, Effect}, do)` bounds any RPC, not only CallTool, so a later Command RPC gets the same treatment. `restorePhase` orders daemon-start loads (secret providers first, when they exist). Codes: `deadline_exceeded` (504, not a refusal) and `output_too_large` (reads only), both exempt from redaction. The Reload request ctx no longer kills the plugin: its process life is never bound to a context.",
+      "id": "CERB-DEC-908"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
@@ -17544,6 +17587,39 @@
       "id": "CERB-GAP-906",
       "created_at": "2026-09-29",
       "last_reviewed": "2026-09-29"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "macOS can't bound a plugin's memory, per-call CPU, or an escaping child",
+      "summary": "Plugin memory is bounded only by a 10s ps-polling watchdog (RLIMIT_RSS is ignored, and AS and DATA are unreliable), RLIMIT_CPU is a lifetime budget and is off by default, RLIMIT_NPROC is per user, and a child that calls setsid or setpgid escapes the process-group kill.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "from the P5-d design; the watchdog is tested with a fake RSS reader",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "plugins",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/pluginhost/supervise.go",
+      "relationships": [],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "Plugins run in a sandbox that bounds memory and processes (a Linux cgroup or VM, or a macOS sandbox profile), or the watchdog also sweeps descendants by parent pid",
+        "effort": "large"
+      },
+      "body": "The watchdog can't stop a spike between polls. The wall-clock deadline bounds a call's CPU indirectly. A descendant sweep by ppid would catch children that left the group, at the cost of walking the process table.",
+      "id": "CERB-GAP-907"
     },
     {
       "id": "CERB-TOOL-110",

@@ -247,10 +247,16 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 	// Plugins resolve their declared credentials through the same provider the
 	// built-in connectors use, so `connector-secrets.yaml` and `keychain://`
 	// mean the same thing either side of the plugin boundary.
+	// Plugins start through this binary's __plugin-exec, which sets their
+	// rlimits (P5-d); the path is the running executable, never PATH.
+	var shimOpts []cerbapi.ManagedPluginOption
+	if exe, exeErr := pluginhost.ExecutablePath(); exeErr == nil {
+		shimOpts = append(shimOpts, cerbapi.WithPluginShim(exe))
+	}
 	managed, err := cerbapi.NewManagedPluginConnectorService(AuditSink(), hostVersion, stderr, statePath,
-		cerbapi.WithManagedPluginSecrets(a.Secrets),
-		cerbapi.WithManagedPluginConnectorConfig(ConnectorConfigPath(configPath)),
-		cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...))
+		append([]cerbapi.ManagedPluginOption{cerbapi.WithManagedPluginSecrets(a.Secrets),
+			cerbapi.WithManagedPluginConnectorConfig(ConnectorConfigPath(configPath)),
+			cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...)}, shimOpts...)...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize managed plugin connectors: %w", err)
 	}
