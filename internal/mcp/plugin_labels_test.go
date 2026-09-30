@@ -62,7 +62,7 @@ func TestPluginToolResultsAreMarkedFromTheirLabels(t *testing.T) {
 		t.Errorf("personal = %q", got)
 	}
 	var body any
-	_ = json.Unmarshal([]byte(resultText(res)), &body)
+	_ = json.Unmarshal([]byte(firstText(res)), &body)
 	for _, p := range append(list(res.Meta[MetaUntrusted]), list(res.Meta[MetaPersonal])...) {
 		if len(resolve(body, strings.Split(strings.TrimPrefix(p, "/"), "/"))) == 0 {
 			t.Errorf("%s resolves to nothing in %s", p, resultText(res))
