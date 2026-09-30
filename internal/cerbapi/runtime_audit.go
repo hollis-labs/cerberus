@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/hollis-labs/cerberus/internal/plan"
@@ -86,8 +87,32 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 		return nil, refusal
 	}
 	out, err := s.runPipeline(ctx, id, checked, options...)
+	if err == nil && out != nil && len(out.Raw) > 0 {
+		out, err = shapePipelineResult(call, out)
+	}
 	call.finish(resultError(err, out != nil && !out.Success))
 	return out, err
+}
+
+// shapePipelineResult is egress policy on a pipeline run (P4-4): its body
+// travels as the executor's JSON, so it is shaped as pipeline.RunResult and
+// written back.
+func shapePipelineResult(call *auditCall, out *PipelineRunResult) (*PipelineRunResult, error) {
+	run, err := out.Execution()
+	if err != nil {
+		return out, nil //nolint:nilerr // a body egress cannot read passes as it came; the run itself succeeded
+	}
+	shaped, err := shapeAs(call, run)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(shaped)
+	if err != nil {
+		return nil, err
+	}
+	next := *out
+	next.Raw = raw
+	return &next, nil
 }
 
 func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, id string, options []MutationOption,
@@ -122,6 +147,11 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 		return &OpResult{Success: true, ServiceID: id, Message: "plan only; nothing ran", Plan: shown}, nil
 	}
 	out, err := run(ctx, id, options...)
+	if err == nil && out != nil {
+		// Egress policy on what comes back (P4-4): build and install
+		// output are untrusted.
+		out, err = shapeAs(call, out)
+	}
 	call.finish(resultError(err, out != nil && !out.Success))
 	return out, err
 }

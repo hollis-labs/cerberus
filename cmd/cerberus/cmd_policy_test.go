@@ -293,3 +293,27 @@ func TestEgressWarningsArePrinted(t *testing.T) {
 		t.Fatalf("no warnings printed %q", out.String())
 	}
 }
+
+// The report summarizes egress decisions from the outcome records: grouped,
+// counted, withheld totals, shadow told apart from applied.
+func TestPolicyReportSummarizesEgress(t *testing.T) {
+	out := func(applied bool, withheld int) audit.Record {
+		return audit.Record{Kind: audit.KindOutcome, Connector: "local", Operation: "logs", Principal: audit.Principal{Kind: "agent"},
+			Target: audit.Target{Resource: "notes-api", Env: "dev"},
+			Egress: []audit.EgressAction{{Rule: "cap-logs", Label: "untrusted", Action: "cap", Mode: "shadow", Applied: applied, Withheld: withheld, Pointers: []string{"/content"}}}}
+	}
+	recs := []audit.Record{out(false, 3), out(false, 5), out(true, 2), {Kind: audit.KindOutcome}}
+	rep := policyReport(recs, reportOptions{})
+	if len(rep.Egress) != 2 || rep.Egress[0].Count != 2 || rep.Egress[0].Withheld != 8 || rep.Egress[0].Applied {
+		t.Fatalf("egress: %+v", rep.Egress)
+	}
+	var text bytes.Buffer
+	_ = writePolicyReport(&text, rep)
+	if !strings.Contains(text.String(), "Egress: 2 decision group(s); 2 decision(s) recorded in shadow") || !strings.Contains(text.String(), "cap-logs") {
+		t.Fatalf("text:\n%s", text.String())
+	}
+	scope, _ := parseReportScope("rule=other")
+	if got := policyReport(recs, reportOptions{scope: scope}).Egress; len(got) != 0 {
+		t.Fatalf("scope by egress rule: %+v", got)
+	}
+}

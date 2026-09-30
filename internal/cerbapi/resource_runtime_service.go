@@ -1147,18 +1147,23 @@ func (s *ResourceRuntimeService) ResourceLogs(ctx context.Context, id string, li
 
 // shapeLogLines is egress policy on a log read (P4-4), back in its own type.
 func shapeLogLines(call *auditCall, out *LogLines) (*LogLines, error) {
+	return shapeAs(call, out)
+}
+
+// shapeAs is egress policy on a typed result, returned in its own type.
+func shapeAs[T any](call *auditCall, out *T) (*T, error) {
 	shaped, err := call.applyEgress(out)
 	if err != nil {
 		return nil, err
 	}
-	if same, ok := shaped.(*LogLines); ok {
+	if same, ok := shaped.(*T); ok {
 		return same, nil
 	}
 	data, err := json.Marshal(shaped)
 	if err != nil {
 		return nil, err
 	}
-	var back LogLines
+	var back T
 	if err := json.Unmarshal(data, &back); err != nil {
 		return nil, err
 	}

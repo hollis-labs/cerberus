@@ -96,6 +96,15 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 				continue
 			case read:
 				return nil, egressRefusedError(c.spec, d)
+			case keepsShape(value):
+				// A typed result keeps its type and its success: each
+				// labeled field is replaced by the note, so a caller never
+				// reads "success: false" into a call that succeeded.
+				withhold := d
+				withhold.Action = egressWithhold
+				doc, _ = shapeAll(doc, byLabel[label], withhold)
+				transformed = true
+				continue
 			default:
 				return withheldResult(value, c.spec, d), nil
 			}
@@ -117,6 +126,21 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 		return doc, nil
 	}
 	return value, nil
+}
+
+// egressWithhold is refuse→withheld applied field by field, on a result
+// that keeps its type.
+const egressWithhold = "withhold"
+
+// keepsShape is whether value is a typed result (a struct, or a pointer to
+// one), which a withheld refusal shapes field by field rather than
+// replacing.
+func keepsShape(value any) bool {
+	t := reflect.TypeOf(value)
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t != nil && t.Kind() == reflect.Struct
 }
 
 // EgressRefuseWithheld is how a refusal on an operation that is not a read
@@ -229,6 +253,8 @@ func shapeText(v any, d policy.EgressDecision) (any, int) {
 		return v, 0
 	}
 	switch d.Action {
+	case egressWithhold:
+		return fmt.Sprintf("[cerberus: output withheld by egress rule %s; the operation ran and succeeded]", d.Rule), len(s)
 	case policy.EgressMask:
 		return fmt.Sprintf("[cerberus: %d characters of %s text masked by egress rule %s]", len(s), d.Label, d.Rule), len(s)
 	case policy.EgressCap:

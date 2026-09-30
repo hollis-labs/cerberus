@@ -254,8 +254,15 @@ egress:
 - **Most restrictive wins.** `refuse`, then `mask`, then `cap` (the smaller
   limit when two apply), then `pass`. The rule enforces if any matching rule
   at that strength does.
-- **Where it applies:** connector and plugin results, and resource logs.
-  Plugin output without labels is untrusted as a whole.
+- **Where it applies:** connector and plugin results, resource logs,
+  resource deploy/apply/sync results (their build and install output), and
+  pipeline runs (their stage and run errors). Plugin output without labels is
+  untrusted as a whole. A typed result that a refusal withholds keeps its
+  type and its success. Each labeled field reads "output withheld by egress
+  rule …", so a caller never reads a success as a failure.
+- **`policy report`** ends with an egress summary from the outcome records:
+  each rule, label, action, principal and target, how often, how much it
+  withheld, and whether it applied or would have (shadow).
 
 Approving before reading is separate from this and already in place:
 `read_sensitive` operations need approval for agents under the baseline.
