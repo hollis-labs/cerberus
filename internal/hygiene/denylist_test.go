@@ -125,7 +125,7 @@ func TestGenericPatternsMatchTheirShapes(t *testing.T) {
 	for _, s := range []string{
 		"/Users/" + "jdoe/dev/app", "/home/" + "jdoe/.ssh", "build." + "corp.example.net",
 		"/Users/" + "op-jdoe/x", "/Users/" + "mejdoe",
-		"00000000" + "-0000-0000-0000-000000000000",
+		"12345678" + "-9abc-4def-8123-456789abcdef",
 	} {
 		if !flagged(s) {
 			t.Errorf("%q passed", s)
