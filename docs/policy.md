@@ -748,6 +748,19 @@ passkey, and the agent's call finishes on its own, run again with the approval
 id. If you decline, or don't decide within a minute, the agent gets
 `approval_pending` for the same approval, never a new one.
 
+That link travels down the agent's channel, so it is **not a console login**.
+It signs its opener in for that one approval only:
+
+- they can see the approval and its plan;
+- they can approve it only with a passkey (denying is open to anyone, as
+  everywhere);
+- everything else answers 403 and names `cerberus web open`. That covers every
+  other approval, passkey management, and every other page.
+
+The approval is signed into the link's token, so the link can't be redeemed as
+a full sign-in or for another approval. `cerberus approvals approve <id>` in
+your terminal still signs you in to the full console.
+
 **The store is not trusted on its own word.** Anything running as your user
 can edit it. An out-of-band approval therefore carries proof that a person
 was present, and that proof is verified again when the approval is used, so a

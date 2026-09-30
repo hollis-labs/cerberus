@@ -171,5 +171,9 @@ func (c *mcpClientInfo) get() string {
 // out-of-band approval, through a client that opens URLs (P4-6): the same
 // one-time sign-in link `cerberus approvals approve` prints.
 func init() {
-	mcp.ConsoleApprovalURL = func(id string) (string, error) { return consoleApprovalURL(id) }
+	// The link an MCP client is handed opens that approval and nothing else
+	// (M7): it travels down the agent's channel, so it must not be a
+	// console login. `cerberus approvals approve` in a terminal still signs
+	// the operator in fully.
+	mcp.ConsoleApprovalURL = func(id string) (string, error) { return mcpApprovalURL(id) }
 }

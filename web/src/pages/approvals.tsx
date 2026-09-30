@@ -11,7 +11,9 @@ import { liftFromApproval } from '../components/brakes'
 // or denied. One that must be approved out of band is approved here with a
 // passkey; the daemon refuses it without one. The passkeys that can do that
 // are listed, enrolled and removed here too.
-export function ApprovalsPage() {
+// scoped is a sign-in from an approval link (M7): this one approval, no
+// passkey management, no grants.
+export function ApprovalsPage({ scoped = false }: { scoped?: boolean } = {}) {
   const approvals = usePoll((signal) => apiClient.listApprovals(signal), 5000)
   const [token, setToken] = useState('')
   const [params] = useState(() => new URLSearchParams(window.location.search))
@@ -51,7 +53,7 @@ export function ApprovalsPage() {
           {p}
         </Callout>
       ))}
-      {grants.length > 0 && (
+      {!scoped && grants.length > 0 && (
         <div className="mb-3 space-y-1" data-testid="active-grants">
           <div className="text-sm font-semibold">Active grants</div>
           {grants.map((g) => (
@@ -113,7 +115,7 @@ export function ApprovalsPage() {
         </table>
       )}
       {current && <ApprovalDetail approval={current} token={token} onChanged={approvals.refetch} />}
-      <PasskeysPanel token={token} enrollToken={params.get('enroll') ?? ''} label={params.get('label') ?? ''} remove={params.get('remove') ?? ''} />
+      {!scoped && <PasskeysPanel token={token} enrollToken={params.get('enroll') ?? ''} label={params.get('label') ?? ''} remove={params.get('remove') ?? ''} />}
     </div>
   )
 }

@@ -74,6 +74,9 @@ type session struct {
 	actionToken string
 	// bindHash is sha256 of the key the signing-in page was given.
 	bindHash string
+	// scope is the one approval a session from an approval link may act
+	// on (M7); "" is the full console.
+	scope    string
 	created  time.Time
 	lastSeen time.Time
 }
@@ -102,6 +105,14 @@ func newSessionStore() (*sessionStore, error) {
 
 // mintLoginToken is a one-time token under key, good until now+ttl.
 func mintLoginToken(key []byte, now time.Time, ttl time.Duration) (string, error) {
+	return mintScopedLoginToken(key, now, ttl, "")
+}
+
+// mintScopedLoginToken is a one-time token for a session limited to one
+// approval (M7), or, with scope "", a full one. The scope is inside the
+// MAC: a scoped token redeemed as a full one, or a full one as scoped, or
+// either for another approval, fails the check.
+func mintScopedLoginToken(key []byte, now time.Time, ttl time.Duration, scope string) (string, error) {
 	nonce, err := randomBytes(loginNonceBytes)
 	if err != nil {
 		return "", fmt.Errorf("generate web login token: %w", err)
@@ -109,24 +120,31 @@ func mintLoginToken(key []byte, now time.Time, ttl time.Duration) (string, error
 	payload := make([]byte, 8, 8+loginNonceBytes+sha256.Size)
 	binary.BigEndian.PutUint64(payload, uint64(now.Add(ttl).Unix())) //nolint:gosec // a Unix time after 1970
 	payload = append(payload, nonce...)
+	return base64.RawURLEncoding.EncodeToString(append(payload, loginMAC(key, payload, scope)...)), nil
+}
+
+// loginMAC is a token's MAC: over its payload alone for a full session, and
+// over the payload and the approval it is scoped to otherwise.
+func loginMAC(key, payload []byte, scope string) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(payload)
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(payload)), nil
+	if scope != "" {
+		mac.Write([]byte("\x00approval:" + scope))
+	}
+	return mac.Sum(nil)
 }
 
 var errLoginToken = errors.New("sign-in link expired, already used, or not from this console")
 
 // redeem checks a login token and, if it is good, spends it and starts a
 // session, returning the cookie value and the key the session is bound to.
-func (st *sessionStore) redeem(token string) (string, string, *session, error) {
+func (st *sessionStore) redeem(token, scope string) (string, string, *session, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(raw) != 8+loginNonceBytes+sha256.Size {
 		return "", "", nil, errLoginToken
 	}
 	payload, sum := raw[:8+loginNonceBytes], raw[8+loginNonceBytes:]
-	mac := hmac.New(sha256.New, st.key)
-	mac.Write(payload)
-	if !hmac.Equal(sum, mac.Sum(nil)) {
+	if !hmac.Equal(sum, loginMAC(st.key, payload, scope)) {
 		return "", "", nil, errLoginToken
 	}
 	expiry := time.Unix(int64(binary.BigEndian.Uint64(payload[:8])), 0) //nolint:gosec // written by mintLoginToken
@@ -164,7 +182,7 @@ func (st *sessionStore) redeem(token string) (string, string, *session, error) {
 	if err != nil {
 		return "", "", nil, err
 	}
-	s := &session{ID: hex.EncodeToString(id), actionToken: action, bindHash: cookieKey(bind), created: now, lastSeen: now}
+	s := &session{ID: hex.EncodeToString(id), actionToken: action, bindHash: cookieKey(bind), scope: scope, created: now, lastSeen: now}
 	st.sessions[cookieKey(cookie)] = s
 	return cookie, bind, s, nil
 }
@@ -238,6 +256,10 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			writeErrorBody(w, http.StatusUnauthorized, loginRequired, "login_required")
 			return
 		}
+		if sess.scope != "" && !scopedRouteAllowed(r, sess.scope) {
+			writeErrorBody(w, http.StatusForbidden, fmt.Sprintf("this sign-in is for approval %s only; run `cerberus web open` in a terminal for the full console", sess.scope), "scoped_session")
+			return
+		}
 		ctx := context.WithValue(r.Context(), sessionKey{}, sess)
 		ctx = cerbapi.WithPrincipal(ctx, cerbapi.WebSessionPrincipal(sess.ID))
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -254,7 +276,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	cookie, bind, sess, err := s.sessions.redeem(r.URL.Query().Get("token"))
+	scope := r.URL.Query().Get("approval")
+	cookie, bind, sess, err := s.sessions.redeem(r.URL.Query().Get("token"), scope)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -266,11 +289,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		MaxAge: int(s.sessions.max / time.Second),
 	})
-	s.logger.Info("webui.session.started", "session", sess.ID)
+	s.logger.Info("webui.session.started", "session", sess.ID, "scope", sess.scope)
 	// The key goes to the page in the fragment, which no server sees; the
 	// page keeps it in its origin's localStorage and sends it on every
 	// request.
 	next, _, _ := strings.Cut(safeNext(r.URL.Query().Get("next")), "#")
+	if scope != "" {
+		// A scoped session goes to its approval and nowhere else.
+		next = "/approvals?id=" + url.QueryEscape(scope)
+	}
 	http.Redirect(w, r, next+"#"+sessionKeyFragment+"="+bind, http.StatusSeeOther)
 }
 
@@ -420,31 +447,60 @@ func MintLoginURLTo(path, next string) (string, error) {
 	return link + "&next=" + url.QueryEscape(safeNext(next)), nil
 }
 
-func mintLoginURL(path string) (string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the operator's own key file under ~/.cerberus/web
+// MintApprovalURL mints a one-time link to one approval's page on the
+// console at path's key, for a session that can see and decide that
+// approval and nothing else (M7). Approving there needs a passkey. It is the
+// link Cerberus hands an MCP client in a URL elicitation: a link down the
+// agent's channel must not be a console login.
+func MintApprovalURL(path, approvalID string) (string, error) {
+	if approvalID == "" {
+		return "", errors.New("an approval link needs an approval id")
+	}
+	file, key, ttl, err := readLoginKey(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("no running `cerberus web` for this address (no %s); start it with `cerberus web`", path)
-		}
-		return "", fmt.Errorf("read web login key: %w", err)
+		return "", err
 	}
-	var file loginKeyFile
-	if err = json.Unmarshal(data, &file); err != nil {
-		return "", fmt.Errorf("web login key %s is not valid; restart `cerberus web`", path)
+	token, err := mintScopedLoginToken(key, time.Now(), ttl, approvalID)
+	if err != nil {
+		return "", err
 	}
-	key, err := base64.RawURLEncoding.DecodeString(file.Key)
-	if err != nil || len(key) != loginKeyBytes {
-		return "", fmt.Errorf("web login key %s is not valid; restart `cerberus web`", path)
-	}
-	ttl, err := time.ParseDuration(file.TTL)
-	if err != nil || ttl <= 0 {
-		ttl = DefaultLoginTTL
+	return strings.TrimRight(file.URL, "/") + "/login?approval=" + url.QueryEscape(approvalID) + "&token=" + token, nil
+}
+
+func mintLoginURL(path string) (string, error) {
+	file, key, ttl, err := readLoginKey(path)
+	if err != nil {
+		return "", err
 	}
 	token, err := mintLoginToken(key, time.Now(), ttl)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimRight(file.URL, "/") + "/login?token=" + token, nil
+}
+
+// readLoginKey reads the running console's key file.
+func readLoginKey(path string) (loginKeyFile, []byte, time.Duration, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // the operator's own key file under ~/.cerberus/web
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return loginKeyFile{}, nil, 0, fmt.Errorf("no running `cerberus web` for this address (no %s); start it with `cerberus web`", path)
+		}
+		return loginKeyFile{}, nil, 0, fmt.Errorf("read web login key: %w", err)
+	}
+	var file loginKeyFile
+	if err = json.Unmarshal(data, &file); err != nil {
+		return loginKeyFile{}, nil, 0, fmt.Errorf("web login key %s is not valid; restart `cerberus web`", path)
+	}
+	key, err := base64.RawURLEncoding.DecodeString(file.Key)
+	if err != nil || len(key) != loginKeyBytes {
+		return loginKeyFile{}, nil, 0, fmt.Errorf("web login key %s is not valid; restart `cerberus web`", path)
+	}
+	ttl, err := time.ParseDuration(file.TTL)
+	if err != nil || ttl <= 0 {
+		ttl = DefaultLoginTTL
+	}
+	return file, key, ttl, nil
 }
 
 func randomBytes(n int) ([]byte, error) {

@@ -47,7 +47,33 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		writeClientError(w, err)
 		return
 	}
+	if sess := webSession(r.Context()); sess != nil && sess.scope != "" {
+		// A session from an approval link sees that approval alone (M7).
+		mine := list.Approvals[:0:0]
+		for _, a := range list.Approvals {
+			if a.ID == sess.scope {
+				mine = append(mine, a)
+			}
+		}
+		list.Approvals, list.Problems = mine, nil
+	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// scopedRouteAllowed is what a session from an approval link may reach
+// (M7): the session itself (for its action token), sign-out, the approvals
+// list (filtered to its approval), and its one approval: read, passkey
+// challenge and decision. Nothing else, so the link an MCP client is handed
+// is not a console login.
+func scopedRouteAllowed(r *http.Request, id string) bool {
+	base := "/api/approvals/" + id
+	switch r.Method {
+	case http.MethodGet:
+		return r.URL.Path == "/api/session" || r.URL.Path == "/api/approvals" || r.URL.Path == base
+	case http.MethodPost:
+		return r.URL.Path == "/api/logout" || r.URL.Path == base+"/challenge" || r.URL.Path == base+"/decide"
+	}
+	return false
 }
 
 // consoleDecision is what the approvals page sends: approve or deny, the
@@ -115,6 +141,10 @@ func (s *Server) handleApprovalByID(w http.ResponseWriter, r *http.Request) {
 	}
 	switch action {
 	case "decide":
+		if sess := webSession(r.Context()); sess != nil && sess.scope != "" && body.Approve && body.Assertion == nil {
+			writeError(w, http.StatusForbidden, "a sign-in from an approval link approves only with a passkey; nothing was approved. Run `cerberus approvals approve "+id+"` in a terminal to decide it there")
+			return
+		}
 		if body.Approve {
 			current, err := c.GetApproval(r.Context(), id)
 			if err != nil {
