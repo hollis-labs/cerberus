@@ -24,7 +24,7 @@ var ErrDeploymentProfileNotFound = errors.New("deployment profile not found")
 
 // WithDeploySecrets is the credential store deploy-profile runs read the
 // Vercel token and scope from.
-func WithDeploySecrets(p secret.Provider) InProcessOption {
+func WithDeploySecrets(p secret.Reader) InProcessOption {
 	return func(c *InProcessClient) { c.deploySecrets = p }
 }
 

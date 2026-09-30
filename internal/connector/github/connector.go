@@ -21,7 +21,7 @@ type Connector struct {
 
 // New creates a GitHub connector. It tries the API backend first (if a token
 // is available via secrets), then falls back to the gh CLI.
-func New(secrets secret.Provider) (*Connector, error) {
+func New(secrets secret.Reader) (*Connector, error) {
 	// Try API backend first
 	if secrets != nil {
 		token, err := secrets.Get(context.Background(), "github", "token")

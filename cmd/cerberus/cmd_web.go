@@ -54,6 +54,7 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 		if err != nil {
 			return fmt.Errorf("init web ui: %w", err)
 		}
+		webSrv.SetSecretStore(app.SecretStore())
 		webSrv.SetSessionLimits(0, webSessionIdle, 0)
 		webSrv.SetPosture(currentPosture)
 

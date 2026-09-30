@@ -57,8 +57,6 @@ func (approveAll) File() policy.File {
 type noSecrets struct{}
 
 func (noSecrets) Get(context.Context, string, string) (string, error) { return "", nil }
-func (noSecrets) Set(context.Context, string, string, string) error   { return nil }
-func (noSecrets) Delete(context.Context, string, string) error        { return nil }
 
 func main() {
 	home := os.Getenv("HOME")

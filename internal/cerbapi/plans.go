@@ -139,7 +139,7 @@ func (s *ManagedPluginConnectorService) planPlugin(ctx context.Context, p *plan.
 //
 // It returns the deployment plan it described too, so that a run checked
 // against an approval runs those steps and does not plan again.
-func planDeploymentProfile(ctx context.Context, spec auditSpec, sink interface{ Digest(any) string }, secrets secret.Provider, profile infra.DeploymentProfile) (plan.Plan, *infra.DeploymentPlan, error) {
+func planDeploymentProfile(ctx context.Context, spec auditSpec, sink interface{ Digest(any) string }, secrets secret.Reader, profile infra.DeploymentProfile) (plan.Plan, *infra.DeploymentPlan, error) {
 	tgt, _ := auditTarget(spec)
 	p := plan.Plan{Lane: plan.LaneDeployProfile, Connector: spec.connector, Operation: spec.operation, Effect: string(spec.op.Effect),
 		Target: tgt, ArgsDigest: sink.Digest(spec.config)}

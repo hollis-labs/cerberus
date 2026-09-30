@@ -31,7 +31,7 @@ func RuntimeDefinitions() []contract.Definition {
 //
 // It is recorded like every operation: an intent before the gate and an
 // outcome after, under the caller's audit sink.
-func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Provider, profile infra.DeploymentProfile, options ...MutationOption) (*infra.DeploymentRunResult, error) {
+func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Reader, profile infra.DeploymentProfile, options ...MutationOption) (*infra.DeploymentRunResult, error) {
 	opts := ApplyMutationOptions(options)
 	def := infra.Definition()
 	spec := deployProfileSpec(profile, opts)
@@ -88,7 +88,7 @@ func deployProfileSpec(profile infra.DeploymentProfile, opts MutationOpts) audit
 // approval of the run would bind it: the console's confirm step shows it
 // and sends the hash back (P3-3b). It runs nothing and is recorded as a dry
 // run; it resolves the Vercel token to plan, as a run does.
-func PlanDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Provider, profile infra.DeploymentProfile, options ...MutationOption) (*ConnectorPlan, error) {
+func PlanDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Reader, profile infra.DeploymentProfile, options ...MutationOption) (*ConnectorPlan, error) {
 	opts := ApplyMutationOptions(options)
 	spec := deployProfileSpec(profile, opts)
 	spec.planOnly, spec.dryRun, spec.approvalID, spec.confirmedPlanHash = true, true, "", ""

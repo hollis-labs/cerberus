@@ -11,17 +11,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ReferenceProvider reads connector-to-reference mappings on each lookup. The
-// underlying keychain remains the writer; this file contains references only.
-// Precedence: explicit process environment, reference mapping, keychain.
+// ReferenceProvider reads connector-to-reference mappings on each lookup.
+// Precedence: explicit process environment, reference mapping, keychain. It
+// only resolves: the mapping file holds references, never values, and writing
+// a keychain entry is done against the keychain itself, not through here.
 type ReferenceProvider struct {
-	secret.Provider
+	base     secret.Reader
 	path     string
 	resolver *secretref.Resolver
 }
 
-func NewReferenceProvider(base secret.Provider, path string) *ReferenceProvider {
-	return &ReferenceProvider{Provider: base, path: path, resolver: secretref.NewResolver(base)}
+func NewReferenceProvider(base secret.Reader, path string) *ReferenceProvider {
+	return &ReferenceProvider{base: base, path: path, resolver: secretref.NewResolver(base)}
 }
 
 func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (string, error) {
@@ -48,9 +49,9 @@ func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (strin
 			value = refs[service][key]
 		}
 	}
-	if value == "" && p.Provider != nil {
+	if value == "" && p.base != nil {
 		var err error
-		value, err = p.Provider.Get(ctx, service, key)
+		value, err = p.base.Get(ctx, service, key)
 		if err != nil {
 			return "", err
 		}
@@ -62,19 +63,19 @@ func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (strin
 }
 
 type contextualProvider struct {
-	secret.Provider
+	secret.Reader
 	ctx context.Context
 }
 
 func (p contextualProvider) Get(_ context.Context, service, key string) (string, error) {
-	return p.Provider.Get(p.ctx, service, key)
+	return p.Reader.Get(p.ctx, service, key)
 }
 
 // WithContext carries the operation deadline through legacy constructors that
 // request credentials with context.Background().
-func WithContext(ctx context.Context, provider secret.Provider) secret.Provider {
+func WithContext(ctx context.Context, provider secret.Reader) secret.Reader {
 	if provider == nil {
 		return nil
 	}
-	return contextualProvider{Provider: provider, ctx: ctx}
+	return contextualProvider{Reader: provider, ctx: ctx}
 }

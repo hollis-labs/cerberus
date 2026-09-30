@@ -128,8 +128,8 @@ func (s *Server) handleInfraProviderByID(w http.ResponseWriter, r *http.Request)
 	}
 	secretsChanged := false
 	for key, value := range req.Secrets {
-		if s.secrets != nil && strings.TrimSpace(value) != "" {
-			if err := s.secrets.Set(r.Context(), id, key, value); err != nil {
+		if s.store != nil && strings.TrimSpace(value) != "" {
+			if err := s.store.Set(r.Context(), id, key, value); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -137,8 +137,8 @@ func (s *Server) handleInfraProviderByID(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	for _, key := range req.ClearSecrets {
-		if s.secrets != nil {
-			if err := s.secrets.Delete(r.Context(), id, key); err != nil {
+		if s.store != nil {
+			if err := s.store.Delete(r.Context(), id, key); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}

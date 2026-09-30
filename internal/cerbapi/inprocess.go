@@ -23,7 +23,7 @@ type InProcessClient struct {
 	runtime        *ResourceRuntimeService
 	external       *ExternalConnectorService
 	managedPlugins *ManagedPluginConnectorService
-	deploySecrets  secret.Provider
+	deploySecrets  secret.Reader
 
 	// Construction options forwarded to the shared runtime.
 	cfgPath string

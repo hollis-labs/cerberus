@@ -50,7 +50,7 @@ func GitHubAPI(t testing.TB) *httptest.Server {
 // Registry registers the real GitHub connector the way app does — a factory
 // that resolves github/token through provider on the operation's context —
 // with its API backend pointed at apiURL.
-func Registry(t testing.TB, provider secret.Provider, apiURL string) *connector.Registry {
+func Registry(t testing.TB, provider secret.Reader, apiURL string) *connector.Registry {
 	t.Helper()
 	registry := connector.NewRegistry()
 	registry.RegisterFactory(githubconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
@@ -70,7 +70,7 @@ func Registry(t testing.TB, provider secret.Provider, apiURL string) *connector.
 // Provider holds Value as github/token behind secrets.Registering — the
 // wrapper app.ConnectorSecrets uses — so resolving it registers it with the
 // request's scope.
-func Provider() secret.Provider {
+func Provider() secret.Reader {
 	return secrets.Registering(staticProvider{"github/token": Value}, nil)
 }
 

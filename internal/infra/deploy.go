@@ -85,7 +85,7 @@ const vercelTokenDisplay = "VERCEL_TOKEN=<vercel token> " //nolint:gosec // the 
 // PlanDeployment computes the steps RunDeployment would execute for profile,
 // without running any of them. It reads credentials only to know whether a
 // flag will be passed; their values stay out of the plan.
-func PlanDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) *DeploymentPlan {
+func PlanDeployment(ctx context.Context, secrets secret.Reader, profile DeploymentProfile) *DeploymentPlan {
 	// Steps is never null: the console lists it even for a plan that failed.
 	plan := &DeploymentPlan{ProfileID: profile.ID, Provider: profile.Provider, RepoPath: profile.RepoPath, Steps: []PlannedStep{}}
 	if profile.RepoPath == "" {
@@ -118,7 +118,7 @@ func envNames(env []string) []string {
 	return names
 }
 
-func planVercel(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) ([]deployStep, string) {
+func planVercel(ctx context.Context, secrets secret.Reader, profile DeploymentProfile) ([]deployStep, string) {
 	token, err := secretValue(ctx, secrets, "vercel", "token")
 	if err != nil {
 		return nil, secretLookupFailure("vercel/token", err)
@@ -176,7 +176,7 @@ func planVercel(ctx context.Context, secrets secret.Provider, profile Deployment
 // RunDeployment executes profile's plan. Each step's recorded command is the
 // displayed one, and a credential reaches the child only through its
 // environment.
-func RunDeployment(ctx context.Context, secrets secret.Provider, profile DeploymentProfile) (*DeploymentRunResult, error) {
+func RunDeployment(ctx context.Context, secrets secret.Reader, profile DeploymentProfile) (*DeploymentRunResult, error) {
 	return RunPlannedDeployment(ctx, PlanDeployment(ctx, secrets, profile), profile)
 }
 
@@ -271,7 +271,7 @@ func executeStep(result *DeploymentRunResult, name, command string, cmd *exec.Cm
 // reference that did not resolve — and the plan stops on it rather than
 // deploying without the credential and failing later for a reason nobody
 // sees.
-func secretValue(ctx context.Context, provider secret.Provider, service, key string) (string, error) {
+func secretValue(ctx context.Context, provider secret.Reader, service, key string) (string, error) {
 	if provider == nil {
 		return "", nil
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 const githubSentinel = "q7Zr2mXv9pLw" //nolint:gosec // a test sentinel, not a credential
@@ -58,5 +59,19 @@ func TestConnectorSecretsDoNotRegisterNonCredentials(t *testing.T) {
 	msg := "reading SSH key " + keyPath + ": no such file; deploying to acme-platform-team"
 	if got := scope.Text(msg); got != msg {
 		t.Fatalf("a non-credential was registered: %q", got)
+	}
+}
+
+// Resolution cannot write (WP-S3). The chain every lane resolves through is a
+// Reader and nothing more, so a read-only backend fits it and no resolving
+// caller can reach Set or Delete; the console's form writes through
+// SecretStore, the one writer.
+func TestConnectorSecretsIsReadOnlyAndSecretStoreIsTheWriter(t *testing.T) {
+	resolver := ConnectorSecrets(filepath.Join(t.TempDir(), "config.yaml"))
+	if _, writable := resolver.(secret.ReadWriter); writable {
+		t.Fatal("ConnectorSecrets exposes Set/Delete; resolution must be read-only")
+	}
+	if SecretStore() == nil {
+		t.Fatal("SecretStore is nil; the console's provider form would silently drop credentials")
 	}
 }

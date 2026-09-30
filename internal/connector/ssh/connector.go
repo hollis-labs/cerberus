@@ -19,16 +19,16 @@ type BackendFactory func() Backend
 
 // Connector manages remote servers via SSH.
 type Connector struct {
-	secrets    secret.Provider
+	secrets    secret.Reader
 	newBackend BackendFactory
 }
 
 // New creates an SSH connector.
-func New(secrets secret.Provider) *Connector {
+func New(secrets secret.Reader) *Connector {
 	return &Connector{secrets: secrets, newBackend: func() Backend { return NewAPIBackend() }}
 }
 
-func NewWithBackendFactory(secrets secret.Provider, factory BackendFactory) *Connector {
+func NewWithBackendFactory(secrets secret.Reader, factory BackendFactory) *Connector {
 	if factory == nil {
 		factory = func() Backend { return NewAPIBackend() }
 	}
