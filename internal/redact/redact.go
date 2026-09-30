@@ -124,6 +124,7 @@ var errorCodes = map[string]bool{
 	"session_suspended":       true,
 	"deadline_exceeded":       true,
 	"output_too_large":        true,
+	"insufficient_scope":      true,
 }
 
 // names are connector and plugin ids: names by construction, which the

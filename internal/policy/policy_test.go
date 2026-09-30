@@ -275,3 +275,26 @@ func TestTargetMatcher(t *testing.T) {
 		}
 	}
 }
+
+// A rule naming a subject or issuer matches only a caller whose token the
+// daemon verified: a self-reported claim of the same subject does not.
+func TestSubjectRulesMatchOnlyVerifiedCallers(t *testing.T) {
+	m := PrincipalMatch{Kind: "agent", Subject: "client:deploy-bot", Issuer: "https://cerberus.example:4785/"}
+	verified := Principal{Kind: "agent", Subject: "client:deploy-bot", Issuer: "https://cerberus.example:4785", Verified: true}
+	if !m.matches(verified) {
+		t.Fatal("a verified subject did not match")
+	}
+	claimed := verified
+	claimed.Verified = false
+	if m.matches(claimed) {
+		t.Fatal("a claimed subject matched")
+	}
+	other := verified
+	other.Subject = "client:other"
+	if m.matches(other) {
+		t.Fatal("another subject matched")
+	}
+	if !(PrincipalMatch{Kind: "agent"}).matches(claimed) {
+		t.Fatal("a rule with no subject stopped matching claims")
+	}
+}

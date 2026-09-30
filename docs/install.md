@@ -173,15 +173,21 @@ opens another link for the running console. It mints the link from a key that
 console keeps under `~/.cerberus/web/`, readable only by you. Without a session,
 every API route answers 401.
 
-`cerberus web` and `cerberus mcp-http` are loopback-only. `mcp-http` does not
-authenticate its caller yet, so for both, `--listen` must name `localhost` or a
-literal loopback IP (`127.0.0.1`, `[::1]`), on any port, and either command
-refuses to start otherwise. Other hostnames are refused even when they resolve to
+`cerberus web` and, until you configure auth, `cerberus mcp-http` are
+loopback-only. For both, `--listen` must name `localhost` or a literal loopback
+IP (`127.0.0.1`, `[::1]`), on any port, and either command refuses to start
+otherwise. Other hostnames are refused even when they resolve to
 loopback. Both also refuse a request whose `Host` header is not a
 loopback name, which defeats DNS rebinding. An SSH local forward
 (`ssh -L 9000:127.0.0.1:4785 host`) works; a tunnel or reverse proxy that
 forwards a public hostname does not. For browser-based MCP clients,
 `mcp-http --allow-origin` adds exact origins to the loopback set.
+
+`mcp-http` can also be an OAuth 2.1 resource server: with
+`~/.cerberus/mcp-http.yaml` configured, every call needs a bearer token bound to
+its resource URL, and off loopback it needs TLS as well. Tokens come from
+Cerberus's own minimal issuer (`cerberus mcp-http token issue`) or from an
+external authorization server. See [docs/mcp-http.md](mcp-http.md).
 
 Under the permissive posture only, `mcp-http --insecure-listen` accepts a
 non-loopback `--listen`, and `--allow-host` names the host names and

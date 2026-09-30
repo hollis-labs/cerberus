@@ -9614,6 +9614,50 @@
       "id": "CERB-DEC-908"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "mcp-http is an OAuth 2.1 resource server; Cerberus issues tokens but is not an IdP",
+      "summary": "With ~/.cerberus/mcp-http.yaml configured, mcp-http requires a bearer token bound to its resource URL (RFC 8707), publishes RFC 9728 metadata, and accepts tokens from a minimal built-in issuer (operator-minted on a TTY) or from external issuers by JWKS. The daemon verifies every forwarded token again, and a verified caller is an agent whose scopes narrow what it may ask for.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "chosen by the operator in the WP-S8 design review (A2 plus external verification, T1); built on the S8-a branch",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "wp-s8",
+        "mcp",
+        "auth",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/oauth/, cmd/cerberus/cmd_mcp_http_auth.go, internal/cerbapi/auth.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-903",
+          "note": "a verified caller is keyed by subject, so a suspension survives a reconnect"
+        }
+      ],
+      "data": {
+        "decision": "A built-in issuer that authenticates nobody (the operator mints scoped, audience-bound, short-lived tokens), generic external-issuer verification, bring-your-own TLS, and verification in the daemon as well as mcp-http.",
+        "alternatives_considered": [
+          "External AS only (Keycloak, Entra, Auth0)",
+          "A built-in authorization-code flow with passkey consent (phase B)",
+          "A built-in local CA or ACME for TLS",
+          "Verification in mcp-http only"
+        ],
+        "rationale": "An external AS is a dependency most operators don't have, and the corporate IdP is administered by another team and supports neither CIMD nor RFC 8707 audiences. Operator-minted tokens need no login page or user store, and so no IdP. The daemon re-verifies because mcp-http runs as the operator's uid, so its claim is only as good as the uid; with re-verification, a verified principal needs a token that verifies. Scopes are checked in mcp-http as well, so a daemon too old to check them never runs an out-of-scope call, and mcp-http refuses to require auth from a daemon that doesn't answer /auth/capabilities.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "Scopes are `cerberus:read`, `cerberus:read_sensitive` and `cerberus:operate`, checked before the brakes and policy, in every mode. A call its scopes don't cover gets `insufficient_scope` (403), with text naming the scope and the command, because Claude Code shows the model only text. Off loopback needs auth and TLS in any posture. `--insecure-listen` is unchanged and can't be combined with auth. The web console stays loopback-only.",
+      "id": "CERB-DEC-910"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
@@ -17661,6 +17705,46 @@
       "id": "CERB-GAP-909"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "mcp-http auth has no sign-in flow, and its key and config are the operator uid's",
+      "summary": "The built-in issuer has no authorization endpoint, so a client that only speaks interactive OAuth can't obtain a built-in token by itself. The signing key (Keychain) and mcp-http.yaml are readable and writable by the operator's uid, so auth separates network and other-user callers, not the operator's own processes.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "from the WP-S8 design; phase B was deferred by the operator",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "mcp",
+        "auth",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/oauth/issuer.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-857",
+          "note": "the same-uid class"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "Phase B: an authorization-code plus PKCE endpoint whose consent is the loopback console with a passkey, identifying clients by CIMD",
+        "effort": "medium"
+      },
+      "body": "Revocation is enforced by the daemon, and mcp-http checks only signature, audience, issuer and expiry. Any token may still engage the lockdown through the ungated brake tool, which is in the safety direction.",
+      "id": "CERB-GAP-912"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
@@ -24117,6 +24201,49 @@
       },
       "body": "`cerberus status` leads with `!!! BREAKER: N agent session(s) suspended`, and `policy explain` says whether the breaker is on and at what.",
       "id": "CERB-TOOL-902"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "tool",
+      "name": "cerberus mcp-http token issue / list / revoke",
+      "summary": "Mints a bearer token for one named client with the given scopes and lifetime (7d by default, 90d at most) on an interactive terminal with a typed confirmation the daemon checks; lists minted tokens without their text; revokes one by id. Each mint and revoke is an audited admin operation.",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "TestMCPHTTPToken*, TestTokenRoutes and TestMCPHTTPResourceServer on the S8-a branch",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "mcp",
+        "auth",
+        "locus:core",
+        "verified:test"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_mcp_http_token.go, internal/oauth/issuer.go",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-400",
+          "note": "a verb of the CLI"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "invocation": "cerberus mcp-http token issue --client <name> --scope <scopes> [--ttl 7d] | list | revoke <id>",
+        "surfaces": [
+          "cli",
+          "socket"
+        ],
+        "destructive": false,
+        "verified": "test",
+        "vendor": []
+      },
+      "body": "The token is shown once, and only its id is kept in ~/.cerberus/oauth/tokens.jsonl. The signing key is Ed25519, in the Keychain. With the daemon down, the CLI mints in-process against the same key and store.",
+      "id": "CERB-TOOL-911"
     }
   ]
 }

@@ -209,6 +209,24 @@ func BrakesDir() (string, error) {
 	return filepath.Join(home, ".cerberus", "brakes"), nil
 }
 
+// OAuthDir is ~/.cerberus/oauth: the built-in issuer's token records.
+func OAuthDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cerberus", "oauth"), nil
+}
+
+// MCPHTTPConfigPath is ~/.cerberus/mcp-http.yaml, mcp-http's auth config.
+func MCPHTTPConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cerberus", "mcp-http.yaml"), nil
+}
+
 // ApprovalsDir is ~/.cerberus/approvals.
 func ApprovalsDir() (string, error) {
 	home, err := os.UserHomeDir()
