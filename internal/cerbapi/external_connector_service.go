@@ -307,9 +307,10 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	}
 	result, err := s.execute(call.withTelemetry(ctx), args)
 	err = noCredentialRefusal(args, err)
-	if err == nil && !args.DryRun {
+	if err == nil && egressApplies(call.spec) {
 		// Egress policy on what comes back (P4-4): recorded on the outcome,
-		// and applied where a rule enforces.
+		// and applied where a rule enforces. A plugin's preview is text the
+		// plugin composed, and gets the same (M8).
 		var shaped any
 		if shaped, err = call.applyEgress(result.Data); err == nil {
 			result.Data = shaped
@@ -1062,4 +1063,11 @@ func requiredStringSlice(cfg map[string]any, key string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s must be a string array", key)
 	}
+}
+
+// egressApplies reports whether egress policy shapes a call's result: every
+// real run, and a plugin's preview, which is text the plugin composed (M8).
+// A host preview is Cerberus's own description of the call.
+func egressApplies(spec auditSpec) bool {
+	return !spec.dryRun || spec.pluginPreview()
 }

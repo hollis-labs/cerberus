@@ -89,18 +89,25 @@ var unbraked = map[string]bool{"policy": true, "brake": true, "approvals": true}
 // Unbraked reports whether the brakes never stop a connector.
 func Unbraked(connector string) bool { return unbraked[connector] }
 
-// brakeRefusal is the brakes' refusal of a call, or nil. A dry run or a
-// plan request runs nothing and passes.
+// brakeRefusal is the brakes' refusal of a call, or nil. A host dry run or a
+// plan request runs nothing and passes. A plugin's preview runs the
+// plugin's code, with its credentials, so it is braked as the read it is:
+// read_sensitive, which a lockdown and a freeze stop and a suspension
+// refuses (M8).
 func brakeRefusal(ctx context.Context, spec auditSpec, resolved target.Target, dryRun bool) error {
 	b := ProcessBrakes()
-	if b == nil || unbraked[spec.connector] || dryRun || spec.planOnly {
+	preview := spec.pluginPreview()
+	if b == nil || unbraked[spec.connector] || (dryRun && !preview) || spec.planOnly {
 		return nil
 	}
 	effect := spec.op.Effect
 	if !spec.known {
 		effect = contract.EffectExec
 	}
-	if refusal := suspensionRefusal(ctx, spec, effect, dryRun); refusal != nil {
+	if preview {
+		effect = contract.EffectReadSensitive
+	}
+	if refusal := suspensionRefusal(ctx, spec, effect, dryRun && !preview); refusal != nil {
 		return refusal
 	}
 	blocked, lockdown, freeze := b.Current().Blocks(spec.connector, effect, resolved)

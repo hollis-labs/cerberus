@@ -11,6 +11,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // Rate limits (§12, P5-b). A rule's `rate: 5/h` caps the calls it matched
@@ -63,17 +64,24 @@ func rateKey(rule string, p audit.Principal, effect string) string {
 	return rule + "|" + callerKey(p) + "|" + effect
 }
 
-// rateHolds are the rates res matched for this call. Automation, dry runs
-// and plan requests run nothing on anyone's behalf and are not counted.
+// rateHolds are the rates res matched for this call. Automation, host dry
+// runs and plan requests run nothing on anyone's behalf and are not
+// counted. A plugin's preview runs the plugin, so it is counted, as a
+// read_sensitive call against the operation's rule: a flood of previews
+// meets the rate as the calls would (M8).
 func rateHolds(ctx context.Context, spec auditSpec, res policy.Result) []rateHold {
-	if spec.automation || spec.dryRun || spec.planOnly {
+	if spec.automation || (spec.dryRun && !spec.pluginPreview()) || spec.planOnly {
 		return nil
+	}
+	effect := string(spec.op.Effect)
+	if spec.pluginPreview() {
+		effect = string(contract.EffectReadSensitive)
 	}
 	p := principalFor(ctx, spec)
 	var out []rateHold
 	for _, m := range res.Matched {
 		if m.Rate != nil {
-			out = append(out, rateHold{rule: m.Rule, rate: *m.Rate, key: rateKey(m.Rule, p, string(spec.op.Effect))})
+			out = append(out, rateHold{rule: m.Rule, rate: *m.Rate, key: rateKey(m.Rule, p, effect)})
 		}
 	}
 	return out

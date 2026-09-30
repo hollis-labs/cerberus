@@ -332,7 +332,7 @@ func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 // about to run; finish gives the holds back if it is then refused.
 func (c *auditCall) holdRates(ctx context.Context, req policy.Request) {
 	l := ProcessRateLimiter()
-	if l == nil || req.DryRun {
+	if l == nil || (req.DryRun && !c.spec.pluginPreview()) {
 		return
 	}
 	if holds := rateHolds(ctx, c.spec, PolicyDecisionPoint().Authorize(req)); len(holds) > 0 {

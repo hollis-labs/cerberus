@@ -18233,6 +18233,47 @@
       "id": "CERB-GAP-924"
     },
     {
+      "class": "gap",
+      "name": "A plugin dry run passed the brakes, breaker, rates and egress while running plugin code",
+      "summary": "Every dry run skipped the lockdown, freezes, suspension, rate holds and egress, on the reasoning that it runs nothing; a plugin's dry run runs the plugin's own code with its credentials, so under a lockdown an agent could keep invoking plugin previews. A plugin preview is now braked, rated and egress-shaped as the read_sensitive call it is.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 2026-09-30 adversarial review (M8, partly accepted as Decision 7 / CERB-GAP-877); fixed in the gate; tested at the brake, rate, egress and instance-selection seams",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "plugins",
+        "brakes",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/brakes.go, internal/cerbapi/rates.go, internal/cerbapi/external_connector_service.go",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-877",
+          "note": "the accepted part: a plugin's preview is its own claim"
+        }
+      ],
+      "body": "Review M8. `brakeRefusal`, `suspensionRefusal`, `holdRates`/`rateHolds` and the admin lane's egress all skipped any dry run, since a host preview runs nothing. A plugin's preview (spec.preview = plugin_claimed) does run: the plugin's code, with its credentials, and for an unsplit plugin in its one instance, which holds the write credentials. Under a lockdown an agent could keep calling plugin previews.\n\nNow `auditSpec.pluginPreview()` marks a dry run a plugin serves. The brakes treat it as read_sensitive: a lockdown, a freeze on its target and a suspension stop it. Rates count it against the operation's rule in a read_sensitive bucket. Egress shapes its result (`egressApplies`). Host previews still pass everything, as before. With split credentials (I9) a preview already ran in the read instance, since AccessFor reads any preview as a read; a test now pins that. Approvals are unchanged: policy for a preview still reads the dry-run rules.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-604",
+        "effort": "small",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-925"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
