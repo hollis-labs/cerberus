@@ -1,7 +1,7 @@
 # Cerberus
 
-Cerberus is a single-binary Go control plane for the infrastructure we
-administer. It builds, deploys, supervises and inspects that infrastructure
+Cerberus is a single-binary Go control plane for the infrastructure its
+operator administers. It builds, deploys, supervises and inspects that infrastructure
 over one runtime service that the CLI, daemon socket, HTTP API, web console and
 MCP adapter all share. Every capability added to a connector becomes a CLI
 command, an API operation and an MCP tool at the same time — which is what
@@ -12,33 +12,33 @@ writes about itself, the data it holds, or the credentials it needs.
 Operationally it is v2-only: `resources:` are the model, the legacy `services:`
 lane is frozen.
 
-## This manages real systems
+## This may manage real systems
 
-**Work on this repo changes what happens to production and corporate
-infrastructure.** Read this section before running anything.
+**Work on this repo can change what happens to production systems.** An
+operator's Cerberus may reach real hosts, clusters and SaaS APIs, and a local
+test that calls a connector may write for real. Read this section before
+running anything.
 
-- **`host-a.example.com`** — examplecorp work host, reachable only on VPN.
-  Runs the ContextForge MCP gateway (`gateway:4444` on the
-  `gateway-net` docker network), `svc-a-mcp`, `svc-b`,
-  `svc-c` and the app-a demo. `operator` is **not** in the `docker`
-  group there, so container introspection goes over HTTP, not `docker ps`.
-- **Real svc-a writes.** `svc-a-mcp` runs with `svc-a_ENABLE_WRITES=true`
-  against the `example_tenant` tenant. A time-off request from a local test
-  writes for real and routes to a real approver.
-- **Azure dev box** — pending provisioning, for development, testing and
-  experiments. Docker will run there too.
-- **Corporate SSH.** A Cerberus-started `ssh` has no TTY and cannot answer a
-  password or MFA prompt. An auto-restarting tunnel against a corporate auth
-  endpoint is a good way to get an account locked out, which is why the tunnel
-  resources are deliberately on/off with `auto_start` and `auto_restart` both
-  false.
+- **Destructive connector operations require explicit operator acknowledgment
+  (`--ack`)** and most support `--dry-run`. Use the preview first.
+- **A test against a live integration can write for real.** An MCP server a
+  connector reaches may have writes enabled against a real tenant, where a
+  request from a local test routes to real people. Point tests at fakes, and
+  treat a live target as production unless you know otherwise.
+- **A Cerberus-started `ssh` has no TTY** and cannot answer a password or MFA
+  prompt. An auto-restarting tunnel against a corporate auth endpoint is a good
+  way to get an account locked out, which is why tunnel resources should be
+  on/off with `auto_start` and `auto_restart` both false.
+- **Your account may lack access a connector assumes**: for example, not being
+  in a remote host's `docker` group, in which case container introspection has
+  to go over HTTP rather than `docker ps`.
 
-Destructive connector operations require explicit operator acknowledgment
-(`--ack`) and most support `--dry-run`. Use the preview first.
+Operator-specific notes (which hosts, which tenants) belong in the operator's
+local notes, never in this repo.
 
 ## Start Here
 
-- `README.md` — install paths, CLI reference, port map.
+- `README.md` — install paths, CLI reference.
 - `docs/plans/infra-admin-control-plane.md` — the current direction: making
   Cerberus the single place we run ssh, file transfer, deploys and host
   administration. Read this before adding connector capability.
@@ -73,19 +73,6 @@ Destructive connector operations require explicit operator acknowledgment
   bound to a plan, egress labels, audit. Also lists gate defects to fix first
   and the decisions already taken. Read before adding a gate, a policy rule or
   an approval path.
-- `~/admin-tools` — ~70 shell scripts that already administer the work host,
-  with their failure modes documented in-line. This is the capability spec for
-  what connectors should grow; promote proven behaviour rather than redesigning.
-
-`docs/handoffs/`, most of `docs/prompts/` (the Cerberus-specific ones —
-`catalog-audit-generic.md` moved separately, it's reusable), and
-`docs/validation/` were archived out of this repo to
-`~/dev/archive/archive/cerberus/` in a docs cleanup pass: resolved
-agent/operator handoffs, one-off task prompts, and a dated validation
-snapshot. Three superseded `docs/plans/` drafts (`beta-release-plan.md`,
-`cerberus-release-readiness-plan.md`, `gui-roadmap.md`) went the same way —
-the beta they planned already shipped. `docs/adr/` and the active
-`docs/plans/*` stay; they're still-read reference, not history.
 
 ## Commands
 
@@ -129,7 +116,7 @@ supervision lane to reach them — see
 `docs/plans/infra-admin-control-plane.md`.
 
 A resource that is not local/process is a **named handle for connector
-operations**, not a broken workload — `host-a` is server/ssh and has always
+operations**, not a broken workload — a `server`/`ssh` resource has always
 worked that way. Declaring `type: container` / `connector: docker` with a
 `compose_file` is the supported pattern: `cerberus docker up <id>` resolves it
 through the registry the way `cerberus ssh` does. Supervision-lane verbs report
@@ -197,32 +184,24 @@ would be handed that connector's credentials. The set comes from
 `Registry.BuiltInIDs()`, plus `local`, which the supervision lane serves outside
 the registry and so is reserved explicitly (`hostServedIDs`).
 
-## Work infrastructure is not ours to change on our own say-so
+## Infrastructure you don't own is not yours to change on your own say-so
 
-An infrastructure team administers the examplecorp estate. Cerberus is a tool that
-helps operate it, **not a control plane that owns it.** Where a write against a
-work resource is wanted, the ask goes to the team that owns that resource.
+An operator's estate is often administered by other teams. Cerberus is a tool
+that helps operate it, **not a control plane that owns it.** Where a write
+against someone else's resource is wanted, the ask goes to the team that owns
+that resource.
 
-That rule governs what **we do** to work resources. It does not govern what a
-connector **can do**. Cerberus is built in public, for operators whose estates
-look nothing like ours, so a connector may implement write operations whether
-or not any of our work targets will ever accept them. It implements them the
-way every write here is built: `Destructive` and `SupportsDry`, behind `--ack`,
-with a real preview. A connector that can write is not permission to write to a
-work resource.
+That rule governs what **an operator does** to a resource. It does not govern
+what a connector **can do**. Cerberus is built in public, for operators whose
+estates look nothing like each other, so a connector may implement write
+operations whether or not a given target will ever accept them. It implements
+them the way every write here is built: `Destructive` and `SupportsDry`, behind
+`--ack`, with a real preview. A connector that can write is not permission to
+write to a resource.
 
-Today nothing stands between an acknowledged write and its target except
-`--ack` and the target's own access control, and `--ack` is an intent gate, not
-a human one. Per-target write policy, with a human approving where the target
-calls for it, is the planned answer; see "Human-in-the-loop is a policy file
-plus MCP elicitation" in `docs/plans/agent-authority-and-secrets.md`. Until then,
-let the credential be the policy: point a connector at a work target with an
-identity that cannot write — a read-only role on a work cluster — rather than
-relying on nobody passing `--ack`.
-
-The exceptions already in place are deliberate and narrow: the local dev
-services in `~/.cerberus/config.yaml`, and `host-a` reached over SSH as the
-operator's own account.
+Let the credential be the policy as well: point a connector at a target you
+don't own with an identity that cannot write, such as a read-only role on a
+shared cluster, rather than relying on policy or `--ack` alone.
 
 ## Boundaries
 
@@ -419,34 +398,25 @@ path. Register a new config only once it is on `main`.
 
 ## Where the live config actually is
 
-**The live registry on this machine is `~/.cerberus/config.yaml`**, and it
-defines every running resource directly. Its header explains why: the
-app-owned `<app>.cerberus.yaml` descriptors — including this repo's
-`cerberus.cerberus.yaml` and `infrastructure.cerberus.yaml` — carry
-`dir: /Users/me/dev/hollis-labs/apps/<app>`, a different user and
-directory layout. `dir:` is a literal path with no interpolation or override,
-so **those descriptors are not registered and editing them changes nothing that
-runs here.** Treat them as templates, not as live configuration.
+**The live registry is `~/.cerberus/config.yaml`.** App-owned
+`<app>.cerberus.yaml` descriptors, this repo's `cerberus.cerberus.yaml` and
+`infrastructure.cerberus.yaml` included, only take effect once registered, and
+their `dir:` is a literal path with no interpolation or override. A descriptor
+whose `dir:` names another user's layout is a template, not live
+configuration: editing it changes nothing that runs.
 
-The daemon itself is likewise not Cerberus-managed as a resource. It runs from
-`~/Library/LaunchAgents/com.fragments-engine.cerberus.plist`, which is **not
-hand-written** — it is byte-identical to what `cerberus install` emits from
-`launchdPlistTemplate` in `cmd/cerberus/cmd_install.go`, and that template
-declares no `EnvironmentVariables` at all.
+The daemon itself is not Cerberus-managed as a resource. It runs from the
+launchd plist `cerberus install` writes from `launchdPlistTemplate` in
+`cmd/cerberus/cmd_install.go`. That template emits an `EnvironmentVariables`
+key carrying a `PATH` composed from the installing user's environment
+(`daemonLaunchPath`), rather than hardcoding Homebrew paths that are wrong on
+Intel Macs and under MacPorts. Only `PATH` is carried: secrets do not travel in
+the environment, and copying the installing shell's whole environment into a
+persistent launchd job would do exactly that. Entries are filtered to absolute
+paths, and launchd's own four directories are kept as the tail.
 
-That made the minimal-PATH problem a property of the shipped installer rather
-than an artifact of this machine: every `cerberus install` produced a daemon
-that could not find `go`. `launchdPlistTemplate` now emits an
-`EnvironmentVariables` key carrying a `PATH` composed from the installing user's
-environment — `daemonLaunchPath` in `cmd/cerberus/cmd_install.go` — rather than
-hardcoding Homebrew paths that are wrong on Intel Macs and under MacPorts. Only
-`PATH` is carried: secrets do not travel in the environment, and copying the
-installing shell's whole environment into a persistent launchd job would do
-exactly that. Entries are filtered to absolute paths, and launchd's own four
-directories are kept as the tail.
-
-**The plist on this machine predates that fix**, so the running daemon still has
-the minimal `PATH` until it is reinstalled. Verify with
+A plist installed before that fix leaves the daemon with launchd's minimal
+`PATH` until it is reinstalled. Verify with
 `ps eww -o command= -p $(pgrep -f 'cerberus daemon')` rather than assuming, and
 keep writing connectors that resolve their tools explicitly and per call — the
 installer fix raises the floor, it does not remove the rule above.
