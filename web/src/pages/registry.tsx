@@ -13,6 +13,7 @@ import {
 import { DataTable, type ColumnDef } from '@hollis-labs/sysop-ui/data'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type ConfigValidationFile, type RegistryEntry, type RegistryHealthReport } from '../api/client'
+import { useConsoleWrite } from '../components/plan-confirm'
 
 const registryColumns: ColumnDef<RegistryEntry>[] = [
   {
@@ -87,6 +88,7 @@ export function RegistryPage() {
   const validation = usePoll((signal) => apiClient.getConfigValidation(signal), 5000)
   const resolve = usePoll((signal) => apiClient.getConfigResolve(signal), 5000)
   const [sessionToken, setSessionToken] = useState('')
+  const write = useConsoleWrite()
   const [path, setPath] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -139,7 +141,7 @@ export function RegistryPage() {
     setBusy('register')
     setError(null)
     try {
-      await apiClient.registerConfig(path.trim(), sessionToken)
+      await write(apiClient.registerConfig(path.trim(), sessionToken))
       setPath('')
       await Promise.all([registry.refetch(), health.refetch(), validation.refetch(), resolve.refetch()])
     } catch (err) {
@@ -154,7 +156,7 @@ export function RegistryPage() {
     setBusy(owner)
     setError(null)
     try {
-      await apiClient.deregisterOwner(owner, sessionToken)
+      await write(apiClient.deregisterOwner(owner, sessionToken))
       await Promise.all([registry.refetch(), health.refetch(), validation.refetch(), resolve.refetch()])
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

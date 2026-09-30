@@ -68,6 +68,14 @@ func (refusingClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.
 	return &cerbapi.ConnectorPlan{}, nil
 }
 
+func (refusingClient) ConsoleWrite(context.Context, cerbapi.ConsoleWriteRequest, ...cerbapi.MutationOption) (*cerbapi.ConsoleWriteResult, error) {
+	return &cerbapi.ConsoleWriteResult{}, nil
+}
+
+func (refusingClient) PlanConsoleWrite(context.Context, cerbapi.ConsoleWriteRequest, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
+	return &cerbapi.ConnectorPlan{}, nil
+}
+
 // connectTools serves tools from a real go-mcp server over an in-memory
 // transport, so a test sees the CallToolResult a client receives — including
 // isError, which calling a Handler directly cannot show.

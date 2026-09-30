@@ -1,20 +1,33 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
-import { FormDialog, Input } from '@hollis-labs/sysop-ui/ui'
-import { confirmableApproval, confirmTarget, type ApprovalRef, type ConnectorPlan, type PlanTarget, type PlanView } from '../api/client'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Callout, FormDialog, Input } from '@hollis-labs/sysop-ui/ui'
+import { usePoll } from '@hollis-labs/sysop-ui/api'
+import { apiClient, confirmableApproval, confirmTarget, refusalApproval, type ApprovalRef, type ConnectorPlan, type ConsoleWrite } from '../api/client'
+import { ApprovalDetail } from './approval-detail'
+import { PlanBody, targetLine } from './plan-body'
+
+export { PlanBody } from './plan-body'
 
 // Confirming on the call (P3-3b, tty_confirm in the console): when policy
 // wants the operator to confirm an operation themselves, the console shows
 // the plan the approval binds to, with its whole hash, and asks for the
 // target to be typed. The call is then sent again on its confirm route with
 // that hash and the pending approval the first attempt asked for, which the
-// daemon decides and consumes in that one call. Out of band is not this:
-// those approvals are approved on the approvals page with a passkey.
+// daemon decides and consumes in that one call.
+//
+// Out of band is the passkey. For a call whose step can retry under an
+// approval (the console's own writes), the console shows the approval it
+// asked for, approved here with the passkey (I5: the passkey is the
+// boundary, so the surface that asked may approve with it), and sends the
+// call again under it once approved. A step without retry leaves an
+// out-of-band approval to the approvals page.
 
 export interface ConfirmStep<T> {
   // The call's plan, as an approval binds it.
   plan: () => Promise<ConnectorPlan>
   // The call again, confirmed against the plan shown.
   confirm: (c: { approval_id?: string; confirmed_plan_hash: string }) => Promise<T>
+  // The call again, under an approval met out of band.
+  retry?: (approvalID: string) => Promise<T>
 }
 
 // ConfirmCancelled is what a withConfirm promise rejects with when the
@@ -38,6 +51,20 @@ export function useConfirmOnCall(): WithConfirm {
   return withConfirm
 }
 
+// Waiting is a call held for its out-of-band approval.
+interface Waiting {
+  id: string
+  run: () => Promise<void>
+  cancel: () => void
+}
+
+// useConsoleWrite sends a console write through its confirm step: a
+// confirmation on the call, or the out-of-band approval, as policy asks.
+export function useConsoleWrite(): <T>(w: ConsoleWrite<T>) => Promise<T> {
+  const withConfirm = useConfirmOnCall()
+  return useCallback(<T,>(w: ConsoleWrite<T>) => withConfirm(w.send, w), [withConfirm])
+}
+
 interface Open {
   shown: ConnectorPlan
   approval: ApprovalRef
@@ -51,11 +78,26 @@ export function ConfirmOnCallProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const openRef = useRef<Open | null>(null)
+  const [waiting, setWaiting] = useState<Waiting | null>(null)
+  const waitingRef = useRef<Waiting | null>(null)
 
   const withConfirm = useCallback(<T,>(send: () => Promise<T>, step: ConfirmStep<T>): Promise<T> => {
     return send().catch(async (err: unknown) => {
       const approval = confirmableApproval(err)
-      if (!approval) throw err
+      if (!approval) {
+        const pending = refusalApproval(err)
+        const retry = step.retry
+        if (!pending?.id || pending.channel !== 'out_of_band' || !retry) throw err
+        return new Promise<T>((resolve, reject) => {
+          const next: Waiting = {
+            id: pending.id,
+            run: async () => resolve(await retry(pending.id)),
+            cancel: () => reject(new ConfirmCancelled()),
+          }
+          waitingRef.current = next
+          setWaiting(next)
+        })
+      }
       const shown = await step.plan()
       return new Promise<T>((resolve, reject) => {
         const next: Open = {
@@ -85,6 +127,15 @@ export function ConfirmOnCallProvider({ children }: { children: ReactNode }) {
   return (
     <ConfirmContext.Provider value={withConfirm}>
       {children}
+      {waiting && (
+        <OutOfBandStep
+          waiting={waiting}
+          onDone={() => {
+            waitingRef.current = null
+            setWaiting(null)
+          }}
+        />
+      )}
       <FormDialog
         open={open !== null}
         onClose={close}
@@ -137,40 +188,75 @@ export function ConfirmOnCallProvider({ children }: { children: ReactNode }) {
   )
 }
 
-function targetLine(t: PlanTarget): string {
-  const fields = t.fields ?? {}
-  const name = t.resource || fields[Object.keys(fields).sort()[0]] || ''
-  const labels = [`env ${t.env || 'unknown'}`, `owner ${t.owner || 'unknown'}`, `admin ${t.admin || 'unknown'}`]
-  if (t.tags && t.tags.length > 0) labels.push(`tags ${t.tags.join(',')}`)
-  return `${[t.kind, name].filter(Boolean).join(' ')} (${labels.join(', ')})`
-}
+// OutOfBandStep holds a call for its out-of-band approval: it shows the
+// approval as the approvals page does, to approve with the passkey, and
+// sends the call again once it is approved. Closing it before then leaves
+// the approval pending, and nothing ran.
+function OutOfBandStep({ waiting, onDone }: { waiting: Waiting; onDone: () => void }) {
+  const approvals = usePoll((signal) => apiClient.listApprovals(signal), 2000)
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const ran = useRef(false)
+  const a = (approvals.data?.approvals ?? []).find((x) => x.id === waiting.id)
 
-export function PlanBody({ plan }: { plan: PlanView }) {
-  const lines: string[] = []
-  if (plan.state) lines.push(`State:    ${plan.state}`)
-  if (plan.source) lines.push(`Source:   ${plan.source.path} at ${plan.source.head}${plan.source.dirty ? ' (uncommitted changes)' : ''}`)
-  if (plan.artifact) lines.push(`Artifact: ${plan.artifact}`)
-  if (plan.preview !== undefined) lines.push(`Preview (${plan.preview_kind || 'host'}): ${JSON.stringify(plan.preview)}`)
-  if (plan.plugin_entrypoint_sha256) lines.push(`Plugin:   ${plan.plugin_entrypoint_sha256}`)
-  ;(plan.steps ?? []).forEach((s, i) => {
-    lines.push(`Step ${i + 1}:   ${s.name}: ${s.command}`)
-    if (s.dir) lines.push(`          in ${s.dir}`)
-    if (s.env && s.env.length > 0) lines.push(`          env: ${s.env.join(' ')}`)
-  })
-  if (plan.digests) lines.push(`Binds:    ${Object.keys(plan.digests).sort().join(', ')}`)
+  useEffect(() => {
+    let cancelled = false
+    apiClient.getSession().then((s) => {
+      if (!cancelled) setToken(s.action_token)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const run = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await waiting.run()
+      onDone()
+    } catch (err) {
+      // A refused retry (a changed plan, a changed policy) stays open with
+      // the reason; closing it then cancels.
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }, [waiting, onDone])
+
+  // Approved: send the call again, once. A failed run is retried by hand.
+  useEffect(() => {
+    if (a?.status === 'approved' && !ran.current) {
+      ran.current = true
+      void run()
+    }
+  }, [a?.status, run])
+
+  const ended = a && ['denied', 'expired', 'revoked'].includes(a.status)
   return (
-    <div className="space-y-2">
-      {lines.length > 0 && (
-        <pre className="max-h-48 overflow-auto rounded border border-border-strong p-2 font-mono text-xs whitespace-pre-wrap break-all">{lines.join('\n')}</pre>
-      )}
-      {(plan.actions ?? []).map((a, i) => (
-        <div key={i} className="space-y-1 pl-3">
-          <div className="font-semibold">
-            {a.operation} {targetLine(a.target)}
-          </div>
-          <PlanBody plan={a} />
-        </div>
-      ))}
-    </div>
+    <FormDialog
+      open
+      onClose={() => {
+        if (busy) return
+        waiting.cancel()
+        onDone()
+      }}
+      title="Approve with your passkey"
+      description="This change needs an out-of-band approval. Approve it here with a passkey enrolled for this Cerberus, and it runs under that approval."
+      submitLabel="Run it"
+      submitDisabled={a?.status !== 'approved' || busy}
+      submitting={busy}
+      widthClassName="max-w-3xl"
+      onSubmit={run}
+    >
+      <div data-testid="out-of-band-step" className="space-y-3 text-sm">
+        {!a && !approvals.error && <div>Loading approval {waiting.id}…</div>}
+        {approvals.error != null && <Callout tone="danger">{approvals.error instanceof Error ? approvals.error.message : String(approvals.error)}</Callout>}
+        {a && <ApprovalDetail approval={a} token={token} onChanged={approvals.refetch} />}
+        {a && ended && <Callout tone="warning">This approval is {a.status}, so the change did not run. Close this and try again to ask anew.</Callout>}
+        {error && <div className="text-danger">{error}</div>}
+      </div>
+    </FormDialog>
   )
 }

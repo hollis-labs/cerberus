@@ -9747,6 +9747,49 @@
       "id": "CERB-DEC-914"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "The passkey is the boundary: an out-of-band approval may be decided on the surface that asked, with a verified assertion",
+      "summary": "I5 said the approving surface must differ from the requesting one. An out-of-band approve carrying a passkey assertion may now come from the requester's own surface: the broker verifies the assertion against the approval's v2 challenge at decide and again at consume. Never for tty_confirm, never without an assertion, never over MCP. The brake-lift exemption is this rule, and the decision is recorded as same-surface.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "the operator's decision of 2026-09-30, relayed by the lead; built and tested with the console-write approval flow, and smoke-run in headless Chrome",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p3",
+        "approvals",
+        "passkey",
+        "security-review",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/cerbapi/approval_decide.go, internal/approval/approval.go, internal/audit/record.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-933",
+          "note": "without it, a console-requested out-of-band approval could be decided by no one"
+        }
+      ],
+      "data": {
+        "decision": "Let an out-of-band approve that carries a presence assertion come from the requesting surface; keep the other-surface rule for everything else.",
+        "alternatives_considered": [
+          "Keep I5 strict: the console waits for another surface, and none can make a passkey assertion",
+          "Label console targets dev/self so they fall to tty_confirm, hiding that the write is admin on Cerberus itself"
+        ],
+        "rationale": "Out of band means a person was present, and the assertion is that proof: an agent driving the console cannot produce it. Only the console makes a passkey assertion, and a request the console made could not be approved on the console, so without this a console-requested out-of-band approval had no way to be decided. The brake lift was already this case, as a connector exemption; one rule replaces it.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "checkDecider (internal/cerbapi/approval_decide.go) refuses a same-surface approve unless `passkeyOnTheSameSurface`: the approval's channel is out_of_band and the decision carries an assertion. MCP and non-human deciders are refused before it. The store verifies the assertion (enrolled key, this approval's challenge) before the decision counts, and Consume verifies it again. The decision sets `same_surface`; the audit record's approval carries `decided_same_surface`; `cerberus approvals show` and the console print `(passkey, same surface)`. Tests: TestTheConsoleApprovesItsOwnRequestWithThePasskey (succeeds once; refused without an assertion, with an unenrolled key, over MCP, and for tty_confirm) and TestBrakeSelfApprovalNeedsTheAssertion (the brake lift through the general rule).",
+      "id": "CERB-DEC-932"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
@@ -18533,6 +18576,52 @@
       },
       "body": "Remaining: two tokens minted for the same subject (the built-in issuer's subject is client:<name>, so two tokens for one client name) are the same caller by design. An audit record of a verified caller no longer carries the MCP client's self-reported name when its token has no client claim.",
       "id": "CERB-GAP-931"
+    },
+    {
+      "class": "gap",
+      "name": "Console writes could not be approved under enforcement: gated where no broker runs, and out of band unreachable",
+      "summary": "The M9 gate on the console's writes ran in the `cerberus web` process, which has no approval broker, so under enforcement a write could be neither asked for where the approvals page looks nor confirmed in the dialog. Out of band was a dead end besides: the console could not approve what it asked for (I5), and only the console makes a passkey assertion.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "found building the M9 follow-up; fixed by moving the writes into the daemon and the passkey rule; tested in cerbapi and webui and smoke-run in headless Chrome",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "web-console",
+        "approvals",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/console_writes.go, internal/cerbapi/console_writes_socket.go, internal/webui/console_writes.go, web/src/components/plan-confirm.tsx",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-927",
+          "note": "the gate this makes approvable"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-886",
+          "note": "the same move, for deploy-profile runs"
+        }
+      ],
+      "body": "The daemon now makes the console's writes (ConsoleWrite and PlanConsoleWrite on the client, /console/{op}, /plan and /confirm on the socket), and the web handlers are its clients, each with /plan and /confirm routes beside it. A write's plan binds what it would change as it reads now: the profile and the saved one it replaces, the file a registration reads, the backup and config a restore swaps; a provider's credentials by keyed digest, and they travel only to the daemon, never into a record, plan, approval or response. A profile write is labeled by the profile, and a relabel by neither label set, so it is out of band either way; registry, provider and restore writes are named by their id with no labels, so out of band. The console confirms a tty_confirm write in the resource-verb dialog, and for out of band shows the approval in place, approved with the passkey (CERB-DEC-932), then sends the write again under it. make smoke-confirm covers a profile save confirmed on the call and a relabel approved with the passkey.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-403",
+        "effort": "medium",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-933"
     },
     {
       "id": "CERB-TOOL-110",

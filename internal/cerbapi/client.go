@@ -65,6 +65,13 @@ type Client interface {
 	// PlanDeploymentProfile is a profile run's plan and hash, as an
 	// approval of the run binds it; recorded as a dry run.
 	PlanDeploymentProfile(ctx context.Context, id string, opts ...MutationOption) (*ConnectorPlan, error)
+	// ConsoleWrite makes a console write (a profile, provider, registry or
+	// restore change) through the gate in the serving process, where the
+	// approval broker is (M9).
+	ConsoleWrite(ctx context.Context, req ConsoleWriteRequest, opts ...MutationOption) (*ConsoleWriteResult, error)
+	// PlanConsoleWrite is a console write's plan and hash, as an approval
+	// of it binds it; recorded as a dry run.
+	PlanConsoleWrite(ctx context.Context, req ConsoleWriteRequest, opts ...MutationOption) (*ConnectorPlan, error)
 	// ListConnectors returns connector discovery metadata.
 	ListConnectors(ctx context.Context) ([]contract.Definition, error)
 

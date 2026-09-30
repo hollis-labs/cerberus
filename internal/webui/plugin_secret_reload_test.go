@@ -55,7 +55,11 @@ func (c *reloadingClient) LoadManagedPlugin(ctx context.Context, id string) (cer
 func saveProviderSecret(t *testing.T, client cerbapi.Client, provider, body string) map[string]any {
 	t.Helper()
 	secrets := &memorySecrets{values: map[string]string{}}
-	srv, err := New(client, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), secrets, nil)
+	cfgPath, sink := filepath.Join(t.TempDir(), "config.yaml"), audit.NewMemory()
+	if r, ok := client.(*reloadingClient); ok {
+		r.consoleWrites = consoleDaemon(cfgPath, sink, secrets)
+	}
+	srv, err := New(client, sink, cfgPath, secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +154,8 @@ func TestConsoleSavesNamecheapClientIPWhereThePluginReadsIt(t *testing.T) {
 	}
 
 	secrets := &memorySecrets{values: map[string]string{}}
-	srv, err := New(&reloadingClient{fakeClient: &fakeClient{}}, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), secrets, nil)
+	cfgPath, sink := filepath.Join(t.TempDir(), "config.yaml"), audit.NewMemory()
+	srv, err := New(&reloadingClient{fakeClient: &fakeClient{consoleWrites: consoleDaemon(cfgPath, sink, secrets)}}, sink, cfgPath, secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,13 @@ var passkeyDir string
 // approvals routes, and a passkey enrolled through them.
 func passkeyRoutes(t *testing.T, channel string) (post func(Principal, string, any) *httptest.ResponseRecorder, a approval.Approval, key *presencetest.Authenticator, broker *Broker) {
 	t.Helper()
-	broker, a, sink := pendingApproval(t, agentMCP, channel)
+	return passkeyRoutesFor(t, agentMCP, channel)
+}
+
+// passkeyRoutesFor is passkeyRoutes for an approval requester asked for.
+func passkeyRoutesFor(t *testing.T, requester audit.Principal, channel string) (post func(Principal, string, any) *httptest.ResponseRecorder, a approval.Approval, key *presencetest.Authenticator, broker *Broker) {
+	t.Helper()
+	broker, a, sink := pendingApproval(t, requester, channel)
 	SetBroker(broker)
 	passkeyDir = t.TempDir()
 	SetPresence(presence.New(passkeyDir, sink, presence.Options{Origins: func() []string { return []string{consoleOrigin} }}))
@@ -136,6 +143,73 @@ func TestOutOfBandApproveWithAnEnrolledPasskey(t *testing.T) {
 	if _, err := broker.Consume(context.Background(), a.ID, approval.ConsumeCheck{Connector: a.Connector, Operation: a.Operation, Principal: a.Principal,
 		ArgsDigest: a.ArgsDigest, PlanHash: a.PlanHash, OperationID: audit.NewID()}); err != nil {
 		t.Fatalf("consume: %v", err)
+	}
+}
+
+// The passkey is the boundary (I5, the operator's decision of 2026-09-30):
+// an out-of-band approval the console asked for may be approved on the
+// console with the enrolled key's assertion, once, and the decision says
+// it was made on the same surface. Without an assertion, with a key that
+// is not enrolled, from MCP or for tty_confirm, it may not.
+func TestTheConsoleApprovesItsOwnRequestWithThePasskey(t *testing.T) {
+	webRequester := audit.Principal{Kind: "human", Surface: "socket", Via: ViaWeb, Session: "s0"}
+	post, a, key, broker := passkeyRoutesFor(t, webRequester, approval.ChannelOutOfBand)
+	decide := func(p Principal, assertion json.RawMessage) *httptest.ResponseRecorder {
+		return post(p, "/approvals/"+a.ID+"/decide", ApprovalDecisionArgs{Approve: true, Assertion: assertion})
+	}
+	pending := func(what string) {
+		t.Helper()
+		if got, _ := broker.Get(a.ID); got.Status != approval.Pending {
+			t.Fatalf("%s: status %s", what, got.Status)
+		}
+	}
+	if rec := decide(humanWeb, nil); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "different surface") {
+		t.Fatalf("no assertion: %d %s", rec.Code, rec.Body.String())
+	}
+	pending("no assertion")
+	stranger := presencetest.New(t, presence.RPID, consoleOrigin)
+	if rec := decide(humanWeb, assertionFor(t, post, a.ID, stranger)); rec.Code != http.StatusForbidden {
+		t.Fatalf("an unenrolled key: %d %s", rec.Code, rec.Body.String())
+	}
+	pending("an unenrolled key")
+	mcpHuman := Principal{Kind: PrincipalHuman, Via: ViaMCPStdio, Client: "claude-code"}
+	if rec := decide(mcpHuman, assertionFor(t, post, a.ID, key)); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "MCP client never approves") {
+		t.Fatalf("over MCP: %d %s", rec.Code, rec.Body.String())
+	}
+	pending("over MCP")
+
+	good := assertionFor(t, post, a.ID, key)
+	rec := decide(humanWeb, good)
+	var got approval.Approval
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.Status != approval.Approved || !got.Decision.SameSurface || got.Decision.KeyFingerprint == "" {
+		t.Fatalf("the enrolled key on the console: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := decide(humanWeb, good); rec.Code == http.StatusOK {
+		t.Fatalf("decided twice: %s", rec.Body.String())
+	}
+	check := approval.ConsumeCheck{Connector: a.Connector, Operation: a.Operation, Principal: a.Principal, ArgsDigest: a.ArgsDigest, PlanHash: a.PlanHash, OperationID: audit.NewID()}
+	if _, err := broker.Consume(context.Background(), a.ID, check); err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	check.OperationID = audit.NewID()
+	if _, err := broker.Consume(context.Background(), a.ID, check); err == nil {
+		t.Fatal("used twice")
+	}
+	// The record says it was the same surface, with the key.
+	found := false
+	for _, r := range broker.sink.(*audit.Memory).Records() {
+		if r.Kind == audit.KindApprovalDecided && r.Approval != nil && r.Approval.ID == a.ID {
+			found = r.Approval.DecidedSameSurface && r.Approval.KeyFingerprint != "" && r.Approval.DecidedBy.Via == ViaWeb
+		}
+	}
+	if !found {
+		t.Fatal("the decision's record does not say it was made on the same surface")
+	}
+
+	// tty_confirm is never met this way, assertion or not.
+	ttyBroker, tty, _ := pendingApproval(t, webRequester, approval.ChannelTTYConfirm)
+	if _, err := ttyBroker.DecideAs(as(humanWeb), tty.ID, ApprovalDecisionArgs{Approve: true, Assertion: good}); !errors.Is(err, errSelfApproval) {
+		t.Fatalf("tty_confirm on the same surface with an assertion: %v", err)
 	}
 }
 
