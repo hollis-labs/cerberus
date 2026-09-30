@@ -2,17 +2,17 @@
 id: "CERB-CAP-203"
 class: "capability"
 name: "GitHub connector"
-summary: "Reads one repository's status, releases and workflow runs through the go-github API or the gh CLI, with no write operations at all."
+summary: "Reads one repository's status, releases and workflow runs over the GitHub REST API, as the github plugin in hollis-labs/cerberus-plugins; no longer compiled in, and no write operations at all."
 state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.85
-confidence_label: "No credential on the audit machine; the live run returned credential_missing and exposed a redaction defect"
-last_reviewed: "2026-09-17"
+confidence_label: "24 tests in the plugin against a fake API and recorded response shapes, and a real-subprocess load through the one-shot host; live reads wait for a read-only token"
+last_reviewed: "2026-09-30"
 created_at: "2026-09-17"
 namespace: "cerberus"
-locus: "core"
-pointer_locator: "internal/connector/github/connector.go"
+locus: "plugin"
+pointer_locator: "hollis-labs/cerberus-plugins:github/internal/ghplugin/connector.go"
 tags:
   - "cerberus"
   - "class:capability"
@@ -21,17 +21,18 @@ tags:
   - "read-only"
   - "releases"
   - "workflow-runs"
-  - "locus:core"
+  - "plugin"
+  - "locus:plugin"
 relationships:
   - type: "implements"
     target: "CERB-CAP-200"
-    note: "Compiled in because the release and pipeline story leans on it"
+    note: "A plugin connector since 2026-09-30, reached through the admin lane"
   - type: "relates_to"
     target: "CERB-DEC-290"
-    note: "The one vendor-SDK connector that earns a built-in slot"
+    note: "Was the one vendor-SDK connector kept compiled in; core is now local, ssh and docker"
   - type: "relates_to"
     target: "CERB-GAP-281"
-    note: "Returns go-github types rather than a Cerberus DTO"
+    note: "The plugin maps GitHub's responses onto Cerberus DTOs, with a recorded-shape test"
   - type: "relates_to"
     target: "CERB-GAP-273"
     note: "The live failure here is what proved the redaction defect"
@@ -39,52 +40,57 @@ relationships:
 
 # GitHub connector
 
-> Reads one repository's status, releases and workflow runs through the go-github API or the gh CLI, with no write operations at all.
+> Reads one repository's status, releases and workflow runs over the GitHub REST API, as the github plugin in hollis-labs/cerberus-plugins; no longer compiled in, and no write operations at all.
 
 Three operations, all reads: `status`, `list_releases`, `list_workflow_runs`.
-Nothing here writes. That is not a scope decision recorded anywhere — it is
-simply where the connector stopped, and it is worth naming because `github` is
-the one connector that carries a vendor SDK and is still compiled in, on the
-argument that "Cerberus's own release and pipeline story leans on it". The
-release story leans on reading runs and releases; it does not yet create one.
+Nothing here writes. It was the one connector that carried a vendor SDK and
+stayed compiled in, on the argument that "Cerberus's own release and pipeline
+story leans on it". A survey on 2026-09-30 found nothing in the host that did,
+so when core was narrowed to the primitives (`local`, `ssh`, `docker`) it moved
+out to a plugin, as the four providers had
+(`docs/plans/provider-plugin-extraction.md`, addendum).
 
-Two backends, selected at construction: the go-github API client when a token is
-available, and the `gh` CLI otherwise. With neither, construction fails with a
-message naming both recoveries — "set CERBERUS_GITHUB_TOKEN or install gh" —
-which is the right shape for a credential error.
+**A plugin since 2026-09-30.** It is the `github` plugin, released as
+`github/v0.1.0`. On the CLI it is `cerberus connectors exec github <op>`; the
+`cerberus github` group is gone, with no tombstone. Over MCP it is the generated
+tools `cerberus_github_status`, `cerberus_github_list_releases` and
+`cerberus_github_list_workflow_runs`, served once the operator lists them under
+`github: mcp: expose:` in `connector-config.yaml`. The built-in's
+`cerberus_github_releases` and `cerberus_github_runs` are gone. The operations,
+input schemas, output shapes and untrusted labels did not change.
 
-That message is also how this audit found a live redaction defect. Running
-`cerberus github status hollis-labs/cerberus` on the audit machine returns:
+One backend, the REST API over net/http. The built-in's go-github client went
+with it. So did its `gh` CLI fallback: gh authenticates through its own login
+under `HOME`, outside the declared-secret channel, which is why Cloudflare's
+wrangler fallback was dropped too. The secret is still `github/token`
+(`CERBERUS_GITHUB_TOKEN`), so no credential reference moves. An operator who
+ran on gh's login stores a token with `cerberus secrets set github/token`.
+With no token, the plugin loads and each call fails as `credential_missing`,
+with the recovery named.
 
-    credential_missing: [REDACTED] connector: no API token and gh CLI not found
-    — set CERBERUS_GITHUB_TOKEN or install gh
+The built-in's failure is how the 2026-09-17 audit found a live redaction
+defect. `credential_missing: [REDACTED] connector: ...` ate the word `github`,
+because the error code matched the credential-assignment rule (GAP-273, fixed
+in #34).
 
-The word `github` was eaten. Not by a provider-token pattern — the message alone
-survives `redact.Text` unchanged. It is eaten because the admin lane formats the
-error as `"<connector> <op>: <code>: <cause>"`, and `credential_missing:`
-matches the redactor's credential-assignment rule, so the first token of the
-cause is replaced. The recovery instruction survives; the name of the thing that
-failed does not. This is the fifth instance of a failure mode `AGENTS.md`
-already documents four of, and the rule it breaks is the one written directly
-above it: do not run redaction over a value that is a name by construction. An
-error *code* is a name by construction.
-
-The connector returns `go-github` types rather than Cerberus DTOs, which ADR
-0003 explicitly does not treat as a retroactive violation — but the audit
-question it sets is narrow and unanswered here: does any type this connector
-returns carry a token, password, key, header value or OAuth blob? There is no
-serialization test asserting it does not.
+The plugin answers ADR 0003's audit question for this connector. It decodes
+GitHub's responses into wire structs that name only what the DTOs carry, then
+maps them field by field. A recorded-shape test holds that none of the
+following reach the output: owner and actor objects, permissions, clone and
+upload URLs, release bodies and assets, or a run's head commit with its author
+email.
 
 ## Owns
 
 - Repository status: default branch, visibility, counts
-- Recent releases, newest first, to a caller limit
-- Recent Actions workflow runs, to a caller limit
-- Two interchangeable backends: the go-github API and the gh CLI
+- Recent releases, newest first, to a caller limit (1-100)
+- Recent Actions workflow runs, to a caller limit (1-100)
+- Holding `owner` and `repo` to GitHub's name grammar before any call
 
 ## Does not own
 
 - Any write. No operation creates, edits, closes or dispatches anything
 - Release publishing, despite Cerberus's own release story
-- Pipeline execution. cerberus pipeline is a separate capability that reads this one
+- Pipeline execution. cerberus pipeline is a separate capability
 - Git. It speaks to the GitHub API, not to a working tree
+- The `gh` CLI or its login

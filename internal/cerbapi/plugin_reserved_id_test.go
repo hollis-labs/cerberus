@@ -18,7 +18,7 @@ import (
 func TestManagedPluginInstallRefusesABuiltInID(t *testing.T) {
 	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard,
 		filepath.Join(t.TempDir(), "state.json"),
-		WithManagedPluginReservedIDs("local", "ssh", "docker", "github"))
+		WithManagedPluginReservedIDs("local", "ssh", "docker"))
 	if err != nil {
 		t.Fatalf("managed plugin service: %v", err)
 	}

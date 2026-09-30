@@ -1,7 +1,8 @@
 # Provider plugin extraction: cloudflare, digitalocean, forge, namecheap
 
-**Done 2026-09-25.** All four are plugins, and the host compiles in only the
-core connectors (`local`, `ssh`, `docker`, `github`). A stripped build went from
+**Done 2026-09-25.** All four are plugins, and the host compiled in only the
+core connectors (`local`, `ssh`, `docker`, `github`). On 2026-09-30 `github`
+followed, and core is now `local`, `ssh`, `docker` (addendum at the end). A stripped build went from
 62.8MB to 21.7MB, and the default build from 88.1MB to 31.6MB. No provider SDK
 remains in the host. Every step was deployed with its runbook and every
 expected value matched. The record below is kept as the history of how it was
@@ -317,3 +318,54 @@ The 33MB figure is module source size, not linked size; H4 records the real delt
 9. **Previews beyond parity:** the DO `user_data` digest, a Namecheap diff against current records, and a Forge script diff. *Recommend: all three.* The first is a leak fix; the other two are cheap and make the riskiest writes show their effect.
 10. **Plugin install location:** installing from a working checkout's `dist/` is fragile. *Recommend: P1-5's in-process install copies into `~/.cerberus/plugins/<id>/<version>/`.* That's a decision for P1-5; I'm flagging it here.
 11. **`pkg/connector` gains a `DryRunPreview` type** so plugins emit the host's shape. *Recommend: yes*, and after P1-1, since it's the same package.
+
+## Addendum — 2026-09-30: `github`
+
+The operator narrowed core to the primitives: anything that is not core
+becomes a plugin. `github` had been kept compiled in because "Cerberus's own
+release and pipeline story leans on it". A survey against cerberus `589156a`
+found nothing in the host that did: no pipeline action, release code or deploy
+profile called the connector. It was three reads (`status`, `list_releases`,
+`list_workflow_runs`), three hand-written MCP tools and a `cerberus github`
+CLI group.
+
+It moved the same way the four did.
+
+- **Plugin:** `github/` in `hollis-labs/cerberus-plugins`, released as
+  `github/v0.1.0`. The ops, input schemas, output shapes and untrusted labels
+  are unchanged. It uses net/http rather than go-github. The secret is still
+  `github/token` (`CERBERUS_GITHUB_TOKEN`), so no credential moves.
+- **The `gh` CLI fallback is dropped**, for the reason wrangler was (Decision
+  5): gh authenticates with its own login under `HOME`, outside the
+  declared-secret channel. An operator who relied on it stores a token with
+  `cerberus secrets set github/token`. Pasting the output of `gh auth token`
+  works, though a read-only fine-grained token is better.
+- **Removed, with no tombstones (Decision 1):**
+  - the `cerberus github status|releases|runs` CLI group; the replacement is
+    `cerberus connectors exec github <op>`;
+  - the hand-written MCP tools;
+  - `executeGitHub` and its typed payload decode;
+  - the egress result types;
+  - the go-github dependency.
+- **MCP tools are generated, default-deny.** After `github: mcp: expose:
+  [status, list_releases, list_workflow_runs]` in `connector-config.yaml`, they
+  are `cerberus_github_status` (same name), `cerberus_github_list_releases`
+  (was `cerberus_github_releases`) and `cerberus_github_list_workflow_runs`
+  (was `cerberus_github_runs`).
+- **Decision 12:** WP-S2's acceptance test used the real github connector and
+  go-github as its "vendor SDK echoes the token" fixture.
+  `internal/testfixture/sentinel` is now a managed plugin, launched as a real
+  subprocess, that sends its host-resolved token to an upstream whose 401
+  echoes it, and wraps the reply without scrubbing. That is the path github
+  takes now. Disabling the plugin lane's value redactor makes the token
+  reach every surface the test checks, so the test proves the value boundary
+  and not the regex rules.
+
+| Step | Stripped | Default |
+|---|---|---|
+| Before (main at `589156a`) | 26.3 MB | 37.7 MB |
+| github out | 23.5 MB | 33.8 MB |
+
+Both columns are built without the web bundle (`internal/webui/dist` holding
+only `.gitkeep`), so they compare with each other but not with the table
+above: the host has grown since H7.

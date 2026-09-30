@@ -7,14 +7,13 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/egress"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func builtinDefinitions() []contract.Definition {
-	defs := []contract.Definition{dockerconn.Definition(), ghconn.Definition(), sshconn.Definition()}
+	defs := []contract.Definition{dockerconn.Definition(), sshconn.Definition()}
 	return append(defs, cerbapi.RuntimeDefinitions()...)
 }
 
@@ -58,16 +57,13 @@ func TestFreeTextOperationsAreLabeled(t *testing.T) {
 // The labeled places, pinned: a label removed from a DTO shows here.
 func TestUntrustedFieldsArePinned(t *testing.T) {
 	want := map[string]string{
-		"local.logs":                "/content",
-		"local.deploy":              "/build_output /install_output",
-		"docker.logs":               "(whole result)",
-		"ssh.exec":                  "/stderr /stdout",
-		"ssh.status":                "/os",
-		"pipeline.run":              "/error /stages/*/error",
-		"infra.run_profile":         "/error /steps/*/error /steps/*/output",
-		"github.status":             "/description",
-		"github.list_releases":      "/*/name",
-		"github.list_workflow_runs": "/*/branch /*/name",
+		"local.logs":        "/content",
+		"local.deploy":      "/build_output /install_output",
+		"docker.logs":       "(whole result)",
+		"ssh.exec":          "/stderr /stdout",
+		"ssh.status":        "/os",
+		"pipeline.run":      "/error /stages/*/error",
+		"infra.run_profile": "/error /steps/*/error /steps/*/output",
 	}
 	for key, pointers := range want {
 		connector, op, _ := strings.Cut(key, ".")

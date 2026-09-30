@@ -1042,7 +1042,7 @@
           "note": "The live failure here is what proved the redaction defect"
         }
       ],
-      "body": "> Reads one repository's status, releases and workflow runs through the go-github API or the gh CLI, with no write operations at all.\n\nThree operations, all reads: `status`, `list_releases`, `list_workflow_runs`.\nNothing here writes. That is not a scope decision recorded anywhere — it is\nsimply where the connector stopped, and it is worth naming because `github` is\nthe one connector that carries a vendor SDK and is still compiled in, on the\nargument that \"Cerberus's own release and pipeline story leans on it\". The\nrelease story leans on reading runs and releases; it does not yet create one.\n\nTwo backends, selected at construction: the go-github API client when a token is\navailable, and the `gh` CLI otherwise. With neither, construction fails with a\nmessage naming both recoveries — \"set CERBERUS_GITHUB_TOKEN or install gh\" —\nwhich is the right shape for a credential error.\n\nThat message is also how this audit found a live redaction defect. Running\n`cerberus github status hollis-labs/cerberus` on the audit machine returns:\n\n    credential_missing: [REDACTED] connector: no API token and gh CLI not found\n    — set CERBERUS_GITHUB_TOKEN or install gh\n\nThe word `github` was eaten. Not by a provider-token pattern — the message alone\nsurvives `redact.Text` unchanged. It is eaten because the admin lane formats the\nerror as `\"<connector> <op>: <code>: <cause>\"`, and `credential_missing:`\nmatches the redactor's credential-assignment rule, so the first token of the\ncause is replaced. The recovery instruction survives; the name of the thing that\nfailed does not. This is the fifth instance of a failure mode `AGENTS.md`\nalready documents four of, and the rule it breaks is the one written directly\nabove it: do not run redaction over a value that is a name by construction. An\nerror *code* is a name by construction.\n\nThe connector returns `go-github` types rather than Cerberus DTOs, which ADR\n0003 explicitly does not treat as a retroactive violation — but the audit\nquestion it sets is narrow and unanswered here: does any type this connector\nreturns carry a token, password, key, header value or OAuth blob? There is no\nserialization test asserting it does not.\n\n## Owns\n\n- Repository status: default branch, visibility, counts\n- Recent releases, newest first, to a caller limit\n- Recent Actions workflow runs, to a caller limit\n- Two interchangeable backends: the go-github API and the gh CLI\n\n## Does not own\n\n- Any write. No operation creates, edits, closes or dispatches anything\n- Release publishing, despite Cerberus's own release story\n- Pipeline execution. cerberus pipeline is a separate capability that reads this one\n- Git. It speaks to the GitHub API, not to a working tree",
+      "body": "> Reads one repository's status, releases and workflow runs over the GitHub REST API, as the github plugin in hollis-labs/cerberus-plugins; no longer compiled in, and no write operations at all.\n\nThree operations, all reads: `status`, `list_releases`, `list_workflow_runs`.\nNothing here writes. It was the one connector that carried a vendor SDK and\nstayed compiled in, on the argument that \"Cerberus's own release and pipeline\nstory leans on it\". A survey on 2026-09-30 found nothing in the host that did,\nso when core was narrowed to the primitives (`local`, `ssh`, `docker`) it moved\nout to a plugin, as the four providers had\n(`docs/plans/provider-plugin-extraction.md`, addendum).\n\n**A plugin since 2026-09-30.** It is the `github` plugin, released as\n`github/v0.1.0`. On the CLI it is `cerberus connectors exec github <op>`; the\n`cerberus github` group is gone, with no tombstone. Over MCP it is the generated\ntools `cerberus_github_status`, `cerberus_github_list_releases` and\n`cerberus_github_list_workflow_runs`, served once the operator lists them under\n`github: mcp: expose:` in `connector-config.yaml`. The built-in's\n`cerberus_github_releases` and `cerberus_github_runs` are gone. The operations,\ninput schemas, output shapes and untrusted labels did not change.\n\nOne backend, the REST API over net/http. The built-in's go-github client went\nwith it. So did its `gh` CLI fallback: gh authenticates through its own login\nunder `HOME`, outside the declared-secret channel, which is why Cloudflare's\nwrangler fallback was dropped too. The secret is still `github/token`\n(`CERBERUS_GITHUB_TOKEN`), so no credential reference moves. An operator who\nran on gh's login stores a token with `cerberus secrets set github/token`.\nWith no token, the plugin loads and each call fails as `credential_missing`,\nwith the recovery named.\n\nThe built-in's failure is how the 2026-09-17 audit found a live redaction\ndefect. `credential_missing: [REDACTED] connector: ...` ate the word `github`,\nbecause the error code matched the credential-assignment rule (GAP-273, fixed\nin #34).\n\nThe plugin answers ADR 0003's audit question for this connector. It decodes\nGitHub's responses into wire structs that name only what the DTOs carry, then\nmaps them field by field. A recorded-shape test holds that none of the\nfollowing reach the output: owner and actor objects, permissions, clone and\nupload URLs, release bodies and assets, or a run's head commit with its author\nemail.\n\n## Owns\n\n- Repository status: default branch, visibility, counts\n- Recent releases, newest first, to a caller limit (1-100)\n- Recent Actions workflow runs, to a caller limit (1-100)\n- Holding `owner` and `repo` to GitHub's name grammar before any call\n\n## Does not own\n\n- Any write. No operation creates, edits, closes or dispatches anything\n- Release publishing, despite Cerberus's own release story\n- Pipeline execution. cerberus pipeline is a separate capability\n- Git. It speaks to the GitHub API, not to a working tree\n- The `gh` CLI or its login",
       "locus": "core",
       "pointer_locator": "internal/connector/github/connector.go",
       "data": {
@@ -5163,7 +5163,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.95,
       "confidence_label": "Two plugins ship and load today; the table and reasoning are recorded in the plan",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -5193,7 +5193,7 @@
           "note": "ContextForge was built first to learn plugin authoring"
         }
       ],
-      "body": "Cerberus ships as a single installed binary, so what goes into it is a real\nbudget rather than a preference. The split was decided 2026-09-16 on two axes at\nonce: does anything else depend on this, and does it carry a third-party SDK.\n\n**Core** is the primitives the control plane is built on. `local` *is* the\nsupervision lane. `ssh` is a primitive because remote docker rides it and\ndeploys and file transfer are built on it. `docker` shells out to a CLI and\ncarries no SDK. `github` is the deliberate exception: it carries `go-github` and\nstill earns a built-in slot because Cerberus's own release and pipeline story\nleans on it.\n\n**Plugin** is everything else that talks to a provider — optional per user,\ncarrying a vendor SDK, shipping on its own schedule, loaded at runtime with no\nrebuild of the host.\n\nThe operational form of the rule is the useful part: **if you are about to add a\nvendor SDK to `go.mod` for a connector, that is the signal you are in the wrong\nlane.** It is checkable in review without an architecture argument.\n\nTwo supporting choices came with it. Our plugins live together in\n`hollis-labs/cerberus-plugins`, one directory per plugin with shared CI and\nrelease, because separate repositories buy independent tagging nobody needs yet\nand three repositories for two plugins is overhead. And ContextForge was built\nbefore any migration, deliberately: a v0.x SDK against an evolving gateway is\nwhere rebuild-independence pays most, and building it first meant learning what\nauthoring a plugin actually feels like before moving anything onto that lane.\n\nReversible in principle — a plugin can be compiled in. The reason it will not be\nis the binary, currently around 81MB.",
+      "body": "Cerberus ships as a single installed binary, so what goes into it is a real\nbudget rather than a preference. The split was decided 2026-09-16 on two axes at\nonce: does anything else depend on this, and does it carry a third-party SDK.\n\n**Core** is the primitives the control plane is built on. `local` *is* the\nsupervision lane. `ssh` is a primitive because remote docker rides it and\ndeploys and file transfer are built on it. `docker` shells out to a CLI and\ncarries no SDK. `github` was the deliberate exception until 2026-09-30: it\ncarried `go-github` and kept a built-in slot because Cerberus's own release and\npipeline story leaned on it. A survey found nothing in the host that did, and\nwhen the operator narrowed core to the primitives it moved to a plugin too.\n\n**Plugin** is everything else that talks to a provider — optional per user,\ncarrying a vendor SDK, shipping on its own schedule, loaded at runtime with no\nrebuild of the host.\n\nThe operational form of the rule is the useful part: **if you are about to add a\nvendor SDK to `go.mod` for a connector, that is the signal you are in the wrong\nlane.** It is checkable in review without an architecture argument.\n\nTwo supporting choices came with it. Our plugins live together in\n`hollis-labs/cerberus-plugins`, one directory per plugin with shared CI and\nrelease, because separate repositories buy independent tagging nobody needs yet\nand three repositories for two plugins is overhead. And ContextForge was built\nbefore any migration, deliberately: a v0.x SDK against an evolving gateway is\nwhere rebuild-independence pays most, and building it first meant learning what\nauthoring a plugin actually feels like before moving anything onto that lane.\n\nReversible in principle — a plugin can be compiled in. The reason it will not be\nis the binary, currently around 81MB.",
       "locus": "core",
       "pointer_locator": "docs/plans/connector-work-packages.md",
       "data": {
@@ -5203,7 +5203,7 @@
           "One repository per plugin for independent tagging",
           "A vendored-SDK build tag per provider"
         ],
-        "rationale": "Core is for primitives other connectors depend on and that carry no vendor SDK: local, ssh and docker. github is the one exception, earned because Cerberus's own release and pipeline story leans on it. Everything else is optional per user, ships on someone else's schedule, and should be loadable without rebuilding the host.",
+        "rationale": "Core is for primitives other connectors depend on and that carry no vendor SDK: local, ssh and docker. github was an exception until 2026-09-30, when it moved to a plugin as well. Everything else is optional per user, ships on someone else's schedule, and should be loadable without rebuilding the host.",
         "reversible": true,
         "superseded_by": ""
       }
@@ -14809,11 +14809,11 @@
       "name": "The GitHub connector has no PATH fallback for `gh`, so it reports it missing when it is installed",
       "summary": "github's CLI backend resolves gh with exec.LookPath alone, so under the daemon's launchd PATH it fails and tells the operator to install gh — on a machine where gh is at /opt/homebrew/bin/gh; the Docker connector fixed exactly this with a fallback list.",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "review_status": "draft",
       "confidence_score": 1.0,
       "confidence_label": "Reproduced live: the error was re-run, gh's install path was checked, and the absence of a fallback was read at cli_backend.go:19 against docker's cli_backend.go:37",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -14855,9 +14855,9 @@
           "note": "the redaction defect that rides on the same error string"
         }
       ],
-      "body": "`internal/connector/github/cli_backend.go:19` resolves the CLI with\n`exec.LookPath(\"gh\")` and nothing else. There is no fallback list and no\nper-call override. On the audit machine that produces an error message that is\nactively false:\n\n```\n$ cerberus github status hollis-labs/cerberus\nError: daemon: github status: credential_missing: [REDACTED] connector:\nno API token and gh CLI not found — set CERBERUS_GITHUB_TOKEN or install gh\n\n$ which gh\n/opt/homebrew/bin/gh          # gh 2.101.0, installed 2026-09-16\n```\n\n`gh` is installed. The command routes through the daemon (`daemon: github\nstatus:` in the error), and the daemon's live `PATH` is\n`/usr/bin:/bin:/usr/sbin:/sbin` — read from `ps eww -p 8188`. Under exactly\nthat `PATH`, `command -v gh` finds nothing, so `LookPath` fails and the\nconnector reports the CLI as absent. The operator is told to install software\nthey already have.\n\nThe fix already exists one package over. `internal/connector/docker/cli_backend.go:37`\ncarries `fallbackDockerPaths` — `/usr/local/bin/docker`, `/opt/homebrew/bin/docker`,\n`/usr/bin/docker`, `~/.docker/bin/docker` and Docker Desktop's bundled path —\nwith a comment naming this exact cause, plus a `CERBERUS_DOCKER_PATH` override\nand a regression test (`internal/connector/docker/detect_test.go:52`) that runs\n`DetectDocker` under an empty `PATH`. The Azure plugin got the same treatment\nfor `az`, which is why `connectors plugin managed health azure` works from the\ndaemon. GitHub is the connector that did not get it.\n\nThis is the third member of one family, and the only one still open:\n`CERB-GAP-140` is the same defect on the build path (`go` unresolvable from the\ndaemon), `CERB-CAP-202` is the one that was repaired. `AGENTS.md` states the\nrule — \"Anything that shells out … must not assume a tool is on `PATH` just\nbecause it resolves in your terminal. Prefer explicit paths, fallback search\nlocations, and per-call resolution\" — and records the Docker outage that taught\nit. The GitHub connector predates neither the rule nor the fix; it was simply\nnever revisited.\n\nRanked `must-have` because the cost is not a missing feature but a wrong\ndiagnosis. The message sends the operator to install a binary or mint a token\nwhen the actual defect is a four-line slice literal, and it is the message every\n`cerberus github` verb returns on a launchd-started daemon. Severity is bounded:\nan operator with `CERBERUS_GITHUB_TOKEN` set never sees it, because the API\nbackend is tried first.\n\nBlocked on nobody. The fix is `fallbackDockerPaths`' shape applied to `gh`, plus\na test asserting `DetectGH` succeeds under a minimal parent `PATH`.",
+      "body": "`internal/connector/github/cli_backend.go:19` resolves the CLI with\n`exec.LookPath(\"gh\")` and nothing else. There is no fallback list and no\nper-call override. On the audit machine that produces an error message that is\nactively false:\n\n```\n$ cerberus github status hollis-labs/cerberus\nError: daemon: github status: credential_missing: [REDACTED] connector:\nno API token and gh CLI not found — set CERBERUS_GITHUB_TOKEN or install gh\n\n$ which gh\n/opt/homebrew/bin/gh          # gh 2.101.0, installed 2026-09-16\n```\n\n`gh` is installed. The command routes through the daemon (`daemon: github\nstatus:` in the error), and the daemon's live `PATH` is\n`/usr/bin:/bin:/usr/sbin:/sbin` — read from `ps eww -p 8188`. Under exactly\nthat `PATH`, `command -v gh` finds nothing, so `LookPath` fails and the\nconnector reports the CLI as absent. The operator is told to install software\nthey already have.\n\nThe fix already exists one package over. `internal/connector/docker/cli_backend.go:37`\ncarries `fallbackDockerPaths` — `/usr/local/bin/docker`, `/opt/homebrew/bin/docker`,\n`/usr/bin/docker`, `~/.docker/bin/docker` and Docker Desktop's bundled path —\nwith a comment naming this exact cause, plus a `CERBERUS_DOCKER_PATH` override\nand a regression test (`internal/connector/docker/detect_test.go:52`) that runs\n`DetectDocker` under an empty `PATH`. The Azure plugin got the same treatment\nfor `az`, which is why `connectors plugin managed health azure` works from the\ndaemon. GitHub is the connector that did not get it.\n\nThis is the third member of one family, and the only one still open:\n`CERB-GAP-140` is the same defect on the build path (`go` unresolvable from the\ndaemon), `CERB-CAP-202` is the one that was repaired. `AGENTS.md` states the\nrule — \"Anything that shells out … must not assume a tool is on `PATH` just\nbecause it resolves in your terminal. Prefer explicit paths, fallback search\nlocations, and per-call resolution\" — and records the Docker outage that taught\nit. The GitHub connector predates neither the rule nor the fix; it was simply\nnever revisited.\n\nRanked `must-have` because the cost is not a missing feature but a wrong\ndiagnosis. The message sends the operator to install a binary or mint a token\nwhen the actual defect is a four-line slice literal, and it is the message every\n`cerberus github` verb returns on a launchd-started daemon. Severity is bounded:\nan operator with `CERBERUS_GITHUB_TOKEN` set never sees it, because the API\nbackend is tried first.\n\nBlocked on nobody. The fix is `fallbackDockerPaths`' shape applied to `gh`, plus\na test asserting `DetectGH` succeeds under a minimal parent `PATH`.\n\n**Closed 2026-09-30 by removal.** The github connector is a plugin now, and the plugin has no `gh` backend at all: gh authenticated through its own login under `HOME`, outside the declared-secret channel, so the fallback was dropped rather than given a PATH search. With no token the plugin reports `credential_missing` and names `github/token`; it no longer tells anyone to install software.",
       "locus": "core",
-      "pointer_locator": "internal/connector/github/cli_backend.go:19",
+      "pointer_locator": "hollis-labs/cerberus-plugins:github/internal/ghplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-203",
         "priority": "must-have",
@@ -20602,13 +20602,13 @@
       "id": "CERB-TOOL-230",
       "class": "tool",
       "name": "github status",
-      "summary": "Reports one repository's default branch, visibility and open counts, via the go-github API backend or the gh CLI.",
+      "summary": "Reports one repository's default branch, visibility and open counts.",
       "state_field": "maturity",
       "state_label": "partial",
       "review_status": "reviewed",
       "confidence_score": 0.9,
       "confidence_label": "Ran it live and got credential_missing: no token stored and gh is not installed",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -20617,7 +20617,7 @@
         "connector",
         "github",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:unverified"
       ],
       "relationships": [
@@ -20627,12 +20627,12 @@
           "note": "An operation of the github connector"
         }
       ],
-      "body": "Reports one repository's default branch, visibility and open counts, via the go-github API backend or the gh CLI.\n\nReachable as `cerberus github status <owner/repo>` and as the MCP tool `cerberus_github_status`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified against GitHub. Ran it live and got `credential_missing: [REDACTED] connector: no API token and gh CLI not found — set CERBERUS_GITHUB_TOKEN or install gh`. Both halves of that message need qualifying. There is no token, which is true. But `gh` **is** installed, at `/opt/homebrew/bin/gh` (2.101.0): the connector resolves it with `exec.LookPath(\"gh\")` alone, and the daemon's launchd `PATH` of `/usr/bin:/bin:/usr/sbin:/sbin` does not contain it. The connector is telling the operator to install software they have. See CERB-GAP-760.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/github/connector.go",
+      "body": "Reports one repository's default branch, visibility and open counts, via the go-github API backend or the gh CLI.\n\nReachable as `cerberus github status <owner/repo>` and as the MCP tool `cerberus_github_status`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nUnverified against GitHub. Ran it live and got `credential_missing: [REDACTED] connector: no API token and gh CLI not found — set CERBERUS_GITHUB_TOKEN or install gh`. Both halves of that message need qualifying. There is no token, which is true. But `gh` **is** installed, at `/opt/homebrew/bin/gh` (2.101.0): the connector resolves it with `exec.LookPath(\"gh\")` alone, and the daemon's launchd `PATH` of `/usr/bin:/bin:/usr/sbin:/sbin` does not contain it. The connector is telling the operator to install software they have. See CERB-GAP-760.\n\n**A plugin operation since 2026-09-30.** Served by the github plugin, not the binary: `cerberus connectors exec github status` on the CLI (the `cerberus github` group is gone), and the generated MCP tool `cerberus_github_status` when the operator exposes it in `connector-config.yaml`. The plugin has no `gh` fallback; it needs `github/token`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:github/internal/ghplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-203",
-        "invocation": "cerberus github status <owner/repo>",
+        "invocation": "cerberus connectors exec github status --arg owner=<owner> --arg repo=<repo>",
         "surfaces": [
           "cli",
           "daemon-socket",
@@ -20643,10 +20643,9 @@
         "requires_ack": false,
         "verified": "unverified",
         "vendor": [
-          "github.com/google/go-github/v72",
-          "gh CLI"
+          "GitHub REST API"
         ],
-        "cli": "cerberus github status <owner/repo>",
+        "cli": "cerberus connectors exec github status --arg owner=<owner> --arg repo=<repo>",
         "mcp_tool": "cerberus_github_status"
       }
     },
@@ -20660,7 +20659,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.7,
       "confidence_label": "Package tests cover the resource-config path only; no credential on the audit machine",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -20669,7 +20668,7 @@
         "connector",
         "github",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:test"
       ],
       "relationships": [
@@ -20679,12 +20678,12 @@
           "note": "An operation of the github connector"
         }
       ],
-      "body": "Lists a repository's most recent releases, newest first, up to a caller limit.\n\nReachable as `cerberus github releases <owner/repo>` and as the MCP tool `cerberus_github_releases`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nVerified by tests only. Package tests cover the resource-config path only; no credential on the audit machine.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/github/connector.go",
+      "body": "Lists a repository's most recent releases, newest first, up to a caller limit.\n\nReachable as `cerberus github releases <owner/repo>` and as the MCP tool `cerberus_github_releases`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nVerified by tests only. Package tests cover the resource-config path only; no credential on the audit machine.\n\n**A plugin operation since 2026-09-30.** Served by the github plugin, not the binary: `cerberus connectors exec github list_releases` on the CLI (the `cerberus github` group is gone), and the generated MCP tool `cerberus_github_list_releases` when the operator exposes it in `connector-config.yaml`. The built-in's `cerberus_github_releases` is gone, with no tombstone. The plugin has no `gh` fallback; it needs `github/token`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:github/internal/ghplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-203",
-        "invocation": "cerberus github releases <owner/repo>",
+        "invocation": "cerberus connectors exec github list_releases --arg owner=<owner> --arg repo=<repo>",
         "surfaces": [
           "cli",
           "daemon-socket",
@@ -20695,11 +20694,10 @@
         "requires_ack": false,
         "verified": "test",
         "vendor": [
-          "github.com/google/go-github/v72",
-          "gh CLI"
+          "GitHub REST API"
         ],
-        "cli": "cerberus github releases <owner/repo>",
-        "mcp_tool": "cerberus_github_releases"
+        "cli": "cerberus connectors exec github list_releases --arg owner=<owner> --arg repo=<repo>",
+        "mcp_tool": "cerberus_github_list_releases"
       }
     },
     {
@@ -20712,7 +20710,7 @@
       "review_status": "reviewed",
       "confidence_score": 0.7,
       "confidence_label": "Package tests cover the definition and config path only; no credential on the audit machine",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -20721,7 +20719,7 @@
         "connector",
         "github",
         "operation",
-        "locus:core",
+        "locus:plugin",
         "verified:test"
       ],
       "relationships": [
@@ -20731,12 +20729,12 @@
           "note": "An operation of the github connector"
         }
       ],
-      "body": "Lists a repository's recent Actions workflow runs, which is what the pipeline story reads.\n\nReachable as `cerberus github runs <owner/repo>` and as the MCP tool `cerberus_github_runs`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nVerified by tests only. Package tests cover the definition and config path only; no credential on the audit machine.",
-      "locus": "core",
-      "pointer_locator": "internal/connector/github/connector.go",
+      "body": "Lists a repository's recent Actions workflow runs, which is what the pipeline story reads.\n\nReachable as `cerberus github runs <owner/repo>` and as the MCP tool `cerberus_github_runs`.\n\nNeither destructive nor dry-runnable, which for a read is correct — making reads prompt empties the gate of meaning.\n\nVerified by tests only. Package tests cover the definition and config path only; no credential on the audit machine.\n\n**A plugin operation since 2026-09-30.** Served by the github plugin, not the binary: `cerberus connectors exec github list_workflow_runs` on the CLI (the `cerberus github` group is gone), and the generated MCP tool `cerberus_github_list_workflow_runs` when the operator exposes it in `connector-config.yaml`. The built-in's `cerberus_github_runs` is gone, with no tombstone. The plugin has no `gh` fallback; it needs `github/token`.",
+      "locus": "plugin",
+      "pointer_locator": "hollis-labs/cerberus-plugins:github/internal/ghplugin/connector.go",
       "data": {
         "capability": "CERB-CAP-203",
-        "invocation": "cerberus github runs <owner/repo>",
+        "invocation": "cerberus connectors exec github list_workflow_runs --arg owner=<owner> --arg repo=<repo>",
         "surfaces": [
           "cli",
           "daemon-socket",
@@ -20747,11 +20745,10 @@
         "requires_ack": false,
         "verified": "test",
         "vendor": [
-          "github.com/google/go-github/v72",
-          "gh CLI"
+          "GitHub REST API"
         ],
-        "cli": "cerberus github runs <owner/repo>",
-        "mcp_tool": "cerberus_github_runs"
+        "cli": "cerberus connectors exec github list_workflow_runs --arg owner=<owner> --arg repo=<repo>",
+        "mcp_tool": "cerberus_github_list_workflow_runs"
       }
     },
     {

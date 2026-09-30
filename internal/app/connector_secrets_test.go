@@ -13,15 +13,17 @@ import (
 const githubSentinel = "q7Zr2mXv9pLw" //nolint:gosec // a test sentinel, not a credential
 
 // A credential the connector lane resolves is registered with the request's
-// scope, through the same factory path Execute uses: Registry.Resolve builds
-// the GitHub connector, which resolves its token.
+// scope. newConnectorRegistry's provider is the one every lane resolves
+// through, the managed plugin host's included, so a plugin's token (here
+// github/token, which the github plugin declares) is registered the moment
+// it is resolved.
 func TestConnectorSecretsRegisterResolvedCredentials(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CERBERUS_GITHUB_TOKEN", githubSentinel)
-	registry, _ := newConnectorRegistry(filepath.Join(t.TempDir(), "config.yaml"))
+	_, sec := newConnectorRegistry(filepath.Join(t.TempDir(), "config.yaml"))
 	ctx, scope := redact.EnsureScope(context.Background())
-	if _, err := registry.Resolve(ctx, "github"); err != nil {
-		t.Fatal(err)
+	if got, err := sec.Get(ctx, "github", "token"); err != nil || got != githubSentinel {
+		t.Fatalf("Get = %q, %v", got, err)
 	}
 	if got := scope.Text("GET /user: 401 " + githubSentinel); got != "GET /user: 401 "+redact.Marker {
 		t.Fatalf("the github token was not registered: %q", got)

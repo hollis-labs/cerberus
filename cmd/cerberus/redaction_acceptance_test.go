@@ -21,23 +21,25 @@ import (
 )
 
 // WP-S2 acceptance: a credential resolved during an operation cannot appear
-// in that operation's error text even when a vendor SDK composes the
-// message. The real GitHub connector resolves sentinel.Value through the
-// registering provider, go-github composes a 401 around it with no label,
-// and every surface that renders the failure is checked: the in-process
-// CLI, the socket (JSON error and progress stream), MCP through the socket
-// (`cerberus mcp` and mcp-http serve this tool list over it), the daemon's
-// stdio MCP on InProcessClient, and the audit log. The console is checked in
-// internal/webui, with the same fixture.
+// in that operation's error text even when someone else composes the
+// message. A managed plugin (a real subprocess) is handed sentinel.Value
+// through the registering provider, an upstream 401 echoes it back with no
+// label, and the plugin wraps it in vendor-style text without scrubbing.
+// Every surface that renders the failure is checked: the in-process CLI, the
+// socket (JSON error and progress stream), MCP through the socket (`cerberus
+// mcp` and mcp-http serve this tool list over it) as the tool generated for
+// the exposed operation, the daemon's stdio MCP on InProcessClient, and the
+// audit log. The console is checked in internal/webui, with the same fixture.
 func TestResolvedCredentialNeverReachesAnySurface(t *testing.T) {
 	if got := redact.Text("401 Bad credentials for " + sentinel.Value); got == "401 Bad credentials for "+redact.Marker {
 		t.Fatal("precondition: the regex net alone removes the sentinel, so this test would prove nothing")
 	}
-	api := sentinel.GitHubAPI(t)
+	api := sentinel.UpstreamAPI(t)
 	sink := audit.NewMemory()
-	svc := cerbapi.NewExternalConnectorService(sink, sentinel.Registry(t, sentinel.Provider(), api.URL))
-	inProc := cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc), cerbapi.WithInProcessAudit(sink))
-	args := cerbapi.ExternalConnectorOperationArgs{Connector: "github", Operation: "status", Config: sentinel.Args()}
+	svc, managed := sentinel.Service(t, sink, sentinel.Provider(), api.URL, "TestSentinelPluginHelperProcess")
+	inProc := cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc),
+		cerbapi.WithManagedPluginConnectorService(managed), cerbapi.WithInProcessAudit(sink))
+	args := cerbapi.ExternalConnectorOperationArgs{Connector: sentinel.ConnectorID, Operation: sentinel.Operation, Config: sentinel.Args()}
 
 	// The in-process CLI: the lane the operator's shell takes with no
 	// daemon, printed the way main prints an error.
@@ -69,7 +71,11 @@ func TestResolvedCredentialNeverReachesAnySurface(t *testing.T) {
 
 	// MCP: over the socket, and on the daemon's own stdio server.
 	for surface, c := range map[string]cerbapi.Client{"MCP over the socket": client, "daemon stdio MCP": inProc} {
-		tool := toolNamed(t, mcp.AllTools(c), "cerberus_github_status")
+		set, err := mcp.PluginTools(context.Background(), c, mcp.ReservedToolNames(mcp.AllTools(c)))
+		if err != nil || len(set.Refused) > 0 {
+			t.Fatalf("%s: generated tools: %v %v", surface, err, set.Refused)
+		}
+		tool := toolNamed(t, set.Tools, sentinel.ToolName)
 		result, err := tool.Handler(context.Background(), sentinel.Args())
 		if err == nil {
 			t.Fatalf("%s: want the 401, got %v", surface, result)
@@ -90,6 +96,10 @@ func TestResolvedCredentialNeverReachesAnySurface(t *testing.T) {
 		t.Fatalf("audit records = %s", records)
 	}
 }
+
+// TestSentinelPluginHelperProcess is the fixture plugin's entrypoint: the
+// test binary re-executed by the plugin host. It does nothing in a normal run.
+func TestSentinelPluginHelperProcess(*testing.T) { sentinel.ServeHelper() }
 
 func containsValue(s string) bool { return strings.Contains(s, sentinel.Value) }
 

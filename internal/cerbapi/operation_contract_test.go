@@ -50,9 +50,8 @@ func TestBuiltinEffectClassification(t *testing.T) {
 	want := map[string]contract.Effect{
 		"docker.list_containers": contract.EffectRead, "docker.start": contract.EffectLifecycle,
 		"docker.stop": contract.EffectLifecycle, "docker.destroy": contract.EffectDestructive,
-		"docker.logs":   contract.EffectReadSensitive,
-		"github.status": contract.EffectRead, "github.list_releases": contract.EffectRead, "github.list_workflow_runs": contract.EffectRead,
-		"ssh.status": contract.EffectRead, "ssh.exec": contract.EffectExec, "ssh.put": contract.EffectWrite,
+		"docker.logs": contract.EffectReadSensitive,
+		"ssh.status":  contract.EffectRead, "ssh.exec": contract.EffectExec, "ssh.put": contract.EffectWrite,
 		"ssh.get": contract.EffectReadSensitive, "ssh.put_dir": contract.EffectWrite, "ssh.get_dir": contract.EffectReadSensitive,
 		"ssh.stop": contract.EffectLifecycle,
 	}

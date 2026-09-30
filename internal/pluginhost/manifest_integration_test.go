@@ -4,14 +4,12 @@ import (
 	"testing"
 
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func TestBuiltInConnectorDefinitionsGenerateValidManifests(t *testing.T) {
 	for _, def := range []contract.Definition{
 		dockerconn.Definition(),
-		ghconn.Definition(),
 	} {
 		manifest := contract.ManifestFromDefinition(def)
 		if err := manifest.Validate(); err != nil {

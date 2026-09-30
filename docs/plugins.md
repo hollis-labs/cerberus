@@ -180,7 +180,7 @@ never widens anything on its word.
 A plugin's connector id can't be one Cerberus serves or keys its own records
 and gates on, so install refuses these:
 
-- the built-in connectors: `ssh`, `docker` and `github`;
+- the built-in connectors: `ssh` and `docker`;
 - `local`, the supervision lane;
 - `policy`, `brake`, `approvals`, `audit`, `console`, `pipeline`, `mcp-http`,
   `plugin` and `secrets`.

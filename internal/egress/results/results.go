@@ -8,7 +8,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/egress"
@@ -59,9 +58,6 @@ var builtins = map[string]Result{
 	"docker.list_containers":      {Type: of[[]dockerconn.Container]()},
 	"ssh.exec":                    {Type: of[sshconn.ExecResult]()},
 	"ssh.status":                  {Type: of[sshconn.HostStatus]()},
-	"github.status":               {Type: of[ghconn.RepoStatus]()},
-	"github.list_releases":        {Type: of[[]ghconn.Release]()},
-	"github.list_workflow_runs":   {Type: of[[]ghconn.WorkflowRun]()},
 }
 
 // For is what connector.operation returns, when it is a built-in whose

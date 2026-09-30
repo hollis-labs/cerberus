@@ -158,7 +158,7 @@ func TestDirectoryInstallerRefusesAReservedID(t *testing.T) {
 
 	installer := DirectoryInstaller{
 		Policy:      LocalInstallPolicy(),
-		ReservedIDs: []string{"local", "ssh", "docker", "github"},
+		ReservedIDs: []string{"local", "ssh", "docker"},
 	}
 
 	_, err := installer.Install(context.Background(), pluginDir)
@@ -205,7 +205,7 @@ func TestDirectoryInstallerAllowsANonReservedID(t *testing.T) {
 
 	installer := DirectoryInstaller{
 		Policy:      LocalInstallPolicy(),
-		ReservedIDs: []string{"local", "ssh", "docker", "github"},
+		ReservedIDs: []string{"local", "ssh", "docker"},
 	}
 	installed, err := installer.Install(context.Background(), pluginDir)
 	if err != nil {

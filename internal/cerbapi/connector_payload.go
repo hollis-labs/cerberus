@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
-	gh "github.com/hollis-labs/cerberus/internal/connector/github"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
@@ -24,12 +23,6 @@ func decodeConnectorPayload(args ExternalConnectorOperationArgs, raw json.RawMes
 	switch args.Connector + "/" + args.Operation {
 	case "docker/list_containers":
 		return decodePayload[[]docker.Container](raw)
-	case "github/status":
-		return decodePayload[*gh.RepoStatus](raw)
-	case "github/list_releases":
-		return decodePayload[[]gh.Release](raw)
-	case "github/list_workflow_runs":
-		return decodePayload[[]gh.WorkflowRun](raw)
 	case "ssh/exec":
 		return decodePayload[*ssh.ExecResult](raw)
 	case "ssh/put", "ssh/get":

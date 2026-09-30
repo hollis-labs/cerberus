@@ -5,7 +5,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
@@ -41,10 +40,6 @@ var toolOperations = map[string]opRef{
 
 	"cerberus_pipeline_list": {pipeline.Definition, pipeline.OpList},
 	"cerberus_pipeline_run":  {pipeline.Definition, pipeline.OpRun},
-
-	"cerberus_github_status":   {ghconn.Definition, "status"},
-	"cerberus_github_releases": {ghconn.Definition, "list_releases"},
-	"cerberus_github_runs":     {ghconn.Definition, "list_workflow_runs"},
 
 	"cerberus_ssh_exec":    {sshconn.Definition, "exec"},
 	"cerberus_ssh_status":  {sshconn.Definition, "status"},
