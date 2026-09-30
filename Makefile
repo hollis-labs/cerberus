@@ -20,6 +20,7 @@ ui-dev:
 build:
 	mkdir -p bin
 	go build -ldflags "$(LDFLAGS)" -o bin/cerberus ./cmd/cerberus
+	go build -o bin/cerberus-presence ./cmd/cerberus-presence
 
 # `homebrew-install` mirrors the BSD/GNU install convention but is named so
 # cerberus's resource-deploy pipeline doesn't auto-trigger it. Cerberus's
@@ -32,13 +33,17 @@ build:
 homebrew-install: build
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 0755 bin/cerberus $(DESTDIR)$(BINDIR)/cerberus
+	install -m 0755 bin/cerberus-presence $(DESTDIR)$(BINDIR)/cerberus-presence
 
-# `make go-install` uses Go's tooling. Mirrors `go install ./cmd/cerberus`.
+# `make go-install` uses Go's tooling. Mirrors `go install ./cmd/cerberus`,
+# plus cerberus-presence, the helper the daemon asks the person at the Mac
+# through before allowing a passkey enrollment. It must sit next to cerberus.
 go-install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/cerberus
+	go install ./cmd/cerberus-presence
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/cerberus
+	rm -f $(DESTDIR)$(BINDIR)/cerberus $(DESTDIR)$(BINDIR)/cerberus-presence
 
 test:
 	go test $(GO_PACKAGES)

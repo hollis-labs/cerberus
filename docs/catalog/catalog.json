@@ -18829,11 +18829,11 @@
       "locus": "core",
       "class": "gap",
       "name": "An agent could enroll its own passkey on a fresh install and approve its own requests",
-      "summary": "The socket routes /approvals/keys/enroll-allow and register/* checked neither principal nor surface; only the CLI's terminal check stood in the way. Any socket caller, including one that makes no claim (classified agent), could allow an enrollment, register a software key (the first key is trusted on first use) and then pass every out-of-band approval, lockdown lift included. Partly fixed: the daemon allows an enrollment only for the human CLI claim and accepts the ceremonies only from a person's claim at the console or CLI, which stops an MCP-only agent and any caller that does not forge its claim. It does not stop a same-uid process with a shell: the claim is the self-reported principal header, so a raw socket request claiming human/cli, or `cerberus approvals enroll` under a pseudo-terminal (script -q /dev/null), passes, and `cerberus web open` then gives it a console session to register a key it made.",
+      "summary": "The socket routes /approvals/keys/enroll-allow and register/* checked neither principal nor surface; only the CLI's terminal check stood in the way. Any socket caller, including one that makes no claim (classified agent), could allow an enrollment, register a software key (the first key is trusted on first use) and then pass every out-of-band approval, lockdown lift included. Fixed in two steps: the daemon allows an enrollment only for the human CLI claim and accepts the ceremonies only from a person's claim at the console or CLI (B1), and because that claim is self-reported (a raw socket request or a pseudo-terminal forges it), allowing an enrollment also needs the person at the Mac to allow it through a check the daemon raises itself: cerberus-presence, LocalAuthentication (Touch ID or the account password). Where it cannot be raised it refuses, never falling back to the claim (B1-b).",
       "state_field": "status",
-      "state_label": "partial",
+      "state_label": "shipped",
       "confidence_score": 0.85,
-      "confidence_label": "found by the 5931772 re-review (B1); the claim check is tested over a real socket, and a test documents that a forged human/cli claim still passes",
+      "confidence_label": "found by the 5931772 re-review (B1); the claim check and the presence check are tested over a real socket with a fake verifier, the helper with stand-in scripts; the Touch ID prompt itself is confirmed at UAT",
       "tags": [
         "cerberus",
         "class:gap",
@@ -18855,10 +18855,10 @@
         "capability": "CERB-CAP-604",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "enroll-allow and console login-link minting require a user-presence check the daemon raises itself (LocalAuthentication on macOS), which a same-uid process cannot satisfy (B1-b)",
+        "unlocks_when": "shipped",
         "effort": "small"
       },
-      "body": "Remaining: B1-b as above. Attestation fmt:none is still accepted (CERB-GAP-940), and web open mints a console session without a terminal (CERB-GAP-941).",
+      "body": "Remaining: the presence check raises the bar for a same-uid process to replacing the daemon or the helper (the daemon records the helper's digest), and is not a boundary against it: CERB-GAP-944. Attestation fmt:none is still accepted (CERB-GAP-940).",
       "id": "CERB-GAP-939"
     },
     {
@@ -18966,6 +18966,50 @@
       },
       "body": "A credential an agent writes into a free-text argument itself (rather than one Cerberus resolved) is now shown and stored with the approval, flagged; the approvals store is the operator's own 0600 file. A field named for a credential is still hidden (and flagged), which an operation that executed such a field could use to hide a payload; no built-in operation does.",
       "id": "CERB-GAP-942"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "Cerberus is not a boundary against a process running as the operator: its binaries are unsigned and its state is the operator's files",
+      "summary": "Cerberus bounds an agent that has only its MCP tools; it supervises, and does not bound, a same-uid agent with a shell. Such a process can claim to be a person (the principal header, or a pseudo-terminal), edit ~/.cerberus, and replace the cerberus binary, the cerberus-presence helper or the LaunchAgent plist (DYLD_INSERT_LIBRARIES; no hardened runtime) and restart the daemon, which then skips any check it would have run. The passkey is the one thing it cannot produce, and enrollment now needs the person at the Mac (B1-b), but that check is only as trustworthy as the daemon binary.",
+      "state_field": "status",
+      "state_label": "deferred",
+      "confidence_score": 0.9,
+      "confidence_label": "the 5931772 re-review and the B1-b design; a product decision for after beta",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "security",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_install.go, cmd/cerberus-presence, internal/userpresence",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-930",
+          "note": "the unkeyed audit chain, the same limit"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-939",
+          "note": "enrollment presence, which this would make a boundary"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "An Apple Developer team ID; cerberus and cerberus-presence signed with the hardened runtime and notarized; a root-owned or notarized install the operator's uid cannot replace; and the secret that authorizes enrollment (and the audit anchor) held in a data-protection keychain item with SecAccessControl .userPresence and a keychain access group only those signed binaries can read. Then daemon-issued console session tokens would make a web principal unforgeable too.",
+        "effort": "large"
+      },
+      "body": "Recorded as a roadmap item for after beta, by the user's decision. Until then the docs say plainly what Cerberus bounds (docs/policy.md, What Cerberus bounds).",
+      "id": "CERB-GAP-944"
     },
     {
       "id": "CERB-TOOL-110",
