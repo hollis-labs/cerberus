@@ -85,6 +85,10 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 			continue
 		}
 		action := audit.EgressAction{Rule: d.Rule, Label: label, Action: d.Action, Mode: d.Mode, Pointers: byLabel[label], Applied: d.Enforced()}
+		if d.ShadowAction != "" {
+			// A stricter shadow rule, recorded as what it would have done.
+			c.egress = append(c.egress, audit.EgressAction{Rule: d.ShadowRule, Label: label, Action: d.ShadowAction, Mode: policy.EgressShadow, Pointers: byLabel[label]})
+		}
 		if doc == nil {
 			doc = toJSONValue(value)
 		}

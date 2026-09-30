@@ -19242,6 +19242,46 @@
       "id": "CERB-GAP-949"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A shadow egress rule displaced an enforced one, and plugin previews were counted but never rate-limited",
+      "summary": "Two holes an MCP-only agent could use. EgressFor kept the strictest matching rule and its mode, so a shadow refuse beside an enforced mask returned the refuse in shadow and nothing was applied: adding a trial rule undid an enforced mask of personal data. And rate limits counted a plugin's preview but authorizeRated returned early on every dry run, so previews, which run the plugin with its credentials, were never refused, and the log seed skipped them. Fixed: the strictest enforced egress rule is applied, shadow rules decide only when nothing enforces, and a stricter shadow rule is recorded beside it; a plugin preview is rated like a call, seeded from the log under read_sensitive.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 5931772 re-review (M-13, M-8); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "policy",
+        "egress",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/policy/egress.go (EgressFor), internal/cerbapi/egress_apply.go, internal/cerbapi/rates.go (authorizeRated, seed)",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-916",
+          "note": "H1, egress through the Reloading PDP"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "A host-served dry run is still not rated: it reaches no connector.",
+      "id": "CERB-GAP-950"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

@@ -38,9 +38,10 @@ func TestEgressRulesAreValidated(t *testing.T) {
 	}
 }
 
-// The most restrictive matching rule decides; between caps the smaller
-// limit; enforce if any rule at that strength enforces; no match passes;
-// shadow is the default mode.
+// The most restrictive enforced rule is applied, with the smaller limit
+// between caps, and a stricter shadow rule is recorded beside it; with
+// none enforced, the most restrictive shadow rule is recorded; no match
+// passes; shadow is the default mode.
 func TestEgressForPrecedence(t *testing.T) {
 	prod := target.Target{Connector: "local", Labels: target.Labels{Env: target.EnvProd, Owner: "self"}, AdminFor: "self"}
 	dev := target.Target{Connector: "local", Labels: target.Labels{Env: target.EnvDev, Owner: "self"}, AdminFor: "self"}
@@ -54,7 +55,15 @@ func TestEgressForPrecedence(t *testing.T) {
 	if d := f.EgressFor("local", dev, "agent", contract.EffectRead, "untrusted"); d.Action != EgressCap || d.Lines != 20 || d.Mode != EgressEnforce || !d.Enforced() {
 		t.Errorf("two caps: %+v", d)
 	}
-	if d := f.EgressFor("local", prod, "agent", contract.EffectRead, "untrusted"); d.Action != EgressMask || d.Rule != "mask-prod" || d.Mode != EgressShadow || d.Enforced() {
+	// A stronger shadow rule never displaces an enforced one (M-13): the
+	// enforced cap applies, and the shadow mask is recorded beside it.
+	if d := f.EgressFor("local", prod, "agent", contract.EffectRead, "untrusted"); d.Action != EgressCap || d.Lines != 20 || !d.Enforced() ||
+		d.ShadowAction != EgressMask || d.ShadowRule != "mask-prod" {
+		t.Errorf("an enforced cap beside a stronger shadow mask: %+v", d)
+	}
+	// With nothing enforced, the strongest shadow rule is recorded.
+	shadowOnly := File{Egress: []EgressRule{f.Egress[0], f.Egress[2]}}
+	if d := shadowOnly.EgressFor("local", prod, "agent", contract.EffectRead, "untrusted"); d.Action != EgressMask || d.Mode != EgressShadow || d.Enforced() {
 		t.Errorf("mask beats cap, and defaults to shadow: %+v", d)
 	}
 	if d := f.EgressFor("local", dev, "human", contract.EffectRead, "untrusted"); d.Action != EgressPass {

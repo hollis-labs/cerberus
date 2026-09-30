@@ -93,7 +93,9 @@ func rateHolds(ctx context.Context, spec auditSpec, res policy.Result) []rateHol
 func authorizeRated(ctx context.Context, spec auditSpec, req policy.Request) policy.Result {
 	res := PolicyDecisionPoint().Authorize(req)
 	l := ProcessRateLimiter()
-	if l == nil || req.DryRun {
+	// A plugin's preview reaches the plugin, which holds its credentials,
+	// so it is rated like a call (M-8): it was counted, but never refused.
+	if l == nil || (req.DryRun && !spec.pluginPreview()) {
 		return res
 	}
 	for _, h := range rateHolds(ctx, spec, res) {
@@ -202,13 +204,19 @@ func (l *RateLimiter) seed() {
 	}
 	since := l.now().Add(-policy.MaxRateWindow)
 	for _, r := range records {
-		if r.Kind != audit.KindOutcome || r.Decision != audit.DecisionAllowed || r.DryRun || r.Policy == nil || r.Time.Before(since) ||
+		if r.Kind != audit.KindOutcome || r.Decision != audit.DecisionAllowed || (r.DryRun && r.Preview != audit.PreviewPluginClaimed) || r.Policy == nil || r.Time.Before(since) ||
 			r.Principal.Kind == audit.PrincipalAutomation {
 			continue
 		}
+		effect := r.Effect
+		if r.Preview == audit.PreviewPluginClaimed {
+			// A plugin's preview is counted as read_sensitive, as rateHolds
+			// keys it.
+			effect = string(contract.EffectReadSensitive)
+		}
 		for _, m := range r.Policy.MatchedRules {
 			if rates[m.Rule] {
-				k := rateKey(m.Rule, r.Principal, r.Effect)
+				k := rateKey(m.Rule, r.Principal, effect)
 				l.hits[k] = append(l.hits[k], r.Time)
 			}
 		}

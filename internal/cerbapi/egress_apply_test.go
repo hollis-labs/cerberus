@@ -209,3 +209,41 @@ func TestPipelineResultsAreShaped(t *testing.T) {
 		t.Fatalf("pipeline: %v %s", err, got.Raw)
 	}
 }
+
+// A shadow rule stricter than an enforced one does not displace it (M-13):
+// with an enforced cap beside a shadow refuse, an agent's log is capped,
+// and the refuse is recorded beside the cap as not applied. It used to
+// return the shadow refuse, so nothing was applied at all.
+func TestAStricterShadowEgressRuleDoesNotDisplaceAnEnforcedOne(t *testing.T) {
+	sink := audit.NewMemory()
+	svc := logsRuntime(t, sink)
+	_, spec, err := svc.requireLocalProcessSpec(context.Background(), "svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, _, _ := svc.requireLocalProcessSpec(context.Background(), "svc")
+	path := localconn.DevSessionLogPath(res.ID, spec)
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, []byte("one\ntwo\nthree\nfour\nfive\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	agent := &policy.PrincipalMatch{Kind: "agent"}
+	withEgressPolicy(t,
+		policy.EgressRule{ID: "cap-agent", Label: "untrusted", Action: policy.EgressCap, Lines: 2, Mode: policy.EgressEnforce, Principal: agent},
+		policy.EgressRule{ID: "refuse-trial", Label: "untrusted", Action: policy.EgressRefuse, Principal: agent})
+	got, err := svc.ResourceLogs(as(Principal{Kind: PrincipalAgent, Via: ViaMCPStdio}), "svc", 10, "stdout")
+	if err != nil || strings.Contains(got.Content, "five") || !strings.Contains(got.Content, "withheld by egress rule cap-agent") {
+		t.Fatalf("the enforced cap was not applied: %v %q", err, got.Content)
+	}
+	e := outcome(sink.Records()).Egress
+	var capApplied, refuseShadow bool
+	for _, a := range e {
+		capApplied = capApplied || (a.Rule == "cap-agent" && a.Applied)
+		refuseShadow = refuseShadow || (a.Rule == "refuse-trial" && a.Action == policy.EgressRefuse && !a.Applied)
+	}
+	if !capApplied || !refuseShadow {
+		t.Fatalf("records: %+v", e)
+	}
+}
