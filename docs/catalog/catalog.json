@@ -16156,11 +16156,11 @@
       "name": "No path policy for the local side of an SSH transfer",
       "summary": "ssh put and put_dir read any file the serving process can read and send it to a configured host; get and get_dir overwrite any local path it can write; an acknowledgment is the only gate and a caller supplies it.",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "review_status": "draft",
       "confidence_score": 0.9,
-      "confidence_label": "ssh definitions, MCP hints and CLI path handling read on main after P0 (#48 to #54)",
-      "last_reviewed": "2026-09-25",
+      "confidence_label": "re-review B3 (2026-09-30) made it blocking; closed by the transfer root, tested with the re-review repros and symlink escapes",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-25",
       "namespace": "cerberus",
       "tags": [
@@ -16204,14 +16204,14 @@
           "note": "policy is where path rules would live"
         }
       ],
-      "body": "PR #50 fixed where a relative path resolves: the CLI now makes `local_path`\nabsolute before sending, so a transfer through the daemon no longer resolves\n`./app.env` against the daemon's working directory. It did not limit which paths\nare allowed.\n\n- `put` and `put_dir` read whatever the serving process can read, the daemon or\n  the CLI, and write it to a configured host. They are destructive and\n  ack-gated.\n- `get` and `get_dir` overwrite whatever local path the serving process can\n  write. As connector operations they are not destructive, so they take no\n  `--ack`. PR #49 changed only their MCP hints to `ReadOnlyHint: false,\n  DestructiveHint: true`.\n\nThe target is constrained, since it must be a configured resource\n(CERB-DEC-813). The local side is not. An MCP caller supplies `acknowledged`\nitself (CERB-GAP-838), so for an agent the acknowledgment does not bound what\n`put` can read, and `get` needs no acknowledgment to overwrite a local file.\n\nMust-have: this is the widest local-filesystem reach any agent tool has, and it\ncrosses to a remote host. PR #49 deferred it to P1/P2 path policy, and the P0\nwrap-up lists it.\n\n## Scheduled\n\nThe P1 cut in `docs/plans/live-systems-security-target.md` (2026-09-25) schedules this: P1-1 adds a `local_fs` field to the operation contract, which declares an operation's local filesystem reach. Enforcing a path policy against it is later work.",
+      "body": "PR #50 fixed where a relative path resolves: the CLI now makes `local_path`\nabsolute before sending, so a transfer through the daemon no longer resolves\n`./app.env` against the daemon's working directory. It did not limit which paths\nare allowed.\n\n- `put` and `put_dir` read whatever the serving process can read, the daemon or\n  the CLI, and write it to a configured host. They are destructive and\n  ack-gated.\n- `get` and `get_dir` overwrite whatever local path the serving process can\n  write. As connector operations they are not destructive, so they take no\n  `--ack`. PR #49 changed only their MCP hints to `ReadOnlyHint: false,\n  DestructiveHint: true`.\n\nThe target is constrained, since it must be a configured resource\n(CERB-DEC-813). The local side is not. An MCP caller supplies `acknowledged`\nitself (CERB-GAP-838), so for an agent the acknowledgment does not bound what\n`put` can read, and `get` needs no acknowledgment to overwrite a local file.\n\nMust-have: this is the widest local-filesystem reach any agent tool has, and it\ncrosses to a remote host. PR #49 deferred it to P1/P2 path policy, and the P0\nwrap-up lists it.\n\n## Scheduled\n\nThe P1 cut in `docs/plans/live-systems-security-target.md` (2026-09-25) schedules this: P1-1 adds a `local_fs` field to the operation contract, which declares an operation's local filesystem reach. Enforcing a path policy against it is later work.\n\n## Resolved (re-review B3, 2026-09-30)\n\nThe deferral ended when the 5931772 re-review showed the chain: an MCP-only agent runs `ssh_exec` to stage content on a reachable host, then `ssh_get` writes it to `~/.zshrc`, a LaunchAgent or `~/.cerberus/policy`. That is code execution as the operator, or policy tampering, from MCP alone.\n\nEvery caller but a human at the CLI now has its `local_path` held to the transfer root. That covers MCP, the HTTP API, the console, an agent at the CLI, and a caller of unknown kind. The rule applies to any operation that declares `local_fs`, plugins included:\n- The root is `~/.cerberus/transfers`, or `transfers.root` in the operator's global config. A registered project config can't set it, and registration refuses the field.\n- A relative path is taken from the root. Symlinks on the way are resolved, and one that leads out of the root, or dangles, is refused.\n- The operation then receives the resolved path.\n- The check runs after the intent is recorded and before a plan, a preview or a run reads the path, so `put`'s dry run no longer stats a file outside the root.\n- Directory transfers keep go-sftpsync's refusal of a symlink out of the tree.\n\nThe rule is fixed rather than a policy file (CERB-GAP-843), so it holds in shadow as well.",
       "locus": "core",
-      "pointer_locator": "internal/connector/ssh/connector.go",
+      "pointer_locator": "internal/cerbapi/transfer_root.go, internal/connector/ssh/connector.go",
       "data": {
         "capability": "CERB-CAP-201",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "Local paths are constrained by policy, such as allowed roots per target or per principal, with put refusing to read and get refusing to write outside them, on every surface.",
+        "unlocks_when": "shipped",
         "effort": "medium"
       }
     },

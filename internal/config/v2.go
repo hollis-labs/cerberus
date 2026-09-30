@@ -6,11 +6,12 @@ import "github.com/hollis-labs/cerberus/internal/target"
 // It introduces projects and resources as first-class concepts,
 // enabling multi-connector support (local, cloud, container, etc.).
 type ConfigV2 struct {
-	Version   int           `yaml:"version"`
-	Build     *BuildConfig  `yaml:"build,omitempty"`
-	Projects  []ProjectDef  `yaml:"projects,omitempty"`
-	Resources []ResourceDef `yaml:"resources,omitempty"`
-	Pipelines []PipelineDef `yaml:"pipelines,omitempty"`
+	Version   int              `yaml:"version"`
+	Build     *BuildConfig     `yaml:"build,omitempty"`
+	Transfers *TransfersConfig `yaml:"transfers,omitempty"`
+	Projects  []ProjectDef     `yaml:"projects,omitempty"`
+	Resources []ResourceDef    `yaml:"resources,omitempty"`
+	Pipelines []PipelineDef    `yaml:"pipelines,omitempty"`
 }
 
 // BuildConfig carries global defaults for build-time behavior. Fields use
@@ -23,6 +24,26 @@ type BuildConfig struct {
 	// absent; resources may override per-resource, and the CLI may override
 	// per-invocation. Precedence: CLI > resource > global > built-in true.
 	InstallAfterBuild *bool `yaml:"install_after_build,omitempty"`
+}
+
+// TransfersConfig is where file transfers an agent or another non-CLI caller
+// asks for may read and write on this machine. Only the operator's global
+// config sets it: a registered project config cannot, and no call can.
+type TransfersConfig struct {
+	// Root is the transfer root; empty is DefaultTransferRoot.
+	Root string `yaml:"root,omitempty"`
+}
+
+// DefaultTransferRoot is the transfer root when the config names none.
+const DefaultTransferRoot = "~/.cerberus/transfers"
+
+// TransferRoot is the configured transfer root, "~" expanded, or the
+// default.
+func (c *ConfigV2) TransferRoot() string {
+	if c == nil || c.Transfers == nil || c.Transfers.Root == "" {
+		return ExpandHomePath(DefaultTransferRoot)
+	}
+	return ExpandHomePath(c.Transfers.Root)
 }
 
 // InstallAfterBuildDefault returns the resolved global default for the

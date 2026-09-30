@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 const globalConfigYAML = `version: 2
@@ -213,5 +215,44 @@ func mustRegister(t *testing.T, reg *Registry, path string) {
 	t.Helper()
 	if _, err := reg.Register(path); err != nil {
 		t.Fatalf("Register %s: %v", path, err)
+	}
+}
+
+// The transfer root is the operator's: the global config sets it, and a
+// registered project config cannot (B3).
+func TestTheTransferRootComesFromTheGlobalConfigOnly(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, DefaultIndexFilename)
+	reg := New(indexPath)
+	project := writeProjectConfig(t, t.TempDir(), "demo")
+	data, readErr := os.ReadFile(project) //nolint:gosec // the test's own temp file
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if writeErr := os.WriteFile(project, append(data, []byte("transfers:\n  root: /srv/project-says\n")...), 0o600); writeErr != nil { //nolint:gosec // the test's own temp file
+		t.Fatal(writeErr)
+	}
+	// A project config naming one is refused at registration.
+	if _, regErr := reg.Register(project); regErr == nil || !strings.Contains(regErr.Error(), "transfers") {
+		t.Fatalf("a project config naming a transfer root registered: %v", regErr)
+	}
+	resolved, err := Resolve(ResolveOptions{IndexPath: indexPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved.Config.TransferRoot(); got != config.ExpandHomePath(config.DefaultTransferRoot) {
+		t.Fatalf("default transfer root = %q", got)
+	}
+
+	global := filepath.Join(dir, "config.yaml")
+	if writeErr := os.WriteFile(global, []byte("version: 2\ntransfers:\n  root: /srv/operator-says\n"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	resolved, err = Resolve(ResolveOptions{IndexPath: indexPath, GlobalPath: global})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved.Config.TransferRoot(); got != "/srv/operator-says" {
+		t.Fatalf("transfer root = %q", got)
 	}
 }
