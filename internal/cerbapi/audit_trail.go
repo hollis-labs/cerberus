@@ -96,6 +96,13 @@ type auditCall struct {
 	limiter *RateLimiter
 }
 
+// pluginPreview reports a dry run a plugin serves itself: nothing is
+// meant to change, but the plugin's code runs with its credentials, so the
+// brakes, rates and egress treat it as the read it is (M8).
+func (spec auditSpec) pluginPreview() bool {
+	return spec.dryRun && spec.preview == audit.PreviewPluginClaimed
+}
+
 // recordRequired reports whether an operation must not run without its
 // intent record: every non-read (Decision 8), and anything whose effect is
 // unknown.

@@ -671,9 +671,15 @@ Engaging is meant to be trivially easy:
 
 The brakes run before policy, in every enforcement mode, shadow included.
 A refused call answers `lockdown` or `frozen` (HTTP 423). The refusal says
-who engaged the brake, when and why, and how to lift it. Dry runs and plans
-still work, because they run nothing. Policy changes, approval decisions and
-the brakes themselves are never braked, so the way back stays open.
+who engaged the brake, when and why, and how to lift it. Host dry runs and
+plans still work, because they run nothing. A **plugin's** dry run is
+different: the preview is the plugin's own code, run with its credentials. So
+the brakes treat it as the `read_sensitive` call it is. A lockdown or a freeze
+on its target stops it, and a suspended session is refused it. It also counts
+against the operation's rate (in its own `read_sensitive` bucket), and egress
+policy shapes its result, as for any call. With split credentials it runs in
+the plugin's read instance. Policy changes, approval decisions and the brakes
+themselves are never braked, so the way back stays open.
 
 It is loud:
 
