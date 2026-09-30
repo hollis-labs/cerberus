@@ -230,3 +230,15 @@ func TestBreakerListAndStatus(t *testing.T) {
 		t.Fatalf("status: %v\n%s", err, b.String())
 	}
 }
+
+// status leads with approvals an upgrade expired, so they are asked for
+// again rather than silently gone (H4).
+func TestStatusNamesApprovalsToApproveAgain(t *testing.T) {
+	var out bytes.Buffer
+	if err := writeStatus(&out, statusReport{Web: []statusWebApp{}, Grants: statusGrants{Active: []statusGrant{}, Reapprove: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out.String(), "!!! 2 approval(s) or grant(s) were expired by the upgrade") {
+		t.Fatalf("status:\n%s", out.String())
+	}
+}

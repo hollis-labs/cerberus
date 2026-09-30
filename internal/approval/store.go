@@ -54,6 +54,8 @@ type Event struct {
 	// OperationID links a consumed event to the audit intent of the
 	// operation it let through.
 	OperationID string `json:"operation_id,omitempty"`
+	// Note is why an expired event expired an approval before its time.
+	Note string `json:"note,omitempty"`
 
 	PrevHash string `json:"prev_hash"`
 	Hash     string `json:"hash"`
@@ -215,7 +217,7 @@ func (s *Store) apply(ev Event) error {
 		if a.Status != Pending && a.Status != Approved {
 			return fmt.Errorf("expired from %s", a.Status)
 		}
-		a.Status = Expired
+		a.Status, a.ExpiredReason = Expired, ev.Note
 	case EventConsumed:
 		if a.Status != Approved {
 			return fmt.Errorf("consumed from %s", a.Status)
@@ -373,6 +375,31 @@ func (s *Store) Sweep() ([]Approval, error) {
 		}
 	}
 	return expired, nil
+}
+
+// ExpireWhere expires, with note, every approved approval stale says can
+// no longer be used, and returns them: approvals whose proof an upgrade no
+// longer accepts, so they do not sit there looking valid.
+func (s *Store) ExpireWhere(stale func(Approval) bool, note string) ([]Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.state))
+	for id := range s.state {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	var out []Approval
+	for _, id := range ids {
+		a := s.state[id]
+		if a.Status != Approved || !stale(*a) {
+			continue
+		}
+		if err := s.append(Event{Type: EventExpired, ApprovalID: id, Note: note}); err != nil {
+			return out, err
+		}
+		out = append(out, *s.state[id])
+	}
+	return out, nil
 }
 
 // PresenceVerifier checks an out-of-band decision's presence proof against

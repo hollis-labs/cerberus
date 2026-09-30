@@ -145,7 +145,10 @@ type statusBreakGlass struct {
 type statusGrants struct {
 	Active    []statusGrant `json:"active"`
 	Protected int           `json:"protected"`
-	Note      string        `json:"note,omitempty"`
+	// Reapprove counts approvals an upgrade expired because their passkey
+	// proof is older than it accepts (H4): they need approving again.
+	Reapprove int    `json:"reapprove,omitempty"`
+	Note      string `json:"note,omitempty"`
 }
 
 type statusGrant struct {
@@ -290,6 +293,9 @@ func statusOfGrants(ctx context.Context, client statusDaemonClient) (statusGrant
 		return out, glass
 	}
 	for _, a := range list.Approvals {
+		if a.Status == approval.Expired && a.ExpiredReason == cerbapi.UpgradeNote {
+			out.Reapprove++
+		}
 		if bg := a.BreakGlass; bg != nil && bg.AckedAt.IsZero() && a.Status == approval.Consumed {
 			glass = append(glass, statusBreakGlass{ID: a.ID, Operation: a.Connector + "." + a.Operation, Target: approvalTargetName(a),
 				By: a.Principal.Kind + " via " + a.Principal.Via, Reason: bg.Reason, At: a.ConsumedAt, Protected: cerbapi.ProtectedTarget(a.Target)})
@@ -400,6 +406,9 @@ func writeStatus(w io.Writer, r statusReport) error {
 	}
 	for _, g := range r.Plugins.GaveUp {
 		fmt.Fprintf(&b, "!!! PLUGIN %s stopped after 3 restarts in 10m (%s). Load it again: cerberus connectors plugin managed load %s\n", g.ID, g.Reason, g.ID)
+	}
+	if n := r.Grants.Reapprove; n > 0 {
+		fmt.Fprintf(&b, "!!! %d approval(s) or grant(s) were expired by the upgrade: they carried the older passkey proof. Ask again and approve with your passkey (cerberus approvals list --status expired)\n", n)
 	}
 	if n := len(r.Brakes.Suspensions); n > 0 {
 		fmt.Fprintf(&b, "!!! BREAKER: %d agent session(s) suspended by the circuit breaker. List: cerberus breaker list; reset: cerberus breaker reset <id>\n", n)

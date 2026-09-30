@@ -768,5 +768,8 @@ verifying. When the approval is used, Cerberus asks policy again which
 channel the call needs. A call that now needs a passkey refuses an approval
 that was met only on a terminal. Past a break in the store's chain, only
 events that restrict (a consume, a revoke, an expiry, a denial) are applied.
-An approval written there does nothing until it is decided again. Approvals
-decided before this change carry the older proof and must be approved again.
+An approval written there does nothing until it is decided again.
+
+Approvals decided before this change carry the older proof. When the daemon
+starts, it marks each of them `expired (re-approval required)`, and
+`cerberus status` says how many need approving again.

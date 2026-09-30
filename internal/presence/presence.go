@@ -863,3 +863,15 @@ func keysCount(n int) string {
 	}
 	return fmt.Sprintf("%d keys", n)
 }
+
+// AssertionVersion is the version of a decision's sealed assertion, or 0.
+// v1 signed less than an approval's dangerous fields and is not accepted.
+func AssertionVersion(raw json.RawMessage) int {
+	var env struct {
+		V int `json:"v"`
+	}
+	if json.Unmarshal(raw, &env) != nil {
+		return 0
+	}
+	return env.V
+}
