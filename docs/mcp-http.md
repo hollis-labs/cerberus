@@ -1,14 +1,25 @@
 # mcp-http: authentication and TLS
 
-`cerberus mcp-http` serves the Cerberus MCP tools over HTTP. It has two modes.
+**For a local client, use `cerberus mcp` (stdio).** It runs as you, over the
+daemon's socket, and the daemon checks that the caller is your account.
 
-- **Loopback, with no auth.** This is the default. It listens on
-  `127.0.0.1:4785` and trusts any local process, the way `cerberus mcp` over
-  stdio trusts whatever launched it.
-- **An OAuth 2.1 resource server.** Once you configure an issuer, every call
-  needs a bearer token bound to this endpoint, on loopback too, because
-  loopback isn't a trust boundary between processes. Off loopback, it also
-  needs TLS.
+`cerberus mcp-http` serves the same tools over HTTP, for clients that can't
+spawn a stdio server and for reaching Cerberus from elsewhere. An HTTP listener
+can't tell which local account is calling (a TCP connection on macOS carries no
+uid), so it needs auth:
+
+- **An OAuth 2.1 resource server.** This is the normal mode. Once you configure
+  an issuer, every call needs a bearer token bound to this endpoint, on loopback
+  too, because loopback isn't a trust boundary between processes or accounts.
+  Off loopback, it also needs TLS. Without an issuer configured, mcp-http
+  refuses to start.
+- **`--no-auth`, on loopback, on a single-account machine.** It listens on
+  `127.0.0.1:4785` and trusts any process that can reach the port. That
+  includes another account's processes, so it is allowed only when the machine
+  has no other human accounts (on macOS, a local account with a uid of 501 or
+  more and a login shell; on Linux, `/etc/passwd` from uid 1000). The account
+  list is read at every start, and the refusal names the accounts it found. The
+  start is recorded in the audit log, and a banner says what it means.
 
 **The easy way to reach it from another machine is to leave it on loopback**,
 and use an SSH local forward (`ssh -L 9000:127.0.0.1:4785 host`) or Tailscale.
@@ -118,8 +129,8 @@ in the file.
   `Host` allow-list. `--allow-host` adds more.
 
 `--insecure-listen`, which runs off loopback with no auth, still works only
-under the permissive posture, warns at start and is audited. It can't be
-combined with auth. The web console stays loopback-only in every posture.
+under the permissive posture, warns at start and is audited. It gets the same
+single-account check as `--no-auth`, and it can't be combined with auth. The web console stays loopback-only in every posture.
 
 ## What it serves
 
