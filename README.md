@@ -176,12 +176,32 @@ never approval; `cerberus whoami` shows it and why.
 
 `cerberus web` needs a sign-in. On start it prints and opens a one-time
 sign-in URL, good for two minutes and for one use. Visiting it gives the browser
-an `HttpOnly`, `SameSite=Strict` session cookie. The session ends after 30
-minutes without use (`--session-idle`), after twelve hours in any case, on
-**Sign out**, and whenever `cerberus web` exits. `cerberus web open` prints and
-opens another link for the running console. It mints the link from a key that
-console keeps under `~/.cerberus/web/`, readable only by you. Without a session,
-every API route answers 401.
+two things:
+
+- an `HttpOnly`, `SameSite=Strict` session cookie named for the console's port
+  (`cerberus_session_4783`);
+- a session key, handed to the page in the address fragment, which no server
+  sees.
+
+The page keeps the key in `localStorage` and sends it with every request. A
+browser sends every `localhost` cookie to every port, so the cookie alone reaches
+any other local server; the key is scoped to the console's own origin, port
+included, and without it the cookie is not a session.
+
+The session ends after 30 minutes without use (`--session-idle`), after twelve
+hours in any case, on **Sign out**, and whenever `cerberus web` exits.
+`cerberus web open` prints and opens another link for the running console. It
+mints the link from a key that console keeps under `~/.cerberus/web/`, readable
+only by you. Without a session, every API route answers 401.
+
+The console listens on **both** `127.0.0.1` and `[::1]`, on one port. Every
+link it hands out says `localhost`, which a browser may try on `::1` first. If
+another process already holds `[::1]` on that port, `cerberus web` refuses to
+start and says how to find it, rather than let it receive your sign-in and
+approval links. A machine with no IPv6 loopback is served on `127.0.0.1` alone.
+
+`~/.cerberus` is made `0700` and the config file `0600` on every start. If
+either was readable by other accounts, the command says so once, as it fixes it.
 
 `cerberus web` and, until you configure auth, `cerberus mcp-http` are
 loopback-only. For both, `--listen` must name `localhost` or a literal loopback

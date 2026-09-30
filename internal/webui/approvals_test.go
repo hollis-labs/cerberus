@@ -50,7 +50,7 @@ func approvalsConsole(t *testing.T) (*approvalsDaemon, http.Handler, string) {
 	cookie := signIn(t, srv, h)
 	_, token := sessionOf(t, h, cookie)
 	return d, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.AddCookie(cookie)
+		withCookie(r, cookie)
 		h.ServeHTTP(w, r)
 	}), token
 }
@@ -110,7 +110,7 @@ func TestConsoleIsLocalhostForPasskeys(t *testing.T) {
 	srv := mustNew(t, &fakeClient{})
 	h := srv.Handler(testGuard())
 	link := loginPath(t, srv) + "&next=%2Fapprovals%3Fid%3Dapr_1"
-	if rec := serve(h, newTestRequest(http.MethodGet, link, nil)); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/approvals?id=apr_1" {
+	if rec := serve(h, newTestRequest(http.MethodGet, link, nil)); rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/approvals?id=apr_1#"+sessionKeyFragment+"=") {
 		t.Fatalf("login next: %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 	rec := serve(h, newTestRequest(http.MethodGet, "/approvals?id=apr_1", nil))

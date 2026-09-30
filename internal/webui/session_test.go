@@ -24,6 +24,9 @@ func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {
 func withCookie(req *http.Request, c *http.Cookie) *http.Request {
 	if c != nil {
 		req.AddCookie(c)
+		if key := sessionKeyFor(c); key != "" && req.Header.Get(sessionKeyHeader) == "" {
+			req.Header.Set(sessionKeyHeader, key)
+		}
 	}
 	return req
 }
@@ -77,7 +80,7 @@ func TestLoginSetsAStrictHTTPOnlySessionCookie(t *testing.T) {
 	srv := mustNew(t, &fakeClient{})
 	h := srv.Handler(testGuard())
 	rec := serve(h, newTestRequest(http.MethodGet, loginPath(t, srv), nil))
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/#"+sessionKeyFragment+"=") {
 		t.Fatalf("login = %d, Location %q", rec.Code, rec.Header().Get("Location"))
 	}
 	if rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get("Referrer-Policy") != "no-referrer" {
@@ -85,13 +88,14 @@ func TestLoginSetsAStrictHTTPOnlySessionCookie(t *testing.T) {
 	}
 	var cookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == sessionCookie {
+		if isSessionCookie(c) {
 			cookie = c
 		}
 	}
-	if cookie == nil || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/" || cookie.Value == "" {
+	if cookie == nil || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/" || cookie.Value == "" || cookie.Name != "cerberus_session_9090" {
 		t.Fatalf("cookie = %+v", cookie)
 	}
+	rememberSessionKey(cookie, rec.Header().Get("Location"))
 	if code, token := sessionOf(t, h, cookie); code != http.StatusOK || token == "" {
 		t.Fatalf("signed-in session = %d %q", code, token)
 	}
@@ -218,7 +222,7 @@ func TestLogoutEndsTheSession(t *testing.T) {
 	}
 	cleared := false
 	for _, c := range rec.Result().Cookies() {
-		cleared = cleared || (c.Name == sessionCookie && c.MaxAge < 0)
+		cleared = cleared || (isSessionCookie(c) && c.MaxAge < 0)
 	}
 	if !cleared {
 		t.Fatal("logout did not clear the cookie")
@@ -287,7 +291,7 @@ func TestSignedInRequestsCarryTheSessionPrincipal(t *testing.T) {
 		seen, _ = cerbapi.PrincipalFrom(r.Context())
 	}))
 	serve(capture, withCookie(newTestRequest(http.MethodGet, "/api/resources", nil), cookie))
-	sess := srv.sessions.lookup(cookie.Value)
+	sess := srv.sessions.lookup(cookie.Value, sessionKeyFor(cookie))
 	if seen.Kind != cerbapi.PrincipalHuman || seen.Via != cerbapi.ViaWeb || seen.Session == "" || seen.Session != sess.ID || seen.SelfReported {
 		t.Fatalf("principal = %+v, want a human web principal named by session %s", seen, sess.ID)
 	}
@@ -322,5 +326,52 @@ func TestSessionCarriesThePosture(t *testing.T) {
 	rec = serve(ph, withCookie(newTestRequest(http.MethodGet, "/api/session", nil), signIn(t, plain, ph)))
 	if !strings.Contains(rec.Body.String(), `"summary":"secure"`) {
 		t.Fatalf("a console with no posture source must show secure: %s", rec.Body.String())
+	}
+}
+
+// A browser sends every localhost cookie to every port, so the cookie alone
+// reaches any other local server. Alone, it is not a session: the request
+// also needs the key only the console's own origin holds (H6).
+func TestACookieWithoutItsKeyIsNotASession(t *testing.T) {
+	srv := mustNew(t, &fakeClient{})
+	h := srv.Handler(testGuard())
+	cookie := signIn(t, srv, h)
+
+	stolen := newTestRequest(http.MethodGet, "/api/session", nil)
+	stolen.AddCookie(cookie)
+	if rec := serve(h, stolen); rec.Code != http.StatusUnauthorized || strings.Contains(rec.Body.String(), "action_token") {
+		t.Fatalf("cookie alone = %d %s", rec.Code, rec.Body.String())
+	}
+	wrong := newTestRequest(http.MethodGet, "/api/session", nil)
+	wrong.AddCookie(cookie)
+	wrong.Header.Set(sessionKeyHeader, "not-the-key")
+	if rec := serve(h, wrong); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong key = %d", rec.Code)
+	}
+	// The key without the cookie is not a session either.
+	keyOnly := newTestRequest(http.MethodGet, "/api/session", nil)
+	keyOnly.Header.Set(sessionKeyHeader, sessionKeyFor(cookie))
+	if rec := serve(h, keyOnly); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("key alone = %d", rec.Code)
+	}
+	if code, _ := sessionOf(t, h, cookie); code != http.StatusOK {
+		t.Fatalf("cookie and key = %d", code)
+	}
+}
+
+// The key reaches the page only in the fragment, which no server sees, and a
+// next that carried its own fragment loses it rather than confusing the
+// page.
+func TestTheKeyTravelsInTheFragment(t *testing.T) {
+	srv := mustNew(t, &fakeClient{})
+	h := srv.Handler(testGuard())
+	rec := serve(h, newTestRequest(http.MethodGet, loginPath(t, srv)+"&next=%2Fapprovals%3Fid%3Da1%23x%3D1", nil))
+	loc := rec.Header().Get("Location")
+	path, fragment, ok := strings.Cut(loc, "#")
+	if !ok || path != "/approvals?id=a1" || !strings.HasPrefix(fragment, sessionKeyFragment+"=") || strings.Contains(fragment, "x=1") {
+		t.Fatalf("Location = %q", loc)
+	}
+	if strings.Contains(path, sessionKeyFragment) {
+		t.Fatal("the key is in the part of the URL a server sees")
 	}
 }

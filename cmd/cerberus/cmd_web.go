@@ -58,13 +58,17 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 		webSrv.SetSessionLimits(0, webSessionIdle, 0)
 		webSrv.SetPosture(currentPosture)
 
-		ln, err := net.Listen("tcp", webListenAddr)
+		// Both loopback families, one port: every link the console hands
+		// out says localhost, which a browser may try on ::1 first (H6).
+		lns, err := loopback.ListenBoth(webListenAddr)
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", webListenAddr, err)
 		}
-		guard, err := loopback.NewGuardForAddr(webListenAddr, ln.Addr())
+		guard, err := loopback.NewGuardForAddr(webListenAddr, lns[0].Addr())
 		if err != nil {
-			_ = ln.Close()
+			for _, ln := range lns {
+				_ = ln.Close()
+			}
 			return err
 		}
 
@@ -74,10 +78,12 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- srv.Serve(ln)
-		}()
+		errCh := make(chan error, len(lns))
+		for _, ln := range lns {
+			go func(ln net.Listener) {
+				errCh <- srv.Serve(ln)
+			}(ln)
+		}
 
 		home, err := os.UserHomeDir()
 		if err != nil {

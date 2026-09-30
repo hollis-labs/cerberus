@@ -83,15 +83,19 @@ func copyFile(src, dst string) error {
 	}
 	defer in.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+	if err = os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return err
 	}
-	out, err := os.Create(dst)
+	// A config or its backup can carry literal env values: private to the
+	// operator, never the umask's 0644.
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // the operator's own config path
 	if err != nil {
 		return err
 	}
 	defer out.Close()
-
+	if err := out.Chmod(0o600); err != nil {
+		return err
+	}
 	if _, err := io.Copy(out, in); err != nil {
 		return err
 	}

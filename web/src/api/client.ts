@@ -1,6 +1,51 @@
 import { ApiError, createApiClient, type JsonObject } from '@hollis-labs/sysop-ui/api'
 
-const http = createApiClient({ baseUrl: '' })
+// The session key (H6). Sign-in hands the page a key in the address
+// fragment, which no server sees. The page keeps it in localStorage, which
+// the browser scopes to this origin, port included, and sends it on every
+// request. The session cookie alone is sent to every port on localhost, so
+// it is not a session without the key.
+const SESSION_KEY_STORAGE = 'cerberus.session-key'
+const SESSION_KEY_FRAGMENT = 'cerberus-key'
+
+function takeSessionKeyFromFragment(): void {
+  const hash = window.location.hash.replace(/^#/, '')
+  if (!hash) return
+  const params = new URLSearchParams(hash)
+  const key = params.get(SESSION_KEY_FRAGMENT)
+  if (!key) return
+  try {
+    window.localStorage.setItem(SESSION_KEY_STORAGE, key)
+  } catch {
+    // No storage: this tab still has the key for its own requests.
+    memoryKey = key
+  }
+  params.delete(SESSION_KEY_FRAGMENT)
+  const rest = params.toString()
+  window.history.replaceState(null, '', window.location.pathname + window.location.search + (rest ? `#${rest}` : ''))
+}
+
+let memoryKey = ''
+
+function sessionKey(): string {
+  try {
+    return window.localStorage.getItem(SESSION_KEY_STORAGE) || memoryKey
+  } catch {
+    return memoryKey
+  }
+}
+
+takeSessionKeyFromFragment()
+
+// Read on every request (the client spreads these headers per call), so a
+// sign-in in another tab is picked up without a reload.
+const sessionHeaders = {
+  get 'X-Cerberus-Session-Key'(): string {
+    return sessionKey()
+  },
+}
+
+const http = createApiClient({ baseUrl: '', headers: sessionHeaders })
 
 // SessionInfo is served only to a signed-in session: its own action token,
 // and its public id.

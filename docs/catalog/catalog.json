@@ -18038,6 +18038,80 @@
     },
     {
       "class": "gap",
+      "name": "Another local account could take over console sessions and passkey approvals",
+      "summary": "The console bound 127.0.0.1 only while handing out localhost links, so another account could bind [::1] on the port and receive sign-in and approval links; and the session cookie, sent by browsers to every localhost port, was a full session on its own. The console now binds both loopback families (refusing a squatter), and a session needs a key held in the console origin's localStorage as well as the port-named cookie.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 2026-09-30 adversarial review (H6, the [::1] bind confirmed on this machine); fixed and tested at the listener and session layers; the SPA path is typechecked and built, not browser-driven",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "web-console",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/loopback/listen.go, internal/webui/session.go, web/src/api/client.ts, cmd/cerberus/cmd_web.go",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [],
+      "body": "Two bugs combined (review H6). The console bound 127.0.0.1:4783 but minted http://localhost links, and the WebAuthn RP id is localhost; a browser that tries ::1 first reached whoever held [::1]:4783, which another account could bind while 127.0.0.1 was taken, and could proxy the real console so the operator's Touch ID answered a challenge it chose. And the session cookie, host-only on localhost, is sent to every port: any other local server the browser visited received it, and it was a full session, since GET /api/session hands the action token to whoever holds the cookie.\n\nNow `cerberus web` binds 127.0.0.1 and [::1] on one port (loopback.ListenBoth). If [::1] on the port is held by someone else it refuses to start and names the lsof command to find it; a machine without IPv6 loopback serves 127.0.0.1 alone. A session is the cookie, now named for the port (`cerberus_session_4783`), plus a key: sign-in redirects with the key in the URL fragment, which no server sees; the page moves it to localStorage, scoped to the console's origin including its port, strips it from the address bar, and sends it as X-Cerberus-Session-Key on every request. The server keeps its hash and compares in constant time. A cookie without its key, or a key without its cookie, is 401.\n\nNot done: an origin-bound credential (the review's ideal) instead of a bearer key; localStorage is readable by script on the console's own origin, so an XSS in the console would still reach it.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-403",
+        "effort": "medium",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-920"
+    },
+    {
+      "class": "gap",
+      "name": "~/.cerberus and config.yaml were readable by every account on the Mac",
+      "summary": "~/.cerberus was 0755 or 0750 depending on which writer created it first, and config.yaml 0644; every standard macOS account shares the staff group. Every start now makes ~/.cerberus 0700 and the config 0600, saying so once when it changes a mode, and the writers that create them do so privately.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 2026-09-30 adversarial review (M12); fixed at the root command's start and in the config and backup writers; tested",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "permissions",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/config/private.go, cmd/cerberus/main.go, internal/configops/backups.go",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-533",
+          "note": "config.yaml can carry literal env secrets"
+        }
+      ],
+      "body": "Review M12. Around thirty writers create directories under ~/.cerberus with 0755 or 0750, and whichever ran first decided the directory's own mode; config.yaml was written 0644, as were alerts, pid files and service logs inside it. On macOS every standard account's primary group is staff, so 0750 was not private either, and config.yaml can carry literal env secrets (CERB-GAP-533).\n\nNow `config.EnsurePrivate` runs in the root command's PersistentPreRun, before any writer: it creates ~/.cerberus 0700 (chmod'd exactly, past the umask) or fixes it, and makes the config at --config 0600, printing one line per mode it changed (\"was mode 0755, readable by other accounts on this machine; it is now 0700\"). A 0700 directory puts everything inside out of other accounts' reach whatever each file's mode, so the individual writers are left alone; the default-config writer and the config backup/restore copy now create 0600 files in 0700 directories.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-501",
+        "effort": "small",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-921"
+    },
+    {
+      "class": "gap",
       "name": "Another local account could run every MCP tool as the operator through no-auth mcp-http",
       "summary": "mcp-http defaulted to 127.0.0.1:4785 with no auth; a TCP connection on macOS carries no uid, so another local account's process reached every tool as the operator, crossing the boundary the daemon socket's peer check holds. mcp-http now refuses to start without auth, leading with stdio `cerberus mcp`; --no-auth is loopback-only and allowed only on a machine with no other human accounts, checked at every start, audited and bannered.",
       "state_field": "status",

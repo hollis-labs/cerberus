@@ -130,6 +130,9 @@ func (g *Guard) HostAllowed(hostHeader string) bool {
 	return ok
 }
 
+// Port is the port the guarded server bound.
+func (g *Guard) Port() string { return g.port }
+
 // OriginAllowed reports whether origin exactly matches (scheme, host and
 // port) an allowed origin. An empty origin is not allowed here; callers
 // decide what a request without an Origin header means.

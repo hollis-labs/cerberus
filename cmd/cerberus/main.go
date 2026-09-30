@@ -100,6 +100,15 @@ MIT licensed. Published by Hollis Labs.`,
 			ctx = context.Background()
 		}
 		cmd.SetContext(cerbapi.WithPrincipal(ctx, detectCLI().Principal))
+		// Cerberus's state is the operator's alone (M12): made private
+		// before any writer runs, and said out loud when it was not.
+		fixed, err := config.EnsurePrivate(cfgPath)
+		for _, line := range fixed {
+			fmt.Fprintln(os.Stderr, "cerberus: "+line)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cerberus: could not make Cerberus's state private: "+err.Error())
+		}
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()

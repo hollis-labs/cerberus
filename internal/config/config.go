@@ -134,11 +134,11 @@ func EnsureDefault() error {
 	}
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, PrivateDirMode); err != nil {
 		return err
 	}
 
-	return os.WriteFile(path, []byte(defaultConfig), 0644)
+	return os.WriteFile(path, []byte(defaultConfig), PrivateFileMode)
 }
 
 const defaultConfig = `# Cerberus — Fragments Engine Local Runtime
