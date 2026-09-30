@@ -41,6 +41,12 @@ const waitFor = async (expr, what, ms = 8000) => {
 await send('Page.enable'); await send('Runtime.enable')
 const go = async (url) => { await send('Page.navigate', { url }); await sleep(900); await evaluate(lib) }
 
+// The console's own API, as the page calls it, for an expression evaluated
+// in the page: the session cookie alone is not a session, so the key the
+// sign-in left in localStorage goes with it (H6). Inlined, since a page the
+// console navigates to itself has none of lib's helpers.
+const api = `((path) => fetch(path, { headers: { 'X-Cerberus-Session-Key': localStorage.getItem('cerberus.session-key') || '' } }))`
+
 // DOM helpers, evaluated in the page.
 const lib = `
 window.__dialogs = () => [...document.querySelectorAll('[role=dialog],[role=alertdialog]')];
@@ -79,6 +85,9 @@ async function typeAndSubmit(name) {
 
 try {
   await go(LOGIN)
+  // Sign-in has landed once the page holds its session key; a cold Chrome
+  // can take longer than go's pause, and every page after this needs it.
+  await waitFor(`location.pathname !== '/login' && !!localStorage.getItem('cerberus.session-key')`, 'sign-in', 15000)
   await go('http://localhost:4799/resources')
   const startStop = async () => {
     await waitFor(`[...document.querySelectorAll('tr')].some(r => r.textContent.includes('web'))`, 'resource row')
@@ -103,7 +112,7 @@ try {
   await waitFor(`!document.querySelector('[data-testid=plan-hash]')`, 'plan dialog to close')
   await sleep(500)
   const errText = await evaluate(`[...document.querySelectorAll('[class*=danger]')].map(e => e.textContent).join(' ')`)
-  const stops = await evaluate(`fetch('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.operation === 'stop'))`)
+  const stops = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.operation === 'stop'))`)
   const consumed = stops.filter((a) => a.status === 'consumed')
   check('resource stop: the right target runs, under one consumed approval decided by the console session',
     consumed.length === 1 && consumed[0].decision?.surface === 'tty_confirm' && consumed[0].decision?.by?.via === 'web' && !!consumed[0].decision?.by?.session && !/plan_stale/.test(errText),
@@ -130,7 +139,7 @@ try {
   await waitFor(`!document.querySelector('[data-testid=plan-hash]')`, 'deploy plan dialog to close', 15000)
   for (let i = 0; i < 30 && !fs.existsSync(`${HOME}/deployed.txt`); i++) await sleep(200)
   check('deploy profile: the right target runs the profile', fs.existsSync(`${HOME}/deployed.txt`) && fs.readFileSync(`${HOME}/deployed.txt`, 'utf8').includes('deployed-again'))
-  const runs = await evaluate(`fetch('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.operation === 'run_profile'))`)
+  const runs = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.operation === 'run_profile'))`)
   check('deploy profile: the run was approved in the daemon, by the console session', runs.some((a) => a.status === 'consumed' && a.decision?.by?.via === 'web'),
     JSON.stringify(runs.map((a) => [a.status, a.decision?.by?.via])))
 
@@ -160,7 +169,7 @@ try {
   await evaluate(`(__type(document.querySelector('[data-testid=typed]'), 'prod-api'), true)`)
   await sleep(150)
   await evaluate(`(__btn(document.querySelector('[data-testid=approval-detail]'), 'Approve with passkey').click(), true)`)
-  await waitFor(`fetch('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).some(a => a.id === '${asked.approval_id}' && a.status === 'approved'))`, 'passkey approval', 15000)
+  await waitFor(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).some(a => a.id === '${asked.approval_id}' && a.status === 'approved'))`, 'passkey approval', 15000)
   check('break glass: approved on the console with the passkey', true)
   const ran = await (await fetch(`http://127.0.0.1:4798/break-glass?id=${asked.approval_id}`)).json()
   check('break glass: the CLI retry runs under it', !ran.error && ran.result?.success !== false, ran.error || '')
@@ -198,8 +207,8 @@ try {
   await evaluate(`(document.querySelector('[data-testid=lift-now]').click(), true)`)
   await waitFor(`location.pathname === '/'`, 'back to the console', 10000)
   await sleep(900)
-  const after = await evaluate(`fetch('/api/brakes').then(r => r.json())`)
-  const used = await evaluate(`fetch('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).find(a => a.id === '${liftID}'))`)
+  const after = await evaluate(`${api}('/api/brakes').then(r => r.json())`)
+  const used = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).find(a => a.id === '${liftID}'))`)
   check('lockdown: Lift now lifts it, spending the approval', !after.state?.lockdown && used?.status === 'consumed' && !(await evaluate(`!!document.querySelector('[data-testid=brakes-banner]')`)),
     JSON.stringify([after.state, used?.status]))
 
