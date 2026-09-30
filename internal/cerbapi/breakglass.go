@@ -102,7 +102,9 @@ func breakGlassOnCall(ctx context.Context, call *auditCall, spec auditSpec, req 
 		if !ok || a.BreakGlass == nil {
 			return refuse("approval %s is not a break-glass request; run the command again with --break-glass to ask for one", spec.approvalID)
 		}
-		if err := consumeApproval(ctx, call, spec); err != nil {
+		// On a protected target the retry must spend a passkey approval,
+		// whatever channel the store says this one was met on (H4).
+		if err := consumeApproval(ctx, call, spec, protectedTarget(req.Target)); err != nil {
 			return err
 		}
 		notify("Cerberus: break glass used", fmt.Sprintf("%s.%s on %s: %s", spec.connector, spec.operation, name, bg.Reason))
@@ -146,7 +148,7 @@ func breakGlassOnCall(ctx context.Context, call *auditCall, spec auditSpec, req 
 		return consumeRefusal(args, a.ID, a, err)
 	}
 	spec.approvalID = a.ID
-	if err := consumeApproval(ctx, call, spec); err != nil {
+	if err := consumeApproval(ctx, call, spec, false); err != nil {
 		return err
 	}
 	notify("Cerberus: break glass used", fmt.Sprintf("%s.%s on %s: %s", spec.connector, spec.operation, name, bg.Reason))

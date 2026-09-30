@@ -44,7 +44,7 @@ func (a Approval) covers(c GrantCheck) error {
 	case a.Scope == ScopeSession && (a.Principal.Session == "" || a.Principal.Session != c.Principal.Session):
 		return ErrOtherPrincipal
 	case c.RequireOutOfBand && a.Channel != ChannelOutOfBand:
-		return ErrNotApproved
+		return ErrWeakerChannel
 	}
 	return nil
 }

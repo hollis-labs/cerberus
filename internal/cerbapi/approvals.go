@@ -349,7 +349,7 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 		// A policy that relaxed to allow since the approval was given still
 		// spends it, so the record shows it was used (D8).
 		if spec.approvalID != "" {
-			return consumeApproval(ctx, call, spec)
+			return consumeApproval(ctx, call, spec, false)
 		}
 		return nil
 	case policy.DryRunOnly:
@@ -369,7 +369,10 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 			return confirmOnCall(ctx, call, spec, req, res)
 		}
 		if spec.approvalID != "" {
-			return consumeApproval(ctx, call, spec)
+			// The channel policy asks for now, not the one the store says
+			// the approval was met on (H4).
+			channel, _, _ := approvalTerms(req.Target, res)
+			return consumeApproval(ctx, call, spec, channel == approval.ChannelOutOfBand)
 		}
 		if used, err := useGrant(ctx, call, spec, req, res); used || err != nil {
 			return err
@@ -470,7 +473,7 @@ func useGrant(ctx context.Context, call *auditCall, spec auditSpec, req policy.R
 // recomputing its plan the same way it was computed when the approval was
 // asked for (I6). What the call runs under is written on its records: the
 // outcome carries approval_id and plan_hash.
-func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec) error {
+func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec, requireOutOfBand bool) error {
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
 	broker := ProcessBroker()
 	if broker == nil {
@@ -483,7 +486,7 @@ func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec) error
 			redact.GuidanceWrap(err, "approval %s cannot be checked against the plan, which could not be computed now, so nothing ran", spec.approvalID))
 	}
 	a, err := broker.Consume(ctx, spec.approvalID, approval.ConsumeCheck{Connector: spec.connector, Operation: spec.operation, Principal: call.intent.Principal, Target: call.intent.Target,
-		ArgsDigest: call.intent.ArgsDigest, PlanHash: planHash, OperationID: call.intent.OperationID})
+		ArgsDigest: call.intent.ArgsDigest, PlanHash: planHash, OperationID: call.intent.OperationID, RequireOutOfBand: requireOutOfBand})
 	if err != nil {
 		return consumeRefusal(args, spec.approvalID, a, err)
 	}
@@ -507,6 +510,9 @@ func consumeRefusal(args ExternalConnectorOperationArgs, id string, a approval.A
 	case errors.Is(err, approval.ErrOtherOperation):
 		return externalConnectorError(args, ExternalConnectorPlanStale,
 			redact.Guidance("approval %s is for %s %s, not this operation; nothing ran", a.ID, a.Connector, a.Operation))
+	case errors.Is(err, approval.ErrWeakerChannel):
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("approval %s was met on %s, and this call now needs out-of-band approval with a passkey; nothing ran. Retry without the approval id to ask for one", a.ID, a.Channel))
 	case errors.Is(err, approval.ErrOtherPrincipal):
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.Guidance("approval %s belongs to another caller (it was asked for by %s over %s); nothing ran. Retry without the approval id to ask for your own", a.ID, a.Principal.Kind, a.Principal.Via))

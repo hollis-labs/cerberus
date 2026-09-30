@@ -194,3 +194,70 @@ func TestDamagedStoreFoldsAndReports(t *testing.T) {
 
 // asker is the principal the tests' approvals are asked for by.
 var asker = audit.Principal{Kind: "agent", Via: "mcp_stdio"}
+
+// appendRaw writes ev as its own line, chained as given (tests forge).
+func appendRaw(t *testing.T, dir string, ev Event) {
+	t.Helper()
+	line, _ := json.Marshal(ev)
+	f, err := os.OpenFile(filepath.Join(dir, FileName), os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // the test's own store
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.Write(append(line, '\n'))
+	_ = f.Close()
+}
+
+// Past a broken chain only what restricts applies (H4): an approval
+// written there does not fold, a consume still does. The daemon reanchors
+// on open, and events after that are trusted again.
+func TestNothingPermissiveFoldsPastABreak(t *testing.T) {
+	s, c, dir := newStore(t)
+	pendingOne := request(t, s, ChannelTTYConfirm)
+	approvedOne := request(t, s, ChannelTTYConfirm)
+	if _, err := s.Decide(approvedOne.ID, Decision{Approve: true, By: human}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// A break: a line that does not chain.
+	appendRaw(t, dir, Event{V: eventVersion, Seq: 99, Type: EventDecided, ApprovalID: pendingOne.ID, Decision: &Decision{Approve: true, By: human}, PrevHash: "x", Hash: "y"})
+	// After it, a correctly shaped approve and a consume.
+	appendRaw(t, dir, Event{V: eventVersion, Seq: 100, Type: EventConsumed, ApprovalID: approvedOne.ID, PrevHash: "y", Hash: "z"})
+	reopened, err := open(dir, c.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := reopened.Get(pendingOne.ID); got.Status != Pending {
+		t.Fatalf("an approval past the break folded: %s", got.Status)
+	}
+	if got, _ := reopened.Get(approvedOne.ID); got.Status != Consumed {
+		t.Fatalf("a consume past the break did not fold: %s", got.Status)
+	}
+	// Reanchored: a decision made now survives the next open.
+	if _, err = reopened.Decide(pendingOne.ID, Decision{Approve: true, By: human}, nil); err != nil {
+		t.Fatal(err)
+	}
+	again, err := open(dir, c.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := again.Get(pendingOne.ID); got.Status != Approved {
+		t.Fatalf("a decision after the reanchor did not fold: %s", got.Status)
+	}
+}
+
+// A call that needs out of band now refuses an approval the store says was
+// met on a terminal (H4).
+func TestConsumeRefusesAWeakerChannel(t *testing.T) {
+	s, _, _ := newStore(t)
+	a := request(t, s, ChannelTTYConfirm)
+	if _, err := s.Decide(a.ID, Decision{Approve: true, By: human}, nil); err != nil {
+		t.Fatal(err)
+	}
+	check := ConsumeCheck{Principal: asker, Connector: "kubernetes", Operation: "delete_pod", ArgsDigest: "hmac:args", PlanHash: "sha256:plan", RequireOutOfBand: true}
+	if _, err := s.Consume(a.ID, check, nil); !errors.Is(err, ErrWeakerChannel) {
+		t.Fatalf("a terminal approval met a passkey requirement: %v", err)
+	}
+	check.RequireOutOfBand = false
+	if _, err := s.Consume(a.ID, check, nil); err != nil {
+		t.Fatalf("the same approval where a terminal suffices: %v", err)
+	}
+}

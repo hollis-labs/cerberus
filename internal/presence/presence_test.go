@@ -67,7 +67,9 @@ func (f *fixture) enroll(t *testing.T, a *authenticator, authorizer *authenticat
 
 func pending() approval.Approval {
 	return approval.Approval{ID: "apr_1", Status: approval.Pending, Connector: "docker", Operation: "stop", ArgsDigest: "d", PlanHash: "sha256:p",
-		Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio"}, Channel: approval.ChannelOutOfBand}
+		Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio"}, Channel: approval.ChannelOutOfBand,
+		// Every approval the broker makes has an expiry; v2 signs it.
+		ExpiresAt: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}
 }
 
 // approve runs the approval ceremony with a and returns the decision the
@@ -299,5 +301,50 @@ func TestRegistryChangedOutsideStartsTheCooldown(t *testing.T) {
 	}
 	if strings.Join(changes, ",") != "enrolled,unaudited,accepted_after_cooldown" {
 		t.Fatalf("enrollment records = %v", changes)
+	}
+}
+
+// The assertion signs what makes an approval dangerous beyond its call
+// (H4): an edit of its channel, scope, TTL, expiry, requester kind or the
+// target's labels makes the stored assertion stop verifying, and so does
+// a store expiry longer than was signed. A v1 assertion is not accepted.
+func TestAssertionBindsScopeExpiryAndTarget(t *testing.T) {
+	f := newFixture(t)
+	key := newAuthenticator(t)
+	if err := f.enroll(t, key, nil); err != nil {
+		t.Fatal(err)
+	}
+	ap := pending()
+	ap.Target = audit.Target{Kind: "docker.container", Resource: "web", Env: "dev", Owner: "self"}
+	d, err := f.approve(t, key, ap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := ap
+	used.Status = approval.Approved
+	if err = f.svc.Verify(used, d); err != nil {
+		t.Fatalf("the untouched approval at consume: %v", err)
+	}
+	for name, edit := range map[string]func(*approval.Approval){
+		"scope once to window": func(a *approval.Approval) { a.Scope = approval.ScopeWindow },
+		"a longer TTL":         func(a *approval.Approval) { a.TTL = 1000 * time.Hour },
+		"channel":              func(a *approval.Approval) { a.Channel = approval.ChannelTTYConfirm },
+		"requester kind":       func(a *approval.Approval) { a.Principal.Kind = "human" },
+		"target env":           func(a *approval.Approval) { a.Target.Env = "prod" },
+		"a later expiry":       func(a *approval.Approval) { a.ExpiresAt = a.ExpiresAt.Add(time.Hour) },
+		"no expiry":            func(a *approval.Approval) { a.ExpiresAt = time.Time{} },
+	} {
+		edited := used
+		edit(&edited)
+		if verr := f.svc.Verify(edited, d); verr == nil {
+			t.Errorf("%s: the edited approval still verified", name)
+		}
+	}
+	var env map[string]any
+	_ = json.Unmarshal(d.Assertion, &env)
+	env["v"] = 1
+	old, _ := json.Marshal(env)
+	if err = f.svc.Verify(used, approval.Decision{Approve: true, Assertion: old}); err == nil {
+		t.Fatal("a v1 assertion was accepted")
 	}
 }
