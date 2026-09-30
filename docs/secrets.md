@@ -48,10 +48,8 @@ real process. The plist carries references; the credentials never reach disk.
 
 **Do not write Cerberus keychain entries with `security add-generic-password`.**
 go-keyring stores a `go-keyring-base64:` prefix that the `security` CLI does not
-decode. Full explanation, the portfolio audit, and the rotation runbook:
-
-→ `~/dev/operator/ops/secrets-handling.md` (private — inventories the estate)
-→ app-c knowledge: `user/operator/knowledge/ops`, key `ops.secrets-handling`
+decode, so an entry written that way reads back with the prefix still on it.
+Write entries with `cerberus secrets set` instead.
 
 ## Connector credentials
 

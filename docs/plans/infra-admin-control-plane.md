@@ -1,8 +1,8 @@
 # Infra Admin Control Plane
 
-Direction for making Cerberus the single place we administer the
-infrastructure we actually run — local dev services, the examplecorp work host, and
-the Azure dev box — from the CLI, the console, and agents.
+Direction for making Cerberus the single place an operator administers the
+infrastructure they run (local dev services, remote hosts reached over SSH,
+and cloud dev boxes) from the CLI, the console, and agents.
 
 Status: agreed direction, execution started 2026-09-16.
 
@@ -54,22 +54,26 @@ container/docker resource is a named handle for connector operations instead —
 
 ## What we manage
 
-**host-a.example.com** — examplecorp work host, reachable only on VPN. Runs
-the ContextForge MCP gateway (`gateway:4444` on the
-`gateway-net` docker network), `svc-a-mcp`, `svc-b`,
-`svc-c`, and the app-a demo. Two nginx layers: host nginx routes by
-hostname, the `nginx-router` container routes by path.
+The targets this plan was written against are typical of one operator's
+estate:
 
-**Azure dev box** — pending provisioning. Development projects, testing,
-experiments. Docker will run here too.
+**A remote host reached over SSH**, often only on a VPN. It runs containers on
+a docker network: an MCP gateway (ContextForge, for example), internal MCP
+servers and bots, and demo apps. Routing may be layered, such as host nginx
+routing by hostname in front of a router container routing by path. Some of
+those services may write to real third-party systems, so a local test against
+them is not a dry run.
 
-**Local** — the dev services in `~/.cerberus/config.yaml`, plus Docker Desktop.
+**A cloud dev box** for development projects, testing and experiments, with
+Docker on it too.
+
+**Local**: the dev services in `~/.cerberus/config.yaml`, plus Docker Desktop.
 
 ## The capability spec already exists
 
-`~/admin-tools` is the specification for this work. It is ~70 shell scripts
-that already do the job, written against the real systems, with the failure
-modes documented in-line. We are not designing from scratch; we are promoting
+An existing collection of admin shell scripts is the specification for this
+work: scripts that already do the job, written against the real systems, with
+the failure modes documented in-line. We are not designing from scratch; we are promoting
 proven behaviour into typed connector operations.
 
 What it establishes, and what it maps to:
@@ -91,20 +95,18 @@ good and they are already habits: **`probe-*` never changes anything and never
 prints a secret value** (names only), and **anything destructive asks first.**
 The second already exists as `Destructive` + `--ack`.
 
-### One correction to `tools/`
+### Key auth makes multiplexing native
 
-`tools/README.md` says SSH to host-a is password auth. That is stale — key
-auth works now, verified 2026-09-16:
+Scripts like these often carry a ControlMaster/`ControlPersist` apparatus to
+avoid repeated password prompts. Where key auth works, check it first:
 
 ```
 $ cerberus ssh status host-a
 {"reachable": true, "latency": 1836625167, "os": "Linux"}
 ```
 
-This matters because the whole ControlMaster/`ControlPersist=15m` apparatus in
-`lib/common.sh` exists to avoid repeated password prompts. With key auth and a
-Go SSH client holding one `*ssh.Client`, multiplexing is native and that
-complexity disappears rather than being ported.
+With key auth and a Go SSH client holding one `*ssh.Client`, multiplexing is
+native and that complexity disappears rather than being ported.
 
 ## Libraries
 
@@ -136,8 +138,9 @@ it churns or goes unmaintained we swap the backend implementation and the
 operation, CLI and MCP surface does not move. CF also serves `/openapi.json`,
 so a generated client is the fallback. Do not hand-roll one.
 
-CF is only reachable through the tunnel at `127.0.0.1:14444`, or on the box, so
-the connector needs a configurable base URL and depends on the tunnel being up.
+A gateway on a remote host is often reachable only through an SSH tunnel to a
+local port, or on the box itself, so the connector needs a configurable base
+URL and depends on the tunnel being up.
 
 ## Core or plugin
 
@@ -235,8 +238,8 @@ condition and not a repaired environment:
 ```
 $ cerberus docker ps
 ID            NAME                  IMAGE             STATUS               PORTS
-5c3cde0809e2  web-monitor-caddy-1  caddy:2           Up 7 days            443/tcp (+3)
-d478e203778f  web-monitor-app-1    web-monitor-app  Up 7 days (healthy)  8000/tcp
+5c3cde0809e2  web-monitor-caddy-1   caddy:2           Up 7 days            443/tcp (+3)
+d478e203778f  web-monitor-app-1     web-monitor-app   Up 7 days (healthy)  8000/tcp
 ```
 
 The MCP tool `cerberus_docker_ps` returns the same. `LIVE` is now computed by
@@ -268,7 +271,7 @@ the whole point when the target is a compose file or an env file something is
 about to read. `put` preserves the local mode, so an uploaded script stays
 executable.
 
-Verified end to end against host-a:
+Verified end to end against a remote host:
 
 ```
 $ cerberus ssh put host-a ./probe.txt /home/operator/cerberus-probe.txt --dry-run
@@ -292,7 +295,7 @@ This replaces `rput`/`scp` in `tools/lib/common.sh`. Still missing for a full
 
 `DOCKER_HOST` / `docker context` support on the Docker connector, so the same
 operations target a remote daemon. Host-agnostic: one implementation serves
-both the Azure box and host-a.
+a cloud dev box and a remote host alike.
 
 Shipped as `docker.Target`, resolved per call from the operation's config:
 `--host`/`-H` and `--context` on every `cerberus docker` command,
@@ -309,21 +312,21 @@ cause only at `--log-level debug`. The connector turns debug logging on for
 now names the host, the cause and the `docker` group. Full detail and the
 verification runs are in WP-3 of `docs/plans/connector-work-packages.md`.
 
-**Constraint on host-a:** `operator` is not in the `docker` group there —
-verified 2026-09-16:
+**A common constraint on a shared host:** the operator's account may not be in
+the `docker` group there:
 
 ```
 $ cerberus ssh exec host-a --ack -- 'id; docker ps'
-uid=12989(operator) gid=11000(hsv-all) groups=11000(hsv-all),20922(host-a)
+uid=1001(operator) gid=1001(staff) groups=1001(staff)
 permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
 ```
 
-So remote docker there needs either group membership (see Open Questions) or
-sudo. Until then, introspect ContextForge over HTTP rather than via `docker ps`
-— which is what `tools/` already does.
+Remote docker there then needs either group membership (see Open Questions)
+or sudo. Until then, introspect a gateway over HTTP rather than via `docker
+ps`.
 
-**On the Azure box: add the user to the `docker` group at provisioning time.**
-It is greenfield, so this is free there, and it is what makes remote Docker work
+**On a greenfield box: add the user to the `docker` group at provisioning
+time.** It costs nothing there, and it is what makes remote Docker work
 without sudo.
 
 ### 4. ContextForge connector
@@ -338,42 +341,43 @@ DigitalOcean shape: `Backend` interface, SDK behind it, secrets through the host
 channel, DTOs per ADR 0003.
 
 **The premise of this item was wrong and probing killed it.** "Worth it
-primarily for VM start/stop" assumed a compute subscription. The only reachable
-subscription has `Microsoft.Compute` and `Microsoft.Network` both
-`NotRegistered`, so no VM can exist there to start or stop, and registering a
-provider needs subscription Contributor. What is actually there is one AI
-Services account and its model deployments — so that is what the connector
+primarily for VM start/stop" assumed a compute subscription. The reachable
+subscription had `Microsoft.Compute` and `Microsoft.Network` both
+`NotRegistered`, so no VM could exist there to start or stop, and registering a
+provider needs subscription Contributor. What was actually there was an AI
+Services account and its model deployments, so that is what the connector
 reads. See WP-5 in `connector-work-packages.md` for the operations, the locked
 VM paths and what would unlock them.
 
-The cost-control argument still holds; it just has no target on this
-subscription. It belongs to whichever subscription the Azure dev box lands in.
+The cost-control argument still holds; it just had no target on that
+subscription. It belongs to whichever subscription a dev box lands in.
 
 ### 6. Tunnels as managed resources — DONE 2026-09-16
 
-`tunnel-host-a` was running as a detached `ssh -N -f` started outside
-Cerberus, so `resource list` showed blank status while both forwards were
-demonstrably open. The manual process was killed and the resource started with
-`cerberus resource apply tunnel-host-a`; it now reports `running`, and CF
-(`:14444/health`) and app-a (`:18095/api/health`) both answer 200 through it.
+A tunnel resource (`tunnel-host-a`) had been running as a detached `ssh -N -f`
+started outside Cerberus, so `resource list` showed a blank status while its
+forwards were demonstrably open. The manual process was stopped and the
+resource started with `cerberus resource apply tunnel-host-a`; it then reported
+`running`, and the services behind it answered their health checks through it.
 
-Note the dependency this creates: the CF connector in item 4 is unreachable
-whenever this tunnel is down, and the tunnel is deliberately `auto_start: false`
-/ `auto_restart: false` because a Cerberus-started `ssh` has no TTY and a
-restart loop against corporate auth risks an account lockout. A CF operation
-failing with a connection refused on 14444 means "start the tunnel", not "CF is
-down" — worth surfacing in the connector's error text.
+Note the dependency this creates: the gateway connector in item 4 is
+unreachable whenever this tunnel is down, and the tunnel is deliberately
+`auto_start: false` / `auto_restart: false`. A Cerberus-started `ssh` has no
+TTY, and a restart loop against a corporate auth endpoint risks an account
+lockout. A gateway operation failing with a connection refused on the local
+forward means "start the tunnel", not "the gateway is down", which is worth
+surfacing in the connector's error text.
 
-Two other SSH processes to host-a are unrelated and were left alone: an
-interactive session, and the `ControlPersist` sftp master that `tools/` opens.
+Other SSH processes to the same host (an interactive session, a
+`ControlPersist` sftp master a script opened) are unrelated and are left alone.
 
 ## Open Questions
 
 ### ~~Team impact of the Docker connector change~~ — RESOLVED 2026-09-16
 
-Decided and approved by the owner: ship it. Cerberus has no users outside this
-machine yet — it is being prepared to share, not already shared — so there is no
-installed base to coordinate with and no scripts in the wild to break. Landing a
+Decided and approved by the owner: ship it. Cerberus had no users outside its
+author yet (it was being prepared to share, not already shared), so there was
+no installed base to coordinate with and no scripts in the wild to break. Landing a
 semantic change *before* anyone depends on it is the cheapest moment to do it.
 
 Recorded because the behaviour is non-obvious, not because it still needs a
@@ -389,17 +393,18 @@ General principle worth keeping while the app is pre-share: prefer the correct
 semantic now over a compatible one, and spend the freedom deliberately before it
 expires.
 
-### Should `operator` be added to the `docker` group on host-a?
+### Should the operator be added to the `docker` group on a shared host?
 
 It would unlock remote Docker administration there without sudo, which is a
-meaningful capability gain. It is also a privilege escalation on a corporate
-host and is not ours to grant. Needs whoever administers that box.
+meaningful capability gain. It is also a privilege escalation on a host
+someone else administers, and is not the operator's to grant. It needs whoever
+administers that box.
 
 ### ~~What to do about container resources validating clean but failing at runtime~~ — RESOLVED 2026-09-17
 
 Neither reject nor warn. The framing was wrong, and the live config was the
-counterexample: `host-a` is server/ssh, registered, listed, and deliberately
-not supervised — so "validates clean, then fails every runtime operation" was
+counterexample: a remote host registered as server/ssh is listed and
+deliberately not supervised — so "validates clean, then fails every runtime operation" was
 equally true of a resource working exactly as intended.
 
 A resource that is not local/process is a **named handle for connector
@@ -416,7 +421,7 @@ would fire on every correct declaration. Detail in WP-6 of
 
 ### Elevation model for `ssh.exec`
 
-`tools/` uses `rsudo` with `-t` because sudo on host-a requires a tty, and it
-quotes each argument because `"sudo $*"` silently mangled a display name
-containing a space. Whatever we build needs a deliberate answer for privilege
+The existing scripts use an `rsudo` wrapper with `-t` because sudo on the
+remote host requires a tty, and they quote each argument because `"sudo $*"`
+silently mangled a display name containing a space. Whatever we build needs a deliberate answer for privilege
 elevation, not an accidental one.

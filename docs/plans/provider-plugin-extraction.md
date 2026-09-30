@@ -235,7 +235,7 @@ Gaps found:
 - **A second, pre-existing bug:** the web console treats `client_ip` as a *field* and saves it to `infra.yaml`, while the connector reads it from the *secret* store. An IP entered in the console never reaches the connector. Fix it during the namecheap move: the console writes it as a secret.
 - **Rotation regresses.** A console secret save no longer takes effect until the plugin reloads. My recommendation: after a secret write for id X, the host reloads the loaded plugin X. It's small, and the console already knows the id.
 - **Install ordering:** `managed install` of a plugin called `cloudflare` is refused until the built-in is gone from a *running* daemon, because of the reserved-id guard. The plugin can still be proven end to end beforehand through the one-shot `cerberus connectors plugin exec <dir> <op>`, which doesn't reserve ids and shares `pluginhost.Manager`.
-- **On this machine none of the seven references exist:** no keychain entries, no `CERBERUS_*` env, no `connector-secrets.yaml`. So nothing here breaks, and there is also nothing to verify reads against (§7).
+- **On the development machine none of the seven references existed:** no keychain entries, no `CERBERUS_*` env, no `connector-secrets.yaml`. So nothing here breaks, and there is also nothing to verify reads against (§7).
 
 ## 5. Safety logic that moves with each connector
 
@@ -283,7 +283,7 @@ Hard constraints:
 - **Host removal waits for P1-1.** P1-1 edits these four Definitions, and the gate tests use them as fixtures.
 - **Host removal also waits for H-MCP**, or agents lose the connector (§0).
 - **Plugins pin `cerberus v0.4.0-beta.2`.** Declaring `effect` in a plugin manifest needs a Cerberus tag cut after P1-1. Until then a plugin ships with `destructive`/`supports_dry`, and an undeclared `effect` falls back to `exec` (ack on everything). That's a strict transition that only costs `--ack` on reads.
-- **The live daemon loads plugins from `~/src/cerberus-plugins/dist/<id>`, a working checkout.** Running `make dist` or `make clean` there swaps the binaries the running daemon uses, and once P1-5 compares hashes, the next load is refused. I'll work in my own clone and never build dist in that one. It's also worth deciding whether P1-5's in-process install should copy into `~/.cerberus/plugins/` (§7).
+- **A live daemon can load plugins from a working checkout's `dist/<id>`.** Running `make dist` or `make clean` there swaps the binaries the running daemon uses, and once P1-5 compares hashes, the next load is refused. Work in a separate clone and never build dist in the one the daemon loads from. It's also worth deciding whether P1-5's in-process install should copy into `~/.cerberus/plugins/` (§7).
 
 Proposed PRs, one per branch:
 
@@ -310,7 +310,7 @@ The 33MB figure is module source size, not linked size; H4 records the real delt
 2. **Tombstones for the old names.** DEC-472 says to tombstone retired entries. With 24 CLI leaves and 24 MCP tools, that is heavy. *Recommend: CLI tombstones as hidden cobra commands with a `Deprecated` message naming the replacement (cheap, one release). No MCP tombstones: 24 dead tools cost every agent context on every session, and the replacements share a discoverable `cerberus_<id>_` prefix.* This departs from DEC-472, so it needs an explicit yes.
 3. **Removal before MCP generation?** *Recommend: no.* Gate each host removal on H-MCP.
 4. **Who builds H-MCP:** inside P1-5 (cerberus-77) or after it (me). *Recommend: inside P1-5*, since "hidden until enabled" is already its scope. Then I just consume it.
-5. **Forge: migrate or retire?** Its own package comment calls it transitional and pending removal, and no Forge token exists on this machine. *Recommend: retire* (delete with CLI tombstones) unless Forge is still in use. The same question is worth one line for DigitalOcean.
+5. **Forge: migrate or retire?** Its own package comment calls it transitional and pending removal, and no Forge token existed on the development machine. *Recommend: retire* (delete with CLI tombstones) unless Forge is still in use. The same question is worth one line for DigitalOcean.
 6. **Cloudflare's wrangler fallback:** *Recommend: drop.* It authenticates outside the declared-secret channel (ambient `HOME` login), can't do zone operations, and its only benefit is a no-token path.
 7. **Live read verification:** none of the seven credentials exist here. *Recommend:* the operator supplies read-scoped tokens (a Cloudflare token scoped to Zone:Read + DNS:Read, a DigitalOcean read-scope token) to `connector-secrets.yaml` in a scratch HOME. Otherwise we accept fake-backend verification only and say so in each PR. Namecheap has no read scope and needs the IP whitelist, so any live check there is a full-account key.
 8. **Rotation:** *Recommend:* when a console secret save hits a loaded plugin's id, the host auto-reloads that plugin, rather than just documenting "run `managed load`".

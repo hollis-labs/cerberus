@@ -258,7 +258,7 @@ user. Nothing local can prove that a CLI call came from a human. So:
 - The principal kind is used to pick **default policy**, never to grant
   approval.
 - A call is treated as `agent` unless it comes from an interactive TTY with no
-  `CERBERUS_PRINCIPAL=agent` marker. Agent launchers such as app-b set that
+  `CERBERUS_PRINCIPAL=agent` marker. Agent launchers set that
   marker. It is a label, not a proof.
 - **Approval is the control, and it always goes out of band (I5).** This is why
   the human-vs-agent label can be weak without breaking the model.
@@ -379,7 +379,7 @@ prefix matching is easy to get around with `;`, `$()` and environment tricks.
 The target answer is **named runbook operations**. A config declares
 `ssh.run: disk_usage` with fixed argv and an effect class. Agents call the
 named op, and raw `exec` stays `approve` everywhere. This matches the existing
-direction of promoting the proven `~/admin-tools` scripts into connector
+direction of promoting proven admin shell scripts into connector
 verbs. It is also where the `ssh.exec` elevation question
 (`infra-admin-control-plane.md`) gets answered: `sudo` only inside named
 elevated runbooks.
@@ -445,7 +445,7 @@ Rules:
     target id to be typed (Decision 3). Not valid for agent principals, and
     not enough on prod, shared or `owner != self` targets.
   - **`out_of_band`** needs an approval from a different surface: the CLI on a
-    TTY, the web console, or a HITL adapter such as Tangent. Required for prod,
+    TTY, the web console, or a HITL adapter. Required for prod,
     shared and anything `owner != self`.
 - **No self-approval.** The approval surface must differ from the request
   surface. An `mcp_*` surface can never approve an out-of-band request.
@@ -462,8 +462,8 @@ Rules:
   get past an `approve` decision, never past a `deny`. It is loud in the audit
   log and triggers a notification.
 - **Channels are adapters.** Start with the CLI and the web console. Then
-  other HITL adapters behind the same interface, starting with
-  hollis-labs/tangent's `/hitl` inbox, and possibly app-b messaging or Teams.
+  other HITL adapters behind the same interface, such as an agent-facing
+  HITL inbox, and possibly a messaging tool or chat app.
   The broker records which adapter delivered a decision but does not trust one
   more than another. An adapter must accept decisions only from its human UI,
   never from a tool an agent can call (Decision 6).
@@ -600,8 +600,8 @@ gives the built-ins the coverage they lack today.
 
 **The trust model: the user chooses the code, and Cerberus makes the choice an
 informed one.** Cerberus does not sign, vet or vouch for plugins, ours
-included. That is a portfolio decision: app-a had a real signing workflow and
-it was dropped. A plugin installs from a directory, a file or an archive, the
+included. That is a deliberate decision: an earlier project built a real signing
+workflow and it was dropped. A plugin installs from a directory, a file or an archive, the
 same way nearly every extensible tool works. What Cerberus owns is the
 *contract* a plugin must declare, a *review* at install that shows what the
 plugin can do and where its declaration has gaps, and *enforcement and audit*
@@ -690,8 +690,8 @@ Rules:
   `writeMode` in the kubernetes plugin) are extra protection. The
   split-brain between `requireAcknowledgment` and `OperationAllowed` goes away.
 - **Plugin ops reach MCP generated from the manifest**, with annotations derived
-  from the contract. They are **hidden until enabled**, like app-a's
-  `LoadType: opt-in`, so a new plugin does not silently widen the agent tool
+  from the contract. They are **hidden until enabled**, like an opt-in
+  load type, so a new plugin does not silently widen the agent tool
   surface.
 - **A plugin preview is the plugin's claim.** It counts as `server` or `host`
   only if the manifest declares it and the user accepted that declaration at
@@ -876,14 +876,13 @@ what it means for the design above.
    pipeline `shell` stay `exec`. No command-prefix allow-lists.
 6. **First approval channels: the CLI (`cerberus approvals`) and the web
    console.** More HITL adapters follow behind the same broker interface. The
-   first named one is **hollis-labs/tangent**, whose durable `/hitl` inbox is
-   the right shape for an approval queue with a plan diff. One constraint on
-   any adapter, Tangent included: **the decision must come from the adapter's
-   human UI, never from a tool an agent can call.** Tangent is agent-summoned
-   and exposes relay tools to agents, so the adapter has to accept decisions
-   only from the UI path and report which path it used, or it is
-   self-approval with more steps (I5). app-b messaging and Teams remain
-   candidates.
+   first candidate is an agent HITL tool with a durable inbox, which is the
+   right shape for an approval queue with a plan diff. One constraint on any
+   adapter: **the decision must come from the adapter's human UI, never from
+   a tool an agent can call.** An inbox that agents summon and that exposes
+   relay tools to them has to accept decisions only from the UI path and
+   report which path it used, or it is self-approval with more steps (I5). A
+   messaging tool or chat app remain candidates.
 7. **Plugin preview trust: declared and accepted, never verified.** *Revised
    the same day; see 12.* A plugin preview counts as `server` or `host` when
    the manifest declares it and the user accepted that declaration in the
@@ -915,8 +914,8 @@ what it means for the design above.
     `env: dev` targets without a prompt, so day-to-day local work does not
     change. Agents follow the normal baseline.
 
-12. **Plugins are not signed or vetted.** A portfolio decision: app-a had a
-    real signing workflow and it was dropped, and Cerberus does not vet other
+12. **Plugins are not signed or vetted.** A deliberate decision: an earlier
+    project built a real signing workflow and it was dropped, and Cerberus does not vet other
     people's plugins. A plugin installs from a directory, file or archive. The
     plugin design instead requires a full declaration (effect classes,
     targets, previews, outputs, secrets, capabilities, a suggested policy,
@@ -954,13 +953,14 @@ what it means for the design above.
     `owner: unknown`, which matches rules the way `prod` plus "not ours"
     would. In shadow mode, the audit log shows every target that still needs
     a label before P3 turns enforcement on.
-18. **Ownership is two attributes, not one.** *Taken at the P2 cut.* On the
-    work estate, the team that provisions a box is often not the team that
-    administers what runs on it. The infra/networking department sets up hosts
-    and Kubernetes, but we frequently administer the docker network, the
-    cluster workloads and the software, especially during a POC before infra
-    takes over. `staging-cluster` is provisioned by the AWS team, and we fully
-    control its settings, software, containers and ssh. So a target carries:
+18. **Ownership is two attributes, not one.** *Taken at the P2 cut.* In a
+    company estate, the team that provisions a box is often not the team that
+    administers what runs on it. An infrastructure team may set up hosts and
+    Kubernetes while the operator administers the docker network, the cluster
+    workloads and the software, especially during a POC before that team
+    takes over. A staging host such as `staging-cluster` can be provisioned by
+    one team and fully controlled (settings, software, containers, ssh) by
+    another. So a target carries:
     - `owner`: who provisions and ultimately owns it (`self` or a team).
     - `admin`: who administers it day to day: `self`, `shared` or `owner`.
       This is scopable per sub-target kind, for example
@@ -971,7 +971,7 @@ what it means for the design above.
     policy default for `admin: owner`. It is no longer a blanket rule for
     every work target.
 19. **Agent launchers set `CERBERUS_PRINCIPAL=agent`.** The operator adds it to
-    app-b. A non-TTY CLI call is also classified `agent` (Decision 9).
+    their agent launchers. A non-TTY CLI call is also classified `agent` (Decision 9).
 20. **The web console gets a real login in P2.** `cerberus web open` prints or
     opens a one-time URL. It is exchanged for a session cookie (`HttpOnly`,
     `SameSite=Strict`), and the unauthenticated `GET /api/session` goes away.

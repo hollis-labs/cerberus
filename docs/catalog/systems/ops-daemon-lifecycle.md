@@ -43,7 +43,7 @@ and `launchctl load`s it. `cerberus uninstall` unloads and removes it. Both are
 macOS-only and both use the deprecated `load`/`unload` verbs rather than
 `bootstrap`/`bootout`, and both discard the unload error.
 
-AGENTS.md describes the plist on this machine as hand-written. It is byte-for-byte
+AGENTS.md describes the plist on the audit machine as hand-written. It is byte-for-byte
 what `cerberus install` would have produced: same label, same
 `ProgramArguments` of `[~/go/bin/cerberus, daemon, --foreground]`,
 same `WorkingDirectory` of the home directory, same `RunAtLoad`, `KeepAlive` and
@@ -68,7 +68,7 @@ path for an `os_service` resource, or by `command[0]` for a dev_session one. It
 does not merely refuse; it names the recovery in the error: build to a temporary
 path, atomically move the binary over the daemon artifact, then
 `launchctl kickstart -k gui/<uid>/com.fragments-engine.cerberus` from an external
-terminal. That guard is generic enough to fire on this machine even though no
+terminal. That guard is generic enough to fire on the audit machine even though no
 `cerberus-daemon-service` resource is registered here, because the `command[0]`
 comparison would catch it.
 

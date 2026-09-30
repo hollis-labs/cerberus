@@ -5,7 +5,7 @@ What Cerberus can do, what it cannot do yet, and why — as data.
 Two artefacts, kept in sync:
 
 - **`catalog.json`** — the machine-readable record set, shaped for
-  `~/src/tools/leaderboard-explorer` so it can be visualised without a
+  a leaderboard-style explorer so it can be visualised without a
   conversion step.
 - **`systems/*.md`** — one document per major system: YAML frontmatter that
   mirrors the record envelope, then prose that explains the system the way a

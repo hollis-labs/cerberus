@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "shipped"
 review_status: "draft"
 confidence_score: 0.85
-confidence_label: "six resources are enrolled and running on this machine; I did not stop one to watch a restart, so the restart branch itself is test-verified rather than observed"
+confidence_label: "six resources are enrolled and running on the audit machine; I did not stop one to watch a restart, so the restart branch itself is test-verified rather than observed"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -40,7 +40,7 @@ relationships:
 
 `internal/cerbapi/resource_monitor.go` is the only active supervision in the product. The daemon starts exactly one of these (`cmd_daemon.go` line 446) alongside the artifact drift cache; the v1 `daemon.Monitor` and `service.ServiceRegistry` are never constructed by the daemon at all.
 
-Enrolment is `shouldMonitorResource`: local/process, mode resolves to `dev_session`, and `auto_restart: true`. `os_service` resources are excluded by design — launchd's `KeepAlive` already does that job, and a second restarter would fight it. On this machine six resources are enrolled (`postgres`, `jaeger`, `app-b-daemon`, `app-b-sysop`, `app-d-daemon`, `app-c-api`, `app-e-api` — seven, in fact) and three are deliberately not: `app-a-local` and `tunnel-host-a` set both flags false because an auto-restarting `ssh` against a corporate auth endpoint is a good way to get an account locked out.
+Enrolment is `shouldMonitorResource`: local/process, mode resolves to `dev_session`, and `auto_restart: true`. `os_service` resources are excluded by design — launchd's `KeepAlive` already does that job, and a second restarter would fight it. On the audit machine six resources are enrolled (`postgres`, `jaeger`, `app-b-daemon`, `app-b-sysop`, `app-d-daemon`, `app-c-api`, `app-e-api` — seven, in fact) and three are deliberately not: `app-a-local` and `tunnel-host-a` set both flags false because an auto-restarting `ssh` against a corporate auth endpoint is a good way to get an account locked out.
 
 Each tick, the loop re-resolves config, garbage-collects retry state for resources that are no longer monitored (so a re-added id does not inherit an exhausted budget), orders resources by declared dependency, and for each enrolled resource: skips it if the operator paused it via `pausectl`, takes the runtime's `opMu` to read status, and treats `stopped`, `failed` or `unknown` as down. Before restarting it refuses on a port conflict, respects `max_restart_attempts` (default 3) and `restart_cooldown` (default 10s), logs the dependency warnings it is about to ignore, then calls `Apply` under `opMu`. A recovery resets the failure count and logs `resource_recovered`.
 

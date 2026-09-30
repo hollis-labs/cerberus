@@ -72,9 +72,9 @@ minor release cannot silently widen our output.
 
 For credentials specifically: expose the *shape* of the configuration, never the
 value. A gateway response carries `auth_type` — that some bearer auth is
-configured — and never `auth_token`. This matches the `probe-*` convention
-already in use in `~/admin-tools`: environment variable names, never values,
-so output is safe to paste into a document.
+configured — and never `auth_token`. This matches a common convention for
+probe scripts: environment variable names, never values, so output is safe to
+paste into a document.
 
 Each connector that returns credential-adjacent data carries a test asserting
 that a populated secret field does not appear in the serialized response.

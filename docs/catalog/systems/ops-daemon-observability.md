@@ -38,7 +38,7 @@ relationships:
 
 The daemon writes one JSON line per event to `~/.cerberus/cerberus.log`, set up
 by `InitLifecycleLog` with `os.O_APPEND` and a plain `slog.NewJSONHandler`. On
-this machine that file is 3050 lines and 385 KB, and its first line is dated
+the audit machine that file is 3050 lines and 385 KB, and its first line is dated
 2026-03-22 — six months of history in a single file. There is no rotation
 anywhere in the repo: no `lumberjack`, no size cap, no age-based truncation, no
 logrotate fragment. The handler is constructed with a nil options struct, so the

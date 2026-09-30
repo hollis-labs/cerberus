@@ -100,10 +100,10 @@ then the repo must produce a deterministic filesystem artifact in the workspace.
 
 Good examples:
 
-- `./bin/hadrond`
+- `./bin/app-ad`
 - `./app-c`
 - `./app-a`
-- `./demo`
+- `./app-m`
 
 Bad examples:
 
@@ -270,7 +270,7 @@ project:
 It is not a local label. The same string is already:
 
 - the Cerberus registry key (`owner`),
-- the app-c memory namespace segment — `user/<user>/project/<slug>/memory/<type>`,
+- the memory namespace segment an agent memory store keys projects by — `user/<user>/project/<slug>/memory/<type>`,
 - the agent-setup project-template basename — `templates/projects/<slug>.md`.
 
 So it is validated, not merely required: lowercase kebab-case, letters,
@@ -289,7 +289,7 @@ match; a config naming the project two different things is rejected.
 ### `capabilities` and `links`
 
 Both are optional and both are portable — they describe the project
-itself, not this machine's opinion of it. Anything operator-local (an
+itself, not one machine's opinion of it. Anything machine-local (an
 inbox, launch preferences, which project card to plant) belongs to the
 local control plane's own objects, never here.
 
@@ -337,7 +337,7 @@ fields anywhere else.
 
 ### What does not go here
 
-No repo root, no app-c namespace, no inbox, no launch preferences.
+No repo root, no memory namespace, no inbox, no launch preferences.
 The namespace is derived at materialization time from the slug plus the
 local user; the repo root is `dirname(configPath)` once the config lives
 in the repo it describes. Storing either is the stale state this shape

@@ -222,7 +222,7 @@ $ check_access --context corp-prod
 
 $ get_health --context local-dev
   reachable: false
-  message: cannot resolve the API server host in https://k8s.corp.example.com:6443;
+  message: cannot resolve the API server host in https://k8s.internal.example.com:6443;
     if the cluster is only reachable on the VPN, check the VPN before the cluster
 ```
 
@@ -608,7 +608,6 @@ has already produced a commit that did not compile. `git worktree add
 ../cerberus-<wp> -b <branch>`, commit with explicit pathspecs, check
 `git diff --cached --name-only` first.
 
-The plugins repo is a separate checkout at `~/src/cerberus-plugins`
-and the same rule applies there.
+The plugins repo is a separate checkout, and the same rule applies there.
 
 `--new-from-rev` does not check formatting; run `gofmt -l .` separately.

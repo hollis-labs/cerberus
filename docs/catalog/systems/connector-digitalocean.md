@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.82
-confidence_label: "Fake-backend, pagination, DTO and scrubber tests in the plugin; no DigitalOcean token on this machine, so live reads wait for the operator's UAT"
+confidence_label: "Fake-backend, pagination, DTO and scrubber tests in the plugin; no DigitalOcean token on the audit machine, so live reads wait for the operator's UAT"
 last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"

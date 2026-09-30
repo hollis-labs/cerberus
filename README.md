@@ -2,16 +2,15 @@
 
 Cerberus is a single-binary Go control plane for local infrastructure. It
 builds, deploys, supervises, and inspects the daemons, dev servers, and
-background services the Hollis Labs portfolio runs — over one runtime service
+background services you run — over one runtime service
 that the CLI, daemon socket, HTTP API, web console, and MCP adapter all share.
 It owns execution and derived operational state, not the definitions a
 project writes about itself, the data it holds, or the credentials it needs.
 
 > **Pre-release.** Cerberus ships real beta builds — a Homebrew tap, tagged
-> GitHub releases, checksummed tarballs — and runs in active internal use
-> across Hollis Labs: it's the control plane that deploys and supervises this
-> portfolio's own services, including the MCP surface an agent session may be
-> calling right now. It has no outside users yet, no compatibility
+> GitHub releases, checksummed tarballs — and is in daily use by its
+> maintainers as the control plane that deploys and supervises their own
+> services, MCP surface included. It has no outside users yet, no compatibility
 > guarantees, and no support channel. Built in the open: interfaces and
 > behavior can still change without notice.
 
@@ -39,7 +38,7 @@ project writes about itself, the data it holds, or the credentials it needs.
 ## Where it sits in the stack
 
 ```
-   agents / operators     Claude Code, app-a-hosted agents, human at the CLI
+   agents / operators     Claude Code and other MCP clients, a human at the CLI
          │
     ┌───────────┐
     │ Cerberus  │   build → deploy → supervise → inspect, one runtime service
@@ -49,17 +48,16 @@ project writes about itself, the data it holds, or the credentials it needs.
                            droplets, Cloudflare/Namecheap DNS
 ```
 
-Cerberus is the ops layer underneath the rest of the portfolio: app-a,
-app-e, app-c, app-b and the others run as Cerberus-supervised
-resources, but Cerberus doesn't know or care what they do — it only knows how
-to build, install, start, stop, and report on them.
+Cerberus is the ops layer underneath the services it runs: they are
+Cerberus-supervised resources, but Cerberus doesn't know or care what they
+do — it only knows how to build, install, start, stop, and report on them.
 
 ## Examples
 
-**Daily driver.** operator ships changes to any portfolio service with
+**Daily driver.** An operator ships changes to any service with
 `cerberus resource deploy <id> --ack`, checks for build/install drift with
 `resource status`, and manages domain cutovers with
-`cerberus connectors exec cloudflare|namecheap …` — one CLI for every service in the portfolio, local or
+`cerberus connectors exec cloudflare|namecheap …` — one CLI for every service, local or
 remote.
 
 **Agent-driven ops.** This session's `cerberus_resource_*` tools and the
@@ -71,7 +69,7 @@ everything else.
 **Off-laptop execution.** A Claude Code or Codex session can run on a
 Cerberus-provisioned DigitalOcean droplet instead of the local machine —
 Cerberus handles provisioning, credential delivery over SSH, and teardown;
-session lifecycle stays app-a's concern.
+session lifecycle stays the agent host's concern.
 
 ## Roadmap
 
@@ -325,7 +323,7 @@ the CLI, and from MCP as `resource_id` on `cerberus_docker_up`/`_down`:
   type: container
   connector: docker
   config:
-    compose_file: /Users/you/Projects/web-monitor/docker-compose.yml
+    compose_file: ~/Projects/web-monitor/docker-compose.yml
 ```
 
 ```bash
@@ -417,7 +415,7 @@ registry resolution dropped a registered config or resolved one with warnings:
 
 ```
 2 config(s) skipped, 1 with warnings
-  skipped: app-e, app-b; warnings: futureapp
+  skipped: app-a, app-b; warnings: futureapp
   run 'cerberus registry health' for detail
 ```
 
@@ -439,22 +437,11 @@ The Cerberus daemon itself now follows this same model as `cerberus-daemon-servi
 
 For the repo-side rules a project should satisfy before it is added to the v2 lane, see [docs/guides/setting-up-a-project-for-cerberus-v2.md](docs/guides/setting-up-a-project-for-cerberus-v2.md). For recovery help, see [docs/guides/local-runtime-troubleshooting.md](docs/guides/local-runtime-troubleshooting.md).
 
-## Port Map
+## Ports
 
-All ports are unique across the suite suite:
-
-| Port | Service |
-|------|---------|
-| 1420 | app-h Frontend (Vite) |
-| 5173 | app-c Frontend (Vite) |
-| 5174 | Ion Frontend (Vite) |
-| 7765 | Nil Dev |
-| 8085 | app-h API |
-| 8089 | app-c API |
-| 8095 | app-d Daemon |
-| 8096 | Ion API |
-| 9085 | app-h gRPC (auto, started by app-h API) |
-| 34116 | app-d GUI (Wails desktop) |
+Give each resource that listens its own `port:`, unique across everything
+Cerberus supervises, so two services never race for one. Omit `port` for a
+process that doesn't listen, and never set `port: 0`.
 
 ## Configuration
 
@@ -468,25 +455,25 @@ For the modern local-process path, define a v2 resource:
 version: 2
 
 projects:
-  - id: app-h
-    name: app-h
+  - id: app-a
+    name: App A
 
 resources:
-  - id: app-h-api
-    name: app-h API
+  - id: app-a-api
+    name: App A API
     type: process
-    project: app-h
+    project: app-a
     connector: local
     config:
-      dir: ~/dev/hollis-labs/apps/app-h
-      command: ["./app-h-api", "serve"]
+      dir: ~/src/app-a
+      command: ["./app-a-api", "serve"]
       build_strategy:
         kind: go_standard
         source:
           root: .
         rules:
-          output: app-h-api
-          target: ./cmd/app-h-api
+          output: app-a-api
+          target: ./cmd/app-a-api
       mode: os_service
       supervisor: launchd
       run_from: artifact
@@ -506,12 +493,12 @@ Typical `os_service` flow on macOS:
 
 ```bash
 cerberus resource list
-cerberus resource status app-h-api
-cerberus resource deploy app-h-api --ack
-cerberus resource logs app-h-api --stream stderr --lines 100
-cerberus resource reload app-h-api --ack
-cerberus resource stop app-h-api --ack
-cerberus resource remove app-h-api --ack
+cerberus resource status app-a-api
+cerberus resource deploy app-a-api --ack
+cerberus resource logs app-a-api --stream stderr --lines 100
+cerberus resource reload app-a-api --ack
+cerberus resource stop app-a-api --ack
+cerberus resource remove app-a-api --ack
 ```
 
 Guidance:
@@ -559,7 +546,7 @@ Cerberus now has a canonical v2 daemon resource:
     type: process
     connector: local
     config:
-      dir: ~/dev/hollis-labs/apps/cerberus
+      dir: ~/src/cerberus
       command: ["./cerberus", "daemon", "--foreground"]
       build_strategy:
         kind: go_standard
@@ -610,6 +597,5 @@ Service stdout/stderr goes to `$TMPDIR/cerberus-<service-id>.log`.
 
 ## Notes
 
-- **app-d GUI** uses `wails dev` which opens a native desktop window on start — this is inherent to Wails and can't be deferred to click-to-open.
-- **app-a** is also a Wails app and behaves similarly.
+- A Wails app run with `wails dev` opens a native desktop window on start — this is inherent to Wails and can't be deferred to click-to-open.
 - Services with `url` set can be opened in browser; services without (Wails apps) show no `[open]` action.

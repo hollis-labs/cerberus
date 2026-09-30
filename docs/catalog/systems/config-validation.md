@@ -80,8 +80,8 @@ configs in a scratch directory; every one below returned `OK` and exit 0:
 
 - No filesystem path is ever checked. A `dir`, `env_file`, `log_file` or
   `command[0]` that does not exist validates clean. `cerberus validate
-  ./cerberus.cerberus.yaml` returns `OK` on this machine even though its every
-  `dir:` points at `/Users/<other-user>/dev/hollis-labs/apps/cerberus`.
+  ./cerberus.cerberus.yaml` returns `OK` on the audit machine even though its every
+  `dir:` points at `~other-user/dev/hollis-labs/apps/cerberus`.
 - `type:` and `connector:` are checked for presence only, never against the set
   of connectors the binary actually has. `connector: totally-not-a-connector`
   validates clean.
@@ -101,7 +101,7 @@ configs in a scratch directory; every one below returned `OK` and exit 0:
   stage `depends_on` is not resolved against sibling stages. This repo's own
   descriptor uses `deploy_app` and `build_app`, neither of which appears in
   `config.ActionDef`'s documented list.
-- A port already bound on this machine is not checked, although
+- A port already bound on the audit machine is not checked, although
   `service.CheckPortConflict` exists and does exactly that at dev-session start.
 
 Enforcement confirmed: `port: 0` errors with the omit-the-field recovery text,

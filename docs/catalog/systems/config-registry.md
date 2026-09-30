@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.88
-confidence_label: "fully read and unit-tested, but zero registered entries on this machine across 1791 monitor samples, so the register/resolve path is unexercised here"
+confidence_label: "fully read and unit-tested, but zero registered entries on the audit machine across 1791 monitor samples, so the register/resolve path is unexercised here"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -30,7 +30,7 @@ relationships:
     note: "provides the second source resolution merges"
   - type: "blocks"
     target: "CERB-GAP-544"
-    note: "the lane exists but is not in use on this machine"
+    note: "the lane exists but is not in use on the audit machine"
 ---
 
 # Project config registry
@@ -72,4 +72,4 @@ Verified live on 2026-09-17: `~/.cerberus/registry.yaml` does not exist,
 `cerberus registry list` prints "No project configs registered", and all 1791
 samples in `~/.cerberus/state/overview_snapshots.json` from 2026-09-15T17:31 to
 2026-09-17T10:52 report `registry_entries: 0`. The register lane is code that
-works in tests and has never been exercised on this machine.
+works in tests and has never been exercised on the audit machine.

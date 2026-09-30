@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.8
-confidence_label: "extensively unit-tested against a fake command runner; no resource on this machine uses os_service, so nothing here has a live exercise"
+confidence_label: "extensively unit-tested against a fake command runner; no resource on the audit machine uses os_service, so nothing here has a live exercise"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -53,7 +53,7 @@ The careful part is `waitRunning`. The comment above it states the constraint: c
 
 Supervisor selection is `effectiveSupervisor`: `auto` resolves by GOOS to launchd on darwin, `systemd_user` on linux, `windows_service` on windows. Only launchd has a backend, so the other two resolve successfully and then fail with `os_service start not implemented yet`.
 
-Maturity is `partial` deliberately. The unit coverage is real and thorough — `launchd_test.go` is 973 lines against an injected command runner — but `cerberus resource list` on this machine shows nine `dev_session` resources and zero `os_service` resources, and the daemon itself runs from a hand-written plist that Cerberus did not generate. The root CLI help says the daemon "now also fits this model as the v2 local process resource `cerberus-daemon-service`"; no such resource is registered here (CERB-GAP-149). Nothing in this capability is proven against a real launchd job by this installation.
+Maturity is `partial` deliberately. The unit coverage is real and thorough — `launchd_test.go` is 973 lines against an injected command runner — but `cerberus resource list` on the audit machine shows nine `dev_session` resources and zero `os_service` resources, and the daemon itself runs from a hand-written plist that Cerberus did not generate. The root CLI help says the daemon "now also fits this model as the v2 local process resource `cerberus-daemon-service`"; no such resource is registered here (CERB-GAP-149). Nothing in this capability is proven against a real launchd job by this installation.
 
 ## What it owns
 
@@ -69,7 +69,7 @@ Maturity is `partial` deliberately. The unit coverage is real and thorough — `
 - restart on crash — launchd's KeepAlive does that, which is why the resource monitor skips os_service resources entirely
 - systemd or Windows service supervision (recognised, not implemented)
 - a PATH for the supervised service: `EnvironmentVariables` carries only env_file + env
-- supervision of the daemon on this machine — that plist is hand-written and outside Cerberus
+- supervision of the daemon on the audit machine — that plist is hand-written and outside Cerberus
 - resolution of the secret values themselves; the plist keeps references and `run-secrets` resolves them in the service process
 
 ## Vendor dependencies

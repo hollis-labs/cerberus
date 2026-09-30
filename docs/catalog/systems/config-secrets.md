@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.8
-confidence_label: "code and tests read in full and the per-call rotation property confirmed from the factory wiring, but no reference is in use on this machine so nothing was resolved live"
+confidence_label: "code and tests read in full and the per-call rotation property confirmed from the factory wiring, but no reference is in use on the audit machine so nothing was resolved live"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -49,7 +49,7 @@ Two reference schemes are understood, parsed by `internal/secretref`:
     keychain://<service>/<key>              the Cerberus login-keychain entry
     helper://<helper>/<authority>/<path>    `<helper> resolve keychain://<authority>/<path>`
 
-The helper scheme exists so a secret shared with another Hollis Labs app does
+The helper scheme exists so a secret shared with another app does
 not need a second copy in a second namespace — app-b's key is reachable as
 `helper://apikey-helper/openai/work`, resolving the same single entry
 app-b's own resolver reads.
@@ -95,6 +95,6 @@ there is no `cerberus secrets` CLI; the only write surface is the web console,
 which constructs a bare `NewKeychainProvider` and therefore does not see
 `connector-secrets.yaml` at all.
 
-Verified on this machine 2026-09-17: `~/.cerberus/connector-secrets.yaml` does
+Verified on the audit machine 2026-09-17: `~/.cerberus/connector-secrets.yaml` does
 not exist, and no resource in `~/.cerberus/config.yaml` uses a reference in its
 `env:`. The reference lane is entirely `verified: test` here.

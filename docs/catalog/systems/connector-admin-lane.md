@@ -59,7 +59,7 @@ stateless by construction: `Execute` takes a connector id, an operation name, a
 config map, and two booleans — `dry_run` and `acknowledged` — and resolves
 everything else per call. There is no session, no cached host and no cached
 credential, which is the property that makes one daemon able to administer the
-work host and a cloud account in consecutive calls without either becoming a
+remote host and a cloud account in consecutive calls without either becoming a
 default the next call inherits.
 
 The shape of `Execute` is worth reading in order, because the order is the

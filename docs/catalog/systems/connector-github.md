@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.85
-confidence_label: "No credential on this machine; the live run returned credential_missing and exposed a redaction defect"
+confidence_label: "No credential on the audit machine; the live run returned credential_missing and exposed a redaction defect"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -54,7 +54,7 @@ message naming both recoveries — "set CERBERUS_GITHUB_TOKEN or install gh" —
 which is the right shape for a credential error.
 
 That message is also how this audit found a live redaction defect. Running
-`cerberus github status hollis-labs/cerberus` on this machine returns:
+`cerberus github status hollis-labs/cerberus` on the audit machine returns:
 
     credential_missing: [REDACTED] connector: no API token and gh CLI not found
     — set CERBERUS_GITHUB_TOKEN or install gh

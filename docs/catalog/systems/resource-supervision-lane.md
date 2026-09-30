@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.9
-confidence_label: "read-only verbs run live against the running daemon; the os_service and artifact halves of the lane have no live exercise on this machine"
+confidence_label: "read-only verbs run live against the running daemon; the os_service and artifact halves of the lane have no live exercise on the audit machine"
 last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -25,7 +25,7 @@ tags:
 relationships:
   - type: "depends_on"
     target: "CERB-CAP-101"
-    note: "dev_session is the only runtime mode in use on this machine"
+    note: "dev_session is the only runtime mode in use on the audit machine"
   - type: "depends_on"
     target: "CERB-CAP-102"
     note: "os_service/launchd is the second runtime mode"
@@ -49,7 +49,7 @@ relationships:
 
 Its scope is narrow on purpose. `SupervisedLocally(type, connector)` is `type == "process" && connector == "local"`, and that pair is hardcoded at 17 non-test sites across the repo — 8 of them inside `resource_runtime_service.go` itself, 12 inside `internal/cerbapi` (adding `unsupervised.go`, `resource_dependencies.go`, `drift_cache.go`, `resource_monitor.go`), and 5 further out in `internal/pipeline/resolve.go`, `internal/config/paths.go`, `internal/registry/ports.go`, `internal/registry/schema.go` and `cmd/cerberus/cmd_resource.go`. The code comment says "roughly ten places"; the real count is higher, and it is higher in the places that matter — the registry's port validation and the pipeline resolver share the same assumption, so widening the lane is not a one-file change.
 
-A resource selects its runtime mode with `mode:`. `dev_session` (the default when `mode:` is absent) launches the command as a child process group and tracks it by PID file plus a launch-identity check. `os_service` writes a launchd plist and hands supervision to launchd. `run_from:` is orthogonal: `workspace` runs the command where it sits, `artifact` installs a copy under `~/.cerberus/apps/<project>/<resource>/bin/` and runs that. On this machine all nine local process resources are `dev_session` + `workspace`, none declares a `build_strategy`, and nothing reports an artifact state — so half of this capability's surface area, the half the CLI help text advertises most loudly, has no production exercise here at all.
+A resource selects its runtime mode with `mode:`. `dev_session` (the default when `mode:` is absent) launches the command as a child process group and tracks it by PID file plus a launch-identity check. `os_service` writes a launchd plist and hands supervision to launchd. `run_from:` is orthogonal: `workspace` runs the command where it sits, `artifact` installs a copy under `~/.cerberus/apps/<project>/<resource>/bin/` and runs that. On the audit machine all nine local process resources are `dev_session` + `workspace`, none declares a `build_strategy`, and nothing reports an artifact state — so half of this capability's surface area, the half the CLI help text advertises most loudly, has no production exercise here at all.
 
 The lane serializes mutations on a single `opMu`, which the background resource monitor also takes, so a monitor restart and an operator `apply` cannot interleave. Config is re-resolved from `~/.cerberus/config.yaml` on every call (`snapshotConfig`) rather than snapshotted at startup, which is why a newly registered project appears without a daemon restart and why an unregistered one vanishes immediately.
 
@@ -73,7 +73,7 @@ Every read path carries an answer rather than a bare state: `recommended_action`
 - the frozen v1 `services:` lane and its `ServiceRegistry`, which the daemon never constructs
 - the definitions themselves: it reads `~/.cerberus/config.yaml` and never writes it
 - credentials — a resource names a secret reference and `cerberus run-secrets` resolves it in the service's own process
-- supervision of the Cerberus daemon on this machine: the daemon runs from a hand-written plist and is not a registered resource
+- supervision of the Cerberus daemon on the audit machine: the daemon runs from a hand-written plist and is not a registered resource
 
 ## Vendor dependencies
 

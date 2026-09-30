@@ -2,7 +2,7 @@
 id: "CERB-CAP-605"
 class: "capability"
 name: "Config registration and validation"
-summary: "Validation is schema-only and passes every descriptor in the estate, including nine that point at a user who does not exist on this machine."
+summary: "Validation is schema-only and passes every descriptor in the estate, including nine that point at a user who does not exist on the audit machine."
 state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
@@ -47,8 +47,8 @@ validates that one file. Both work and both are read-only.
 
 The finding is what validation does not do. Every one of the nine
 `*.cerberus.yaml` descriptors in the estate validates `OK`, including all eight
-whose every `dir:` is under `/Users/<other-user>` — a home directory that does not
-exist on this machine, as `ls -d /Users/<other-user>` confirms. Validation is
+whose every `dir:` is under `~other-user` — a home directory that does not
+exist on the audit machine, as `ls -d ~other-user` confirms. Validation is
 schema-only. It has a guard for the one value that has burned this project
 before, `port: 0`, held both by `findPIDByPort` and by
 `TestValidateProjectConfigPortZeroIsError`, but nothing checks that a declared

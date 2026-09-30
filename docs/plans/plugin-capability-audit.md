@@ -1,14 +1,14 @@
 # Plugin Capability Audit
 
 A cross-application audit of the plugin extension surface: what
-`hollis-labs/plugin-sdk` standardizes, what Cerberus uses, what app-a uses,
-and what Cerberus is leaving on the table. Findings and options, not a work
-breakdown.
+`hollis-labs/plugin-sdk` standardizes, what Cerberus uses, what another
+plugin-sdk host (app-a) uses, and what Cerberus is leaving on the table.
+Findings and options, not a work breakdown.
 
-Run 2026-09-18 against `plugin-sdk` v0.4.0, Cerberus `b6fdc35`, and app-a at
-`~/src/app-a`. app-a's `go.mod` on the machine audited declares
-`plugin-sdk v0.3.2-0.20260911214956-189243000161`; the SDK's current tag is
-`v0.4.0`, so treat app-a's numbers here as one minor version behind.
+Run 2026-09-18 against `plugin-sdk` v0.4.0, Cerberus `b6fdc35`, and app-a.
+The app-a checkout audited declares `plugin-sdk
+v0.3.2-0.20260911214956-189243000161`; the SDK's current tag is `v0.4.0`, so
+treat app-a's numbers here as one minor version behind.
 
 The point of the audit is alignment, not convergence. Two hosts using a shared
 contract differently is fine; two hosts using it differently *by accident* is
@@ -103,7 +103,7 @@ one block, `cerberus.connector`.
 
 app-a's manifest also carries metadata Cerberus has no equivalent for:
 
-- **`NaniteCompat{min, max}`** — a host version range.
+- **`HostCompat{min, max}`** — a host version range.
 - **`LoadType`** — `auto` (tools available by default) or `opt-in` (hidden
   until explicitly enabled), plus per-tool `ToolOverrides`.
 - **`Requires`** — declared dependencies on other plugins, MCP servers, features.
@@ -178,7 +178,7 @@ radius without any new machinery, and it is a natural fit for Cerberus, where
 every plugin operation automatically becomes an MCP tool.
 
 **A host compatibility range.** Cerberus's `PluginYAML` has no equivalent of
-`NaniteCompat{min, max}`, so a plugin built against one host version loads into
+`HostCompat{min, max}`, so a plugin built against one host version loads into
 any later one with nothing objecting. The entrypoint hash catches a *changed
 binary*; it does not catch a *stale contract*. This matters as soon as plugins
 come from outside the organization.

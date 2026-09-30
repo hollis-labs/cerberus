@@ -13,7 +13,7 @@ State as of 2026-09-17, so you do not have to rediscover it:
 
 - `main` is at `41c76a2` and is green. `v0.4.0-beta.2` is the current tag and the
   **first** one carrying `pkg/plugin`. `v0.4.0-beta.1` is unusable from a plugin —
-  it predates the module rename and declares `github.com/hollis-labs/cerberus`, so
+  it predates the module rename and declares the old module path, so
   Go rejects it on a path mismatch. `go mod tidy` will try to resolve back to it;
   pin `v0.4.0-beta.2` explicitly.
 - `hollis-labs/cerberus-plugins` exists, CI is green, and it fetches this private
@@ -73,7 +73,7 @@ no rebuild of the host.
 | `digitalocean` | **plugin** (2026-09-25) | **Plugin** | VPS provider, optional | `godo` (2.7MB) |
 | `forge` | **plugin** (2026-09-25) | **Plugin** | Laravel Forge, niche | none |
 | `namecheap` | **plugin** (2026-09-25) | **Plugin** | Registrar, optional | none |
-| **ContextForge** | — | **Plugin** | examplecorp-specific; a v0.x SDK against an evolving gateway, so rebuild-independence pays most | `go-contextforge` |
+| **ContextForge** | — | **Plugin** | Optional per deployment; a v0.x SDK against an evolving gateway, so rebuild-independence pays most | `go-contextforge` |
 | **Azure** | — | **Plugin** | Vendor SDK, optional | `azure-sdk-for-go` |
 
 **Our plugins live in `hollis-labs/cerberus-plugins`**, one directory per plugin,
@@ -128,7 +128,7 @@ the host derives tool names, so a plugin does not touch any of the five.
   meaningful. Read-only operations get neither — making reads prompt empties the
   gate of meaning.
 - **Never log or return a secret value.** Follow the `probe-*` convention from
-  `~/admin-tools`: environment variable *names*, never values. Error paths go
+  the existing admin scripts: environment variable *names*, never values. Error paths go
   through `redact.Text`.
 - **Return a Cerberus DTO, never a vendor SDK type** — see
   `docs/adr/0003-connector-response-dtos.md`. The DTO is an allow-list, so a
@@ -152,11 +152,12 @@ the host derives tool names, so a plugin does not touch any of the five.
 
 ### Verifying against real systems
 
-host-a is a corporate host on VPN and ContextForge is live. Probe with
-read-only operations, use `--dry-run` before any write, and clean up test
-artifacts. Do not restart, reconfigure or deploy anything on that host. If a
-package needs a real write to prove itself, write to a scratch path under
-`/home/operator/` and remove it afterwards.
+A remote host may be a corporate machine on a VPN, running live services such
+as a ContextForge gateway. Probe with read-only operations, use `--dry-run`
+before any write, and clean up test artifacts. Do not restart, reconfigure or
+deploy anything on such a host. If a package needs a real write to prove
+itself, write to a scratch path under your own home directory there and remove
+it afterwards.
 
 ## Sequencing
 
@@ -261,8 +262,8 @@ everything else on the host side.
 contract half is done — this is the remaining gap.
 
 **Module path — RESOLVED 2026-09-16.** The module was renamed from
-`github.com/hollis-labs/cerberus` to `github.com/hollis-labs/cerberus` to match
-the remote. `GOPRIVATE=github.com/hollis-labs/*` is already set, so a module
+its original personal path to `github.com/hollis-labs/cerberus` to match the
+remote. `GOPRIVATE=github.com/hollis-labs/*` is already set, so a module
 with repository access resolves it directly and **no `replace` directive is
 needed**.
 
@@ -308,7 +309,7 @@ leaves stdout — the JSON every parser here reads — untouched, and stderr is
 read only on a non-zero exit, so the success path pays nothing. `tcp://` and
 `unix://` report usable errors on their own and stay on default logging.
 
-Result against host-a, where `operator` is outside the `docker` group:
+Result against a remote host whose account is outside the `docker` group:
 
 ```
 $ cerberus docker ps -H ssh://host-a
@@ -325,12 +326,12 @@ The host, the cause and the recovery, none of which the CLI gives up on its own.
 
 ### Verified 2026-09-17
 
-host-a is the negative case by design — the brief already established the
-account is not in its `docker` group, and the run above is that, end to end from
-the connector.
+The remote host is the negative case by design: the brief already established
+the account is not in its `docker` group, and the run above is that, end to end
+from the connector.
 
-For the positive case, `ssh://localhost` was **not** available (Remote Login is
-off on this machine; `ssh localhost` is connection-refused), so a throwaway
+For the positive case, `ssh://localhost` was **not** available (Remote Login was
+off on the development machine; `ssh localhost` was connection-refused), so a throwaway
 Docker-in-Docker daemon on `tcp://127.0.0.1:12375` stood in as a genuinely
 separate daemon with its own container. Two daemons, two answers, one Cerberus:
 
@@ -360,17 +361,18 @@ Two things worth knowing before repeating this:
   `desktop-linux` lives. `DOCKER_CONFIG=~/.docker` restores it — and that it
   works at all is the `append(os.Environ(), …)` rule paying off in the open.
 
-**Not done, deliberately:** `operator` is still outside the `docker` group on
-host-a, and that is not ours to grant (see Open Questions in the control
-plane plan). Introspect ContextForge over HTTP there, as `tools/` does. The
-Azure box should add the user to the `docker` group at provisioning time.
+**Not done, deliberately:** the account is still outside the `docker` group on
+the remote host, and that is not the operator's to grant (see Open Questions in
+the control plane plan). Introspect a gateway over HTTP there, as the existing
+scripts do. A greenfield box should add the user to the `docker` group at
+provisioning time.
 
 ---
 
 ## WP-3 — Remote Docker over SSH *(core connector)* — DONE 2026-09-17
 
 **Why:** the same Docker operations should target a remote daemon, so one
-implementation serves both the Azure box and host-a. No new connector, no new
+implementation serves both a cloud dev box and a remote host. No new connector, no new
 SDK.
 
 **Do:** add host selection to the Docker connector — `DOCKER_HOST` (including
@@ -409,22 +411,22 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 So `~/.ssh/config` is readable, the agent socket is present, and docker's ssh
 transport shells out to `/usr/bin/ssh`, which is on that minimal PATH. The
-daemon already reaches host-a — `cerberus ssh status host-a` returns
+daemon already reaches the remote host: `cerberus ssh status host-a` returns
 `reachable: true` from the daemon, not just from a shell.
 
 Binary discovery is solved; `DetectDocker` and `CERBERUS_DOCKER_PATH` already
 landed. Do not re-litigate it.
 
-**Known constraint — verify, do not assume:** `operator` is not in the `docker`
-group on host-a. Confirmed 2026-09-16:
+**Known constraint — verify, do not assume:** the operator's account is not in
+the `docker` group on the remote host. Confirmed 2026-09-16:
 
 ```
 $ cerberus ssh exec host-a --ack -- 'id; docker ps'
-uid=12989(operator) gid=11000(hsv-all) groups=11000(hsv-all),20922(host-a)
+uid=1001(operator) gid=1001(staff) groups=1001(staff)
 permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
 ```
 
-So **host-a cannot be the happy-path test.** Use Docker Desktop locally over
+So **that host cannot be the happy-path test.** Use Docker Desktop locally over
 `ssh://localhost` if key auth to localhost is available, or document what could
 not be verified and why. A clear "blocked, here is the evidence" beats a test
 that quietly proves nothing.
@@ -471,7 +473,7 @@ leaves stdout — the JSON every parser here reads — untouched, and stderr is
 read only on a non-zero exit, so the success path pays nothing. `tcp://` and
 `unix://` report usable errors on their own and stay on default logging.
 
-Result against host-a, where `operator` is outside the `docker` group:
+Result against a remote host whose account is outside the `docker` group:
 
 ```
 $ cerberus docker ps -H ssh://host-a
@@ -488,12 +490,12 @@ The host, the cause and the recovery, none of which the CLI gives up on its own.
 
 ### Verified 2026-09-17
 
-host-a is the negative case by design — the brief already established the
-account is not in its `docker` group, and the run above is that, end to end from
-the connector.
+The remote host is the negative case by design: the brief already established
+the account is not in its `docker` group, and the run above is that, end to end
+from the connector.
 
-For the positive case, `ssh://localhost` was **not** available (Remote Login is
-off on this machine; `ssh localhost` is connection-refused), so a throwaway
+For the positive case, `ssh://localhost` was **not** available (Remote Login was
+off on the development machine; `ssh localhost` was connection-refused), so a throwaway
 Docker-in-Docker daemon on `tcp://127.0.0.1:12375` stood in as a genuinely
 separate daemon with its own container. Two daemons, two answers, one Cerberus:
 
@@ -523,10 +525,11 @@ Two things worth knowing before repeating this:
   `desktop-linux` lives. `DOCKER_CONFIG=~/.docker` restores it — and that it
   works at all is the `append(os.Environ(), …)` rule paying off in the open.
 
-**Not done, deliberately:** `operator` is still outside the `docker` group on
-host-a, and that is not ours to grant (see Open Questions in the control
-plane plan). Introspect ContextForge over HTTP there, as `tools/` does. The
-Azure box should add the user to the `docker` group at provisioning time.
+**Not done, deliberately:** the account is still outside the `docker` group on
+the remote host, and that is not the operator's to grant (see Open Questions in
+the control plane plan). Introspect a gateway over HTTP there, as the existing
+scripts do. A greenfield box should add the user to the `docker` group at
+provisioning time.
 
 ---
 
@@ -536,7 +539,7 @@ Azure box should add the user to the `docker` group at provisioning time.
 
 **Depends on WP-2.**
 
-**Why a plugin:** examplecorp-specific, so it does not belong in everyone's binary,
+**Why a plugin:** optional per deployment, so it does not belong in everyone's binary,
 and it tracks a v0.x community SDK against an evolving gateway — the case where
 rebuild-independence pays most. It also has no built-in with the same id, so it
 cannot hit the shadowing class of bug WP-0 fixed.
@@ -621,8 +624,8 @@ compose a virtual server, toggle a tool.
   testing a gateway before a virtual server exists, but **never register it in a
   client**, it imports everything.
 
-**Reachability:** CF is at `127.0.0.1:14444` through the `tunnel-host-a`
-resource, or on the box. Base URL must be configurable. If the tunnel is down
+**Reachability:** CF may be reachable only through a tunnel resource (for
+example `tunnel-host-a` forwarding `127.0.0.1:14444`), or on the box. Base URL must be configurable. If the tunnel is down
 the connector must say "tunnel is down", not "gateway is down" — a refused
 connection on 14444 means the former.
 
@@ -656,7 +659,7 @@ piece, not that the plugin should reach in.
 
 **Outcome:** shipped in `hollis-labs/cerberus-plugins` (`contextforge/`) with
 four read-only operations. `get_health` verified live through the tunnel;
-`list_gateways` is unproven because no ContextForge JWT exists on this machine —
+`list_gateways` was unproven because no ContextForge JWT was available where it was built;
 it returns an actionable 401 naming the keychain path. The `Backend` interface
 returns DTOs rather than vendor types, so `cf.*` is confined to two files and a
 connector *structurally cannot* return a credential-bearing struct — stronger
@@ -757,8 +760,8 @@ the block is not a code problem:
   does not cover the VNet, NIC and public IP a new VM attaches to. Scoping to a
   single resource group is what makes it least-privilege, not picking narrower
   role names.
-- Note the governance question rather than assuming it away: this is a shared
-  shared subscription. Putting a persistent billable VM in it is a
+- Note the governance question rather than assuming it away: the subscription
+  was a shared one. Putting a persistent billable VM in it is a
   decision for whoever owns it, and a sandbox subscription would be the better
   home.
 
@@ -863,7 +866,8 @@ its first live use.
 
 **Decided 2026-09-16, replacing an earlier "reject `type: container`" plan.**
 
-The original framing was wrong and the live config proves it. `host-a` is
+The original framing was wrong and the live config proves it. A remote host
+registered as `host-a` is
 `type: server` / `connector: ssh` — registered, listed, and deliberately not
 supervised:
 
@@ -1143,8 +1147,8 @@ daemon-managed lane):
 - With none set, `list_gateways` fails `credential_missing` and the guidance
   arrives intact through redaction.
 
-**`list_gateways` returning gateways is still unverified: there is no
-ContextForge admin JWT on this machine.** The keychain has no
+**`list_gateways` returning gateways was still unverified: there was no
+ContextForge admin JWT on the development machine.** The keychain has no
 `contextforge/token` and there is no `~/.cerberus/connector-secrets.yaml`, so
 every live call 401s. The channel is proven; the credential is not. Supply a
 real JWT by either route and re-run to close this out.
@@ -1158,14 +1162,14 @@ The managed lane differs from what was exercised only by the wiring line in
 ## WP-8 — Privilege elevation for `ssh exec`
 
 **Why:** `ssh exec` runs as the operator's own account. Every real deploy in
-`~/admin-tools` needs root for at least one step — `docker load`,
+the existing admin scripts needs root for at least one step — `docker load`,
 `systemctl`, writing under `/opt/agents` — and `lib/common.sh` has a dedicated
 `rsudo` for it. Without elevation, `ssh exec` covers inspection but not the
 deploys it was built toward.
 
 **Two things `tools/` already learned the hard way, both load-bearing:**
 
-- **sudo on host-a requires a tty.** `rsudo` uses `ssh -t` for exactly this;
+- **sudo on the remote host requires a tty.** `rsudo` uses `ssh -t` for exactly this;
   without it sudo refuses with "sorry, you must have a tty to run sudo". The Go
   client must request a PTY on the session (`session.RequestPty`) when elevating.
 - **Arguments must be quoted individually.** `rsudo`'s comment records a real
@@ -1188,7 +1192,7 @@ deploys it was built toward.
 - Never log the command's output at a level that could carry a secret; elevated
   commands are exactly where credentials appear.
 
-**Acceptance:** an elevated command runs on host-a and reports its own
+**Acceptance:** an elevated command runs on a remote host and reports its own
 `id` as root, or reports cleanly that sudo needs a password. An argument
 containing a space arrives as one argument — test it, that is the regression
 `tools/` paid for.
@@ -1269,7 +1273,7 @@ bytes, because that is what an operator needs to decide whether to proceed.
   leave a half-written file in place of a good one.
 
 **Acceptance:** a directory with nested subdirectories, an executable script and
-a symlink round-trips to host-a and back byte-identical, modes intact, with
+a symlink round-trips to a remote host and back byte-identical, modes intact, with
 the symlink not followed outside the tree. Clean up what the test writes.
 
 ### What shipped
@@ -1277,7 +1281,7 @@ the symlink not followed outside the tree. Clean up what the test writes.
 `hollis-labs/go-sftpsync v0.1.1` carries the walk; Cerberus is the thin binding
 the brief called for. `ssh put_dir` and `ssh get_dir`, `cerberus ssh put-dir` /
 `get-dir`, `cerberus_ssh_put_dir` / `cerberus_ssh_get_dir`, all five touch
-points. Verified live against host-a: the acceptance tree round-tripped
+points. Verified live against a remote host: the acceptance tree round-tripped
 byte-identical with 0755 and 0640 intact, the symlink arrived as a link, and a
 link added to `/etc/shadow` was refused with nothing written — then the probe
 directory was removed.
@@ -1315,10 +1319,10 @@ works live, but the credentialed path is unproven.
 Nothing is blocked on code. WP-7 shipped the host secret channel, so this is now
 an operator action plus a verification:
 
-1. Obtain a ContextForge JWT. Per `tools/`, the token lives in the gateway
-   container's environment on host-a; `operator` is not in the `docker` group
-   there, so it comes from whoever administers that host or from the CF admin UI
-   at `http://127.0.0.1:14444/admin/` through the tunnel.
+1. Obtain a ContextForge JWT. The token may live in the gateway container's
+   environment on the remote host; if the operator is not in the `docker` group
+   there, it comes from whoever administers that host or from the CF admin UI
+   through the tunnel.
 2. Store it: go-keyring service `cerberus`, key `contextforge/token` — or a
    `keychain://` reference under `contextforge` in
    `~/.cerberus/connector-secrets.yaml`.
