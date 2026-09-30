@@ -9,7 +9,6 @@ func TestSecretBackendValidation(t *testing.T) {
 	for _, ok := range []SecretBackend{
 		{Scheme: "op", Reference: "op://<vault>/<item>/<field>"},
 		{Scheme: "keeper"},
-		{Scheme: "vault-kv"},
 	} {
 		if problems := ok.Validate(); len(problems) != 0 {
 			t.Errorf("%+v: %v", ok, problems)
@@ -25,6 +24,10 @@ func TestSecretBackendValidation(t *testing.T) {
 		{Scheme: "helper"},
 		{Scheme: "https"},
 		{Scheme: "op", Reference: "keeper://x"},
+		// URL-shaped and service schemes: their values can carry a
+		// credential, so a backend claiming one would be sent it (M5).
+		{Scheme: "postgres"}, {Scheme: "redis"}, {Scheme: "amqp"}, {Scheme: "s3"}, {Scheme: "ssh"},
+		{Scheme: "mongodb"}, {Scheme: "sftp"}, {Scheme: "vault-kv"},
 	} {
 		if problems := bad.Validate(); len(problems) == 0 {
 			t.Errorf("%+v was accepted", bad)
