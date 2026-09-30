@@ -1,7 +1,6 @@
 package audit
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -42,21 +41,23 @@ func scanFile(file string, fn func(rec Record, line []byte, ok bool)) error {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	// A line over the limit is one damaged line, not the end of the read
+	// (H-e): Verify reports it, and what follows is read and checked.
+	return ScanLines(f, MaxLineBytes, func(line []byte, tooLong bool) {
+		if tooLong {
+			fn(Record{}, nil, false)
+			return
+		}
 		if len(bytes.TrimSpace(line)) == 0 {
-			continue
+			return
 		}
 		var rec Record
 		if err := json.Unmarshal(line, &rec); err != nil {
 			fn(Record{}, line, false)
-			continue
+			return
 		}
 		fn(rec, line, true)
-	}
-	return scanner.Err()
+	})
 }
 
 // Filter selects records. A zero field matches everything; a set field
