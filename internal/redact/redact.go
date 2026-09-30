@@ -94,6 +94,9 @@ func SensitiveKey(key string) bool {
 // value. A field that *might* carry one belongs nowhere near this list.
 var namesOnlyKeys = map[string]bool{
 	"missing_secrets": true,
+	// credential_sources maps a credential's name to where it came from
+	// ("mapping:op via onepassword@0.1.0"): names by construction.
+	"credential_sources": true,
 }
 
 // NamesOnlyKey reports whether a JSON key carries credential names rather than
@@ -471,6 +474,16 @@ func (r Redactor) walk(value any, hide, schema bool) any {
 						continue
 					}
 				}
+			}
+			// A names-only map (credential_sources) is keyed by credential
+			// names: its keys say which credential, not that a value
+			// follows, so they add nothing to hide. Its values still pass
+			// the rules and the known values.
+			if child, ok := item.(map[string]any); ok && NamesOnlyKey(key) {
+				for name, entry := range child {
+					child[name] = r.walk(entry, hide, schema)
+				}
+				continue
 			}
 			// A names-only key suppresses only its own contribution to hide.
 			// An inherited hide still wins: a names-only field nested under

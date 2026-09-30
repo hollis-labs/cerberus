@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
@@ -178,7 +179,18 @@ func (r *Resolver) IsRef(value string) bool {
 		return false
 	}
 	scheme, _, ok := strings.Cut(value, "://")
-	return ok && scheme != "" && r.router.Claims(scheme)
+	// A reserved scheme (http, https, file, ...) is never a plugin's, so a
+	// URL in an environment does not send the router to read plugin state.
+	return ok && scheme != "" && !plugin.IsReservedScheme(scheme) && r.router.Claims(scheme)
+}
+
+// Backend names the plugin that resolves scheme, as id@version, when the
+// router can say; "" otherwise.
+func (r *Resolver) Backend(scheme string) string {
+	if d, ok := r.router.(interface{ Backend(string) string }); ok && r.router != nil {
+		return d.Backend(scheme)
+	}
+	return ""
 }
 
 // Option customizes a Resolver.

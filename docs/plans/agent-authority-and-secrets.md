@@ -296,7 +296,7 @@ should not be entangled with a new backend.
 
 ### WP-S4 — Native 1Password and Keeper providers
 
-**Redesigned as secret-backend plugins, and in progress.**
+**Done, as secret-backend plugins.**
 - **The decision:** the vendor SDKs are heavy, so the two readers are plugins
   (`onepassword`, `keeper` in `cerberus-plugins`), not compiled in. The OS
   credential store stays core.
@@ -309,13 +309,15 @@ should not be entangled with a new backend.
   - a core-only chain for a backend's own credential;
   - `op://` and `keeper://` as references, never literals;
   - `keyring://` as the platform-neutral name for the OS credential store.
-- **Still to come:**
-  - the `secret_backend` claim in the two plugins' `plugin.yaml`;
-  - `credential_sources` on audit outcomes;
-  - resolution inside `cerberus run-secrets`, which loads the backend in the
-    service's own process rather than asking the daemon, because a socket call
-    that returns values would be an oracle for any same-user process
-    (CERB-GAP-906).
+- **Also done:**
+  - the two plugins claim their schemes in `plugin.yaml`;
+  - `credential_sources` on every gated call's audit outcome;
+  - `cerberus run-secrets` resolves vault references by loading the backend in
+    the service's own process, rather than asking the daemon, because a
+    socket call that returns values would be an oracle for any same-user
+    process (CERB-GAP-906);
+  - `cerberus secrets set` stores a backend's own credential in the OS
+    credential store, from an interactive terminal, audited by name.
 - `docs/secrets.md` has the rules.
 
 The original notes follow.

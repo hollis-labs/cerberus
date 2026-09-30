@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/secretref"
@@ -37,31 +38,59 @@ func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (strin
 	// A per-access binding (I9) decides for its key, ahead of the legacy
 	// chain: an environment value cannot put a write credential under a
 	// read binding.
+	sources, name := SourcesFrom(ctx), service+"/"+key
 	var b Binding
 	if scope, ok := CredentialScopeFrom(ctx); ok {
 		b = file[service].Resolve(service, key, &scope)
 		if b.None {
+			sources.record(name, "binding:"+b.Label+", none")
 			return "", &NoCredentialError{Connector: service, Key: key, Access: scope.Access, Target: scope.Target.ID, Label: b.Label}
 		}
 	} else {
 		b = file[service].Resolve(service, key, nil)
 	}
-	value := b.Ref
+	value, where := b.Ref, "binding:"+b.Label
 	if b.Label == "" {
 		// The legacy chain: the environment, the flat key, the keychain.
+		where = "mapping"
 		if env := os.Getenv(envVarName(service, key)); env != "" {
-			value = env
+			value, where = env, "env"
 		}
 		if value == "" && p.base != nil {
+			where = "keyring"
 			if value, err = p.base.Get(ctx, service, key); err != nil {
+				sources.record(name, where+", unresolved")
 				return "", err
 			}
 		}
 	}
-	if p.resolver.IsRef(value) {
-		return p.resolver.Resolve(ctx, value)
+	if value == "" {
+		sources.record(name, "missing")
+		return "", nil
 	}
+	if p.resolver.IsRef(value) {
+		source := p.sourceOf(where, value)
+		resolved, err := p.resolver.Resolve(ctx, value)
+		if err != nil {
+			source += ", unresolved"
+		}
+		sources.record(name, source)
+		return resolved, err
+	}
+	sources.record(name, where)
 	return value, nil
+}
+
+// sourceOf names where a reference led: where it was found, its scheme, and
+// for a vault, the plugin that resolves it ("mapping:op via
+// onepassword@0.1.0"). Names only; never the reference's path.
+func (p *ReferenceProvider) sourceOf(where, ref string) string {
+	scheme, _, _ := strings.Cut(ref, "://")
+	source := where + ":" + scheme
+	if backend := p.resolver.Backend(scheme); backend != "" {
+		source += " via " + backend
+	}
+	return source
 }
 
 // Bindings is the parsed mapping file; an absent file binds nothing.

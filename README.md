@@ -257,6 +257,17 @@ cerberus connectors exec namecheap set_custom_nameservers --arg domain=<domain> 
 cerberus connectors exec namecheap get_dns_record_set --arg domain=<domain>
 ```
 
+Vault references (`op://`, `keeper://`) resolve through secret-backend plugins.
+A backend's own credential goes in the OS credential store with an interactive
+`secrets set`; see [docs/secrets.md](docs/secrets.md) for the setup:
+
+```bash
+cerberus connectors plugin managed install <dir>/dist/keeper
+cerberus secrets set keeper/ksm_config
+cerberus connectors plugin managed load keeper
+cerberus connectors exec keeper status
+```
+
 Docker operations run against the daemon's own Docker by default, or against
 another Docker host with `--host` (a `DOCKER_HOST` value) or `--context`
 (a name from `docker context ls`). The two are mutually exclusive, and the

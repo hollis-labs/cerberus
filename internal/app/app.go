@@ -486,3 +486,70 @@ func (a *App) Close() error {
 	}
 	return nil
 }
+
+// ServiceSecretBackends is the vault router for `cerberus run-secrets`: the
+// secret-backend plugins, loaded in the managed service's own process rather
+// than asked of the daemon. It is built at the first vault reference, so a
+// service whose environment names none never reads plugin state. Close stops
+// what it loaded; run-secrets calls it before exec.
+func ServiceSecretBackends(hostVersion string, stderr io.Writer) *LazySecretBackends {
+	return &LazySecretBackends{build: func() (*cerbapi.ProcessSecretBackends, error) {
+		statePath, err := cerbapi.PluginConnectorStatePath()
+		if err != nil {
+			return nil, fmt.Errorf("resolve plugin connector state path: %w", err)
+		}
+		configPath := config.DefaultPath()
+		var opts []cerbapi.ManagedPluginOption
+		if exe, exeErr := pluginhost.ExecutablePath(); exeErr == nil {
+			opts = append(opts, cerbapi.WithPluginShim(exe))
+		}
+		opts = append(opts, cerbapi.WithManagedPluginConnectorConfig(ConnectorConfigPath(configPath)))
+		return cerbapi.NewProcessSecretBackends(AuditSink(), hostVersion, stderr, statePath, CoreConnectorSecrets(configPath), opts...)
+	}}
+}
+
+// LazySecretBackends builds its ProcessSecretBackends on first use.
+type LazySecretBackends struct {
+	build func() (*cerbapi.ProcessSecretBackends, error)
+	once  sync.Once
+	b     *cerbapi.ProcessSecretBackends
+	err   error
+}
+
+var _ secretref.SchemeRouter = (*LazySecretBackends)(nil)
+
+func (l *LazySecretBackends) get() (*cerbapi.ProcessSecretBackends, error) {
+	l.once.Do(func() { l.b, l.err = l.build() })
+	return l.b, l.err
+}
+
+// Claims reports whether an installed plugin claims scheme.
+func (l *LazySecretBackends) Claims(scheme string) bool {
+	b, err := l.get()
+	return err == nil && b.Claims(scheme)
+}
+
+// ResolveSecret resolves ref through the plugin that claims its scheme.
+func (l *LazySecretBackends) ResolveSecret(ctx context.Context, ref string) (string, error) {
+	b, err := l.get()
+	if err != nil {
+		scheme, _, _ := strings.Cut(ref, "://")
+		return "", fmt.Errorf("credential_missing: %s:// reference: the installed secret backends could not be read (%w)", scheme, err)
+	}
+	return b.ResolveSecret(ctx, ref)
+}
+
+// Backend names the plugin that resolves scheme, as id@version.
+func (l *LazySecretBackends) Backend(scheme string) string {
+	if b, err := l.get(); err == nil {
+		return b.Backend(scheme)
+	}
+	return ""
+}
+
+// Close stops every backend loaded, if any were.
+func (l *LazySecretBackends) Close(ctx context.Context) {
+	if l.b != nil {
+		l.b.Close(ctx)
+	}
+}

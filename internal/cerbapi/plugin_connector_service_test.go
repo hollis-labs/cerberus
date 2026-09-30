@@ -39,6 +39,18 @@ func (apiTestPlugin) Health(context.Context) (sdksubprocess.HealthStatus, error)
 	return sdksubprocess.HealthStatus{OK: true, Message: "ready"}, nil
 }
 
+// Command answers a secret backend's resolve with a value derived from the
+// reference, so a test can see the round trip.
+func (apiTestPlugin) Command(_ context.Context, req sdksubprocess.CommandRequest) (sdksubprocess.CommandResult, error) {
+	var args struct {
+		Ref string `json:"ref"`
+	}
+	if err := json.Unmarshal([]byte(req.Args), &args); err != nil {
+		return sdksubprocess.CommandResult{}, err
+	}
+	return sdksubprocess.CommandResult{Action: "message", Content: "resolved-" + strings.ReplaceAll(args.Ref, "/", "-")}, nil
+}
+
 func (apiTestPlugin) MCPCallTool(_ context.Context, req sdksubprocess.MCPCallRequest) (sdksubprocess.MCPCallResult, error) {
 	data, err := json.Marshal(map[string]any{
 		"tool": req.ToolName,

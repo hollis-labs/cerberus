@@ -51,6 +51,7 @@ func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.R
 	if err != nil {
 		return nil, err
 	}
+	ctx = call.withSources(ctx)
 	if gateErr := runtimeGate(ctx, def, infra.OpRunProfile, map[string]any{"id": profile.ID}, opts); gateErr != nil {
 		call.finish(gateErr)
 		return nil, gateErr
