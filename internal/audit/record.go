@@ -207,6 +207,11 @@ type Record struct {
 	// so a snapshot that later fails its hash check is enforced as it was
 	// last verified, from this hash-chained record.
 	Enforcement json.RawMessage `json:"enforcement,omitempty"`
+	// PolicySnapshot is the snapshot a successful policy apply wrote, as
+	// written, on its outcome: so a snapshot later edited, deleted or failing
+	// its hash check is enforced as it was last verified, rules and all
+	// (M3). A policy file holds no credential.
+	PolicySnapshot string `json:"policy_snapshot,omitempty"`
 	// Brakes is the brake state after a brake_changed (§12), so the brakes
 	// can be read back from this hash-chained record.
 	Brakes json.RawMessage `json:"brakes,omitempty"`

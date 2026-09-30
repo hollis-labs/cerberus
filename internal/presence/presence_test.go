@@ -348,3 +348,51 @@ func TestAssertionBindsScopeExpiryAndTarget(t *testing.T) {
 		t.Fatal("a v1 assertion was accepted")
 	}
 }
+
+// An enrollment record the audit chain does not vouch for does not vouch
+// for the registry (M4): a registry edited with a forged "enrolled" record
+// beside it starts the cool-down on restart, as an edit with no record
+// does.
+func TestAForgedEnrollmentRecordDoesNotSkipTheCooldown(t *testing.T) {
+	f := newFixture(t)
+	key := newAuthenticator(t)
+	if err := f.enroll(t, key, nil); err != nil {
+		t.Fatal(err)
+	}
+	d, err := f.approve(t, key, pending())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(f.dir, registryName)
+	data, _ := os.ReadFile(path) //nolint:gosec // the test's own temp dir
+	edited := append(data, ' ')
+	if err := os.WriteFile(path, edited, 0o600); err != nil { //nolint:gosec // the test's own temp dir
+		t.Fatal(err)
+	}
+	records := f.sink.Records()
+	var forged audit.Record
+	for _, rec := range records {
+		if rec.Kind == audit.KindEnrollmentChanged {
+			forged = rec
+		}
+	}
+	forged.Target.Fields = map[string]string{"change": "enrolled", "registry_hash": hashOf(edited)}
+	records = append(records, forged)
+	trusted := make([]bool, len(records))
+	for i := range trusted {
+		trusted[i] = i < len(records)-1
+	}
+	approved := pending()
+	approved.Status = approval.Approved
+	restart := func(trusted []bool) *Service {
+		return New(f.dir, f.sink, Options{Records: records, Trusted: trusted, Origins: func() []string { return []string{origin} }, Now: func() time.Time { return f.now }})
+	}
+	if err := restart(nil).Verify(approved, d); err != nil {
+		t.Fatalf("trusted, the forged record is taken (the case M4 closes): %v", err)
+	}
+	var cooldown CooldownError
+	if err := restart(trusted).Verify(approved, d); !errors.As(err, &cooldown) {
+		t.Fatalf("an untrusted enrollment record skipped the cool-down: %v", err)
+	}
+
+}

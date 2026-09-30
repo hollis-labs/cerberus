@@ -68,6 +68,9 @@ type auditSpec struct {
 	// intent and outcome so a snapshot that later fails its hash check is
 	// enforced as it was last verified (P3-7).
 	enforcement json.RawMessage
+	// snapshot is a policy apply's snapshot as written, recorded on its
+	// outcome when the apply succeeded (M3).
+	snapshot string
 	// operationID, when set, is the id the call's records carry: a
 	// break-glass record is written before the intent, and links to it.
 	operationID string
@@ -225,6 +228,9 @@ func (c *auditCall) finish(err error) {
 		outcome.PluginTelemetry = auditTelemetry(t)
 	}
 	outcome.Egress = c.egress
+	if code == audit.OutcomeOK && c.spec.snapshot != "" {
+		outcome.PolicySnapshot = c.spec.snapshot
+	}
 	if _, werr := c.sink.Write(outcome); werr != nil {
 		c.logger.Error("audit.write_failed", "kind", audit.KindOutcome, "operation_id", c.intent.OperationID,
 			"connector", c.spec.connector, "operation", c.spec.operation, "outcome_code", code, "error", redact.Text(werr.Error()))

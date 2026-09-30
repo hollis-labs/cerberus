@@ -18401,6 +18401,51 @@
       "id": "CERB-GAP-928"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A deleted or self-consistently rewritten policy snapshot, or a forged enrollment record, passed as verified",
+      "summary": "A missing applied.yaml loaded as the baseline, so deleting it silently turned enforcement off; applied.sha256 vouched only for itself, so a snapshot rewritten with its hash loaded as verified; and a real mismatch kept only the last verified enforcement, dropping the operator's denies, rates and breaker for the baseline's defaults. The passkey service trusted enrollment_changed records without checking the chain, so a key written into the registry beside a forged 'enrolled' record skipped the cool-down. Fixed: the snapshot is checked against the newest apply the audit chain vouches for, and a missing, rewritten or failing one is a mismatch; each apply records the snapshot it wrote on its outcome, and a mismatch enforces that snapshot whole; applies only past a break vouch for nothing and everything is enforced; presence folds only enrollment records the chain vouches for.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the e40b63c security review (M3, M4); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "policy",
+        "approvals",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/policy/store.go, internal/policy/enforcement.go, internal/presence/presence.go, cmd/cerberus/daemon_presence.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-926",
+          "note": "builds on the trusted records audit.Check reports, and the chain anchor"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-879",
+          "note": "passkey registry prevention stays impossible same-uid; this is detection"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "medium"
+      },
+      "body": "Remaining: every check is against the operator's own files and keychain, so a same-uid agent that forges a chained apply record (the chain is unkeyed; the anchor catches a cut or rewrite, not an append) still defines policy. An apply recorded before this change carries only its enforcement, so its mismatch keeps enforcement over the baseline until the next apply. A legitimate enrollment recorded past a break starts one cool-down on the next restart.",
+      "id": "CERB-GAP-929"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

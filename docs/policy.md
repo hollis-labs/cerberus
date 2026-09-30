@@ -149,10 +149,22 @@ cerberus policy report --scope principal=agent,env=prod            # ...within o
 ## The snapshot is checked
 
 Only the applied snapshot decides, never the working files. On every load,
-the snapshot is compared with the hash `apply` recorded. A snapshot that no
-longer matches is not used: the baseline decides, every decision is marked
-`snapshot: mismatch`, and the load is recorded as `policy_snapshot_changed`.
-Run `cerberus policy apply` again to restore it.
+the snapshot is compared with the hash `apply` wrote beside it, and with the
+hash the newest apply recorded in the audit log. `applied.sha256` vouches only
+for itself, so a snapshot rewritten together with it, or a snapshot that was
+deleted, doesn't match the log. A snapshot that doesn't match is not used.
+Every decision is then marked `snapshot: mismatch`, and the load is recorded
+as `policy_snapshot_changed`. Run `cerberus policy apply` again to restore it.
+
+A mismatch keeps the **last verified snapshot**. Each apply records the
+snapshot it wrote on its outcome record, so its deny rules, rates, circuit
+breaker and enforcement all stay in force. It doesn't fall back to the
+baseline's defaults. An apply recorded before this, which carries only its
+enforcement, keeps that enforcement over the baseline. An apply past a break
+in the audit chain vouches for nothing, and everything is enforced until the
+chain is reanchored (`cerberus audit reanchor`) and the policy applied again.
+With no apply recorded at all, as on a fresh install or after the applies were
+pruned, the snapshot files are all there is.
 
 This makes a change **detectable, not impossible**. A process running as your
 user can edit anything under `~/.cerberus`.
@@ -239,12 +251,11 @@ carries the section), notifies, and shows in `cerberus status`, `posture show`,
 enforced: it has its own terminal gate, and enforcing it would lock the way
 back to shadow.
 
-If the applied snapshot fails its hash check, the baseline decides and
-enforcement doesn't silently switch off. Cerberus enforces the last
-verified enforcement, read from the hash-chained audit log (the newest
-apply's record). If that can't be determined, because the chain doesn't
-verify or no apply is recorded, it enforces everything. Either way it says
-so loudly, and `cerberus policy apply` puts it right.
+If the applied snapshot is a mismatch (see above), enforcement doesn't
+silently switch off. Cerberus enforces the last verified snapshot's
+enforcement, read from the hash-chained audit log. If that can't be
+determined, it enforces everything. Either way it says so loudly, and
+`cerberus policy apply` puts it right.
 
 ## Egress: what comes back
 
@@ -382,7 +393,10 @@ out-of-band approval is not set up.
 
 The key registry is checked against the audit log. If it is changed any other
 way, for example by editing the file, out-of-band approvals are refused for 24
-hours. `status` and the console show the cool-down and when it ends.
+hours. `status` and the console show the cool-down and when it ends. Only
+enrollment records the audit chain vouches for count. A key added with a
+forged record beside it, past a break in the chain, starts the cool-down like
+any other outside edit.
 
 With the daemon down, these read the store directly. The in-process CLI
 without a daemon can only confirm a call on the terminal itself. A call that

@@ -21,14 +21,19 @@ import (
 // enrollment records, usable from the consoles running for this account.
 func newPresenceService(logger *slog.Logger, approvalsDir string) *presence.Service {
 	home, _ := os.UserHomeDir()
-	var records []audit.Record
+	var checked audit.Checked
 	if dir, err := app.AuditDir(); err == nil {
-		if records, err = audit.ReadRecords(dir); err != nil {
+		// Checked, not merely read (M4): an enrollment record past a break
+		// in the chain does not vouch for the registry.
+		if checked, err = audit.Check(dir); err != nil {
 			logger.Warn("daemon.presence.audit_read_failed", "error", err.Error())
+		} else if !checked.TailTrusted() {
+			logger.Warn("daemon.presence.audit_untrusted", "problems", len(checked.Problems))
 		}
 	}
 	return presence.New(filepath.Join(approvalsDir, "passkeys"), app.AuditSink(), presence.Options{
-		Records: records,
+		Records: checked.Records,
+		Trusted: checked.Trusted,
 		Origins: func() []string { return webui.ConsoleOrigins(home) },
 		Notify:  func(title, message string) { go notifyOperator(title, message) },
 	})

@@ -70,8 +70,14 @@ func TestPolicyApplyRecordsItsEnforcement(t *testing.T) {
 	if _, err := ApplyPolicy(ctx, sink, store, f, 0); err != nil {
 		t.Fatal(err)
 	}
-	e, _, ok := policy.LastVerifiedEnforcement(auditDir)
-	if !ok || len(e.Enforce) != 1 || e.Enforce[0].ID != "agents-prod" {
-		t.Fatalf("recorded enforcement %+v %v", e, ok)
+	v, history := policy.LastVerified(auditDir)
+	if history != policy.VerifiedApply || len(v.Enforcement.Enforce) != 1 || v.Enforcement.Enforce[0].ID != "agents-prod" {
+		t.Fatalf("recorded enforcement %+v %v", v, history)
+	}
+	// The outcome carries the snapshot as written, under the hash the
+	// intent named (M3).
+	data, _ := policy.Encode(f)
+	if string(v.Snapshot) != string(data) || v.Hash != policy.Hash(data) {
+		t.Fatalf("recorded snapshot %q under %s", v.Snapshot, v.Hash)
 	}
 }
