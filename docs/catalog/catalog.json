@@ -17646,7 +17646,7 @@
       "relationships": [
         {
           "type": "relates_to",
-          "target": "CERB-DEC-906",
+          "target": "CERB-DEC-908",
           "note": "plugin supervision"
         }
       ],
@@ -17658,7 +17658,7 @@
         "effort": "small"
       },
       "body": "The window is one load, bounded by the init and load deadlines. Unload does set the supervisor's hold, so a restart doesn't bring the plugin back. What escapes is only a load that was already in flight when the Unload arrived.",
-      "id": "CERB-GAP-908"
+      "id": "CERB-GAP-909"
     },
     {
       "id": "CERB-TOOL-110",
