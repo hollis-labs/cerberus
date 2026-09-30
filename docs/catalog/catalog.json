@@ -17418,6 +17418,87 @@
       "id": "CERB-GAP-903"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "The OS credential store is only exercised on macOS; Windows and Linux are unsupported in practice",
+      "summary": "keychain:// references resolve through zalando/go-keyring, which already backs onto the Windows Credential Manager and the Linux Secret Service, but nothing is built, tested or documented for those platforms, and a headless Linux box has no Secret Service at all.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "read from go.mod and the secrets chain; not run on Windows or Linux",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "secrets",
+        "cross-platform",
+        "roadmap",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/secretref/secretref.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-504",
+          "note": "secret references and the credential chain"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-504",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "keychain:// (or a platform-neutral os:// alias) resolves on Windows (Credential Manager) and Linux (Secret Service via D-Bus) with tests on both; headless Linux has a documented, explicit fallback (for example an age- or systemd-creds-encrypted file keyed to the user) that never silently degrades to plaintext; docs/secrets.md covers all three platforms",
+        "effort": "medium"
+      },
+      "body": "The operator's requirement (2026-09-29): Windows and Linux support for the OS credential store is on the roadmap. The library layer is already cross-platform; the work is the scheme name (keychain:// reads as macOS-only), the headless-Linux case where no Secret Service daemon runs, the vault plugins' bootstrap credentials (which also live in the OS store), CI on Windows and Linux, and documentation. Related platform work that this does not cover is recorded separately.",
+      "id": "CERB-GAP-904"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "Cerberus is macOS-only beyond the credential store: daemon supervision, notifications and presence",
+      "summary": "The daemon installs and supervises through launchd, operator notifications go through osascript, and the passkey path assumes a macOS platform authenticator; Windows and Linux have no equivalent wired in.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.7,
+      "confidence_label": "read from cmd_install.go, launchd.go and daemon_presence.go",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "cross-platform",
+        "roadmap",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_install.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-603",
+          "note": "daemon install, uninstall and self-upgrade"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-603",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "cerberus install emits a systemd user unit on Linux and a per-user service (or scheduled task) on Windows; the local connector's launchd run mode has systemd and Windows equivalents; notifications use notify-send / Windows toast; peer-credential checks cover Windows (named pipe or AF_UNIX client token); WebAuthn works with Windows Hello and Linux security keys; CI runs on all three",
+        "effort": "large"
+      },
+      "body": "Recorded alongside the credential-store gap so the platform roadmap is one query. Already portable: the daemon socket (AF_UNIX exists on Windows 10+), Linux peer credentials (SO_PEERCRED, P2-1), the policy, audit and approval stores, and the web console. The launchd-specific pieces are the supervision lane's run mode, cerberus install, the daemon self-deploy guidance in AGENTS.md, and the desktop notification hook.",
+      "id": "CERB-GAP-905"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
