@@ -186,7 +186,8 @@ func writeApproval(w io.Writer, a approval.Approval, source string) error {
 }
 
 // writeShown prints what the approval would run: the plan it binds to and
-// the call's arguments, as the daemon stored them, redacted. JSON keeps the
+// the call's arguments, as the daemon stored them: as they will run, with
+// only a resolved credential or a field named for one hidden. JSON keeps the
 // requester's text inert on a terminal: control characters arrive escaped.
 // What the requester wrote, not Cerberus, is said to be so.
 func writeShown(w io.Writer, shown *approval.Shown) {
@@ -225,6 +226,9 @@ func writeShown(w io.Writer, shown *approval.Shown) {
 		argsNote = requester
 	}
 	section("Arguments:", shown.Arguments, argsNote)
+	if len(shown.Flagged) > 0 {
+		fmt.Fprintf(w, "\n  ! Look closely at %s: shown as it will run, though it looks like it carries a credential, a command substitution or a hidden character (a hidden character is shown escaped, a field named for a credential is hidden). Nothing the requester wrote was rewritten.\n", strings.Join(shown.Flagged, ", "))
+	}
 	if shown.Truncated {
 		fmt.Fprintln(w, "  (Part of this was too large to store with the approval; the approval still binds the whole plan by its hash.)")
 	}

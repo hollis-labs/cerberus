@@ -367,9 +367,14 @@ name. The console's Approvals page does the same. The request shows:
 - **what the call would run**: the plan the approval binds to, and the
   call's arguments.
 
-Cerberus stores those with the approval when it is asked for, rendered through
-the request's redaction: a credential the request resolved, or a value under a
-credential-named key, never reaches the approvals store. The arguments, and a
+Cerberus stores those with the approval when it is asked for, as they will
+run. Only two things are hidden: a credential value the request resolved, and
+a field named for a credential. Neither reaches the approvals store.
+Nothing the requester wrote is rewritten. A command the redaction rules would
+have hidden is shown verbatim and flagged, so you see the command that runs,
+not `[REDACTED]` where it is. A zero-width or direction-changing character is
+shown escaped and flagged. The flagged strings are listed with the request:
+**look closely** at those. The arguments, and a
 preview that echoes them, are marked **written by the requester, not
 Cerberus**. An agent wrote them, and a passkey proves you were there, not that
 you read them: check what the command, path or input actually is, whatever

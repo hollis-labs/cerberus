@@ -195,6 +195,14 @@ function ShownPlan({ shown }: { shown: ApprovalInfo['shown'] }) {
           </pre>
         </div>
       )}
+      {shown.flagged && shown.flagged.length > 0 && (
+        <div data-testid="shown-flagged">
+          <Callout tone="warning">
+            Look closely at {shown.flagged.join(', ')}: shown as it will run, though it looks like it carries a credential, a command substitution or a
+            hidden character (a hidden character is shown escaped, a field named for a credential is hidden). Nothing the requester wrote was rewritten.
+          </Callout>
+        </div>
+      )}
       {shown.truncated && (
         <p className="text-xs text-text-muted">Part of this was too large to store with the approval; the approval still binds the whole plan by its hash.</p>
       )}
