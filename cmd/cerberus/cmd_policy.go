@@ -111,10 +111,10 @@ var policyExplainCmd = &cobra.Command{
 		res := pdp.Authorize(req)
 		posture, postureRules := res.Posture, []int(nil)
 		var grantWarnings, egressWarnings []string
-		if ev, ok := pdp.(*policy.Evaluator); ok {
-			_, postureRules = ev.File().PostureFor(req)
-			grantWarnings = ev.File().GrantWarnings()
-			egressWarnings = ev.File().EgressWarnings()
+		if file, ok := policy.FileOf(pdp); ok {
+			_, postureRules = file.PostureFor(req)
+			grantWarnings = file.GrantWarnings()
+			egressWarnings = file.EgressWarnings()
 		}
 		if policyExplainFlags.output == outputFormatJSON {
 			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules, "grant_warnings": grantWarnings, "egress_warnings": egressWarnings, "break_glass": policy.BreakGlassLimitsOf(pdp)})

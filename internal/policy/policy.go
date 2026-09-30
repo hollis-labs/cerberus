@@ -161,3 +161,14 @@ func combine(matches []Match, snapshot string, dryRun bool) Result {
 	}
 	return r
 }
+
+// FileOf is the policy file pdp decides with, when it has one. The
+// installed decision point is a Reloading, never an *Evaluator, so a check
+// for one of the concrete types misses the shipped daemon: read the file
+// through this.
+func FileOf(pdp PDP) (File, bool) {
+	if withFile, ok := pdp.(interface{ File() File }); ok {
+		return withFile.File(), true
+	}
+	return File{}, false
+}

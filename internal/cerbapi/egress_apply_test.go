@@ -42,9 +42,17 @@ func TestShapingSaysWhatItWithheld(t *testing.T) {
 	}
 }
 
+// withEgressPolicy applies rules the way the daemon does: an applied
+// snapshot read through a policy.Reloading, the type app.installPolicy
+// installs. An *Evaluator installed directly passed these tests while the
+// shipped daemon applied no egress at all (H1).
 func withEgressPolicy(t *testing.T, rules ...policy.EgressRule) {
 	t.Helper()
-	withPDP(t, policy.NewEvaluator(policy.File{Version: policy.FileVersion, Egress: rules}, "egress-test"))
+	store := policy.Store{Dir: t.TempDir()}
+	if _, err := store.Apply(policy.File{Version: policy.FileVersion, Egress: rules}); err != nil {
+		t.Fatal(err)
+	}
+	withPDP(t, policy.NewReloading(store, nil))
 }
 
 // Resource logs under egress policy: in shadow the agent gets every line and
