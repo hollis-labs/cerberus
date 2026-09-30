@@ -1,6 +1,7 @@
 package service
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -42,13 +43,21 @@ func InitLifecycleLog() {
 	})
 }
 
-// RedactDefaultLogger wraps slog's default logger in redact.Handler. Most of
-// cerbapi, and the pipeline executor, log through slog.Default(), which in
-// the daemon writes to launchd's stderr.log. Only the daemon calls this: it
-// also routes the log package through slog, which a short-lived CLI command
-// has no reason to have changed under it.
-func RedactDefaultLogger() {
-	slog.SetDefault(slog.New(redact.NewHandler(slog.Default().Handler())))
+// RedactDefaultLogger makes slog's default logger redact. Most of cerbapi,
+// and the pipeline executor, log through slog.Default(), which in the daemon
+// writes to launchd's stderr.log. Only the daemon calls this: it also routes
+// the log package through slog, which a short-lived CLI command has no
+// reason to have changed under it.
+//
+// The redacting handler writes to stderr through a handler of its own. It
+// must not wrap slog's default handler: that one writes through the log
+// package, which SetDefault then points back at the new default, so the
+// first record re-entered the log package's lock and hung the caller for
+// good (every pipeline run did).
+func RedactDefaultLogger() { redactDefaultLoggerTo(os.Stderr) }
+
+func redactDefaultLoggerTo(w io.Writer) {
+	slog.SetDefault(slog.New(redact.NewHandler(slog.NewTextHandler(w, nil))))
 }
 
 // llog returns the lifecycle logger, falling back to slog.Default().
