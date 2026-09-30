@@ -345,7 +345,9 @@ egress:
 
 - **Shadow first.** A rule without `mode: enforce` changes nothing. Each
   outcome record carries an `egress` entry saying which rule matched, where,
-  what it would have done and how much it would have withheld.
+  what it would have done and how much it would have withheld. A shadow rule
+  never displaces an enforced one: when both match, the enforced rule applies,
+  and a stricter shadow rule is recorded beside it as what it would have done.
 - **Enforced.**
   - `cap` keeps the first lines and adds "[cerberus: N more lines withheld
     by egress rule …]".
@@ -359,9 +361,10 @@ egress:
     `policy apply` warn about any refuse rule that can match such an
     operation; `effect: [read, read_sensitive]` limits it to reads.
   - Nothing is dropped silently.
-- **Most restrictive wins.** `refuse`, then `mask`, then `cap` (the smaller
-  limit when two apply), then `pass`. The rule enforces if any matching rule
-  at that strength does.
+- **Most restrictive wins, among the rules that enforce.** `refuse`, then
+  `mask`, then `cap` (the smaller limit when two apply), then `pass`. The
+  strongest enforced rule is applied. With none enforced, the strongest
+  shadow rule is recorded.
 - **Where it applies:** connector and plugin results, resource logs,
   resource deploy/apply/sync results (their build and install output), and
   pipeline runs (their stage and run errors). Plugin output without labels is
@@ -776,6 +779,9 @@ around the file.
 - The window slides: a call leaves it one window after it ran.
 - Calls that were refused don't count, and neither do dry runs, plans, or the
   daemon's own automation.
+- A plugin's own preview is the exception. It runs the plugin's code with its
+  credentials, so it counts, as `read_sensitive`. Past the limit it is denied
+  like a call.
 
 **Past the limit, the call is denied.**
 

@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -192,5 +193,44 @@ func TestRefusedCallsGiveTheirCountBack(t *testing.T) {
 	finish(nil)
 	if n, _ := l.count(h); n != 2 {
 		t.Fatalf("calls that ran counted %d, not 2", n)
+	}
+}
+
+// A plugin's preview reaches the plugin, which holds its credentials, so
+// a rate that covers it refuses it once spent (M-8). Previews were counted
+// but never refused, and the count was not seeded from the log. Here two
+// earlier previews in the audit log spend the rate, and a third is denied.
+func TestAPluginPreviewIsRatedLikeACall(t *testing.T) {
+	f := policy.File{Version: policy.FileVersion, Principals: []policy.PrincipalBlock{{Match: policy.PrincipalMatch{Kind: "agent"},
+		Rules: []policy.Rule{{ID: "previews", Decision: policy.Allow, Rate: "2/h"}}}}}
+	if problems := f.Validate(); len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	withPDP(t, policy.NewEvaluator(f, "test"))
+	dir := t.TempDir()
+	sink, err := audit.OpenFileSink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withRates(t, dir)
+	SetRateLimiter(&RateLimiter{AuditDir: dir})
+	p := principalFor(callerAs(agentSession, SurfaceSocket), auditSpec{})
+	for i := 0; i < 2; i++ {
+		if _, err := sink.Write(audit.Record{Kind: audit.KindOutcome, Principal: p, Connector: "demo", Operation: "wipe", Effect: "destructive",
+			DryRun: true, Preview: audit.PreviewPluginClaimed, Decision: audit.DecisionAllowed, OutcomeCode: audit.OutcomeOK,
+			Policy: &audit.PolicyDecision{Decision: "allow", MatchedRules: []audit.MatchedRule{{Rule: "previews", Decision: "allow"}}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spec := auditSpec{connector: "demo", operation: "wipe", dryRun: true, preview: audit.PreviewPluginClaimed}
+	req := policy.Request{Connector: "demo", Operation: "wipe", Effect: contract.EffectReadSensitive, DryRun: true, Principal: policy.Principal{Kind: "agent", Session: "s1", Client: "claude-code"}}
+	res := authorizeRated(callerAs(agentSession, SurfaceSocket), spec, req)
+	if res.Decision != policy.Deny || !strings.Contains(fmt.Sprint(res.Matched), "rate limit") {
+		t.Fatalf("a third preview: %+v", res)
+	}
+	// A dry run served by the host's own preview is still not rated.
+	host := authorizeRated(callerAs(agentSession, SurfaceSocket), auditSpec{connector: "demo", operation: "wipe", dryRun: true}, req)
+	if host.Decision == policy.Deny {
+		t.Fatalf("a host preview was rated: %+v", host)
 	}
 }

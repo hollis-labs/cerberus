@@ -73,6 +73,10 @@ type EgressDecision struct {
 	Action string `json:"action"`
 	Lines  int    `json:"lines,omitempty"`
 	Mode   string `json:"mode,omitempty"`
+	// ShadowAction and ShadowRule are a shadow rule stricter than the
+	// enforced decision: recorded, as what it would do, never applied.
+	ShadowAction string `json:"shadow_action,omitempty"`
+	ShadowRule   string `json:"shadow_rule,omitempty"`
 }
 
 // Enforced is whether the decision changes what is returned.
@@ -81,11 +85,16 @@ func (d EgressDecision) Enforced() bool {
 }
 
 // EgressFor is the decision for label on a result of connector's operation,
-// of effect, on t, for a principal of kind: the most restrictive matching
-// rule, the smaller cap between two caps, and enforce if any rule at that
-// strength enforces. No match is pass.
+// of effect, on t, for a principal of kind. What is applied is the most
+// restrictive matching rule that enforces, with the smaller cap between two
+// caps; with none enforcing, the most restrictive shadow rule, recorded and
+// not applied. A stronger shadow rule never displaces an enforced one: it
+// used to, so a shadow refuse beside an enforced mask left the result
+// unmasked (M-13). It is recorded alongside, in ShadowAction. No match is
+// pass.
 func (f File) EgressFor(connector string, t target.Target, kind string, effect contract.Effect, label string) EgressDecision {
-	best := EgressDecision{Label: label, Action: EgressPass}
+	enforced := EgressDecision{Label: label, Action: EgressPass}
+	shadow := EgressDecision{Label: label, Action: EgressPass}
 	for i, r := range f.Egress {
 		if r.Label != label || !r.Match.Matches(connector, t) {
 			continue
@@ -105,17 +114,30 @@ func (f File) EgressFor(connector string, t target.Target, kind string, effect c
 			id = fmt.Sprintf("egress[%d]", i)
 		}
 		d := EgressDecision{Rule: id, Label: label, Action: r.Action, Lines: r.Lines, Mode: mode}
-		switch rb, cb := egressRank(d.Action), egressRank(best.Action); {
-		case rb > cb:
-			best = d
-		case rb == cb && rb > 0:
-			if d.Action == EgressCap && d.Lines < best.Lines {
-				best.Lines, best.Rule = d.Lines, d.Rule
-			}
-			if d.Mode == EgressEnforce {
-				best.Mode = EgressEnforce
-			}
+		if mode == EgressEnforce {
+			enforced = stricter(enforced, d)
+		} else {
+			shadow = stricter(shadow, d)
 		}
+	}
+	if enforced.Action == EgressPass {
+		return shadow
+	}
+	enforced.Mode = EgressEnforce
+	if egressRank(shadow.Action) > egressRank(enforced.Action) {
+		enforced.ShadowAction, enforced.ShadowRule = shadow.Action, shadow.Rule
+	}
+	return enforced
+}
+
+// stricter is the more restrictive of two decisions for the same label:
+// the higher-ranked action, and between two caps the smaller.
+func stricter(best, d EgressDecision) EgressDecision {
+	switch rb, cb := egressRank(d.Action), egressRank(best.Action); {
+	case rb > cb:
+		return d
+	case rb == cb && rb > 0 && d.Action == EgressCap && d.Lines < best.Lines:
+		best.Lines, best.Rule = d.Lines, d.Rule
 	}
 	return best
 }
