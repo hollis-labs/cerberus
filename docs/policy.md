@@ -19,6 +19,28 @@ one of these:
 allow`). There is no rule order to get wrong, and every decision can be
 explained by listing the rules that matched.
 
+## What Cerberus bounds
+
+**Cerberus bounds an agent that has only its MCP tools. It supervises an agent
+that has a shell running as you, and does not bound it.**
+
+- **An MCP-only agent** reaches Cerberus as an agent, and it can't change
+  that. Policy, the built-in protections, approvals and the brakes all apply
+  to it, and the passkey approvals it asks for are decided by a person.
+- **A process with a shell running as you** can do more:
+  - claim to be a person at the CLI;
+  - pass the terminal checks with a pseudo-terminal;
+  - edit the files under `~/.cerberus`;
+  - replace the `cerberus` binary itself.
+
+  Cerberus records what it does, and for the one step it guards hardest,
+  enrolling a passkey, asks the person at the Mac. What it can't do is
+  produce a passkey assertion, so an approval, lift or break glass that needs
+  your passkey still needs you.
+- **Making the rest a boundary** would need signed binaries with the hardened
+  runtime and a keychain item gated on user presence that only those binaries
+  can read. That work is on the roadmap after beta (CERB-GAP-944).
+
 ## Layers
 
 An operation that reads its target but touches the local filesystem is
@@ -424,13 +446,33 @@ the ceremonies that follow only from a person's claim at the console or the
 CLI. An agent over MCP, automation, a verified token caller, or a caller that
 makes no claim or claims to be an agent is refused with `approval_required`.
 
-That stops an agent that has only its MCP tools, and any caller that doesn't
-forge its claim. It doesn't stop a process running as you with a shell. The
+The claim alone would not stop a process running as you with a shell. The
 claim is self-reported: that process can send a person's claim to the
-socket, or run `cerberus approvals enroll` under a pseudo-terminal, then get
-a console session with `cerberus web open` and register a key it made. A
-check the daemon runs itself, which such a process can't satisfy, is the
-follow-up (CERB-GAP-939). Passkeys work on `localhost`, so the console's links use
+socket, or run `cerberus approvals enroll` under a pseudo-terminal.
+
+So allowing an enrollment also needs the person at the Mac to allow it,
+through a check the daemon raises itself. The daemon runs `cerberus-presence`,
+installed next to `cerberus`, which asks through LocalAuthentication: Touch
+ID, or your account password. `cerberus approvals enroll` shows the prompt on
+your screen, and nothing is allowed until you answer it.
+
+Where the check can't be raised, enrollment is refused, never falling back to
+the claim. That covers:
+
+- a machine that isn't a Mac;
+- no login session at the Mac's screen, as over ssh;
+- a missing helper.
+
+To recover, run the enrollment from a terminal in the Mac's own login
+session. The daemon records the helper's digest the first time it uses it,
+and refuses a helper that changed while it was running.
+
+This raises the bar for a process running as you to replacing the daemon or
+the helper, which is noisier and is recorded. It is not a boundary against
+that process: neither binary is signed yet (see "What Cerberus bounds"
+below).
+
+Passkeys work on `localhost`, so the console's links use
 `http://localhost:<port>`. `--listen` names a console on another port.
 
 Every enrollment is recorded in the audit log and raises a notification.

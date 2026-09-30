@@ -13,6 +13,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/presence/presencetest"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/userpresence"
 )
 
 // Enrolling a passkey is a person's act, held by the daemon (B1): over the
@@ -91,12 +92,12 @@ func TestAnAgentCannotEnrollAPasskeyOverTheSocket(t *testing.T) {
 	}
 }
 
-// The known limit, recorded so a fix flips it: the check is on the
-// self-reported principal claim, so a caller that forges a person's claim
-// at the CLI — a same-uid process with a shell can — still allows an
-// enrollment. CERB-GAP-939's follow-up (a presence check the daemon runs
-// itself) is what closes it; when it lands this test inverts.
-func TestAForgedHumanCLIClaimStillAllowsAnEnrollment(t *testing.T) {
+// A forged claim no longer allows an enrollment (B1-b): a person's claim
+// at the CLI — which a same-uid process with a shell can make — gets as far
+// as the check the daemon raises itself, and with the person at the Mac
+// not allowing it (the fake refusing), nothing is allowed. With no check
+// installed at all, it is refused too, never falling back to the claim.
+func TestAForgedHumanCLIClaimNoLongerAllowsAnEnrollment(t *testing.T) {
 	sink := audit.NewMemory()
 	broker, err := NewBroker(sink, t.TempDir())
 	if err != nil {
@@ -110,17 +111,40 @@ func TestAForgedHumanCLIClaimStillAllowsAnEnrollment(t *testing.T) {
 	raw := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", path)
 	}}}
-	_, digest := presence.NewEnrollToken()
-	req, _ := http.NewRequest(http.MethodPost, "http://cerberus-daemon/approvals/keys/enroll-allow", strings.NewReader(`{"digest":"`+digest+`"}`))
-	req.Header.Set("Content-Type", "application/json")
-	setPrincipalHeader(req.Header, Principal{Kind: PrincipalHuman, Via: ViaCLI})
-	resp, err := raw.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	forged := func() (int, string) {
+		t.Helper()
+		_, digest := presence.NewEnrollToken()
+		req, _ := http.NewRequest(http.MethodPost, "http://cerberus-daemon/approvals/keys/enroll-allow", strings.NewReader(`{"digest":"`+digest+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		setPrincipalHeader(req.Header, Principal{Kind: PrincipalHuman, Via: ViaCLI})
+		resp, err := raw.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return resp.StatusCode, string(body)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("a forged human/cli claim is refused now (%d %s): the known limit is closed, so invert this test and update CERB-GAP-939", resp.StatusCode, body)
+
+	refusing := withUserPresence(t, false)
+	if code, body := forged(); code == http.StatusOK || !strings.Contains(body, "approval_required") || !strings.Contains(body, "did not allow it") {
+		t.Fatalf("a forged human/cli claim with the person refusing: %d %s", code, body)
+	}
+	if refusing.asked.Load() != 1 {
+		t.Fatalf("the check was asked %d times", refusing.asked.Load())
+	}
+	SetUserPresence(nil)
+	if code, body := forged(); code == http.StatusOK || !strings.Contains(body, "cannot ask the person") || !strings.Contains(body, userpresence.Recovery) {
+		t.Fatalf("with no check installed: %d %s", code, body)
+	}
+	allowing := withUserPresence(t, true)
+	if code, body := forged(); code != http.StatusOK || allowing.asked.Load() != 1 {
+		t.Fatalf("with the person allowing it: %d %s", code, body)
+	}
+	// An agent's claim is refused before anyone is asked.
+	agent := NewSocketClient(path, WithPrincipalClaim(func(context.Context) Principal { return Principal{Kind: PrincipalAgent, Via: ViaMCPStdio} }))
+	_, digest := presence.NewEnrollToken()
+	if err := agent.PasskeyAllowEnrollment(context.Background(), EnrollAllowArgs{Digest: digest}); err == nil || allowing.asked.Load() != 1 {
+		t.Fatalf("an agent: %v, asked %d", err, allowing.asked.Load())
 	}
 }

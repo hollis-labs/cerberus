@@ -67,6 +67,10 @@ const (
 	// cool-down ended. It carries the registry's hash, which is how the next
 	// load knows the file is the one Cerberus wrote.
 	KindEnrollmentChanged = "enrollment_changed"
+	// KindPresenceHelper is the digest of the cerberus-presence helper a
+	// daemon first used to ask the person at the machine (B1-b): a record
+	// to compare across restarts, since the helper is not signed.
+	KindPresenceHelper = "presence_helper"
 )
 
 // SchemaVersion is the record format version.

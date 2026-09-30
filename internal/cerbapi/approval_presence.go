@@ -12,6 +12,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/userpresence"
 )
 
 // The process's passkey service (P3-4b): the daemon installs one beside its
@@ -159,11 +160,49 @@ func passkeyAdminRefusal(ctx context.Context, action string) error {
 	} else {
 		allowed = allowed && (p.Via == ViaCLI || p.Via == ViaWeb)
 	}
+	if allowed && action == "enroll-allow" {
+		return enrollPresenceRefusal(ctx)
+	}
 	if allowed {
 		return nil
 	}
 	return externalConnectorError(ExternalConnectorOperationArgs{Connector: "approvals", Operation: "keys_" + strings.ReplaceAll(action, "/", "_")}, ExternalConnectorApprovalRequired,
 		redact.Guidance("passkeys are enrolled and removed by a person: run `cerberus approvals enroll` in an interactive terminal, then finish on the console. This caller is %s over %s, so nothing was changed", p.Kind, p.Via))
+}
+
+// userPresencePoint is the check that a person is at the machine (B1-b),
+// which allowing a passkey enrollment needs on top of a person's claim.
+var userPresencePoint atomic.Pointer[userPresenceHolder]
+
+type userPresenceHolder struct{ v userpresence.Verifier }
+
+// SetUserPresence installs the check; nil removes it, and then enrollment
+// is refused: it never falls back to the claim.
+func SetUserPresence(v userpresence.Verifier) {
+	if v == nil {
+		userPresencePoint.Store(nil)
+		return
+	}
+	userPresencePoint.Store(&userPresenceHolder{v: v})
+}
+
+// enrollPresenceRefusal asks the person at the machine to allow a passkey
+// enrollment (B1-b). The claim that let the call this far is
+// self-reported: a process running as the operator can make it. The check
+// is one the daemon raises itself, which such a process cannot answer
+// without replacing the daemon or its helper.
+func enrollPresenceRefusal(ctx context.Context) error {
+	args := ExternalConnectorOperationArgs{Connector: "approvals", Operation: "keys_enroll-allow"}
+	h := userPresencePoint.Load()
+	if h == nil {
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("this daemon cannot ask the person at this Mac to allow an enrollment, so none is allowed; %s", userpresence.Recovery))
+	}
+	if err := h.v.Verify(ctx, "allow a new passkey for Cerberus approvals"); err != nil {
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("an enrollment needs the person at this Mac to allow it, and %v; nothing was allowed", err))
+	}
+	return nil
 }
 
 // handleApprovalKeys is /approvals/keys: GET the registry's state, POST

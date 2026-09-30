@@ -117,6 +117,27 @@ This installs into one of:
 - `$GOPATH/bin`
 - `$HOME/go/bin`
 
+Install the presence helper the same way, so it sits next to `cerberus`:
+
+```sh
+go install github.com/hollis-labs/cerberus/cmd/cerberus-presence@latest
+```
+
+## The presence helper
+
+`cerberus-presence` is how the daemon asks the person at the Mac, through Touch
+ID or the account password, before it allows a passkey enrollment. The daemon
+looks for it next to its own `cerberus` binary. It is built with cgo on macOS:
+
+- `make build`, `make go-install` and `make homebrew-install` build and install
+  it beside `cerberus`.
+- The release tarballs don't include it yet, because they are cross-compiled
+  without cgo. Build it on the Mac with `go install …/cmd/cerberus-presence`.
+
+Without the helper, or on another OS, passkey enrollment is refused, and says
+so. Everything else works as before. See docs/policy.md, "Out-of-band
+approval, with a passkey".
+
 ## First-Time Setup
 
 1. Seed a starter config:
