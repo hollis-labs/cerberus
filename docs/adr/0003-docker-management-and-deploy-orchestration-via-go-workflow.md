@@ -10,12 +10,11 @@ Proposed
 
 ## Context
 
-operator is scaling up Docker usage across personal apps/dev and a work
-environment reachable over VPN/SSH tunnels, and wants Cerberus to be the
-control plane for both: manage images/configs, monitor running containers
-(local always-on, remote on-demand), and orchestrate deployments. The work
-side will likely add a corporate Jenkins pipeline and an enterprise GitHub
-instance; AWS and DNS management are handled elsewhere and out of scope here.
+The operator is scaling up Docker usage across personal apps and dev work and
+a separate environment reachable only over VPN/SSH tunnels, and wants Cerberus
+to be the control plane for both: manage images/configs, monitor running containers
+(local always-on, remote on-demand), and orchestrate deployments. The tunneled
+side will likely add a Jenkins pipeline and an enterprise GitHub instance; AWS and DNS management are handled elsewhere and out of scope here.
 MVP boundary: SSH-reachable hosts only. GUI is a separate discussion.
 
 Survey of the current codebase found:
@@ -33,23 +32,22 @@ Survey of the current codebase found:
 - A live, config-driven pipeline system (`pipelines:` in `*.cerberus.yaml`,
   `internal/pipeline/`, exposed via `cerberus pipeline list/show/run` and
   `cerberus_pipeline_*` MCP tools). This is real, used surface — not
-  scaffolding — and is itself a descendant of the original app-d pipeline
-  engine.
+  scaffolding — and is itself a descendant of an earlier pipeline engine.
 - A precedent worth not repeating: `internal/infra/deploy.go`, a bounded,
   single-purpose deployment runner for Vercel, deliberately kept outside the
   connector model because Vercel doesn't decompose into local verbs. Docker +
   SSH do decompose into discrete connector verbs (build, push, exec), so that
   precedent does not apply here.
 - `go-workflow` (`github.com/hollis-labs/go-workflow`), the workflow engine
-  extracted from app-d: durable graph-visible compensation (SAGA), suspend/
+  extracted from an earlier application: durable graph-visible compensation (SAGA), suspend/
   resume waits, typed values/artifacts, verification, memoization, and an
-  MCP-native step kind. Already adopted by app-a for Agent Workflows and
-  holding up in production there. Its own docs name Cerberus as an
+  MCP-native step kind. Already adopted by another application for agent
+  workflows and holding up in production there. Its own docs name Cerberus as an
   anticipated downstream consumer.
 
 Cerberus's bespoke `internal/pipeline` DAG has none of go-workflow's
 durability, compensation, or suspend/resume properties, and duplicates work
-that app-d's extraction already hardened.
+that go-workflow's extraction already hardened.
 
 ## Options considered
 
@@ -60,7 +58,7 @@ that app-d's extraction already hardened.
 - **Composition layer:** keep extending `internal/pipeline`, vs. adopting
   `go-workflow`. Rejected extending the bespoke engine — it has no durable
   compensation, no suspend/resume, no verification/memoization, and
-  `go-workflow` already solves all of that, proven in app-a.
+  `go-workflow` already solves all of that, proven in production elsewhere.
 - **Durable state backing:** extend `internal/store/sqlite` in place, vs. a
   new `go-sqlite`-backed store, vs. jumping straight to Postgres. Rejected
   extending the existing store — it sets WAL via a startup `db.Exec` against
@@ -108,21 +106,21 @@ Sub-decisions settled during review:
   Laravel-style job queue) is a candidate for the `Runner`/dispatch seam
   behind `go-scheduler` and should be evaluated alongside it; a better
   community Go library for either problem is also acceptable.
-- **Timer/activation scheduling:** `go-scheduler` — already hardened via
-  app-d's use of it (durable fire identity, CAS claims, crash recovery) —
+- **Timer/activation scheduling:** `go-scheduler` — already hardened in
+  production use (durable fire identity, CAS claims, crash recovery) —
   implements go-workflow's `wait.ActivationScheduler` seam. Business-logic
   wiring is the remaining work, not the library itself.
 - **Wait/callback endpoints:** terminate on Cerberus's existing HTTP API as a
-  narrow, authenticated route family, mirroring app-a's pattern (Basic Auth
+  narrow, authenticated route family, mirroring the pattern go-workflow's first adopter uses (Basic Auth
   + `Idempotency-Key` + persisted responder provenance). The literal
   transport stays open pending Cerberus's planned move to the official Go MCP
   SDK plus Unix-socket transport work; if that lands something that fits
   better than bare HTTP, prefer it, and treat the pattern as shareable across
   other apps rather than Cerberus-only.
-- **app-a lessons adopted now:** pin exact engine/plan/StepKind-catalog
+- **Lessons from the first adopter, adopted now:** pin exact engine/plan/StepKind-catalog
   identity per run (resume never resolves "latest"); require an
   `Idempotency-Key` on every external-trigger endpoint from day one.
-  Deferred: "ambiguous external effect" handling (app-a's outbox/receipt
+  Deferred: "ambiguous external effect" handling (an outbox/receipt
   pattern for at-least-once external calls) until a real fire-and-forget
   trigger exists to build it against (e.g. a Jenkins webhook).
 - **MVP step-kind profile:** `cmd`, `http`, `mcp`, `gate`, `wait`. Docker/SSH
@@ -187,8 +185,8 @@ sequenced work — not solved by this ADR.
   rather than requiring a bespoke Cerberus adapter each time.
 - One pipeline concept instead of two — no standing "legacy vs. new" split
   to reason about or explain.
-- Already proven, not speculative: app-a runs `go-workflow` in production
-  for Agent Workflows today.
+- Already proven, not speculative: `go-workflow` runs in production for
+  agent workflows in another application today.
 
 ### Negative
 
@@ -211,9 +209,7 @@ sequenced work — not solved by this ADR.
 
 1. ~~Inventory current `pipelines:` definitions and `internal/pipeline` call
    sites (`internal/connector/local/connector.go`, `internal/webui/*`) before
-   scoping the migration into concrete tasks.~~ **Done 2026-09-15** — see
-   app-c `project/cerberus/knowledge/investigations`, key
-   `pipeline_engine_inventory_2026_09_15`. Findings: config surface is a
+   scoping the migration into concrete tasks.~~ **Done 2026-09-15.** Findings: config surface is a
    single file (`cerberus.cerberus.yaml`, 2 pipeline definitions); dead
    pipeline-run storage code and the vestigial `Pipeline` resource type were
    deleted in the same pass (`go build`/`make test` verified green).

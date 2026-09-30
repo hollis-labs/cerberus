@@ -56,7 +56,7 @@ relationships:
 
 # Operation acknowledgment and the audit log
 
-The gate works, and it is strict. `cerberus ssh exec <work-host> -- id -nG` with
+The gate works, and it is strict. `cerberus ssh exec <remote-host> -- id -nG` with
 no flags exits 1 with `acknowledgment_required: exec operation "exec"
 requires operator acknowledgment` (the wording names the effect since PR #60). Adding `--dry-run` alone returns a clean
 preview DTO naming the connector, operation, resolved target and the command

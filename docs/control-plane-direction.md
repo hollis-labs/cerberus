@@ -64,9 +64,9 @@ Project repositories / operator configuration / external catalogs
                               |
                               v
                   +-----------------------+
-app-a ---------->|                       |
-app-b ---------->|       Cerberus        |<---------- Operator / GUI / CLI
-app-e ---------->|                       |
+app-a ----------->|                       |
+app-b ----------->|       Cerberus        |<---------- Operator / GUI / CLI
+app-c ----------->|                       |
                   | registry + validation |
                   | observation + diff    |
                   | policy + control      |
@@ -110,7 +110,7 @@ Cerberus does not proxy them merely to remain in the middle.
 | Durable service process | Native OS supervisor | Register, control, inspect, and diagnose |
 | Development process | Calling workflow | Optionally host as a bounded runner session |
 | Credential material | Vault, keychain, provider CLI, or credential broker | Carry references and arrange scoped delivery |
-| Workspace intent | app-a, app-b, app-e, or operator | Provision, lease, observe, and retire infrastructure |
+| Workspace intent | An agent host or other application, or the operator | Provision, lease, observe, and retire infrastructure |
 | Workspace infrastructure | Workspace provider such as Coder | Control through provider driver and project status |
 | Operational history | Cerberus | Persist observations, diffs, actions, and provenance |
 
@@ -445,7 +445,7 @@ configuration, trust, capability grants, packaging, and registration
 mechanics. Cerberus adds a host-specific resource-driver contract rather than
 creating a parallel general plugin platform.
 
-The app-a plugin design supplies useful rules:
+An earlier plugin design in another application supplies useful rules:
 
 - Plugins declare; the host validates and grants.
 - Preflight validation occurs before process startup.
@@ -461,9 +461,9 @@ Cerberus should not depend on Coder Agents, Coder's AI Gateway, or direct
 general-purpose Coder MCP access.
 
 ```text
-app-a -----+
-app-b -----+---- acquire/release ----> Cerberus ----> Coder
-app-e -----+                             |
+app-a ------+
+app-b ------+---- acquire/release ----> Cerberus ----> Coder
+app-c ------+                             |
                                              Workspace + Lease
                                                      |
 Caller ---------------- direct execution/access -----+
@@ -542,8 +542,8 @@ operations and resulting work.
 
 ### Agent execution placement
 
-app-a owns its agents and launches them through its Agent Host. app-b and
-app-e retain their own distinct execution use cases. Cerberus supplies the
+An agent host owns its agents and launches them itself. Other applications
+retain their own distinct execution use cases. Cerberus supplies the
 workspace; it does not provide a universal agent-session abstraction.
 
 Agent adapters may support:

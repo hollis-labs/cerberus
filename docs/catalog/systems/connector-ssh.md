@@ -85,7 +85,7 @@ read or overwrite is not constrained (CERB-GAP-850).
 Two things this connector does not do, both known and both deliberate to leave
 open. `exec` runs as the operator's own account with no elevation, which is
 WP-8 — and the constraints are already decided, not open: elevation is opt-in
-per operation, needs a PTY because sudo on the work host requires a tty, must quote
+per operation, needs a PTY because sudo on the remote host requires a tty, must quote
 each argument individually (a real bug in the shell predecessor mangled a
 display name containing a space), and must never prompt for a password because
 a Cerberus-started ssh has no terminal to prompt on. Recursive transfer, WP-9,
@@ -115,4 +115,4 @@ status <id>` against a VPN-only host returned `reachable: true, os: Linux`.
 - Which local paths a transfer may read or overwrite. There is no path policy yet
 - Interactive sessions. There is no TTY, so nothing can answer a password or MFA prompt
 - ~/.ssh/config resolution — the connector is in-process and shells out to nothing
-- Tunnel supervision. A tunnel to the work host is a local process resource, not this connector
+- Tunnel supervision. A tunnel to the remote host is a local process resource, not this connector

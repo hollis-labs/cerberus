@@ -47,7 +47,7 @@ The fix is small and deliberate. `UnsupervisedStatus` is the literal string `uns
 
 The read paths and the mutation paths diverge on purpose. `resource list` and `resource status` answer the question — `status: unsupervised`, plus the reason and the next step — because "what is the state of this server resource" is a reasonable thing to ask and has a real answer. `resource inspect`, `deploy`, `apply` and the rest refuse with `UnsupervisedOperationError`, which still carries the reason and the same next-step text, because there is nothing for them to do.
 
-Verified live on this machine:
+Verified live on the audit machine:
 
 ```
 $ cerberus resource status host-a

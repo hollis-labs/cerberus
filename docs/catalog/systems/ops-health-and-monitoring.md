@@ -81,7 +81,7 @@ the frozen v1 `service.ServiceRegistry`. `daemon.NewMonitor` has zero callers,
 including zero test callers. The evidence that it once ran is still on disk:
 `~/.cerberus/alerts/` holds exactly two files, for `app-d-daemon` and `jaeger`,
 both timestamped 2026-09-15T13:25:39, and the log shows the matching
-`daemon.monitor.alert.volon_failed` and `alert.file_written` pairs. Nothing has
+`daemon.monitor.alert.notify_failed` and `alert.file_written` pairs. Nothing has
 been written there since the v2 migration on the same day. Even when it ran, its
 only remote destination was a hardcoded `http://127.0.0.1:8085/v1/notifications`
 belonging to app-h, an app that is not installed here and never was; there is no

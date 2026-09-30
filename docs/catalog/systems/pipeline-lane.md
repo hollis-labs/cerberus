@@ -119,7 +119,7 @@ installed and running (CERB-GAP-734).
 
 Verified live on 2026-09-17: `cerberus pipeline list` returns "No pipelines
 defined." The live config declares none, so nothing in this lane has ever run
-on this machine. Author-time validation would not catch much if one were added
+on the audit machine. Author-time validation would not catch much if one were added
 — registry validation checks neither action types nor stage dependencies
 (CERB-GAP-536); the checks that exist are in `Resolve` and `Builder.Build` and
 fire at run time.

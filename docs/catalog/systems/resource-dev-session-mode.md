@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "shipped"
 review_status: "draft"
 confidence_score: 0.95
-confidence_label: "nine resources run this way on this machine right now; status, inspect, doctor and logs verified live"
+confidence_label: "nine resources run this way on the audit machine right now; status, inspect, doctor and logs verified live"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -35,7 +35,7 @@ relationships:
 
 # dev_session runtime mode
 
-`dev_session` is the default mode and the only one in use on this machine. `internal/connector/local/dev_session.go` launches `command[0]` with `Setpgid: true`, writes stdout and stderr to one log file (`log_file:`, else `$TMPDIR/cerberus-<id>.log`), and records a PID file plus a meta file holding the PID, the launch time, a config hash and a `ps -o lstart` process-start identity.
+`dev_session` is the default mode and the only one in use on the audit machine. `internal/connector/local/dev_session.go` launches `command[0]` with `Setpgid: true`, writes stdout and stderr to one log file (`log_file:`, else `$TMPDIR/cerberus-<id>.log`), and records a PID file plus a meta file holding the PID, the launch time, a config hash and a `ps -o lstart` process-start identity.
 
 That identity is the whole point of the design. `ownedPID()` refuses to adopt a PID whose recorded launch metadata is missing or whose OS start time disagrees with what Cerberus wrote, so a recycled PID cannot be mistaken for a supervised service. `stopContext` then refuses to signal a PID that is not its own process-group leader, rechecks ownership before escalating from SIGTERM to SIGKILL after ten seconds, and waits for the process to actually exit before a caller may restart it. The comment above `Stop` states the rule plainly: a listening port is evidence of occupancy, never evidence of ownership. When the port is held by something Cerberus does not own, `Poll` returns `unknown` with a `refusing to adopt or stop it` message rather than claiming the resource is running.
 

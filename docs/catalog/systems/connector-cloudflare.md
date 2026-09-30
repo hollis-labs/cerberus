@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.8
-confidence_label: "Fake-backend, DTO and scrubber tests in the plugin; no Cloudflare token on this machine, so live reads wait for the operator's UAT"
+confidence_label: "Fake-backend, DTO and scrubber tests in the plugin; no Cloudflare token on the audit machine, so live reads wait for the operator's UAT"
 last_reviewed: "2026-09-25"
 created_at: "2026-09-17"
 namespace: "cerberus"

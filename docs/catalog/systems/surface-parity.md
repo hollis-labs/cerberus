@@ -112,7 +112,7 @@ them:
   surface.
 
 One more inconsistency worth recording is that the surfaces do not agree on what
-they *are*. The `cerberus web` process running on this machine (pid 25756,
+they *are*. The `cerberus web` process running on the audit machine (pid 25756,
 started 15 Sep) renders `Bearer [REDACTED] — X-API-Key [REDACTED] a raw token
 both 401` for the ContextForge token description, while the CLI, socket and MCP
 served by the 17 Sep binary render `Bearer only — X-API-Key [REDACTED] a raw

@@ -1,8 +1,8 @@
 # Plan: Stop runtime staleness & finish the build_strategy migration
 
 **Status:** proposed (investigation complete 2026-05-25)
-**Origin:** app-b daemon-reload incident (`/Users/<other-user>/dev/archive/inbox/cerberus/2026-05-25-app-b-daemon-service-reload-registry-urn-compat.md`) + recurring "stale binary / frontend-backend out of sync" reports.
-**Related:** acme followups `project_config_forward_compat_unknown_fields`, `surface_skipped_configs_in_list_commands`, `webui_drift_status.selfexec_install_after_build_self_deploy`.
+**Origin:** a daemon-reload incident in a registered app (a service reload tripping on registry URN compatibility) + recurring "stale binary / frontend-backend out of sync" reports.
+**Related:** follow-ups `project_config_forward_compat_unknown_fields`, `surface_skipped_configs_in_list_commands`, `webui_drift_status.selfexec_install_after_build_self_deploy`.
 
 ## Problem
 
@@ -57,16 +57,14 @@ Not a cause: `selfexec` is now dead code (removed CW-20260519-0053) — latent f
 ### Layer 5 — Finish the build_strategy migration (the 13 configs)
 Migrate from the `legacy_command` shim to first-class `build_strategy` for every
 config still using `build:`. **Cerberus leads its own; other apps in a later
-window when no one is actively working on them** (see acme memory
-`cerberus_lead_build_strategy_migration_13_configs`).
+window when no one is actively working on them**.
 
 `make build` → `make_standard`; `go build …` → `go_standard`; bash/npm scripts →
 `legacy_command` with an explicit `output` (or a future first-class node/script
 strategy). Each migration must verify the artifact actually refreshes (Layer 1).
 
-Configs still on `build:` (2026-05-25): app-e, app-d, echo, site-explorer,
-app-c (conduit), app-a, tangent, fragments-engine (×2), app-b, app-k,
-app-n (×2), sysop-ui, glyph. Already migrated: cerberus.
+Configs still on `build:` (2026-05-25): sixteen app descriptors, two of them
+with two resources each. Already migrated: cerberus.
 
 ## Sequencing
 Layer 0 done. Layer 1 is the highest-value code fix (kills silent stale-after-deploy). Layer 2 makes the right action obvious. Layers 3–4 broaden coverage. Layer 5 is operational cleanup, owner-paced.

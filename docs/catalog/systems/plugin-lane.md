@@ -73,7 +73,7 @@ loaded plugin id is dispatched ahead of the built-in registry in
 over the daemon socket reaches it, with the same `credential_missing` error code
 a built-in produces.
 
-Two plugins exist and both are loaded on this machine, as children of the
+Two plugins exist and both are loaded on the audit machine, as children of the
 daemon: `contextforge` (4 read operations against the ContextForge MCP gateway)
 and `azure` (6 read operations against an Azure subscription). Both were v0.1.0,
 both recorded as `trust_tier: unsigned` (since PR #51 that field is

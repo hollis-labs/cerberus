@@ -65,8 +65,7 @@ registration, verified failing with `AuthorizationFailed … 'Microsoft.Compute/
 register/action'`. VM management would additionally need Contributor scoped to a
 resource group, because `Virtual Machine Contributor` alone does not cover the
 VNet, NIC and public IP a new VM attaches to. And there is a governance question
-that was named rather than assumed away: this is a shared shared
-subscription, and a persistent billable VM in it is a decision for whoever owns
+that was named rather than assumed away: this is a shared team subscription, and a persistent billable VM in it is a decision for whoever owns
 it. Those conditions are written into the plugin's README as "not implemented,
 here is why", so the next person finds the reason rather than the gap.
 

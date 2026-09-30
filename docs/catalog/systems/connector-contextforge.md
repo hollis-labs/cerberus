@@ -7,12 +7,12 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.85
-confidence_label: "No JWT on this machine; the three credentialed operations have only ever run against a fake"
+confidence_label: "No JWT on the audit machine; the three credentialed operations have only ever run against a fake"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "plugin"
-pointer_locator: "~/src/cerberus-plugins/contextforge (plugin manifest)"
+pointer_locator: "cerberus-plugins/contextforge (plugin manifest)"
 tags:
   - "cerberus"
   - "class:capability"
@@ -91,4 +91,4 @@ everything else in the connector plan.
 - Any gateway write. Nothing registers, edits or removes an upstream
 - The tunnel to the gateway. That is a local process resource with auto_start and auto_restart deliberately false
 - The gateway's own credentials. It must never emit them, which is the point of the DTO
-- svc-a, the Teams bot or anything else running on the same host
+- The other services running on the same host

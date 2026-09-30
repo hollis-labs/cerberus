@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "partial"
 review_status: "draft"
 confidence_score: 0.8
-confidence_label: "unit-tested end to end in artifact_test.go and build_strategy_test.go; no resource on this machine declares a build_strategy or run_from: artifact, and the daemon-side go build path is broken (GAP-140)"
+confidence_label: "unit-tested end to end in artifact_test.go and build_strategy_test.go; no resource on the audit machine declares a build_strategy or run_from: artifact, and the daemon-side go build path is broken (GAP-140)"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -56,7 +56,7 @@ That feeds `RecommendedStatusAction`, which is the only producer of the `artifac
 
 The build half is `build_strategy:` with three kinds — `go_standard` (requires a `rules.output`, supports a GOOS/GOARCH matrix with archiving and checksums), `make_standard`, and `legacy_command` (the translation target for the deprecated `build:` field, so an unmigrated resource still builds instead of silently dropping out of the runtime). `deploy` takes a build lock, writes `logs/build.log` on success and failure alike so a build is diagnosable after the fact, optionally runs `make install` when a Makefile with an `install` target exists, and then — for artifact resources — stats the resolved source path and fails loudly if the build produced nothing there. That guard exists because a "successful" build that wrote somewhere else would silently sync a stale artifact.
 
-Maturity is `partial`, and honestly so. The unit tests are good. But no resource in `~/.cerberus/config.yaml` declares a `build_strategy` or `run_from: artifact`, `cerberus resource list` shows an empty ARTIFACT column for all ten rows, and the `go_standard` path is actually broken when invoked through the running daemon (CERB-GAP-140). Nothing in this capability is exercised in production on this machine.
+Maturity is `partial`, and honestly so. The unit tests are good. But no resource in `~/.cerberus/config.yaml` declares a `build_strategy` or `run_from: artifact`, `cerberus resource list` shows an empty ARTIFACT column for all ten rows, and the `go_standard` path is actually broken when invoked through the running daemon (CERB-GAP-140). Nothing in this capability is exercised in production on the audit machine.
 
 ## What it owns
 

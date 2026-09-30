@@ -7,7 +7,7 @@ state_field: "maturity"
 state_label: "shipped"
 review_status: "reviewed"
 confidence_score: 0.93
-confidence_label: "cerberus path run live and its output diffed against the actual dotdir contents; the SQLite store is provably never created on this machine"
+confidence_label: "cerberus path run live and its output diffed against the actual dotdir contents; the SQLite store is provably never created on the audit machine"
 last_reviewed: "2026-09-17"
 created_at: "2026-09-17"
 namespace: "cerberus"
@@ -64,7 +64,7 @@ runbooks point into, and it is referenced by absolute path across the codebase.
 `paths.WithoutMaterialize()` keeps `cerberus path` side-effect free, which also
 means it happily prints a path that does not exist.
 
-The actual dotdir on this machine holds thirteen things `cerberus path` does
+The actual dotdir on the audit machine holds thirteen things `cerberus path` does
 not mention: `config.yaml` plus seven hand-made `config.yaml.bak-*` snapshots,
 `cerberus.log`, `cerberus.pid`, `cerberus.sock`, `daemon.lock`, `infra.yaml`,
 `plugin-connectors.json`, `registry-profile.yaml`, `paused.app-a-local`, and
