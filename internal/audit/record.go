@@ -158,6 +158,11 @@ type Record struct {
 	// plugin cannot write a record of its own.
 	PluginTelemetry *PluginTelemetry `json:"plugin_telemetry,omitempty"`
 
+	// Egress is what egress policy said about the result (P4-4): each
+	// labeled part a rule matched, the action, and whether it was applied
+	// (enforce) or only recorded (shadow). On outcome records.
+	Egress []EgressAction `json:"egress,omitempty"`
+
 	// Preview is plugin_claimed on a dry run a plugin served from its own
 	// preview: the plugin's claim, which Cerberus cannot verify (Decision 7).
 	Preview string `json:"preview,omitempty"`
@@ -298,4 +303,20 @@ type BreakGlassRef struct {
 	Protected bool `json:"protected"`
 	// ApprovalID is the break-glass approval, on an acknowledgment.
 	ApprovalID string `json:"approval_id,omitempty"`
+}
+
+// EgressAction is one egress rule's decision on a result: which label, at
+// which places, what it did or would do, and how much it withheld.
+type EgressAction struct {
+	Rule     string   `json:"rule"`
+	Label    string   `json:"label"`
+	Action   string   `json:"action"`
+	Mode     string   `json:"mode"`
+	Pointers []string `json:"pointers"`
+	// Applied is true when the rule enforced and the result was changed or
+	// refused; false in shadow, where it records what would have happened.
+	Applied bool `json:"applied"`
+	// Withheld counts what a cap or mask held back (lines, elements or
+	// characters), or would have in shadow.
+	Withheld int `json:"withheld,omitempty"`
 }

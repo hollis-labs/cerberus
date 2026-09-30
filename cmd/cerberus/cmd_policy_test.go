@@ -278,3 +278,18 @@ func TestPolicyEnforce(t *testing.T) {
 		t.Fatalf("no terminal: %v", err)
 	}
 }
+
+// Explain and apply say when a refuse egress rule can reach an operation that
+// is not a read, and what it does there.
+func TestEgressWarningsArePrinted(t *testing.T) {
+	var out bytes.Buffer
+	writeEgressWarnings(&out, policy.File{Egress: []policy.EgressRule{{ID: "r", Label: "untrusted", Action: policy.EgressRefuse}}}.EgressWarnings())
+	if !strings.Contains(out.String(), "1 egress rule(s) refuse output on operations that are not reads") || !strings.Contains(out.String(), "reports success rather than an error") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	out.Reset()
+	writeEgressWarnings(&out, nil)
+	if out.Len() != 0 {
+		t.Fatalf("no warnings printed %q", out.String())
+	}
+}

@@ -72,6 +72,7 @@ func TestWebConnectorRefusalsKeepTheirStatusAndMessage(t *testing.T) {
 		cerbapi.ExternalConnectorPluginChanged:      http.StatusConflict,
 		cerbapi.ExternalConnectorPrincipalRefused:   http.StatusForbidden,
 		cerbapi.ExternalConnectorPolicyDenied:       http.StatusForbidden,
+		cerbapi.ExternalConnectorEgressRefused:      http.StatusForbidden,
 		cerbapi.ExternalConnectorApprovalRequired:   http.StatusPreconditionRequired,
 		cerbapi.ExternalConnectorApprovalPending:    http.StatusConflict,
 		cerbapi.ExternalConnectorApprovalExpired:    http.StatusConflict,

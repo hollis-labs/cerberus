@@ -84,6 +84,10 @@ type auditCall struct {
 	start     time.Time
 	intent    audit.Record
 	spec      auditSpec
+	// target is the resolved target, which egress policy matches on.
+	target target.Target
+	// egress is what egress policy said about the result, for the outcome.
+	egress []audit.EgressAction
 }
 
 // recordRequired reports whether an operation must not run without its
@@ -128,7 +132,7 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 	if !spec.automation {
 		intent.Policy, intent.Posture = shadowDecision(ctx, spec, resolved)
 	}
-	call := &auditCall{sink: sink, logger: logger, start: time.Now(), intent: intent, spec: spec}
+	call := &auditCall{sink: sink, logger: logger, start: time.Now(), intent: intent, spec: spec, target: resolved}
 	if _, err := sink.Write(intent); err != nil {
 		if spec.recordRequired() && !spec.automation {
 			return nil, fmt.Errorf("the audit log could not be written, so this %s operation was refused and nothing ran; fix the audit directory (~/.cerberus/audit) and retry: %w", effectName(spec), err)
@@ -194,6 +198,7 @@ func (c *auditCall) finish(err error) {
 	if t := c.telemetry.Snapshot(); !t.Empty() {
 		outcome.PluginTelemetry = auditTelemetry(t)
 	}
+	outcome.Egress = c.egress
 	if _, werr := c.sink.Write(outcome); werr != nil {
 		c.logger.Error("audit.write_failed", "kind", audit.KindOutcome, "operation_id", c.intent.OperationID,
 			"connector", c.spec.connector, "operation", c.spec.operation, "outcome_code", code, "error", redact.Text(werr.Error()))

@@ -43,6 +43,7 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorPrincipalRefused:   http.StatusForbidden,
 	// Reserved for P3 enforcement; nothing returns these yet.
 	ExternalConnectorPolicyDenied:     http.StatusForbidden,
+	ExternalConnectorEgressRefused:    http.StatusForbidden,
 	ExternalConnectorApprovalRequired: http.StatusPreconditionRequired,
 	ExternalConnectorApprovalPending:  http.StatusConflict,
 	ExternalConnectorApprovalExpired:  http.StatusConflict,

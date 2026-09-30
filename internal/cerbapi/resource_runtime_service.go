@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -1137,8 +1138,31 @@ func (s *ResourceRuntimeService) ResourceLogs(ctx context.Context, id string, li
 		return nil, err
 	}
 	out, err := s.readResourceLogs(ctx, id, lines, stream)
+	if err == nil {
+		out, err = shapeLogLines(call, out)
+	}
 	call.finish(err)
 	return out, err
+}
+
+// shapeLogLines is egress policy on a log read (P4-4), back in its own type.
+func shapeLogLines(call *auditCall, out *LogLines) (*LogLines, error) {
+	shaped, err := call.applyEgress(out)
+	if err != nil {
+		return nil, err
+	}
+	if same, ok := shaped.(*LogLines); ok {
+		return same, nil
+	}
+	data, err := json.Marshal(shaped)
+	if err != nil {
+		return nil, err
+	}
+	var back LogLines
+	if err := json.Unmarshal(data, &back); err != nil {
+		return nil, err
+	}
+	return &back, nil
 }
 
 func (s *ResourceRuntimeService) readResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {

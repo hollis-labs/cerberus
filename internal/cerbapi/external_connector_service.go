@@ -70,6 +70,9 @@ const (
 	// ExternalConnectorPlanStale: the approved plan no longer matches what
 	// would run (I6).
 	ExternalConnectorPlanStale ExternalConnectorErrorCode = "plan_stale"
+	// ExternalConnectorEgressRefused: the operation ran, and an enforced
+	// egress rule withholds its labeled output from this caller (P4-4).
+	ExternalConnectorEgressRefused ExternalConnectorErrorCode = "egress_refused"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -90,6 +93,7 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorApprovalPending,
 	ExternalConnectorApprovalExpired,
 	ExternalConnectorPlanStale,
+	ExternalConnectorEgressRefused,
 }
 
 // ExternalConnectorErrorCodes returns the whole vocabulary, for tests on the
@@ -275,6 +279,16 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		return result, scopeError(scope, planErr)
 	}
 	result, err := s.execute(call.withTelemetry(ctx), args)
+	if err == nil && !args.DryRun {
+		// Egress policy on what comes back (P4-4): recorded on the outcome,
+		// and applied where a rule enforces.
+		var shaped any
+		if shaped, err = call.applyEgress(result.Data); err == nil {
+			result.Data = shaped
+		} else {
+			result = ExternalConnectorOperationResult{}
+		}
+	}
 	call.finish(err)
 	return result, scopeError(scope, err)
 }
