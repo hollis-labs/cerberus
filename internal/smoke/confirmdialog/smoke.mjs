@@ -243,6 +243,34 @@ try {
   const afterReset = await (await fetch('http://127.0.0.1:4798/agent-stop')).json()
   check('breaker: the typed phrase resets it, and the agent is back under policy',
     !(await evaluate(`!!document.querySelector('[data-testid^=suspension-]')`)) && /policy_denied/.test(afterReset.error || ''), (afterReset.error || '').slice(0, 100))
+
+  // 7. An approval link (M7), as an MCP client is handed one: in a browser
+  //    with no console session, it signs in for that approval only. The
+  //    page is that approval, the passkey approves it, and the rest of the
+  //    console is refused, on the server and in the page.
+  const scopedAsk = await (await fetch('http://127.0.0.1:4798/break-glass')).json()
+  const scopedID = scopedAsk.approval_id
+  const link = await (await fetch(`http://127.0.0.1:4798/approval-url?id=${scopedID}`)).text()
+  await send('Network.clearBrowserCookies')
+  await evaluate(`(localStorage.clear(), true)`)
+  await go(link)
+  await waitFor(`!!localStorage.getItem('cerberus.session-key') && !!document.querySelector('[data-testid=scoped-approval]') && !!document.querySelector('[data-testid=approval-detail]')`, 'scoped sign-in', 15000)
+  const landed = await evaluate(`(() => ({ path: location.pathname + location.search, banner: document.querySelector('[data-testid=scoped-approval]').textContent, rows: [...document.querySelectorAll('[data-testid^="approval-apr_"]')].map(r => r.dataset.testid) }))()`)
+  check('approval link: it lands on that approval, and says the sign-in is for it only',
+    landed.path === `/approvals?id=${scopedID}` && landed.banner.includes(scopedID) && /only/.test(landed.banner) && /cerberus web open/.test(landed.banner), JSON.stringify(landed).slice(0, 200))
+  check('approval link: the list holds that approval and no other', landed.rows.length === 1 && landed.rows[0] === `approval-${scopedID}`, landed.rows.join(','))
+  const elsewhere = await evaluate(`${api}('/api/resources').then(async r => ({ status: r.status, body: await r.text() }))`)
+  check('approval link: the rest of the API is refused as scoped_session', elsewhere.status === 403 && /scoped_session/.test(elsewhere.body), `${elsewhere.status} ${elsewhere.body.slice(0, 100)}`)
+  await evaluate(`(__type(document.querySelector('[data-testid=typed]'), 'prod-api'), true)`)
+  await sleep(150)
+  await evaluate(`(__btn(document.querySelector('[data-testid=approval-detail]'), 'Approve with passkey').click(), true)`)
+  await waitFor(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).some(a => a.id === '${scopedID}' && a.status === 'approved'))`, 'scoped passkey approval', 15000)
+  check('approval link: the passkey approves it there', true)
+  await go('http://localhost:4799/resources')
+  await waitFor(`!!document.querySelector('[data-testid=scoped-approval]')`, 'scoped page on another route')
+  const other = await evaluate(`(() => ({ scoped: document.querySelector('[data-testid=scoped-approval]').textContent, rows: document.querySelectorAll('tr').length, text: document.body.innerText.length }))()`)
+  check('approval link: another route shows the scoped page, not the console or a blank one',
+    other.scoped.includes(scopedID) && other.text > 40 && !(await evaluate(`[...document.querySelectorAll('tr')].some(r => r.textContent.includes('web') && r.textContent.includes('LOCAL'))`)), JSON.stringify(other))
 } catch (e) {
   check('smoke ran to completion', false, e.message)
   const shot = await send('Page.captureScreenshot', { format: 'png' })
