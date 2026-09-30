@@ -18706,6 +18706,89 @@
       "id": "CERB-GAP-935"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A deploy builds the live tree, so an edit made while the build runs still lands",
+      "summary": "A deploy's checkout is read at the gate and rechecked under the build lock (CERB-GAP-935), but the build then reads the working tree as it runs. An edit made between the recheck and the moment the build reads a file is built and installed under the approval of the tree that was checked. The window is the build's own duration.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.9,
+      "confidence_label": "a residual of the M10 fix in the e40b63c security review, by construction",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/resource_runtime_service.go (deployResource), internal/connector/local/build_strategy.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-935",
+          "note": "the recheck this window remains after"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "The build runs from a pinned copy of the checked tree (git stash create or worktree add at the checked commit plus the checked diff, or an export) instead of the working tree, and the install takes its output from there",
+        "effort": "medium"
+      },
+      "body": "Closing it changes where builds run: build strategies that rely on untracked or ignored files in the working tree (local config, vendored dependencies) would need those carried into the pinned copy or declared.",
+      "id": "CERB-GAP-936"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "The monitor trusts a workload's definition on first sight when it has no applied record",
+      "summary": "The monitor restarts a workload only while its definition matches the digest a gated start recorded in ~/.cerberus/runtime/applied.json (CERB-GAP-935). A workload with no record, first seen after the upgrade or after that file is deleted, is restarted with its definition as it reads then, and that definition is recorded. Deleting the file, which any process running as the operator can do, therefore resets every workload to trust on first use.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.9,
+      "confidence_label": "a residual of the M10 fix in the e40b63c security review, by construction",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "supervision",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/resource_monitor.go, internal/cerbapi/applied_definitions.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-935",
+          "note": "the applied record this falls back from"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-930",
+          "note": "the same-uid limit: the record is an operator-writable file"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "The applied digest is read from the hash-chained audit log (the gated start's outcome record) instead of a side file, so a missing record means the workload was never applied and the monitor leaves it down until a person applies it",
+        "effort": "small"
+      },
+      "body": "TOFU was chosen so an upgrade does not leave every auto_restart workload down. Once the digest rides on the audit record, the first-run case needs an explicit one-time adoption (a `resource apply` per workload, or a recorded adopt step) instead.",
+      "id": "CERB-GAP-937"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
