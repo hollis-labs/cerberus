@@ -18789,6 +18789,39 @@
       "id": "CERB-GAP-937"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "The daemon hung on its first log through slog.Default(), so every pipeline run hung",
+      "summary": "RedactDefaultLogger installed redact.Handler over slog.Default().Handler() as the new default. slog's default handler writes through the log package, which SetDefault points back at the new default, so the first record logged through slog.Default() or the log package re-entered the log package's lock and blocked forever. The pipeline executor logs that way, so every pipeline run on the daemon hung, and the next one then blocked on the pipeline lock. Fixed: the redacting handler writes to stderr through a text handler of its own.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 5931772 re-review (B6) with a SIGQUIT dump; a regression test re-execs a child that logs after init",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "daemon",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/service/lifecycle_log.go",
+      "relationships": [],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "The daemon's stderr.log now carries slog's text format (time=... level=INFO msg=...) instead of the log package's line format.",
+      "id": "CERB-GAP-938"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
