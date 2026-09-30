@@ -150,6 +150,7 @@ export function DeploymentsPage() {
       const result = await withConfirm(() => apiClient.runDeployment(profileID, sessionToken, true), {
         plan: () => apiClient.planDeploymentRun(profileID, sessionToken),
         confirm: (c) => apiClient.confirmDeploymentRun(profileID, sessionToken, c),
+        retry: (approvalID) => apiClient.runDeployment(profileID, sessionToken, true, approvalID),
       })
       setRunResults((current) => ({ ...current, [profileID]: result }))
       await infra.refetch()

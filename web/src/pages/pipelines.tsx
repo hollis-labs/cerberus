@@ -59,6 +59,7 @@ export function PipelinesPage() {
       const result = await withConfirm(() => apiClient.runPipeline(id, sessionToken, true), {
         plan: () => apiClient.planPipeline(id, sessionToken),
         confirm: (c) => apiClient.confirmPipeline(id, sessionToken, c),
+        retry: (approvalID) => apiClient.runPipeline(id, sessionToken, true, approvalID),
       })
       const raw = result.raw ? decodeRunResult(result.raw) : ''
       setOutput((current) => ({

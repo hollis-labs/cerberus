@@ -543,10 +543,12 @@ It shows the effect, target, labels and which process computed the plan in
 bold, then what would run and the full plan hash, and it enables **Confirm
 and run** only once the target is typed. Only a signed-in console session
 can confirm. The console marks its session on the request after checking
-the cookie, and a web request without that session is refused. An approval
-that must be met out of band sends you to the approvals page instead. For
-the console's own writes, the console shows that approval in place: type the
-target, approve with your passkey, and the write runs under the approval.
+the cookie, and a web request without that session is refused. When the
+approval has to be met out of band, the console shows it in place instead,
+on the page you're on. Type the target and approve with your passkey, and
+the call is sent again under the approval. This covers resource actions,
+pipeline and deploy runs, connector operations, the console's own writes
+and a brake lift, so nothing sends you to another page to approve.
 
 Deploy-profile runs are asked for, confirmed and run by the daemon, like
 resource verbs. The console is a client, so the approval lives with the
@@ -776,7 +778,8 @@ it asks for. An agent or an MCP client can never lift a brake. If a passkey is
 enrolled, the lift is also approved with the passkey: the first `--off`
 prints a console link, and you approve it there. Then either click **Lift
 now** on the approval, or run the command again with `--approval <id>`. The
-console's own Lift button takes you to the same approval. With no passkey
+console's own Lift button asks for the same approval in place, and lifts
+once you approve it with the passkey. With no passkey
 enrolled, the terminal and the typed phrase are the floor. That floor applies
 only when the passkey registry opens and holds no key. If the registry can't
 be read, or it changed outside `cerberus approvals enroll` (it was deleted,

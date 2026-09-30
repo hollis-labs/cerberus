@@ -217,6 +217,31 @@ try {
     saved?.env === 'prod' && relabels.length === 1 && relabels[0].status === 'consumed' && relabels[0].decision?.same_surface === true && !!relabels[0].decision?.key_fingerprint && relabels[0].decision?.by?.via === 'web',
     JSON.stringify([saved?.env, relabels.map((a) => [a.status, a.decision?.same_surface, a.decision?.by?.via])]))
 
+  // 5b. An out-of-band resource action: stopping prod-api from the console
+  //     is approved in place with the passkey, and the stop is sent again
+  //     under that approval, with no trip to the approvals page.
+  await go('http://localhost:4799/resources'); await evaluate(lib)
+  await waitFor(`[...document.querySelectorAll('tr')].some(r => r.textContent.includes('prod-api'))`, 'prod-api row')
+  await evaluate(`[...document.querySelectorAll('tr')].find(r => r.textContent.includes('prod-api') && r.querySelector('td')).querySelector('td').click(), true`)
+  await waitFor(`!!__btn(__top(), 'Stop')`, 'prod-api detail Stop')
+  await evaluate(`(__btn(__top(), 'Stop').click(), true)`)
+  const stopAck = `__dialogs().find(d => /only with your acknowledgment/.test(d.textContent))`
+  await waitFor(`!!${stopAck}`, 'prod-api stop: ack dialog')
+  await evaluate(`(__btn(${stopAck}, 'Stop').click(), true)`)
+  await waitFor(`!!document.querySelector('[data-testid=out-of-band-step] [data-testid=approval-detail]')`, 'prod-api stop: out-of-band step', 10000)
+  const stopStep = await evaluate(`document.querySelector('[data-testid=out-of-band-step]').textContent`)
+  check('out-of-band stop: the console asks for the passkey approval in place', /local\.stop on prod-api/.test(stopStep) && /out_of_band/.test(stopStep) && (await evaluate('location.pathname')) === '/resources', stopStep.slice(0, 120))
+  const stopOob = `document.querySelector('[data-testid=out-of-band-step]')`
+  await evaluate(`(__type(${stopOob}.querySelector('[data-testid=typed]'), 'prod-api'), true)`)
+  await sleep(150)
+  await evaluate(`(__btn(${stopOob}, 'Approve with passkey').click(), true)`)
+  await waitFor(`!document.querySelector('[data-testid=out-of-band-step]')`, 'prod-api stop: step to close after the stop', 15000)
+  const stopPath = await evaluate('location.pathname')
+  const oobStops = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.operation === 'stop' && a.channel === 'out_of_band' && a.principal?.via === 'web'))`)
+  check('out-of-band stop: sent again under the approval, decided on the console with the passkey (same surface)',
+    oobStops.length === 1 && oobStops[0].status === 'consumed' && oobStops[0].decision?.same_surface === true && !!oobStops[0].decision?.key_fingerprint && stopPath === '/resources',
+    JSON.stringify([stopPath, oobStops.map((a) => [a.status, a.decision?.same_surface])]))
+
   // 6. Lockdown (§12): one click and no phrase to engage, a red banner, a
   //    refused operation, and a lift approved with the passkey.
   await go('http://localhost:4799/')
@@ -233,21 +258,21 @@ try {
   const refused = await (await fetch('http://127.0.0.1:4798/stop')).json()
   check('lockdown: a stop is refused, naming how to lift it', /lockdown/.test(refused.error || '') && /cerberus lockdown --off/.test(refused.error || ''), (refused.error || '').slice(0, 160))
   await evaluate(`(document.querySelector('[data-testid=lift-lockdown]').click(), true)`)
-  await waitFor(`location.pathname === '/approvals' && /id=apr_/.test(location.search)`, 'lift approval page', 10000)
-  await sleep(600); await evaluate(lib)
-  const liftID = await evaluate(`new URLSearchParams(location.search).get('id')`)
-  await waitFor(`!!document.querySelector('[data-testid=approval-detail]')`, 'lift approval detail')
-  await evaluate(`(__type(document.querySelector('[data-testid=typed]'), 'brake.lockdown'), true)`)
+  // The lift's passkey approval is met in place, on the console page.
+  await waitFor(`!!document.querySelector('[data-testid=out-of-band-step] [data-testid=approval-detail]')`, 'lift: out-of-band step', 10000)
+  check('lockdown: the lift is approved in place, not on another page', (await evaluate('location.pathname')) === '/')
+  const liftOob = `document.querySelector('[data-testid=out-of-band-step]')`
+  await evaluate(`(__type(${liftOob}.querySelector('[data-testid=typed]'), 'brake.lockdown'), true)`)
   await sleep(150)
-  await evaluate(`(__btn(document.querySelector('[data-testid=approval-detail]'), 'Approve with passkey').click(), true)`)
-  await waitFor(`!!document.querySelector('[data-testid=lift-now]')`, 'Lift now', 15000)
+  await evaluate(`(__btn(${liftOob}, 'Approve with passkey').click(), true)`)
+  // Lifted, the page reloads.
+  await waitFor(`!document.querySelector('[data-testid=brakes-banner]') && !document.querySelector('[data-testid=out-of-band-step]')`, 'lift to land', 15000)
+  await sleep(900); await evaluate(lib)
   check('lockdown: the lift is approved with the passkey on the console', true)
-  await evaluate(`(document.querySelector('[data-testid=lift-now]').click(), true)`)
-  await waitFor(`location.pathname === '/'`, 'back to the console', 10000)
-  await sleep(900)
+  const liftID = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => ((j.approvals || []).find(a => a.connector === 'brake' && a.operation === 'lift_lockdown') || {}).id)`)
   const after = await evaluate(`${api}('/api/brakes').then(r => r.json())`)
   const used = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).find(a => a.id === '${liftID}'))`)
-  check('lockdown: Lift now lifts it, spending the approval', !after.state?.lockdown && used?.status === 'consumed' && !(await evaluate(`!!document.querySelector('[data-testid=brakes-banner]')`)),
+  check('lockdown: lifted under the approval, spending it', !after.state?.lockdown && used?.status === 'consumed' && !(await evaluate(`!!document.querySelector('[data-testid=brakes-banner]')`)),
     JSON.stringify([after.state, used?.status]))
 
   // 7. The circuit breaker (§12, P5-c): an agent denied twice is

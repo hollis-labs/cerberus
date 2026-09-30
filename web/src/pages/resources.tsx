@@ -239,6 +239,7 @@ function ResourceTable({
       const result = await withConfirm(() => apiClient.runResourceAction(item.id, action, token, true), {
         plan: () => apiClient.planResourceAction(item.id, action, token),
         confirm: (c) => apiClient.confirmResourceAction(item.id, action, token, c),
+        retry: (approvalID) => apiClient.runResourceAction(item.id, action, token, true, approvalID),
       })
       if (!result.success) {
         setActionError(result.error || `${action} failed for ${item.name || item.id}`)
@@ -548,6 +549,7 @@ function ResourceDetailDialog({
       const result = await withConfirm(() => apiClient.runResourceAction(resourceID, action, actionToken, true), {
         plan: () => apiClient.planResourceAction(resourceID, action, actionToken),
         confirm: (c) => apiClient.confirmResourceAction(resourceID, action, actionToken, c),
+        retry: (approvalID) => apiClient.runResourceAction(resourceID, action, actionToken, true, approvalID),
       })
       setOpResult(result)
       const [nextDetail, nextLogs] = await Promise.all([apiClient.getResource(resourceID), apiClient.getLogs(resourceID, stream)])

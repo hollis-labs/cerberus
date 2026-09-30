@@ -1,27 +1,27 @@
 import { useState } from 'react'
 import { FormDialog, Input } from '@hollis-labs/sysop-ui/ui'
-import { apiClient, refusalApproval, type BrakeState, type BrakeSuspension } from '../api/client'
+import { apiClient, type BrakeState, type BrakeSuspension } from '../api/client'
+import { ConfirmCancelled, useApproveInPlace } from './plan-confirm'
 
 // The emergency brake on the console (§12). Engaging is one click and an
 // optional reason; lifting asks the daemon, which answers with a passkey
-// approval to meet on the approvals page where a key is enrolled.
+// approval, met in place (useApproveInPlace) where a key is enrolled.
 
-async function lift(run: () => Promise<unknown>, setError: (e: string) => void) {
+type ApproveInPlace = ReturnType<typeof useApproveInPlace>
+
+async function lift(run: (approvalID?: string) => Promise<unknown>, approveInPlace: ApproveInPlace, setError: (e: string) => void) {
   try {
-    await run()
+    await approveInPlace(() => run(), (approvalID) => run(approvalID))
     window.location.reload()
   } catch (err) {
-    const pending = refusalApproval(err)
-    if (pending?.id) {
-      window.location.assign(`/approvals?id=${encodeURIComponent(pending.id)}`)
-      return
-    }
+    if (err instanceof ConfirmCancelled) return
     setError(err instanceof Error ? err.message : String(err))
   }
 }
 
 export function BrakesBanner({ brakes, token }: { brakes?: BrakeState | null; token: string }) {
   const [error, setError] = useState<string | null>(null)
+  const approveInPlace = useApproveInPlace()
   if (!brakes || (!brakes.lockdown && !(brakes.freezes ?? []).length && !(brakes.suspensions ?? []).length)) return null
   return (
     <div data-testid="brakes-banner" className="space-y-1 border-b-2 border-red-500 bg-red-500/15 px-4 py-2 text-sm text-red-700">
@@ -32,7 +32,7 @@ export function BrakesBanner({ brakes, token }: { brakes?: BrakeState | null; to
             since {new Date(brakes.lockdown.engaged_at).toLocaleString()}, by {brakes.lockdown.by.kind} over {brakes.lockdown.by.via}
             {brakes.lockdown.reason ? `: ${brakes.lockdown.reason}` : ''}. Only plain reads run.
           </span>
-          <button data-testid="lift-lockdown" className="rounded border border-red-500 px-2 py-0.5 text-xs font-semibold" onClick={() => lift(() => apiClient.liftLockdown(token), setError)}>
+          <button data-testid="lift-lockdown" className="rounded border border-red-500 px-2 py-0.5 text-xs font-semibold" onClick={() => lift((approvalID) => apiClient.liftLockdown(token, approvalID), approveInPlace, setError)}>
             Lift
           </button>
         </div>
@@ -44,7 +44,7 @@ export function BrakesBanner({ brakes, token }: { brakes?: BrakeState | null; to
             {f.id} on {f.scope}
             {f.reason ? `: ${f.reason}` : ''}
           </span>
-          <button className="rounded border border-red-500 px-2 py-0.5 text-xs font-semibold" onClick={() => lift(() => apiClient.liftFreeze(token, f.id), setError)}>
+          <button className="rounded border border-red-500 px-2 py-0.5 text-xs font-semibold" onClick={() => lift((approvalID) => apiClient.liftFreeze(token, f.id, approvalID), approveInPlace, setError)}>
             Lift
           </button>
         </div>
@@ -95,12 +95,6 @@ export function LockdownButton({ token }: { token: string }) {
       </FormDialog>
     </>
   )
-}
-
-// liftFromApproval completes a lift approved with a passkey (an approval of
-// connector brake).
-export function liftFromApproval(token: string, operation: string, freezeID: string | undefined, approvalID: string) {
-  return operation === 'lift_freeze' && freezeID ? apiClient.liftFreeze(token, freezeID, approvalID) : apiClient.liftLockdown(token, approvalID)
 }
 
 // SuspensionLine is one session the circuit breaker suspended; resetting it
