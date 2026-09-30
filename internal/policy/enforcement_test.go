@@ -89,7 +89,7 @@ func applyRecorded(t *testing.T, store Store, sink *audit.FileSink, f File) {
 		t.Fatal(err)
 	}
 	if _, err := sink.Write(audit.Record{Kind: audit.KindOutcome, Connector: "policy", Operation: "apply", Decision: audit.DecisionAllowed,
-		OutcomeCode: "ok", Enforcement: f.EnforcementOf().Record()}); err != nil {
+		OutcomeCode: "ok", Target: audit.Target{Kind: "policy.snapshot"}, Enforcement: f.EnforcementOf().Record()}); err != nil {
 		t.Fatal(err)
 	}
 }

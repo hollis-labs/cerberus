@@ -48,7 +48,7 @@ curl -L -o cerberus.tar.gz \
   https://github.com/hollis-labs/cerberus/releases/download/v0.4.0-beta.1/cerberus_0.4.0-beta.1_darwin_arm64.tar.gz
 tar -xzf cerberus.tar.gz
 install -d "$HOME/.local/bin"
-install -m 0755 cerberus "$HOME/.local/bin/"
+install -m 0755 cerberus cerberus-presence "$HOME/.local/bin/"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -131,8 +131,12 @@ looks for it next to its own `cerberus` binary. It is built with cgo on macOS:
 
 - `make build`, `make go-install` and `make homebrew-install` build and install
   it beside `cerberus`.
-- The release tarballs don't include it yet, because they are cross-compiled
-  without cgo. Build it on the Mac with `go install …/cmd/cerberus-presence`.
+- The release tarballs carry it beside `cerberus`, and the Homebrew formula
+  installs both. On macOS it is built natively with cgo for arm64 and amd64,
+  which is why a release is cut on a Mac. The Linux tarballs carry the stub,
+  which refuses.
+- `cerberus status` shows it on its `presence` line. It shows as installed, or
+  MISSING with the path it looked at and how to put it there.
 
 Without the helper, or on another OS, passkey enrollment is refused, and says
 so. Everything else works as before. See docs/policy.md, "Out-of-band

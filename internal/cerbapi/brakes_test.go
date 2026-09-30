@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -235,5 +236,37 @@ func TestFreezePausesPipelines(t *testing.T) {
 	}
 	if f, frozen := frozenResource(devResource(t, nil)); !frozen || f.Reason != "hold" {
 		t.Fatal("the monitor would restart a frozen resource")
+	}
+}
+
+// With a passkey enrolled, a lift needs a passkey approval, whatever the
+// approvals store says (H-b). A same-uid process can write an approval
+// met on a terminal into the store; the lift used to take the channel
+// from the store and consume it, so a lockdown lifted with no passkey,
+// recorded as passkey:apr_…. The channel is now required at the lift.
+func TestALiftRefusesAnApprovalMetOnATerminal(t *testing.T) {
+	store := withBrakes(t)
+	_, _, _, broker := passkeyRoutes(t, approval.ChannelOutOfBand)
+	sink := audit.NewMemory()
+	web := as(humanWeb)
+	st, l, err := EngageLockdown(web, sink, store, "drill")
+	if err != nil || st.Lockdown == nil {
+		t.Fatal(err)
+	}
+	forged, err := broker.store.Request(approval.Approval{Principal: principalFor(web, auditSpec{}), Connector: "brake", Operation: "lift_lockdown",
+		Effect: "admin", Target: audit.Target{Kind: "brake.lockdown", Fields: map[string]string{"id": l.ID}}, ArgsDigest: l.ID,
+		Channel: approval.ChannelTTYConfirm, Scope: approval.ScopeOnce}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = broker.store.Decide(forged.ID, approval.Decision{Approve: true, By: principalFor(web, auditSpec{})}, nil); err != nil {
+		t.Fatal(err)
+	}
+	st, err = LiftLockdown(web, sink, store, forged.ID)
+	if err == nil || st.Lockdown == nil {
+		t.Fatalf("an approval met on a terminal lifted the lockdown: %v", err)
+	}
+	if cur, _ := store.Load(); cur.Lockdown == nil {
+		t.Fatal("the lockdown is gone")
 	}
 }

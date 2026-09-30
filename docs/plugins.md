@@ -177,6 +177,18 @@ block, the review declarations. Every declaration is the plugin's claim about
 itself. Cerberus shows it, uses it only to narrow what the plugin can reach, and
 never widens anything on its word.
 
+A plugin's connector id can't be one Cerberus serves or keys its own records
+and gates on, so install refuses these:
+
+- the built-in connectors: `ssh`, `docker` and `github`;
+- `local`, the supervision lane;
+- `policy`, `brake`, `approvals`, `audit`, `console`, `pipeline`, `mcp-http`,
+  `plugin` and `secrets`.
+
+A plugin with one of those ids would shadow the host's connector, or skip the
+brakes and enforcement. Its records could also pass for a policy apply or an
+audit prune.
+
 ```yaml
 schema_version: "1"
 id: myplugin

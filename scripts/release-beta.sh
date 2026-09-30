@@ -22,6 +22,15 @@ TARGETS=(
   "linux/amd64"
 )
 
+# The presence helper (cmd/cerberus-presence) asks the person at the Mac
+# through LocalAuthentication before a passkey enrollment. On darwin it is
+# built with cgo, which needs this Mac's SDK: a darwin release is cut on a
+# Mac. Elsewhere it is the refusing stub, built without cgo.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "the darwin archives carry cerberus-presence, built with cgo against the macOS SDK: cut the release on a Mac" >&2
+  exit 1
+fi
+
 mkdir -p "${DIST_DIR}"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cerberus-release.XXXXXX")"
@@ -39,6 +48,37 @@ echo "  dist dir: ${DIST_DIR}"
 ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}"
 
 declare -a archives
+
+# build_presence builds cerberus-presence for os/arch into out. darwin: cgo
+# against LocalAuthentication, the arch chosen by clang so one Mac builds
+# both, and the result checked to link the framework, so a release can
+# never ship the stub where the real helper belongs.
+build_presence() {
+  local os="$1" arch="$2" out="$3"
+  if [[ "${os}" == "darwin" ]]; then
+    local clang_arch="${arch}"
+    [[ "${arch}" == "amd64" ]] && clang_arch="x86_64"
+    (
+      cd "${REPO_ROOT}"
+      CGO_ENABLED=1 GOOS=darwin GOARCH="${arch}" CC="clang -arch ${clang_arch}" go build \
+        -trimpath \
+        -ldflags "-s -w" \
+        -o "${out}" ./cmd/cerberus-presence
+    )
+    if ! otool -L "${out}" | grep -q LocalAuthentication.framework; then
+      echo "cerberus-presence for darwin/${arch} does not link LocalAuthentication: it is the stub, not the helper" >&2
+      exit 1
+    fi
+  else
+    (
+      cd "${REPO_ROOT}"
+      CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" go build \
+        -trimpath \
+        -ldflags "-s -w" \
+        -o "${out}" ./cmd/cerberus-presence
+    )
+  fi
+}
 
 for target in "${TARGETS[@]}"; do
   os="${target%/*}"
@@ -61,10 +101,12 @@ for target in "${TARGETS[@]}"; do
       -o "${work_dir}/cerberus" ./cmd/cerberus
   )
 
+  build_presence "${os}" "${arch}" "${work_dir}/cerberus-presence"
+
   # Stage README + LICENSE alongside the binary, the conventional release layout.
   cp "${REPO_ROOT}/README.md" "${REPO_ROOT}/LICENSE" "${work_dir}/"
 
-  tar -C "${work_dir}" -czf "${archive_path}" cerberus README.md LICENSE
+  tar -C "${work_dir}" -czf "${archive_path}" cerberus cerberus-presence README.md LICENSE
   shasum -a 256 "${archive_path}" > "${checksum_path}"
 
   echo "  wrote: ${archive_path}"

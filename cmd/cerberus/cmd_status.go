@@ -44,6 +44,8 @@ var statusCmd = &cobra.Command{
   passkeys  out-of-band approval: not set up, how many keys, a recent
             enrollment, or a cool-down after the key registry changed by
             other means (cerberus approvals keys)
+  presence  on macOS, whether cerberus-presence, which enrolling a
+            passkey needs, is installed next to cerberus
 
 A part that cannot be read is reported as unavailable; the rest still shows.`,
 	Args: cobra.NoArgs,
@@ -80,6 +82,7 @@ type statusReport struct {
 	Audit    statusAudit           `json:"audit"`
 	Web      []statusWebApp        `json:"web"`
 	Passkeys statusPasskeys        `json:"passkeys"`
+	Presence statusPresence        `json:"presence"`
 	Grants   statusGrants          `json:"grants"`
 	// BreakGlass are the break-glass uses whose follow-up is still open: a
 	// use stays here until acknowledged (P3-5b), so it is not slept through.
@@ -232,6 +235,7 @@ func gatherStatus(ctx context.Context) statusReport {
 	}
 	r.Audit = statusOfAudit()
 	r.Web = statusOfWebConsoles()
+	r.Presence = statusOfPresence()
 	return r
 }
 
@@ -464,6 +468,9 @@ func writeStatus(w io.Writer, r statusReport) error {
 		line("passkeys", "! %s", r.Passkeys.Summary)
 	default:
 		line("passkeys", "%s", r.Passkeys.Summary)
+	}
+	if text, _ := presenceLine(r.Presence); text != "" {
+		line("presence", "%s", text)
 	}
 	switch {
 	case r.Enforcement.Mismatch != "":

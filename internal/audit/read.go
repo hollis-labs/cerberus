@@ -207,7 +207,7 @@ func Prune(sink Sink, dir string, before time.Time, principal Principal) ([]stri
 func prunedFiles(recs []Record) map[string]bool {
 	out := map[string]bool{}
 	for _, rec := range recs {
-		if rec.Kind != KindOutcome || rec.Connector != PruneConnector || rec.Operation != PruneOperation {
+		if rec.Kind != KindOutcome || rec.Connector != PruneConnector || rec.Operation != PruneOperation || rec.Target.Kind != PruneTarget {
 			continue
 		}
 		for _, name := range strings.Split(rec.Target.Fields[pruneRemoved], ",") {

@@ -352,7 +352,10 @@ func liftProof(ctx context.Context, operation string, t audit.Target, id, approv
 		}
 		return "", pending
 	}
-	a, err := broker.Consume(ctx, approvalID, approval.ConsumeCheck{Connector: "brake", Operation: operation, Principal: p, Target: t, ArgsDigest: id})
+	// A passkey is enrolled, so the lift needs a passkey approval: the
+	// channel is required here, never read from the store, where a
+	// same-uid process could write an approval met on a terminal (H-b).
+	a, err := broker.Consume(ctx, approvalID, approval.ConsumeCheck{Connector: "brake", Operation: operation, Principal: p, Target: t, ArgsDigest: id, RequireOutOfBand: true})
 	if err != nil {
 		return "", consumeRefusal(args, approvalID, a, err)
 	}
