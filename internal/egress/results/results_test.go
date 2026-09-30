@@ -57,13 +57,12 @@ func TestFreeTextOperationsAreLabeled(t *testing.T) {
 // The labeled places, pinned: a label removed from a DTO shows here.
 func TestUntrustedFieldsArePinned(t *testing.T) {
 	want := map[string]string{
-		"local.logs":        "/content",
-		"local.deploy":      "/build_output /install_output",
-		"docker.logs":       "(whole result)",
-		"ssh.exec":          "/stderr /stdout",
-		"ssh.status":        "/os",
-		"pipeline.run":      "/error /stages/*/error",
-		"infra.run_profile": "/error /steps/*/error /steps/*/output",
+		"local.logs":   "/content",
+		"local.deploy": "/build_output /install_output",
+		"docker.logs":  "(whole result)",
+		"ssh.exec":     "/stderr /stdout",
+		"ssh.status":   "/os",
+		"pipeline.run": "/error /stages/*/error",
 	}
 	for key, pointers := range want {
 		connector, op, _ := strings.Cut(key, ".")

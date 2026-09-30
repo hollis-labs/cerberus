@@ -67,11 +67,9 @@ func (s *Server) consoleWrite(w http.ResponseWriter, r *http.Request, route stri
 
 // writeConsoleWriteError answers a console write that did not run. Over the
 // socket the daemon's status travels with the error; an in-process client's
-// errors are mapped here the same way: not found 404, a refused input 400.
+// errors are mapped here the same way: a refused input 400.
 func writeConsoleWriteError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, cerbapi.ErrConsoleWriteNotFound):
-		writeError(w, http.StatusNotFound, err.Error())
 	case errors.As(err, new(cerbapi.ConsoleWriteInputError)):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:

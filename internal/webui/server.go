@@ -57,9 +57,9 @@ type Server struct {
 }
 
 // New constructs the console. The audit sink is required: operations the
-// console runs itself — a deployment-profile run — are recorded to it.
-// secrets resolves credentials; it cannot write them. The provider form's
-// save and clear need SetSecretStore.
+// console runs itself are recorded to it. secrets resolves credentials, to
+// report which declared secrets have a value; it cannot write them. The
+// daemon writes them (provider_save).
 func New(client cerbapi.Client, sink audit.Sink, configPath string, secrets secretpkg.Reader, logger *slog.Logger) (*Server, error) {
 	if sink == nil {
 		return nil, errors.New("webui: New requires an audit sink")
@@ -171,13 +171,8 @@ func (s *Server) routeTable() []route {
 		{"/api/config/backups/restore/confirm", s.handleConfigRestoreBackup},
 		{"/api/connectors", s.handleConnectors},
 		{"/api/connectors/", s.handleConnectorByID},
-		{"/api/infra", s.handleInfra},
 		{"/api/credentials", s.handleCredentials},
 		{"/api/credentials/", s.handleCredentialByID},
-		{"/api/deployments", s.handleDeployments},
-		{"/api/deployments/plan", s.handleDeployments},
-		{"/api/deployments/confirm", s.handleDeployments},
-		{"/api/deployments/", s.handleDeploymentByID},
 		{"/api/plugins/connectors", s.handleManagedPlugins},
 		{"/api/plugins/connectors/health", s.handlePluginDirRetired},
 		{"/api/plugins/connectors/operations/", s.handlePluginDirRetired},
@@ -372,8 +367,8 @@ func (s *Server) allowStateChangingRequest(r *http.Request) bool {
 	return s.guard.OriginAllowed(origin)
 }
 
-// mutationBody is what the console sends with a resource action, a
-// pipeline run or a deploy-profile run: the operator's acknowledgment, given
+// mutationBody is what the console sends with a resource action or a
+// pipeline run: the operator's acknowledgment, given
 // in the confirm step, and on a retry the out-of-band approval it runs
 // under, approved in place with the passkey. The daemon holds the call to
 // that approval's requester, arguments and plan.

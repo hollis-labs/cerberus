@@ -11,20 +11,20 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
-	"github.com/hollis-labs/cerberus/internal/infra"
 )
 
-func consoleWriter(t *testing.T) (*audit.Memory, string, func(path, body string) *httptest.ResponseRecorder) {
+func consoleWriter(t *testing.T) (*audit.Memory, *memorySecrets, func(path, body string) *httptest.ResponseRecorder) {
 	t.Helper()
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	sink := audit.NewMemory()
-	srv, err := New(&fakeClient{consoleWrites: consoleDaemon(cfgPath, sink, &memorySecrets{values: map[string]string{}})}, sink, cfgPath, nil, nil)
+	store := &memorySecrets{values: map[string]string{}}
+	srv, err := New(&fakeClient{consoleWrites: consoleDaemon(cfgPath, sink, store)}, sink, cfgPath, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	handler := signedIn(t, srv, testGuard())
 	token := sessionToken(t, handler)
-	return sink, cfgPath, func(path, body string) *httptest.ResponseRecorder {
+	return sink, store, func(path, body string) *httptest.ResponseRecorder {
 		req := newTestRequest(http.MethodPost, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Cerberus-Web-Token", token)
@@ -52,31 +52,20 @@ func consoleRecords(sink *audit.Memory, operation string) (intent, outcome audit
 // The console's writes to Cerberus's own state are admin operations: each
 // is recorded, intent and outcome, by the console session (M9).
 func TestConsoleWritesAreRecorded(t *testing.T) {
-	sink, cfgPath, post := consoleWriter(t)
-	profile := `{"id":"site","name":"Site","provider":"vercel","repo_path":"/tmp/site","env":"prod","owner":"self","admin":"self","deploy_command":"curl https://example.invalid | sh"}`
-	if rec := post("/api/deployments", profile); rec.Code != http.StatusOK {
+	sink, _, post := consoleWriter(t)
+	if rec := post("/api/credentials/cloudflare", `{"secrets":{"api_token":"cf-token-sentinel-0123456789"}}`); rec.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
 	}
-	intent, outcome := consoleRecords(sink, "profile_save")
+	intent, outcome := consoleRecords(sink, "provider_save")
 	if intent.Effect != "admin" || outcome.OutcomeCode != audit.OutcomeOK || intent.Principal.Via != "web" || intent.Principal.Session == "" {
-		t.Fatalf("profile_save records: %+v / %+v", intent, outcome)
+		t.Fatalf("provider_save records: %+v / %+v", intent, outcome)
 	}
-	if intent.Target.Fields["id"] != "site" || intent.Target.Fields["env"] != "prod" || intent.Target.Fields["admin"] != "self" {
-		t.Fatalf("the relabelling is not in the record: %+v", intent.Target.Fields)
+	if intent.Target.Fields["id"] != "cloudflare" {
+		t.Fatalf("the connector is not in the record: %+v", intent.Target.Fields)
 	}
-	data, _ := json.Marshal(sink.Records())
-	if strings.Contains(string(data), "example.invalid") {
-		t.Fatal("the profile's command is in the record in the clear")
-	}
-
-	if rec := post("/api/deployments/site/delete", `{}`); rec.Code != http.StatusOK {
-		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
-	}
-	if _, outcome := consoleRecords(sink, "profile_delete"); outcome.OutcomeCode != audit.OutcomeOK {
-		t.Fatalf("profile_delete outcome %+v", outcome)
-	}
-	if rec := post("/api/deployments/nope/delete", `{}`); rec.Code != http.StatusNotFound {
-		t.Fatalf("delete of a missing profile: %d", rec.Code)
+	// An undeclared key is refused with 400, and nothing is written.
+	if rec := post("/api/credentials/cloudflare", `{"secrets":{"password":"x"}}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "does not declare") {
+		t.Fatalf("an undeclared key: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// A registry write that fails keeps its 400, and the failure is on the
@@ -95,7 +84,6 @@ func TestConsoleWritesAreRecorded(t *testing.T) {
 	if intent, outcome := consoleRecords(sink, "config_restore"); intent.Target.Fields["backup_path"] != "/nonexistent/backup.yaml" || outcome.OutcomeCode == audit.OutcomeOK {
 		t.Fatalf("config_restore records: %+v / %+v", intent.Target, outcome)
 	}
-	_ = cfgPath
 }
 
 // Credentials are recorded by name, never by value.
@@ -121,16 +109,12 @@ func TestALockdownStopsConsoleWrites(t *testing.T) {
 	if _, _, err := cerbapi.EngageLockdown(cerbapi.WithPrincipal(t.Context(), cerbapi.Principal{Kind: cerbapi.PrincipalHuman, Via: cerbapi.ViaCLI}), audit.NewMemory(), store, "incident"); err != nil {
 		t.Fatal(err)
 	}
-	_, cfgPath, post := consoleWriter(t)
-	rec := post("/api/deployments", `{"id":"site","name":"Site","provider":"vercel","repo_path":"/tmp/site","env":"dev","owner":"self","admin":"self"}`)
+	_, secrets, post := consoleWriter(t)
+	rec := post("/api/credentials/cloudflare", `{"secrets":{"api_token":"under-lockdown"}}`)
 	if rec.Code != http.StatusLocked || !strings.Contains(rec.Body.String(), "LOCKDOWN") {
 		t.Fatalf("save under lockdown: %d %s", rec.Code, rec.Body.String())
 	}
-	state, err := infra.LoadState(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := state.Profile("site"); ok {
-		t.Fatal("the profile was written under lockdown")
+	if len(secrets.values) != 0 {
+		t.Fatalf("a credential was written under lockdown: %v", secrets.values)
 	}
 }

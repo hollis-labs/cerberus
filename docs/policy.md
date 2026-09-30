@@ -227,24 +227,21 @@ operation on the `console` connector, gated and recorded like any call:
 
 | Write | Operation |
 |---|---|
-| Saving or deleting a deploy profile | `profile_save`, `profile_delete` |
 | Saving a connector's declared credentials (the Credentials page) | `provider_save` |
 | Registering or deregistering a project config | `registry_register`, `registry_deregister` |
 | Restoring a config backup | `config_restore` |
 
-The record names what changed in the clear: a profile's id and its `env`,
-`owner` and `admin` labels, and the config and backup paths. A relabeled
-target is visible in the record, since labels decide an approval channel.
-Everything else is a keyed digest, and a credential is named, never shown. A
+The record names what changed in the clear: the connector's id, the names of
+the credentials set or cleared, and the config and backup paths. Everything
+else is a keyed digest, and a credential is named, never shown. A
 lockdown stops them, and under enforcement for humans they need your approval,
 as any admin operation does.
 
-The daemon makes these writes, as it runs deploy profiles, so the approval
-lives with its broker, and the console's confirm dialog handles them the way
-it handles a resource verb (see "In the console" below). Each write's plan
-binds what it would change as it reads now: the profile, and the saved one it
-replaces; the file a registration reads; the backup and the config a restore
-swaps. A connector's credentials are bound by keyed digest and travel only to
+The daemon makes these writes, so the approval lives with its broker, and
+the console's confirm dialog handles them the way it handles a resource verb
+(see "In the console" below). Each write's plan binds what it would change as
+it reads now: the file a registration reads, the backup and the config a
+restore swaps. A connector's credentials are bound by keyed digest and travel only to
 the daemon, over its socket. The daemon writes only a secret the connector
 declares (a built-in's definition, an installed plugin's manifest), under
 that connector's id, and refuses any other id or key before anything is
@@ -254,12 +251,8 @@ stored. A secret a connector reads per resource (ssh's key, as
 secret is stored, stored as a reference, or missing, without resolving any
 reference.
 
-A profile write is labeled by the profile. A save that changes a profile's
-labels is labeled by neither the old nor the new ones: relabeling is what
-moves a target between approval channels, so it is approved as an unlabeled
-target is, out of band, whichever way it goes. Registry, provider and restore
-writes carry no labels of their own and need out-of-band approval wherever
-policy asks for one.
+Registry, credential and restore writes carry no labels of their own, so
+they need out-of-band approval wherever policy asks for one.
 
 **An in-process mutation needs Cerberus's real state.** The brakes, policy,
 approvals and audit log live under your account's home, and the CLI finds them
@@ -537,10 +530,7 @@ An approval is for one **plan**: what the call would do, hashed. The plan
 names the operation, the resolved target with its labels, a keyed digest of
 the arguments (never the arguments), the operation's dry-run preview where it
 has one, and for a plugin, the digests of the binary and the config that would
-run. A deploy profile's plan is its steps as they would run, with the
-variables each step is given named but never valued, the profile's
-definition, and the commit and dirty flag of the checkout it deploys. A plan
-never contains a credential value.
+run. A plan never contains a credential value.
 
 The plan is computed when the approval is asked for and again when it is
 used, by the same function. Once an approval is decided, retry the call with
@@ -670,15 +660,11 @@ the cookie, and a web request without that session is refused. When the
 approval has to be met out of band, the console shows it in place instead,
 on the page you're on. Type the target and approve with your passkey, and
 the call is sent again under the approval. This covers resource actions,
-pipeline and deploy runs, connector operations, the console's own writes
+pipeline runs, connector operations, the console's own writes
 and a brake lift, so nothing sends you to another page to approve.
 
-Deploy-profile runs are asked for, confirmed and run by the daemon, like
-resource verbs. The console is a client, so the approval lives with the
-broker. A profile carries `env`, `owner`, `admin` and `tags` like a
-resource. An unlabeled profile reads as unknown and needs out-of-band
-approval. `make smoke-confirm` drives the dialog in headless Chrome
-against a scratch daemon.
+`make smoke-confirm` drives the dialog in headless Chrome against a scratch
+daemon.
 
 **This is a floor, not a boundary.** "A person at the CLI" is what the
 terminal says about itself, so a program driving a pseudo-terminal could

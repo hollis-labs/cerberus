@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,7 +16,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/target"
@@ -182,56 +180,6 @@ func (c countingSecrets) Get(context.Context, string, string) (string, error) {
 }
 
 var _ secret.Reader = countingSecrets{}
-
-// A deploy-profile run under an approval runs the plan the gate checked; it
-// does not plan again (CERB-GAP-878).
-func TestApprovedDeployRunsTheCheckedPlan(t *testing.T) {
-	withPDP(t, constantPDP{decision: policy.Approve})
-	sink := audit.NewMemory()
-	broker, err := NewBroker(sink, filepath.Join(t.TempDir(), "approvals"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	withEnforcement(t, broker)
-	// The profile's target is unlabeled, so out of band: a test verifier
-	// stands in for P3-4's presence proof.
-	broker.SetPresenceVerifier(acceptPresence{})
-	repo := linkedVercelRepo(t)
-	gets := 0
-	secrets := countingSecrets{gets: &gets}
-	profile := infra.DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: repo, DeployCommand: "true", VercelScope: "team"}
-	ctx := BeginRequest(context.Background(), SurfaceSocket)
-	_, err = RunDeploymentProfile(ctx, sink, secrets, profile, WithAcknowledged(true))
-	var coded *ExternalConnectorError
-	if !errors.As(err, &coded) || coded.Approval == nil {
-		t.Fatalf("asking: %v", err)
-	}
-	if _, derr := broker.Decide(ctx, coded.Approval.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human"}}); derr != nil {
-		t.Fatal(derr)
-	}
-	before := gets
-	result, err := RunDeploymentProfile(ctx, sink, secrets, profile, WithAcknowledged(true), WithApprovalID(coded.Approval.ID))
-	if err != nil || result == nil || !result.Success {
-		t.Fatalf("approved run: %+v %v", result, err)
-	}
-	if planned := gets - before; planned != 1 {
-		t.Fatalf("the approved run planned %d times, want once: the check's plan is the one that runs", planned)
-	}
-}
-
-// linkedVercelRepo is a checkout already linked to a Vercel project, so a
-// profile's plan needs no project name.
-func linkedVercelRepo(t *testing.T) string {
-	t.Helper()
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".vercel"), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, ".vercel", "project.json"), []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return repo
-}
 
 // A resource plan over the socket takes the plan route: a current daemon
 // answers with the plan and runs nothing, and a daemon that predates plans

@@ -62,7 +62,8 @@ built-in read but never declared, so a plugin would otherwise never have been
 handed it. The web console used to save the client IP as a field in
 `infra.yaml` that nothing read, so an IP entered there never reached the
 connector. It now stores it as `namecheap/client_ip`, where the plugin resolves
-it.
+it: the console's credential editor offers exactly the secrets the plugin
+declares.
 
 What changed for a caller:
 

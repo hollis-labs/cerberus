@@ -20,7 +20,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/registry"
@@ -411,10 +410,10 @@ func orUnknown(s string) string {
 }
 
 // defaultPolicyDefinitions are every operation Cerberus can be asked to run:
-// the built-in connectors, the local runtime, pipelines and deploy profiles,
-// and, when the daemon is up, its plugins.
+// the built-in connectors, the local runtime and pipelines, and, when the
+// daemon is up, its plugins.
 func defaultPolicyDefinitions(ctx context.Context) []contract.Definition {
-	defs := append(app.NewExternalConnectorService(cfgPath).Definitions(), localconn.Definition(), pipeline.Definition(), infra.Definition())
+	defs := append(app.NewExternalConnectorService(cfgPath).Definitions(), localconn.Definition(), pipeline.Definition())
 	seen := map[string]bool{}
 	for _, d := range defs {
 		seen[d.ID] = true

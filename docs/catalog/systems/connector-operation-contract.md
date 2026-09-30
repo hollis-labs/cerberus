@@ -105,13 +105,13 @@ it, and undeclared keys are refused when the schema is closed. Since
 cerberus-plugins PR #5 (P1-6a) the azure, contextforge, kubernetes and
 cloudflare plugins declare an effect on every operation.
 
-**Beyond connectors.** `RuntimeDefinitions()` adds four contracts that no
+**Beyond connectors.** `RuntimeDefinitions()` adds three contracts that no
 connector dispatch serves. `local` covers deploy, apply, reload and stop
 (lifecycle), sync (write), remove (destructive), `ensure_fresh`, and the
-supervision reads. `pipeline` covers run (exec) and list. `infra` covers
-`run_profile` (exec). `cerberus` covers the control plane's own reads: health,
-project list and connector discovery. The resource runtime service and the
-deploy-profile runner gate on them. Namecheap's refused per-record writes have
+supervision reads. `pipeline` covers run (exec) and list. `cerberus` covers the control plane's
+own reads: health, project list and connector discovery. The resource runtime
+service gates on them. (`infra`'s `run_profile` left with the deploy lane; it
+is the `vercel` plugin's `deploy` now.) Namecheap's refused per-record writes have
 contracts of their own (`DisabledOperations()`), so the tools that explain the
 refusal carry derived annotations too.
 

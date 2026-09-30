@@ -1,11 +1,11 @@
 #!/bin/sh
 # Browser smoke of the console's approval UI: the confirm dialog for a
-# resource stop and a deploy-profile run (each shown its plan, refused on a
-# wrong target and on a stale plan, run on the right target), and break
-# glass on a protected target (a passkey enrolled on a virtual
-# authenticator, the BREAK GLASS approval, the retry, the follow-up), a
-# profile save confirmed on the call, a relabel and a prod stop approved
-# with the passkey in place on the console, a lockdown engaged, refusing
+# resource stop (shown its plan, refused on a wrong target and on a stale
+# plan, run on the right target), and break glass on a protected target (a
+# passkey enrolled on a virtual authenticator, the BREAK GLASS approval, the
+# retry, the follow-up), a credential save on the Credentials page and a
+# prod stop approved with the passkey in place on the console, a lockdown
+# engaged, refusing
 # and lifted with the passkey in place, the circuit breaker, and an approval link's sign-in
 # scoped to one approval. Needs the web bundle built
 # (`make all`), Node 22+ and Google Chrome. Everything lives in a scratch

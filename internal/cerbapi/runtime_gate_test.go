@@ -40,7 +40,7 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		"local.reload": contract.EffectLifecycle, "local.stop": contract.EffectLifecycle,
 		"local.sync": contract.EffectWrite, "local.remove": contract.EffectDestructive,
 		"local.ensure_fresh": contract.EffectLifecycle,
-		"pipeline.run":       contract.EffectExec, "infra.run_profile": contract.EffectExec,
+		"pipeline.run":       contract.EffectExec,
 		// The reads the MCP tools serve. They change nothing and are not gated.
 		"local.list": contract.EffectRead, "local.status": contract.EffectRead, "local.inspect": contract.EffectRead,
 		"local.doctor": contract.EffectRead, "local.logs": contract.EffectReadSensitive,

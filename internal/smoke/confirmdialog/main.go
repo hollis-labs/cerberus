@@ -19,17 +19,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
-	"github.com/hollis-labs/cerberus/internal/infra"
+	"github.com/hollis-labs/cerberus/internal/connector"
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/presence"
-	"github.com/hollis-labs/cerberus/internal/target"
 	"github.com/hollis-labs/cerberus/internal/webui"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 type enforceAll struct{}
@@ -54,9 +55,30 @@ func (approveAll) File() policy.File {
 	return policy.File{Version: policy.FileVersion, CircuitBreaker: &policy.CircuitBreaker{Denials: 2, Window: 10 * time.Minute}}
 }
 
-type noSecrets struct{}
+// memorySecrets is the credential store the console's credential editor
+// writes through the daemon, in memory: the smoke never touches a keychain.
+type memorySecrets struct {
+	mu     sync.Mutex
+	values map[string]string
+}
 
-func (noSecrets) Get(context.Context, string, string) (string, error) { return "", nil }
+func (m *memorySecrets) Get(_ context.Context, service, key string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.values[service+"/"+key], nil
+}
+func (m *memorySecrets) Set(_ context.Context, service, key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.values[service+"/"+key] = value
+	return nil
+}
+func (m *memorySecrets) Delete(_ context.Context, service, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.values, service+"/"+key)
+	return nil
+}
 
 func main() {
 	home := os.Getenv("HOME")
@@ -66,10 +88,7 @@ func main() {
 	}
 	dir := filepath.Join(home, ".cerberus")
 	cfgPath := filepath.Join(dir, "config.yaml")
-	repo := filepath.Join(home, "site")
-	must(os.MkdirAll(filepath.Join(repo, ".vercel"), 0o750))                                //nolint:gosec // a path under the scratch HOME checked above
-	must(os.WriteFile(filepath.Join(repo, ".vercel", "project.json"), []byte(`{}`), 0o600)) //nolint:gosec // a path under the scratch HOME checked above
-	must(os.MkdirAll(filepath.Join(home, "webdir"), 0o750))                                 //nolint:gosec // a path under the scratch HOME checked above
+	must(os.MkdirAll(filepath.Join(home, "webdir"), 0o750)) //nolint:gosec // a path under the scratch HOME checked above
 	cfg := fmt.Sprintf(`version: 2
 resources:
   - id: web
@@ -95,14 +114,6 @@ resources:
 		must(os.MkdirAll(dir, 0o700))                   //nolint:gosec // a path under the scratch HOME checked above
 		must(os.WriteFile(cfgPath, []byte(cfg), 0o600)) //nolint:gosec // a path under the scratch HOME checked above
 	}
-	if _, err := os.Stat(filepath.Join(dir, "infra.yaml")); os.IsNotExist(err) { //nolint:gosec // a path under the scratch HOME checked above
-		must(infra.SaveState(cfgPath, &infra.State{Version: 1, Profiles: []infra.DeploymentProfile{{
-			ID: "site", Name: "Site", Provider: "vercel", RepoPath: repo, VercelScope: "team",
-			DeployCommand: "echo deployed > " + filepath.Join(home, "deployed.txt"),
-			Env:           target.EnvDev, Owner: target.OwnerSelf, Admin: target.Admin{Default: target.AdminSelf},
-		}}}))
-	}
-
 	sink := audit.NewMemory()
 	cerbapi.SetPolicyDecisionPoint(approveAll{})
 	cerbapi.SetEnforcement(enforceAll{})
@@ -117,8 +128,15 @@ resources:
 	cerbapi.SetBrakes(&cerbapi.Brakes{Store: brake.Store{Dir: filepath.Join(dir, "brakes")}, Sink: sink})
 
 	runtime := cerbapi.NewResourceRuntimeService(sink, cerbapi.WithResourceRuntimeConfigPath(cfgPath))
+	// One connector declaring a secret, for the credential editor: a save
+	// is a console write the daemon gates, stores and records.
+	registry := connector.NewRegistry()
+	registry.RegisterDefinition(contract.Definition{ID: "demo", Version: "smoke", Config: contract.ConfigSchema{
+		Secrets: []contract.SecretRequirement{{Name: "token", Description: "The demo connector's API token.", Required: true}}}})
+	store := &memorySecrets{values: map[string]string{}}
 	inProc := cerbapi.NewInProcessClient(cerbapi.WithConfigPath(cfgPath), cerbapi.WithResourceRuntimeService(runtime),
-		cerbapi.WithDeploySecrets(noSecrets{}), cerbapi.WithInProcessAudit(sink))
+		cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(sink, registry)),
+		cerbapi.WithConsoleSecretStore(store), cerbapi.WithInProcessAudit(sink))
 	sock := filepath.Join(home, "s.sock")
 	_ = os.Remove(sock) //nolint:gosec // a path under the scratch HOME checked above
 	go func() { must(cerbapi.NewSocketServer(inProc, sock).Run(context.Background())) }()
@@ -130,7 +148,7 @@ resources:
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	web, err := webui.New(cerbapi.NewSocketClient(sock), sink, cfgPath, noSecrets{}, slog.Default())
+	web, err := webui.New(cerbapi.NewSocketClient(sock), sink, cfgPath, store, slog.Default())
 	must(err)
 	addr := "127.0.0.1:4799"
 	ln, err := net.Listen("tcp", addr)
@@ -214,6 +232,13 @@ resources:
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
+	})
+	// Whether the credential editor's save reached the store, by name: the
+	// driver never sees the value.
+	ctl.HandleFunc("/stored", func(w http.ResponseWriter, r *http.Request) {
+		value, _ := store.Get(r.Context(), r.URL.Query().Get("service"), r.URL.Query().Get("key"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"stored": value != ""})
 	})
 	ctl.HandleFunc("/follow-ups", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

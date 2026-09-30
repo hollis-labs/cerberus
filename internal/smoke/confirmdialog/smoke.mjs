@@ -121,31 +121,6 @@ try {
     consumed.length === 1 && consumed[0].decision?.surface === 'tty_confirm' && consumed[0].decision?.by?.via === 'web' && !!consumed[0].decision?.by?.session && !/plan_stale/.test(errText),
     JSON.stringify(stops.map((a) => [a.status, a.decision?.surface, a.decision?.by?.via])))
 
-  // 3. Deploy profile run.
-  await go('http://localhost:4799/deployments'); await evaluate(lib)
-  const startRun = async () => {
-    await waitFor(`!!__btn(document, 'Run')`, 'profile Run')
-    await evaluate(`(__btn(document, 'Run').click(), true)`)
-  }
-  await openConfirm(startRun, 'site', 'deploy profile', 'Run')
-  const infraPath = `${HOME}/.cerberus/infra.yaml`
-  fs.writeFileSync(infraPath, fs.readFileSync(infraPath, 'utf8').replace('echo deployed', 'echo deployed-again'))
-  await typeAndSubmit('site')
-  await waitFor(`/changed after you were shown it/.test(document.body.textContent)`, 'deploy stale reason')
-  check('deploy profile: a stale plan keeps the dialog open with the reason', await evaluate(`!!document.querySelector('[data-testid=plan-hash]')`))
-  check('deploy profile: nothing ran on the stale plan', !fs.existsSync(`${HOME}/deployed.txt`))
-  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
-  await sleep(500)
-  await go('http://localhost:4799/deployments'); await evaluate(lib)
-  await openConfirm(startRun, 'site', 'deploy profile (retry)', 'Run')
-  await typeAndSubmit('site')
-  await waitFor(`!document.querySelector('[data-testid=plan-hash]')`, 'deploy plan dialog to close', 15000)
-  for (let i = 0; i < 30 && !fs.existsSync(`${HOME}/deployed.txt`); i++) await sleep(200)
-  check('deploy profile: the right target runs the profile', fs.existsSync(`${HOME}/deployed.txt`) && fs.readFileSync(`${HOME}/deployed.txt`, 'utf8').includes('deployed-again'))
-  const runs = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.operation === 'run_profile'))`)
-  check('deploy profile: the run was approved in the daemon, by the console session', runs.some((a) => a.status === 'consumed' && a.decision?.by?.via === 'web'),
-    JSON.stringify(runs.map((a) => [a.status, a.decision?.by?.via])))
-
   // 4. Break glass on a protected target (P3-5b): the CLI asks, the
   //    console shows it as BREAK GLASS and approves it with a passkey, the
   //    CLI's retry runs it, and it stays a follow-up.
@@ -182,40 +157,41 @@ try {
   await waitFor(`!!document.querySelector('[data-testid=break-glass-alert]')`, 'header badge')
   check('break glass: the console header shows the badge', /BREAK GLASS · 1 today · 1 to acknowledge/.test(await evaluate(`document.querySelector('[data-testid=break-glass-alert]').textContent`)))
 
-  // 5. The console's own writes (M9): saving a profile is confirmed on the
-  //    call like a resource verb; relabelling it needs an out-of-band
-  //    approval, which the console asks for in place and approves with the
-  //    passkey (I5: the passkey is the boundary), then saves under it.
-  await go('http://localhost:4799/deployments'); await evaluate(lib)
-  await waitFor(`!!__btn(document, 'Save')`, 'profile Save')
-  await evaluate(`(__btn(document, 'Save').click(), true)`)
-  await waitFor(`!!document.querySelector('[data-testid=plan-hash]')`, 'profile save: plan dialog')
-  const saveView = await evaluate(`(() => { const t = __top(); return { bolds: [...t.querySelectorAll('.font-semibold')].map(e => e.textContent), disabled: __btn(t, 'Confirm and run')?.disabled } })()`)
-  check('profile save: the confirm dialog shows the admin write on the profile with its labels',
-    saveView.bolds.some((b) => b === 'Effect: admin') && saveView.bolds.some((b) => b.includes('console site (env dev, owner self, admin self)')) && saveView.disabled === true, saveView.bolds.join(' | '))
-  await typeAndSubmit('site')
-  await waitFor(`!document.querySelector('[data-testid=plan-hash]')`, 'profile save dialog to close', 10000)
-  const saves = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.connector === 'console' && a.operation === 'profile_save'))`)
-  check('profile save: confirmed on the call by the console session, under one consumed approval',
-    saves.length === 1 && saves[0].status === 'consumed' && saves[0].channel === 'tty_confirm' && saves[0].decision?.by?.via === 'web', JSON.stringify(saves.map((a) => [a.status, a.channel])))
-
-  const envInput = `[...document.querySelectorAll('label')].find(l => l.textContent.includes('Env (dev, lab, prod)')).querySelector('input')`
-  await evaluate(`(__type(${envInput}, 'prod'), true)`)
+  // 5. The console's own writes (M9): saving a credential on the
+  //    Credentials page is an admin write on a target with no labels of
+  //    its own, so it needs an out-of-band approval, which the console asks
+  //    for in place and approves with the passkey (I5: the passkey is the
+  //    boundary), then saves under it. The editor lists only what the
+  //    connector declares.
+  await go('http://localhost:4799/credentials'); await evaluate(lib)
+  const tokenInput = `[...document.querySelectorAll('label')].find(l => l.textContent.includes('token')).querySelector('input')`
+  await waitFor(`!!(${tokenInput})`, 'credential editor: the declared token field')
+  const listed = await evaluate(`${api}('/api/credentials').then(r => r.json())`)
+  check('credentials: the editor lists the declared secret, named, with no value',
+    listed.providers.length === 1 && listed.providers[0].id === 'demo' && listed.providers[0].secrets.length === 1 &&
+      listed.providers[0].secrets[0].name === 'token' && listed.providers[0].secrets[0].kind === 'credential' &&
+      listed.providers[0].secrets[0].present === false && !('value' in listed.providers[0].secrets[0]),
+    JSON.stringify(listed))
+  check('credentials: a credential is a password field', (await evaluate(`${tokenInput}.type`)) === 'password')
+  await evaluate(`(__type(${tokenInput}, 'smoke-token-value'), true)`)
   await sleep(150)
-  await evaluate(`(__btn(document, 'Save').click(), true)`)
-  await waitFor(`!!document.querySelector('[data-testid=out-of-band-step] [data-testid=approval-detail]')`, 'relabel: out-of-band step', 10000)
+  await evaluate(`(__btn(document, 'Save credentials').click(), true)`)
+  await waitFor(`!!document.querySelector('[data-testid=out-of-band-step] [data-testid=approval-detail]')`, 'credential save: out-of-band step', 10000)
   const step = await evaluate(`document.querySelector('[data-testid=out-of-band-step]').textContent`)
-  check('relabel: the console asks for the passkey approval in place, showing the write', /console\.profile_save/.test(step) && /out_of_band/.test(step) && /sha256:[0-9a-f]{64}/.test(step), step.slice(0, 160))
+  check('credential save: the console asks for the passkey approval in place, showing the write',
+    /console\.provider_save/.test(step) && /out_of_band/.test(step) && /sha256:[0-9a-f]{64}/.test(step) && !step.includes('smoke-token-value'), step.slice(0, 160))
   const oob = `document.querySelector('[data-testid=out-of-band-step]')`
-  await evaluate(`(__type(${oob}.querySelector('[data-testid=typed]'), 'site'), true)`)
+  await evaluate(`(__type(${oob}.querySelector('[data-testid=typed]'), 'demo'), true)`)
   await sleep(150)
   await evaluate(`(__btn(${oob}, 'Approve with passkey').click(), true)`)
-  await waitFor(`!document.querySelector('[data-testid=out-of-band-step]')`, 'relabel: step to close after the save', 15000)
-  const saved = await evaluate(`${api}('/api/deployments').then(r => r.json()).then(j => (j.deployments || []).find(d => d.id === 'site'))`)
-  const relabels = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.connector === 'console' && a.channel === 'out_of_band'))`)
-  check('relabel: saved under the approval, decided on the console with the passkey (same surface)',
-    saved?.env === 'prod' && relabels.length === 1 && relabels[0].status === 'consumed' && relabels[0].decision?.same_surface === true && !!relabels[0].decision?.key_fingerprint && relabels[0].decision?.by?.via === 'web',
-    JSON.stringify([saved?.env, relabels.map((a) => [a.status, a.decision?.same_surface, a.decision?.by?.via])]))
+  await waitFor(`!document.querySelector('[data-testid=out-of-band-step]')`, 'credential save: step to close after the save', 15000)
+  const stored = await (await fetch('http://127.0.0.1:4798/stored?service=demo&key=token')).json()
+  const credSaves = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.connector === 'console' && a.operation === 'provider_save'))`)
+  check('credential save: stored under the approval, decided on the console with the passkey (same surface)',
+    stored.stored === true && credSaves.length === 1 && credSaves[0].status === 'consumed' && credSaves[0].decision?.same_surface === true && !!credSaves[0].decision?.key_fingerprint && credSaves[0].decision?.by?.via === 'web',
+    JSON.stringify([stored, credSaves.map((a) => [a.status, a.decision?.same_surface, a.decision?.by?.via])]))
+  await waitFor(`/Stored/.test(document.body.textContent)`, 'credential editor shows the value is stored', 10000)
+  check('credentials: the editor shows the secret is stored, never its value', !(await evaluate(`document.body.innerHTML.includes('smoke-token-value')`)))
 
   // 5b. An out-of-band resource action: stopping prod-api from the console
   //     is approved in place with the passkey, and the stop is sent again

@@ -23,7 +23,6 @@ type InProcessClient struct {
 	runtime        *ResourceRuntimeService
 	external       *ExternalConnectorService
 	managedPlugins *ManagedPluginConnectorService
-	deploySecrets  secret.Reader
 	consoleSecrets secret.ReadWriter
 
 	// Construction options forwarded to the shared runtime.

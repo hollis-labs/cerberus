@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hollis-labs/cerberus/internal/infra"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -59,12 +58,6 @@ type Client interface {
 	GetPipeline(ctx context.Context, id string) (*PipelineDetail, error)
 	// RunPipeline executes a pipeline and returns the raw result JSON.
 	RunPipeline(ctx context.Context, id string, opts ...MutationOption) (*PipelineRunResult, error)
-	// RunDeploymentProfile runs a saved deploy profile through the gate in
-	// the serving process, where the approval broker is (CERB-GAP-886).
-	RunDeploymentProfile(ctx context.Context, id string, opts ...MutationOption) (*infra.DeploymentRunResult, error)
-	// PlanDeploymentProfile is a profile run's plan and hash, as an
-	// approval of the run binds it; recorded as a dry run.
-	PlanDeploymentProfile(ctx context.Context, id string, opts ...MutationOption) (*ConnectorPlan, error)
 	// ConsoleWrite makes a console write (a profile, provider, registry or
 	// restore change) through the gate in the serving process, where the
 	// approval broker is (M9).

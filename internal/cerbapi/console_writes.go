@@ -7,14 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/configops"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
@@ -23,14 +21,12 @@ import (
 )
 
 // Console writes are changes the web console makes to Cerberus's own state:
-// a deploy profile saved or deleted, a provider's settings and credentials
-// saved, a project config registered or deregistered, a config backup
-// restored. Profiles carry shell commands and target labels, and labels
-// decide which approval channel a call needs, so each is an admin
-// operation, gated and recorded (M9).
+// a connector's declared credentials saved, a project config registered or
+// deregistered, a config backup restored. Each is an admin operation, gated
+// and recorded (M9).
 //
-// They belong to the serving process, as deploy-profile runs do
-// (CERB-GAP-886): the daemon holds the approval broker, so a write policy
+// They belong to the serving process (CERB-GAP-886): the daemon holds the
+// approval broker, so a write policy
 // wants approved can be asked for, decided and consumed where it runs, and
 // the console confirms it in the same dialog as a resource verb.
 
@@ -39,16 +35,11 @@ const ConsoleConnector = "console"
 
 // The console writes.
 const (
-	ConsoleProfileSave        = "profile_save"
-	ConsoleProfileDelete      = "profile_delete"
 	ConsoleProviderSave       = "provider_save"
 	ConsoleRegistryRegister   = "registry_register"
 	ConsoleRegistryDeregister = "registry_deregister"
 	ConsoleConfigRestore      = "config_restore"
 )
-
-// ErrConsoleWriteNotFound is a console write whose subject does not exist.
-var ErrConsoleWriteNotFound = errors.New("not found")
 
 // ConsoleWriteInputError is a console write refused for its input.
 type ConsoleWriteInputError struct{ Err error }
@@ -69,11 +60,9 @@ func consoleGuidance(format string, args ...any) error {
 // ConsoleWriteRequest is one console write, as the console sends it.
 type ConsoleWriteRequest struct {
 	Operation string `json:"operation"`
-	// ID is the profile (profile_delete), the provider (provider_save) or
-	// the registry owner (registry_deregister).
+	// ID is the connector (provider_save) or the registry owner
+	// (registry_deregister).
 	ID string `json:"id,omitempty"`
-	// Profile is the profile profile_save writes.
-	Profile *infra.DeploymentProfile `json:"profile,omitempty"`
 	// Path is the config registry_register registers, or the backup
 	// config_restore restores (empty: the config's own .bak).
 	Path string `json:"path,omitempty"`
@@ -81,7 +70,7 @@ type ConsoleWriteRequest struct {
 	// secret the connector declares. Secret values travel only to the
 	// serving process, over its socket, and are never recorded, shown or
 	// answered with. Values is refused when set: the console used to save
-	// provider settings to infra.yaml, where nothing read them.
+	// provider settings to a file nothing read.
 	Values       map[string]string `json:"values,omitempty"`
 	Secrets      map[string]string `json:"secrets,omitempty"`
 	ClearSecrets []string          `json:"clear_secrets,omitempty"`
@@ -112,9 +101,8 @@ func WithConsoleSecretStore(store secret.ReadWriter) InProcessOption {
 func consoleWriteOperation(name string) contract.Operation {
 	return contract.Operation{
 		Name: name, Effect: contract.EffectAdmin,
-		// The labels and paths are names, recorded in the clear: a relabeled
-		// target is visible in the record, not only as a digest.
-		Target:  contract.TargetDescriptor{Kind: "console", From: []string{"id", "env", "owner", "admin", "config_path", "backup_path"}},
+		// The ids and paths are names, recorded in the clear.
+		Target:  contract.TargetDescriptor{Kind: "console", From: []string{"id", "config_path", "backup_path"}},
 		Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites,
 	}.Finalize()
 }
@@ -172,9 +160,6 @@ type consoleWriteCall struct {
 	declared func() []contract.Definition
 	target   map[string]any
 	config   map[string]any
-	// labels is the definition the target's labels come from; nil, or a
-	// nil answer, is a target with none of its own, which reads as unknown.
-	labels func() *config.ResourceDef
 	// planned adds the write's own part to its plan: what it would change,
 	// as observed now, so a plan confirmed against one state is stale
 	// against another.
@@ -189,10 +174,6 @@ func (c *InProcessClient) consoleWrite(req ConsoleWriteRequest) (*consoleWriteCa
 	}
 	w := &consoleWriteCall{req: req, cfgPath: c.cfgPath, store: c.consoleSecrets, declared: c.connectorDefinitions}
 	switch req.Operation {
-	case ConsoleProfileSave:
-		return w, w.checkProfileSave()
-	case ConsoleProfileDelete:
-		return w, w.checkProfileDelete()
 	case ConsoleProviderSave:
 		return w, w.checkProviderSave()
 	case ConsoleRegistryRegister:
@@ -219,21 +200,17 @@ func (w *consoleWriteCall) spec(opts MutationOpts, sink audit.Sink) auditSpec {
 	spec := auditSpec{
 		connector: ConsoleConnector, operation: w.req.Operation, op: consoleWriteOperation(w.req.Operation), known: true,
 		// The console's own form is the acknowledgment: the operator pressed
-		// Save, Delete, Register or Restore.
+		// Save, Register, Deregister or Restore.
 		acknowledged: true, config: cfg,
 		approvalID: opts.ApprovalID, confirmedPlanHash: opts.ConfirmedPlanHash,
 	}
 	id, _ := w.target["id"].(string)
-	// The target is named by its id either way, so the approver types what
-	// is being changed; one with no labels of its own reads as unknown.
+	// The target is named by its id, so the approver types what is being
+	// changed. A console write's target has no labels of its own, so it
+	// reads as unknown.
 	spec.resources = func(name string) (*config.ResourceDef, bool) {
 		if name != id {
 			return nil, false
-		}
-		if w.labels != nil {
-			if def := w.labels(); def != nil {
-				return def, true
-			}
 		}
 		return &config.ResourceDef{ID: id}, true
 	}
@@ -248,85 +225,6 @@ func (w *consoleWriteCall) spec(opts MutationOpts, sink audit.Sink) auditSpec {
 		return p, nil
 	}
 	return spec
-}
-
-// profileTarget names a deploy profile and its labels for the record, in
-// the clear: relabeling a target is what changes its approval channel.
-func profileTarget(p infra.DeploymentProfile) map[string]any {
-	labels := p.ResourceDef().TargetLabels().Labels
-	return map[string]any{"id": p.ID, "env": string(labels.Env), "owner": labels.Owner, "admin": labels.Admin.String()}
-}
-
-func (w *consoleWriteCall) savedProfile(id string) (infra.DeploymentProfile, bool) {
-	state, err := infra.LoadState(w.cfgPath)
-	if err != nil {
-		return infra.DeploymentProfile{}, false
-	}
-	return state.Profile(id)
-}
-
-func (w *consoleWriteCall) checkProfileSave() error {
-	if w.req.Profile == nil {
-		return consoleInputError("profile_save needs a profile")
-	}
-	profile := *w.req.Profile
-	if strings.TrimSpace(profile.ID) == "" || strings.TrimSpace(profile.Name) == "" || strings.TrimSpace(profile.Provider) == "" || strings.TrimSpace(profile.RepoPath) == "" {
-		return consoleInputError("id, name, provider, and repo_path are required")
-	}
-	// Labels are checked as a resource's are: a misspelled env must not
-	// quietly read as unknown.
-	if problems := profile.ResourceDef().TargetLabels().Validate(); len(problems) > 0 {
-		return consoleInputError("deployment profile labels: %s", strings.Join(problems, "; "))
-	}
-	w.target = profileTarget(profile)
-	w.config = map[string]any{"profile": profile}
-	// A new profile, or one whose labels stay as they are, is labeled by
-	// itself. One whose labels change is labeled by neither: relabeling
-	// is what moves a target between approval channels, so it is approved
-	// as an unlabeled target is, out of band, in either direction.
-	w.labels = func() *config.ResourceDef {
-		incoming := profile.ResourceDef()
-		if saved, ok := w.savedProfile(profile.ID); ok && !reflect.DeepEqual(saved.ResourceDef().TargetLabels(), incoming.TargetLabels()) {
-			return nil
-		}
-		return &incoming
-	}
-	w.planned = func(p *plan.Plan, _ func(any) string) {
-		p.Digests = map[string]string{"profile": canonicalDigest(profile)}
-		if saved, ok := w.savedProfile(profile.ID); ok {
-			p.State = "replaces the saved profile"
-			p.Digests["saved"] = canonicalDigest(saved)
-		} else {
-			p.State = "adds a profile"
-		}
-	}
-	return nil
-}
-
-func (w *consoleWriteCall) checkProfileDelete() error {
-	id := strings.TrimSpace(w.req.ID)
-	if id == "" {
-		return consoleInputError("profile_delete needs an id")
-	}
-	w.target = map[string]any{"id": id}
-	// A deleted profile is labeled as it was saved.
-	w.labels = func() *config.ResourceDef {
-		saved, ok := w.savedProfile(id)
-		if !ok {
-			return nil
-		}
-		def := saved.ResourceDef()
-		return &def
-	}
-	w.planned = func(p *plan.Plan, _ func(any) string) {
-		if saved, ok := w.savedProfile(id); ok {
-			p.State = "deletes the saved profile"
-			p.Digests = map[string]string{"saved": canonicalDigest(saved)}
-		} else {
-			p.State = "no such profile"
-		}
-	}
-	return nil
 }
 
 func (w *consoleWriteCall) checkProviderSave() error {
@@ -440,22 +338,6 @@ func (w *consoleWriteCall) checkConfigRestore() {
 // do performs the write the gate let through.
 func (w *consoleWriteCall) do(ctx context.Context) (*ConsoleWriteResult, error) {
 	switch w.req.Operation {
-	case ConsoleProfileSave:
-		state, err := infra.LoadState(w.cfgPath)
-		if err != nil {
-			return nil, err
-		}
-		state.UpsertProfile(*w.req.Profile)
-		return &ConsoleWriteResult{Success: true}, infra.SaveState(w.cfgPath, state)
-	case ConsoleProfileDelete:
-		state, err := infra.LoadState(w.cfgPath)
-		if err != nil {
-			return nil, err
-		}
-		if !state.DeleteProfile(strings.TrimSpace(w.req.ID)) {
-			return nil, fmt.Errorf("deployment profile %w", ErrConsoleWriteNotFound)
-		}
-		return &ConsoleWriteResult{Success: true}, infra.SaveState(w.cfgPath, state)
 	case ConsoleProviderSave:
 		return w.saveProvider(ctx)
 	case ConsoleRegistryRegister:

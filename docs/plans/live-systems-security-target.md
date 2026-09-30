@@ -1257,7 +1257,9 @@ version field, and it never contains a credential value (env vars by name).
 - Pipelines: each stage's argv or shell, env names, and the spec digests of the
   resources it names.
 - Deploy profiles: P1-2's steps as run, the profile digest, and repo HEAD and
-  dirty. This closes CERB-GAP-853.
+  dirty. This closes CERB-GAP-853. (2026-09-30: the lane is now the `vercel` plugin,
+  whose dry run carries the steps, the profile digest and the checkout; the
+  host binds its plan to that preview, which is the plugin's claim.)
 - Apply resends the args with the approval id. The broker compares
   `args_digest` and never stores raw args (D4). It recomputes the plan and
   refuses with `plan_stale` on any difference. It applies conditionally on the
@@ -1355,9 +1357,10 @@ P4 is elicitation and egress: I7 applied to text Cerberus did not compose,
 and approval reaching the person where they are. It starts from what is
 already true.
 
-- The contract declares an output kind, and five operations are `free_text`:
-  `local.logs`, `docker.logs`, `ssh.exec`, `pipeline.run` and
-  `infra.run_profile`. Nothing consumes it yet.
+- The contract declares an output kind, and four built-in operations are
+  `free_text`: `local.logs`, `docker.logs`, `ssh.exec` and `pipeline.run`
+  (`infra.run_profile` left with the deploy lane, now the `vercel` plugin).
+  Nothing consumes it yet.
 - Baseline policy approves `read_sensitive` for agents, and every
   `read_sensitive` operation is gated since CERB-GAP-889. That is the
   exposure control, and P4 does not replace it.

@@ -37,7 +37,7 @@ func TestConnectorSecretsDoNotRegisterNonCredentials(t *testing.T) {
 	if !builtInNonCredentials["ssh"]["key"] {
 		t.Fatalf("the ssh definition's key secret is not declared as a path: %v", builtInNonCredentials)
 	}
-	for _, tc := range []struct{ service, key string }{{"ssh/box", "key"}, {"vercel", "scope"}} {
+	for _, tc := range []struct{ service, key string }{{"ssh/box", "key"}} {
 		if !notACredential(tc.service, tc.key) {
 			t.Errorf("%s/%s would be registered", tc.service, tc.key)
 		}
@@ -50,16 +50,15 @@ func TestConnectorSecretsDoNotRegisterNonCredentials(t *testing.T) {
 
 	const keyPath = "/Users/op/.ssh/id_ed25519_box"
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CERBERUS_VERCEL_SCOPE", "acme-platform-team")
 	t.Setenv("CERBERUS_SSH/BOX_KEY", keyPath)
 	sec := ConnectorSecrets(filepath.Join(t.TempDir(), "config.yaml"))
 	ctx, scope := redact.EnsureScope(context.Background())
-	for _, tc := range []struct{ service, key, want string }{{"ssh/box", "key", keyPath}, {"vercel", "scope", "acme-platform-team"}} {
+	for _, tc := range []struct{ service, key, want string }{{"ssh/box", "key", keyPath}} {
 		if got, err := sec.Get(ctx, tc.service, tc.key); err != nil || got != tc.want {
 			t.Fatalf("Get(%s/%s) = %q, %v", tc.service, tc.key, got, err)
 		}
 	}
-	msg := "reading SSH key " + keyPath + ": no such file; deploying to acme-platform-team"
+	msg := "reading SSH key " + keyPath + ": no such file"
 	if got := scope.Text(msg); got != msg {
 		t.Fatalf("a non-credential was registered: %q", got)
 	}

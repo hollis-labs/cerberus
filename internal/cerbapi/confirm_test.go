@@ -10,7 +10,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
@@ -293,32 +292,36 @@ func TestConsoleSessionConfirmsOnTheCall(t *testing.T) {
 	}
 }
 
-// RunDeploymentProfile and PlanDeploymentProfile called without a broker,
-// as an in-process CLI would: an unlabeled profile needs out of band, which
-// only the daemon can hold, so a confirmation does not meet it. (The
-// console goes through the daemon: TestDeployProfileRunsInTheDaemon.)
-func TestConsoleConfirmsADeployProfile(t *testing.T) {
+// An unlabeled target needs out of band, which only the daemon's broker
+// can hold: a call made in-process with no broker, as the console's
+// session, is asked for an approval, and a confirmation of the plan it was
+// shown does not meet it. The plan itself is served and recorded as a dry
+// run. (This used a deploy profile, the lane that moved to the vercel
+// plugin; Decision 12 moves such gate tests onto a fake.)
+func TestAConfirmationDoesNotMeetAnOutOfBandTarget(t *testing.T) {
 	withPDP(t, constantPDP{decision: policy.Approve})
 	withEnforcement(t, nil)
 	sink := audit.NewMemory()
-	profile := infra.DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: linkedVercelRepo(t), DeployCommand: "true", VercelScope: "team"}
+	svc, backend := dockerLane(t, sink)
 	ctx := WithPrincipal(BeginRequest(context.Background(), SurfaceWeb), WebSessionPrincipal("sess-1"))
-	_, err := RunDeploymentProfile(ctx, sink, noSecrets{}, profile, WithAcknowledged(true))
-	var coded *ExternalConnectorError
-	// A deploy profile's target is unlabeled, so out of band: the console
-	// cannot confirm it on the call, and says it needs the daemon.
-	if !errors.As(err, &coded) || coded.Code != ExternalConnectorApprovalPending {
-		t.Fatalf("unlabeled profile: %v", err)
+	unlabeled := func() ExternalConnectorOperationArgs {
+		return ExternalConnectorOperationArgs{Connector: "docker", Operation: "stop", Config: map[string]any{"container": "web"}, Acknowledged: true}
 	}
-	shown, err := PlanDeploymentProfile(ctx, sink, noSecrets{}, profile, WithAcknowledged(true))
-	if err != nil || !strings.HasPrefix(shown.PlanHash, "sha256:") || shown.ComputedBy != SurfaceWeb {
-		t.Fatalf("plan: %+v %v", shown, err)
+	_, err := svc.Execute(ctx, unlabeled())
+	var coded *ExternalConnectorError
+	if !errors.As(err, &coded) || coded.Code != ExternalConnectorApprovalPending {
+		t.Fatalf("unlabeled target: %v", err)
+	}
+	hash := shownHash(ctx, t, svc, unlabeled())
+	if !strings.HasPrefix(hash, "sha256:") {
+		t.Fatalf("plan hash %q", hash)
 	}
 	if o := outcome(sink.Records()); !o.DryRun {
 		t.Fatalf("a plan was not recorded as a dry run: %+v", o)
 	}
-	_, err = RunDeploymentProfile(ctx, sink, noSecrets{}, profile, WithAcknowledged(true), WithConfirmedPlanHash(shown.PlanHash))
-	if !errors.As(err, &coded) || coded.Code != ExternalConnectorApprovalPending {
-		t.Fatalf("a confirmation met an out-of-band approval: %v", err)
+	args := unlabeled()
+	args.ConfirmedPlanHash = hash
+	if _, err = svc.Execute(ctx, args); !errors.As(err, &coded) || coded.Code != ExternalConnectorApprovalPending || backend.stopped != "" {
+		t.Fatalf("a confirmation met an out-of-band approval: %v (stopped %q)", err, backend.stopped)
 	}
 }

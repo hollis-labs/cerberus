@@ -2,7 +2,8 @@
 
 **Done 2026-09-25.** All four are plugins, and the host compiled in only the
 core connectors (`local`, `ssh`, `docker`, `github`). On 2026-09-30 `github`
-followed, and core is now `local`, `ssh`, `docker` (addendum at the end). A stripped build went from
+followed, and core is now `local`, `ssh`, `docker`, and the console's Vercel
+deploy-profile runner became the `vercel` plugin (addenda at the end). A stripped build went from
 62.8MB to 21.7MB, and the default build from 88.1MB to 31.6MB. No provider SDK
 remains in the host. Every step was deployed with its runbook and every
 expected value matched. The record below is kept as the history of how it was
@@ -369,3 +370,85 @@ It moved the same way the four did.
 Both columns are built without the web bundle (`internal/webui/dist` holding
 only `.gitkeep`), so they compare with each other but not with the table
 above: the host has grown since H7.
+
+## Addendum — 2026-09-30: the Vercel deploy lane
+
+`internal/infra` was not a connector. It was a deploy-profile runner, and only
+the web console could reach it: no CLI command, no MCP tool, and no entry in
+the connector registry. A survey against cerberus `238b1b2` found three
+things:
+
+- **The only provider logic was Vercel's:** link, deploy, token and scope,
+  and deploy-URL extraction.
+- **Most of a profile was never read.** The Cloudflare and Namecheap profile
+  fields, `dns_provider`, `domain`, `production_branch` and three of the four
+  `git_*` fields were stored and shown, and nothing read them. So was every
+  provider "setting" the console saved to `infra.yaml`, the Vercel scope
+  included: `planVercel` read the profile's scope or the `vercel/scope`
+  secret, never the console's field.
+- **Nothing generic was worth keeping.** Preflight and build shell steps and
+  a git status read are what `local` and pipelines already provide.
+
+So the whole lane left, in three PRs:
+
+- **Plugin:** `vercel/` in `hollis-labs/cerberus-plugins`, released as
+  `vercel/v0.1.0`.
+  - Operations: `status` and `list_profiles` are reads; `deploy` is exec with
+    local writes, behind `--ack`.
+  - Its dry run is the plan the host used to compute: the steps (the token as
+    `VERCEL_TOKEN=<vercel token>`, env names only), the profile's digest and
+    the checkout's branch, commit and dirty state.
+  - A caller names a profile and nothing else. Profiles come from a YAML file
+    named by the `profiles_file` field in `connector-config.yaml`, in
+    `infra.yaml`'s shape. Profile fields as operation inputs were rejected,
+    because an agent could then send arbitrary shell.
+  - Target labels come from a `config.yaml` resource with the profile's id
+    (`type: deploy_profile, connector: vercel`), the named-handle pattern.
+  - The secrets keep their names: `vercel/token`, and `vercel/scope`, now
+    declared `kind: name`. That retired the host's `nonCredentialSecrets`
+    exemption.
+- **The console's credential editor survived, rebuilt.** It had lived inside
+  the lane as a hardcoded catalog (vercel, github, cloudflare, namecheap,
+  git). It is now `/api/credentials` and a Credentials page, listing every
+  connector's *declared* secrets. `provider_save` writes only a declared
+  secret and refuses any other id or key. Fixing this surfaced the thirteenth
+  redaction casualty (AGENTS.md).
+- **Removed from the host, with no tombstones (Decision 1):**
+  - `internal/infra` and `deploy_profiles.go`;
+  - the `/deployments` socket routes and the console's `/api/infra` and
+    `/api/deployments` routes;
+  - the `profile_save` and `profile_delete` console writes;
+  - the Deployments page;
+  - the `deploy_profile` plan lane;
+  - the `infra.run_profile` egress entry and runtime definition.
+- **Decision 12:**
+  - The gate tests that used deploy profiles as fixtures moved onto the fake
+    docker lane: out of band not met by a confirmation.
+  - The console-write gate tests moved onto `provider_save`: asked, approved
+    and made in the daemon, a changed write refused, and out of band for
+    unlabeled console targets.
+  - The browser smoke's deploy scenario is gone, since the resource-stop
+    scenario covers the stale plan and the confirm. Its console-write scenario
+    is now a credential save on the Credentials page, approved in place with
+    the passkey.
+  - Tests that existed only for the lane (GAP-853, GAP-878 and GAP-886 on
+    profiles) went with it.
+- **What the move costs, recorded as CERB-GAP-952** (supersedes CERB-DEC-796;
+  the decision is CERB-DEC-951):
+  - The host no longer computes or verifies the deploy plan. A plugin preview
+    is the plugin's claim.
+  - An approved run no longer executes exactly the plan the gate hashed
+    (GAP-878). The plugin plans again when it starts.
+  - The host's plan hash still binds the preview, so a changed profile or
+    checkout makes an approval stale. The window between the check and the
+    run is open until a plan-bound plugin execution contract exists.
+- **Follow-up, CERB-GAP-953:** a plugin operation does not receive its target
+  resource's definition, so a profile's settings live in the plugin's file and
+  its labels in `config.yaml`.
+
+| Step | Stripped | Default |
+|---|---|---|
+| Before (main at `238b1b2`) | 23.6 MB | 33.9 MB |
+| Deploy lane out | 23.4 MB | 33.7 MB |
+
+Built without the web bundle, like the `github` table.

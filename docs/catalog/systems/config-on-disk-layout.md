@@ -66,7 +66,8 @@ means it happily prints a path that does not exist.
 
 The actual dotdir on the audit machine holds thirteen things `cerberus path` does
 not mention: `config.yaml` plus seven hand-made `config.yaml.bak-*` snapshots,
-`cerberus.log`, `cerberus.pid`, `cerberus.sock`, `daemon.lock`, `infra.yaml`,
+`cerberus.log`, `cerberus.pid`, `cerberus.sock`, `daemon.lock`, `infra.yaml`
+(read by nothing since the deploy lane became the `vercel` plugin),
 `plugin-connectors.json`, `registry-profile.yaml`, `paused.app-a-local`, and
 the `alerts/ bin/ locks/ logs/ pids/ state/` directories. `cerberus path`'s own
 doc comment claims it prints `registry.yaml`; the code prints only

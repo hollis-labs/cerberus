@@ -11,7 +11,6 @@ import (
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/egress"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 )
 
@@ -52,12 +51,11 @@ var builtins = map[string]Result{
 	"local." + localconn.OpInspect:     {Type: of[cerbapi.ResourceInspect]()},
 	"local." + localconn.OpDoctor:      {Type: of[cerbapi.ResourceDoctor]()},
 
-	"pipeline." + pipeline.OpRun:  {Type: of[pipeline.RunResult]()},
-	"infra." + infra.OpRunProfile: {Type: of[infra.DeploymentRunResult]()},
-	"docker.logs":                 untrustedText,
-	"docker.list_containers":      {Type: of[[]dockerconn.Container]()},
-	"ssh.exec":                    {Type: of[sshconn.ExecResult]()},
-	"ssh.status":                  {Type: of[sshconn.HostStatus]()},
+	"pipeline." + pipeline.OpRun: {Type: of[pipeline.RunResult]()},
+	"docker.logs":                untrustedText,
+	"docker.list_containers":     {Type: of[[]dockerconn.Container]()},
+	"ssh.exec":                   {Type: of[sshconn.ExecResult]()},
+	"ssh.status":                 {Type: of[sshconn.HostStatus]()},
 }
 
 // For is what connector.operation returns, when it is a built-in whose

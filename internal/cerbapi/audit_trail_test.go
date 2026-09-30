@@ -222,6 +222,7 @@ func TestServicesAreConstructedOnlyInApp(t *testing.T) {
 	allowed := map[string]string{
 		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService":                       "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
 		filepath.Join("internal", "smoke", "confirmdialog", "main.go") + ":NewResourceRuntimeService":             "the confirm-dialog browser smoke's scratch daemon, with its own sink",
+		filepath.Join("internal", "smoke", "confirmdialog", "main.go") + ":NewExternalConnectorService":           "the confirm-dialog browser smoke's scratch daemon: one fake connector for the credential editor, on its own sink",
 		filepath.Join("internal", "cerbapi", "process_secret_backends.go") + ":NewManagedPluginConnectorService":  "run-secrets' backends are the managed lane in register-only mode, on the sink NewProcessSecretBackends is given (itself built only in internal/app)",
 		filepath.Join("internal", "testfixture", "sentinel", "sentinel.go") + ":NewManagedPluginConnectorService": "the WP-S2 acceptance fixture, imported only by tests, on the sink the test passes in",
 		filepath.Join("internal", "testfixture", "sentinel", "sentinel.go") + ":NewExternalConnectorService":      "the WP-S2 acceptance fixture, imported only by tests, on the sink the test passes in",
@@ -306,7 +307,6 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 	classification := map[string]string{
 		"ExecuteConnectorOperation": audited,
 		// A deploy-profile run and its plan go through the gate (CERB-GAP-886).
-		"RunDeploymentProfile": audited, "PlanDeploymentProfile": audited,
 		"ConsoleWrite": audited, "PlanConsoleWrite": audited,
 		"ReloadManagedPlugin":    audited,
 		"LoadManagedPlugin":      audited,
@@ -364,8 +364,6 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		"RemoveResource": func() { _, _ = client.RemoveResource(ctx, "svc") },
 		"RunPipeline":    func() { _, _ = client.RunPipeline(ctx, "p") },
 		// A profile that is not saved is still a recorded attempt.
-		"RunDeploymentProfile":  func() { _, _ = client.RunDeploymentProfile(ctx, "site") },
-		"PlanDeploymentProfile": func() { _, _ = client.PlanDeploymentProfile(ctx, "site") },
 		"ConsoleWrite": func() {
 			_, _ = client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleRegistryDeregister, ID: "ghost"})
 		},

@@ -3,10 +3,9 @@ package secret
 import "context"
 
 // Reader resolves connector secrets such as API keys and tokens. Resolution —
-// a connector's credential, a deployment profile's token, a plugin's declared
-// secret — depends on Reader alone: a backend that can only be read, such as
-// a vault Cerberus is granted read access to, satisfies it without pretending
-// to be writable.
+// a connector's credential, a plugin's declared secret — depends on Reader
+// alone: a backend that can only be read, such as a vault Cerberus is granted
+// read access to, satisfies it without pretending to be writable.
 type Reader interface {
 	Get(ctx context.Context, service, key string) (string, error)
 }

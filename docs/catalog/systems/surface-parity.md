@@ -96,9 +96,11 @@ them:
   `forge update_deployment_script`, `resource show`, `project show`, daemon
   lifecycle, `run-secrets`, `path`, `init`, `write-plugin-prototype`, and the
   in-process `connectors plugin exec` path.
-- **Console-only:** the entire `internal/infra` provider/deployment subsystem
-  and the 24-hour overview trend — capability that exists only behind a browser,
-  in a tool whose thesis is agent-first.
+- **Console-only:** the 24-hour overview trend — capability that exists only
+  behind a browser, in a tool whose thesis is agent-first. The `internal/infra`
+  provider and deployment subsystem was console-only too, until it became the
+  `vercel` plugin, which reaches every surface through the generic connector
+  route.
 - **Socket-only:** NDJSON progress streaming, which reaches an MCP host because
   `SocketClient` re-emits notifications into the caller's context, and is
   silently dropped for CLI and console callers.
@@ -154,7 +156,8 @@ not the HTTP-API column.
 | config migrate | n | n | ~ 410 tombstone | n | n |
 | register / deregister | Y | n | Y | **n** | Y |
 | registry list / health | Y | ~ /registry/diagnostics | Y | **n** | Y |
-| infra providers / deployments | **n** | **n** | **Y** | **n** | **Y** |
+| vercel deploy profiles (plugin) | Y `connectors exec vercel` | Y | Y | ~ opt-in `expose` | ~ Connectors page |
+| declared credentials (editor) | ~ `secrets set` | Y `/console/provider_save` | Y | **n** | Y |
 | overview 24h trend | **n** | **n** | **Y** | **n** | **Y** |
 | settings / layout | ~ `path` | n | Y | n | Y |
 | daemon start / stop / restart / status | Y | n | n | n | n |
