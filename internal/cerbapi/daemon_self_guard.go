@@ -32,7 +32,7 @@ func (s *ResourceRuntimeService) refuseSelfMutation(res *config.ResourceDef, spe
 		return nil
 	}
 	self := res.ID == daemon.CanonicalDaemonResourceID
-	if spec.ServiceName != "" && (spec.ServiceName == s.servingLabel || spec.ServiceName == daemon.CanonicalDaemonServiceLabel) {
+	if spec.ServiceName != "" && (spec.ServiceName == s.servingLabel || spec.ServiceName == daemon.CanonicalDaemonServiceLabel || spec.ServiceName == daemon.LegacyDaemonServiceLabel) {
 		self = true
 	}
 	if spec.Mode == localconn.ProcessModeOSService && spec.RunFrom == localconn.ProcessRunFromArtifact {

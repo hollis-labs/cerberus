@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+
+	"github.com/hollis-labs/cerberus/internal/daemon"
 )
 
 func TestResolveDaemonBinaryPathReturnsExecutablePath(t *testing.T) {
@@ -103,6 +105,7 @@ func TestLaunchdPlistDeclaresDaemonPath(t *testing.T) {
 	}
 	var out strings.Builder
 	err = tmpl.Execute(&out, launchdData{
+		Label:      daemon.CanonicalDaemonServiceLabel,
 		BinaryPath: "/usr/local/bin/cerberus",
 		WorkingDir: "/Users/me",
 		HomeDir:    "/Users/me",
@@ -113,6 +116,7 @@ func TestLaunchdPlistDeclaresDaemonPath(t *testing.T) {
 	}
 	rendered := out.String()
 	for _, want := range []string{
+		"<string>com.hollis-labs.cerberus</string>",
 		"<key>EnvironmentVariables</key>",
 		"<key>PATH</key>",
 		"<string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>",
@@ -128,5 +132,33 @@ func TestLaunchdPlistDeclaresDaemonPath(t *testing.T) {
 func TestDaemonPathIsXMLEscaped(t *testing.T) {
 	if got := html.EscapeString(daemonLaunchPath("/opt/tools & more/bin")); !strings.Contains(got, "&amp;") {
 		t.Fatalf("expected escaped ampersand, got %q", got)
+	}
+}
+
+// install retires the daemon's job from before the label rename: the legacy
+// job is booted out and its plist removed, and with none there nothing runs.
+func TestInstallRetiresTheLegacyDaemonPlist(t *testing.T) {
+	var calls []string
+	orig := launchctlRun
+	launchctlRun = func(args ...string) error { calls = append(calls, strings.Join(args, " ")); return nil }
+	t.Cleanup(func() { launchctlRun = orig })
+
+	dir := t.TempDir()
+	if retired, err := retireLegacyDaemonPlist(dir, 501); err != nil || retired || len(calls) != 0 {
+		t.Fatalf("no legacy plist: %v %v %v", retired, err, calls)
+	}
+	legacy := filepath.Join(dir, "com.fragments-engine.cerberus.plist")
+	if err := os.WriteFile(legacy, []byte("<plist/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	retired, err := retireLegacyDaemonPlist(dir, 501)
+	if err != nil || !retired {
+		t.Fatalf("retire: %v %v", retired, err)
+	}
+	if len(calls) != 1 || calls[0] != "bootout gui/501/com.fragments-engine.cerberus" {
+		t.Fatalf("calls = %v", calls)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy plist still there: %v", err)
 	}
 }

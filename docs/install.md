@@ -133,10 +133,16 @@ This installs into one of:
    cerberus install
    ```
 
-   This writes `~/Library/LaunchAgents/com.fragments-engine.cerberus.plist`
+   This writes `~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`
    with the path of the currently invoked `cerberus` binary baked in. Run it
    from whichever install path you want the plist to track — Homebrew,
    `~/.local/bin`, `$GOPATH/bin`, etc.
+
+   The launch agent was named `com.fragments-engine.cerberus` before the rename. On
+   an install that still has it, `cerberus install` boots that job out and removes
+   its plist before it loads `com.hollis-labs.cerberus`, so two daemons never run
+   at once. Resources whose launchd label Cerberus derives move to the new prefix
+   the next time they are applied.
 
 3. Confirm the daemon is healthy:
 

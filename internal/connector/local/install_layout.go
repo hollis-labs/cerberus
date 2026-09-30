@@ -18,7 +18,21 @@ type InstallLayout struct {
 	ArtifactPath string
 	WorkingDir   string
 	PlistPath    string
+
+	// LegacyServiceName and LegacyPlistPath are where a resource with a
+	// derived service name was installed before the label prefix was
+	// renamed. Empty when the resource names its own service. Apply moves a
+	// resource off them, and Remove clears them.
+	LegacyServiceName string
+	LegacyPlistPath   string
 }
+
+// ServicePrefix is the launchd label prefix of a resource whose service name
+// is derived; LegacyServicePrefix is the one it replaced.
+const (
+	ServicePrefix       = "com.hollis-labs.cerberus"
+	LegacyServicePrefix = "com.fragments-engine.cerberus"
+)
 
 // DefaultInstallLayout derives the Cerberus-managed user-area layout for a
 // process resource.
@@ -54,12 +68,10 @@ func DefaultInstallLayout(homeDir string, res *domain.Resource, spec ProcessSpec
 		artifactPath = filepath.Join(binDir, resourceID)
 	}
 
-	serviceName := spec.ServiceName
+	serviceName, legacyName := spec.ServiceName, ""
 	if serviceName == "" {
-		serviceName = strings.TrimSuffix(
-			fmt.Sprintf("com.fragments-engine.cerberus.%s.%s", project, resourceID),
-			".",
-		)
+		serviceName = strings.TrimSuffix(fmt.Sprintf("%s.%s.%s", ServicePrefix, project, resourceID), ".")
+		legacyName = strings.TrimSuffix(fmt.Sprintf("%s.%s.%s", LegacyServicePrefix, project, resourceID), ".")
 	}
 
 	workingDir := spec.Dir
@@ -67,7 +79,7 @@ func DefaultInstallLayout(homeDir string, res *domain.Resource, spec ProcessSpec
 		workingDir = currentDir
 	}
 
-	return InstallLayout{
+	layout := InstallLayout{
 		ServiceName:  serviceName,
 		RootDir:      root,
 		CurrentDir:   currentDir,
@@ -75,7 +87,12 @@ func DefaultInstallLayout(homeDir string, res *domain.Resource, spec ProcessSpec
 		ArtifactPath: artifactPath,
 		WorkingDir:   workingDir,
 		PlistPath:    filepath.Join(homeDir, "Library", "LaunchAgents", serviceName+".plist"),
-	}, nil
+	}
+	if legacyName != "" {
+		layout.LegacyServiceName = legacyName
+		layout.LegacyPlistPath = filepath.Join(homeDir, "Library", "LaunchAgents", legacyName+".plist")
+	}
+	return layout, nil
 }
 
 func sanitizeSlug(v string) string {

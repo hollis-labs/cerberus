@@ -51,7 +51,7 @@ Released beta binaries install to:
 ```
 
 This is the canonical path used by `cerberus install` when it writes the
-`com.fragments-engine.cerberus` user launch agent. Operators may put
+`com.hollis-labs.cerberus` user launch agent. Operators may put
 `~/.cerberus/bin` on `PATH`, but the launch agent should point directly at the
 canonical binary path rather than a shell-resolved `cerberus`.
 
@@ -132,7 +132,7 @@ export PATH="$HOME/.cerberus/bin:$PATH"
 cerberus --version
 cerberus init
 cerberus install
-launchctl print "gui/$(id -u)/com.fragments-engine.cerberus"
+launchctl print "gui/$(id -u)/com.hollis-labs.cerberus"
 ```
 
 Expected results:
@@ -141,7 +141,7 @@ Expected results:
 - `cerberus init` creates or preserves `~/.cerberus/config.yaml`.
 - `cerberus install` reports `Binary: ~/.cerberus/bin/cerberus` expanded to the
   absolute home path.
-- The launch agent is loaded under `com.fragments-engine.cerberus`.
+- The launch agent is loaded under `com.hollis-labs.cerberus`.
 - Daemon logs are under `~/.cerberus/logs/`.
 
 ## Release-Candidate Smoke Checklist
@@ -153,7 +153,7 @@ Run these checks on a macOS machine from the released binary path.
    ```bash
    ~/.cerberus/bin/cerberus init
    ~/.cerberus/bin/cerberus install
-   launchctl print "gui/$(id -u)/com.fragments-engine.cerberus"
+   launchctl print "gui/$(id -u)/com.hollis-labs.cerberus"
    ```
 
 2. CLI fallback when the daemon is unavailable:
@@ -200,7 +200,7 @@ Run these checks on a macOS machine from the released binary path.
    ```bash
    cerberus uninstall
    cerberus install
-   launchctl print "gui/$(id -u)/com.fragments-engine.cerberus"
+   launchctl print "gui/$(id -u)/com.hollis-labs.cerberus"
    ```
 
 ## Release Checklist

@@ -64,8 +64,14 @@ cerberus install
 This bootstraps the daemon label:
 
 ```text
-com.fragments-engine.cerberus
+com.hollis-labs.cerberus
 ```
+
+The launch agent was named `com.fragments-engine.cerberus` before the rename. On
+an install that still has it, `cerberus install` boots that job out and removes
+its plist before it loads `com.hollis-labs.cerberus`, so two daemons never run
+at once. Resources whose launchd label Cerberus derives move to the new prefix
+the next time they are applied.
 
 Use these commands to inspect or recover the daemon:
 

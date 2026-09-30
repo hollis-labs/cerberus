@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/hollis-labs/cerberus/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +19,7 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.fragments-engine.cerberus</string>
+    <string>{{.Label}}</string>
     <key>ProgramArguments</key>
     <array>
         <string>{{.BinaryPath}}</string>
@@ -44,9 +45,36 @@ const launchdPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
-const launchdPlistName = "com.fragments-engine.cerberus.plist"
+const launchdPlistName = daemon.CanonicalDaemonServiceLabel + ".plist"
+
+// legacyLaunchdPlistName is the daemon's plist from before the label was
+// renamed; install and uninstall retire it.
+const legacyLaunchdPlistName = daemon.LegacyDaemonServiceLabel + ".plist"
+
+// launchctlRun runs launchctl; a variable so a test can record the calls.
+var launchctlRun = func(args ...string) error {
+	return exec.Command("launchctl", args...).Run() //nolint:gosec // launchctl with Cerberus's own labels and paths
+}
+
+// retireLegacyDaemonPlist moves the daemon off the label it was installed
+// under before the rename: the legacy job is booted out, so two daemons never
+// contend for the socket, and its plist is removed. It reports whether there
+// was one to retire.
+func retireLegacyDaemonPlist(launchAgentsDir string, uid int) (bool, error) {
+	legacy := filepath.Join(launchAgentsDir, legacyLaunchdPlistName)
+	if !fileExists(legacy) {
+		return false, nil
+	}
+	// Not loaded is fine: the plist is what is left to clear.
+	_ = launchctlRun("bootout", fmt.Sprintf("gui/%d/%s", uid, daemon.LegacyDaemonServiceLabel))
+	if err := os.Remove(legacy); err != nil && !os.IsNotExist(err) {
+		return true, fmt.Errorf("removing the launch agent from before the rename (%s): %w", legacy, err)
+	}
+	return true, nil
+}
 
 type launchdData struct {
+	Label      string
 	BinaryPath string
 	WorkingDir string
 	HomeDir    string
@@ -118,7 +146,7 @@ func resolveDaemonBinaryPath(executable func() (string, error)) (string, error) 
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install the cerberus daemon launch agent",
-	Long:  "Bootstraps or repairs the macOS launch agent for the Cerberus daemon label (`com.fragments-engine.cerberus`). The canonical ongoing management path is now the v2 `cerberus-daemon-service` resource; this command remains as a low-level bootstrap and recovery helper when the daemon is not yet available over the socket.",
+	Long:  "Bootstraps or repairs the macOS launch agent for the Cerberus daemon label (`com.hollis-labs.cerberus`). A daemon installed under the label it had before the rename (`com.fragments-engine.cerberus`) is booted out and its plist removed first. The canonical ongoing management path is now the v2 `cerberus-daemon-service` resource; this command remains as a low-level bootstrap and recovery helper when the daemon is not yet available over the socket.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("install is currently supported on macOS only")
@@ -155,6 +183,15 @@ var installCmd = &cobra.Command{
 
 		plistPath := filepath.Join(launchAgentsDir, launchdPlistName)
 
+		// Retire the daemon's job from before the label rename first.
+		retired, retireErr := retireLegacyDaemonPlist(launchAgentsDir, os.Getuid())
+		if retireErr != nil {
+			return retireErr
+		}
+		if retired {
+			fmt.Printf("Retired the launch agent from before the rename: %s\n", filepath.Join(launchAgentsDir, legacyLaunchdPlistName))
+		}
+
 		// Unload existing agent if present
 		if _, err := os.Stat(plistPath); err == nil { //nolint:govet
 			exec.Command("launchctl", "unload", plistPath).Run() //nolint:errcheck,gosec
@@ -166,6 +203,7 @@ var installCmd = &cobra.Command{
 		}
 
 		data := launchdData{
+			Label:      daemon.CanonicalDaemonServiceLabel,
 			BinaryPath: binPath,
 			WorkingDir: workDir,
 			HomeDir:    home,
@@ -192,7 +230,7 @@ var installCmd = &cobra.Command{
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove the cerberus daemon launch agent",
-	Long:  "Unloads and removes the macOS launch agent for the Cerberus daemon label (`com.fragments-engine.cerberus`). If `cerberus-daemon-service` is present in the v2 resource lane, prefer `cerberus resource remove cerberus-daemon-service --ack` for normal lifecycle management.",
+	Long:  "Unloads and removes the macOS launch agent for the Cerberus daemon label (`com.hollis-labs.cerberus`), and the one from before the rename (`com.fragments-engine.cerberus`) if it is still there. If `cerberus-daemon-service` is present in the v2 resource lane, prefer `cerberus resource remove cerberus-daemon-service --ack` for normal lifecycle management.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if runtime.GOOS != "darwin" {
 			return fmt.Errorf("uninstall is currently supported on macOS only")
@@ -203,10 +241,20 @@ var uninstallCmd = &cobra.Command{
 			return fmt.Errorf("could not determine home directory: %w", err)
 		}
 
-		plistPath := filepath.Join(home, "Library", "LaunchAgents", launchdPlistName)
+		launchAgentsDir := filepath.Join(home, "Library", "LaunchAgents")
+		plistPath := filepath.Join(launchAgentsDir, launchdPlistName)
 
+		retired, err := retireLegacyDaemonPlist(launchAgentsDir, os.Getuid())
+		if err != nil {
+			return err
+		}
+		if retired {
+			fmt.Printf("Removed launch agent: %s\n", filepath.Join(launchAgentsDir, legacyLaunchdPlistName))
+		}
 		if _, err := os.Stat(plistPath); os.IsNotExist(err) {
-			fmt.Println("Launch agent not installed, nothing to do.")
+			if !retired {
+				fmt.Println("Launch agent not installed, nothing to do.")
+			}
 			return nil
 		}
 

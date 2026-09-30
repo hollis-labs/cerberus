@@ -11,26 +11,45 @@ import (
 // CanonicalDaemonServiceLabel is the launchd job label expected for the
 // Cerberus daemon. Matches `service_name` on the cerberus-daemon-service
 // resource.
-const CanonicalDaemonServiceLabel = "com.fragments-engine.cerberus"
+const CanonicalDaemonServiceLabel = "com.hollis-labs.cerberus"
+
+// LegacyDaemonServiceLabel is the label the daemon was installed under
+// before it was renamed. A daemon installed then keeps running under it until
+// `cerberus install` migrates it, so everything that recognizes the daemon's
+// own job accepts both.
+const LegacyDaemonServiceLabel = "com.fragments-engine.cerberus"
 
 // CanonicalDaemonResourceID is the resource id of the Cerberus daemon in
 // the v2 registry.
 const CanonicalDaemonResourceID = "cerberus-daemon-service"
 
-// LaunchdManagedDaemonPlistPath returns the canonical path of the launchd
-// plist for the Cerberus daemon service.
+// LaunchdManagedDaemonPlistPath returns the path of the daemon's launchd
+// plist: the canonical one, or the legacy one while only that is installed.
 func LaunchdManagedDaemonPlistPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "Library", "LaunchAgents", CanonicalDaemonServiceLabel+".plist"), nil
+	return filepath.Join(home, "Library", "LaunchAgents", liveDaemonLabel(home)+".plist"), nil
 }
 
-// LaunchdManagedDaemonExists reports whether the canonical Cerberus daemon
-// has a launchd plist on disk. A true result means launchd is the intended
-// supervisor and bare `cerberus daemon` should not start a parallel
-// instance.
+// liveDaemonLabel is the label the daemon's plist is installed under: the
+// legacy one only when the canonical plist is absent and the legacy one is
+// there.
+func liveDaemonLabel(home string) string {
+	dir := filepath.Join(home, "Library", "LaunchAgents")
+	if _, err := os.Stat(filepath.Join(dir, CanonicalDaemonServiceLabel+".plist")); err != nil {
+		if _, err := os.Stat(filepath.Join(dir, LegacyDaemonServiceLabel+".plist")); err == nil {
+			return LegacyDaemonServiceLabel
+		}
+	}
+	return CanonicalDaemonServiceLabel
+}
+
+// LaunchdManagedDaemonExists reports whether the Cerberus daemon has a
+// launchd plist on disk, under either label. A true result means launchd is
+// the intended supervisor and bare `cerberus daemon` should not start a
+// parallel instance.
 func LaunchdManagedDaemonExists() bool {
 	path, err := LaunchdManagedDaemonPlistPath()
 	if err != nil {
@@ -41,12 +60,13 @@ func LaunchdManagedDaemonExists() bool {
 }
 
 // LaunchdSpawnedSelf reports whether the current process was spawned by
-// launchd under the canonical Cerberus daemon service label, detected via
+// launchd under the Cerberus daemon service label, either one, detected via
 // the XPC_SERVICE_NAME env var that launchd sets on spawn. Child processes
 // re-exec'd by the daemon inherit this env var, so this also returns true
 // for the foreground re-exec child.
 func LaunchdSpawnedSelf() bool {
-	return os.Getenv("XPC_SERVICE_NAME") == CanonicalDaemonServiceLabel
+	name := os.Getenv("XPC_SERVICE_NAME")
+	return name == CanonicalDaemonServiceLabel || name == LegacyDaemonServiceLabel
 }
 
 // DaemonOrigin returns "launchd" when the current process was spawned by
@@ -60,9 +80,13 @@ func DaemonOrigin() string {
 }
 
 // LaunchdServiceTarget returns the launchctl `gui/<uid>/<label>` service
-// target for the canonical Cerberus daemon service.
+// target for the Cerberus daemon service, under the label it is installed as.
 func LaunchdServiceTarget() string {
-	return fmt.Sprintf("gui/%d/%s", os.Getuid(), CanonicalDaemonServiceLabel)
+	label := CanonicalDaemonServiceLabel
+	if home, err := os.UserHomeDir(); err == nil {
+		label = liveDaemonLabel(home)
+	}
+	return fmt.Sprintf("gui/%d/%s", os.Getuid(), label)
 }
 
 // LaunchctlKickstart starts (or restarts, when restart=true) the
