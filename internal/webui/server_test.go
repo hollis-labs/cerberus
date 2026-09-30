@@ -4,17 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	secretpkg "github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 // testHost is the Host every test request carries unless a test is
@@ -244,6 +245,8 @@ type fakeClient struct {
 	deployCalls      int
 	mutations        int
 	listResourcesErr error
+	// consoleWrites serves console writes, as the daemon would.
+	consoleWrites *cerbapi.InProcessClient
 }
 
 // calls counts every mutating client call, so a guard test can assert that
@@ -333,6 +336,32 @@ func (f *fakeClient) RunDeploymentProfile(context.Context, string, ...cerbapi.Mu
 
 func (f *fakeClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
 	return &cerbapi.ConnectorPlan{}, nil
+}
+
+// consoleDaemon is the serving process's side of console writes: the
+// state under cfgPath, recorded to sink, credentials into store.
+func consoleDaemon(cfgPath string, sink audit.Sink, store secretpkg.ReadWriter) *cerbapi.InProcessClient {
+	opts := []cerbapi.InProcessOption{cerbapi.WithConfigPath(cfgPath), cerbapi.WithInProcessAudit(sink)}
+	if store != nil {
+		opts = append(opts, cerbapi.WithConsoleSecretStore(store))
+	}
+	return cerbapi.NewInProcessClient(opts...)
+}
+
+// ConsoleWrite is served by consoleWrites, the serving process's client,
+// when a test gives one.
+func (f *fakeClient) ConsoleWrite(ctx context.Context, req cerbapi.ConsoleWriteRequest, opts ...cerbapi.MutationOption) (*cerbapi.ConsoleWriteResult, error) {
+	if f.consoleWrites == nil {
+		return nil, errors.New("fakeClient: no console writes")
+	}
+	return f.consoleWrites.ConsoleWrite(ctx, req, opts...)
+}
+
+func (f *fakeClient) PlanConsoleWrite(ctx context.Context, req cerbapi.ConsoleWriteRequest, opts ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
+	if f.consoleWrites == nil {
+		return nil, errors.New("fakeClient: no console writes")
+	}
+	return f.consoleWrites.PlanConsoleWrite(ctx, req, opts...)
 }
 
 func (f *fakeClient) ListConnectors(context.Context) ([]contract.Definition, error) {

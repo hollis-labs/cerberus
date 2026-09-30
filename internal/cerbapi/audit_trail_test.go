@@ -305,6 +305,7 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		"ExecuteConnectorOperation": audited,
 		// A deploy-profile run and its plan go through the gate (CERB-GAP-886).
 		"RunDeploymentProfile": audited, "PlanDeploymentProfile": audited,
+		"ConsoleWrite": audited, "PlanConsoleWrite": audited,
 		"ReloadManagedPlugin":    audited,
 		"LoadManagedPlugin":      audited,
 		"UnloadManagedPlugin":    audited,
@@ -363,6 +364,12 @@ func TestClientMethodsAreClassifiedForAudit(t *testing.T) {
 		// A profile that is not saved is still a recorded attempt.
 		"RunDeploymentProfile":  func() { _, _ = client.RunDeploymentProfile(ctx, "site") },
 		"PlanDeploymentProfile": func() { _, _ = client.PlanDeploymentProfile(ctx, "site") },
+		"ConsoleWrite": func() {
+			_, _ = client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleRegistryDeregister, ID: "ghost"})
+		},
+		"PlanConsoleWrite": func() {
+			_, _ = client.PlanConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleRegistryDeregister, ID: "ghost"})
+		},
 	}
 	for name, kind := range classification {
 		if kind != audited {

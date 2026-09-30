@@ -40,6 +40,15 @@ var (
 // are not enough on their own: they are self-reported, so the approval also
 // has to carry a presence assertion the broker verifies (P3-4b), whatever
 // the kind label says.
+//
+// The one exception to "another surface" is the passkey (I5, decided by the
+// operator 2026-09-30): an out-of-band approve that carries a presence
+// assertion may come from the surface that asked. The assertion is what an
+// agent driving that surface cannot produce; the broker verifies it against
+// this approval's challenge before the decision counts, and again when the
+// approval is used. It is never for tty_confirm, never without an
+// assertion, and never over MCP. A lifted brake is this case, not a rule of
+// its own.
 func checkDecider(a approval.Approval, d approval.Decision) error {
 	if !d.Approve {
 		return nil
@@ -52,12 +61,17 @@ func checkDecider(a approval.Approval, d approval.Decision) error {
 		return errUnknownSurface
 	case d.By.Kind != string(PrincipalHuman):
 		return errApproverNotHuman
-	case via == a.Principal.Via && a.Connector != "brake":
-		// Lifting a brake is the operator's own act, met by their passkey,
-		// so it may be asked for and approved on one surface (§12).
+	case via == a.Principal.Via && !passkeyOnTheSameSurface(a, d):
 		return errSelfApproval
 	}
 	return nil
+}
+
+// passkeyOnTheSameSurface is an approve checkDecider lets through from the
+// requester's own surface: out of band, with an assertion for the broker to
+// verify. The caller has already refused MCP and anyone not human.
+func passkeyOnTheSameSurface(a approval.Approval, d approval.Decision) bool {
+	return a.Channel == approval.ChannelOutOfBand && len(d.Assertion) > 0
 }
 
 // DecideAs records a decision made by the caller behind ctx: its principal
@@ -74,6 +88,7 @@ func (b *Broker) DecideAs(ctx context.Context, id string, args ApprovalDecisionA
 	if err := checkDecider(a, d); err != nil {
 		return a, err
 	}
+	d.SameSurface = d.Approve && d.By.Via == a.Principal.Via
 	if d.Approve {
 		if err := sealAssertion(&d, id, args.Assertion); err != nil {
 			return a, err

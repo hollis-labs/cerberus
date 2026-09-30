@@ -316,6 +316,9 @@ type ApprovalRef struct {
 	// enrolled key when it was out of band.
 	DecidedBy      *Principal `json:"decided_by,omitempty"`
 	KeyFingerprint string     `json:"key_fingerprint,omitempty"`
+	// DecidedSameSurface is an out-of-band approve made, with a passkey, on
+	// the surface the request came through (I5, 2026-09-30).
+	DecidedSameSurface bool `json:"decided_same_surface,omitempty"`
 	// Uses is a grant's count of uses, with this one.
 	Uses int `json:"uses,omitempty"`
 	// GrantOnProtectedTarget marks the use of a session or window grant on

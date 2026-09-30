@@ -229,6 +229,14 @@ func (fakeSocketProgressClient) RunDeploymentProfile(context.Context, string, ..
 func (fakeSocketProgressClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
 	return &cerbapi.ConnectorPlan{}, nil
 }
+
+func (fakeSocketProgressClient) ConsoleWrite(context.Context, cerbapi.ConsoleWriteRequest, ...cerbapi.MutationOption) (*cerbapi.ConsoleWriteResult, error) {
+	return &cerbapi.ConsoleWriteResult{}, nil
+}
+
+func (fakeSocketProgressClient) PlanConsoleWrite(context.Context, cerbapi.ConsoleWriteRequest, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
+	return &cerbapi.ConnectorPlan{}, nil
+}
 func (fakeSocketProgressClient) ListConnectors(context.Context) ([]contract.Definition, error) {
 	return nil, errors.New("not implemented")
 }

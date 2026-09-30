@@ -163,6 +163,11 @@ type Decision struct {
 	// approval. Consume verifies it; the store's word is not enough.
 	KeyFingerprint string `json:"key_fingerprint,omitempty"`
 	Assertion      []byte `json:"assertion,omitempty"`
+	// SameSurface marks an out-of-band approve made on the surface the
+	// request came through, allowed because the passkey is the boundary
+	// (I5, 2026-09-30): it reads "web (passkey, same surface)", apart from
+	// an approval made elsewhere.
+	SameSurface bool `json:"same_surface,omitempty"`
 }
 
 // ApproveWith is the command that decides this approval, for a caller told

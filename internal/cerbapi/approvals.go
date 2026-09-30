@@ -190,7 +190,7 @@ func (b *Broker) recordNoted(ctx context.Context, kind string, a approval.Approv
 	ref := &audit.ApprovalRef{ID: a.ID, Status: string(a.Status), Channel: a.Channel, Scope: a.Scope, Rule: a.Rule, PlanHash: a.PlanHash, ExpiresAt: a.ExpiresAt}
 	if a.Decision != nil {
 		by := a.Decision.By
-		ref.DecidedBy, ref.KeyFingerprint = &by, a.Decision.KeyFingerprint
+		ref.DecidedBy, ref.KeyFingerprint, ref.DecidedSameSurface = &by, a.Decision.KeyFingerprint, a.Decision.SameSurface
 	}
 	if with != nil {
 		with(ref)

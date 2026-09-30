@@ -4,13 +4,14 @@ import { Button, Callout, EmptyState, Input, Pill, SettingsPanel, SummaryCards, 
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type DeploymentProfile, type DeploymentRunResult, type InfraProvider } from '../api/client'
 import { ActionConfirm, type PendingConfirm } from '../components/action-confirm'
-import { useConfirmOnCall } from '../components/plan-confirm'
+import { useConfirmOnCall, useConsoleWrite } from '../components/plan-confirm'
 
 export function DeploymentsPage() {
   const infra = usePoll((signal) => apiClient.getInfra(signal), 5000)
   const [sessionToken, setSessionToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const withConfirm = useConfirmOnCall()
+  const write = useConsoleWrite()
   const [providerDrafts, setProviderDrafts] = useState<Record<string, Record<string, string>>>({})
   const [profileDrafts, setProfileDrafts] = useState<Record<string, DeploymentProfile>>({})
   const [secretDrafts, setSecretDrafts] = useState<Record<string, Record<string, string>>>({})
@@ -72,10 +73,12 @@ export function DeploymentsPage() {
     setBusy(`provider:${provider.id}`)
     setError(null)
     try {
-      await apiClient.saveInfraProvider(provider.id, {
-        values: providerDrafts[provider.id] ?? {},
-        secrets: secretDrafts[provider.id] ?? {},
-      }, sessionToken)
+      await write(
+        apiClient.saveInfraProvider(provider.id, {
+          values: providerDrafts[provider.id] ?? {},
+          secrets: secretDrafts[provider.id] ?? {},
+        }, sessionToken),
+      )
       setSecretDrafts((current) => ({ ...current, [provider.id]: {} }))
       await infra.refetch()
     } catch (err) {
@@ -92,7 +95,7 @@ export function DeploymentsPage() {
     setBusy(`save:${profileID}`)
     setError(null)
     try {
-      await apiClient.saveDeployment(profile, sessionToken)
+      await write(apiClient.saveDeployment(profile, sessionToken))
       await infra.refetch()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -106,7 +109,7 @@ export function DeploymentsPage() {
     setBusy(`delete:${profileID}`)
     setError(null)
     try {
-      await apiClient.deleteDeployment(profileID, sessionToken)
+      await write(apiClient.deleteDeployment(profileID, sessionToken))
       await infra.refetch()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

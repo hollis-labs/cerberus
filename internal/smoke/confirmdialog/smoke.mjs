@@ -182,7 +182,42 @@ try {
   await waitFor(`!!document.querySelector('[data-testid=break-glass-alert]')`, 'header badge')
   check('break glass: the console header shows the badge', /BREAK GLASS · 1 today · 1 to acknowledge/.test(await evaluate(`document.querySelector('[data-testid=break-glass-alert]').textContent`)))
 
-  // 5. Lockdown (§12): one click and no phrase to engage, a red banner, a
+  // 5. The console's own writes (M9): saving a profile is confirmed on the
+  //    call like a resource verb; relabelling it needs an out-of-band
+  //    approval, which the console asks for in place and approves with the
+  //    passkey (I5: the passkey is the boundary), then saves under it.
+  await go('http://localhost:4799/deployments'); await evaluate(lib)
+  await waitFor(`!!__btn(document, 'Save')`, 'profile Save')
+  await evaluate(`(__btn(document, 'Save').click(), true)`)
+  await waitFor(`!!document.querySelector('[data-testid=plan-hash]')`, 'profile save: plan dialog')
+  const saveView = await evaluate(`(() => { const t = __top(); return { bolds: [...t.querySelectorAll('.font-semibold')].map(e => e.textContent), disabled: __btn(t, 'Confirm and run')?.disabled } })()`)
+  check('profile save: the confirm dialog shows the admin write on the profile with its labels',
+    saveView.bolds.some((b) => b === 'Effect: admin') && saveView.bolds.some((b) => b.includes('console site (env dev, owner self, admin self)')) && saveView.disabled === true, saveView.bolds.join(' | '))
+  await typeAndSubmit('site')
+  await waitFor(`!document.querySelector('[data-testid=plan-hash]')`, 'profile save dialog to close', 10000)
+  const saves = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.connector === 'console' && a.operation === 'profile_save'))`)
+  check('profile save: confirmed on the call by the console session, under one consumed approval',
+    saves.length === 1 && saves[0].status === 'consumed' && saves[0].channel === 'tty_confirm' && saves[0].decision?.by?.via === 'web', JSON.stringify(saves.map((a) => [a.status, a.channel])))
+
+  const envInput = `[...document.querySelectorAll('label')].find(l => l.textContent.includes('Env (dev, lab, prod)')).querySelector('input')`
+  await evaluate(`(__type(${envInput}, 'prod'), true)`)
+  await sleep(150)
+  await evaluate(`(__btn(document, 'Save').click(), true)`)
+  await waitFor(`!!document.querySelector('[data-testid=out-of-band-step] [data-testid=approval-detail]')`, 'relabel: out-of-band step', 10000)
+  const step = await evaluate(`document.querySelector('[data-testid=out-of-band-step]').textContent`)
+  check('relabel: the console asks for the passkey approval in place, showing the write', /console\.profile_save/.test(step) && /out_of_band/.test(step) && /sha256:[0-9a-f]{64}/.test(step), step.slice(0, 160))
+  const oob = `document.querySelector('[data-testid=out-of-band-step]')`
+  await evaluate(`(__type(${oob}.querySelector('[data-testid=typed]'), 'site'), true)`)
+  await sleep(150)
+  await evaluate(`(__btn(${oob}, 'Approve with passkey').click(), true)`)
+  await waitFor(`!document.querySelector('[data-testid=out-of-band-step]')`, 'relabel: step to close after the save', 15000)
+  const saved = await evaluate(`${api}('/api/deployments').then(r => r.json()).then(j => (j.deployments || []).find(d => d.id === 'site'))`)
+  const relabels = await evaluate(`${api}('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).filter(a => a.connector === 'console' && a.channel === 'out_of_band'))`)
+  check('relabel: saved under the approval, decided on the console with the passkey (same surface)',
+    saved?.env === 'prod' && relabels.length === 1 && relabels[0].status === 'consumed' && relabels[0].decision?.same_surface === true && !!relabels[0].decision?.key_fingerprint && relabels[0].decision?.by?.via === 'web',
+    JSON.stringify([saved?.env, relabels.map((a) => [a.status, a.decision?.same_surface, a.decision?.by?.via])]))
+
+  // 6. Lockdown (§12): one click and no phrase to engage, a red banner, a
   //    refused operation, and a lift approved with the passkey.
   await go('http://localhost:4799/')
   await waitFor(`!!document.querySelector('[data-testid=engage-lockdown]')`, 'lockdown button')
@@ -215,7 +250,7 @@ try {
   check('lockdown: Lift now lifts it, spending the approval', !after.state?.lockdown && used?.status === 'consumed' && !(await evaluate(`!!document.querySelector('[data-testid=brakes-banner]')`)),
     JSON.stringify([after.state, used?.status]))
 
-  // 6. The circuit breaker (§12, P5-c): an agent denied twice is
+  // 7. The circuit breaker (§12, P5-c): an agent denied twice is
   //    suspended, the console shows it, and a person resets it by typing
   //    the phrase.
   const denied1 = await (await fetch('http://127.0.0.1:4798/agent-stop')).json()
@@ -244,7 +279,7 @@ try {
   check('breaker: the typed phrase resets it, and the agent is back under policy',
     !(await evaluate(`!!document.querySelector('[data-testid^=suspension-]')`)) && /policy_denied/.test(afterReset.error || ''), (afterReset.error || '').slice(0, 100))
 
-  // 7. An approval link (M7), as an MCP client is handed one: in a browser
+  // 8. An approval link (M7), as an MCP client is handed one: in a browser
   //    with no console session, it signs in for that approval only. The
   //    page is that approval, the passkey approves it, and the rest of the
   //    console is refused, on the server and in the page.

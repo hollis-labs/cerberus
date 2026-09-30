@@ -39,7 +39,7 @@ wrong even if its tests pass.
 | I2 | **Fail closed.** An unknown connector, operation, target or effect class is denied. Missing metadata is a registration error, not an allow. | Today a missing definition skips the ack gate. |
 | I3 | **Effect class drives default policy**, not the operation name. | New ops get a sane default without anyone writing a rule. |
 | I4 | **Targets are named.** Agents act on registered targets. Free-form hosts and clusters need an explicit grant. | Policy cannot reason about a target it has never seen. |
-| I5 | **The one who asks cannot approve.** Approval comes through a channel the requester does not control. | Otherwise HITL is `--ack` with more steps. |
+| I5 | **The one who asks cannot approve.** Approval comes through a channel the requester does not control. Since 2026-09-30 (the operator's decision), an out-of-band approval may be decided on the requesting surface when it carries a verified passkey assertion, because the passkey is the part the requester does not control. This never applies to `tty_confirm` or MCP. | Otherwise HITL is `--ack` with more steps. |
 | I6 | **Approve what you saw.** Approval binds to a plan hash, and apply runs that plan or fails. | Stops a swapped argument between approval and execution. |
 | I7 | **Nothing leaves without a DTO.** Secret values never appear. Free text and personal data are labelled and policy-controlled. | ADR 0003, extended to text. |
 | I8 | **Every decision is recorded first.** Intent before effect, outcome after, append-only. | Detection is the backstop for everything policy misses. |
@@ -1277,6 +1277,20 @@ key) on the console's approvals page**.
 - `cerberus approvals list|show|approve|deny|revoke` runs on a TTY. The
   approving surface must differ from the requesting one, and an `mcp_*`
   surface never approves (I5).
+- **Decided 2026-09-30 (the operator):** the passkey is the boundary. An
+  out-of-band approve that carries an assertion may come from the requesting
+  surface, and the broker verifies the assertion at decide and again at
+  consume. The assertion must come from an enrolled key over this approval's
+  v2 challenge: plan, channel, scope, expiry, target and requester kind.
+  - It never applies to `tty_confirm`, never without an assertion, and never
+    to `mcp_*`.
+  - It replaces the brake-lift exemption with one rule.
+  - The decision is recorded as same-surface (`decided_same_surface`, and
+    `(passkey, same surface)` in `approvals show`).
+  - This is what lets the console approve what it asked for itself. Without
+    it, a console-requested out-of-band approval could be decided by no one:
+    the web is the requester's surface, and only the web makes a passkey
+    assertion. CERB-DEC-932.
 - **Enrollment** is `cerberus approvals enroll` on a TTY: trust on first use,
   recorded. After that, adding or removing a key needs an assertion from an
   enrolled key.

@@ -101,7 +101,8 @@ func TestWebDeploymentRunConfirmsAgainstThePlan(t *testing.T) {
 // refused rather than quietly reading as unknown.
 func TestDeploymentProfileLabels(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
-	srv, err := New(&fakeClient{}, audit.NewMemory(), cfgPath, nil, nil)
+	sink := audit.NewMemory()
+	srv, err := New(&fakeClient{consoleWrites: consoleDaemon(cfgPath, sink, nil)}, sink, cfgPath, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -202,11 +202,26 @@ operation on the `console` connector, gated and recorded like any call:
 | Restoring a config backup | `config_restore` |
 
 The record names what changed in the clear: a profile's id and its `env`,
-`owner` and `admin` labels, and the config and backup paths. A relabelled
+`owner` and `admin` labels, and the config and backup paths. A relabeled
 target is visible in the record, since labels decide an approval channel.
 Everything else is a keyed digest, and a credential is named, never shown. A
 lockdown stops them, and under enforcement for humans they need your approval,
 as any admin operation does.
+
+The daemon makes these writes, as it runs deploy profiles, so the approval
+lives with its broker, and the console's confirm dialog handles them the way
+it handles a resource verb (see "In the console" below). Each write's plan
+binds what it would change as it reads now: the profile, and the saved one it
+replaces; the file a registration reads; the backup and the config a restore
+swaps. A provider's credentials are bound by keyed digest and travel only to
+the daemon, over its socket.
+
+A profile write is labeled by the profile. A save that changes a profile's
+labels is labeled by neither the old nor the new ones: relabeling is what
+moves a target between approval channels, so it is approved as an unlabeled
+target is, out of band, whichever way it goes. Registry, provider and restore
+writes carry no labels of their own and need out-of-band approval wherever
+policy asks for one.
 
 **An in-process mutation needs Cerberus's real state.** The brakes, policy,
 approvals and audit log live under your account's home, and the CLI finds them
@@ -366,6 +381,15 @@ The surface a request came from can never approve it. A request made over MCP
 is approved on the terminal or the console, and an MCP client never approves
 anything. Anyone can deny.
 
+The one exception is the passkey. An out-of-band approval, below, may be
+approved on the surface that asked for it, when the approval carries a
+passkey assertion that verifies. The passkey is the part an agent driving that
+surface can't produce. It's how the console approves an approval it asked for
+itself, its own writes among them. It never applies to a confirmation on the
+call, and never over MCP. Such a decision is shown as `(passkey, same
+surface)` in `cerberus approvals show` and on the console, and recorded with
+`decided_same_surface` in the audit log. (Operator decision, 2026-09-30.)
+
 ### Out-of-band approval, with a passkey
 
 A request whose target is production or has no env label, has a shared
@@ -513,13 +537,16 @@ audit log (requested, decided and consumed) under an id of its own, since
 nothing holds it.
 
 **In the console**, the confirm dialog does the same thing for resource
-actions, pipeline runs, deployment-profile runs and connector operations.
+actions, pipeline runs, deployment-profile runs, connector operations and
+the console's own writes.
 It shows the effect, target, labels and which process computed the plan in
 bold, then what would run and the full plan hash, and it enables **Confirm
 and run** only once the target is typed. Only a signed-in console session
 can confirm. The console marks its session on the request after checking
 the cookie, and a web request without that session is refused. An approval
-that must be met out of band sends you to the approvals page instead.
+that must be met out of band sends you to the approvals page instead. For
+the console's own writes, the console shows that approval in place: type the
+target, approve with your passkey, and the write runs under the approval.
 
 Deploy-profile runs are asked for, confirmed and run by the daemon, like
 resource verbs. The console is a client, so the approval lives with the

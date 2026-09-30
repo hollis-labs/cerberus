@@ -18,7 +18,7 @@ func consoleWriter(t *testing.T) (*audit.Memory, string, func(path, body string)
 	t.Helper()
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	sink := audit.NewMemory()
-	srv, err := New(&fakeClient{}, sink, cfgPath, nil, nil)
+	srv, err := New(&fakeClient{consoleWrites: consoleDaemon(cfgPath, sink, &memorySecrets{values: map[string]string{}})}, sink, cfgPath, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

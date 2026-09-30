@@ -29,6 +29,7 @@ const (
 	LaneDeployProfile = "deploy_profile"
 	LaneResource      = "resource"
 	LanePipeline      = "pipeline"
+	LaneConsole       = "console"
 )
 
 // Plan is what an operation would do.

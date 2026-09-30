@@ -166,6 +166,10 @@ func writeApproval(w io.Writer, a approval.Approval, source string) error {
 		if d.KeyFingerprint != "" {
 			fmt.Fprintf(w, " with key %s", d.KeyFingerprint)
 		}
+		if d.SameSurface {
+			// Apart from an approval made elsewhere (I5).
+			fmt.Fprint(w, " (passkey, same surface)")
+		}
 		fmt.Fprintln(w)
 	}
 	if !a.ConsumedAt.IsZero() {

@@ -12,6 +12,7 @@ import {
 import { DataTable, type ColumnDef } from '@hollis-labs/sysop-ui/data'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type ConfigBackupInfo } from '../api/client'
+import { useConsoleWrite } from '../components/plan-confirm'
 
 const backupColumns: ColumnDef<ConfigBackupInfo>[] = [
   {
@@ -45,6 +46,7 @@ export function SettingsPage() {
   const settings = usePoll((signal) => apiClient.getSettings(signal), 5000)
   const backups = usePoll((signal) => apiClient.listConfigBackups(signal), 5000)
   const [sessionToken, setSessionToken] = useState('')
+  const write = useConsoleWrite()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -92,7 +94,7 @@ export function SettingsPage() {
     setBusy(path)
     setError(null)
     try {
-      const response = await apiClient.restoreConfigBackup(path, sessionToken)
+      const response = await write(apiClient.restoreConfigBackup(path, sessionToken))
       if (!response.success) {
         setError(response.error || 'Restore failed.')
       } else {

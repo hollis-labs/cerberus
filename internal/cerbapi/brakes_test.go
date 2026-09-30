@@ -166,9 +166,9 @@ func TestLiftFailsClosedWithoutAReadablePasskeyStore(t *testing.T) {
 	refused("a registry deleted outside enrollment", "changed outside `cerberus approvals enroll`")
 }
 
-// The self-approval waiver for connector brake lets the operator approve
-// their own lift, from the surface that asked; it never lets one through
-// without the passkey assertion liftProof requires.
+// The passkey rule (I5) lets the operator approve their own lift, from the
+// surface that asked; it never lets one through without the passkey
+// assertion liftProof requires.
 func TestBrakeSelfApprovalNeedsTheAssertion(t *testing.T) {
 	store := withBrakes(t)
 	post, _, key, broker := passkeyRoutes(t, approval.ChannelOutOfBand)
@@ -204,7 +204,7 @@ func TestBrakeSelfApprovalNeedsTheAssertion(t *testing.T) {
 	}
 	stillLocked("an unenrolled key")
 
-	// The requester's own surface, with the enrolled key: the waiver.
+	// The requester's own surface, with the enrolled key: the passkey rule.
 	if rec := post(humanWeb, "/approvals/"+id+"/decide", ApprovalDecisionArgs{Approve: true, Assertion: assertionFor(t, post, id, key)}); rec.Code != http.StatusOK {
 		t.Fatalf("the operator approving their own lift with the key: %d %s", rec.Code, rec.Body.String())
 	}

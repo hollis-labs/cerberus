@@ -616,7 +616,7 @@ export interface ApprovalInfo {
   reason?: string
   channel: string
   scope: string
-  decision?: { approve: boolean; by: ApprovalPrincipal; at: string; key_fingerprint?: string; reason?: string }
+  decision?: { approve: boolean; by: ApprovalPrincipal; at: string; key_fingerprint?: string; reason?: string; same_surface?: boolean }
   consumed_at?: string
   revoked_at?: string
   // A grant's uses (scope session or window, P3-5).
@@ -713,6 +713,28 @@ interface ConfirmArgs {
   confirmed_plan_hash: string
 }
 
+// ConsoleWrite is one of the console's writes to Cerberus's own state (M9):
+// a profile, provider, registry or restore change, made by the daemon
+// through the gate. send is the write; plan, confirm and retry are its
+// confirm step (P3-3b) for useConfirmOnCall: its plan, the write confirmed
+// against that plan, and the write again under an approval met out of band.
+export interface ConsoleWrite<T> {
+  send: () => Promise<T>
+  plan: () => Promise<ConnectorPlan>
+  confirm: (c: ConfirmArgs) => Promise<T>
+  retry: (approvalID: string) => Promise<T>
+}
+
+function consoleWrite<T>(path: string, body: JsonObject, token: string): ConsoleWrite<T> {
+  const post = <R,>(to: string, b: JsonObject) => http.post<R>(to, b, { headers: { 'X-Cerberus-Web-Token': token } })
+  return {
+    send: () => post<T>(path, body),
+    plan: () => post<ConnectorPlan>(`${path}/plan`, body),
+    confirm: (c) => post<T>(`${path}/confirm`, { ...body, ...c } as JsonObject),
+    retry: (approvalID) => post<T>(path, { ...body, approval_id: approvalID }),
+  }
+}
+
 export const apiClient = {
   listApprovals: (signal?: AbortSignal) => http.get<ApprovalListResponse>('/api/approvals', { signal }),
   decideApproval: (id: string, token: string, approve: boolean, typed: string, reason: string, assertion?: unknown) =>
@@ -760,34 +782,20 @@ export const apiClient = {
   getConfigValidation: (signal?: AbortSignal) => http.get<ConfigValidationResponse>('/api/config/validate', { signal }),
   getConfigResolve: (signal?: AbortSignal) => http.get<ConfigResolveResponse>('/api/config/resolve', { signal }),
   listConfigBackups: (signal?: AbortSignal) => http.get<ConfigBackupResponse>('/api/config/backups', { signal }),
+  // The console's writes (M9), each with its confirm step: see consoleWrite.
   restoreConfigBackup: (backupPath: string, token: string) =>
-    http.post<ConfigRestoreResponse>('/api/config/backups/restore', { backup_path: backupPath }, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
-  registerConfig: (path: string, token: string) =>
-    http.post<{ success: boolean; count: number }>('/api/registry/register', { path }, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
-  deregisterOwner: (owner: string, token: string) =>
-    http.post<{ success: boolean }>('/api/registry/deregister', { owner }, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
+    consoleWrite<ConfigRestoreResponse>('/api/config/backups/restore', { backup_path: backupPath }, token),
+  registerConfig: (path: string, token: string) => consoleWrite<{ success: boolean; count: number }>('/api/registry/register', { path }, token),
+  deregisterOwner: (owner: string, token: string) => consoleWrite<{ success: boolean }>('/api/registry/deregister', { owner }, token),
   listConnectors: (signal?: AbortSignal) => http.get<ConnectorDefinition[]>('/api/connectors', { signal }),
   saveInfraProvider: (id: string, body: { values?: Record<string, string>; secrets?: Record<string, string>; clear_secrets?: string[] }, token: string) =>
-    http.post<{ success: boolean }>(`/api/infra/providers/${encodeURIComponent(id)}`, body as JsonObject, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
+    consoleWrite<{ success: boolean }>(`/api/infra/providers/${encodeURIComponent(id)}`, body as JsonObject, token),
   listDeployments: (signal?: AbortSignal) =>
     http.get<{ deployments: DeploymentProfile[]; state_path?: string }>('/api/deployments', { signal }),
   planDeployment: (id: string) => http.get<DeploymentPlan>(`/api/deployments/${encodeURIComponent(id)}/plan`),
   saveDeployment: (profile: DeploymentProfile, token: string) =>
-    http.post<{ success: boolean }>('/api/deployments', profile as unknown as JsonObject, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
-  deleteDeployment: (id: string, token: string) =>
-    http.post<{ success: boolean }>(`/api/deployments/${encodeURIComponent(id)}/delete`, {} as JsonObject, {
-      headers: { 'X-Cerberus-Web-Token': token },
-    }),
+    consoleWrite<{ success: boolean }>('/api/deployments', profile as unknown as JsonObject, token),
+  deleteDeployment: (id: string, token: string) => consoleWrite<{ success: boolean }>(`/api/deployments/${encodeURIComponent(id)}/delete`, {}, token),
   // acknowledged is true only when the operator confirmed the plan.
   runDeployment: (id: string, token: string, acknowledged: boolean) =>
     http.post<DeploymentRunResult>(`/api/deployments/${encodeURIComponent(id)}/run`, { acknowledged } as JsonObject, {
