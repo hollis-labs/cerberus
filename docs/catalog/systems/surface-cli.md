@@ -8,7 +8,7 @@ state_label: "shipped"
 review_status: "draft"
 confidence_score: 0.92
 confidence_label: "Command tree enumerated from the installed binary at audit time; in-process routing re-read on main after P0 (#48 to #54)"
-last_reviewed: "2026-09-25"
+last_reviewed: "2026-09-30"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -63,8 +63,11 @@ The tree is organised into three cobra groups plus ungrouped extras:
   `register`, `deregister`, `registry`.
 - **Daemon And Runtime Commands** — `config`, `daemon`, `init`, `install`,
   `uninstall`, `mcp`, `path`, `validate`, `web`.
-- **Platform And Connector Commands** — `cloudflare`, `connectors`, `dns`,
-  `docker`, `domain`, `forge`, `github`, `server`, `ssh`.
+- **Platform And Connector Commands** — `connectors`, `docker`, `ssh`. Since
+  2026-09-30 that is the whole group: `cloudflare`, `dns`, `domain`, `forge`,
+  `server` and `github` were removed with no tombstones when their connectors
+  became plugins, and every plugin operation is on the CLI as
+  `cerberus connectors exec <id> <op>`.
 - **Ungrouped** — `mcp-http`, `run-secrets`, `completion`, `help`.
 
 Most commands route to the daemon over the unix socket. These exceptions do

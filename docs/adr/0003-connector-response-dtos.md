@@ -7,6 +7,15 @@ question came up of whether a Go DTO library should be adopted. The decision is
 unchanged; the amendment records how to implement it, and which tools not to
 reach for.
 
+**Superseded in part, 2026-09-30.** "For existing connectors" below describes
+the host as it was. All five connectors it names (`digitalocean`, `github`,
+`cloudflare`, `forge`, `namecheap`) have since moved to plugins in
+`hollis-labs/cerberus-plugins`. Each plugin returns its own allow-list DTOs
+from `dto.go`, and `dto_test.go` decodes a recorded vendor response carrying
+unnamed fields and asserts none of them is serialized. No vendor SDK type is
+returned by the host any more. The decision itself, and everything else here,
+stands.
+
 ## Date
 
 2026-09-16 (amended 2026-09-17)
