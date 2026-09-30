@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -180,4 +182,40 @@ func TestCerberusMCPHTTPLoopbackGuard(t *testing.T) {
 			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 		}
 	})
+}
+
+// mcp-http binds both loopback families, so a client told localhost that
+// tries ::1 first reaches it and not another account holding [::1] (H-a);
+// beside such a squatter it refuses to start.
+func TestMCPHTTPListensOnBothLoopbacks(t *testing.T) {
+	probe, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skip("no IPv6 loopback on this machine")
+	}
+	_, port, _ := net.SplitHostPort(probe.Addr().String())
+	_ = probe.Close()
+	lns, err := listenMCPHTTP("127.0.0.1:" + port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var families []string
+	for _, ln := range lns {
+		families = append(families, ln.Addr().String())
+		_ = ln.Close()
+	}
+	if len(lns) != 2 || !strings.Contains(strings.Join(families, " "), "[::1]:"+port) {
+		t.Fatalf("listening on %v", families)
+	}
+	squatter, err := net.Listen("tcp", "[::1]:"+port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer squatter.Close()
+	var squatted *loopback.SquattedError
+	if lns, err = listenMCPHTTP("127.0.0.1:" + port); !errors.As(err, &squatted) {
+		for _, ln := range lns {
+			_ = ln.Close()
+		}
+		t.Fatalf("beside a squatter: %v", err)
+	}
 }

@@ -2,6 +2,7 @@ package loopback
 
 import (
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"net"
 	"strings"
 	"testing"
@@ -46,6 +47,14 @@ func TestListenBothRefusesASquatter(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "[::1]:"+port) || !strings.Contains(err.Error(), "lsof -nP -iTCP:"+port) {
 		t.Fatalf("err = %v", err)
+	}
+	// The refusal names what a squatter would get, for a console and for
+	// mcp-http, and survives the redaction every surface's errors get.
+	if !strings.Contains(err.Error(), "the token an MCP client sends") {
+		t.Fatalf("err = %v", err)
+	}
+	if got := redact.Text(err.Error()); got != err.Error() {
+		t.Fatalf("redaction rewrote the refusal: %q", got)
 	}
 	// The 127.0.0.1 half was released, not leaked.
 	if ln, err := net.Listen("tcp", "127.0.0.1:"+port); err != nil {
