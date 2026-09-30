@@ -106,6 +106,9 @@ func (e *Evaluator) Authorize(req Request) Result {
 	add := func(rule string, d Decision, reason string, approval *Approval) {
 		matches = append(matches, Match{Rule: rule, Decision: d, Reason: reason, Approval: approval})
 	}
+	addRule := func(rule string, r Rule) {
+		matches = append(matches, Match{Rule: rule, Decision: r.Decision, Reason: r.Reason, Approval: r.Approval, Rate: r.rate()})
+	}
 
 	// A plugin operation with no declared effect is exec under secure and
 	// write under permissive; the plugin's contract is untouched.
@@ -175,7 +178,7 @@ func (e *Evaluator) Authorize(req Request) Result {
 	if p, ok := e.file.Providers[req.Connector]; ok {
 		for i, r := range p.Rules {
 			if r.matches(req) {
-				add(ruleID(r, fmt.Sprintf("providers.%s.rules[%d]", req.Connector, i)), r.Decision, r.Reason, r.Approval)
+				addRule(ruleID(r, fmt.Sprintf("providers.%s.rules[%d]", req.Connector, i)), r)
 			}
 		}
 	}
@@ -186,7 +189,7 @@ func (e *Evaluator) Authorize(req Request) Result {
 		}
 		for j, r := range b.Rules {
 			if r.matches(req) {
-				add(ruleID(r, fmt.Sprintf("targets[%d].rules[%d]", i, j)), r.Decision, r.Reason, r.Approval)
+				addRule(ruleID(r, fmt.Sprintf("targets[%d].rules[%d]", i, j)), r)
 			}
 		}
 	}
@@ -197,7 +200,7 @@ func (e *Evaluator) Authorize(req Request) Result {
 		}
 		for j, r := range b.Rules {
 			if r.matches(req) {
-				add(ruleID(r, fmt.Sprintf("principals[%d].rules[%d]", i, j)), r.Decision, r.Reason, r.Approval)
+				addRule(ruleID(r, fmt.Sprintf("principals[%d].rules[%d]", i, j)), r)
 			}
 		}
 	}

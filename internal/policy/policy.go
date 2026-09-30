@@ -87,6 +87,8 @@ type Match struct {
 	Decision Decision  `json:"decision"`
 	Reason   string    `json:"reason,omitempty"`
 	Approval *Approval `json:"approval,omitempty"`
+	// Rate is the matched rule's rate limit (P5-b), which the gate counts.
+	Rate *Rate `json:"rate,omitempty"`
 }
 
 // Result is the decision and every rule behind it.

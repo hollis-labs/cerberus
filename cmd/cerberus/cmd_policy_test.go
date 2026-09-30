@@ -317,3 +317,18 @@ func TestPolicyReportSummarizesEgress(t *testing.T) {
 		t.Fatalf("scope by egress rule: %+v", got)
 	}
 }
+
+// explain shows a matched rule's rate, and says how it is counted.
+func TestPolicyExplainShowsRates(t *testing.T) {
+	store, _ := policyFixture(t, false)
+	if err := os.MkdirAll(store.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "main.yaml"), []byte("version: 1\nprincipals:\n  - match: {kind: agent}\n    rules:\n      - {id: agent-deploys, ops: [deploy], decision: approve, rate: 5/h}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runPolicy(t, "", "explain", "local.deploy", "--target", "notes-api", "--as", "agent", "--working")
+	if err != nil || !strings.Contains(out, "[rate 5/h]") || !strings.Contains(out, "Rate limits: agent-deploys 5/h, counted per caller and effect") {
+		t.Fatalf("explain with a rate: %v\n%s", err, out)
+	}
+}

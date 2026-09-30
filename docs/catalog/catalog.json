@@ -9474,6 +9474,54 @@
       "id": "CERB-DEC-896"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "Rate limits are a rule obligation, counted per caller from the audit log",
+      "summary": "A `rate: N/m|h|d` on an allow or approve rule caps the calls it matched that ran, per principal (session, or client and uid) and effect, over a sliding window. Past it the call is denied: policy_denied where enforced, a recorded would-block in shadow.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "approved in the §12 design review; built on the P5-b branch",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p5",
+        "policy",
+        "rate-limits",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/policy/rate.go, internal/cerbapi/rates.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-896",
+          "note": "the other §12 limit, the brakes"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "the audit log the counters are seeded from"
+        }
+      ],
+      "data": {
+        "decision": "A rate is an obligation on the rule that allows, counted in the gating process, seeded from the audit log, and applied as a deny that follows the enforcement mode.",
+        "alternatives_considered": [
+          "A global per-principal rate outside policy",
+          "Counters persisted in their own store",
+          "Counting every call a rule matched, refused ones included"
+        ],
+        "rationale": "Putting the limit on the rule keeps it next to the allow it limits, and inside the snapshot hash and policy apply. Seeding from the audit log means no second store that could disagree with the record, and a restarted daemon or an in-process CLI counts what already ran. A refused call gives its count back, so an agent retrying against a refusal doesn't use up its own budget; the circuit breaker (P5-c) is what answers repeated refusals. Rule ids are required because the fallback path names shift when the file is edited.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "`authorizeRated` wraps the decision for both the shadow record and the enforced path, adding a `rate.<id>` deny match that names the next allowed time. A call that passes the gate takes a hold on each matched rate. `finish` gives the holds back on a refusal code. A rate deny is a deny, so neither an approval nor break glass gets past it. The limiter reseeds when the set of rated rules changes, so a newly added rate starts from what ran in the last day.",
+      "id": "CERB-DEC-899"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
@@ -17241,6 +17289,45 @@
       },
       "body": "Found while building P5-a, and fixed in the same PR. The floor was keyed on the number of enrolled keys. A daemon whose approvals store failed to open has no presence service at all; a registry with bad permissions reads as zero keys; and a registry deleted after enrollment reads as zero keys too. Each of these let a brake lift on just a terminal and a typed phrase. liftProof now switches on the registry state: not_set_up takes the floor, ok takes the passkey approval, and cooldown, a read error, or no service at all refuses the lift with guidance naming the repair.",
       "id": "CERB-GAP-898"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "Rate counters are per process and trust the audit log",
+      "summary": "The daemon and an in-process CLI each keep their own counters, seeded once from the audit log, so calls made in one while the other runs are not seen until the next reseed. A same-uid edit of the audit log changes what is seeded.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.7,
+      "confidence_label": "read from the P5-b design; in-process mutations happen only with the daemon unreachable, so the overlap is small",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "rate-limits",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/rates.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-857",
+          "note": "the same-uid class"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "The counters reseed when the audit log grows past what this process wrote, or the CLI asks the daemon for its counts",
+        "effort": "small"
+      },
+      "body": "Mutations choose their transport before sending, and fall back in-process only when the daemon was never reached, so the two processes rarely both gate calls at once. Seeding reads the whole audit log the first time a rate matters in a process. That is cheap at today's sizes, and it's the thing to watch if the log grows large.",
+      "id": "CERB-GAP-900"
     },
     {
       "id": "CERB-TOOL-110",

@@ -88,6 +88,10 @@ type auditCall struct {
 	target target.Target
 	// egress is what egress policy said about the result, for the outcome.
 	egress []audit.EgressAction
+	// rates are the rate-limit counts this call holds (P5-b), given back
+	// if it is refused.
+	rates   []rateHold
+	limiter *RateLimiter
 }
 
 // recordRequired reports whether an operation must not run without its
@@ -192,6 +196,9 @@ func (c *auditCall) finish(err error) {
 	outcome.Decision = audit.DecisionAllowed
 	if refusalCodes[code] {
 		outcome.Decision = audit.DecisionRefused
+		if c.limiter != nil {
+			c.limiter.release(c.rates)
+		}
 	} else if !c.spec.dryRun || len(c.spec.credentials) > 0 {
 		outcome.CredentialNames = c.spec.credentials
 	}
