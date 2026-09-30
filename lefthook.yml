@@ -64,7 +64,12 @@ pre-commit:
     # file, so it runs on any commit.
 
     estate-denylist:
-      run: go test ./internal/hygiene/ -run TestTrackedFilesCarryNoEstateSpecifics -count=1
+      run: |
+        list="${CERBERUS_DENYLIST:-$HOME/.config/cerberus/denylist.txt}"
+        if [ ! -f "$list" ]; then
+          echo "WARNING: no local estate denylist at $list; checking the generic patterns only"
+        fi
+        go test ./internal/hygiene/ -run TestTrackedFilesCarryNoEstateSpecifics -count=1
 
 pre-push:
   commands:
