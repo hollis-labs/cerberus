@@ -5,9 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/hollis-labs/cerberus/internal/audit"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/presence"
@@ -174,23 +179,79 @@ func passkeyAdminRefusal(ctx context.Context, action string) error {
 // which allowing a passkey enrollment needs on top of a person's claim.
 var userPresencePoint atomic.Pointer[userPresenceHolder]
 
-type userPresenceHolder struct{ v userpresence.Verifier }
+type userPresenceHolder struct {
+	v    userpresence.Verifier
+	sink audit.Sink
+	gate *promptGate
+}
 
 // SetUserPresence installs the check; nil removes it, and then enrollment
 // is refused: it never falls back to the claim.
-func SetUserPresence(v userpresence.Verifier) {
+func SetUserPresence(v userpresence.Verifier) { SetUserPresenceWith(v, nil) }
+
+// SetUserPresenceWith installs the check with the audit sink each prompt
+// it raises is recorded in. The daemon's; nil records nothing.
+func SetUserPresenceWith(v userpresence.Verifier, sink audit.Sink) {
 	if v == nil {
 		userPresencePoint.Store(nil)
 		return
 	}
-	userPresencePoint.Store(&userPresenceHolder{v: v})
+	userPresencePoint.Store(&userPresenceHolder{v: v, sink: sink, gate: &promptGate{}})
+}
+
+// PromptCooldown is how long enrollment is refused, without asking, after
+// the person at the Mac refused or canceled a prompt.
+var PromptCooldown = 5 * time.Minute
+
+// promptGate keeps a caller from wearing the person down with prompts: one
+// on screen at a time, and none for PromptCooldown after one was refused,
+// so a loop of enroll-allow calls cannot raise sheets until one is tapped.
+type promptGate struct {
+	mu        sync.Mutex
+	busy      bool
+	coolUntil time.Time
+	now       func() time.Time
+}
+
+func (g *promptGate) clock() time.Time {
+	if g.now != nil {
+		return g.now()
+	}
+	return time.Now()
+}
+
+// acquire takes the one prompt slot, or says why not.
+func (g *promptGate) acquire() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := g.clock()
+	switch {
+	case g.busy:
+		return "a prompt is already on this Mac's screen; answer it, or wait for it to time out"
+	case now.Before(g.coolUntil):
+		return fmt.Sprintf("the last prompt was refused or canceled, so none is raised until %s (%s from now)", g.coolUntil.Local().Format("15:04:05"), g.coolUntil.Sub(now).Round(time.Second))
+	}
+	g.busy = true
+	return ""
+}
+
+// release frees the slot; refused starts the cool-down.
+func (g *promptGate) release(refused bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.busy = false
+	if refused {
+		g.coolUntil = g.clock().Add(PromptCooldown)
+	}
 }
 
 // enrollPresenceRefusal asks the person at the machine to allow a passkey
 // enrollment (B1-b). The claim that let the call this far is
 // self-reported: a process running as the operator can make it. The check
 // is one the daemon raises itself, which such a process cannot answer
-// without replacing the daemon or its helper.
+// without replacing the daemon or its helper. Each prompt raised is
+// recorded; a prompt is not raised while one is on screen, or for a while
+// after one was refused.
 func enrollPresenceRefusal(ctx context.Context) error {
 	args := ExternalConnectorOperationArgs{Connector: "approvals", Operation: "keys_enroll-allow"}
 	h := userPresencePoint.Load()
@@ -198,9 +259,37 @@ func enrollPresenceRefusal(ctx context.Context) error {
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.Guidance("this daemon cannot ask the person at this Mac to allow an enrollment, so none is allowed; %s", userpresence.Recovery))
 	}
-	if err := h.v.Verify(ctx, "allow a new passkey for Cerberus approvals"); err != nil {
+	if why := h.gate.acquire(); why != "" {
+		return externalConnectorError(args, ExternalConnectorApprovalRequired, redact.Guidance("%s; nothing was allowed", why))
+	}
+	const reason = "allow a new passkey for Cerberus approvals"
+	rec := audit.Record{Kind: audit.KindIntent, OperationID: audit.NewID(), Principal: principalFor(ctx, auditSpec{}), Connector: "approvals", Operation: "presence_prompt",
+		Effect: string(contract.EffectAdmin), Target: audit.Target{Kind: "presence.prompt"}, Note: "asked the person at this Mac to " + reason, Posture: audit.PostureSecure}
+	if h.sink != nil {
+		if _, err := h.sink.Write(rec); err != nil {
+			h.gate.release(false)
+			return externalConnectorError(args, ExternalConnectorAuditUnavailable,
+				redact.Guidance("the prompt could not be recorded, so none was raised and nothing was allowed: %v", err))
+		}
+	}
+	err := h.v.Verify(ctx, reason)
+	refused := errors.Is(err, userpresence.ErrRefused)
+	h.gate.release(refused)
+	if h.sink != nil {
+		rec.Kind, rec.Decision, rec.OutcomeCode = audit.KindOutcome, audit.DecisionAllowed, audit.OutcomeOK
+		if err != nil {
+			rec.Decision, rec.OutcomeCode = audit.DecisionRefused, string(ExternalConnectorApprovalRequired)
+			rec.Note = "the person at this Mac did not allow it: " + err.Error()
+		}
+		_, _ = h.sink.Write(rec)
+	}
+	if err != nil {
+		next := ""
+		if refused {
+			next = fmt.Sprintf("; no prompt is raised for %s", PromptCooldown)
+		}
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
-			redact.Guidance("an enrollment needs the person at this Mac to allow it, and %v; nothing was allowed", err))
+			redact.Guidance("an enrollment needs the person at this Mac to allow it, and %v; nothing was allowed%s", err, next))
 	}
 	return nil
 }

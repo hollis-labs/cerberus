@@ -486,6 +486,13 @@ the claim. That covers:
 - no login session at the Mac's screen, as over ssh;
 - a missing helper.
 
+The prompts are rationed, so nothing can wear you down with them:
+
+- only one is on screen at a time;
+- after you refuse or cancel one, none is raised for five minutes, and the
+  refusal says until when;
+- each prompt raised is recorded in the audit log, with its answer.
+
 To recover, run the enrollment from a terminal in the Mac's own login
 session. The daemon records the helper's digest the first time it uses it,
 and refuses a helper that changed while it was running.
