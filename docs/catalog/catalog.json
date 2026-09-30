@@ -19089,6 +19089,39 @@
       "id": "CERB-GAP-945"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "mcp-http listened on 127.0.0.1 only, so another account holding [::1] received bearer tokens",
+      "summary": "mcp-http bound its loopback address with a plain net.Listen, which holds 127.0.0.1 alone; the console had been fixed for this (H6) and mcp-http had not. Another account could bind [::1] on the same port, and a client configured with localhost tries ::1 first: curl and Node's fetch sent their Authorization header to the squatter, and the token replayed against the real listener. Fixed: mcp-http binds both loopback families on one port (loopback.ListenBoth) and refuses to start when the other family's address is taken.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 5931772 re-review (H-a), reproduced with a squatter; fixed with tests and a scratch-HOME run",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "mcp-http",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_mcp_http.go (listenMCPHTTP), internal/loopback/listen.go",
+      "relationships": [],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "The refusal's first rewording read 'bearer token.', which the redactor ate as a Bearer credential; the refusal now avoids that shape and a test checks it survives redaction.",
+      "id": "CERB-GAP-946"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
