@@ -165,3 +165,11 @@ func (c *mcpClientInfo) get() string {
 	defer c.mu.Unlock()
 	return c.name
 }
+
+// Every MCP server this binary runs (the daemon's stdio server, `cerberus
+// mcp`, mcp-http) can send the operator to the console's page for an
+// out-of-band approval, through a client that opens URLs (P4-6): the same
+// one-time sign-in link `cerberus approvals approve` prints.
+func init() {
+	mcp.ConsoleApprovalURL = func(id string) (string, error) { return consoleApprovalURL(id) }
+}
