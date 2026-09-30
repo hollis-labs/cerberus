@@ -50,6 +50,10 @@ type ReviewOperation struct {
 	Preview        contract.PreviewKind `json:"preview"`
 	Output         contract.OutputKind  `json:"output,omitempty"`
 	LocalFS        contract.LocalFS     `json:"local_fs,omitempty"`
+	// OutputLabels is the output schema's labels, canonical: "none" for a
+	// schema that labels nothing, empty for no schema (unlabeled), so the
+	// digest of a review from before labels existed is unchanged.
+	OutputLabels string `json:"output_labels,omitempty"`
 }
 
 // ReviewSecret is a declared credential, by name.
@@ -89,6 +93,7 @@ func BuildReview(staged *Staged, source string, origin InstallOrigin) Review {
 			Preview:        op.EffectivePreview(),
 			Output:         op.Output,
 			LocalFS:        op.LocalFS,
+			OutputLabels:   canonicalLabels(op.OutputSchema),
 		})
 	}
 	sort.Slice(r.Operations, func(i, j int) bool { return r.Operations[i].Name < r.Operations[j].Name })
@@ -125,10 +130,45 @@ func reviewGaps(r Review, block plugin.CerberusPluginBlock) []string {
 			gaps = append(gaps, fmt.Sprintf("operation %q declares no output kind: read as free text", op.Name))
 		}
 	}
+	for _, op := range block.Connector.Operations {
+		if op.OutputSchema == nil {
+			gaps = append(gaps, fmt.Sprintf("operation %q labels no output (no output_schema): its whole result is marked untrusted for agents", op.Name))
+		}
+	}
 	if !r.Host.Declared() {
 		gaps = append(gaps, fmt.Sprintf("no host range declared: the plugin does not say which Cerberus contract it was built for (this host implements %d)", r.HostContract))
 	}
 	return gaps
+}
+
+// canonicalLabels is an output schema's labels as one comparable string.
+func canonicalLabels(schema map[string]any) string {
+	if schema == nil {
+		return ""
+	}
+	pointers, err := contract.OutputLabelPointers(schema)
+	if err != nil {
+		return "invalid: " + err.Error()
+	}
+	if len(pointers) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(pointers))
+	for p, labels := range pointers {
+		if p == "" {
+			p = "(whole result)"
+		}
+		parts = append(parts, p+"="+strings.Join(labels, ","))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "; ")
+}
+
+func orUnlabeled(s string) string {
+	if s == "" {
+		return "unlabeled"
+	}
+	return s
 }
 
 // SummaryDigest is the digest of the review as accepted, for the audit
@@ -273,6 +313,9 @@ func Diff(accepted, current Review) []string {
 			}
 			if o.LocalFS != n.LocalFS {
 				change("~ operation %s local_fs %s -> %s", name, orNone(string(o.LocalFS)), orNone(string(n.LocalFS)))
+			}
+			if o.OutputLabels != n.OutputLabels {
+				change("~ operation %s output labels %s -> %s", name, orUnlabeled(o.OutputLabels), orUnlabeled(n.OutputLabels))
 			}
 		}
 	}

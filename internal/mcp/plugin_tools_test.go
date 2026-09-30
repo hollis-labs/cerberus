@@ -24,6 +24,8 @@ type pluginDaemon struct {
 	listErr error
 	execErr error
 	calls   []cerbapi.ExternalConnectorOperationArgs
+	// data is what an operation returns; {"ok": true} when nil.
+	data any
 }
 
 func (d *pluginDaemon) ListManagedPlugins(context.Context) ([]cerbapi.ManagedPluginConnectorState, error) {
@@ -45,7 +47,11 @@ func (d *pluginDaemon) ExecuteConnectorOperation(_ context.Context, args cerbapi
 	if d.execErr != nil {
 		return cerbapi.ExternalConnectorOperationResult{}, d.execErr
 	}
-	return cerbapi.ExternalConnectorOperationResult{Connector: args.Connector, Operation: args.Operation, Data: map[string]any{"ok": true}}, nil
+	data := d.data
+	if data == nil {
+		data = map[string]any{"ok": true}
+	}
+	return cerbapi.ExternalConnectorOperationResult{Connector: args.Connector, Operation: args.Operation, Data: data}, nil
 }
 
 func (d *pluginDaemon) expose(names ...string) {

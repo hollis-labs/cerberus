@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/egress"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/hollis-labs/cerberus/pkg/plugin"
 )
@@ -156,6 +157,13 @@ func pluginTool(client cerbapi.Client, connectorID string, op contract.Operation
 			return executeConnectorMCP(ctx, client, connectorID, operation, cfg, boolArg(args, argDryRun), boolArg(args, argAcknowledged), stringArg(args, argApprovalID))
 		},
 	}
+	// Its results' marker (P4-2) comes from the manifest's output labels;
+	// an unlabeled operation's whole result is untrusted (P4-3).
+	fields, err := egress.FieldsFromSchema(op.OutputSchema)
+	if err != nil {
+		return Tool{}, fmt.Errorf("plugin %q operation %q output_schema: %w; not generated", connectorID, op.Name, err)
+	}
+	markers.Store(name, markerFor(fields))
 	return withRequestScope(withApprovalArg(WithHints(tool, op), op)), nil
 }
 

@@ -95,3 +95,44 @@ func TestUntrustedFieldsArePinned(t *testing.T) {
 		}
 	}
 }
+
+// The two readings of the same tags agree: the host's walker (egress.Fields)
+// and the plugin author's (connector.OutputSchemaFor, read back through the
+// manifest's pointers), for every registered result type.
+func TestTagReadingsAgree(t *testing.T) {
+	for key, r := range All() {
+		fields, err := egress.Fields(r.Type)
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		host := map[string]string{}
+		for _, f := range fields {
+			var ls []string
+			for _, l := range f.Labels {
+				ls = append(ls, string(l))
+			}
+			host[f.Pointer] = strings.Join(ls, ",")
+		}
+		schema, err := contract.OutputSchemaFor(r.Type)
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		pointers, err := contract.OutputLabelPointers(schema)
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		author := map[string]string{}
+		for p, ls := range pointers {
+			author[p] = strings.Join(ls, ",")
+		}
+		if len(host) != len(author) {
+			t.Errorf("%s: host %v, author %v", key, host, author)
+			continue
+		}
+		for p, ls := range host {
+			if author[p] != ls {
+				t.Errorf("%s: %s is %q to the host, %q to the author", key, p, ls, author[p])
+			}
+		}
+	}
+}

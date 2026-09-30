@@ -214,3 +214,50 @@ cerberus:
 
 A declaration naming an operation the connector does not declare, or using a
 value outside the vocabulary, is refused at install.
+
+### Output labels
+
+An operation can describe its result with `output_schema`, a JSON Schema that
+only needs to go as deep as its labels. Any property can carry
+`x-cerberus-label`: `untrusted` for text Cerberus didn't compose (messages,
+names or descriptions a user or a vendor can set), `personal` for personal
+data, or both as a list.
+
+```yaml
+operations:
+  - name: list_workers
+    effect: read
+    output: structured
+    output_schema:
+      type: array
+      items:
+        properties:
+          name:  { type: string, x-cerberus-label: personal }
+          email: { type: string, x-cerberus-label: [personal, untrusted] }
+          note:  { type: string, x-cerberus-label: untrusted }
+```
+
+A Go plugin doesn't write the schema by hand. It tags its DTO fields the way
+Cerberus's own DTOs are tagged, and derives the schema from the type it
+returns, so the manifest can't drift from the DTO:
+
+```go
+type Worker struct {
+    Name  string `json:"name"  cerb:"personal"`
+    Email string `json:"email" cerb:"personal,untrusted"`
+}
+
+contract.Operation{Name: "list_workers", /* ... */,
+    OutputSchema: contract.OutputSchemaOf[[]Worker]()}
+```
+
+An MCP tool result names its labeled fields in `_meta` (`cerberus/untrusted`
+and `cerberus/personal`, as JSON pointers), so a client can present that text
+as data and not as instructions.
+
+- An operation **without** `output_schema` is unlabeled. It still installs.
+  The review lists it as a gap, and its whole result is marked untrusted.
+- `output_schema: {}` says the result has been reviewed and nothing in it is
+  untrusted or personal.
+- An unknown label is refused at install.
+- A change to an operation's labels shows in an upgrade's review diff.

@@ -116,6 +116,9 @@ type Operation struct {
 	Output     OutputKind       `json:"output" yaml:"output"`
 	Cost       Cost             `json:"cost" yaml:"cost"`
 	LocalFS    LocalFS          `json:"local_fs" yaml:"local_fs"`
+	// OutputSchema is a plugin operation's output schema, carrying its
+	// labels (OutputLabelKey). Nil is unlabeled.
+	OutputSchema map[string]any `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
 	// EffectUndeclared marks an operation whose plugin manifest declares no
 	// effect, so Effect is the host's reading of the gap (exec). Policy
 	// reads it: under the permissive posture the gap is evaluated as write.
