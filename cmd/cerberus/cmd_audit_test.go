@@ -175,3 +175,43 @@ func TestAuditPrune(t *testing.T) {
 		}
 	})
 }
+
+func TestAuditReanchor(t *testing.T) {
+	t.Run("refuses a non-terminal", func(t *testing.T) {
+		auditFixture(t, false)
+		_, err := runAudit(t, "reanchor\n", "reanchor")
+		if !errors.Is(err, errAuditReanchorNotInteractive) {
+			t.Fatalf("err = %v", err)
+		}
+		if got := redact.Text(err.Error()); got != err.Error() {
+			t.Fatalf("redaction rewrote the refusal: %q", got)
+		}
+	})
+	t.Run("has nothing to do on a chain that verifies", func(t *testing.T) {
+		auditFixture(t, true)
+		out, err := runAudit(t, "reanchor\n", "reanchor")
+		if err != nil || !strings.Contains(out, "nothing to reanchor") {
+			t.Fatalf("reanchor: %q (%v)", out, err)
+		}
+	})
+	t.Run("acknowledges a break with the typed phrase, and verify says so", func(t *testing.T) {
+		dir := auditFixture(t, true)
+		if err := os.Remove(filepath.Join(dir, "2000-01.jsonl")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runAudit(t, "yes\n", "reanchor"); err == nil {
+			t.Fatal("a wrong confirmation reanchored")
+		}
+		_, err := runAudit(t, "", "verify")
+		if err == nil || !strings.Contains(err.Error(), "cerberus audit reanchor") {
+			t.Fatalf("verify before the reanchor: %v", err)
+		}
+		out, err := runAudit(t, "reanchor\n", "reanchor")
+		if err != nil || !strings.Contains(out, "which no recorded prune removed") || !strings.Contains(out, "reanchored at seq") {
+			t.Fatalf("reanchor: %q (%v)", out, err)
+		}
+		if _, err = runAudit(t, "", "verify"); err == nil || !strings.Contains(err.Error(), "acknowledged by 1 reanchor(s)") {
+			t.Fatalf("verify after the reanchor: %v", err)
+		}
+	})
+}

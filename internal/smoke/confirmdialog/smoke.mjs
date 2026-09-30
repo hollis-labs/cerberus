@@ -36,7 +36,10 @@ const evaluate = async (expr) => {
 const waitFor = async (expr, what, ms = 8000) => {
   const end = Date.now() + ms
   while (Date.now() < end) { if (await evaluate(expr)) return true; await sleep(100) }
-  throw new Error('timed out waiting for ' + what)
+  // Name where the page is: a browser that cannot load pages at all (a
+  // sandboxed Chrome, say) sits on chrome-error:// or about:blank.
+  const where = await evaluate(`location.href + ' (title ' + JSON.stringify(document.title) + ')'`).catch(() => 'unknown')
+  throw new Error('timed out waiting for ' + what + ' at ' + where)
 }
 await send('Page.enable'); await send('Runtime.enable')
 const go = async (url) => { await send('Page.navigate', { url }); await sleep(900); await evaluate(lib) }

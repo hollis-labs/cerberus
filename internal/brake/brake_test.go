@@ -104,9 +104,9 @@ func TestEffectiveIsTheMoreRestrictive(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, _ := s.Load()
-	recorded, ok := Recorded(auditDir)
-	if !ok || stored.Lockdown != nil || Effective(stored, recorded).Lockdown == nil {
-		t.Fatalf("stored %+v recorded %+v (%v)", stored, recorded, ok)
+	recorded, problems := Recorded(auditDir)
+	if len(problems) != 0 || stored.Lockdown != nil || Effective(stored, recorded).Lockdown == nil {
+		t.Fatalf("stored %+v recorded %+v (%v)", stored, recorded, problems)
 	}
 }
 
@@ -126,10 +126,10 @@ func TestSuspension(t *testing.T) {
 	if got, ok := st.SuspensionFor("agent|mcp_stdio|session:s1"); !ok || got.ID != x.ID || len(st.Suspensions) != 1 {
 		t.Fatalf("after reload: %+v", st)
 	}
-	if _, err = s.ResetSuspension("sus_other", operator); !errors.Is(err, ErrNotEngaged) {
+	if _, err = s.ResetSuspension("sus_other", operator, "typed"); !errors.Is(err, ErrNotEngaged) {
 		t.Fatalf("reset of an unknown suspension: %v", err)
 	}
-	if st, err = s.ResetSuspension(x.ID, operator); err != nil || len(st.Suspensions) != 0 {
+	if st, err = s.ResetSuspension(x.ID, operator, "typed"); err != nil || len(st.Suspensions) != 0 {
 		t.Fatalf("reset: %v %+v", err, st)
 	}
 	if eff := Effective(State{}, State{Suspensions: []Suspension{x}}); len(eff.Suspensions) != 1 {

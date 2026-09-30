@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mattn/go-isatty"
 )
@@ -230,9 +231,16 @@ func principalFromHeader(h http.Header) (Principal, bool) {
 	return Principal{Kind: c.Kind, Via: clip(c.Via), Client: clip(c.Client), Session: clip(c.Session), OnBehalfOf: clip(c.OnBehalfOf), SelfReported: true}, true
 }
 
+// clip bounds a caller's claimed name to 128 bytes, cut on a character
+// boundary: the claim goes into hash-chained audit records, and a
+// character cut in half is not valid UTF-8 (M2).
 func clip(s string) string {
-	if len(s) > 128 {
-		return s[:128]
+	s = strings.ToValidUTF8(s, "\uFFFD")
+	n := len(s)
+	if n <= 128 {
+		return s
 	}
-	return s
+	for n = 128; n > 0 && !utf8.RuneStart(s[n]); n-- {
+	}
+	return s[:n]
 }

@@ -46,6 +46,8 @@ type FileSink struct {
 	size int64
 	seq  uint64
 	last string
+
+	anchor anchorState
 }
 
 const (
@@ -146,6 +148,7 @@ func (s *FileSink) Write(rec Record) (Record, error) {
 	var buf bytes.Buffer
 	seq, last := s.seq, s.last
 	var written Record
+	var writtenLen int
 	for _, r := range pending {
 		seq++
 		r.Version = SchemaVersion
@@ -167,7 +170,7 @@ func (s *FileSink) Write(rec Record) (Record, error) {
 		buf.Write(line)
 		buf.WriteByte('\n')
 		last = r.Hash
-		written = r
+		written, writtenLen = r, len(line)+1
 	}
 
 	_, statErr := os.Stat(file)
@@ -194,6 +197,9 @@ func (s *FileSink) Write(rec Record) (Record, error) {
 	s.file, s.seq, s.last = file, seq, last
 	if infoErr == nil {
 		s.size = info.Size()
+		// The record is durable whatever happens to the anchor; a head that
+		// could not be advanced shows in the next Check instead.
+		_ = s.anchor.advance(s.dir, Head{Seq: written.Seq, Hash: written.Hash, File: filepath.Base(file), Offset: info.Size() - int64(writtenLen)}, written.Kind, now)
 	}
 	return written, nil
 }
@@ -327,7 +333,9 @@ func syncDir(dir string) {
 }
 
 // hashRecord is the SHA-256 of the record's JSON with Hash empty. PrevHash
-// is inside it, which is what chains the records.
+// is inside it, which is what chains the records. Verify checks the bytes on
+// disk (LineHashMatches) and falls back to this, which a parsed record does
+// not always reproduce.
 func hashRecord(rec Record) string {
 	rec.Hash = ""
 	data, _ := json.Marshal(rec)
@@ -344,36 +352,85 @@ func hashRecord(rec Record) string {
 // then it opens with a file_start whose prev_file a recorded, successful
 // prune in the remaining chain removed, and the chain is checked from there.
 // Files that went missing without such a record are a break.
+//
+// A problem stays a problem: a chain_reanchored record after it does not
+// make Verify pass, it only restores trust in what follows (Checked).
 func Verify(dir string) error {
-	files, err := monthFiles(dir)
+	c, err := Check(dir)
 	if err != nil {
 		return err
+	}
+	return c.Err()
+}
+
+// Checked is an audit chain as Check found it.
+type Checked struct {
+	// Records are every parseable record, oldest first.
+	Records []Record
+	// Trusted says, for each record, whether the chain vouches for it: no
+	// problem lies between it and the chain's start, or the newest
+	// chain_reanchored record before it (M1).
+	Trusted []bool
+	// Problems are what Verify reports.
+	Problems []string
+	// cut is a log that no longer holds its anchored head.
+	cut bool
+}
+
+// Err is the chain's problems as an error, or nil.
+func (c Checked) Err() error {
+	if len(c.Problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("audit chain: %d problem(s): %s", len(c.Problems), joinProblems(c.Problems))
+}
+
+// TailTrusted reports whether the chain vouches for its newest record: it
+// verifies, or a person reanchored it after its last problem. What is
+// written next is trusted only then.
+func (c Checked) TailTrusted() bool {
+	return !c.cut && (len(c.Trusted) == 0 || c.Trusted[len(c.Trusted)-1])
+}
+
+// Check verifies the chain as Verify does, and says which records it
+// vouches for. A reader that folds state from the log trusts only those:
+// anything past a break is applied only where it restricts, until a person
+// reanchors the chain.
+func Check(dir string) (Checked, error) {
+	files, err := monthFiles(dir)
+	if err != nil {
+		return Checked{}, err
 	}
 	type line struct {
 		file string
 		rec  Record
-		ok   bool
+		// matches is whether the line's bytes are what its hash covers.
+		matches bool
+		ok      bool
 	}
 	var lines []line
 	var all []Record
 	for _, file := range files {
 		name := filepath.Base(file)
-		if err := scanFile(file, func(rec Record, ok bool) {
-			lines = append(lines, line{file: name, rec: rec, ok: ok})
+		if err := scanFile(file, func(rec Record, raw []byte, ok bool) {
+			lines = append(lines, line{file: name, rec: rec, ok: ok, matches: ok && LineHashMatches(raw, rec.Hash)})
 			if ok {
 				all = append(all, rec)
 			}
 		}); err != nil {
-			return err
+			return Checked{}, err
 		}
 	}
 	pruned := prunedFiles(all)
 
+	out := Checked{Records: all, Trusted: make([]bool, 0, len(all))}
 	var problems []string
 	var seq uint64
 	last := ""
 	current, tornPending, first := "", false, true
+	tainted := false
 	for idx, l := range lines {
+		before := len(problems)
 		if l.file != current {
 			if tornPending {
 				problems = append(problems, current+": ends in a torn line")
@@ -422,18 +479,42 @@ func Verify(dir string) error {
 		if rec.PrevHash != last {
 			problems = append(problems, fmt.Sprintf("%s: seq %d does not chain to the previous record", l.file, rec.Seq))
 		}
-		if hashRecord(rec) != rec.Hash {
+		hashOK := l.matches || hashRecord(rec) == rec.Hash
+		if !hashOK {
 			problems = append(problems, fmt.Sprintf("%s: seq %d hash does not match its content", l.file, rec.Seq))
 		}
+		switch {
+		case len(problems) > before:
+			// A reanchor that is itself damaged restores nothing.
+			tainted = true
+		case rec.Kind == KindChainReanchored:
+			tainted = false
+		}
+		out.Trusted = append(out.Trusted, !tainted)
 		seq, last = rec.Seq, rec.Hash
 	}
 	if tornPending {
 		problems = append(problems, current+": ends in a torn line")
 	}
-	if len(problems) > 0 {
-		return fmt.Errorf("audit chain: %d problem(s): %s", len(problems), joinProblems(problems))
+	if a := anchorFor(dir); a != nil {
+		h, ok, loadErr := a.Load()
+		switch {
+		case loadErr != nil:
+			problems = append(problems, "the chain's anchor could not be read: "+loadErr.Error())
+		case ok:
+			if problem := headProblem(dir, h); problem != "" {
+				// A cut or rewritten log: nothing in it is vouched for,
+				// until a person reanchors it.
+				problems = append(problems, problem)
+				out.cut = true
+				for i := range out.Trusted {
+					out.Trusted[i] = false
+				}
+			}
+		}
 	}
-	return nil
+	out.Problems = problems
+	return out, nil
 }
 
 func joinProblems(p []string) string {

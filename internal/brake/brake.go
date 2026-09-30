@@ -42,6 +42,10 @@ const (
 	EventFreezeLifted    = "freeze_lifted"
 	EventSuspended       = "session_suspended"
 	EventSuspensionReset = "session_reset"
+	// EventReanchored marks where an append took up a store whose chain was
+	// broken: events after it chain from it and are trusted again. Between
+	// the break and it, only what engages a brake is applied (M1).
+	EventReanchored = "reanchored"
 )
 
 // Lockdown is the whole Cerberus read-only.
@@ -178,27 +182,48 @@ func Effective(store, recorded State) State {
 	return out
 }
 
-// Recorded is the state the newest brake_changed record carries, provided
-// the audit chain verifies. It reports false when it does not, or when no
-// brake was ever recorded.
-func Recorded(auditDir string) (State, bool) {
-	if auditDir == "" || audit.Verify(auditDir) != nil {
-		return State{}, false
+// Recorded is the brake state the audit log carries: the newest
+// brake_changed record the chain vouches for, and every brake engaged in a
+// record past a break (audit.Check). A broken chain therefore keeps every
+// brake it ever showed engaged after the break, rather than falling back to
+// the store alone (M1): editing a line of the log is not a way to lift a
+// brake. A person restores trust with cerberus audit reanchor, after which
+// the brakes are lifted as usual.
+//
+// problems says why the log was not read as a whole: its chain does not
+// verify, or it could not be read.
+func Recorded(auditDir string) (State, []string) {
+	if auditDir == "" {
+		return State{}, nil
 	}
-	records, err := audit.ReadRecords(auditDir)
+	checked, err := audit.Check(auditDir)
 	if err != nil {
-		return State{}, false
+		return State{}, []string{"the audit log could not be read, so the brakes are read from their store alone: " + err.Error()}
 	}
-	for i := len(records) - 1; i >= 0; i-- {
-		if r := records[i]; r.Kind == audit.KindBrakeChanged && len(r.Brakes) > 0 {
-			var s State
-			if err := json.Unmarshal(r.Brakes, &s); err != nil {
-				return State{}, false
-			}
-			return s, true
+	var st State
+	var problems []string
+	for i, r := range checked.Records {
+		if r.Kind != audit.KindBrakeChanged || len(r.Brakes) == 0 {
+			continue
 		}
+		var s State
+		if err := json.Unmarshal(r.Brakes, &s); err != nil {
+			problems = append(problems, fmt.Sprintf("audit seq %d: brake state does not parse", r.Seq))
+			continue
+		}
+		if checked.Trusted[i] {
+			st = s
+			continue
+		}
+		st = Effective(st, s)
 	}
-	return State{}, true
+	switch {
+	case !checked.TailTrusted():
+		problems = append(problems, "the audit log's chain does not verify, so a brake engaged past the break stays engaged and a lift recorded there is not applied; a person restores it with `cerberus audit reanchor`")
+	case len(checked.Problems) > 0:
+		problems = append(problems, fmt.Sprintf("the audit log's chain has %d problem(s) before its last reanchor; brakes are read from the reanchor on", len(checked.Problems)))
+	}
+	return st, problems
 }
 
 // Event is one line of the store.
@@ -213,9 +238,13 @@ type Event struct {
 	Suspension *Suspension      `json:"suspension,omitempty"`
 	ID         string           `json:"id,omitempty"`
 	By         *audit.Principal `json:"by,omitempty"`
-	// Proof is how a lift was authorized: "passkey:<approval id>", or
-	// "tty" where no passkey is enrolled.
-	Proof    string `json:"proof,omitempty"`
+	// Proof is how a lift was authorized: "passkey:<approval id>", "tty"
+	// where no passkey is enrolled, or "typed" for a suspension reset. A
+	// lift or reset without one is not applied (M1).
+	Proof string `json:"proof,omitempty"`
+	// Restored marks an engage written back from the audit log, for a
+	// brake the log holds and the store had lost (Store.Restore).
+	Restored bool   `json:"restored,omitempty"`
 	PrevHash string `json:"prev_hash"`
 	Hash     string `json:"hash"`
 }
@@ -236,23 +265,30 @@ func (s Store) now() time.Time {
 }
 
 // Load folds the store. A damaged line or a broken chain is reported and
-// skipped, never fatal.
+// skipped, never fatal: past a break only what engages a brake is applied,
+// so editing the store can add a brake but not lift one.
 func (s Store) Load() (State, []string) {
-	st, _, _, problems := s.fold()
-	return st, problems
+	f := s.fold()
+	return f.state, f.problems
 }
 
-func (s Store) fold() (State, uint64, string, []string) {
-	var st State
-	var seq uint64
-	var last string
-	var problems []string
+type folded struct {
+	state    State
+	seq      uint64
+	last     string
+	problems []string
+	// broken is a break not yet followed by a reanchor.
+	broken bool
+}
+
+func (s Store) fold() folded {
+	var f folded
 	data, err := os.ReadFile(s.path())
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			problems = append(problems, err.Error())
+			f.problems = append(f.problems, err.Error())
 		}
-		return st, 0, "", problems
+		return f
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
@@ -263,16 +299,49 @@ func (s Store) fold() (State, uint64, string, []string) {
 		}
 		var ev Event
 		if err := json.Unmarshal(line, &ev); err != nil {
-			problems = append(problems, fmt.Sprintf("line after seq %d does not parse", seq))
+			f.problems = append(f.problems, fmt.Sprintf("line after seq %d does not parse", f.seq))
+			f.broken = true
 			continue
 		}
-		if ev.Seq != seq+1 || ev.PrevHash != last || hashEvent(ev) != ev.Hash {
-			problems = append(problems, fmt.Sprintf("seq %d does not chain to the one before it", ev.Seq))
+		chained := ev.Seq == f.seq+1 && ev.PrevHash == f.last && (audit.LineHashMatches(line, ev.Hash) || hashEvent(ev) == ev.Hash)
+		if !chained {
+			f.problems = append(f.problems, fmt.Sprintf("seq %d does not chain to the one before it", ev.Seq))
+			f.broken = true
 		}
-		apply(&st, ev)
-		seq, last = ev.Seq, ev.Hash
+		switch {
+		case ev.Type == EventReanchored && chained:
+			f.broken = false
+		case lifts(ev) && ev.Proof == "" && !legacyReset(ev):
+			f.problems = append(f.problems, fmt.Sprintf("seq %d (%s) carries no proof and is not applied", ev.Seq, ev.Type))
+		case f.broken && lifts(ev):
+			f.problems = append(f.problems, fmt.Sprintf("seq %d (%s) is past a broken chain and is not applied", ev.Seq, ev.Type))
+		default:
+			apply(&f.state, ev)
+		}
+		f.seq, f.last = ev.Seq, ev.Hash
 	}
-	return st, seq, last, problems
+	return f
+}
+
+// eventVersion is the store's event format. Version 2 records a proof on a
+// suspension reset, which version 1 did not.
+const eventVersion = 2
+
+// legacyReset is a suspension reset written before resets carried their
+// proof: applied as it always was, so upgrading does not bring back a
+// suspension a person reset. A lockdown or freeze lift always carried one.
+func legacyReset(ev Event) bool {
+	return ev.Type == EventSuspensionReset && ev.V < eventVersion
+}
+
+// lifts reports whether an event takes a brake off: what a broken chain or
+// a missing proof does not let through.
+func lifts(ev Event) bool {
+	switch ev.Type {
+	case EventLockdownLifted, EventFreezeLifted, EventSuspensionReset:
+		return true
+	}
+	return false
 }
 
 func apply(st *State, ev Event) {
@@ -325,6 +394,9 @@ func hashEvent(ev Event) string {
 // append folds and appends one event under an exclusive lock, so appends
 // from different processes chain, and returns the state after it.
 func (s Store) append(ev Event, valid func(State) error) (State, error) {
+	if lifts(ev) && ev.Proof == "" {
+		return State{}, errors.New("brakes: a lift needs its proof")
+	}
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return State{}, fmt.Errorf("brakes: %w", err)
 	}
@@ -337,19 +409,33 @@ func (s Store) append(ev Event, valid func(State) error) (State, error) {
 		return State{}, fmt.Errorf("brakes: lock: %w", err)
 	}
 	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }() //nolint:gosec // as above
-	st, seq, last, _ := s.fold()
+	cur := s.fold()
+	st := cur.state
 	if valid != nil {
 		if err = valid(st); err != nil {
 			return st, err
 		}
 	}
-	ev.V, ev.Seq, ev.Time, ev.PrevHash = 1, seq+1, s.now(), last
-	ev.Hash = hashEvent(ev)
-	line, err := json.Marshal(ev)
-	if err != nil {
-		return State{}, err
+	var out []byte
+	seq, last := cur.seq, cur.last
+	events := []Event{ev}
+	if cur.broken {
+		// Take the broken store up here, so what this appends counts; a
+		// lift appended without it would never apply.
+		events = []Event{{Type: EventReanchored}, ev}
 	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
+	for i := range events {
+		e := &events[i]
+		e.V, e.Seq, e.Time, e.PrevHash = eventVersion, seq+1, s.now(), last
+		e.Hash = hashEvent(*e)
+		line, err := json.Marshal(*e)
+		if err != nil {
+			return State{}, err
+		}
+		out = append(append(out, line...), '\n')
+		seq, last = e.Seq, e.Hash
+	}
+	if _, err := f.Write(out); err != nil {
 		return State{}, fmt.Errorf("brakes: append: %w", err)
 	}
 	if err := f.Sync(); err != nil {
@@ -443,12 +529,68 @@ func (s Store) Suspend(key string, p audit.Principal, denials int, window string
 	return st, x, err
 }
 
-// ResetSuspension ends the suspension with id.
-func (s Store) ResetSuspension(id string, by audit.Principal) (State, error) {
-	return s.append(Event{Type: EventSuspensionReset, ID: id, By: &by}, func(cur State) error {
+// ResetSuspension ends the suspension with id. proof is how the reset was
+// authorized ("typed", the phrase a person typed).
+func (s Store) ResetSuspension(id string, by audit.Principal, proof string) (State, error) {
+	return s.append(Event{Type: EventSuspensionReset, ID: id, By: &by, Proof: proof}, func(cur State) error {
 		if _, ok := cur.Suspension(id); !ok {
 			return ErrNotEngaged
 		}
 		return nil
 	})
+}
+
+// Restore writes back, as engaged, each brake in recorded that the store
+// does not hold: a lockdown when the store has none, and each freeze and
+// suspension by id. The audit log is what recorded comes from (Recorded);
+// a brake it holds and the store lost is engaged either way (Effective),
+// and restoring it is what lets a person lift it again, since a lift is
+// checked against the store. It returns the store's state after.
+func (s Store) Restore(recorded State) (State, error) {
+	st, _ := s.Load()
+	var err error
+	if l := recorded.Lockdown; l != nil && st.Lockdown == nil {
+		lock := *l
+		if st, err = s.append(Event{Type: EventLockdownEngaged, Lockdown: &lock, By: &lock.By, Restored: true}, func(cur State) error {
+			if cur.Lockdown != nil {
+				return errAlready
+			}
+			return nil
+		}); err != nil && !errors.Is(err, errAlready) {
+			return st, err
+		}
+	}
+	for _, f := range recorded.Freezes {
+		if _, ok := st.Freeze(f.ID); ok {
+			continue
+		}
+		frz := f
+		if st, err = s.append(Event{Type: EventFreezeEngaged, Freeze: &frz, By: &frz.By, Restored: true}, func(cur State) error {
+			if _, ok := cur.Freeze(frz.ID); ok {
+				return errAlready
+			}
+			return nil
+		}); err != nil && !errors.Is(err, errAlready) {
+			return st, err
+		}
+	}
+	for _, x := range recorded.Suspensions {
+		if _, ok := st.Suspension(x.ID); ok {
+			continue
+		}
+		if _, ok := st.SuspensionFor(x.Key); ok {
+			continue
+		}
+		sus := x
+		if st, err = s.append(Event{Type: EventSuspended, Suspension: &sus, Restored: true}, func(cur State) error {
+			if _, ok := cur.SuspensionFor(sus.Key); ok {
+				return errAlready
+			}
+			return nil
+		}); err != nil && !errors.Is(err, errAlready) {
+			return st, err
+		}
+	}
+	st, _ = s.Load()
+	return st, nil
 }

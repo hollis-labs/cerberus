@@ -21,7 +21,7 @@ func ReadRecords(dir string) ([]Record, error) {
 	}
 	var out []Record
 	for _, file := range files {
-		err := scanFile(file, func(rec Record, ok bool) {
+		err := scanFile(file, func(rec Record, _ []byte, ok bool) {
 			if ok {
 				out = append(out, rec)
 			}
@@ -33,9 +33,10 @@ func ReadRecords(dir string) ([]Record, error) {
 	return out, nil
 }
 
-// scanFile calls fn for each non-blank line of file: the record, or ok false
-// for a line that does not parse.
-func scanFile(file string, fn func(rec Record, ok bool)) error {
+// scanFile calls fn for each non-blank line of file: the record and the
+// line's bytes, or ok false for a line that does not parse. The bytes are
+// only valid during the call.
+func scanFile(file string, fn func(rec Record, line []byte, ok bool)) error {
 	f, err := os.Open(file) //nolint:gosec // the audit directory's own file
 	if err != nil {
 		return err
@@ -50,10 +51,10 @@ func scanFile(file string, fn func(rec Record, ok bool)) error {
 		}
 		var rec Record
 		if err := json.Unmarshal(line, &rec); err != nil {
-			fn(Record{}, false)
+			fn(Record{}, line, false)
 			continue
 		}
-		fn(rec, true)
+		fn(rec, line, true)
 	}
 	return scanner.Err()
 }
@@ -215,4 +216,27 @@ func prunedFiles(recs []Record) map[string]bool {
 		}
 	}
 	return out
+}
+
+// ErrNothingToReanchor is a reanchor of a chain whose tail is trusted.
+var ErrNothingToReanchor = errors.New("the audit chain vouches for its newest record; there is nothing to reanchor")
+
+// Reanchor writes a chain_reanchored record: a person acknowledging a chain
+// that does not verify, so that what is written after it is trusted again
+// (Check). The problems it acknowledges go in its Note. It changes nothing
+// already written, and Verify still reports those problems.
+func Reanchor(sink Sink, dir string, principal Principal) (Record, error) {
+	checked, err := Check(dir)
+	if err != nil {
+		return Record{}, err
+	}
+	if checked.TailTrusted() {
+		return Record{}, ErrNothingToReanchor
+	}
+	note := fmt.Sprintf("reanchored after %d problem(s): %s", len(checked.Problems), joinProblems(checked.Problems))
+	if len(note) > 2048 {
+		note = strings.ToValidUTF8(note[:2048], "") + "…"
+	}
+	return sink.Write(Record{Kind: KindChainReanchored, Principal: principal, Connector: "audit", Operation: "reanchor",
+		Effect: "admin", Acknowledged: true, Note: note, Posture: PostureSecure})
 }

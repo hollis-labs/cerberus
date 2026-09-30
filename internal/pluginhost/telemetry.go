@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/pkg/plugin"
@@ -74,8 +76,15 @@ func (c *Collector) Snapshot() Telemetry {
 // fit trims a field to the per-field bound and reports whether the record's
 // byte budget has room for it.
 func (c *Collector) fit(s string) (string, bool) {
+	s = strings.ToValidUTF8(s, "\uFFFD")
 	if len(s) > maxTelemetryField {
-		s = s[:maxTelemetryField]
+		// Cut on a character boundary: half a character is not valid
+		// UTF-8, and the field goes into a hash-chained audit record.
+		n := maxTelemetryField
+		for n > 0 && !utf8.RuneStart(s[n]) {
+			n--
+		}
+		s = s[:n]
 		c.t.Truncated = true
 	}
 	if c.bytes+len(s) > maxTelemetryBytes {

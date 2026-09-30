@@ -27,6 +27,11 @@ const (
 	// torn write from a crash — so the chain resumes from the last complete
 	// record rather than being silently repaired.
 	KindChainBreak = "chain_break"
+	// KindChainReanchored is a person acknowledging a chain that does not
+	// verify (cerberus audit reanchor), in Note. The problems stay problems;
+	// what follows it is trusted again, where everything past a break was
+	// applied only where it restricts (M1).
+	KindChainReanchored = "chain_reanchored"
 	// KindIntent is written before an operation runs.
 	KindIntent = "intent"
 	// KindOutcome is written after it, on every exit.
@@ -209,7 +214,8 @@ type Record struct {
 	// PluginReview is what an install review showed and what was accepted.
 	PluginReview *PluginReview `json:"plugin_review,omitempty"`
 
-	// Note explains a chain_start, file_start or chain_break record.
+	// Note explains a chain_start, file_start, chain_break or
+	// chain_reanchored record.
 	Note     string `json:"note,omitempty"`
 	PrevFile string `json:"prev_file,omitempty"`
 

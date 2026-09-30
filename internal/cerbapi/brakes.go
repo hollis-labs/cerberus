@@ -53,8 +53,8 @@ func SetBrakes(b *Brakes) { brakesPoint.Store(b) }
 func ProcessBrakes() *Brakes { return brakesPoint.Load() }
 
 // Current is the effective brake state: the more restrictive of the store
-// and the newest brake_changed record in a verified audit chain, re-read
-// when the store changes.
+// and the audit log's brake_changed records (brake.Recorded), re-read when
+// the store changes.
 func (b *Brakes) Current() brake.State {
 	stamp := "absent"
 	if info, err := os.Stat(filepath.Join(b.Store.Dir, brake.FileName)); err == nil {
@@ -66,12 +66,44 @@ func (b *Brakes) Current() brake.State {
 		return b.state
 	}
 	stored, problems := b.Store.Load()
-	recorded, ok := brake.Recorded(b.AuditDir)
-	if !ok && b.AuditDir != "" {
-		problems = append(problems, "the audit log's chain does not verify, so the brakes are read from their store alone")
+	recorded, recordedProblems := brake.Recorded(b.AuditDir)
+	problems = append(problems, recordedProblems...)
+	if lacks(stored, recorded) {
+		// The log holds a brake the store lost (edited, deleted, or past a
+		// break): engaged either way, and written back so a person can
+		// lift it, since a lift is checked against the store.
+		if restored, err := b.Store.Restore(recorded); err != nil {
+			problems = append(problems, "a brake the audit log holds could not be restored to the store: "+err.Error())
+		} else {
+			stored = restored
+			problems = append(problems, "the brake store had lost a brake the audit log holds; it was restored")
+			if info, err := os.Stat(filepath.Join(b.Store.Dir, brake.FileName)); err == nil {
+				stamp = fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+			}
+		}
 	}
 	b.state, b.issues, b.stamp = brake.Effective(stored, recorded), problems, stamp
 	return b.state
+}
+
+// lacks reports whether recorded holds a brake the store does not.
+func lacks(stored, recorded brake.State) bool {
+	if recorded.Lockdown != nil && stored.Lockdown == nil {
+		return true
+	}
+	for _, f := range recorded.Freezes {
+		if _, ok := stored.Freeze(f.ID); !ok {
+			return true
+		}
+	}
+	for _, x := range recorded.Suspensions {
+		_, byID := stored.Suspension(x.ID)
+		_, byKey := stored.SuspensionFor(x.Key)
+		if !byID && !byKey {
+			return true
+		}
+	}
+	return false
 }
 
 // Problems are what reading the brakes found wrong.
@@ -174,11 +206,36 @@ func EngageFreeze(ctx context.Context, sink audit.Sink, store brake.Store, match
 	return st, *f, nil
 }
 
+// liftUntrusted refuses a lift while the audit log's chain does not vouch
+// for its tail: the lift's brake_changed record would be written past a
+// break, where a lift is not applied (brake.Recorded), so the brake would
+// come straight back. A person reanchors the chain first.
+func liftUntrusted(sink audit.Sink, operation string) error {
+	d, ok := sink.(interface{ Dir() string })
+	if !ok {
+		return nil
+	}
+	checked, err := audit.Check(d.Dir())
+	if err == nil && checked.TailTrusted() {
+		return nil
+	}
+	args := ExternalConnectorOperationArgs{Connector: "brake", Operation: operation}
+	if err != nil {
+		return externalConnectorError(args, ExternalConnectorAuditUnavailable,
+			redact.Guidance("the audit log could not be read, so a lift could not be recorded where it counts; nothing was lifted: %v", err))
+	}
+	return externalConnectorError(args, ExternalConnectorAuditUnavailable,
+		redact.Guidance("the audit log's chain does not verify (%d problem(s)), and a lift recorded past the break is not applied; nothing was lifted. Check it with `cerberus audit verify`, then a person runs `cerberus audit reanchor` and lifts again", len(checked.Problems)))
+}
+
 // LiftLockdown lifts the lockdown, protected (liftProof).
 func LiftLockdown(ctx context.Context, sink audit.Sink, store brake.Store, approvalID string) (brake.State, error) {
 	cur := currentBrakes(store)
 	if cur.Lockdown == nil {
 		return cur, brake.ErrNotEngaged
+	}
+	if err := liftUntrusted(sink, "lift_lockdown"); err != nil {
+		return cur, err
 	}
 	t := audit.Target{Kind: "brake.lockdown", Fields: map[string]string{"id": cur.Lockdown.ID}}
 	proof, err := liftProof(ctx, "lift_lockdown", t, cur.Lockdown.ID, approvalID)
@@ -197,6 +254,9 @@ func LiftFreeze(ctx context.Context, sink audit.Sink, store brake.Store, id, app
 	cur := currentBrakes(store)
 	if _, ok := cur.Freeze(id); !ok {
 		return cur, brake.ErrNotEngaged
+	}
+	if err := liftUntrusted(sink, "lift_freeze"); err != nil {
+		return cur, err
 	}
 	t := audit.Target{Kind: "brake.freeze", Fields: map[string]string{"id": id}}
 	proof, err := liftProof(ctx, "lift_freeze", t, id, approvalID)

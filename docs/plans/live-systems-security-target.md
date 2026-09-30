@@ -561,8 +561,25 @@ gives the built-ins the coverage they lack today.
 ### 9. Audit
 
 - Append-only JSONL under `~/.cerberus/audit/`, mode 0600, with each record
-  hash-chained to the previous one so that truncation or editing is
-  detectable.
+  hash-chained to the previous one so that editing is detectable. A chain on
+  its own doesn't show a log cut short at a line boundary, or one rewritten
+  with its hashes recomputed. The daemon therefore anchors the chain's head
+  in the login keychain, and verification checks that the log still holds
+  the anchored record. The daemon advances the anchor on every record it
+  folds state from (brakes, enforcement, enrollment, approval decisions and
+  grants), and at most every 30 seconds otherwise. It never advances past a
+  log that no longer holds the previous anchor, so writing on doesn't cover
+  up a cut. The anchor is outside `~/.cerberus` but not outside the
+  operator's account: a process running as the operator can rewrite the
+  keychain item too. It catches a log edited as files, not an agent
+  determined to forge both.
+- A record is verified from the bytes it was hashed as. A name that isn't
+  valid UTF-8, such as a caller's claim cut in the middle of a character,
+  used to break the chain for good. Claims are now cut on character
+  boundaries.
+- The brakes, read back from the log, trust only the records the chain
+  vouches for. Past a problem, a record is applied only where it restricts,
+  until a person runs `cerberus audit reanchor`.
 - **Two records per operation**: intent (written before the effect) and outcome.
   Each carries the principal, surface, operation, target, effect, args digest
   (not raw args), credential names, policy decision with matched rules, the

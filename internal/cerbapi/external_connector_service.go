@@ -41,7 +41,9 @@ const (
 	// routes a plugin's own text through ExternalConnectorError's redaction.
 	ExternalConnectorOperationFailed ExternalConnectorErrorCode = "operation_failed"
 	// ExternalConnectorAuditUnavailable is an operation refused because its
-	// audit record could not be written (Decision 8). Nothing ran.
+	// audit record could not be written (Decision 8), or, for a brake lift,
+	// would not count: the log's chain does not vouch for its tail (M1).
+	// Nothing ran.
 	ExternalConnectorAuditUnavailable ExternalConnectorErrorCode = "audit_unavailable"
 	// ExternalConnectorPluginChanged is a plugin refused at load because its
 	// bundle no longer matches the one the operator accepted in review, or
