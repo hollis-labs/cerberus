@@ -213,6 +213,47 @@ apply's record). If that can't be determined, because the chain doesn't
 verify or no apply is recorded, it enforces everything. Either way it says
 so loudly, and `cerberus policy apply` puts it right.
 
+## Egress: what comes back
+
+Results label the text in them. `untrusted` is text Cerberus didn't compose:
+logs, command output, and names or descriptions a vendor or anyone with push
+access can set. `personal` is personal data. Over MCP, a labeled result says
+where that text is, both in `_meta` and in a second content block. By default
+everything is delivered, labeled.
+
+An `egress:` section shapes labeled output for a caller and target:
+
+```yaml
+egress:
+  - id: agent-logs-off-dev
+    match: { env: "!dev" }        # a target match, as in targets:
+    principal: { kind: agent }
+    label: untrusted              # untrusted | personal
+    action: cap                   # pass | cap | mask | refuse
+    lines: 200                    # cap only: lines of text, or list entries
+    mode: enforce                 # shadow (the default) | enforce
+```
+
+- **Shadow first.** A rule without `mode: enforce` changes nothing. Each
+  outcome record carries an `egress` entry saying which rule matched, where,
+  what it would have done and how much it would have withheld.
+- **Enforced.**
+  - `cap` keeps the first lines and adds "[cerberus: N more lines withheld
+    by egress rule …]".
+  - `mask` replaces the text with a note of what was masked and by which
+    rule.
+  - `refuse` answers `egress_refused` after the operation has run, saying
+    which rule withholds which label.
+  - Nothing is dropped silently.
+- **Most restrictive wins.** `refuse`, then `mask`, then `cap` (the smaller
+  limit when two apply), then `pass`. The rule enforces if any matching rule
+  at that strength does.
+- **Where it applies:** connector and plugin results, and resource logs.
+  Plugin output without labels is untrusted as a whole.
+
+Approving before reading is separate from this and already in place:
+`read_sensitive` operations need approval for agents under the baseline.
+
 ## Approvals
 
 Once enforcement is on for an operation, which you switch on scope by scope

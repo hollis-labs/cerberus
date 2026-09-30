@@ -53,6 +53,10 @@ type File struct {
 	// Enforcement is the switch-on (P3-7): what is enforced rather than
 	// recorded in shadow. Omitted, nothing is.
 	Enforcement *Enforcement `yaml:"enforcement,omitempty"`
+
+	// Egress shapes labeled output (P4-4): pass, cap, mask or refuse, in
+	// shadow until a rule says enforce. Omitted, everything passes.
+	Egress []EgressRule `yaml:"egress,omitempty"`
 }
 
 // Postures.
@@ -333,6 +337,7 @@ func (f File) Validate() []string {
 		}
 		check(fmt.Sprintf("principals[%d]", i), p.Rules)
 	}
+	problems = append(problems, egressProblems(f.Egress)...)
 	return problems
 }
 
@@ -410,6 +415,7 @@ func Merge(files ...File) File {
 			out.Providers[id] = cur
 		}
 		out.Targets = append(out.Targets, f.Targets...)
+		out.Egress = append(out.Egress, f.Egress...)
 		out.Principals = append(out.Principals, f.Principals...)
 		// The break-glass limit: the last file that sets it.
 		if f.BreakGlass != nil {
