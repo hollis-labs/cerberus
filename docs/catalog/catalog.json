@@ -18829,11 +18829,11 @@
       "locus": "core",
       "class": "gap",
       "name": "An agent could enroll its own passkey on a fresh install and approve its own requests",
-      "summary": "The socket routes /approvals/keys/enroll-allow and register/* checked neither principal nor surface; only the CLI's terminal check stood in the way. Any socket caller, including one that makes no claim (classified agent), could allow an enrollment, register a software key (the first key is trusted on first use) and then pass every out-of-band approval, lockdown lift included. Fixed: the daemon allows an enrollment only for the human CLI claim, and accepts the ceremonies (register and remove) only from a person at the console or CLI; agents, automation, MCP surfaces, verified token callers and claimless callers are refused with approval_required.",
+      "summary": "The socket routes /approvals/keys/enroll-allow and register/* checked neither principal nor surface; only the CLI's terminal check stood in the way. Any socket caller, including one that makes no claim (classified agent), could allow an enrollment, register a software key (the first key is trusted on first use) and then pass every out-of-band approval, lockdown lift included. Partly fixed: the daemon allows an enrollment only for the human CLI claim and accepts the ceremonies only from a person's claim at the console or CLI, which stops an MCP-only agent and any caller that does not forge its claim. It does not stop a same-uid process with a shell: the claim is the self-reported principal header, so a raw socket request claiming human/cli, or `cerberus approvals enroll` under a pseudo-terminal (script -q /dev/null), passes, and `cerberus web open` then gives it a console session to register a key it made.",
       "state_field": "status",
-      "state_label": "shipped",
+      "state_label": "partial",
       "confidence_score": 0.85,
-      "confidence_label": "found by the 5931772 re-review (B1) with a software authenticator on a scratch daemon; fixed with a real-socket test and mutation checks",
+      "confidence_label": "found by the 5931772 re-review (B1); the claim check is tested over a real socket, and a test documents that a forged human/cli claim still passes",
       "tags": [
         "cerberus",
         "class:gap",
@@ -18855,10 +18855,10 @@
         "capability": "CERB-CAP-604",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "shipped",
+        "unlocks_when": "enroll-allow and console login-link minting require a user-presence check the daemon raises itself (LocalAuthentication on macOS), which a same-uid process cannot satisfy (B1-b)",
         "effort": "small"
       },
-      "body": "Remaining: the human CLI claim is self-reported, so an agent with a shell as the operator can still make it (the same-uid limit). Attestation fmt:none is still accepted, since synced platform passkeys (Touch ID with iCloud Keychain) carry no attestation; recorded separately.",
+      "body": "Remaining: B1-b as above. Attestation fmt:none is still accepted (CERB-GAP-940), and web open mints a console session without a terminal (CERB-GAP-941).",
       "id": "CERB-GAP-939"
     },
     {

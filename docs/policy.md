@@ -413,11 +413,19 @@ where the browser creates the passkey. The first key is trusted on first use.
 After it, adding a key or removing one has to be confirmed with a key that is
 already enrolled.
 
-The daemon holds this, not just the CLI. It allows an enrollment only for a
-person at the CLI on an interactive terminal. The ceremonies that follow are
-accepted only from a person at the console or the CLI. An agent, automation,
-an MCP client, a verified token caller or a caller that makes no claim is
-refused with `approval_required`, whatever it sends the socket. Passkeys work on `localhost`, so the console's links use
+The daemon checks this as well as the CLI. It allows an enrollment only for
+the claim a person at the CLI on an interactive terminal makes. It accepts
+the ceremonies that follow only from a person's claim at the console or the
+CLI. An agent over MCP, automation, a verified token caller, or a caller that
+makes no claim or claims to be an agent is refused with `approval_required`.
+
+That stops an agent that has only its MCP tools, and any caller that doesn't
+forge its claim. It doesn't stop a process running as you with a shell. The
+claim is self-reported: that process can send a person's claim to the
+socket, or run `cerberus approvals enroll` under a pseudo-terminal, then get
+a console session with `cerberus web open` and register a key it made. A
+check the daemon runs itself, which such a process can't satisfy, is the
+follow-up (CERB-GAP-939). Passkeys work on `localhost`, so the console's links use
 `http://localhost:<port>`. `--listen` names a console on another port.
 
 Every enrollment is recorded in the audit log and raises a notification.

@@ -90,3 +90,37 @@ func TestAnAgentCannotEnrollAPasskeyOverTheSocket(t *testing.T) {
 		t.Fatalf("finishing on the console: %v", err)
 	}
 }
+
+// The known limit, recorded so a fix flips it: the check is on the
+// self-reported principal claim, so a caller that forges a person's claim
+// at the CLI — a same-uid process with a shell can — still allows an
+// enrollment. CERB-GAP-939's follow-up (a presence check the daemon runs
+// itself) is what closes it; when it lands this test inverts.
+func TestAForgedHumanCLIClaimStillAllowsAnEnrollment(t *testing.T) {
+	sink := audit.NewMemory()
+	broker, err := NewBroker(sink, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetBroker(broker)
+	t.Cleanup(func() { SetBroker(nil) })
+	SetPresence(presence.New(t.TempDir(), sink, presence.Options{Origins: func() []string { return []string{consoleOrigin} }}))
+	t.Cleanup(func() { presencePoint.Store(nil) })
+	path := startPeerSocket(t, NewInProcessClient(), nil)
+	raw := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", path)
+	}}}
+	_, digest := presence.NewEnrollToken()
+	req, _ := http.NewRequest(http.MethodPost, "http://cerberus-daemon/approvals/keys/enroll-allow", strings.NewReader(`{"digest":"`+digest+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	setPrincipalHeader(req.Header, Principal{Kind: PrincipalHuman, Via: ViaCLI})
+	resp, err := raw.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a forged human/cli claim is refused now (%d %s): the known limit is closed, so invert this test and update CERB-GAP-939", resp.StatusCode, body)
+	}
+}
