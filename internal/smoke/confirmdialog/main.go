@@ -149,6 +149,17 @@ resources:
 		}
 		_, _ = w.Write([]byte(login))
 	})
+	// An approval link, as an MCP client is handed (M7): a sign-in for one
+	// approval and nothing else.
+	ctl.HandleFunc("/approval-url", func(w http.ResponseWriter, r *http.Request) {
+		link, err := web.ApprovalURL(base, r.URL.Query().Get("id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(link)) //nolint:gosec // plain text to the smoke's driver, not a page
+	})
 	// The CLI's half of break glass on a protected target (the CLI itself
 	// is covered by its Go tests): ask, then retry once the console has
 	// approved it with a passkey.

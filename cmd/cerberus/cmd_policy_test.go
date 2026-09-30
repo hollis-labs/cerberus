@@ -371,3 +371,35 @@ func TestPolicyExplainShowsCredentialBindings(t *testing.T) {
 		t.Fatalf("explain: %v\n%s", err, out)
 	}
 }
+
+// What the CLI shows is what the daemon enforces (LoadVerified): with the
+// applied snapshot deleted, posture, status and explain name the mismatch
+// and show the last verified snapshot's posture, not the baseline's.
+func TestTheCLIShowsTheVerifiedSnapshot(t *testing.T) {
+	auditDir := filepath.Join(t.TempDir(), "audit")
+	sink, err := audit.OpenFileSink(auditDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := policy.Store{Dir: filepath.Join(t.TempDir(), "policy"), AuditDir: auditDir}
+	old := policyStore
+	policyStore = func() (policy.Store, error) { return store, nil }
+	t.Cleanup(func() { policyStore = old })
+	permissive := policy.File{Version: policy.FileVersion, Posture: policy.PosturePermissive}
+	if _, err = cerbapi.ApplyPolicy(inProcessContext(context.Background()), sink, store, permissive, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(store.Dir, "applied.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if got := currentPosture(); got.Global != policy.PosturePermissive || got.Snapshot != policy.SnapshotMismatch {
+		t.Fatalf("posture %+v", got)
+	}
+	if st := statusOfEnforcement(); !strings.Contains(st.Mismatch, "last verified snapshot") {
+		t.Fatalf("status %+v", st)
+	}
+	_, source, err := explainPDP(false)
+	if err != nil || !strings.Contains(source, "applied.yaml is missing") || !strings.Contains(source, "last verified snapshot") {
+		t.Fatalf("explain source %q (%v)", source, err)
+	}
+}

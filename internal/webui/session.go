@@ -341,6 +341,19 @@ func (s *Server) LoginURL(base string) (string, error) {
 	return strings.TrimRight(base, "/") + "/login?token=" + token, nil
 }
 
+// ApprovalURL is a one-time sign-in link at base for a session limited to
+// one approval (M7), as MintApprovalURL mints from the key file.
+func (s *Server) ApprovalURL(base, approvalID string) (string, error) {
+	if approvalID == "" {
+		return "", errors.New("an approval link needs an approval id")
+	}
+	token, err := mintScopedLoginToken(s.sessions.key, s.sessions.now(), s.sessions.loginTTL, approvalID)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(base, "/") + "/login?approval=" + url.QueryEscape(approvalID) + "&token=" + token, nil
+}
+
 // loginKeyFile is what `cerberus web` leaves for `cerberus web open`: the
 // console's address and the key its sign-in links are made with.
 type loginKeyFile struct {

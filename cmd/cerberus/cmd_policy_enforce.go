@@ -99,9 +99,9 @@ func runPolicyEnforce(cmd *cobra.Command) error {
 	} else if len(elsewhere) > 0 {
 		return fmt.Errorf("enforcement is also declared in %s; `cerberus policy enforce` owns it in %s, so move it there or remove it, then retry", strings.Join(elsewhere, ", "), policy.EnforcementFileName)
 	}
-	current, status := store.Load()
+	current, status := store.LoadVerified()
 	if status.Mismatch() {
-		return errors.New("the applied policy snapshot fails its hash check; review the working files and run `cerberus policy apply` before changing enforcement")
+		return fmt.Errorf("the applied policy snapshot is a mismatch (%s), and %s; review the working files and run `cerberus policy apply` before changing enforcement", status.Problem, strings.TrimPrefix(status.Enforcement, "snapshot mismatch: "))
 	}
 	if unapplied, uerr := workingDiffersFromApplied(store, current); uerr != nil {
 		return uerr

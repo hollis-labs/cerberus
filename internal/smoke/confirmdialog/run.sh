@@ -4,7 +4,8 @@
 # wrong target and on a stale plan, run on the right target), and break
 # glass on a protected target (a passkey enrolled on a virtual
 # authenticator, the BREAK GLASS approval, the retry, the follow-up), and
-# a lockdown engaged, refusing and lifted with the passkey. Needs the web bundle built
+# a lockdown engaged, refusing and lifted with the passkey, the circuit
+# breaker, and an approval link's sign-in scoped to one approval. Needs the web bundle built
 # (`make all`), Node 22+ and Google Chrome. Everything lives in a scratch
 # HOME under /tmp; nothing touches ~/.cerberus or a running daemon.
 set -eu

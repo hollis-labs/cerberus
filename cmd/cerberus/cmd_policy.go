@@ -163,6 +163,12 @@ var policyExplainCmd = &cobra.Command{
 	},
 }
 
+// mismatchSource says what decides on a snapshot mismatch: what is wrong
+// with the files, and what is enforced instead (policy.LoadVerified).
+func mismatchSource(status policy.LoadStatus) string {
+	return "a snapshot mismatch (" + status.Problem + "); " + status.Enforcement
+}
+
 // explainPDP is the applied snapshot, or with working the working files.
 func explainPDP(working bool) (policy.PDP, string, error) {
 	store, err := policyStore()
@@ -176,7 +182,7 @@ func explainPDP(working bool) (policy.PDP, string, error) {
 		case status.Snapshot == policy.SnapshotBaseline:
 			source = "the built-in baseline (no snapshot is applied)"
 		case status.Mismatch():
-			source = "the built-in baseline: the applied snapshot does not match its hash (" + status.Problem + ")"
+			source = mismatchSource(status)
 		}
 		return pdp, source, nil
 	}
@@ -257,7 +263,9 @@ check is not used: the baseline decides until you apply again.`,
 		if len(problems) > 0 {
 			return fmt.Errorf("the working policy files have problems, so nothing was applied:\n  %s", strings.Join(problems, "\n  "))
 		}
-		current, status := store.Load()
+		// Flips are against what is enforced now, as the daemon reads it:
+		// on a mismatch, the last verified snapshot.
+		current, status := store.LoadVerified()
 		data, err := policy.Encode(working)
 		if err != nil {
 			return err
@@ -269,7 +277,11 @@ check is not used: the baseline decides until you apply again.`,
 		}
 		flips := policy.Flips(current, policy.NewEvaluator(working, hash), policy.Sample(policyDefinitions(cmd.Context()), policyResources()))
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Applying %s over %s.\n", shortHash(hash), status.Snapshot)
+		over := status.Snapshot
+		if status.Mismatch() {
+			over = mismatchSource(status)
+		}
+		fmt.Fprintf(out, "Applying %s over %s.\n", shortHash(hash), over)
 		writeFlips(out, flips)
 		writeGrantWarnings(out, working.GrantWarnings())
 		writeEgressWarnings(out, working.EgressWarnings())

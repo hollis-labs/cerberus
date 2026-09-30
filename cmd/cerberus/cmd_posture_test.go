@@ -122,7 +122,8 @@ func TestPostureScopedRulesAndReset(t *testing.T) {
 
 // posture set never carries in unreviewed policy: not while the working files
 // differ from the applied snapshot, not while another file declares the
-// posture, and not over a snapshot that fails its hash check.
+// posture, and not over a snapshot mismatch, which it names with what is
+// enforced instead.
 func TestPostureSetRefusesToCarryUnreviewedPolicy(t *testing.T) {
 	store, _ := policyFixture(t, true)
 	if err := os.MkdirAll(store.Dir, 0o700); err != nil {
@@ -153,8 +154,12 @@ func TestPostureSetRefusesToCarryUnreviewedPolicy(t *testing.T) {
 	applied := filepath.Join(store.Dir, "applied.yaml")
 	data, _ := os.ReadFile(applied) //nolint:gosec // the test's own temp dir
 	write("applied.yaml", string(data)+"\n# edited\n")
-	if _, err := runPosture(t, "", "set", "permissive"); err == nil || !strings.Contains(err.Error(), "fails its hash check") {
+	_, err := runPosture(t, "", "set", "permissive")
+	if err == nil || !strings.Contains(err.Error(), "is a mismatch (applied.yaml does not match") || !strings.Contains(err.Error(), "enforcing everything") {
 		t.Fatalf("a mismatched snapshot: %v", err)
+	}
+	if got := redact.Text(err.Error()); got != err.Error() {
+		t.Fatalf("redaction rewrote the refusal: %q", got)
 	}
 }
 
