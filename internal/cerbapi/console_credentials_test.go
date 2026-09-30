@@ -12,6 +12,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -104,33 +105,71 @@ func TestProviderSaveWithoutACatalogRefuses(t *testing.T) {
 	}
 }
 
-// The declared-secrets exemption covers names only. Through the response
-// writer every socket handler answers with, a requirement's name, kind and
-// env arrive intact with no description beside them, while a credential the
-// request resolved is removed even from a name, and a value beside the names
-// stays hidden.
+// The declared-secrets exemption covers names only, and only in Cerberus's
+// own schema. Through the response writer every socket handler answers with,
+// a definition's requirement names, kinds and envs arrive intact with no
+// description beside them, while a credential the request resolved is
+// removed even from a name, and a credential-shaped sibling stays hidden. A
+// "secrets" list in an operation's result gets the ordinary walk.
 func TestDeclaredSecretNamesAreExemptAndValuesAreNot(t *testing.T) {
 	const resolved = "tok-resolved-sentinel-5e81a7" //nolint:gosec // a test sentinel, not a credential
-	rec := httptest.NewRecorder()
-	w, r := BeginHTTPRequest(rec, httptest.NewRequest(http.MethodGet, "/connectors", nil), SurfaceSocket)
-	redact.ScopeFrom(r.Context()).Add("leaky/token", resolved)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"connectors": []contract.Definition{{ID: "leaky", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{
-			{Name: "token", Env: "CERBERUS_LEAKY_TOKEN"},
-			{Name: "api_user", Kind: contract.SecretKindName},
-			{Name: resolved},
-		}}}},
-		"secrets": []map[string]any{{"name": "token", "value": "hunter2-value-sentinel"}},
-	})
-	body := rec.Body.String()
+	write := func(body any) string {
+		rec := httptest.NewRecorder()
+		w, r := BeginHTTPRequest(rec, httptest.NewRequest(http.MethodGet, "/connectors", nil), SurfaceSocket)
+		redact.ScopeFrom(r.Context()).Add("leaky/token", resolved)
+		writeJSON(w, http.StatusOK, body)
+		return rec.Body.String()
+	}
+	body := write([]contract.Definition{{ID: "leaky", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{
+		{Name: "token", Env: "CERBERUS_LEAKY_TOKEN"},
+		{Name: "api_user", Kind: contract.SecretKindName},
+		{Name: resolved},
+	}}}})
 	for _, want := range []string{`"name":"token"`, `"env":"CERBERUS_LEAKY_TOKEN"`, `"name":"api_user"`, `"kind":"name"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("a declared name was redacted; want %s in\n%s", want, body)
 		}
 	}
-	for _, leaked := range []string{resolved, "hunter2-value-sentinel"} {
-		if strings.Contains(body, leaked) {
-			t.Errorf("%q reached the response:\n%s", leaked, body)
-		}
+	if strings.Contains(body, resolved) {
+		t.Errorf("a resolved credential reached the response:\n%s", body)
+	}
+	sibling := write([]map[string]any{{"id": "x", "operations": []any{}, "config": map[string]any{
+		"secrets": []map[string]any{{"name": "db", "description": "d", "password": "plainpw123"}}}}})
+	if strings.Contains(sibling, "plainpw123") || !strings.Contains(sibling, `"name":"db"`) {
+		t.Errorf("a credential-shaped sibling of a declared secret: %s", sibling)
+	}
+	result := write(ExternalConnectorOperationResult{Connector: "p", Operation: "o", Data: map[string]any{
+		"secrets": []map[string]any{{"name": "ghp_tokenShaped123456"}}}})
+	if strings.Contains(result, "ghp_tokenShaped123456") {
+		t.Errorf("a secrets list in an operation's result was exempt: %s", result)
+	}
+}
+
+// A secret a connector resolves per resource (ssh's key, read as
+// ssh/<resource-id>/key) is not offered by the editor, and provider_save
+// refuses it with the command that does set it: saved as ssh/key, nothing
+// would read it.
+func TestPerResourceSecretsAreNotEditable(t *testing.T) {
+	defs := []contract.Definition{sshconn.Definition(), {ID: "cloudflare", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{{Name: "api_token"}}}}}
+	catalog := CredentialCatalog(defs)
+	if len(catalog) != 1 || catalog[0].ID != "cloudflare" {
+		t.Fatalf("catalog = %+v, want cloudflare alone", catalog)
+	}
+	registry := connector.NewRegistry()
+	for _, def := range defs {
+		registry.RegisterDefinition(def)
+	}
+	withPDP(t, constantPDP{decision: policy.Allow})
+	store := &consoleSecrets{values: map[string]string{}}
+	sink := audit.NewMemory()
+	client := NewInProcessClient(WithConfigPath(filepath.Join(t.TempDir(), "config.yaml")), WithConsoleSecretStore(store),
+		WithExternalConnectorService(NewExternalConnectorService(sink, registry)))
+	_, err := client.ConsoleWrite(context.Background(), ConsoleWriteRequest{Operation: ConsoleProviderSave, ID: "ssh", Secrets: map[string]string{"key": "/Users/me/.ssh/id_ed25519"}})
+	var input ConsoleWriteInputError
+	if !errors.As(err, &input) || !strings.Contains(err.Error(), "cerberus secrets set ssh/<resource-id>/key") || len(store.values) != 0 {
+		t.Fatalf("err %v, store %v", err, store.values)
+	}
+	if got := redact.ErrorText(err); got != err.Error() {
+		t.Fatalf("redaction rewrote the refusal: %q", got)
 	}
 }

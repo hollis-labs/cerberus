@@ -74,6 +74,10 @@ export function CredentialsPage() {
 
         <SettingsPanel title="Credentials" icon={<KeyRound className="h-4 w-4" />} className="border-b-0">
           <div className="px-4 py-3">
+            <div className="mb-3 text-xs text-text-soft">
+              A secret a connector reads per resource, such as ssh's key, is not listed here. Set it with{' '}
+              <code>cerberus secrets set &lt;connector&gt;/&lt;resource-id&gt;/&lt;name&gt;</code>.
+            </div>
             {providers.length === 0 ? (
               <div className="text-sm text-text-soft">No installed connector declares a credential.</div>
             ) : (
@@ -92,7 +96,9 @@ export function CredentialsPage() {
                         <label key={secret.name} className="block">
                           <div className="mb-1 flex items-center justify-between gap-3 text-xs uppercase tracking-wide text-text-subtle">
                             <span>{secret.name}{secret.required ? ' (required)' : ''}</span>
-                            <Pill tone={secret.present ? 'success' : 'warning'}>{secret.present ? 'Stored' : 'Missing'}</Pill>
+                            <Pill tone={secret.present ? 'success' : 'warning'}>
+                              {secret.stored === 'reference' ? 'Stored (reference)' : secret.present ? 'Stored' : 'Missing'}
+                            </Pill>
                           </div>
                           <Input
                             type={secret.kind === 'credential' ? 'password' : 'text'}

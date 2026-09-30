@@ -426,6 +426,9 @@ export interface CredentialSecret {
   required?: boolean
   kind: 'credential' | 'name' | 'path' | string
   present: boolean
+  // Where the value stands, found without resolving it: a reference is
+  // resolved only on use, never to draw the page.
+  stored: 'missing' | 'stored' | 'reference' | string
 }
 
 export interface CredentialProvider {

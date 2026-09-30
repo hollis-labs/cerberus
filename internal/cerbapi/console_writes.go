@@ -341,6 +341,19 @@ func (w *consoleWriteCall) checkProviderSave() error {
 	if w.declared != nil {
 		defs = w.declared()
 	}
+	// A secret resolved per resource is read as <id>/<resource-id>/<name>,
+	// so saving it connector-wide would store it where nothing reads it.
+	perResource := perResourceSecretNames(defs, id)
+	for key := range w.req.Secrets {
+		if perResource[key] {
+			return consoleGuidance("connector %q reads %s per resource, as %s/<resource-id>/%s, which the console cannot set; run `cerberus secrets set %s/<resource-id>/%s`", id, key, id, key, id, key)
+		}
+	}
+	for _, key := range w.req.ClearSecrets {
+		if perResource[key] {
+			return consoleGuidance("connector %q reads %s per resource, as %s/<resource-id>/%s, which the console cannot clear", id, key, id, key)
+		}
+	}
 	names, ok := declaredSecretNames(defs, id)
 	if !ok {
 		return consoleGuidance("no installed connector %q declares a credential, so there is nothing to save for it; install the plugin first", id)

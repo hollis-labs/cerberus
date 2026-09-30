@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/infra"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 )
 
 // The console sends acknowledged only from its confirm step. A resource
@@ -158,13 +160,13 @@ func TestCredentialEditorListsDeclaredSecrets(t *testing.T) {
 	}
 	want := credentialsResponse{Providers: []credentialProviderDTO{
 		{ID: "cloudflare", Version: "0.2.0", Secrets: []credentialSecretDTO{
-			{Name: "api_token", Description: "Cloudflare API token.", Env: "CERBERUS_CLOUDFLARE_API_TOKEN", Required: true, Kind: "credential", Present: true},
+			{Name: "api_token", Description: "Cloudflare API token.", Env: "CERBERUS_CLOUDFLARE_API_TOKEN", Required: true, Kind: "credential", Present: true, Stored: "stored"},
 		}},
 		{ID: "namecheap", Version: "0.2.1", Secrets: []credentialSecretDTO{
-			{Name: "api_user", Description: "Namecheap API user.", Kind: "name"},
-			{Name: "api_key", Description: "Namecheap API key.", Kind: "credential"},
-			{Name: "username", Description: "Namecheap username.", Kind: "name"},
-			{Name: "client_ip", Description: "The address on the account's API allow-list.", Kind: "name"},
+			{Name: "api_user", Description: "Namecheap API user.", Kind: "name", Stored: "missing"},
+			{Name: "api_key", Description: "Namecheap API key.", Kind: "credential", Stored: "missing"},
+			{Name: "username", Description: "Namecheap username.", Kind: "name", Stored: "missing"},
+			{Name: "client_ip", Description: "The address on the account's API allow-list.", Kind: "name", Stored: "missing"},
 		}},
 	}}
 	if !reflect.DeepEqual(resp, want) {
@@ -187,6 +189,41 @@ func TestAMutationRetryNamesItsApproval(t *testing.T) {
 		}
 		if got := cerbapi.ApplyMutationOptions(opts); got.ApprovalID != want || !got.Acknowledged {
 			t.Fatalf("%s: %+v", body, got)
+		}
+	}
+}
+
+// referenceOnly is a reader whose secret is a reference: presence says so,
+// and resolving it fails the test.
+type referenceOnly struct{ t *testing.T }
+
+func (r referenceOnly) Get(context.Context, string, string) (string, error) {
+	r.t.Error("the credential editor resolved a secret to draw the page")
+	return "", nil
+}
+func (referenceOnly) Presence(context.Context, string, string) (secrets.Presence, error) {
+	return secrets.PresenceReference, nil
+}
+
+// The editor reports a reference as one, and does not resolve it: a vault
+// is not called on a page view.
+func TestCredentialEditorNeverResolvesAReference(t *testing.T) {
+	srv, err := New(&fakeClient{connectors: credentialFixtures()}, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), referenceOnly{t}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := signedIn(t, srv, testGuard())
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/credentials", nil))
+	var resp credentialsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Providers) == 0 {
+		t.Fatalf("credentials: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, p := range resp.Providers {
+		for _, s := range p.Secrets {
+			if s.Stored != "reference" || !s.Present {
+				t.Errorf("%s/%s = %+v, want a present reference", p.ID, s.Name, s)
+			}
 		}
 	}
 }

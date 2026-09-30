@@ -248,7 +248,11 @@ swaps. A connector's credentials are bound by keyed digest and travel only to
 the daemon, over its socket. The daemon writes only a secret the connector
 declares (a built-in's definition, an installed plugin's manifest), under
 that connector's id, and refuses any other id or key before anything is
-stored.
+stored. A secret a connector reads per resource (ssh's key, as
+`ssh/<resource-id>/key`) is not offered and is refused, with the
+`cerberus secrets set` command that does set it. The page reports whether each
+secret is stored, stored as a reference, or missing, without resolving any
+reference.
 
 A profile write is labeled by the profile. A save that changes a profile's
 labels is labeled by neither the old nor the new ones: relabeling is what

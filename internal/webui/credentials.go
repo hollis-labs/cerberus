@@ -8,6 +8,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 )
 
 // credentialsResponse is the credential editor: every connector that
@@ -33,7 +34,12 @@ type credentialSecretDTO struct {
 	Env         string `json:"env,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 	Kind        string `json:"kind"`
-	Present     bool   `json:"present"`
+	// Present is Stored other than "missing".
+	Present bool `json:"present"`
+	// Stored is "missing", "stored" (a value in the environment or the
+	// keychain) or "reference" (a reference resolved only on use). It is
+	// found without resolving anything: no vault is called to draw the page.
+	Stored string `json:"stored"`
 }
 
 type credentialSaveRequest struct {
@@ -55,19 +61,38 @@ func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
 	for _, provider := range cerbapi.CredentialCatalog(defs) {
 		dto := credentialProviderDTO{ID: provider.ID, Version: provider.Version, Secrets: make([]credentialSecretDTO, 0, len(provider.Secrets))}
 		for _, secret := range provider.Secrets {
-			present := false
-			if s.secrets != nil {
-				value, _ := s.secrets.Get(r.Context(), provider.ID, secret.Name)
-				present = strings.TrimSpace(value) != ""
-			}
+			stored := s.presence(r.Context(), provider.ID, secret.Name)
 			dto.Secrets = append(dto.Secrets, credentialSecretDTO{
 				Name: secret.Name, Description: secret.Description, Env: secret.Env,
-				Required: secret.Required, Kind: string(secret.Kind), Present: present,
+				Required: secret.Required, Kind: string(secret.Kind),
+				Present: stored != secrets.PresenceMissing, Stored: string(stored),
 			})
 		}
 		resp.Providers = append(resp.Providers, dto)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// presence is whether a declared secret has a value, without resolving it.
+// The console's reader is the reference chain, which answers that directly; a
+// reader with no chain of its own (a test store) is read, which resolves
+// nothing.
+func (s *Server) presence(ctx context.Context, service, key string) secrets.Presence {
+	if s.secrets == nil {
+		return secrets.PresenceMissing
+	}
+	if r, ok := s.secrets.(secrets.PresenceReader); ok {
+		p, err := r.Presence(ctx, service, key)
+		if err != nil {
+			return secrets.PresenceMissing
+		}
+		return p
+	}
+	value, err := s.secrets.Get(ctx, service, key)
+	if err != nil || strings.TrimSpace(value) == "" {
+		return secrets.PresenceMissing
+	}
+	return secrets.PresenceStored
 }
 
 // handleCredentialByID saves a connector's credentials: POST
