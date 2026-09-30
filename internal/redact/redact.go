@@ -410,12 +410,33 @@ func Launchd(value string) string {
 // Schema metadata is traversed as metadata, not as credential assignments.
 func Marshal(value any) ([]byte, error) { return (Redactor{}).Marshal(value) }
 func (r Redactor) Marshal(value any) ([]byte, error) {
+	if declared, ok := value.(DeclaredSchema); ok {
+		data, err := json.Marshal(declared.Value)
+		if err != nil {
+			return nil, err
+		}
+		return r.walkJSON(data, r.walkRoot)
+	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
 	return r.JSON(data)
 }
+
+// DeclaredSchema marks a response whose schema is Cerberus's own and proves
+// its declared-secrets lists hold requirements, never values: connector
+// definitions (a list, as /connectors answers, or one, as connector_describe
+// does) and the console's credential editor. Only a handler that builds such
+// a response wraps it, and only then does Marshal exempt those lists' names
+// (walkRoot). JSON and a plain Marshal never do, whatever the payload looks
+// like: a plugin or vendor result shaped like a definition is not one.
+//
+// It encodes as Value, so the wire shape is unchanged.
+type DeclaredSchema struct{ Value any }
+
+// MarshalJSON encodes the wrapped value unchanged.
+func (d DeclaredSchema) MarshalJSON() ([]byte, error) { return json.Marshal(d.Value) }
 func MarshalIndent(value any, prefix, indent string) ([]byte, error) {
 	return (Redactor{}).MarshalIndent(value, prefix, indent)
 }
@@ -432,13 +453,17 @@ func (r Redactor) MarshalIndent(value any, prefix, indent string) ([]byte, error
 }
 func JSON(data []byte) ([]byte, error) { return (Redactor{}).JSON(data) }
 func (r Redactor) JSON(data []byte) ([]byte, error) {
+	return r.walkJSON(data, func(value any) any { return r.walk(value, false, false) })
+}
+
+func (r Redactor) walkJSON(data []byte, walk func(any) any) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
 		return nil, err
 	}
-	return json.Marshal(r.walkRoot(value))
+	return json.Marshal(walk(value))
 }
 func (r Redactor) walk(value any, hide, schema bool) any {
 	switch v := value.(type) {
@@ -503,13 +528,12 @@ func (r Redactor) walkEntry(key string, item any, hide, schema bool) any {
 	return r.walk(item, hide || (SensitiveKey(key) && !NamesOnlyKey(key)), schema || strings.HasSuffix(key, "_schema"))
 }
 
-// walkRoot walks a whole response. A declared-secrets list is exempt from
-// its key's hiding only where the response's schema is Cerberus's own and
-// proves the list holds requirements, never values: a connector definition
-// (a list of them, as /connectors answers, or one, as connector_describe
-// does) and its config.secrets, and the console's credential editor
-// (providers[].secrets). Anchored at the root, so a "secrets" key inside an
-// operation's result, a plugin's or a vendor's, gets the ordinary walk.
+// walkRoot walks a response a handler declared as Cerberus's own schema
+// (DeclaredSchema). A declared-secrets list is exempt from its key's hiding
+// there: a connector definition's config.secrets (a list of definitions, or
+// one) and the credential editor's providers[].secrets. Anchored at the
+// root, so a "secrets" key deeper in it gets the ordinary walk. It is never
+// reached from JSON or a plain Marshal.
 func (r Redactor) walkRoot(value any) any {
 	switch v := value.(type) {
 	case []any:

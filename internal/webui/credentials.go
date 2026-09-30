@@ -70,7 +70,9 @@ func (s *Server) handleCredentials(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Providers = append(resp.Providers, dto)
 	}
-	writeJSON(w, http.StatusOK, resp)
+	// The editor's response is Cerberus's own schema: its declared
+	// secrets' names are names (redact.DeclaredSchema).
+	writeJSON(w, http.StatusOK, redact.DeclaredSchema{Value: resp})
 }
 
 // presence is whether a declared secret has a value, without resolving it.

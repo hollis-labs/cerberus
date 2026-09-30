@@ -270,7 +270,17 @@ func TestTypeNamePrefixExemptionStillRedacts(t *testing.T) {
 // credential-shaped key is.
 func TestDeclaredSecretRequirementsKeepTheirNames(t *testing.T) {
 	r := FromEnv([]string{"API_KEY=known-value-sentinel-77"})
-	walk := func(t *testing.T, in string) string {
+	// declared is how the three handlers render: wrapped. plain is how
+	// every other edge does, operation data included.
+	declared := func(t *testing.T, in string) string {
+		t.Helper()
+		out, err := r.Marshal(DeclaredSchema{Value: json.RawMessage(in)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	plain := func(t *testing.T, in string) string {
 		t.Helper()
 		out, err := r.JSON([]byte(in))
 		if err != nil {
@@ -292,7 +302,7 @@ func TestDeclaredSecretRequirementsKeepTheirNames(t *testing.T) {
 	}
 	for name, in := range exempt {
 		t.Run(name, func(t *testing.T) {
-			got := walk(t, in)
+			got := declared(t, in)
 			for _, want := range []string{`"name":"token"`, `"env":"CERBERUS_X_TOKEN"`, `"name":"api_user"`, `"kind":"name"`, `"name":"db"`, `"name":"withvalue"`} {
 				if !strings.Contains(got, want) {
 					t.Errorf("lost %s: %s", want, got)
@@ -317,8 +327,21 @@ func TestDeclaredSecretRequirementsKeepTheirNames(t *testing.T) {
 	}
 	for name, in := range hidden {
 		t.Run(name, func(t *testing.T) {
-			if got := walk(t, in); strings.Contains(got, "ghp_tokenShaped123456") {
+			if got := declared(t, in); strings.Contains(got, "ghp_tokenShaped123456") {
 				t.Errorf("a secrets entry outside Cerberus's own schema was exempt: %s", got)
+			}
+		})
+	}
+	// The exempt shapes themselves, rendered without the wrapper — as an
+	// operation's data is, whoever shaped it — are hidden as on main: the
+	// exemption is the handler's declaration, never the payload's shape.
+	for name, in := range exempt {
+		t.Run("undeclared "+name, func(t *testing.T) {
+			got := plain(t, in)
+			for _, leaked := range []string{`"name":"token"`, "CERBERUS_X_TOKEN", `"name":"api_user"`, `"name":"withvalue"`} {
+				if strings.Contains(got, leaked) {
+					t.Errorf("%s survived without the declaration: %s", leaked, got)
+				}
 			}
 		})
 	}

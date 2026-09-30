@@ -19,3 +19,24 @@ func TestMCPResultsRedactDiagnosticSecrets(t *testing.T) {
 		t.Fatal("connector logs leaked")
 	}
 }
+
+// An operation's result reaches the model through marshalConnectorData, and
+// never gets the declared-schema exemption, however it is shaped: a plugin
+// result built to look like the credential editor's DTO, or a definition,
+// comes out with its names and envs hidden, as on main.
+func TestConnectorDataShapedLikeOurSchemaIsNotExempt(t *testing.T) {
+	const name, env = "ghp_nameShapedToken12345", "VENDOR_ENV_SHAPED_TOKEN_67890"
+	for label, data := range map[string]any{
+		"credentials DTO": map[string]any{"providers": []any{map[string]any{"id": "x", "secrets": []any{map[string]any{"name": name, "env": env}}}}},
+		"definition":      map[string]any{"id": "x", "operations": []any{}, "config": map[string]any{"secrets": []any{map[string]any{"name": name, "env": env}}}},
+		"definition list": []any{map[string]any{"id": "x", "operations": []any{}, "config": map[string]any{"secrets": []any{map[string]any{"name": name, "env": env}}}}},
+	} {
+		out, err := marshalConnectorData(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out, name) || strings.Contains(out, env) {
+			t.Errorf("%s: operation data got the exemption: %s", label, out)
+		}
+	}
+}

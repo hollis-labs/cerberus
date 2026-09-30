@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -120,11 +121,11 @@ func TestDeclaredSecretNamesAreExemptAndValuesAreNot(t *testing.T) {
 		writeJSON(w, http.StatusOK, body)
 		return rec.Body.String()
 	}
-	body := write([]contract.Definition{{ID: "leaky", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{
+	body := write(redact.DeclaredSchema{Value: []contract.Definition{{ID: "leaky", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{
 		{Name: "token", Env: "CERBERUS_LEAKY_TOKEN"},
 		{Name: "api_user", Kind: contract.SecretKindName},
 		{Name: resolved},
-	}}}})
+	}}}}})
 	for _, want := range []string{`"name":"token"`, `"env":"CERBERUS_LEAKY_TOKEN"`, `"name":"api_user"`, `"kind":"name"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("a declared name was redacted; want %s in\n%s", want, body)
@@ -133,8 +134,8 @@ func TestDeclaredSecretNamesAreExemptAndValuesAreNot(t *testing.T) {
 	if strings.Contains(body, resolved) {
 		t.Errorf("a resolved credential reached the response:\n%s", body)
 	}
-	sibling := write([]map[string]any{{"id": "x", "operations": []any{}, "config": map[string]any{
-		"secrets": []map[string]any{{"name": "db", "description": "d", "password": "plainpw123"}}}}})
+	sibling := write(redact.DeclaredSchema{Value: []map[string]any{{"id": "x", "operations": []any{}, "config": map[string]any{
+		"secrets": []map[string]any{{"name": "db", "description": "d", "password": "plainpw123"}}}}}})
 	if strings.Contains(sibling, "plainpw123") || !strings.Contains(sibling, `"name":"db"`) {
 		t.Errorf("a credential-shaped sibling of a declared secret: %s", sibling)
 	}
@@ -171,5 +172,30 @@ func TestPerResourceSecretsAreNotEditable(t *testing.T) {
 	}
 	if got := redact.ErrorText(err); got != err.Error() {
 		t.Fatalf("redaction rewrote the refusal: %q", got)
+	}
+}
+
+// Operation data never gets the declared-schema exemption, however it is
+// shaped: a plugin result built to look like the credential editor's DTO, or
+// like a definition, renders through the in-process lane with its names and
+// envs hidden, as on main.
+func TestOperationDataShapedLikeOurSchemaIsNotExempt(t *testing.T) {
+	const name, env = "ghp_nameShapedToken12345", "VENDOR_ENV_SHAPED_TOKEN_67890"
+	for label, data := range map[string]any{
+		"credentials DTO": map[string]any{"providers": []any{map[string]any{"id": "x", "secrets": []any{map[string]any{"name": name, "env": env}}}}},
+		"definition":      map[string]any{"id": "x", "operations": []any{}, "config": map[string]any{"secrets": []any{map[string]any{"name": name, "env": env}}}},
+	} {
+		t.Run(label, func(t *testing.T) {
+			ctx, _ := redact.EnsureScope(context.Background())
+			out, err := RenderInProcessResult(ctx, ExternalConnectorOperationArgs{Connector: "leaky", Operation: "list_things"},
+				ExternalConnectorOperationResult{Connector: "leaky", Operation: "list_things", Data: data})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, _ := json.Marshal(out.Data)
+			if strings.Contains(string(rendered), name) || strings.Contains(string(rendered), env) {
+				t.Fatalf("operation data got the exemption: %s", rendered)
+			}
+		})
 	}
 }

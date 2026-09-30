@@ -18,6 +18,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/redact"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -683,7 +684,9 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []contract.Definition{}
 	}
-	writeJSON(w, http.StatusOK, list)
+	// Definitions are Cerberus's own schema: their declared secrets' names
+	// are names (redact.DeclaredSchema).
+	writeJSON(w, http.StatusOK, redact.DeclaredSchema{Value: list})
 }
 
 func (s *Server) handleConnectorByID(w http.ResponseWriter, r *http.Request) {
