@@ -90,12 +90,15 @@ MIT licensed. Published by Hollis Labs.`,
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		cmd.SetContext(cerbapi.WithPrincipal(ctx, cerbapi.DetectCLI().Principal))
+		cmd.SetContext(cerbapi.WithPrincipal(ctx, detectCLI().Principal))
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
 }
+
+// detectCLI classifies this process; tests swap it for a terminal.
+var detectCLI = cerbapi.DetectCLI
 
 func init() {
 	rootCmd.SetVersionTemplate(fmt.Sprintf("cerberus %s (commit %s, built %s)\nCerberus by Hollis Labs\nMIT licensed\n", version, commit, buildDate))

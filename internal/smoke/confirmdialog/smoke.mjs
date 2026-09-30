@@ -202,6 +202,35 @@ try {
   const used = await evaluate(`fetch('/api/approvals').then(r => r.json()).then(j => (j.approvals || []).find(a => a.id === '${liftID}'))`)
   check('lockdown: Lift now lifts it, spending the approval', !after.state?.lockdown && used?.status === 'consumed' && !(await evaluate(`!!document.querySelector('[data-testid=brakes-banner]')`)),
     JSON.stringify([after.state, used?.status]))
+
+  // 6. The circuit breaker (§12, P5-c): an agent denied twice is
+  //    suspended, the console shows it, and a person resets it by typing
+  //    the phrase.
+  const denied1 = await (await fetch('http://127.0.0.1:4798/agent-stop')).json()
+  const denied2 = await (await fetch('http://127.0.0.1:4798/agent-stop')).json()
+  const suspended = await (await fetch('http://127.0.0.1:4798/agent-stop')).json()
+  check('breaker: two real denials, then the session is suspended, naming the reset',
+    /policy_denied/.test(denied1.error || '') && /policy_denied/.test(denied2.error || '') && /session_suspended/.test(suspended.error || '') && /cerberus breaker reset sus_/.test(suspended.error || ''),
+    (suspended.error || '').slice(0, 160))
+  await go('http://localhost:4799/')
+  await waitFor(`!!document.querySelector('[data-testid^=suspension-]')`, 'suspension banner')
+  const susLine = await evaluate(`document.querySelector('[data-testid^=suspension-]').textContent`)
+  check('breaker: the console banner shows the suspended session', /SUSPENDED/.test(susLine) && /agent over mcp_stdio/.test(susLine) && /2 policy denials/.test(susLine), susLine.slice(0, 120))
+  const susID = await evaluate(`document.querySelector('[data-testid^=suspension-]').dataset.testid.replace('suspension-', '')`)
+  await evaluate(`(document.querySelector('[data-testid=reset-${susID}]').click(), true)`)
+  await waitFor(`!!document.querySelector('[data-testid=reset-typed]')`, 'reset dialog')
+  await evaluate(`(__type(document.querySelector('[data-testid=reset-typed]'), 'reset'), true)`)
+  await sleep(100)
+  await evaluate(`(__btn(__top(), 'Reset').click(), true)`)
+  await sleep(700)
+  check('breaker: a wrong phrase resets nothing', await evaluate(`!!document.querySelector('[data-testid=suspension-${susID}]') && /reset ${susID}/.test(__top()?.textContent || '')`))
+  await evaluate(`(__type(document.querySelector('[data-testid=reset-typed]'), 'reset ${susID}'), true)`)
+  await sleep(100)
+  await evaluate(`(__btn(__top(), 'Reset').click(), true)`)
+  await sleep(1200); await evaluate(lib)
+  const afterReset = await (await fetch('http://127.0.0.1:4798/agent-stop')).json()
+  check('breaker: the typed phrase resets it, and the agent is back under policy',
+    !(await evaluate(`!!document.querySelector('[data-testid^=suspension-]')`)) && /policy_denied/.test(afterReset.error || ''), (afterReset.error || '').slice(0, 100))
 } catch (e) {
   check('smoke ran to completion', false, e.message)
   const shot = await send('Page.captureScreenshot', { format: 'png' })

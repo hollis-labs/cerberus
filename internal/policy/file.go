@@ -50,6 +50,10 @@ type File struct {
 	// is DefaultBreakGlassPerTarget per DefaultBreakGlassWindow.
 	BreakGlass *BreakGlass `yaml:"break_glass,omitempty"`
 
+	// CircuitBreaker suspends an agent session after repeated real policy
+	// denials (P5-c). Omitted, there is none.
+	CircuitBreaker *CircuitBreaker `yaml:"circuit_breaker,omitempty"`
+
 	// Enforcement is the switch-on (P3-7): what is enforced rather than
 	// recorded in shadow. Omitted, nothing is.
 	Enforcement *Enforcement `yaml:"enforcement,omitempty"`
@@ -276,6 +280,7 @@ func (f File) Validate() []string {
 		problems = append(problems, fmt.Sprintf("posture %q is not secure or permissive", f.Posture))
 	}
 	problems = append(problems, f.BreakGlass.problems()...)
+	problems = append(problems, f.CircuitBreaker.problems()...)
 	problems = append(problems, f.Enforcement.problems()...)
 	for i, r := range f.PostureRules {
 		if r.Posture != PostureSecure && r.Posture != PosturePermissive {
@@ -425,6 +430,11 @@ func Merge(files ...File) File {
 		if f.BreakGlass != nil {
 			bg := *f.BreakGlass
 			out.BreakGlass = &bg
+		}
+		// The circuit breaker: the last file that sets it.
+		if f.CircuitBreaker != nil {
+			cb := *f.CircuitBreaker
+			out.CircuitBreaker = &cb
 		}
 		// Enforcement: the last mode set, and every file's scopes.
 		if f.Enforcement != nil {

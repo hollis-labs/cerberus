@@ -48,7 +48,7 @@ func TestLockdownRefusesAllButReads(t *testing.T) {
 	if _, err := svc.Execute(ctx, ExternalConnectorOperationArgs{Connector: "docker", Operation: "list_containers"}); err != nil || backend.lists != 1 {
 		t.Fatalf("a read under lockdown: %v", err)
 	}
-	if brakeRefusal(auditSpec{connector: "policy", operation: "apply"}, policyTargetFor("x"), false) != nil {
+	if brakeRefusal(context.Background(), auditSpec{connector: "policy", operation: "apply"}, policyTargetFor("x"), false) != nil {
 		t.Fatal("a policy change was braked")
 	}
 	var changed bool

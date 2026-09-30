@@ -332,3 +332,21 @@ func TestPolicyExplainShowsRates(t *testing.T) {
 		t.Fatalf("explain with a rate: %v\n%s", err, out)
 	}
 }
+
+// explain says whether the circuit breaker is on, and at what.
+func TestPolicyExplainShowsTheBreaker(t *testing.T) {
+	store, _ := policyFixture(t, false)
+	if out, err := runPolicy(t, "", "explain", "local.deploy", "--target", "notes-api", "--as", "agent"); err != nil || !strings.Contains(out, "Circuit breaker: off") {
+		t.Fatalf("explain with no breaker: %v\n%s", err, out)
+	}
+	if err := os.MkdirAll(store.Dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "main.yaml"), []byte("version: 1\ncircuit_breaker: {denials: 5, window: 10m}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runPolicy(t, "", "explain", "local.deploy", "--target", "notes-api", "--as", "agent", "--working")
+	if err != nil || !strings.Contains(out, "Circuit breaker: an agent session is suspended after 5 policy denials in 10m0s") {
+		t.Fatalf("explain with a breaker: %v\n%s", err, out)
+	}
+}

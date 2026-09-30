@@ -33,6 +33,7 @@ type brakesClient interface {
 	Brakes(ctx context.Context) (cerbapi.BrakesView, error)
 	EngageBrake(ctx context.Context, args cerbapi.BrakeEngageArgs) (cerbapi.BrakesView, error)
 	LiftBrake(ctx context.Context, freezeID string, args cerbapi.BrakeLiftArgs) (cerbapi.BrakesView, error)
+	ResetSuspension(ctx context.Context, id string, args cerbapi.BrakeResetArgs) (cerbapi.BrakesView, error)
 }
 
 var newBrakesClient = func() (brakesClient, error) { return newResourceSocketClient() }

@@ -39,9 +39,19 @@ func (enforceAll) Enforced(policy.Request) bool { return true }
 type approveAll struct{}
 
 func (approveAll) GlobalPosture() string { return policy.PostureSecure }
-func (approveAll) Authorize(policy.Request) policy.Result {
+func (approveAll) Authorize(req policy.Request) policy.Result {
+	if req.Principal.Kind == "agent" {
+		// An agent is denied, for the circuit breaker's flow (P5-c).
+		return policy.Result{Decision: policy.Deny, WouldBlock: true, Snapshot: "smoke",
+			Matched: []policy.Match{{Rule: "smoke.no-agents", Decision: policy.Deny, Reason: "the smoke denies agents"}}}
+	}
 	return policy.Result{Decision: policy.Approve, WouldBlock: true, Snapshot: "smoke",
 		Matched: []policy.Match{{Rule: "smoke.confirm", Decision: policy.Approve, Reason: "the smoke asks for a confirmation"}}}
+}
+
+// File carries the circuit breaker: two real denials in ten minutes.
+func (approveAll) File() policy.File {
+	return policy.File{Version: policy.FileVersion, CircuitBreaker: &policy.CircuitBreaker{Denials: 2, Window: 10 * time.Minute}}
 }
 
 type noSecrets struct{}
@@ -173,6 +183,19 @@ resources:
 		_ = json.NewEncoder(w).Encode(result)
 	}
 	ctl.HandleFunc("/break-glass", breakGlass)
+	// An agent's stop, which policy denies: twice trips the breaker.
+	agent := cerbapi.NewSocketClient(sock, cerbapi.WithPrincipalClaim(func(context.Context) cerbapi.Principal {
+		return cerbapi.Principal{Kind: cerbapi.PrincipalAgent, Via: cerbapi.ViaMCPStdio, Client: "smoke-agent", Session: "smoke-1"}
+	}))
+	ctl.HandleFunc("/agent-stop", func(w http.ResponseWriter, r *http.Request) {
+		_, err := agent.StopResource(r.Context(), "web", cerbapi.WithAcknowledged(true))
+		result := map[string]any{}
+		if err != nil {
+			result["error"] = err.Error()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	})
 	// A person's stop from the CLI, which a lockdown refuses.
 	ctl.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
 		_, err := cli.StopResource(r.Context(), "web", cerbapi.WithAcknowledged(true))

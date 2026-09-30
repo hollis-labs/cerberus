@@ -91,7 +91,7 @@ func Unbraked(connector string) bool { return unbraked[connector] }
 
 // brakeRefusal is the brakes' refusal of a call, or nil. A dry run or a
 // plan request runs nothing and passes.
-func brakeRefusal(spec auditSpec, resolved target.Target, dryRun bool) error {
+func brakeRefusal(ctx context.Context, spec auditSpec, resolved target.Target, dryRun bool) error {
 	b := ProcessBrakes()
 	if b == nil || unbraked[spec.connector] || dryRun || spec.planOnly {
 		return nil
@@ -99,6 +99,9 @@ func brakeRefusal(spec auditSpec, resolved target.Target, dryRun bool) error {
 	effect := spec.op.Effect
 	if !spec.known {
 		effect = contract.EffectExec
+	}
+	if refusal := suspensionRefusal(ctx, spec, effect, dryRun); refusal != nil {
+		return refusal
 	}
 	blocked, lockdown, freeze := b.Current().Blocks(spec.connector, effect, resolved)
 	if !blocked {
@@ -343,8 +346,15 @@ func (s *SocketServer) handleBrakes(w http.ResponseWriter, r *http.Request) {
 		} else {
 			st, err = LiftFreeze(r.Context(), b.Sink, b.Store, strings.TrimSuffix(strings.TrimPrefix(rest, "freeze/"), "/lift"), args.ApprovalID)
 		}
+	case strings.HasPrefix(rest, "suspensions/") && strings.HasSuffix(rest, "/reset"):
+		var args BrakeResetArgs
+		if err = decodeJSONBody(r, &args); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		st, err = ResetSuspension(r.Context(), b.Sink, b.Store, strings.TrimSuffix(strings.TrimPrefix(rest, "suspensions/"), "/reset"), args.Typed)
 	default:
-		writeJSONError(w, http.StatusNotFound, "expected /brakes, /brakes/lockdown[/lift] or /brakes/freeze[/{id}/lift]")
+		writeJSONError(w, http.StatusNotFound, "expected /brakes, /brakes/lockdown[/lift], /brakes/freeze[/{id}/lift] or /brakes/suspensions/{id}/reset")
 		return
 	}
 	if errors.Is(err, brake.ErrNotEngaged) {

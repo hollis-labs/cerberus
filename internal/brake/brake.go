@@ -40,6 +40,8 @@ const (
 	EventLockdownLifted  = "lockdown_lifted"
 	EventFreezeEngaged   = "freeze_engaged"
 	EventFreezeLifted    = "freeze_lifted"
+	EventSuspended       = "session_suspended"
+	EventSuspensionReset = "session_reset"
 )
 
 // Lockdown is the whole Cerberus read-only.
@@ -69,10 +71,44 @@ func (f Freeze) MarshalJSON() ([]byte, error) {
 	}{plain(f), f.Match.String()})
 }
 
+// Suspension is one caller the circuit breaker stopped (P5-c): too many
+// real policy denials in its window. It stays until a person resets it.
+type Suspension struct {
+	ID string `json:"id"`
+	// Key is the caller, as the gate counts it: kind, via and session, or
+	// client and uid where there is no session.
+	Key       string          `json:"key"`
+	Principal audit.Principal `json:"principal"`
+	TrippedAt time.Time       `json:"tripped_at"`
+	Denials   int             `json:"denials"`
+	Window    string          `json:"window"`
+}
+
 // State is what is braked.
 type State struct {
-	Lockdown *Lockdown `json:"lockdown,omitempty"`
-	Freezes  []Freeze  `json:"freezes,omitempty"`
+	Lockdown    *Lockdown    `json:"lockdown,omitempty"`
+	Freezes     []Freeze     `json:"freezes,omitempty"`
+	Suspensions []Suspension `json:"suspensions,omitempty"`
+}
+
+// SuspensionFor is the suspension of the caller with key, if any.
+func (s State) SuspensionFor(key string) (Suspension, bool) {
+	for _, x := range s.Suspensions {
+		if x.Key == key {
+			return x, true
+		}
+	}
+	return Suspension{}, false
+}
+
+// Suspension is the suspension with id.
+func (s State) Suspension(id string) (Suspension, bool) {
+	for _, x := range s.Suspensions {
+		if x.ID == id {
+			return x, true
+		}
+	}
+	return Suspension{}, false
 }
 
 // Engaged reports whether anything is braked.
@@ -131,6 +167,14 @@ func Effective(store, recorded State) State {
 			}
 		}
 	}
+	for _, list := range [][]Suspension{store.Suspensions, recorded.Suspensions} {
+		for _, x := range list {
+			if !seen[x.ID] {
+				seen[x.ID] = true
+				out.Suspensions = append(out.Suspensions, x)
+			}
+		}
+	}
 	return out
 }
 
@@ -159,14 +203,16 @@ func Recorded(auditDir string) (State, bool) {
 
 // Event is one line of the store.
 type Event struct {
-	V        int              `json:"v"`
-	Seq      uint64           `json:"seq"`
-	Time     time.Time        `json:"time"`
-	Type     string           `json:"type"`
-	Lockdown *Lockdown        `json:"lockdown,omitempty"`
-	Freeze   *Freeze          `json:"freeze,omitempty"`
-	ID       string           `json:"id,omitempty"`
-	By       *audit.Principal `json:"by,omitempty"`
+	V        int       `json:"v"`
+	Seq      uint64    `json:"seq"`
+	Time     time.Time `json:"time"`
+	Type     string    `json:"type"`
+	Lockdown *Lockdown `json:"lockdown,omitempty"`
+	Freeze   *Freeze   `json:"freeze,omitempty"`
+	// Suspension is a session_suspended event's caller.
+	Suspension *Suspension      `json:"suspension,omitempty"`
+	ID         string           `json:"id,omitempty"`
+	By         *audit.Principal `json:"by,omitempty"`
 	// Proof is how a lift was authorized: "passkey:<approval id>", or
 	// "tty" where no passkey is enrolled.
 	Proof    string `json:"proof,omitempty"`
@@ -250,6 +296,19 @@ func apply(st *State, ev Event) {
 		for i, f := range st.Freezes {
 			if f.ID == ev.ID {
 				st.Freezes = append(st.Freezes[:i], st.Freezes[i+1:]...)
+				break
+			}
+		}
+	case EventSuspended:
+		if ev.Suspension != nil {
+			if _, ok := st.SuspensionFor(ev.Suspension.Key); !ok {
+				st.Suspensions = append(st.Suspensions, *ev.Suspension)
+			}
+		}
+	case EventSuspensionReset:
+		for i, x := range st.Suspensions {
+			if x.ID == ev.ID {
+				st.Suspensions = append(st.Suspensions[:i], st.Suspensions[i+1:]...)
 				break
 			}
 		}
@@ -365,4 +424,31 @@ func newID(prefix string) string {
 	var b [6]byte
 	_, _ = rand.Read(b[:])
 	return prefix + "_" + hex.EncodeToString(b[:])
+}
+
+// Suspend suspends the caller with key, or returns its suspension if it is
+// already suspended.
+func (s Store) Suspend(key string, p audit.Principal, denials int, window string) (State, Suspension, error) {
+	x := Suspension{ID: newID("sus"), Key: key, Principal: p, TrippedAt: s.now(), Denials: denials, Window: window}
+	st, err := s.append(Event{Type: EventSuspended, Suspension: &x}, func(cur State) error {
+		if prev, ok := cur.SuspensionFor(key); ok {
+			x = prev
+			return errAlready
+		}
+		return nil
+	})
+	if errors.Is(err, errAlready) {
+		return st, x, nil
+	}
+	return st, x, err
+}
+
+// ResetSuspension ends the suspension with id.
+func (s Store) ResetSuspension(id string, by audit.Principal) (State, error) {
+	return s.append(Event{Type: EventSuspensionReset, ID: id, By: &by}, func(cur State) error {
+		if _, ok := cur.Suspension(id); !ok {
+			return ErrNotEngaged
+		}
+		return nil
+	})
 }
