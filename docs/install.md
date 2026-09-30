@@ -10,7 +10,7 @@ install, and a `$GOPATH/bin` install all produce the right plist.
 
 - macOS (primary platform; daemon install requires launchd)
 - Linux binaries are published for CLI use; the launchd `install` subcommand is macOS-only
-- If building from source: Go `1.26.3+` and `make`
+- If building from source: Go `1.26.6+` and `make`
 - No separate database; Cerberus uses local SQLite under `~/.cerberus/`
 
 ## Option 1: Homebrew
