@@ -39,6 +39,10 @@ type Review struct {
 	Host            plugin.HostRange       `json:"host"`
 	HostContract    int                    `json:"host_contract"`
 	Gaps            []string               `json:"gaps"`
+	// SecretBackend is the reference scheme the plugin claims, if any.
+	// Omitted when absent, so a review from before backends has the same
+	// digest.
+	SecretBackend *plugin.SecretBackend `json:"secret_backend,omitempty"`
 }
 
 // ReviewOperation is one operation as the host reads it: a missing effect is
@@ -109,8 +113,33 @@ func BuildReview(staged *Staged, source string, origin InstallOrigin) Review {
 	for _, t := range block.Telemetry {
 		r.Telemetry[t.Operation] = sortedCopy(t.Events)
 	}
+	if block.SecretBackend != nil {
+		backend := *block.SecretBackend
+		r.SecretBackend = &backend
+	}
 	r.Gaps = reviewGaps(r, block)
 	return r
+}
+
+// secretBackendNotice is what the review says about a secret backend, in
+// words the operator cannot mistake for a routine connector.
+func secretBackendNotice(r Review) string {
+	b := r.SecretBackend
+	shape := b.Scheme + "://..."
+	if b.Reference != "" {
+		shape = b.Reference
+	}
+	credentials := "none declared"
+	if len(r.Secrets) > 0 {
+		names := make([]string, 0, len(r.Secrets))
+		for _, s := range r.Secrets {
+			names = append(names, r.ID+"/"+s.Name)
+		}
+		credentials = strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("SECRET BACKEND: this plugin will see every secret resolved through %s:// (%s).\n"+
+		"  Its own credentials (%s) come only from the OS credential store or the environment, never from another vault.\n",
+		b.Scheme, shape, credentials)
 }
 
 // reviewGaps names what the declaration leaves out and how the host reads
@@ -189,6 +218,10 @@ func (r Review) Render() string {
 	fmt.Fprintf(&b, "Plugin: %s %s (from %s)%s\n", r.ID, r.Version, r.Source, origin)
 	fmt.Fprintf(&b, "Entrypoint: %s  %s\n", r.Entrypoint, shortDigest(r.EntrypointSHA256))
 	fmt.Fprintf(&b, "Bundle:     %s\n\n", r.BundleDigest)
+	if r.SecretBackend != nil {
+		b.WriteString(secretBackendNotice(r))
+		b.WriteString("\n")
+	}
 
 	fmt.Fprintf(&b, "Operations (%d)\n", len(r.Operations))
 	byEffect := map[contract.Effect][]string{}
@@ -291,6 +324,14 @@ func Diff(accepted, current Review) []string {
 	}
 	if accepted.Origin != current.Origin {
 		change("~ origin %s -> %s", accepted.Origin, current.Origin)
+	}
+	switch old, cur := backendScheme(accepted), backendScheme(current); {
+	case old == "" && cur != "":
+		change("+ secret backend for %s:// (it will see every secret resolved through that scheme)", cur)
+	case old != "" && cur == "":
+		change("- secret backend for %s://", old)
+	case old != cur:
+		change("~ secret backend scheme %s:// -> %s://", old, cur)
 	}
 	oldOps, newOps := opsByName(accepted.Operations), opsByName(current.Operations)
 	for _, name := range unionKeys(oldOps, newOps) {
@@ -442,4 +483,11 @@ func orNone(s string) string {
 		return "none"
 	}
 	return s
+}
+
+func backendScheme(r Review) string {
+	if r.SecretBackend == nil {
+		return ""
+	}
+	return r.SecretBackend.Scheme
 }

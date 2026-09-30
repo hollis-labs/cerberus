@@ -124,6 +124,9 @@ func (b CerberusPluginBlock) validateDeclarations() []string {
 			problems = append(problems, fmt.Sprintf("telemetry for %q names no event kinds", decl.Operation))
 		}
 	}
+	if b.SecretBackend != nil {
+		problems = append(problems, b.SecretBackend.Validate()...)
+	}
 	return problems
 }
 

@@ -116,6 +116,10 @@ type supervision struct {
 	// held are plugins an operator unloaded or removed, which a pending
 	// restart must not bring back.
 	held map[string]bool
+	// pending are plugins in a restart's backoff, stopped and not yet
+	// loaded again, so a caller waiting on one is told to retry, not to
+	// load it.
+	pending map[string]bool
 }
 
 type killable interface{ Kill() }
@@ -230,7 +234,13 @@ func (m *Manager) restart(id, reason string) {
 	recent = append(recent, now)
 	s.restarts[id] = recent
 	attempt := len(recent)
+	s.pending[id] = true
 	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.pending, id)
+		s.mu.Unlock()
+	}()
 
 	m.sleep(m.backoff(attempt))
 	s.mu.Lock()
@@ -245,6 +255,13 @@ func (m *Manager) restart(id, reason string) {
 		return
 	}
 	m.emit(RestartEvent{ID: id, Kind: "restarted", Reason: reason, Attempt: attempt})
+}
+
+// restarting reports whether a restart of id is in its backoff or loading.
+func (m *Manager) restarting(id string) bool {
+	m.sup.mu.Lock()
+	defer m.sup.mu.Unlock()
+	return m.sup.pending[id] && !m.sup.held[id]
 }
 
 func (m *Manager) backoff(attempt int) time.Duration {

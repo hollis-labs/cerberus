@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/secretref"
@@ -21,8 +22,11 @@ type ReferenceProvider struct {
 	resolver *secretref.Resolver
 }
 
-func NewReferenceProvider(base secret.Reader, path string) *ReferenceProvider {
-	return &ReferenceProvider{base: base, path: path, resolver: secretref.NewResolver(base)}
+// NewReferenceProvider resolves through base and the mapping at path. opts
+// configure the reference resolver: WithSchemeRouter to reach secret-backend
+// plugins, or WithoutSchemeRouter for the core chain.
+func NewReferenceProvider(base secret.Reader, path string, opts ...secretref.Option) *ReferenceProvider {
+	return &ReferenceProvider{base: base, path: path, resolver: secretref.NewResolver(base, opts...)}
 }
 
 func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (string, error) {
@@ -41,8 +45,9 @@ func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (strin
 			}
 			for connector, keys := range refs {
 				for name, ref := range keys {
-					if !secretref.IsRef(ref) {
-						return "", fmt.Errorf("connector secret %s/%s must be a keychain:// or helper:// reference; literal credentials are not allowed in %s", connector, name, p.path)
+					if !p.resolver.IsRef(ref) {
+						return "", fmt.Errorf("connector secret %s/%s must be a secret reference (%s://); literal credentials are not allowed in %s",
+							connector, name, strings.Join(secretref.Schemes(), "://, "), p.path)
 					}
 				}
 			}
@@ -56,7 +61,7 @@ func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (strin
 			return "", err
 		}
 	}
-	if secretref.IsRef(value) {
+	if p.resolver.IsRef(value) {
 		return p.resolver.Resolve(ctx, value)
 	}
 	return value, nil

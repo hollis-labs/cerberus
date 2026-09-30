@@ -65,7 +65,11 @@ func runSecrets(ctx context.Context, args []string) error {
 	ctx, cancel := context.WithTimeout(ctx, runSecretsTimeout)
 	defer cancel()
 
-	resolver := secretref.NewResolver(secrets.NewKeychainProvider())
+	// Vault references (op://, keeper://) are not resolved here yet: a
+	// managed service resolves them by loading the backend plugin itself in
+	// a later change. Until then they fail closed, naming what works.
+	resolver := secretref.NewResolver(secrets.NewKeychainProvider(), secretref.WithoutSchemeRouter(
+		"a managed service's environment cannot resolve vault references yet; reference the credential as keyring://<service>/<key> or helper://<helper>/<authority>/<path>"))
 
 	env := environMap()
 	resolved, err := resolver.ResolveEnv(ctx, env)

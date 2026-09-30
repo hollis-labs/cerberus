@@ -168,6 +168,16 @@ func (p *RPCProcess) CallTool(ctx context.Context, req SDKMCPCallRequest) (SDKMC
 	return result, nil
 }
 
+// Command sends a plugin-sdk command/execute. The host sends one command
+// only, a secret backend's resolve (plugin.ResolveCommand).
+func (p *RPCProcess) Command(ctx context.Context, req SDKCommandRequest) (SDKCommandResult, error) {
+	var result SDKCommandResult
+	if err := p.call(ctx, SDKMethodCommandExecute, req, &result); err != nil {
+		return SDKCommandResult{}, err
+	}
+	return result, nil
+}
+
 func (p *RPCProcess) Close() error {
 	if p.closed.Swap(true) {
 		return p.exitError()

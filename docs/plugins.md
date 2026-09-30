@@ -262,6 +262,31 @@ as data and not as instructions.
 - An unknown label is refused at install.
 - A change to an operation's labels shows in an upgrade's review diff.
 
+## Secret backends
+
+A plugin can claim a secret reference scheme:
+
+```yaml
+cerberus:
+  secret_backend:
+    scheme: op
+    reference: "op://<vault>/<item>/<field>"
+```
+
+The host then routes `op://` references to it. It sends them as a plugin-sdk
+`command/execute` named `cerberus.secret/resolve`, with `{"ref": "..."}` as the
+argument.
+- **A success** is action `message` with the value as the content.
+- **A failure** is action `error` with a coded payload (the `cerberus_error`
+  object a coded tool error carries).
+
+The command is not a manifest operation, so it never becomes a CLI command, an
+API operation or an MCP tool.
+
+The review shows the claim first, as a plugin that will see every secret
+resolved through that scheme. A backend's own declared secrets resolve through
+the core chain only, never through another backend. See `docs/secrets.md`.
+
 ## Deadlines and limits
 
 The host supervises every plugin it runs. A plugin that hangs, floods its
@@ -275,6 +300,7 @@ maximums:
 | init, load | 20s | 2m |
 | health, unload | 5s | 30s |
 | each operation | 2m | 30m |
+| a secret backend's resolve | 10s | 1m |
 
 You can override any of them per plugin in `connector-config.yaml`, which is
 the file you own. A value over the host maximum is clamped, with a load
@@ -286,12 +312,17 @@ my-plugin:
     call_timeout: 10m
     operations: { deploy: 20m }   # per operation; the names must be declared
     init_timeout: 60s
+    resolve_timeout: 20s          # a secret backend's resolve; default 10s
     max_result_bytes: 4194304     # default 1 MiB, at most 16 MiB
     memory_mib: 4096              # the memory watchdog; default 2048
     open_files: 2048              # RLIMIT_NOFILE; default 1024
     file_mib: 4096                # RLIMIT_FSIZE; default 1024
     cpu_seconds: 0                # RLIMIT_CPU; off by default (see below)
 ```
+
+A resolve has its own deadline, separate from the operation deadline,
+because it blocks whatever needs the value. That includes a dependent plugin's
+load, which resolves its declared credentials before Init runs.
 
 Decoding is strict: an older daemon refuses a file that has `limits:`, and
 with it every plugin load. Update the daemon before you add limits.

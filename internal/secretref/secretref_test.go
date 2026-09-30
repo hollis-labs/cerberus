@@ -27,13 +27,13 @@ func (s *stubProvider) Get(_ context.Context, service, key string) (string, erro
 }
 
 func TestIsRef(t *testing.T) {
-	refs := []string{"keychain://openai/work", "helper://apikey-helper/openai/work"}
+	refs := []string{"keychain://openai/work", "keyring://openai/work", "helper://apikey-helper/openai/work", "op://vault/item/field", "keeper://uid/field/password"}
 	for _, v := range refs {
 		if !IsRef(v) {
 			t.Errorf("IsRef(%q) = false, want true", v)
 		}
 	}
-	literals := []string{"", "sk-literal-value", "https://example.com/x", "op://vault/item/field"}
+	literals := []string{"", "sk-literal-value", "https://example.com/x", "postgres://user@host/db", "opx://a/b"}
 	for _, v := range literals {
 		if IsRef(v) {
 			t.Errorf("IsRef(%q) = true, want false", v)

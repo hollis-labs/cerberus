@@ -22,6 +22,10 @@ type Limits struct {
 	// Call is every operation's deadline; Operations overrides it by name.
 	Call       time.Duration
 	Operations map[string]time.Duration
+	// Resolve is a secret backend's deadline for one reference. It is short
+	// and separate from Call because a resolve blocks whatever needs the
+	// value, a dependent plugin's load among them.
+	Resolve time.Duration
 
 	// MaxResultBytes caps an operation's result content (OutputCap).
 	MaxResultBytes int
@@ -53,6 +57,7 @@ var (
 	DefaultLimits = Limits{
 		Init: 20 * time.Second, Load: 20 * time.Second, Health: 5 * time.Second, Unload: 5 * time.Second,
 		Call:           2 * time.Minute,
+		Resolve:        10 * time.Second,
 		MaxResultBytes: 1 << 20,
 		MemoryBytes:    2 << 30,
 		Process:        ProcessLimits{OpenFiles: 1024, FileBytes: 1 << 30},
@@ -60,6 +65,7 @@ var (
 	MaxLimits = Limits{
 		Init: 2 * time.Minute, Load: 2 * time.Minute, Health: 30 * time.Second, Unload: 30 * time.Second,
 		Call:           30 * time.Minute,
+		Resolve:        time.Minute,
 		MaxResultBytes: MaxMessageBytes,
 		MemoryBytes:    16 << 30,
 		Process:        ProcessLimits{OpenFiles: 8192, FileBytes: 16 << 30, CPUSeconds: 24 * 3600},
@@ -78,6 +84,7 @@ type LimitSettings struct {
 	HealthTimeout  time.Duration            `yaml:"health_timeout"`
 	UnloadTimeout  time.Duration            `yaml:"unload_timeout"`
 	CallTimeout    time.Duration            `yaml:"call_timeout"`
+	ResolveTimeout time.Duration            `yaml:"resolve_timeout"`
 	Operations     map[string]time.Duration `yaml:"operations"`
 	MaxResultBytes int                      `yaml:"max_result_bytes"`
 	MemoryMiB      int64                    `yaml:"memory_mib"`
@@ -111,6 +118,7 @@ func ClampLimits(s *LimitSettings) (Limits, []string) {
 	dur("health_timeout", s.HealthTimeout, &l.Health, MaxLimits.Health)
 	dur("unload_timeout", s.UnloadTimeout, &l.Unload, MaxLimits.Unload)
 	dur("call_timeout", s.CallTimeout, &l.Call, MaxLimits.Call)
+	dur("resolve_timeout", s.ResolveTimeout, &l.Resolve, MaxLimits.Resolve)
 	for op, d := range s.Operations {
 		v := l.Call
 		dur("operations."+op, d, &v, MaxLimits.Call)
@@ -159,6 +167,14 @@ func (l Limits) CallTimeout(op string) time.Duration {
 		return l.Call
 	}
 	return DefaultLimits.Call
+}
+
+// ResolveTimeout is a secret backend's deadline for one reference.
+func (l Limits) ResolveTimeout() time.Duration {
+	if l.Resolve > 0 {
+		return l.Resolve
+	}
+	return DefaultLimits.Resolve
 }
 
 // PluginExecCommand is the hidden subcommand of the cerberus binary that

@@ -3,8 +3,15 @@
 Cerberus keeps credentials out of the launchd plists it generates. A resource's
 `env:` / `env_file:` value may be a reference instead of a literal:
 
-    keychain://<service>/<key>                  → login keychain, service "cerberus" (go-keyring)
+    keyring://<service>/<key>                   → the OS credential store, service "cerberus" (go-keyring)
+    keychain://<service>/<key>                  → the same; keychain:// is the original, macOS-flavoured name
     helper://<helper>/<authority>/<path>        → `<helper> resolve keychain://<authority>/<path>`
+    op://<vault>/<item>/<field>                 → 1Password, through the onepassword secret-backend plugin
+    keeper://<record>/<selector>/<name>         → Keeper, through the keeper secret-backend plugin
+
+The OS credential store is the macOS Keychain, the Windows Credential Manager or
+the Linux Secret Service. `keyring://` and `keychain://` name the same entry and
+behave identically; `keychain://` is kept for good.
 
 When any env value is a reference, `writePlist` fronts the service with
 `cerberus run-secrets -- <program> …`. That shim resolves the references in the
@@ -54,6 +61,57 @@ Namecheap's `client_ip` must match the address allowed by the account's API
 whitelist. An unresolved reference fails the operation without falling back to a
 different credential or reporting success. The Cerberus web UI can still manage
 unmapped keychain entries; there is no `cerberus secrets set` command.
+
+## Vault references and secret-backend plugins
+
+`op://` and `keeper://` name a secret in a vault. They are resolved by a
+**secret-backend plugin**: an installed plugin whose `plugin.yaml` claims the
+scheme (`cerberus.secret_backend.scheme`). The daemon routes each reference to
+the loaded plugin that claims its scheme and asks it for the value, over the
+plugin protocol's `command/execute`. That request is not a connector
+operation, so no CLI command, API operation or MCP tool reaches it.
+
+- **One claimant per scheme.** A second plugin claiming the same scheme is not
+  registered. `keychain`, `keyring`, `helper`, `env`, `file`, `http` and
+  `https` are reserved.
+- **The install review says so.** A backend's review opens with `SECRET
+  BACKEND: this plugin will see every secret resolved through op://`, and a
+  change of scheme is an upgrade diff line.
+- **A backend's own credential comes from the core chain only**: the
+  environment, `connector-secrets.yaml` and the OS credential store. It never
+  comes from another vault. A backend whose credential is mapped to a vault
+  reference fails to get it (`credential_missing: a secret backend's own
+  credential must come from the OS credential store ...`). So no backend depends
+  on another, and none can unlock itself.
+- **Backends load first.** At daemon start they restore before every other
+  plugin. A resolve that arrives while its backend is still loading waits for
+  it, within the request's deadline and the host's load deadline.
+- **Every failure is `credential_missing` with the recovery named**, and there
+  is no fallback to another credential. The cases are:
+  - no plugin claims the scheme (install one);
+  - the backend is not loaded (`cerberus connectors plugin managed load <id>`);
+  - it is still loading;
+  - the vault refused or could not be reached (the backend's own reason).
+- **Redaction.** A resolved value is registered with the request's redaction
+  scope like any other credential. It also joins the backend's own redactor,
+  so the backend's later stderr, errors and status lose it.
+- **A vault reference is never a literal.** `op://` and `keeper://` are
+  references whether or not a backend is installed. Before, an `op://` value
+  in the environment was handed to a connector as its token. Now, without a
+  backend, it fails.
+
+Where it works today:
+
+- **Connectors and plugins resolved by the daemon**: yes.
+- **A CLI process with no daemon**: no. The reference fails, naming `cerberus
+  daemon start`.
+- **A managed service's environment** (`cerberus run-secrets`): not yet. A
+  vault reference fails closed there and names `keyring://` and `helper://` as
+  what works. A later change resolves it by loading the backend plugin inside
+  the service's own process.
+
+The `onepassword` and `keeper` plugins live in `cerberus-plugins`; each README
+covers its bootstrap credential and what it pins in its vendor's SDK.
 
 ## Plugin capabilities
 

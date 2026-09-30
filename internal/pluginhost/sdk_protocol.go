@@ -16,6 +16,11 @@ const (
 	SDKMethodUnload      = "plugin/unload"
 	SDKMethodHealth      = "plugin/health"
 	SDKMethodMCPCallTool = "mcp/call_tool"
+
+	// SDKMethodCommandExecute carries a secret backend's resolve. It is a
+	// command rather than a tool so that no surface generated from the
+	// connector manifest can reach it.
+	SDKMethodCommandExecute = "command/execute"
 )
 
 type SDKInitParams struct {
@@ -59,6 +64,19 @@ type SDKSkippedRegistration struct {
 type SDKHealthResult struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message,omitempty"`
+}
+
+// SDKCommandRequest is a command/execute request.
+type SDKCommandRequest struct {
+	Name      string `json:"name"`
+	SessionID string `json:"session_id,omitempty"`
+	Args      string `json:"args"`
+}
+
+// SDKCommandResult is a command/execute result.
+type SDKCommandResult struct {
+	Action  string `json:"action"`
+	Content string `json:"content,omitempty"`
 }
 
 type SDKMCPCallRequest struct {

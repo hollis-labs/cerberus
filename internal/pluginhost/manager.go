@@ -30,6 +30,13 @@ type Process interface {
 	Close() error
 }
 
+// commander is a Process that can carry a command/execute: the subprocess
+// transport can, test doubles need not. Only a secret backend's resolve
+// uses it.
+type commander interface {
+	Command(ctx context.Context, req SDKCommandRequest) (SDKCommandResult, error)
+}
+
 // Launcher starts a plugin subprocess and returns a protocol client for it.
 type Launcher interface {
 	Launch(ctx context.Context, plugin InstalledPlugin) (Process, error)
@@ -41,8 +48,12 @@ type Manager struct {
 	launcher  Launcher
 	hostInfo  SDKHostInfo
 	secrets   SecretResolver
-	settings  func() (ConnectorConfig, error)
-	warn      func(string)
+	// coreSecrets resolves a secret backend's own credentials: the core
+	// chain alone, never a plugin scheme, so no backend can depend on
+	// another and no cycle can form.
+	coreSecrets SecretResolver
+	settings    func() (ConnectorConfig, error)
+	warn        func(string)
 	// acceptChanged decides whether a bundle that is not the one reviewed
 	// may load anyway (WithChangedBundles). Nil refuses, as before.
 	acceptChanged func(*ChangedError) bool
@@ -108,7 +119,10 @@ type loadedPlugin struct {
 
 	// redactor knows the credential values this host resolved for the plugin,
 	// so it can remove them from any text the plugin sends back. The values
-	// are fixed at load, so one redactor built then serves every request.
+	// resolved at load are fixed then; a secret backend's redactor also
+	// grows by every value it resolves (hold), so it is read through
+	// currentRedactor under redactMu.
+	redactMu sync.RWMutex
 	redactor redact.Redactor
 	// stderr correlates the plugin's stderr lines with the operations
 	// running when it wrote them.
@@ -184,7 +198,7 @@ func NewManager(installer Installer, launcher Launcher, hostVersion string, opts
 		configProblems: make(map[string][]string),
 		loading:        make(map[string]chan struct{}),
 		loadErr:        make(map[string]error),
-		sup:            supervision{restarts: map[string][]time.Time{}, gaveUp: map[string]string{}, held: map[string]bool{}},
+		sup:            supervision{restarts: map[string][]time.Time{}, gaveUp: map[string]string{}, held: map[string]bool{}, pending: map[string]bool{}},
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -321,7 +335,7 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 	// the Init config map. They deliberately do not travel in the environment:
 	// a subprocess inherits ambient env, so an env-carried credential would
 	// reach every plugin rather than the one that declared it.
-	resolved := resolvePluginSecrets(ctx, m.secrets, plugin)
+	resolved := resolvePluginSecrets(ctx, m.secretsFor(plugin), plugin)
 	m.reportSecretProblems(id, resolved)
 	redactor, unprotected := resolved.redactor()
 	m.reportUnprotectedSecrets(id, unprotected)
@@ -497,10 +511,10 @@ func (m *Manager) Unload(ctx context.Context, id string) error {
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			return &DeadlineError{Connector: id, Phase: "unload", Timeout: lp.limits.Unload}
 		}
-		return fmt.Errorf("plugin %q unload: %w", id, lp.redactor.Error(err))
+		return fmt.Errorf("plugin %q unload: %w", id, lp.currentRedactor().Error(err))
 	}
 	if err := lp.process.Close(); err != nil {
-		return fmt.Errorf("plugin %q close: %w", id, lp.redactor.Error(err))
+		return fmt.Errorf("plugin %q close: %w", id, lp.currentRedactor().Error(err))
 	}
 	return nil
 }
@@ -527,13 +541,13 @@ func (m *Manager) Health(ctx context.Context, id string) (Health, error) {
 		return Health{ID: id, Loaded: true, Healthy: false, Message: deadline.Error() + " and is restarting it"}, nil
 	}
 	if err != nil {
-		return Health{}, fmt.Errorf("plugin %q health: %w", id, lp.redactor.Error(err))
+		return Health{}, fmt.Errorf("plugin %q health: %w", id, lp.currentRedactor().Error(err))
 	}
 	return Health{
 		ID:      id,
 		Loaded:  true,
 		Healthy: result.OK,
-		Message: lp.redactor.Text(result.Message),
+		Message: lp.currentRedactor().Text(result.Message),
 	}, nil
 }
 
@@ -583,7 +597,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// began, so they join its scope here: every surface that renders this
 	// operation's output — a success result included, which the plugin
 	// redactor below never sees — removes them.
-	redact.ScopeFrom(ctx).Merge(lp.redactor)
+	redact.ScopeFrom(ctx).Merge(lp.currentRedactor())
 	effect := op.Operation().Effect
 	var result SDKMCPCallResult
 	err := m.supervisedCall(ctx, args.Connector, lp, rpcCall{Phase: "call", Name: args.Operation, Timeout: lp.limits.CallTimeout(args.Operation), Effect: effect},
@@ -604,11 +618,11 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 		var events []pluginsdk.TelemetryEvent
 		result.Content, events = pluginsdk.SplitTelemetry(result.Content)
 		if collector != nil {
-			collector.addEvents(events, lp.redactor)
+			collector.addEvents(events, lp.currentRedactor())
 		}
 	}
 	if err != nil {
-		err = lp.redactor.Error(err)
+		err = lp.currentRedactor().Error(err)
 		// A plugin that loaded without a declared credential gets its failures
 		// explained rather than pre-empted: operations that do not need the
 		// secret keep working, and the one that 401s says which credential is
@@ -628,7 +642,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 		if errors.As(err, &coded) {
 			coded.MissingSecrets = append([]string(nil), lp.missingSecrets...)
 		}
-		return OperationResult{}, lp.redactor.Error(err)
+		return OperationResult{}, lp.currentRedactor().Error(err)
 	}
 	if err := capOutput(&out, result.Content, lp.limits.MaxResultBytes, effect); err != nil {
 		return OperationResult{}, err
