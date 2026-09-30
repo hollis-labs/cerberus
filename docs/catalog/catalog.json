@@ -17622,6 +17622,45 @@
       "id": "CERB-GAP-907"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "An Unload that races a plugin's Load does not stop it",
+      "summary": "Manager.Load no longer holds the lock while a plugin starts. An Unload of the same plugin during that window finds nothing running and returns, and the load then installs it, so the plugin ends up loaded after an unload that reported success.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "read from the P5-d load path; not reproduced",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "plugins",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/pluginhost/manager.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-906",
+          "note": "plugin supervision"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "Unload marks a loading plugin as unwanted (a generation counter or a cancel on the loading slot), and the load then stops the process instead of installing it",
+        "effort": "small"
+      },
+      "body": "The window is one load, bounded by the init and load deadlines. Unload does set the supervisor's hold, so a restart doesn't bring the plugin back. What escapes is only a load that was already in flight when the Unload arrived.",
+      "id": "CERB-GAP-908"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

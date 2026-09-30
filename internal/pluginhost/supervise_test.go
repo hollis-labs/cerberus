@@ -66,6 +66,8 @@ func fakePluginMain(mode string) {
 			switch req.Method {
 			case SDKMethodInit:
 				if mode == "hang-init" {
+					// Tell the test it is inside Init, then never answer.
+					_ = os.WriteFile(filepath.Join(dir, "in-init"), []byte("1"), 0o600) //nolint:gosec // the test's own temp dir
 					return
 				}
 				if mode == "fork" {
@@ -147,6 +149,20 @@ type fakeHost struct {
 	stderr *syncBuffer
 	mu     sync.Mutex
 	events []RestartEvent
+	// pids are each plugin's latest process, as the launcher started it:
+	// known even when the process is killed before it runs any code.
+	pids map[string]int
+}
+
+// pid is the latest process launched for id.
+func (h *fakeHost) pid(t *testing.T, id string) int {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.pids[id] == 0 {
+		t.Fatalf("no process was launched for %s", id)
+	}
+	return h.pids[id]
 }
 
 func (h *fakeHost) observed(kind string) int {
@@ -169,7 +185,7 @@ func newFakeHost(t *testing.T, shim bool, plugins map[string]string, limits map[
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &fakeHost{dirs: map[string]string{}, stderr: &syncBuffer{}}
+	h := &fakeHost{dirs: map[string]string{}, stderr: &syncBuffer{}, pids: map[string]int{}}
 	cfg := ConnectorConfig{Entries: map[string]PluginSettings{}}
 	for id, l := range limits {
 		cfg.Entries[id] = PluginSettings{Limits: l}
@@ -191,7 +207,7 @@ func newFakeHost(t *testing.T, shim bool, plugins map[string]string, limits map[
 		script := "#!/bin/sh\nexec " + strconv.Quote(exe) + "\n"
 		writeScript(t, dir, "bin/plugin", script)
 	}
-	h.m = NewManager(nil, perPluginLauncher(launchers), "test",
+	h.m = NewManager(nil, &perPluginLauncher{launchers: launchers, host: h}, "test",
 		WithConnectorConfig(func() (ConnectorConfig, error) { return cfg, nil }),
 		WithRestartObserver(func(ev RestartEvent) { h.mu.Lock(); h.events = append(h.events, ev); h.mu.Unlock() }))
 	h.m.restartDelays = []time.Duration{10 * time.Millisecond}
@@ -219,10 +235,19 @@ func newFakeHost(t *testing.T, shim bool, plugins map[string]string, limits map[
 	return h
 }
 
-type perPluginLauncher map[string]SubprocessLauncher
+type perPluginLauncher struct {
+	launchers map[string]SubprocessLauncher
+	host      *fakeHost
+}
 
-func (p perPluginLauncher) Launch(ctx context.Context, plugin InstalledPlugin) (Process, error) {
-	return p[plugin.ID].Launch(ctx, plugin)
+func (p *perPluginLauncher) Launch(ctx context.Context, plugin InstalledPlugin) (Process, error) {
+	proc, err := p.launchers[plugin.ID].Launch(ctx, plugin)
+	if pg, ok := proc.(processGroup); ok && err == nil {
+		p.host.mu.Lock()
+		p.host.pids[plugin.ID] = pg.ProcessGroup()
+		p.host.mu.Unlock()
+	}
+	return proc, err
 }
 
 func writeScript(t *testing.T, dir, rel, body string) {
@@ -238,7 +263,7 @@ func writeScript(t *testing.T, dir, rel, body string) {
 
 func pidIn(t *testing.T, path string) int {
 	t.Helper()
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1500; i++ {
 		if data, err := os.ReadFile(path); err == nil && len(data) > 0 { //nolint:gosec // the test's own temp dir
 			n, _ := strconv.Atoi(string(data))
 			return n
@@ -250,7 +275,7 @@ func pidIn(t *testing.T, path string) int {
 }
 
 func gone(pid int) bool {
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1500; i++ {
 		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return true
 		}
@@ -261,7 +286,7 @@ func gone(pid int) bool {
 
 func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	for i := 0; i < 250; i++ {
+	for i := 0; i < 1500; i++ {
 		if ok() {
 			return
 		}
@@ -270,35 +295,81 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// A plugin that hangs in Init misses its deadline and is killed, and while
-// it hangs another plugin's calls and health go on: no lock is held across
-// a plugin's own calls.
-func TestHungInitIsBoundedAndHoldsNothingUp(t *testing.T) {
+// While one plugin is blocked inside Init, another plugin's call and health
+// complete: no lock is held across a plugin's own calls. The property is
+// asserted by order, not by a stopwatch: the hung Init is still blocked
+// when the other calls return.
+func TestHungInitHoldsNothingUp(t *testing.T) {
 	h := newFakeHost(t, false, map[string]string{"slow": "hang-init", "good": "ok"},
-		map[string]*LimitSettings{"slow": {InitTimeout: 700 * time.Millisecond}})
+		map[string]*LimitSettings{"slow": {InitTimeout: time.Minute}})
 	if err := h.m.Load(context.Background(), "good"); err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
-	start := time.Now()
+	go func() { done <- h.m.Load(ctx, "slow") }()
+	waitFor(t, "the slow plugin to be inside Init", func() bool {
+		_, err := os.Stat(filepath.Join(h.dirs["slow"], "in-init"))
+		return err == nil
+	})
+	other := make(chan error, 1)
+	go func() {
+		if _, err := h.m.ExecuteOperation(context.Background(), OperationArgs{Connector: "good", Operation: "read_it", Config: map[string]any{}}); err != nil {
+			other <- fmt.Errorf("a call to another plugin: %w", err)
+			return
+		}
+		if health, err := h.m.Health(context.Background(), "good"); err != nil || !health.Healthy {
+			other <- fmt.Errorf("another plugin's health: %+v %v", health, err)
+			return
+		}
+		other <- nil
+	}()
+	select {
+	case err := <-other:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		// A backstop far inside the one-minute init deadline: the other
+		// calls are waiting behind the hung Init.
+		cancel()
+		t.Fatal("another plugin's call and health waited behind the hung Init")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the hung Init returned before the other calls could be shown to run beside it: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the hung load did not end when its context did")
+	}
+	if !gone(h.pid(t, "slow")) {
+		t.Fatal("the hung plugin's process survived")
+	}
+}
+
+// A plugin that hangs in Init misses its deadline, answers a DeadlineError,
+// and is killed.
+func TestHungInitMissesItsDeadline(t *testing.T) {
+	h := newFakeHost(t, false, map[string]string{"slow": "hang-init"},
+		map[string]*LimitSettings{"slow": {InitTimeout: 300 * time.Millisecond}})
+	done := make(chan error, 1)
 	go func() { done <- h.m.Load(context.Background(), "slow") }()
-	time.Sleep(100 * time.Millisecond)
-	callStart := time.Now()
-	if _, err := h.m.ExecuteOperation(context.Background(), OperationArgs{Connector: "good", Operation: "read_it", Config: map[string]any{}}); err != nil {
-		t.Fatalf("a call to another plugin: %v", err)
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("a hung init was never bounded")
 	}
-	if health, err := h.m.Health(context.Background(), "good"); err != nil || !health.Healthy {
-		t.Fatalf("another plugin's health: %+v %v", health, err)
-	}
-	if took := time.Since(callStart); took > 400*time.Millisecond {
-		t.Fatalf("another plugin waited %s behind a hung Init", took)
-	}
-	err := <-done
 	var deadline *DeadlineError
-	if !errors.As(err, &deadline) || deadline.Phase != "init" || time.Since(start) > 3*time.Second {
-		t.Fatalf("hung init: %v after %s", err, time.Since(start))
+	if !errors.As(err, &deadline) || deadline.Phase != "init" || deadline.Timeout != 300*time.Millisecond {
+		t.Fatalf("hung init: %v", err)
 	}
-	if !gone(pidIn(t, filepath.Join(h.dirs["slow"], "pid"))) {
+	if !gone(h.pid(t, "slow")) {
 		t.Fatal("the hung plugin's process survived")
 	}
 }
@@ -312,7 +383,7 @@ func TestCallDeadlineStopsRestartsAndGivesUp(t *testing.T) {
 	if err := h.m.Load(context.Background(), "hang"); err != nil {
 		t.Fatal(err)
 	}
-	firstPID := pidIn(t, filepath.Join(h.dirs["hang"], "pid"))
+	firstPID := h.pid(t, "hang")
 	_, err := h.m.ExecuteOperation(context.Background(), OperationArgs{Connector: "hang", Operation: "write_it", Config: map[string]any{}, Acknowledged: true})
 	var deadline *DeadlineError
 	if !errors.As(err, &deadline) || !strings.Contains(err.Error(), "may have partly run") || !errors.Is(err, ErrDeadlineExceeded) {

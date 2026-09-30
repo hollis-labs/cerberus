@@ -51,6 +51,9 @@ func TestPluginSupervisionErrorsAreCoded(t *testing.T) {
 	}
 }
 
+// restoreDeadline is each hung plugin's init deadline in the restore test.
+const restoreDeadline = 1500 * time.Millisecond
+
 // Daemon start restores plugins in parallel, each bounded by its
 // deadlines, so plugins that hang on Init cost one deadline, not the sum,
 // and each missed deadline is recorded.
@@ -67,7 +70,7 @@ func TestRestoreIsBoundedAndParallel(t *testing.T) {
 			t.Fatal(err)
 		}
 		st.Entries = append(st.Entries, pluginConnectorPersistedEntry{PluginDir: dir, Loaded: true})
-		fmt.Fprintf(&cfg, "%s:\n  limits:\n    init_timeout: 700ms\n", id)
+		fmt.Fprintf(&cfg, "%s:\n  limits:\n    init_timeout: %s\n", id, restoreDeadline)
 	}
 	if err := writePluginConnectorState(statePath, st); err != nil {
 		t.Fatal(err)
@@ -82,8 +85,10 @@ func TestRestoreIsBoundedAndParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if took > 1800*time.Millisecond {
-		t.Fatalf("restore took %s: the three 700ms deadlines ran one after another", took)
+	// One after another, three hung plugins take three deadlines; in
+	// parallel, one. Under two is the property, whatever the machine's load.
+	if took >= 2*restoreDeadline {
+		t.Fatalf("restore took %s for three plugins with a %s init deadline: they ran one after another", took, restoreDeadline)
 	}
 	var missed int
 	for _, rec := range sink.Records() {
