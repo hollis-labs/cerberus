@@ -73,6 +73,10 @@ func TestBreakGlassGetsPastAnApprove(t *testing.T) {
 	if len(open) != 1 || open[0].Channel != approval.ChannelBreakGlass || open[0].Status != approval.Consumed {
 		t.Fatalf("follow-ups %+v", open)
 	}
+	// A break-glass record shows what ran, like any approval (H3).
+	if shown := open[0].Shown; shown == nil || len(shown.Plan) == 0 || !strings.Contains(string(shown.Arguments), `"web"`) {
+		t.Fatalf("break glass shows %+v", open[0].Shown)
+	}
 	if o := outcome(recs); o.ApprovalID != open[0].ID {
 		t.Fatalf("outcome %+v", o)
 	}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Callout, EmptyState, Input } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
+import { PlanBody } from '../components/plan-confirm'
 import { apiClient, type ApprovalInfo, type ApprovalPrincipal, type EnrollBegin, type PasskeyCeremony } from '../api/client'
 import { assertPasskey, createPasskey } from '../webauthn'
 import { liftFromApproval } from '../components/brakes'
@@ -180,6 +181,7 @@ function ApprovalDetail({ approval: a, token, onChanged }: { approval: ApprovalI
         <dt className="text-text-muted">Arguments</dt>
         <dd className="font-mono">{a.args_digest}</dd>
       </dl>
+      <ShownPlan shown={a.shown} />
       {a.decision && (
         <p className="text-sm">
           {a.decision.approve ? 'Approved' : 'Denied'} by {who(a.decision.by)} at {new Date(a.decision.at).toLocaleString()}
@@ -250,6 +252,57 @@ function ApprovalDetail({ approval: a, token, onChanged }: { approval: ApprovalI
         <Button data-testid="revoke" variant="outline" disabled={busy || !token} onClick={() => act(() => apiClient.revokeApproval(a.id, token, reason))}>
           Revoke
         </Button>
+      )}
+    </div>
+  )
+}
+
+// ShownPlan is what the call would run, as the daemon stored it with the
+// approval: the plan it binds to and its arguments, redacted. Text the
+// requester wrote is flagged, so the approver reads it as a claim to check,
+// not as Cerberus describing the call (H3).
+function ShownPlan({ shown }: { shown: ApprovalInfo['shown'] }) {
+  if (!shown) {
+    return (
+      <div data-testid="shown-missing">
+        <Callout tone="warning">
+          What this call would run was not recorded with the approval (it was asked for before approvals stored their plan). Decide on the
+          operation and target above, or deny it and have it asked again.
+        </Callout>
+      </div>
+    )
+  }
+  const untrusted = new Set(shown.untrusted ?? [])
+  const requester = (
+    <span data-testid="untrusted-note" className="ml-2 rounded bg-amber-500/15 px-1 text-xs text-amber-700">
+      written by the requester, not Cerberus: check it, do not take its word
+    </span>
+  )
+  return (
+    <div className="space-y-3 rounded border border-border-strong p-3" data-testid="shown-plan">
+      <div className="text-sm font-semibold">What it would run</div>
+      {shown.plan && (
+        <div className="space-y-1 text-sm">
+          <div>
+            Plan it binds to
+            {untrusted.has('/plan/preview') && requester}
+          </div>
+          <PlanBody plan={shown.plan} />
+        </div>
+      )}
+      {shown.arguments && (
+        <div className="space-y-1 text-sm">
+          <div>
+            Arguments
+            {untrusted.has('/arguments') && requester}
+          </div>
+          <pre data-testid="shown-arguments" className="max-h-64 overflow-auto rounded border border-border p-2 font-mono text-xs whitespace-pre-wrap break-all">
+            {JSON.stringify(shown.arguments, null, 2)}
+          </pre>
+        </div>
+      )}
+      {shown.truncated && (
+        <p className="text-xs text-text-muted">Part of this was too large to store with the approval; the approval still binds the whole plan by its hash.</p>
       )}
     </div>
   )

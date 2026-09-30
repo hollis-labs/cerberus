@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -147,6 +149,7 @@ func writeApproval(w io.Writer, a approval.Approval, source string) error {
 	if a.PlanHash != "" {
 		fmt.Fprintf(w, "  Plan:         %s\n", a.PlanHash)
 	}
+	writeShown(w, a.Shown)
 	if d := a.Decision; d != nil {
 		verb := "denied"
 		if d.Approve {
@@ -169,6 +172,52 @@ func writeApproval(w io.Writer, a approval.Approval, source string) error {
 	}
 	_, err := fmt.Fprintf(w, "(from %s)\n", source)
 	return err
+}
+
+// writeShown prints what the approval would run: the plan it binds to and
+// the call's arguments, as the daemon stored them, redacted. JSON keeps the
+// requester's text inert on a terminal: control characters arrive escaped.
+// What the requester wrote, not Cerberus, is said to be so.
+func writeShown(w io.Writer, shown *approval.Shown) {
+	if shown == nil {
+		fmt.Fprintln(w, "  What it runs: not recorded with this approval (it was asked for before approvals stored their plan); decide on the operation and target above, or deny and ask again")
+		return
+	}
+	untrusted := map[string]bool{}
+	for _, ptr := range shown.Untrusted {
+		untrusted[ptr] = true
+	}
+	section := func(title string, data []byte, note string) {
+		if len(data) == 0 {
+			return
+		}
+		fmt.Fprintf(w, "\n  %s", title)
+		if note != "" {
+			fmt.Fprintf(w, "  (%s)", note)
+		}
+		fmt.Fprintln(w)
+		var pretty bytes.Buffer
+		if json.Indent(&pretty, data, "    ", "  ") != nil {
+			pretty.Reset()
+			pretty.Write(data)
+		}
+		fmt.Fprintf(w, "    %s\n", pretty.String())
+	}
+	const requester = "written by the requester, not Cerberus: check it, do not take its word"
+	planNote := ""
+	if untrusted["/plan/preview"] {
+		planNote = "its preview echoes the arguments, " + requester
+	}
+	section("Plan it binds to:", shown.Plan, planNote)
+	argsNote := ""
+	if untrusted["/arguments"] {
+		argsNote = requester
+	}
+	section("Arguments:", shown.Arguments, argsNote)
+	if shown.Truncated {
+		fmt.Fprintln(w, "  (Part of this was too large to store with the approval; the approval still binds the whole plan by its hash.)")
+	}
+	fmt.Fprintln(w)
 }
 
 func approvalTarget(a approval.Approval) string {

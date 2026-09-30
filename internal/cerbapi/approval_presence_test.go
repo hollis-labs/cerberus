@@ -162,7 +162,7 @@ func TestOutOfBandApproveRefusesOtherPasskeysAndReplays(t *testing.T) {
 	}
 
 	other, err := broker.Request(context.Background(), audit.Record{Kind: audit.KindIntent, OperationID: audit.NewID(), Principal: agentMCP, Connector: "docker",
-		Operation: "stop", Target: a.Target, ArgsDigest: "digest"}, policy.Result{Decision: policy.Approve}, approval.ChannelOutOfBand, approval.ScopeOnce, a.ExpiresAt.Sub(a.CreatedAt), "sha256:plan")
+		Operation: "stop", Target: a.Target, ArgsDigest: "digest"}, policy.Result{Decision: policy.Approve}, approval.ChannelOutOfBand, approval.ScopeOnce, a.ExpiresAt.Sub(a.CreatedAt), planSnapshot{hash: "sha256:plan"})
 	if err != nil {
 		t.Fatal(err)
 	}

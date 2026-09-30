@@ -192,7 +192,7 @@ func TestBrokerRecordsEveryTransition(t *testing.T) {
 	ctx := BeginRequest(context.Background(), SurfaceInProcess)
 	intent := audit.Record{OperationID: "op-1", Connector: "local", Operation: "remove", ArgsDigest: "hmac:x", Principal: audit.Principal{Kind: "agent"}}
 	res := constantPDP{decision: policy.Approve}.Authorize(policy.Request{})
-	a, err := broker.Request(ctx, intent, res, approval.ChannelTTYConfirm, approval.ScopeOnce, time.Hour, "")
+	a, err := broker.Request(ctx, intent, res, approval.ChannelTTYConfirm, approval.ScopeOnce, time.Hour, planSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestBrokerRecordsEveryTransition(t *testing.T) {
 	if _, err = broker.Consume(ctx, a.ID, approval.ConsumeCheck{Principal: audit.Principal{Kind: "agent"}, Connector: "local", Operation: "remove", ArgsDigest: "hmac:x", OperationID: "op-2"}); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := broker.Request(ctx, intent, res, approval.ChannelTTYConfirm, approval.ScopeOnce, time.Hour, "")
+	b, _ := broker.Request(ctx, intent, res, approval.ChannelTTYConfirm, approval.ScopeOnce, time.Hour, planSnapshot{})
 	_, _ = broker.Decide(ctx, b.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human"}})
 	_, _ = broker.Revoke(ctx, b.ID, approval.Decision{By: audit.Principal{Kind: "human"}})
 	var kinds []string
@@ -218,7 +218,7 @@ func TestBrokerRecordsEveryTransition(t *testing.T) {
 		t.Fatalf("consumed %+v", consumed)
 	}
 	// An out-of-band approval never consumes until P3-4 verifies presence.
-	oob, _ := broker.Request(ctx, intent, res, approval.ChannelOutOfBand, approval.ScopeOnce, time.Hour, "")
+	oob, _ := broker.Request(ctx, intent, res, approval.ChannelOutOfBand, approval.ScopeOnce, time.Hour, planSnapshot{})
 	if _, err := broker.Decide(ctx, oob.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human"}}); !errors.Is(err, approval.ErrNoPresence) {
 		t.Fatalf("out of band without presence: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestApprovalsOverTheSocket(t *testing.T) {
 	}
 	SetBroker(broker)
 	t.Cleanup(func() { SetBroker(nil) })
-	a, _ := broker.Request(context.Background(), audit.Record{Connector: "local", Operation: "remove"}, constantPDP{decision: policy.Approve}.Authorize(policy.Request{}), approval.ChannelTTYConfirm, approval.ScopeOnce, time.Hour, "")
+	a, _ := broker.Request(context.Background(), audit.Record{Connector: "local", Operation: "remove"}, constantPDP{decision: policy.Approve}.Authorize(policy.Request{}), approval.ChannelTTYConfirm, approval.ScopeOnce, time.Hour, planSnapshot{})
 	path := startPeerSocket(t, NewInProcessClient(), nil)
 	client := NewSocketClient(path)
 	list, err := client.ListApprovals(context.Background())

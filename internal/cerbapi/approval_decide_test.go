@@ -28,7 +28,7 @@ func pendingApproval(t *testing.T, requester audit.Principal, channel string) (*
 	}
 	intent := audit.Record{Kind: audit.KindIntent, OperationID: audit.NewID(), Principal: requester, Connector: "docker", Operation: "stop",
 		Effect: "lifecycle", Target: audit.Target{Kind: "docker.container", Resource: "web", Env: "dev", Owner: "self"}, ArgsDigest: "digest"}
-	a, err := broker.Request(context.Background(), intent, policy.Result{Decision: policy.Approve}, channel, approval.ScopeOnce, time.Hour, "sha256:plan")
+	a, err := broker.Request(context.Background(), intent, policy.Result{Decision: policy.Approve}, channel, approval.ScopeOnce, time.Hour, planSnapshot{hash: "sha256:plan"})
 	if err != nil {
 		t.Fatal(err)
 	}

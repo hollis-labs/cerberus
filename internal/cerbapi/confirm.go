@@ -56,19 +56,19 @@ func checkConfirmedPlan(ctx context.Context, spec auditSpec) error {
 }
 
 // confirmedPlan recomputes the call's plan and checks it is the one the
-// person confirmed, returning its hash.
-func confirmedPlan(ctx context.Context, spec auditSpec) (string, error) {
+// person confirmed, returning it as the approval would bind and show it.
+func confirmedPlan(ctx context.Context, spec auditSpec) (planSnapshot, error) {
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
-	planHash, err := specPlanHash(ctx, spec)
+	snap, err := specPlanSnapshot(ctx, spec)
 	if err != nil {
-		return "", externalConnectorError(args, ExternalConnectorPlanStale,
+		return planSnapshot{}, externalConnectorError(args, ExternalConnectorPlanStale,
 			redact.GuidanceWrap(err, "the plan you confirmed cannot be checked, because it could not be computed now, so nothing ran"))
 	}
-	if planHash != spec.confirmedPlanHash {
-		return "", externalConnectorError(args, ExternalConnectorPlanStale,
-			redact.Guidance("the plan changed after you were shown it (you confirmed %s, it is now %s), so nothing ran; run the command again to see the new plan", spec.confirmedPlanHash, planHash))
+	if snap.hash != spec.confirmedPlanHash {
+		return planSnapshot{}, externalConnectorError(args, ExternalConnectorPlanStale,
+			redact.Guidance("the plan changed after you were shown it (you confirmed %s, it is now %s), so nothing ran; run the command again to see the new plan", spec.confirmedPlanHash, snap.hash))
 	}
-	return planHash, nil
+	return snap, nil
 }
 
 // confirmOnCall is an approve decision met by the caller confirming the
@@ -92,10 +92,11 @@ func confirmOnCall(ctx context.Context, call *auditCall, spec auditSpec, req pol
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.Guidance("confirming on the call is for a person at their own terminal or a signed-in console session, and this caller is %s over %s; the approval has to be decided with `cerberus approvals approve` instead", p.Kind, p.Via))
 	}
-	planHash, err := confirmedPlan(ctx, spec)
+	snap, err := confirmedPlan(ctx, spec)
 	if err != nil {
 		return err
 	}
+	planHash := snap.hash
 	if broker == nil {
 		if spec.approvalID != "" {
 			return externalConnectorError(args, ExternalConnectorApprovalRequired,
@@ -122,7 +123,7 @@ func confirmOnCall(ctx context.Context, call *auditCall, spec auditSpec, req pol
 		}
 		a = got
 	} else {
-		if a, err = broker.Request(ctx, call.intent, res, channel, scope, ttl, planHash); err != nil {
+		if a, err = broker.Request(ctx, call.intent, res, channel, scope, ttl, snap); err != nil {
 			return externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 		}
 	}
