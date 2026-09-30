@@ -21,6 +21,8 @@ package registry
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	"gopkg.in/yaml.v3"
@@ -130,7 +132,48 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 		pc.Owner = pc.Project.ID
 	}
 	pc.UnknownFields = unknownFields(data, new(ProjectConfig))
+	if abs, absErr := filepath.Abs(path); absErr == nil {
+		resolveRelativeDirs(&pc, filepath.Dir(abs))
+	}
 	return &pc, nil
+}
+
+// resolveRelativeDirs anchors a relative `dir:` at the directory the config
+// lives in. A config sits in the repo it describes, so `dir: .` is that repo
+// and `dir: apps/gui` a directory inside it, wherever the checkout is on this
+// machine: the config names its own repo without naming the machine's
+// layout. That covers a local process resource's `dir` and a pipeline
+// action's `dir`. An absolute or `~/` path is left alone, and so is an empty
+// one; relative paths inside a resource (command, env_file, build strategy
+// source) already resolve against its `dir`.
+//
+// Before this, a relative `dir` resolved against the working directory of
+// whichever process read the config — the daemon's, under a supervisor — so
+// no working config relied on it.
+func resolveRelativeDirs(pc *ProjectConfig, base string) {
+	anchor := func(dir string) string {
+		if dir == "" || filepath.IsAbs(dir) || dir == "~" || strings.HasPrefix(dir, "~/") {
+			return dir
+		}
+		return filepath.Join(base, dir)
+	}
+	for i := range pc.Resources {
+		res := &pc.Resources[i]
+		if res.Connector != "local" || res.Type != "process" || res.Config == nil {
+			continue
+		}
+		if dir, ok := res.Config["dir"].(string); ok {
+			res.Config["dir"] = anchor(dir)
+		}
+	}
+	for i := range pc.Pipelines {
+		for j := range pc.Pipelines[i].Stages {
+			for k := range pc.Pipelines[i].Stages[j].Actions {
+				action := &pc.Pipelines[i].Stages[j].Actions[k]
+				action.Dir = anchor(action.Dir)
+			}
+		}
+	}
 }
 
 // PeekKind reads only the `kind` field of a Cerberus config file so the
