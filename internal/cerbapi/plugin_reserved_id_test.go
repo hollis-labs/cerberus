@@ -114,3 +114,21 @@ func TestManagedPluginInstallRefusesLocalWithoutBeingTold(t *testing.T) {
 		t.Fatalf("Install error = %v, want local refused as reserved", err)
 	}
 }
+
+// The ids the host's own records and gates are keyed on are reserved too
+// (H-d): a plugin named policy, brake or approvals was never braked or
+// enforced, and its records could pass for a policy apply or an audit
+// prune.
+func TestManagedPluginInstallRefusesTheHostsOwnIDs(t *testing.T) {
+	managed, err := NewManagedPluginConnectorService(audit.NewMemory(), "test", io.Discard, filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"policy", "brake", "approvals", "audit", "console", "pipeline", "mcp-http", "plugin", "secrets"} {
+		_, err := managed.installForTest(context.Background(), PluginConnectorHealthArgs{PluginDir: writeTestPluginDir(t, id)})
+		var reserved *pluginhost.ReservedIDError
+		if !errors.As(err, &reserved) || managed.Installed(id) {
+			t.Errorf("%s: install error = %v, want refused as reserved", id, err)
+		}
+	}
+}

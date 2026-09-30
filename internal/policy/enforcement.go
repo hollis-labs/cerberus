@@ -210,7 +210,14 @@ func LastVerified(auditDir string) (Verified, History) {
 		if r.Connector != "policy" || r.Operation != "apply" || (r.Kind != audit.KindIntent && r.Kind != audit.KindOutcome) {
 			continue
 		}
+		// Any record that says it is an apply counts as one seen, so one
+		// edited out of shape cannot turn the log into "no applies". Only
+		// the host's own shape vouches for a snapshot: its target kind too
+		// (H-d; a plugin cannot take the id policy).
 		seen = true
+		if r.Target.Kind != "policy.snapshot" {
+			continue
+		}
 		if r.Kind == audit.KindOutcome {
 			if r.OperationID != "" {
 				finished[r.OperationID] = true

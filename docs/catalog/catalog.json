@@ -19050,6 +19050,46 @@
       "id": "CERB-GAP-944"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A plugin could take the id policy, brake or approvals: never braked, never enforced, and able to forge a policy apply",
+      "summary": "Only the built-in connectors and local were reserved. The brakes' unbraked set, SnapshotEnforcement's exemption for policy, and LastVerified's and prunedFiles' record filters are all keyed on the connector id alone, so a plugin installed as policy, brake or approvals skipped lockdown, freeze and enforcement, and one call to a plugin policy/apply operation left records that LoadVerified read as the last verified apply (enforcement dropping to the last verified shadow). Fixed: every host pseudo-connector id is reserved (local, policy, brake, approvals, audit, console, pipeline, mcp-http, plugin, secrets); LastVerified trusts only the host's apply shape (target kind policy.snapshot) while still counting any apply-shaped record as seen, so an edited one cannot turn the log into no applies; prunedFiles requires the prune target kind.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 5931772 re-review (H-d); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "plugins",
+        "policy",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/managed_plugin_connector_service.go (hostServedIDs), internal/policy/enforcement.go (LastVerified), internal/audit/read.go (prunedFiles)",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-929",
+          "note": "M3, whose apply records this tightens"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "None of the seven plugins installed on the review machine uses a reserved id. A plugin installed before this with one of those ids is refused at its next load, as for the built-in ids.",
+      "id": "CERB-GAP-948"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
