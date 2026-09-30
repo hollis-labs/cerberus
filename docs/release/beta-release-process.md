@@ -35,7 +35,12 @@ Where:
 - `<version>` is the tag without a leading `v`, for example `0.3.0-beta.1`.
 - `<arch>` is `arm64` or `amd64`.
 
-Each archive contains the executable named `cerberus` at the archive root.
+Each archive contains the executable named `cerberus` at the archive root, and
+beside it `cerberus-presence`, the helper passkey enrollment needs. On macOS
+`scripts/release-beta.sh` builds it natively with cgo for both arches, and
+refuses to cut a release anywhere but on a Mac. It checks that each darwin helper
+links LocalAuthentication. Install both side by side: the daemon looks for the
+helper next to its own binary.
 Publish a matching checksum file named:
 
 ```text
@@ -127,6 +132,7 @@ ARCH=arm64
 mkdir -p ~/.cerberus/bin
 tar -xzf "cerberus_${VERSION}_darwin_${ARCH}.tar.gz"
 install -m 0755 cerberus ~/.cerberus/bin/cerberus
+install -m 0755 cerberus-presence ~/.cerberus/bin/cerberus-presence
 export PATH="$HOME/.cerberus/bin:$PATH"
 
 cerberus --version
