@@ -8,7 +8,7 @@ state_label: "partial"
 review_status: "draft"
 confidence_score: 0.8
 confidence_label: "extensively unit-tested against a fake command runner; no resource on the audit machine uses os_service, so nothing here has a live exercise"
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-30"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -31,16 +31,19 @@ relationships:
     note: "os_service + run_from: artifact installs through the artifact join"
   - type: "relates_to"
     target: "CERB-GAP-146"
-    note: "only launchd is implemented; systemd_user and windows_service are refused at runtime"
+    note: "closed: systemd_user has its own backend now (CERB-CAP-954); windows_service is still refused at runtime"
   - type: "relates_to"
     target: "CERB-GAP-141"
-    note: "the generated plist carries no PATH"
+    note: "closed: a plist with no PATH in env gets the serving daemon's composed PATH"
   - type: "relates_to"
     target: "CERB-GAP-148"
     note: "no os_service resource exists here to smoke-test it"
   - type: "relates_to"
     target: "CERB-CAP-106"
     note: "the self-mutation guard exists because the daemon is the canonical os_service resource"
+  - type: "relates_to"
+    target: "CERB-CAP-954"
+    note: "the systemd user-unit backend beside it"
 ---
 
 # os_service runtime mode (launchd)
@@ -51,7 +54,9 @@ The careful part is `waitRunning`. The comment above it states the constraint: c
 
 `Inspect` parses `launchctl print` into a `LaunchdRecord` — loaded, state, PID, last exit code, throttled, reason — plus a human diagnosis and highlights, and runs the raw text through both `redact.Launchd` and the per-resource redactor before it is exposed. `resource doctor` turns that record into checks, and only into checks: the entire meaty half of the doctor is gated on `Mode == os_service`, which is why `doctor` on a dev_session resource reports one check (CERB-GAP-144).
 
-Supervisor selection is `effectiveSupervisor`: `auto` resolves by GOOS to launchd on darwin, `systemd_user` on linux, `windows_service` on windows. Only launchd has a backend, so the other two resolve successfully and then fail with `os_service start not implemented yet`.
+Supervisor selection is `effectiveSupervisor`: `auto` resolves by GOOS to launchd on darwin, `systemd_user` on linux, `windows_service` on windows. launchd and systemd_user have backends (the second is CERB-CAP-954, built to this one's shape); windows_service resolves and then fails with `os_service … not implemented yet` on every verb, `Status` included.
+
+A plist whose resource sets no `PATH` in `env` gets the PATH the serving daemon runs with (`launchenv.Path`, the composition `cerberus install` uses for the daemon itself), so a resource promoted from `dev_session` keeps finding its toolchain and a descriptor need not pin a host's PATH.
 
 Maturity is `partial` deliberately. The unit coverage is real and thorough — `launchd_test.go` is 973 lines against an injected command runner — but `cerberus resource list` on the audit machine shows nine `dev_session` resources and zero `os_service` resources, and the daemon itself runs from a hand-written plist that Cerberus did not generate. The root CLI help says the daemon "now also fits this model as the v2 local process resource `cerberus-daemon-service`"; no such resource is registered here (CERB-GAP-149). Nothing in this capability is proven against a real launchd job by this installation.
 
@@ -67,8 +72,8 @@ Maturity is `partial` deliberately. The unit coverage is real and thorough — `
 ## What it does not own
 
 - restart on crash — launchd's KeepAlive does that, which is why the resource monitor skips os_service resources entirely
-- systemd or Windows service supervision (recognised, not implemented)
-- a PATH for the supervised service: `EnvironmentVariables` carries only env_file + env
+- systemd supervision (CERB-CAP-954) or Windows service supervision (recognised, not implemented)
+- the PATH a resource sets itself: env's PATH wins over the composed one
 - supervision of the daemon on the audit machine — that plist is hand-written and outside Cerberus
 - resolution of the secret values themselves; the plist keeps references and `run-secrets` resolves them in the service process
 

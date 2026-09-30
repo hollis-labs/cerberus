@@ -210,7 +210,7 @@
       "review_status": "draft",
       "confidence_score": 0.8,
       "confidence_label": "extensively unit-tested against a fake command runner; no resource on the audit machine uses os_service, so nothing here has a live exercise",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -237,12 +237,12 @@
         {
           "type": "relates_to",
           "target": "CERB-GAP-146",
-          "note": "only launchd is implemented; systemd_user and windows_service are refused at runtime"
+          "note": "closed: systemd_user has its own backend now (CERB-CAP-954); windows_service is still refused at runtime"
         },
         {
           "type": "relates_to",
           "target": "CERB-GAP-141",
-          "note": "the generated plist carries no PATH"
+          "note": "closed: a plist with no PATH in env gets the serving daemon's composed PATH"
         },
         {
           "type": "relates_to",
@@ -253,9 +253,14 @@
           "type": "relates_to",
           "target": "CERB-CAP-106",
           "note": "the self-mutation guard exists because the daemon is the canonical os_service resource"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-954",
+          "note": "the systemd user-unit backend beside it"
         }
       ],
-      "body": "`internal/connector/local/launchd.go` is the `os_service` backend. `writePlist` syncs the artifact (when `run_from: artifact`), renders a plist with `RunAtLoad`, `KeepAlive`, explicit `StandardOutPath`/`StandardErrorPath` under `~/.cerberus/apps/<project>/<resource>/logs/`, and writes it to `~/Library/LaunchAgents/<label>.plist` only if the bytes changed. The label defaults to `com.hollis-labs.cerberus.<project>.<resource>`. `Apply` then reloads only when it has a reason to — not loaded, artifact changed, plist changed, or activation pending — and otherwise reports `noop`, so a repeated apply does not churn a healthy service.\n\nThe careful part is `waitRunning`. The comment above it states the constraint: command acceptance does not mean launchd could execute the binary. It polls `launchctl print` until it sees `state = running` with the *same* PID twice in a row, up to ten seconds, and on timeout returns an error that says startup was not confirmed, that `KeepAlive` may still retry, and that the operator should check `resource status` before retrying the operation. `bootstrapService` similarly handles the case where a just-removed job slot is still draining: it probes with `print` before attempting a recovery `bootout`, because booting out an already-absent job returns a misleading EIO.\n\n`Inspect` parses `launchctl print` into a `LaunchdRecord` — loaded, state, PID, last exit code, throttled, reason — plus a human diagnosis and highlights, and runs the raw text through both `redact.Launchd` and the per-resource redactor before it is exposed. `resource doctor` turns that record into checks, and only into checks: the entire meaty half of the doctor is gated on `Mode == os_service`, which is why `doctor` on a dev_session resource reports one check (CERB-GAP-144).\n\nSupervisor selection is `effectiveSupervisor`: `auto` resolves by GOOS to launchd on darwin, `systemd_user` on linux, `windows_service` on windows. Only launchd has a backend, so the other two resolve successfully and then fail with `os_service start not implemented yet`.\n\nMaturity is `partial` deliberately. The unit coverage is real and thorough — `launchd_test.go` is 973 lines against an injected command runner — but `cerberus resource list` on the audit machine shows nine `dev_session` resources and zero `os_service` resources, and the daemon itself runs from a hand-written plist that Cerberus did not generate. The root CLI help says the daemon \"now also fits this model as the v2 local process resource `cerberus-daemon-service`\"; no such resource is registered here (CERB-GAP-149). Nothing in this capability is proven against a real launchd job by this installation.\n\n## What it owns\n\n- plist rendering and idempotent write (`writeFileIfChanged`)\n- launchctl bootstrap / bootout / kickstart orchestration and the drain-slot retry\n- startup confirmation by stable-PID observation (`waitRunning`)\n- launchctl print parsing, diagnosis and redaction (`Inspect`, `redact.Launchd`)\n- the `cerberus run-secrets --` front for services whose env carries secret references\n- install-tree removal on `resource remove` (plist + install root)\n\n## What it does not own\n\n- restart on crash — launchd's KeepAlive does that, which is why the resource monitor skips os_service resources entirely\n- systemd or Windows service supervision (recognised, not implemented)\n- a PATH for the supervised service: `EnvironmentVariables` carries only env_file + env\n- supervision of the daemon on the audit machine — that plist is hand-written and outside Cerberus\n- resolution of the secret values themselves; the plist keeps references and `run-secrets` resolves them in the service process\n\n## Vendor dependencies\n\n- launchctl (macOS)\n\n## Where it lives\n\n- `internal/connector/local/launchd.go`\n- `internal/connector/local/install_layout.go`\n- `internal/connector/local/secret_plist.go`\n- `internal/connector/local/runtime.go`\n- `internal/daemon/launchd_origin.go`\n\nSurfaces: cli, socket, mcp, console. Entry points: cerberus resource apply|reload|stop|remove|status|inspect|doctor <id> on a mode: os_service resource.\n\n## Recorded reasoning\n\n- `docs/adr/0002-resource-only-local-workload-model.md`",
+      "body": "`internal/connector/local/launchd.go` is the `os_service` backend. `writePlist` syncs the artifact (when `run_from: artifact`), renders a plist with `RunAtLoad`, `KeepAlive`, explicit `StandardOutPath`/`StandardErrorPath` under `~/.cerberus/apps/<project>/<resource>/logs/`, and writes it to `~/Library/LaunchAgents/<label>.plist` only if the bytes changed. The label defaults to `com.hollis-labs.cerberus.<project>.<resource>`. `Apply` then reloads only when it has a reason to — not loaded, artifact changed, plist changed, or activation pending — and otherwise reports `noop`, so a repeated apply does not churn a healthy service.\n\nThe careful part is `waitRunning`. The comment above it states the constraint: command acceptance does not mean launchd could execute the binary. It polls `launchctl print` until it sees `state = running` with the *same* PID twice in a row, up to ten seconds, and on timeout returns an error that says startup was not confirmed, that `KeepAlive` may still retry, and that the operator should check `resource status` before retrying the operation. `bootstrapService` similarly handles the case where a just-removed job slot is still draining: it probes with `print` before attempting a recovery `bootout`, because booting out an already-absent job returns a misleading EIO.\n\n`Inspect` parses `launchctl print` into a `LaunchdRecord` — loaded, state, PID, last exit code, throttled, reason — plus a human diagnosis and highlights, and runs the raw text through both `redact.Launchd` and the per-resource redactor before it is exposed. `resource doctor` turns that record into checks, and only into checks: the entire meaty half of the doctor is gated on `Mode == os_service`, which is why `doctor` on a dev_session resource reports one check (CERB-GAP-144).\n\nSupervisor selection is `effectiveSupervisor`: `auto` resolves by GOOS to launchd on darwin, `systemd_user` on linux, `windows_service` on windows. launchd and systemd_user have backends (the second is CERB-CAP-954, built to this one's shape); windows_service resolves and then fails with `os_service … not implemented yet` on every verb, `Status` included.\n\nA plist whose resource sets no `PATH` in `env` gets the PATH the serving daemon runs with (`launchenv.Path`, the composition `cerberus install` uses for the daemon itself), so a resource promoted from `dev_session` keeps finding its toolchain and a descriptor need not pin a host's PATH.\n\nMaturity is `partial` deliberately. The unit coverage is real and thorough — `launchd_test.go` is 973 lines against an injected command runner — but `cerberus resource list` on the audit machine shows nine `dev_session` resources and zero `os_service` resources, and the daemon itself runs from a hand-written plist that Cerberus did not generate. The root CLI help says the daemon \"now also fits this model as the v2 local process resource `cerberus-daemon-service`\"; no such resource is registered here (CERB-GAP-149). Nothing in this capability is proven against a real launchd job by this installation.\n\n## What it owns\n\n- plist rendering and idempotent write (`writeFileIfChanged`)\n- launchctl bootstrap / bootout / kickstart orchestration and the drain-slot retry\n- startup confirmation by stable-PID observation (`waitRunning`)\n- launchctl print parsing, diagnosis and redaction (`Inspect`, `redact.Launchd`)\n- the `cerberus run-secrets --` front for services whose env carries secret references\n- install-tree removal on `resource remove` (plist + install root)\n\n## What it does not own\n\n- restart on crash — launchd's KeepAlive does that, which is why the resource monitor skips os_service resources entirely\n- systemd supervision (CERB-CAP-954) or Windows service supervision (recognised, not implemented)\n- the PATH a resource sets itself: env's PATH wins over the composed one\n- supervision of the daemon on the audit machine — that plist is hand-written and outside Cerberus\n- resolution of the secret values themselves; the plist keeps references and `run-secrets` resolves them in the service process\n\n## Vendor dependencies\n\n- launchctl (macOS)\n\n## Where it lives\n\n- `internal/connector/local/launchd.go`\n- `internal/connector/local/install_layout.go`\n- `internal/connector/local/secret_plist.go`\n- `internal/connector/local/runtime.go`\n- `internal/daemon/launchd_origin.go`\n\nSurfaces: cli, socket, mcp, console. Entry points: cerberus resource apply|reload|stop|remove|status|inspect|doctor <id> on a mode: os_service resource.\n\n## Recorded reasoning\n\n- `docs/adr/0002-resource-only-local-workload-model.md`",
       "locus": "core",
       "pointer_locator": "internal/connector/local/launchd.go",
       "data": {
@@ -269,8 +274,8 @@
         ],
         "does_not_own": [
           "restart on crash — launchd's KeepAlive does that, which is why the resource monitor skips os_service resources entirely",
-          "systemd or Windows service supervision (recognised, not implemented)",
-          "a PATH for the supervised service: `EnvironmentVariables` carries only env_file + env",
+          "systemd supervision (CERB-CAP-954) or Windows service supervision (recognised, not implemented)",
+          "the PATH a resource sets itself: env's PATH wins over the composed one",
           "supervision of the daemon on the audit machine — that plist is hand-written and outside Cerberus",
           "resolution of the secret values themselves; the plist keeps references and `run-secrets` resolves them in the service process"
         ],
@@ -3852,7 +3857,7 @@
           "note": "the daemon is deliberately not Cerberus-managed here"
         }
       ],
-      "body": "`cerberus install` renders a fixed plist template to\n`~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`, pointing\n`ProgramArguments` at the symlink-resolved path of the binary that was invoked,\nand `launchctl load`s it. `cerberus uninstall` unloads and removes it. Both are\nmacOS-only and both use the deprecated `load`/`unload` verbs rather than\n`bootstrap`/`bootout`, and both discard the unload error.\n\nAGENTS.md describes the plist on the audit machine as hand-written. It is byte-for-byte\nwhat `cerberus install` would have produced: same label, same\n`ProgramArguments` of `[~/go/bin/cerberus, daemon, --foreground]`,\nsame `WorkingDirectory` of the home directory, same `RunAtLoad`, `KeepAlive` and\nthe two log paths. That distinction matters, because it relocates the cause of a\nknown outage. The daemon gets launchd's minimal `PATH` of\n`/usr/bin:/bin:/usr/sbin:/sbin` not because someone wrote the plist by hand and\nforgot, but because `launchdPlistTemplate` in `cmd/cerberus/cmd_install.go`\nhas no `EnvironmentVariables` key at all. `cerberus install` on a fresh machine\nproduces exactly the same environment. The contrast is sharp: the `os_service`\nplist builder at `internal/connector/local/launchd.go:44` does emit\n`EnvironmentVariables` for the resources it installs. The one process that most\nneeds a usable `PATH` — the daemon, which shells out to `go` for builds and\n`docker` for the Docker connector — is installed by the only code path that\nomits it.\n\nThe self-mutation guard is the strongest part of this capability.\n`ProtectServingDaemon` records the serving executable and label at startup and\ninstalls a mutation guard on the local connector; `refuseSelfMutation` then\nrefuses any deploy, apply, sync, reload, stop or remove that resolves to the\nrunning daemon — matched by canonical resource id, by launchd label, by artifact\npath for an `os_service` resource, or by `command[0]` for a dev_session one. It\ndoes not merely refuse; it names the recovery in the error: build to a temporary\npath, atomically move the binary over the daemon artifact, then\n`launchctl kickstart -k gui/<uid>/com.hollis-labs.cerberus` from an external\nterminal. That guard is generic enough to fire on the audit machine even though no\n`cerberus-daemon-service` resource is registered here, because the `command[0]`\ncomparison would catch it.\n\nSo the upgrade path is documented, but only as a string in an error nobody has\nhit yet, and only in AGENTS.md. There is no runbook, no `cerberus upgrade`\nverb, and no test that the recovery instruction survives `redact.Text`, which\nAGENTS.md explicitly requires of any error carrying a recovery. Running the\nredactor over that exact message by hand shows it passes through intact — the\n`-k` flag is not credential-shaped and `looksLikeToken` is not involved — so the\ninstruction is safe today by luck of wording rather than by assertion. This\naudit did not perform the upgrade.",
+      "body": "`cerberus install` renders a fixed plist template to\n`~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`, pointing\n`ProgramArguments` at the symlink-resolved path of the binary that was invoked,\nand `launchctl load`s it. `cerberus uninstall` unloads and removes it. On macOS\nboth use the deprecated `load`/`unload` verbs rather than\n`bootstrap`/`bootout`, and both discard the unload error. On Linux they write\nand remove the systemd user unit `com.hollis-labs.cerberus.service` instead\n(`cmd/cerberus/cmd_install_systemd.go`), retiring a hand-written\n`cerberus.service` first; see CERB-CAP-954.\n\nAGENTS.md describes the plist on the audit machine as hand-written. It is byte-for-byte\nwhat `cerberus install` would have produced: same label, same\n`ProgramArguments` of `[~/go/bin/cerberus, daemon, --foreground]`,\nsame `WorkingDirectory` of the home directory, same `RunAtLoad`, `KeepAlive` and\nthe two log paths. That distinction matters, because it relocates the cause of a\nknown outage. The daemon gets launchd's minimal `PATH` of\n`/usr/bin:/bin:/usr/sbin:/sbin` not because someone wrote the plist by hand and\nforgot, but because `launchdPlistTemplate` in `cmd/cerberus/cmd_install.go`\nhas no `EnvironmentVariables` key at all. `cerberus install` on a fresh machine\nproduces exactly the same environment. The contrast is sharp: the `os_service`\nplist builder at `internal/connector/local/launchd.go:44` does emit\n`EnvironmentVariables` for the resources it installs. The one process that most\nneeds a usable `PATH` — the daemon, which shells out to `go` for builds and\n`docker` for the Docker connector — is installed by the only code path that\nomits it.\n\nThe self-mutation guard is the strongest part of this capability.\n`ProtectServingDaemon` records the serving executable and label at startup and\ninstalls a mutation guard on the local connector; `refuseSelfMutation` then\nrefuses any deploy, apply, sync, reload, stop or remove that resolves to the\nrunning daemon — matched by canonical resource id, by launchd label, by artifact\npath for an `os_service` resource, or by `command[0]` for a dev_session one. It\ndoes not merely refuse; it names the recovery in the error: build to a temporary\npath, atomically move the binary over the daemon artifact, then\n`launchctl kickstart -k gui/<uid>/com.hollis-labs.cerberus` from an external\nterminal. That guard is generic enough to fire on the audit machine even though no\n`cerberus-daemon-service` resource is registered here, because the `command[0]`\ncomparison would catch it.\n\nSo the upgrade path is documented, but only as a string in an error nobody has\nhit yet, and only in AGENTS.md. There is no runbook, no `cerberus upgrade`\nverb, and no test that the recovery instruction survives `redact.Text`, which\nAGENTS.md explicitly requires of any error carrying a recovery. Running the\nredactor over that exact message by hand shows it passes through intact — the\n`-k` flag is not credential-shaped and `looksLikeToken` is not involved — so the\ninstruction is safe today by luck of wording rather than by assertion. This\naudit did not perform the upgrade.",
       "locus": "core",
       "pointer_locator": "cmd/cerberus/cmd_install.go",
       "data": {
@@ -4802,6 +4807,102 @@
           "console_ui": 10
         },
         "document": "docs/catalog/systems/supervision-surface-parity.md"
+      }
+    },
+    {
+      "id": "CERB-CAP-954",
+      "class": "capability",
+      "name": "os_service runtime mode (systemd user units)",
+      "summary": "Writes a systemd user unit for a process resource on Linux and drives it with systemctl --user, confirming a stable main PID before it calls the activation done — the Linux counterpart of the launchd backend.",
+      "state_field": "maturity",
+      "state_label": "partial",
+      "review_status": "draft",
+      "confidence_score": 0.8,
+      "confidence_label": "unit-tested against a fake user manager, and exercised live once on a Linux box (torque deployed, inspected, stopped and removed; the daemon installed and reporting origin systemd); nothing runs under it long-term yet",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:capability",
+        "supervision",
+        "os_service",
+        "systemd",
+        "linux",
+        "locus:core"
+      ],
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-100",
+          "note": "the os_service runtime mode on Linux"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-102",
+          "note": "the launchd backend it mirrors, guarantee for guarantee"
+        },
+        {
+          "type": "depends_on",
+          "target": "CERB-CAP-103",
+          "note": "os_service + run_from: artifact installs through the artifact join"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-146",
+          "note": "closes it: systemd_user was recognised and refused before this"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-106",
+          "note": "the self-mutation guard names systemctl --user restart on Linux"
+        }
+      ],
+      "body": "`internal/connector/local/systemd.go` is the `os_service` backend on Linux, beside `launchd.go`, and `osServiceBackend` routes every method to it when `effectiveSupervisor` resolves `systemd_user` (which `auto` does on Linux). It deliberately has the launchd backend's shape, so what is true of one is true of the other.\n\n**Naming.** A resource's unit is its launchd label with `.service`: `com.hollis-labs.cerberus.<project>.<resource>.service`, or `<service_name>.service` when the resource names its own. One resource has one name on every platform, and the daemon resource's `service_name: com.hollis-labs.cerberus` gives exactly the unit `cerberus install` writes. Units live in `~/.config/systemd/user`. `InstallLayout` carries `UnitName` and `UnitPath` beside `PlistPath`.\n\n**Rendering.** `renderUnit` maps the plist onto a unit: `KeepAlive` is `Restart=always` with `StartLimitIntervalSec=0` (launchd never gives up on a crashing job, so neither does this), `RunAtLoad` is the unit being enabled under `default.target`, and `StandardOutPath`/`StandardErrorPath` are `StandardOutput=append:`/`StandardError=append:` into the same `~/.cerberus/apps/<project>/<resource>/logs/`. `env` is `Environment=`. `env_file` is `EnvironmentFile=-<path>`, with the file's digest in a comment, so a changed env file is a changed unit and apply restarts the service. Arguments are quoted, with `%` and `$` escaped, because systemd expands both where launchd passes arguments through; a relative program is anchored at the working directory and a bare name is resolved on the unit's PATH, since systemd searches neither. A newline in any value is refused. The unit is written 0600 and only when its bytes change.\n\n**Environment.** A resource with no `PATH` in `env` gets the serving daemon's own PATH (`launchenv.Path`, the same composition `daemonLaunchPath` uses for the daemon), not the user manager's compiled-in one. Nothing else is set: the manager's environment, `DBUS_SESSION_BUS_ADDRESS` included, reaches the service, which is what go-keyring needs. A service whose environment (env or env_file) carries a secret reference is fronted by `cerberus run-secrets --`, as on launchd; `CheckSecretReferenceUnit` is the doctor's check that the unit on disk still does that.\n\n**Lifecycle.** `Apply` syncs the artifact, writes the unit, runs `daemon-reload` only when the unit changed or the manager needs one, enables it if it is not, and restarts only when there is a reason — not active, artifact changed, unit changed, activation pending — and otherwise reports `noop`. It probes the port before starting a stopped service, through the same `checkServicePortConflict` the launchd backend uses. `Stop` stops the unit and leaves it enabled (a launchd bootout leaves the plist). `Reload` restarts an installed unit. `Remove` is `disable --now`, the unit file, a `daemon-reload`, `reset-failed` and the install tree.\n\n**Startup confirmation.** `waitRunning` polls `systemctl --user show -p ActiveState,SubState,MainPID,…` until the unit is `active/running` with the same main PID twice, ten seconds by default, and on timeout says startup was not confirmed, that systemd may still retry, and to check `resource status` first — the launchd wording — with the unit's state and a journal tail attached.\n\n**Status, inspect, doctor.** `Status` maps the unit onto Cerberus's states and never returns `(unknown, nil)`: not installed is `stopped`, `activating/auto-restart` after a non-zero exit is `failed` (crash-looping), and a state it does not recognise is `unknown` with an error that names it. `Inspect` parses `systemctl --user show` into a `SystemdRecord` and adds a short `journalctl --user` tail, both redacted: `redact.Systemd` hides the argument after a credential-named flag in the `ExecStart` record and reduces an `Environment=` line to names, then the per-resource redactor runs. `Environment` is not among the properties read at all. `resource doctor` checks the unit file, its load and enablement state, the exit status and diagnosis, and whether the user **lingers**: without `loginctl enable-linger`, user services stop at logout and do not start at boot.\n\n**Tool resolution.** `systemctl`, `journalctl` and `loginctl` are resolved on every call, from PATH and then fixed system directories, never once at boot. Each call carries `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS`, defaulted to `/run/user/<uid>` and its `bus` when the daemon was started without them.\n\n**The daemon.** `cerberus install` on Linux writes `com.hollis-labs.cerberus.service` for the invoking binary with a composed PATH, retires a hand-written `cerberus.service` that runs `cerberus daemon` (and refuses one that does not), and says how to enable lingering rather than doing it. `daemon.SystemdSpawnedSelf` (INVOCATION_ID plus a cgroup under `user@<uid>.service`) makes `daemon status` report `origin: systemd`, and `daemon start|stop|restart` go through `systemctl --user` when the unit exists, as they go through launchctl on macOS.\n\nMaturity is `partial`: the tests (`systemd_test.go`, `cmd_install_systemd_test.go`) run against a fake user manager and so pass on macOS CI, and the whole lifecycle has been driven once for real on one Linux host, but no service has run under it for long.\n\n## What it owns\n\n- unit rendering, escaping and idempotent write\n- systemctl --user daemon-reload / enable / restart / stop / disable orchestration\n- startup confirmation by stable main-PID observation (`waitRunning`)\n- systemctl show parsing, state mapping, diagnosis, journal tail and redaction (`Inspect`, `redact.Systemd`)\n- the lingering check in `resource doctor`\n- the `cerberus run-secrets --` front for services whose env carries secret references\n- the daemon's own unit (`cerberus install` / `uninstall` on Linux) and its systemd origin\n\n## What it does not own\n\n- restart on crash — systemd's `Restart=always` does that\n- lingering itself: install and doctor name `loginctl enable-linger`, and neither runs it\n- system-wide units, or any unit it did not write (a hand-written unit is retired only when it is the daemon's `cerberus.service`)\n- the service's stdout/stderr, which go to the log files, not the journal\n- resolution of the secret values themselves; the unit keeps references and `run-secrets` resolves them in the service process\n\n## Vendor dependencies\n\n- systemctl, journalctl, loginctl (systemd)\n\n## Where it lives\n\n- `internal/connector/local/systemd.go`\n- `internal/connector/local/install_layout.go`\n- `internal/connector/local/runtime.go`\n- `internal/launchenv/launchenv.go`\n- `internal/daemon/systemd_origin.go`\n- `cmd/cerberus/cmd_install_systemd.go`\n\nSurfaces: cli, socket, mcp, console. Entry points: cerberus resource apply|deploy|reload|stop|remove|status|inspect|doctor <id> on a mode: os_service resource on Linux; cerberus install|uninstall; cerberus daemon start|stop|restart|status.\n\n## Recorded reasoning\n\n- `docs/adr/0001-local-runtime-backends.md`\n- `docs/adr/0002-resource-only-local-workload-model.md`",
+      "locus": "core",
+      "pointer_locator": "internal/connector/local/systemd.go",
+      "data": {
+        "owns": [
+          "unit rendering, escaping and idempotent write",
+          "systemctl --user daemon-reload / enable / restart / stop / disable orchestration",
+          "startup confirmation by stable main-PID observation (`waitRunning`)",
+          "systemctl show parsing, state mapping, diagnosis, journal tail and redaction (`Inspect`, `redact.Systemd`)",
+          "the lingering check in `resource doctor`",
+          "the `cerberus run-secrets --` front for services whose env carries secret references",
+          "the daemon's own unit (`cerberus install` / `uninstall` on Linux) and its systemd origin"
+        ],
+        "does_not_own": [
+          "restart on crash — systemd's `Restart=always` does that",
+          "lingering itself: install and doctor name `loginctl enable-linger`, and neither runs it",
+          "system-wide units, or any unit it did not write (a hand-written unit is retired only when it is the daemon's `cerberus.service`)",
+          "the service's stdout/stderr, which go to the log files, not the journal",
+          "resolution of the secret values themselves; the unit keeps references and `run-secrets` resolves them in the service process"
+        ],
+        "vendor": [
+          "systemctl, journalctl, loginctl (systemd)"
+        ],
+        "entry_points": [
+          "cerberus resource apply|deploy|reload|stop|remove|status|inspect|doctor <id> on a mode: os_service resource on Linux; cerberus install|uninstall; cerberus daemon start|stop|restart|status"
+        ],
+        "surfaces": [
+          "cli",
+          "socket",
+          "mcp",
+          "console"
+        ],
+        "key_files": [
+          "internal/connector/local/systemd.go",
+          "internal/connector/local/install_layout.go",
+          "internal/connector/local/runtime.go",
+          "internal/launchenv/launchenv.go",
+          "internal/daemon/systemd_origin.go",
+          "cmd/cerberus/cmd_install_systemd.go"
+        ],
+        "adrs": [
+          "docs/adr/0001-local-runtime-backends.md",
+          "docs/adr/0002-resource-only-local-workload-model.md"
+        ],
+        "document": "docs/catalog/systems/resource-os-service-systemd.md"
       }
     },
     {
@@ -9916,11 +10017,11 @@
       "name": "Generated launchd plists carry no PATH",
       "summary": "launchdEnvironment emits only env_file and env entries, so an os_service resource inherits launchd's minimal PATH and any tool it shells out to must be an absolute path.",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "review_status": "draft",
       "confidence_score": 0.85,
       "confidence_label": "read from launchdEnvironment and the plist template; no os_service resource exists here to observe it failing",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -9945,7 +10046,7 @@
           "note": "the same minimal-PATH root cause, one level out"
         }
       ],
-      "body": "`launchdEnvironment(spec)` builds the plist's `EnvironmentVariables` from `env_file:` and `env:` only, and the template omits the key entirely when that map is empty. A supervised service therefore starts with launchd's `/usr/bin:/bin:/usr/sbin:/sbin`.\n\nThe asymmetry is the problem, not the value. `dev_session` children get `ensurePath` — homebrew, `/usr/local/bin`, `/usr/local/go/bin`, `~/go/bin` — so a resource that works in `dev_session` can break when it is promoted to `os_service`, and the failure surfaces as a service that starts and immediately exits with the real cause buried in `stderr.log`. Since ADR 0002's stated migration direction is \"durable background services → mode: os_service\", that promotion is the expected path, which makes this a trap on the happy path rather than an edge case.\n\nNot must-have, because a resource can set `env: {PATH: ...}` today and the launchd diagnosis machinery does surface the exit code. But it is a footgun with a two-line fix (a default PATH entry that `env:` can override) and it is worth pairing with a `resource doctor` check that warns when an os_service resource's command is a bare name rather than an absolute path.",
+      "body": "`launchdEnvironment(spec)` builds the plist's `EnvironmentVariables` from `env_file:` and `env:` only, and the template omits the key entirely when that map is empty. A supervised service therefore starts with launchd's `/usr/bin:/bin:/usr/sbin:/sbin`.\n\nThe asymmetry is the problem, not the value. `dev_session` children get `ensurePath` — homebrew, `/usr/local/bin`, `/usr/local/go/bin`, `~/go/bin` — so a resource that works in `dev_session` can break when it is promoted to `os_service`, and the failure surfaces as a service that starts and immediately exits with the real cause buried in `stderr.log`. Since ADR 0002's stated migration direction is \"durable background services → mode: os_service\", that promotion is the expected path, which makes this a trap on the happy path rather than an edge case.\n\nNot must-have, because a resource can set `env: {PATH: ...}` today and the launchd diagnosis machinery does surface the exit code. But it is a footgun with a two-line fix (a default PATH entry that `env:` can override) and it is worth pairing with a `resource doctor` check that warns when an os_service resource's command is a bare name rather than an absolute path.\n\n## Shipped on feat/linux-systemd\n\n`renderPlist` gives a plist whose resource sets no `PATH` in `env` the PATH the serving daemon runs with, composed by `launchenv.Path` (absolute entries of the daemon's PATH, then launchd's four) — the same composition `daemonLaunchPath` uses for the daemon, and the same one a systemd unit gets. A resource's own `PATH` still wins. On an existing Mac install a resource without `PATH` gets the new key on its next apply, which reloads it once. `TestLaunchdPlistComposesPathUnlessTheResourceSetsOne` covers it. The doctor warning for a bare-name command is not part of this.",
       "locus": "core",
       "pointer_locator": "internal/connector/local/launchd.go:483",
       "data": {
@@ -10156,11 +10257,11 @@
       "name": "os_service supports launchd only",
       "summary": "effectiveSupervisor resolves systemd_user on linux and windows_service on windows, and then osServiceBackend fails with \"not implemented yet\" for both.",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "review_status": "draft",
       "confidence_score": 0.95,
       "confidence_label": "read directly from runtime.go's switch statements; only launchd has a backend",
-      "last_reviewed": "2026-09-17",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-17",
       "namespace": "cerberus",
       "tags": [
@@ -10180,7 +10281,7 @@
           "note": ""
         }
       ],
-      "body": "`ProcessSupervisor` names four values and `effectiveSupervisor` resolves all four: `auto` maps by GOOS to launchd / systemd_user / windows_service, and an explicit value is accepted if it matches the platform. `osServiceBackend` then switches on the result and has exactly one case. Every other supervisor falls through to `os_service start not implemented yet for resource %q via supervisor %q` — separately for apply, stop, reload and remove — while `Status` returns `unknown` with a nil error, which is the least helpful of the four.\n\nThis is honest failure rather than a silent one, and the gap only bites on Linux or Windows, neither of which is a host we run today (a planned Azure development VM is not provisioned yet and Docker will be the container story there). So `nice-to-have`. It is worth recording because `supervisor: auto` looks portable in the config schema and is not, and because `Status` returning `(unknown, nil)` rather than the same explanatory error is a small inconsistency that would confuse the first person to try it.",
+      "body": "`ProcessSupervisor` names four values and `effectiveSupervisor` resolves all four: `auto` maps by GOOS to launchd / systemd_user / windows_service, and an explicit value is accepted if it matches the platform. `osServiceBackend` then switches on the result and has exactly one case. Every other supervisor falls through to `os_service start not implemented yet for resource %q via supervisor %q` — separately for apply, stop, reload and remove — while `Status` returns `unknown` with a nil error, which is the least helpful of the four.\n\nThis is honest failure rather than a silent one, and the gap only bites on Linux or Windows, neither of which is a host we run today (a planned Azure development VM is not provisioned yet and Docker will be the container story there). So `nice-to-have`. It is worth recording because `supervisor: auto` looks portable in the config schema and is not, and because `Status` returning `(unknown, nil)` rather than the same explanatory error is a small inconsistency that would confuse the first person to try it.\n\n## Shipped on feat/linux-systemd\n\n`osServiceBackend` routes every method to `systemdBackend` (`internal/connector/local/systemd.go`, CERB-CAP-954) when the supervisor resolves to `systemd_user`, so `supervisor: auto` is portable between macOS and Linux. `Status` for a supervisor with no backend (`windows_service`) now returns the same explanatory error as the other verbs instead of `(unknown, nil)`, and `TestOSServiceBackendStatusAutoSupervisor` asserts the real resolution on each platform.",
       "locus": "core",
       "pointer_locator": "internal/connector/local/runtime.go:98",
       "data": {

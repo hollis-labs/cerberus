@@ -230,7 +230,8 @@ Before announcing a beta:
 - The beta process does not define code signing, notarization, or an updater.
 - Installation is manual archive extraction plus `install`; there is no package
   installer yet.
-- The launch agent is user-scoped and macOS-only.
+- The daemon service is user-scoped: a launch agent on macOS, a systemd user
+  unit on Linux (which needs `loginctl enable-linger` to run without a session).
 - `go install` remains a contributor fallback but is not the release install
   path.
 

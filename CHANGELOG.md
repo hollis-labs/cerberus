@@ -8,7 +8,16 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ## [Unreleased]
 
+### Added
+
+- **`os_service` runs on Linux as a systemd user unit.** `supervisor: auto` (and `systemd_user`) now apply, reload, stop, remove, status, inspect and doctor through `systemctl --user`, with the launchd backend's guarantees: idempotent unit writes, restart only when something changed, and startup confirmed by a stable main PID. `resource doctor` warns when the user does not linger.
+- **`cerberus install` / `uninstall` on Linux** write and remove the systemd user unit `com.hollis-labs.cerberus.service`, retiring a hand-written `cerberus.service` first. `cerberus daemon status` reports `origin: systemd`, and `daemon start|stop|restart` go through `systemctl --user` for a systemd-managed daemon. `--override-supervisor` is the new name for `--override-launchd`, which still works.
+- **A relative `dir:` in a registered descriptor resolves against the descriptor's own directory**, so `dir: .` names the repo wherever it is checked out.
+
 ### Changed
+
+- **A launchd plist or systemd unit whose resource sets no `PATH` gets the serving daemon's PATH** instead of the supervisor's minimal one. On macOS, an `os_service` resource without `PATH` in `env` reloads once on its next apply to pick it up.
+- A resource build or install's `make` no longer inherits `MAKEFLAGS`/`MAKELEVEL` from an enclosing make, which added `Entering directory` lines to captured output.
 
 - **The `github` connector is a plugin now** (breaking). The core is exactly `local`, `ssh` and `docker`; no provider SDK remains in the host binary.
 - **Vercel deployments are the `vercel` plugin now** (breaking). The console's deploy-profile runner (`internal/infra`), its `/api/infra` and `/api/deployments` routes, the Deployments page and the `profile_save`/`profile_delete` console writes are removed. Profiles move to a file the plugin reads (`profiles_file` in `connector-config.yaml`); `vercel/token` and `vercel/scope` keep their names.

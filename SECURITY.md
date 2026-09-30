@@ -43,7 +43,7 @@ Administrative operations and plugin lifecycle events are written to an append-o
 
 ## Current security limitations
 
-- macOS-first; the launchd daemon is macOS-only, and Linux support is CLI-oriented
+- macOS-first; on Linux the daemon and `os_service` resources run as systemd user units, which is newer and less exercised than launchd
 - release binaries are unsigned betas
 - no built-in TLS for the web console; `mcp-http` TLS is operator-configured
 - plugins are not sandboxed

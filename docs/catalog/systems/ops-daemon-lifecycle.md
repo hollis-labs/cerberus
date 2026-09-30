@@ -39,9 +39,12 @@ relationships:
 `cerberus install` renders a fixed plist template to
 `~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`, pointing
 `ProgramArguments` at the symlink-resolved path of the binary that was invoked,
-and `launchctl load`s it. `cerberus uninstall` unloads and removes it. Both are
-macOS-only and both use the deprecated `load`/`unload` verbs rather than
-`bootstrap`/`bootout`, and both discard the unload error.
+and `launchctl load`s it. `cerberus uninstall` unloads and removes it. On macOS
+both use the deprecated `load`/`unload` verbs rather than
+`bootstrap`/`bootout`, and both discard the unload error. On Linux they write
+and remove the systemd user unit `com.hollis-labs.cerberus.service` instead
+(`cmd/cerberus/cmd_install_systemd.go`), retiring a hand-written
+`cerberus.service` first; see CERB-CAP-954.
 
 AGENTS.md describes the plist on the audit machine as hand-written. It is byte-for-byte
 what `cerberus install` would have produced: same label, same

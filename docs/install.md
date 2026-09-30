@@ -2,14 +2,16 @@
 
 Cerberus ships as a single binary during beta. The four supported install
 paths are Homebrew, GitHub release tarball, source build, and `go install`.
-All four are equivalent — `cerberus install` (the launchd bootstrap) resolves
-the running binary's path at runtime, so a Homebrew install, a `~/.local/bin`
-install, and a `$GOPATH/bin` install all produce the right plist.
+All four are equivalent — `cerberus install` (the launchd or systemd bootstrap)
+resolves the running binary's path at runtime, so a Homebrew install, a
+`~/.local/bin` install, and a `$GOPATH/bin` install all produce the right plist
+or unit.
 
 ## Prerequisites
 
-- macOS (primary platform; daemon install requires launchd)
-- Linux binaries are published for CLI use; the launchd `install` subcommand is macOS-only
+- macOS (primary platform; the daemon runs under launchd)
+- Linux with systemd (the daemon runs as a systemd user unit; `os_service`
+  resources run as systemd user units too)
 - If building from source: Go `1.26.6+` and `make`
 - No separate database; Cerberus uses local SQLite under `~/.cerberus/`
 
@@ -152,13 +154,13 @@ approval, with a passkey".
 
    Writes `~/.cerberus/config.yaml` with a blank `projects:` list.
 
-2. (macOS only) Bootstrap the launchd agent so the daemon survives reboots:
+2. Run the daemon as a service so it survives reboots:
 
    ```sh
    cerberus install
    ```
 
-   This writes `~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`
+   **macOS.** This writes `~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`
    with the path of the currently invoked `cerberus` binary baked in. Run it
    from whichever install path you want the plist to track — Homebrew,
    `~/.local/bin`, `$GOPATH/bin`, etc.
@@ -168,6 +170,27 @@ approval, with a passkey".
    its plist before it loads `com.hollis-labs.cerberus`, so two daemons never run
    at once. Resources whose launchd label Cerberus derives move to the new prefix
    the next time they are applied.
+
+   **Linux.** This writes the systemd user unit
+   `~/.config/systemd/user/com.hollis-labs.cerberus.service`, running the
+   invoked binary with `daemon --foreground` and a `PATH` composed from your
+   shell's, then runs `systemctl --user daemon-reload`, `enable` and `restart`.
+   A hand-written `cerberus.service` that runs `cerberus daemon` is disabled
+   and removed first, so two daemons never run at once.
+
+   A user unit runs only while you have a session unless your user
+   *lingers*. Without lingering, the daemon stops at logout and does not start
+   at boot. `cerberus install` tells you when lingering is off; enable it with:
+
+   ```sh
+   loginctl enable-linger
+   ```
+
+   `cerberus resource doctor` warns about it for every `os_service` resource
+   too. Manage the daemon with `cerberus daemon start|stop|restart` (they go
+   through `systemctl --user`) or with `systemctl --user` directly; the analog
+   of `launchctl kickstart -k` is
+   `systemctl --user restart com.hollis-labs.cerberus.service`.
 
 3. Confirm the daemon is healthy:
 
@@ -255,7 +278,7 @@ posture changes.
 ## Uninstall
 
 ```sh
-cerberus uninstall            # remove the launchd agent (macOS)
+cerberus uninstall            # remove the launch agent (macOS) or systemd user unit (Linux)
 brew uninstall cerberus       # if installed via Homebrew
 # or
 make uninstall PREFIX="$HOME/.local"
@@ -268,5 +291,5 @@ rm -rf ~/.cerberus            # remove all local state (destructive!)
 - The CLI and daemon are beta software; expect continued UX and docs iteration.
 - Homebrew is the cleanest non-source install path on macOS today.
 - Source installs remain the best fit when you are editing Cerberus itself.
-- The launchd `install` subcommand always uses the path of the running binary;
-  re-run it after switching install paths to refresh the plist.
+- The `install` subcommand always uses the path of the running binary;
+  re-run it after switching install paths to refresh the plist or unit.

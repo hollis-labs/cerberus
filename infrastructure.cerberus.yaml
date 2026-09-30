@@ -19,6 +19,7 @@ resources:
       port: 11434
       run_from: workspace
       service_name: com.hollis-labs.cerberus.ollama-service
+      # macOS-only: runs Homebrew's ollama by its Homebrew path.
       supervisor: launchd
       url: http://127.0.0.1:11434
     tags:
@@ -45,6 +46,7 @@ resources:
       port: 5432
       run_from: workspace
       service_name: com.hollis-labs.cerberus.postgres-service
+      # macOS-only: runs Homebrew's postgresql@16 against its Homebrew data dir.
       supervisor: launchd
     tags:
       - db
@@ -60,13 +62,13 @@ resources:
     config:
       command:
         - ./jaeger
-      dir: /Users/me/.cerberus/bin
+      dir: ~/.cerberus/bin
       health: http://127.0.0.1:16686
       mode: os_service
       port: 4318
       protected: true
       run_from: workspace
-      supervisor: launchd
+      supervisor: auto
       url: http://127.0.0.1:16686
     tags:
       - daemon
