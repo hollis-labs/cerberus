@@ -28,9 +28,10 @@ import (
 // not used at all (D6).
 type Store struct {
 	Dir string
-	// AuditDir is the audit log a snapshot that fails its hash check is
-	// enforced from: the last verified enforcement recorded there
-	// (LastVerifiedEnforcement). Empty, such a snapshot enforces everything.
+	// AuditDir is the audit log the snapshot is checked against, and a
+	// mismatch is enforced from: the last verified snapshot recorded there
+	// (LastVerified). Empty, the snapshot files are all there is, and a
+	// mismatch enforces everything.
 	AuditDir string
 }
 
@@ -138,23 +139,81 @@ func (s Store) Load() (*Evaluator, LoadStatus) {
 	return NewEvaluator(f, found), LoadStatus{Snapshot: found}
 }
 
-// LoadVerified is Load, with a snapshot that fails its hash check enforced
-// as it was last verified (P3-7): the enforcement the newest apply recorded
-// in the hash-chained audit log, or, when that cannot be determined,
-// everything. The baseline decides either way.
+// LoadVerified is Load, checked against the audit log (M3). The snapshot's
+// own hash file vouches only for itself, so the snapshot in use must also be
+// the one the newest apply the log vouches for wrote (LastVerified). One
+// that is not — edited with its hash file, deleted, or failing its hash
+// check — is a mismatch, and a mismatch keeps the last verified snapshot:
+// its rules, rates, breaker and enforcement, from the snapshot the apply
+// recorded. Where the log holds only its enforcement, that is enforced over
+// the baseline; where it vouches for nothing, everything is enforced.
 func (s Store) LoadVerified() (*Evaluator, LoadStatus) {
 	ev, status := s.Load()
-	if !status.Mismatch() {
+	v, history := LastVerified(s.AuditDir)
+	switch history {
+	case NoApplies:
+		if !status.Mismatch() {
+			return ev, status
+		}
+	case UnverifiedApplies:
+		if !status.Mismatch() {
+			status = LoadStatus{Snapshot: SnapshotMismatch, Found: foundOf(status),
+				Problem: "the audit log vouches for no `cerberus policy apply` (its chain has a problem before every one), so this snapshot cannot be checked; run `cerberus policy apply` again once the chain is reanchored"}
+		}
+		ev = BaselineOnly(SnapshotMismatch)
+		status.Enforcement = "snapshot mismatch: enforcing everything (the audit log vouches for no apply)"
+		ev.fallbackNote = status.Enforcement
+		return ev, status
+	case VerifiedApply:
+		if !status.Mismatch() && (v.Hash == "" || foundOf(status) == v.Hash) {
+			return ev, status
+		}
+		if !status.Mismatch() {
+			problem := "applied.yaml is not the snapshot the last `cerberus policy apply` wrote"
+			if status.Snapshot == SnapshotBaseline {
+				problem = "applied.yaml is missing, but `cerberus policy apply` wrote one"
+			}
+			status = LoadStatus{Snapshot: SnapshotMismatch, Recorded: v.Hash, Found: foundOf(status), Problem: problem}
+		}
+		if f, ok := verifiedFile(v); ok {
+			status.Enforcement = fmt.Sprintf("snapshot mismatch: enforcing the last verified snapshot, applied %s: its rules, and %s", v.Time.Local().Format(time.RFC3339), f.EnforcementOf().Summary())
+			e := f.EnforcementOf()
+			return &Evaluator{file: f, snapshot: SnapshotMismatch, fallback: &e, fallbackNote: status.Enforcement}, status
+		}
+		ev = BaselineOnly(SnapshotMismatch)
+		e := v.Enforcement
+		ev.fallback = &e
+		status.Enforcement = fmt.Sprintf("snapshot mismatch: enforcing the last verified enforcement, from %s: %s", v.Time.Local().Format(time.RFC3339), e.Summary())
+		ev.fallbackNote = status.Enforcement
 		return ev, status
 	}
-	if e, at, ok := LastVerifiedEnforcement(s.AuditDir); ok {
-		ev.fallback = &e
-		status.Enforcement = fmt.Sprintf("snapshot mismatch: enforcing the last verified enforcement, from %s: %s", at.Local().Format(time.RFC3339), e.Summary())
-	} else {
-		status.Enforcement = "snapshot mismatch: enforcing everything (the last verified enforcement cannot be read from the audit log)"
-	}
+	status.Enforcement = "snapshot mismatch: enforcing everything (the last verified enforcement cannot be read from the audit log)"
 	ev.fallbackNote = status.Enforcement
 	return ev, status
+}
+
+// foundOf is the snapshot the files hold: its hash, or "none".
+func foundOf(status LoadStatus) string {
+	switch status.Snapshot {
+	case SnapshotBaseline:
+		return "none"
+	case SnapshotMismatch:
+		return status.Found
+	}
+	return status.Snapshot
+}
+
+// verifiedFile is the snapshot an apply recorded, when it is the one whose
+// hash the apply named and it still validates.
+func verifiedFile(v Verified) (File, bool) {
+	if len(v.Snapshot) == 0 || Hash(v.Snapshot) != v.Hash {
+		return File{}, false
+	}
+	f, err := decodeFile(v.Snapshot)
+	if err != nil || len(f.Validate()) > 0 {
+		return File{}, false
+	}
+	return f, true
 }
 
 // Encode is a file as the snapshot writes it.

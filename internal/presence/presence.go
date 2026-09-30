@@ -152,6 +152,12 @@ type Options struct {
 	// Records are the audit log's records, read at start: the last
 	// enrollment_changed record says what the registry should be.
 	Records []audit.Record
+	// Trusted says, for each of Records, whether the chain vouches for it
+	// (audit.Checked). Past a break only a cool-down's start is applied: a
+	// record that says a registry is the expected one is not, so a key
+	// written into the registry with a forged record beside it starts the
+	// cool-down rather than skipping it (M4). Nil trusts every record.
+	Trusted []bool
 	// Origins are the console origins a passkey may be used from: the
 	// running consoles. Called at every ceremony.
 	Origins func() []string
@@ -174,15 +180,21 @@ func New(dir string, sink audit.Sink, o Options) *Service {
 		s.origins = func() []string { return nil }
 	}
 	s.expected = hashOf(nil)
-	for _, rec := range o.Records {
+	for i, rec := range o.Records {
 		if rec.Kind != audit.KindEnrollmentChanged {
 			continue
 		}
+		trusted := o.Trusted == nil || (i < len(o.Trusted) && o.Trusted[i])
 		f := rec.Target.Fields
 		switch f["change"] {
 		case "unaudited":
-			s.cooldownUntil, _ = time.Parse(time.RFC3339, f["cooldown_until"])
+			if until, err := time.Parse(time.RFC3339, f["cooldown_until"]); err == nil && (trusted || until.After(s.cooldownUntil)) {
+				s.cooldownUntil = until
+			}
 		default:
+			if !trusted {
+				continue
+			}
 			s.expected, s.cooldownUntil = f["registry_hash"], time.Time{}
 			if f["change"] == "enrolled" {
 				s.lastEnrolled = rec.Time

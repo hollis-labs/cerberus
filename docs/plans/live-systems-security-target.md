@@ -577,9 +577,11 @@ gives the built-ins the coverage they lack today.
   valid UTF-8, such as a caller's claim cut in the middle of a character,
   used to break the chain for good. Claims are now cut on character
   boundaries.
-- The brakes, read back from the log, trust only the records the chain
-  vouches for. Past a problem, a record is applied only where it restricts,
-  until a person runs `cerberus audit reanchor`.
+- State read back from the log trusts only the records the chain vouches
+  for: the brakes, the last verified policy snapshot (recorded whole on each
+  apply's outcome) and the passkey enrollment. Past a problem, a record is
+  applied only where it restricts, until a person runs
+  `cerberus audit reanchor`.
 - **Two records per operation**: intent (written before the effect) and outcome.
   Each carries the principal, surface, operation, target, effect, args digest
   (not raw args), credential names, policy decision with matched rules, the

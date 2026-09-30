@@ -162,32 +162,72 @@ func (e Enforcement) Record() json.RawMessage {
 	return data
 }
 
-// LastVerifiedEnforcement is the enforcement the newest successful snapshot
-// apply recorded in the audit log, provided the log's hash chain verifies.
-// An apply recorded before enforcement existed recorded none, and was
-// shadow. It reports false when the chain does not verify or no apply is
-// recorded: then the policy and the record of it have both been tampered
-// with, and the caller fails closed.
-func LastVerifiedEnforcement(auditDir string) (Enforcement, time.Time, bool) {
-	if auditDir == "" || audit.Verify(auditDir) != nil {
-		return Enforcement{}, time.Time{}, false
+// Verified is the snapshot the newest apply the audit log vouches for
+// wrote: its hash, its enforcement, and, where the apply recorded it, the
+// snapshot itself.
+type Verified struct {
+	Hash        string
+	Enforcement Enforcement
+	// Snapshot is the applied file as written, from the apply's outcome;
+	// nil for an apply recorded before snapshots were, or still running.
+	Snapshot []byte
+	Time     time.Time
+}
+
+// History is what the audit log says about applies.
+type History int
+
+const (
+	// NoApplies: the log records no apply, as on a fresh install or after
+	// the applies were pruned. The snapshot files are all there is.
+	NoApplies History = iota
+	// VerifiedApply: an apply the chain vouches for (Verified).
+	VerifiedApply
+	// UnverifiedApplies: the log records applies, and none of them where
+	// the chain vouches for it (past a break, until a reanchor and a new
+	// apply). Nothing can be vouched for: fail closed.
+	UnverifiedApplies
+)
+
+// LastVerified is the newest apply the audit log vouches for (M3): a
+// successful outcome the chain trusts (audit.Check), or the trusted intent
+// of an apply still running, which recorded its hash before writing the
+// files. An apply that failed is passed over, and so is one past a break in
+// the chain, however it reads.
+func LastVerified(auditDir string) (Verified, History) {
+	if auditDir == "" {
+		return Verified{}, NoApplies
 	}
-	records, err := audit.ReadRecords(auditDir)
+	checked, err := audit.Check(auditDir)
 	if err != nil {
-		return Enforcement{}, time.Time{}, false
+		return Verified{}, UnverifiedApplies
 	}
-	for i := len(records) - 1; i >= 0; i-- {
-		r := records[i]
-		if r.Kind != audit.KindOutcome || r.Connector != "policy" || r.Operation != "apply" || r.Decision != audit.DecisionAllowed || (r.OutcomeCode != "" && r.OutcomeCode != "ok") {
+	seen := false
+	finished := map[string]bool{}
+	for i := len(checked.Records) - 1; i >= 0; i-- {
+		r := checked.Records[i]
+		if r.Connector != "policy" || r.Operation != "apply" || (r.Kind != audit.KindIntent && r.Kind != audit.KindOutcome) {
 			continue
 		}
-		e := Enforcement{Mode: EnforceShadow}
-		if len(r.Enforcement) > 0 {
-			if err := json.Unmarshal(r.Enforcement, &e); err != nil {
-				return Enforcement{}, time.Time{}, false
+		seen = true
+		if r.Kind == audit.KindOutcome {
+			if r.OperationID != "" {
+				finished[r.OperationID] = true
 			}
+			if !checked.Trusted[i] || r.Decision != audit.DecisionAllowed || (r.OutcomeCode != "" && r.OutcomeCode != audit.OutcomeOK) {
+				continue
+			}
+		} else if finished[r.OperationID] || !checked.Trusted[i] {
+			continue
 		}
-		return e, r.Time, true
+		v := Verified{Hash: r.Target.Fields["hash"], Enforcement: Enforcement{Mode: EnforceShadow}, Snapshot: []byte(r.PolicySnapshot), Time: r.Time}
+		if len(r.Enforcement) > 0 && json.Unmarshal(r.Enforcement, &v.Enforcement) != nil {
+			continue
+		}
+		return v, VerifiedApply
 	}
-	return Enforcement{}, time.Time{}, false
+	if seen {
+		return Verified{}, UnverifiedApplies
+	}
+	return Verified{}, NoApplies
 }

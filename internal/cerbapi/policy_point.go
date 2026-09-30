@@ -151,7 +151,7 @@ func ApplyPolicy(ctx context.Context, sink audit.Sink, store policy.Store, file 
 	op := contract.Operation{Name: "apply", Effect: contract.EffectAdmin, Target: contract.TargetDescriptor{Kind: "policy.snapshot", From: []string{"hash"}},
 		Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites}.Finalize()
 	call, err := beginGated(ctx, sink, slog.Default(), auditSpec{connector: "policy", operation: "apply", op: op, known: true, acknowledged: true,
-		config: map[string]any{"hash": hash, "flips": flips}, enforcement: file.EnforcementOf().Record()})
+		config: map[string]any{"hash": hash, "flips": flips}, enforcement: file.EnforcementOf().Record(), snapshot: string(data)})
 	if err != nil {
 		return "", err
 	}
