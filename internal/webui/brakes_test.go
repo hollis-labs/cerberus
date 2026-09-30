@@ -38,6 +38,12 @@ func (d *brakesDaemon) LiftBrake(_ context.Context, id string, args cerbapi.Brak
 	return cerbapi.BrakesView{}, d.liftErr
 }
 
+func (d *brakesDaemon) ResetSuspension(_ context.Context, id string, args cerbapi.BrakeResetArgs) (cerbapi.BrakesView, error) {
+	d.lifted = append(d.lifted, "reset:"+id+"|"+args.Typed)
+	d.state.Suspensions = nil
+	return cerbapi.BrakesView{State: d.state}, nil
+}
+
 func brakesConsole(t *testing.T) (*brakesDaemon, http.Handler, string) {
 	t.Helper()
 	d := &brakesDaemon{fakeClient: &fakeClient{}}
@@ -90,5 +96,21 @@ func TestConsoleLiftsThroughTheDaemon(t *testing.T) {
 	d.liftErr = nil
 	if rec = consolePost(h, token, "/api/brakes/lockdown/lift", `{"approval_id":"apr_8"}`); rec.Code != http.StatusOK || d.lifted[1] != "|apr_8" {
 		t.Fatalf("lift: %d %s %v", rec.Code, rec.Body.String(), d.lifted)
+	}
+}
+
+// Suspensions reach the session's banner, and a reset carries the typed
+// phrase to the daemon.
+func TestConsoleShowsAndResetsSuspensions(t *testing.T) {
+	d, h, token := brakesConsole(t)
+	d.state.Suspensions = []brake.Suspension{{ID: "sus_1", Key: "agent|mcp_stdio|session:s1", Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio"}, Denials: 3, Window: "10m0s"}}
+	if rec := serve(h, newTestRequest(http.MethodGet, "/api/session", nil)); !strings.Contains(rec.Body.String(), `"id":"sus_1"`) {
+		t.Fatalf("session with a suspension: %s", rec.Body.String())
+	}
+	if rec := consolePost(h, token, "/api/brakes/suspensions/sus_1/reset", `{"typed":"reset sus_1"}`); rec.Code != http.StatusOK || d.lifted[0] != "reset:sus_1|reset sus_1" {
+		t.Fatalf("reset: %d %s %v", rec.Code, rec.Body.String(), d.lifted)
+	}
+	if rec := consolePost(h, "", "/api/brakes/suspensions/sus_1/reset", `{"typed":"reset sus_1"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("reset without the token: %d", rec.Code)
 	}
 }

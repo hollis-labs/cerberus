@@ -109,3 +109,30 @@ func TestEffectiveIsTheMoreRestrictive(t *testing.T) {
 		t.Fatalf("stored %+v recorded %+v (%v)", stored, recorded, ok)
 	}
 }
+
+// A suspension is one per caller, survives a reload, and is reset by id;
+// the audit record's suspensions count toward the effective state.
+func TestSuspension(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	agent := audit.Principal{Kind: "agent", Via: "mcp_stdio", Session: "s1"}
+	_, x, err := s.Suspend("agent|mcp_stdio|session:s1", agent, 5, "10m")
+	if err != nil || x.ID == "" {
+		t.Fatal(err)
+	}
+	if _, again, _ := s.Suspend("agent|mcp_stdio|session:s1", agent, 5, "10m"); again.ID != x.ID {
+		t.Fatal("a second trip made a second suspension")
+	}
+	st, _ := s.Load()
+	if got, ok := st.SuspensionFor("agent|mcp_stdio|session:s1"); !ok || got.ID != x.ID || len(st.Suspensions) != 1 {
+		t.Fatalf("after reload: %+v", st)
+	}
+	if _, err = s.ResetSuspension("sus_other", operator); !errors.Is(err, ErrNotEngaged) {
+		t.Fatalf("reset of an unknown suspension: %v", err)
+	}
+	if st, err = s.ResetSuspension(x.ID, operator); err != nil || len(st.Suspensions) != 0 {
+		t.Fatalf("reset: %v %+v", err, st)
+	}
+	if eff := Effective(State{}, State{Suspensions: []Suspension{x}}); len(eff.Suspensions) != 1 {
+		t.Fatal("a recorded suspension was dropped")
+	}
+}

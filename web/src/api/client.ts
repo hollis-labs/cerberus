@@ -27,6 +27,17 @@ export interface BrakeEngagement {
 export interface BrakeState {
   lockdown?: BrakeEngagement | null
   freezes?: (BrakeEngagement & { scope: string })[] | null
+  suspensions?: BrakeSuspension[] | null
+}
+
+// BrakeSuspension is an agent session the circuit breaker stopped (P5-c).
+export interface BrakeSuspension {
+  id: string
+  key: string
+  principal: { kind: string; via: string; client?: string; session?: string }
+  tripped_at: string
+  denials: number
+  window: string
 }
 
 // EnforcementAlert is the header's enforcement badge (P3-7): what is
@@ -786,6 +797,10 @@ export const apiClient = {
     http.post<{ state: BrakeState }>('/api/brakes/lockdown', { reason } as JsonObject, { headers: { 'X-Cerberus-Web-Token': token } }),
   liftLockdown: (token: string, approvalID?: string) =>
     http.post<{ state: BrakeState }>('/api/brakes/lockdown/lift', { approval_id: approvalID ?? '' } as JsonObject, { headers: { 'X-Cerberus-Web-Token': token } }),
+  resetSuspension: (token: string, id: string, typed: string) =>
+    http.post<{ state: BrakeState }>(`/api/brakes/suspensions/${encodeURIComponent(id)}/reset`, { typed } as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
   liftFreeze: (token: string, id: string, approvalID?: string) =>
     http.post<{ state: BrakeState }>(`/api/brakes/freeze/${encodeURIComponent(id)}/lift`, { approval_id: approvalID ?? '' } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },

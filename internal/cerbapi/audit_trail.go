@@ -210,6 +210,10 @@ func (c *auditCall) finish(err error) {
 		c.logger.Error("audit.write_failed", "kind", audit.KindOutcome, "operation_id", c.intent.OperationID,
 			"connector", c.spec.connector, "operation", c.spec.operation, "outcome_code", code, "error", redact.Text(werr.Error()))
 	}
+	// A real policy denial counts toward the circuit breaker (P5-c).
+	if code == string(ExternalConnectorPolicyDenied) && !c.spec.automation {
+		noteDenial(c.sink, c.intent.Principal, c.intent.OperationID, breakerNow())
+	}
 }
 
 // refusalCodes are the gates' refusals: the operation did not run.
@@ -227,6 +231,7 @@ var refusalCodes = map[string]bool{
 	// The brakes (§12).
 	string(ExternalConnectorLockdown):         true,
 	string(ExternalConnectorFrozen):           true,
+	string(ExternalConnectorSessionSuspended): true,
 	string(ExternalConnectorAuditUnavailable): true,
 }
 

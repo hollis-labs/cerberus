@@ -141,6 +141,11 @@ var policyExplainCmd = &cobra.Command{
 		}
 		writeExplainBrakes(cmd.OutOrStdout(), connectorID, req)
 		fmt.Fprintf(cmd.OutOrStdout(), "\nBreak glass: gets past an approve, never a deny; at most %s.\n", policy.BreakGlassLimitsOf(pdp))
+		if cb := policy.CircuitBreakerOf(pdp); cb != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "Circuit breaker: an agent session is suspended after %s, until a person resets it (`cerberus breaker list`).\n", cb)
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), "Circuit breaker: off (policy sets no circuit_breaker).")
+		}
 		why := "the global posture"
 		if len(postureRules) > 0 {
 			why = fmt.Sprintf("posture_rules%v", postureRules)

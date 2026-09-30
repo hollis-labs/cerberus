@@ -291,7 +291,7 @@ func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 		return nil, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}
 	// The brakes (§12) come before policy, in every enforcement mode.
-	if refusal := brakeRefusal(spec, resolved, spec.dryRun); refusal != nil {
+	if refusal := brakeRefusal(ctx, spec, resolved, spec.dryRun); refusal != nil {
 		call.finish(refusal)
 		return nil, refusal
 	}

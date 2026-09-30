@@ -9522,6 +9522,55 @@
       "id": "CERB-DEC-899"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "The circuit breaker suspends agent sessions, and only a person resets it",
+      "summary": "circuit_breaker: {denials, window} suspends an agent session after that many real policy_denied refusals in the window. The suspension lives in the brake store, holds in every enforcement mode, and ends only when a person resets it with a typed phrase.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "approved in the §12 design review; built on the P5-c branch with a CDP smoke",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p5",
+        "policy",
+        "brakes",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/cerbapi/breaker.go, internal/policy/breaker.go, internal/brake/brake.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-896",
+          "note": "the brakes it sits beside"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-899",
+          "note": "rate limits, which count callers the same way"
+        }
+      ],
+      "data": {
+        "decision": "Count real (enforced) policy denials per agent caller in the gating process, seeded from the audit log; trip into the brake store; refuse the suspended caller before policy in every mode; reset only by a person typing the phrase, which the daemon checks.",
+        "alternatives_considered": [
+          "Auto-reset after a cool-down",
+          "Count shadow would-blocks too",
+          "Trip humans as well as agents",
+          "Suspend the whole client rather than the session"
+        ],
+        "rationale": "An agent stuck against policy should stop, and a person should look before it starts again, so there is no timer. Shadow would-blocks aren't refusals the agent saw, so counting them would suspend agents for doing what policy currently allows. Humans are exempt because they are who resets it: suspending the operator's own CLI would lock the fix behind the fault. Putting the suspension in the brake store gives it the same survival across restarts, the same audit fold and the same same-uid bounds as the lockdown. The phrase is checked in the daemon so that neither the console nor the CLI can skip it.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "`finish` counts a policy_denied outcome for an agent principal, not counting automation. At the Denials-th denial within the window, `brake.Store.Suspend` records the caller key (kind, via and session, or client and uid), and a `brake_changed` record with a notification follows. `suspensionRefusal` runs inside the brake check, so dry runs, plans, plain reads and the unbraked connectors pass, and every other call from that caller is `session_suspended` (HTTP 423). The Guidance names `cerberus breaker reset <id>`. MCP's next_step tells the agent to stop and ask its operator.",
+      "id": "CERB-DEC-901"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
@@ -17330,6 +17379,45 @@
       "id": "CERB-GAP-900"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A suspended agent can start a new session and begin uncounted",
+      "summary": "The breaker keys an MCP agent on its session, so an agent that reconnects gets a fresh session: no suspension and a zero count. A caller without a session is keyed on client and uid, which suspends every such caller of that client.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.75,
+      "confidence_label": "read from the P5-c design",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "brakes",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/cerbapi/breaker.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-901",
+          "note": "the breaker"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "A suspension also counts toward its client, so repeated trips of one client suspend the client, or the lockdown is engaged automatically after N trips",
+        "effort": "small"
+      },
+      "body": "Session is the unit the design chose, because suspending a client would stop every agent session that uses it. A runaway agent that reconnects is still recorded: each trip is a brake_changed record and a notification. So the operator sees repeated trips, and can engage the lockdown.",
+      "id": "CERB-GAP-903"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
@@ -23737,6 +23825,55 @@
       },
       "body": "Engaging goes to the daemon's `POST /brakes/lockdown` or `/brakes/freeze`. If the daemon is unreachable (never delivered), the CLI writes the brake store in-process. Lifting never falls back in-process, because the passkey check is the daemon's. `cerberus status` leads with `!!! LOCKDOWN` and `!!! FREEZE` lines, and `policy explain` has a `Brakes:` line.",
       "id": "CERB-TOOL-897"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "tool",
+      "name": "cerberus breaker list / reset",
+      "summary": "Lists the agent sessions the circuit breaker suspended, and resets one on an interactive terminal with the typed phrase \"reset <id>\". The daemon checks the phrase; with the daemon down, the store is reset in-process. The console banner has the same Reset with the phrase.",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "TestBreaker* in cmd/cerberus and internal/cerbapi, and the confirm-dialog CDP smoke (41/41) on the P5-c branch",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "policy",
+        "brakes",
+        "locus:core",
+        "verified:test"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_breaker.go, internal/cerbapi/breaker.go, web/src/components/brakes.tsx",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-400",
+          "note": "a verb of the CLI"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-TOOL-897",
+          "note": "lockdown and freeze"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "invocation": "cerberus breaker list | cerberus breaker reset <suspension-id>",
+        "surfaces": [
+          "cli",
+          "web",
+          "socket"
+        ],
+        "destructive": false,
+        "verified": "test",
+        "vendor": []
+      },
+      "body": "`cerberus status` leads with `!!! BREAKER: N agent session(s) suspended`, and `policy explain` says whether the breaker is on and at what.",
+      "id": "CERB-TOOL-902"
     }
   ]
 }

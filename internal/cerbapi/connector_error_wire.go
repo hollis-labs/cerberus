@@ -50,6 +50,7 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorPlanStale:        http.StatusConflict,
 	ExternalConnectorLockdown:         http.StatusLocked,
 	ExternalConnectorFrozen:           http.StatusLocked,
+	ExternalConnectorSessionSuspended: http.StatusLocked,
 }
 
 // ExternalConnectorHTTPStatus returns the status for err when it carries a

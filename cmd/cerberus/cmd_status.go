@@ -388,6 +388,9 @@ func writeStatus(w io.Writer, r statusReport) error {
 	for _, f := range r.Brakes.Freezes {
 		fmt.Fprintf(&b, "!!! FREEZE %s on %s since %s%s. Lift: cerberus freeze --off %s\n", f.ID, f.Match.String(), f.EngagedAt.Local().Format("Jan 2 15:04"), brakeReason(f.Reason), f.ID)
 	}
+	if n := len(r.Brakes.Suspensions); n > 0 {
+		fmt.Fprintf(&b, "!!! BREAKER: %d agent session(s) suspended by the circuit breaker. List: cerberus breaker list; reset: cerberus breaker reset <id>\n", n)
+	}
 	b.WriteString("Cerberus status\n")
 	switch {
 	case r.Daemon.Running:

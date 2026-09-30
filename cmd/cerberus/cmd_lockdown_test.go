@@ -19,6 +19,8 @@ type fakeBrakes struct {
 	liftErr   error
 	engaged   []cerbapi.BrakeEngageArgs
 	lifted    []string
+	reset     []string
+	resetErr  error
 	state     brake.State
 }
 
@@ -40,6 +42,11 @@ func (f *fakeBrakes) LiftBrake(_ context.Context, id string, args cerbapi.BrakeL
 		return cerbapi.BrakesView{}, f.liftErr
 	}
 	return cerbapi.BrakesView{}, nil
+}
+
+func (f *fakeBrakes) ResetSuspension(_ context.Context, id string, args cerbapi.BrakeResetArgs) (cerbapi.BrakesView, error) {
+	f.reset = append(f.reset, id+"|"+args.Typed)
+	return cerbapi.BrakesView{}, f.resetErr
 }
 
 func brakesFixture(t *testing.T, terminal bool) (*fakeBrakes, brake.Store) {
@@ -171,5 +178,55 @@ func TestStatusLeadsWithTheBrakes(t *testing.T) {
 	lines := strings.Split(out.String(), "\n")
 	if !strings.HasPrefix(lines[0], "!!! LOCKDOWN") || !strings.Contains(lines[0], "loop") || !strings.Contains(out.String(), "!!! FREEZE frz_2 on env=prod") {
 		t.Fatalf("status:\n%s", out.String())
+	}
+}
+
+// A reset is a person's act on a terminal, typing the phrase, which also
+// travels to the daemon to check.
+func TestBreakerReset(t *testing.T) {
+	f, _ := brakesFixture(t, false)
+	if _, err := runBrakeCmd(t, "reset sus_1\n", "breaker", "reset", "sus_1"); err == nil || !strings.Contains(err.Error(), "interactive terminal") {
+		t.Fatalf("reset off a terminal: %v", err)
+	}
+	policyIsTerminal = func() bool { return true }
+	if _, err := runBrakeCmd(t, "yes\n", "breaker", "reset", "sus_1"); err == nil || len(f.reset) != 0 {
+		t.Fatalf("a wrong phrase: %v", err)
+	}
+	if out, err := runBrakeCmd(t, "reset sus_1\n", "breaker", "reset", "sus_1"); err != nil || f.reset[0] != "sus_1|reset sus_1" || !strings.Contains(out, "Reset.") {
+		t.Fatalf("reset: %v %v\n%s", err, f.reset, out)
+	}
+}
+
+// With the daemon down, the store is reset in-process, the phrase still
+// checked.
+func TestBreakerResetWithTheDaemonDown(t *testing.T) {
+	f, store := brakesFixture(t, true)
+	_, x, err := store.Suspend("agent|mcp_stdio|session:s1", audit.Principal{Kind: "agent", Via: "mcp_stdio", Session: "s1"}, 3, "10m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.resetErr = &cerbapi.DaemonUnreachableError{Path: "/nowhere", Err: errors.New("dial")}
+	// A person at a terminal, as DetectCLI classifies one.
+	oldDetect := detectCLI
+	detectCLI = func() cerbapi.CLIClassification { return cerbapi.ClassifyCLI(true, true, "") }
+	t.Cleanup(func() { detectCLI = oldDetect })
+	if _, err = runBrakeCmd(t, "reset "+x.ID+"\n", "breaker", "reset", x.ID); err != nil {
+		t.Fatalf("reset with the daemon down: %v", err)
+	}
+	if st, _ := store.Load(); len(st.Suspensions) != 0 {
+		t.Fatal("the store still holds the suspension")
+	}
+}
+
+func TestBreakerListAndStatus(t *testing.T) {
+	f, _ := brakesFixture(t, false)
+	f.state = brake.State{Suspensions: []brake.Suspension{{ID: "sus_1", Key: "agent|mcp_stdio|session:s1", Principal: audit.Principal{Kind: "agent", Via: "mcp_stdio"}, Denials: 3, Window: "10m0s", TrippedAt: time.Now()}}}
+	out, err := runBrakeCmd(t, "", "breaker", "list")
+	if err != nil || !strings.Contains(out, "SUSPENDED sus_1: agent over mcp_stdio") || !strings.Contains(out, "cerberus breaker reset sus_1") {
+		t.Fatalf("list: %v\n%s", err, out)
+	}
+	var b bytes.Buffer
+	if err = writeStatus(&b, statusReport{Web: []statusWebApp{}, Brakes: f.state}); err != nil || !strings.HasPrefix(b.String(), "!!! BREAKER: 1 agent session(s) suspended") {
+		t.Fatalf("status: %v\n%s", err, b.String())
 	}
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { FormDialog, Input } from '@hollis-labs/sysop-ui/ui'
-import { apiClient, refusalApproval, type BrakeState } from '../api/client'
+import { apiClient, refusalApproval, type BrakeState, type BrakeSuspension } from '../api/client'
 
 // The emergency brake on the console (§12). Engaging is one click and an
 // optional reason; lifting asks the daemon, which answers with a passkey
@@ -22,7 +22,7 @@ async function lift(run: () => Promise<unknown>, setError: (e: string) => void) 
 
 export function BrakesBanner({ brakes, token }: { brakes?: BrakeState | null; token: string }) {
   const [error, setError] = useState<string | null>(null)
-  if (!brakes || (!brakes.lockdown && !(brakes.freezes ?? []).length)) return null
+  if (!brakes || (!brakes.lockdown && !(brakes.freezes ?? []).length && !(brakes.suspensions ?? []).length)) return null
   return (
     <div data-testid="brakes-banner" className="space-y-1 border-b-2 border-red-500 bg-red-500/15 px-4 py-2 text-sm text-red-700">
       {brakes.lockdown && (
@@ -48,6 +48,9 @@ export function BrakesBanner({ brakes, token }: { brakes?: BrakeState | null; to
             Lift
           </button>
         </div>
+      ))}
+      {(brakes.suspensions ?? []).map((x) => (
+        <SuspensionLine key={x.id} suspension={x} token={token} />
       ))}
       {error && <div data-testid="brakes-error">{error}</div>}
     </div>
@@ -98,4 +101,52 @@ export function LockdownButton({ token }: { token: string }) {
 // connector brake).
 export function liftFromApproval(token: string, operation: string, freezeID: string | undefined, approvalID: string) {
   return operation === 'lift_freeze' && freezeID ? apiClient.liftFreeze(token, freezeID, approvalID) : apiClient.liftLockdown(token, approvalID)
+}
+
+// SuspensionLine is one session the circuit breaker suspended; resetting it
+// takes the typed phrase, which the daemon checks.
+function SuspensionLine({ suspension: x, token }: { suspension: BrakeSuspension; token: string }) {
+  const [open, setOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const phrase = `reset ${x.id}`
+  return (
+    <div data-testid={`suspension-${x.id}`} className="flex flex-wrap items-center gap-2">
+      <span className="font-bold tracking-wide">SUSPENDED</span>
+      <span>
+        {x.principal.kind} over {x.principal.via}
+        {x.principal.client ? ` (${x.principal.client})` : ''}, after {x.denials} policy denials in {x.window}, since {new Date(x.tripped_at).toLocaleString()}
+      </span>
+      <button data-testid={`reset-${x.id}`} className="rounded border border-red-500 px-2 py-0.5 text-xs font-semibold" onClick={() => setOpen(true)}>
+        Reset
+      </button>
+      <FormDialog
+        open={open}
+        onClose={() => !busy && setOpen(false)}
+        title="Reset this suspended session?"
+        description={`Its calls run again under policy. Type "${phrase}" to reset it.`}
+        submitLabel="Reset"
+        submitting={busy}
+        onSubmit={async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            await apiClient.resetSuspension(token, x.id, typed)
+            window.location.reload()
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        <label className="block text-sm">
+          Confirmation
+          <Input data-testid="reset-typed" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={phrase} />
+        </label>
+        {error && <div className="text-sm text-red-600">{error}</div>}
+      </FormDialog>
+    </div>
+  )
 }

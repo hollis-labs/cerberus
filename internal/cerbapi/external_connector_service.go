@@ -78,6 +78,9 @@ const (
 	ExternalConnectorLockdown ExternalConnectorErrorCode = "lockdown"
 	// ExternalConnectorFrozen: the target is frozen (§12).
 	ExternalConnectorFrozen ExternalConnectorErrorCode = "frozen"
+	// ExternalConnectorSessionSuspended: the circuit breaker suspended
+	// this session (§12, P5-c) until a person resets it.
+	ExternalConnectorSessionSuspended ExternalConnectorErrorCode = "session_suspended"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -85,6 +88,7 @@ const (
 var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorLockdown,
 	ExternalConnectorFrozen,
+	ExternalConnectorSessionSuspended,
 	ExternalConnectorUnavailable,
 	ExternalConnectorCredentialMissing,
 	ExternalConnectorUnsupported,

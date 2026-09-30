@@ -101,7 +101,7 @@ var guardedRoutes = map[string][]string{
 	},
 	"/api/logout":                 {"/api/logout"},
 	"/api/approvals/":             {"/api/approvals/a/decide", "/api/approvals/a/revoke"},
-	"/api/brakes/":                {"/api/brakes/lockdown", "/api/brakes/lockdown/lift", "/api/brakes/freeze/f/lift"},
+	"/api/brakes/":                {"/api/brakes/lockdown", "/api/brakes/lockdown/lift", "/api/brakes/freeze/f/lift", "/api/brakes/suspensions/s/reset"},
 	"/api/pipelines/":             {"/api/pipelines/p/run"},
 	"/api/registry/register":      {"/api/registry/register"},
 	"/api/registry/deregister":    {"/api/registry/deregister"},

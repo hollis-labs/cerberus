@@ -18,6 +18,7 @@ type brakesClient interface {
 	Brakes(ctx context.Context) (cerbapi.BrakesView, error)
 	EngageBrake(ctx context.Context, args cerbapi.BrakeEngageArgs) (cerbapi.BrakesView, error)
 	LiftBrake(ctx context.Context, freezeID string, args cerbapi.BrakeLiftArgs) (cerbapi.BrakesView, error)
+	ResetSuspension(ctx context.Context, id string, args cerbapi.BrakeResetArgs) (cerbapi.BrakesView, error)
 }
 
 // brakesState is the header's brake banner: nil when nothing is braked or
@@ -30,7 +31,7 @@ func (s *Server) brakesState(ctx context.Context) *brake.State {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	view, err := c.Brakes(ctx)
-	if err != nil || !view.State.Engaged() {
+	if err != nil || (!view.State.Engaged() && len(view.State.Suspensions) == 0) {
 		return nil
 	}
 	return &view.State
@@ -90,8 +91,16 @@ func (s *Server) handleBrakes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		view, err = c.LiftBrake(r.Context(), strings.TrimSuffix(strings.TrimPrefix(rest, "freeze/"), "/lift"), args)
+	case strings.HasPrefix(rest, "suspensions/") && strings.HasSuffix(rest, "/reset"):
+		// The typed phrase travels to the daemon, which checks it.
+		var args cerbapi.BrakeResetArgs
+		if err = decodeJSONBody(r, &args); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		view, err = c.ResetSuspension(r.Context(), strings.TrimSuffix(strings.TrimPrefix(rest, "suspensions/"), "/reset"), args)
 	default:
-		writeError(w, http.StatusNotFound, "expected /api/brakes, /api/brakes/lockdown[/lift] or /api/brakes/freeze/{id}/lift")
+		writeError(w, http.StatusNotFound, "expected /api/brakes, /api/brakes/lockdown[/lift], /api/brakes/freeze/{id}/lift or /api/brakes/suspensions/{id}/reset")
 		return
 	}
 	if err != nil {

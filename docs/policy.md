@@ -582,6 +582,48 @@ the audit log the first time a rate matters, so a daemon that restarts counts
 what already ran in the last day. `policy explain` marks a matched rule's
 rate with `[rate 5/h]`.
 
+### The circuit breaker
+
+The breaker stops an agent that keeps running into policy:
+
+```yaml
+circuit_breaker: { denials: 5, window: 10m }
+```
+
+After that many **real** policy denials within the window, the agent's
+session is suspended. A real denial is a `policy_denied` refusal where
+enforcement is on. Shadow would-blocks don't count.
+
+While a session is suspended:
+
+- every call from it except a plain read is refused as `session_suspended`,
+  in every enforcement mode;
+- the refusal tells the agent to stop, and names the reset command;
+- there is no automatic reset.
+
+Each trip shows up in these places:
+
+- a `brake_changed` audit record and a desktop notification;
+- a `SUSPENDED` line in the console banner;
+- a `!!! BREAKER` line at the top of `cerberus status`, with the count of
+  suspended sessions.
+
+To reset a suspension, a person types a phrase:
+
+```bash
+cerberus breaker list
+cerberus breaker reset <suspension-id>    # on a terminal: type "reset <id>"
+```
+
+The console's Reset button asks for the same phrase, and the daemon checks
+it, so no surface can skip it. An agent can't reset a suspension.
+
+A caller is counted the way rate limits count one: an agent's kind, via and
+session, or its client and uid where it has no session. Only agents trip the
+breaker. A person is the one who resets it, and suspending the operator's
+own CLI would leave the fix behind the fault. Omit `circuit_breaker` and there
+is no breaker. `policy explain` says whether it's on.
+
 ### Lockdown and freeze: the emergency brake
 
 When something is going wrong and you want Cerberus to stop acting, engage

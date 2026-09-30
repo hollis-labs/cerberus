@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,17 +60,7 @@ type rateHold struct {
 // (kind, via and session, or client and uid where there is no session)
 // and the effect.
 func rateKey(rule string, p audit.Principal, effect string) string {
-	who := p.Kind + "|" + p.Via + "|"
-	if p.Session != "" {
-		who += "session:" + p.Session
-	} else {
-		uid := "?"
-		if p.UID != nil {
-			uid = strconv.Itoa(*p.UID)
-		}
-		who += "client:" + p.Client + "|uid:" + uid
-	}
-	return rule + "|" + who + "|" + effect
+	return rule + "|" + callerKey(p) + "|" + effect
 }
 
 // rateHolds are the rates res matched for this call. Automation, dry runs
