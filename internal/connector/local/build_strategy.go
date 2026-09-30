@@ -248,7 +248,7 @@ func (makeStandardBuildStrategy) Build(ctx context.Context, cfg BuildConfig) (*B
 
 	cmd := buildCommand(ctx, cfg, append([]string{"make"}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = cfg.Env
+	cmd.Env = standaloneMakeEnv(cfg.Env)
 	out, err := cmd.CombinedOutput()
 	return &BuildResult{Output: string(out), Command: cmd.Args, Dir: dir}, err
 }
@@ -559,6 +559,31 @@ func writeTarGz(dst, src, entryName string) error {
 }
 
 // buildCommand preserves argv boundaries; prefixes never pass through a shell.
+// makeStateVars are the variables a make passes to the makes it runs.
+var makeStateVars = map[string]bool{
+	"MAKEFLAGS": true, "MFLAGS": true, "MAKELEVEL": true, "MAKEOVERRIDES": true,
+	"MAKE_TERMOUT": true, "MAKE_TERMERR": true, "GNUMAKEFLAGS": true,
+}
+
+// standaloneMakeEnv is env (nil meaning this process's own) without the
+// state an enclosing make hands down. A resource's make is its own top-level
+// build, not a sub-make of whatever ran Cerberus: inheriting MAKELEVEL makes
+// GNU make print "Entering directory" around the captured output, and
+// inheriting MAKEFLAGS leaks the outer make's flags and jobserver into it.
+func standaloneMakeEnv(env []string) []string {
+	if env == nil {
+		env = os.Environ()
+	}
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		if name, _, _ := strings.Cut(entry, "="); makeStateVars[name] {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 func buildCommand(ctx context.Context, cfg BuildConfig, argv ...string) *exec.Cmd {
 	command := append(append([]string(nil), cfg.EnvPrefix...), argv...)
 	return exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // argv comes from the trusted project build contract

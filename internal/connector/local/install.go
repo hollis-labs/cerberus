@@ -51,7 +51,7 @@ func RunInstallContext(ctx context.Context, spec ProcessSpec) (bool, string, err
 	}
 	probe := buildCommand(ctx, cfg, "make", "-q", "install")
 	probe.Dir = spec.Dir
-	probe.Env = sessionEnv(spec)
+	probe.Env = standaloneMakeEnv(sessionEnv(spec))
 	probeOut, _ := probe.CombinedOutput()
 	if strings.Contains(string(probeOut), missingTargetSignal) {
 		return true, "", nil
@@ -59,7 +59,7 @@ func RunInstallContext(ctx context.Context, spec ProcessSpec) (bool, string, err
 
 	run := buildCommand(ctx, cfg, "make", "install")
 	run.Dir = spec.Dir
-	run.Env = sessionEnv(spec)
+	run.Env = standaloneMakeEnv(sessionEnv(spec))
 	out, err := run.CombinedOutput()
 	return false, OutputRedactor(spec).Text(string(out)), OutputRedactor(spec).Error(err)
 }

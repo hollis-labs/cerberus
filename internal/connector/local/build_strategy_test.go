@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -171,5 +172,33 @@ func TestInvalidToolchainPrefixRejected(t *testing.T) {
 		if _, err := buildStrategyConfigFromAny(map[string]any{"kind": "make_standard", "env_prefix": prefix}); err == nil {
 			t.Fatalf("invalid prefix accepted: %#v", prefix)
 		}
+	}
+}
+
+func TestStandaloneMakeEnvDropsTheEnclosingMakesState(t *testing.T) {
+	env := standaloneMakeEnv([]string{"PATH=/usr/bin", "MAKEFLAGS=w -j4 --jobserver-auth=3,4", "MAKELEVEL=1", "MFLAGS=-w", "MAKEFLAGSX=kept", "HOME=/h"})
+	if got := strings.Join(env, " "); got != "PATH=/usr/bin MAKEFLAGSX=kept HOME=/h" {
+		t.Fatalf("env = %q", got)
+	}
+}
+
+// Run under `make test`, a resource's make must not report itself as a
+// sub-make around the output Cerberus captures.
+func TestMakeInstallOutputHasNoSubMakeNoise(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not installed")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte("install:\n\t@echo install output\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MAKELEVEL", "1")
+	t.Setenv("MAKEFLAGS", "w")
+	skipped, out, err := RunInstallContext(context.Background(), ProcessSpec{Dir: dir})
+	if err != nil || skipped {
+		t.Fatalf("install: skipped=%v err=%v", skipped, err)
+	}
+	if strings.TrimSpace(out) != "install output" {
+		t.Fatalf("install output = %q", out)
 	}
 }
