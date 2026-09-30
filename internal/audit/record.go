@@ -53,6 +53,9 @@ const (
 	// KindEnforcementChanged is what is enforced changing (P3-7): the
 	// section before, in Note, and after, in Enforcement.
 	KindEnforcementChanged = "enforcement_changed"
+	// KindBrakeChanged is a lockdown or freeze engaged or lifted (§12),
+	// carrying the whole brake state after it in Brakes.
+	KindBrakeChanged = "brake_changed"
 	// KindEnrollmentChanged is a change to the passkeys out-of-band
 	// approvals are verified against (P3-4): a key enrolled or removed, a
 	// registry changed outside Cerberus (which starts the cool-down), or a
@@ -187,6 +190,9 @@ type Record struct {
 	// so a snapshot that later fails its hash check is enforced as it was
 	// last verified, from this hash-chained record.
 	Enforcement json.RawMessage `json:"enforcement,omitempty"`
+	// Brakes is the brake state after a brake_changed (§12), so the brakes
+	// can be read back from this hash-chained record.
+	Brakes json.RawMessage `json:"brakes,omitempty"`
 
 	// PluginReview is what an install review showed and what was accepted.
 	PluginReview *PluginReview `json:"plugin_review,omitempty"`

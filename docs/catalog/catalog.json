@@ -9378,6 +9378,102 @@
       "id": "CERB-DEC-890"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "The policy connector is never enforced",
+      "summary": "`policy apply` and `policy enforce` are exempt from enforcement in every mode (SnapshotEnforcement exempts connector policy): their own gate is an interactive terminal and a typed confirmation, and enforcing them could lock the way back out of a bad policy.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "taken in P3-7; restated with the §12 brakes, which exempt policy for the same reason",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p3",
+        "policy",
+        "enforcement",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/policy/enforcement.go, internal/cerbapi/brakes.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-857",
+          "note": "the same-uid pty limit"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-843",
+          "note": "enforcement"
+        }
+      ],
+      "data": {
+        "decision": "Policy changes are recorded and shown by policy explain, but never refused by policy or by a brake. They are gated by an interactive terminal and a typed phrase instead.",
+        "alternatives_considered": [
+          "Enforce policy changes like any other operation",
+          "Enforce them but exempt a rule that allows policy.apply",
+          "Require a passkey for every policy change"
+        ],
+        "rationale": "A policy that denies policy.apply, or a lockdown that refuses it, would leave no way to repair the policy short of editing files by hand. That is the failure a control plane must not have. The terminal and typed-phrase gate keeps an MCP agent out, because MCP has no terminal. The honest limit is that a same-uid agent driving a pty can type the phrase and run policy apply (the CERB-GAP-857 class). The real answer to that is presence (a passkey) on policy changes, which is not built.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "P3-7 exempts connector `policy` in `SnapshotEnforcement`, and the §12 brakes exempt `policy`, `approvals` and `brake` in `unbraked`. Both exemptions exist so that the way back from a bad state is never behind the thing that caused it. `policy explain` says so for a policy call (\"Enforcement: never for policy changes\"). The gate that remains is `policyIsTerminal` plus a typed confirmation. An MCP client can't pass it. A process running as the operator's uid that drives a pseudo-terminal can, the same as with an accepted plugin review (CERB-GAP-857). Closing that means a passkey assertion on policy changes.",
+      "id": "CERB-DEC-895"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "The emergency brake is open to engage and protected to lift",
+      "summary": "Lockdown and freeze (§12) run before policy in every mode. Engaging takes one command, the console's button or the ungated cerberus_lockdown MCP tool, with no confirmation. Lifting is a person on a terminal with a typed phrase, plus a passkey approval where one is enrolled.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "approved in the §12 design review; built on the P5-a branch with a CDP smoke",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p5",
+        "brakes",
+        "policy",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/brake/brake.go, internal/cerbapi/brakes.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "brake_changed audit records"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-872",
+          "note": "the same-uid store; the audit log bounds it"
+        }
+      ],
+      "data": {
+        "decision": "Brakes are asymmetric: anyone, an agent included, can engage one at once; only a person can lift it. The effective state is the more restrictive of the brake store and the newest verified brake_changed audit record.",
+        "alternatives_considered": [
+          "Brakes as a policy mode (a deny-all posture) applied with policy apply",
+          "A typed confirmation to engage, as for policy changes",
+          "Pause monitor auto-restarts under a lockdown too"
+        ],
+        "rationale": "A brake that takes effort to pull does not get pulled in time, and an agent that notices it is misbehaving should be able to stop itself. So the MCP tool is the one tool policy never gates (ungatedTools), and it can only engage a lockdown. Lifting reuses the approval broker and presence rather than a new ceremony. The requester and the decider are both the operator, so checkDecider's self-approval refusal is waived for connector brake: the passkey is the proof of presence. Auto-restarts keep running under a lockdown because pausing them turns an incident into an outage. They pause under a freeze that covers the resource, which is the operator saying exactly that.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "The brakes sit in `beginGated` after the intent record and before the enforced check, so shadow mode is braked too. Dry runs and plans pass. The refusals are `lockdown` and `frozen` (HTTP 423), as `redact.Guidance` naming who engaged the brake, when, why and the lift command. The store is `~/.cerberus/brakes/events.jsonl`: hash-chained, with flock-serialised appends from any process, so the CLI can engage a brake with the daemon down. A same-uid process can delete the store, but the audit log's last brake_changed record keeps the lockdown, and forging both is the CERB-GAP-857 class.",
+      "id": "CERB-DEC-896"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
@@ -17108,6 +17204,45 @@
       "id": "CERB-GAP-893"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A daemon whose passkey store fails to open lifts brakes on the terminal floor",
+      "summary": "liftProof treats no installed presence the same as no enrolled key, so if the daemon fails to open the passkey store, a brake lifts with just a terminal and the typed phrase, even though a passkey is enrolled on disk.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "read from liftProof on the P5-a branch; not reproduced",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "brakes",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/brakes.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-873",
+          "note": "the presence verifier"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "The daemon records a failed presence open, and liftProof fails closed when presence is not installed and the passkeys file exists",
+        "effort": "small"
+      },
+      "body": "The floor is meant for an operator who never enrolled a key. A store that fails to open (corrupt, or bad permissions) looks the same to liftProof. The fix is small: tell 'not installed because it failed' apart from 'no keys', and refuse the lift with guidance to repair the store.",
+      "id": "CERB-GAP-898"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
@@ -23465,6 +23600,56 @@
       },
       "body": "`policy enforce` reads the scope as `policy report` does, refuses a rule term (an enforced scope is by principal, env, effect, connector or target), and refuses while the snapshot mismatches or the working files have unapplied changes. It shows the report for the scope over `--since`, the would-blocks that would be refused with no channel ready, and the enforcement before and after, then applies on a typed confirmation (`enforce <scope>`, `shadow <scope>`, `enforce everything`). It owns `enforcement.yaml` and applies through `cerbapi.ApplyPolicy`, whose record carries the enforcement section, and writes an `enforcement_changed` record and a notification. `--off` returns a scope, or with `--all` the mode, to shadow.",
       "id": "CERB-TOOL-894"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "tool",
+      "name": "cerberus lockdown / cerberus freeze",
+      "summary": "Engages the emergency brake: a lockdown (only plain reads run) or a freeze of the targets a scope selects. It works with the daemon down. --off lifts a brake on a terminal with a typed phrase, and with a passkey approval where one is enrolled. Also on the console (the Lockdown button and banner) and MCP (cerberus_lockdown, engage only).",
+      "state_field": "maturity",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "TestLockdown*, TestLifting*, TestConsoleEngagesLockdown and the confirm-dialog CDP smoke (37/37) on the P5-a branch",
+      "tags": [
+        "cerberus",
+        "class:tool",
+        "policy",
+        "brakes",
+        "locus:core",
+        "verified:test"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_lockdown.go, internal/cerbapi/brakes.go, internal/mcp/lockdown.go, web/src/components/brakes.tsx",
+      "relationships": [
+        {
+          "type": "implements",
+          "target": "CERB-CAP-400",
+          "note": "a verb of the CLI"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-604",
+          "note": "brake_changed records"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-400",
+        "invocation": "cerberus lockdown [--reason r] [--off [--approval id]] | cerberus freeze --scope k=v... [--reason r] | --off <id> [--approval id] | list",
+        "surfaces": [
+          "cli",
+          "web",
+          "mcp",
+          "socket"
+        ],
+        "destructive": false,
+        "verified": "test",
+        "vendor": []
+      },
+      "body": "Engaging goes to the daemon's `POST /brakes/lockdown` or `/brakes/freeze`. If the daemon is unreachable (never delivered), the CLI writes the brake store in-process. Lifting never falls back in-process, because the passkey check is the daemon's. `cerberus status` leads with `!!! LOCKDOWN` and `!!! FREEZE` lines, and `policy explain` has a `Brakes:` line.",
+      "id": "CERB-TOOL-897"
     }
   ]
 }

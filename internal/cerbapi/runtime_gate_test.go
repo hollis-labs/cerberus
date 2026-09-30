@@ -47,7 +47,7 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		"pipeline.list":   contract.EffectRead,
 		"cerberus.health": contract.EffectRead, "cerberus.project_list": contract.EffectRead,
 		"cerberus.connector_list": contract.EffectRead, "cerberus.connector_describe": contract.EffectRead,
-		"cerberus.approval_wait": contract.EffectRead,
+		"cerberus.approval_wait": contract.EffectRead, "cerberus.lockdown": contract.EffectWrite,
 	}
 	seen := 0
 	for _, def := range RuntimeDefinitions() {

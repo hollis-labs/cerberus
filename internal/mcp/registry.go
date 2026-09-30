@@ -37,6 +37,7 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusConnectorListTool(client),
 		NewCerberusConnectorDescribeTool(client),
 		NewCerberusApprovalWaitTool(client),
+		NewCerberusLockdownTool(client),
 		NewCerberusGithubStatusTool(client),
 		NewCerberusGithubReleasesTool(client),
 		NewCerberusGithubRunsTool(client),

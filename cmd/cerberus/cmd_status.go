@@ -15,8 +15,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/presence"
@@ -85,6 +87,27 @@ type statusReport struct {
 	// Enforcement is what is enforced (P3-7), and loud about a snapshot
 	// that fails its hash check.
 	Enforcement statusEnforcement `json:"enforcement"`
+	// Brakes are the lockdown and freezes engaged (§12): the first thing
+	// status says when there are any.
+	Brakes brake.State `json:"brakes"`
+}
+
+// statusOfBrakes is the effective brake state, as the gate reads it.
+var statusOfBrakes = func() brake.State {
+	if b := cerbapi.ProcessBrakes(); b != nil {
+		return b.Current()
+	}
+	store, err := brakesStore()
+	if err != nil {
+		return brake.State{}
+	}
+	st, _ := store.Load()
+	if dir, derr := app.AuditDir(); derr == nil {
+		if recorded, ok := brake.Recorded(dir); ok {
+			st = brake.Effective(st, recorded)
+		}
+	}
+	return st
 }
 
 type statusEnforcement struct {
@@ -173,7 +196,7 @@ type statusWebApp struct {
 }
 
 func gatherStatus(ctx context.Context) statusReport {
-	r := statusReport{Posture: currentPosture(), Web: []statusWebApp{}, Enforcement: statusOfEnforcement()}
+	r := statusReport{Posture: currentPosture(), Web: []statusWebApp{}, Enforcement: statusOfEnforcement(), Brakes: statusOfBrakes()}
 	r.Plugins.ReviewPending = []string{}
 
 	ready := false
@@ -357,6 +380,13 @@ func writeStatus(w io.Writer, r statusReport) error {
 	var b strings.Builder
 	line := func(label, format string, args ...any) {
 		fmt.Fprintf(&b, "  %-8s %s\n", label, fmt.Sprintf(format, args...))
+	}
+	if l := r.Brakes.Lockdown; l != nil {
+		fmt.Fprintf(&b, "!!! LOCKDOWN since %s, by %s over %s%s: only plain reads run. Lift: cerberus lockdown --off\n",
+			l.EngagedAt.Local().Format("Jan 2 15:04"), l.By.Kind, l.By.Via, brakeReason(l.Reason))
+	}
+	for _, f := range r.Brakes.Freezes {
+		fmt.Fprintf(&b, "!!! FREEZE %s on %s since %s%s. Lift: cerberus freeze --off %s\n", f.ID, f.Match.String(), f.EngagedAt.Local().Format("Jan 2 15:04"), brakeReason(f.Reason), f.ID)
 	}
 	b.WriteString("Cerberus status\n")
 	switch {

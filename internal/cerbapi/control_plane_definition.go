@@ -11,6 +11,9 @@ const (
 	// OpApprovalWait waits, for a bounded time, for an approval to change
 	// state (P3-6): what an agent calls after approval_pending.
 	OpApprovalWait = "approval_wait"
+	// OpLockdown engages the lockdown (§12): self-restriction, so it needs
+	// no acknowledgment; nothing lifts it but a person on a terminal.
+	OpLockdown = "lockdown"
 )
 
 // ControlPlaneDefinition is the contract of the control plane's own reads —
@@ -38,6 +41,12 @@ func ControlPlaneDefinition() contract.Definition {
 			read(OpApprovalWait, "Wait for an approval to be decided, up to a bounded time.", "cerberus.approvals",
 				contract.RequiredField("id", contract.StringSchema("Approval ID, from approval_pending.")),
 				contract.Field("timeout_seconds", contract.IntegerSchema("How long to wait, 1 to 60 seconds; 30 when omitted."))),
+			{
+				Name: OpLockdown, Description: "Engage the lockdown: every operation but a plain read is refused until a person lifts it.",
+				Effect: contract.EffectWrite, Target: contract.TargetDescriptor{Kind: "cerberus.brakes"},
+				Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites,
+				Inputs: []contract.Input{contract.RequiredField("reason", contract.StringSchema("Why, for the operator and the record."))},
+			},
 		},
 	})
 }

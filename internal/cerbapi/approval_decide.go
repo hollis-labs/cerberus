@@ -52,7 +52,9 @@ func checkDecider(a approval.Approval, d approval.Decision) error {
 		return errUnknownSurface
 	case d.By.Kind != string(PrincipalHuman):
 		return errApproverNotHuman
-	case via == a.Principal.Via:
+	case via == a.Principal.Via && a.Connector != "brake":
+		// Lifting a brake is the operator's own act, met by their passkey,
+		// so it may be asked for and approved on one surface (§12).
 		return errSelfApproval
 	}
 	return nil

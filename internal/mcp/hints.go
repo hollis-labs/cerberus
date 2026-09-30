@@ -24,6 +24,7 @@ var toolOperations = map[string]opRef{
 	"cerberus_connector_list":     {cerbapi.ControlPlaneDefinition, cerbapi.OpConnectorList},
 	"cerberus_connector_describe": {cerbapi.ControlPlaneDefinition, cerbapi.OpConnectorDescribe},
 	"cerberus_approval_wait":      {cerbapi.ControlPlaneDefinition, cerbapi.OpApprovalWait},
+	"cerberus_lockdown":           {cerbapi.ControlPlaneDefinition, cerbapi.OpLockdown},
 
 	"cerberus_resource_list":         {localconn.Definition, localconn.OpList},
 	"cerberus_resource_status":       {localconn.Definition, localconn.OpStatus},

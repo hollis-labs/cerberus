@@ -11,11 +11,24 @@ export interface SessionInfo {
   passkeys?: PasskeysAlert | null
   break_glass?: BreakGlassAlert | null
   enforcement?: EnforcementAlert | null
+  brakes?: BrakeState | null
 }
 
 // PasskeysAlert is the header's line about out-of-band approval: loud while
 // no passkey is enrolled, for a day after an enrollment, and during a
 // cool-down after the key registry changed by other means.
+// BrakeState is the emergency brake (§12): a lockdown, and freezes.
+export interface BrakeEngagement {
+  id: string
+  engaged_at: string
+  by: { kind: string; via: string }
+  reason?: string
+}
+export interface BrakeState {
+  lockdown?: BrakeEngagement | null
+  freezes?: (BrakeEngagement & { scope: string })[] | null
+}
+
 // EnforcementAlert is the header's enforcement badge (P3-7): what is
 // enforced, and a snapshot mismatch's path, loudly.
 export interface EnforcementAlert {
@@ -765,6 +778,16 @@ export const apiClient = {
     }),
   planConnectorOperation: (id: string, operation: string, body: ConnectorOperationRequest, token: string) =>
     http.post<ConnectorPlan>(`/api/connectors/${encodeURIComponent(id)}/operations/${encodeURIComponent(operation)}/plan`, body as JsonObject, {
+      headers: { 'X-Cerberus-Web-Token': token },
+    }),
+  // The emergency brake (§12): engaging needs no confirmation; lifting is
+  // approved with a passkey where one is enrolled.
+  engageLockdown: (token: string, reason: string) =>
+    http.post<{ state: BrakeState }>('/api/brakes/lockdown', { reason } as JsonObject, { headers: { 'X-Cerberus-Web-Token': token } }),
+  liftLockdown: (token: string, approvalID?: string) =>
+    http.post<{ state: BrakeState }>('/api/brakes/lockdown/lift', { approval_id: approvalID ?? '' } as JsonObject, { headers: { 'X-Cerberus-Web-Token': token } }),
+  liftFreeze: (token: string, id: string, approvalID?: string) =>
+    http.post<{ state: BrakeState }>(`/api/brakes/freeze/${encodeURIComponent(id)}/lift`, { approval_id: approvalID ?? '' } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   confirmConnectorOperation: (id: string, operation: string, body: ConnectorOperationRequest, token: string, confirm: ConfirmArgs) =>

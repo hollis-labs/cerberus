@@ -13,6 +13,7 @@ import (
 	"github.com/hollis-labs/go-apppaths/paths"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
@@ -190,6 +191,19 @@ func installPolicy() {
 	// The switch-on (P3-7): what the snapshot enforces is enforced; the
 	// rest stays shadow. Nothing is enforced until the operator scopes it.
 	cerbapi.SetEnforcement(cerbapi.SnapshotEnforcement{})
+	// The emergency brake (§12), read by every process's gate.
+	if brakesDir, err := BrakesDir(); err == nil {
+		cerbapi.SetBrakes(&cerbapi.Brakes{Store: brake.Store{Dir: brakesDir}, AuditDir: auditDir, Sink: auditSink})
+	}
+}
+
+// BrakesDir is ~/.cerberus/brakes (§12).
+func BrakesDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cerberus", "brakes"), nil
 }
 
 // ApprovalsDir is ~/.cerberus/approvals.

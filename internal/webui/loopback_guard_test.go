@@ -101,6 +101,7 @@ var guardedRoutes = map[string][]string{
 	},
 	"/api/logout":                 {"/api/logout"},
 	"/api/approvals/":             {"/api/approvals/a/decide", "/api/approvals/a/revoke"},
+	"/api/brakes/":                {"/api/brakes/lockdown", "/api/brakes/lockdown/lift", "/api/brakes/freeze/f/lift"},
 	"/api/pipelines/":             {"/api/pipelines/p/run"},
 	"/api/registry/register":      {"/api/registry/register"},
 	"/api/registry/deregister":    {"/api/registry/deregister"},
@@ -145,7 +146,7 @@ var readOnlyRoutes = map[string]bool{
 	"/api/registry/health": true, "/api/config/validate": true,
 	"/api/config/resolve": true, "/api/config/migrate/preview": true,
 	"/api/config/backups": true, "/api/connectors": true, "/api/infra": true,
-	"/api/plugins/connectors": true, "/api/approvals": true,
+	"/api/plugins/connectors": true, "/api/approvals": true, "/api/brakes": true,
 }
 
 // actionWords are the path segments any handler dispatches on. The probe
