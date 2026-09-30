@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -138,5 +139,68 @@ func TestAGatedVerbRunsThroughAnEditAfterTheGate(t *testing.T) {
 	out, err = svc.StopResource(BeginRequest(context.Background(), SurfaceInProcess), "web", WithAcknowledged(true))
 	if err != nil || out == nil || !strings.Contains(out.Error, "not found") {
 		t.Fatalf("the next call reads the edited config: %+v %v", out, err)
+	}
+}
+
+// A deploy's checkout is read once at the gate (M10): a tree edited after
+// the gate decided is refused under the build lock, and nothing builds.
+func TestADeployRefusesATreeEditedAfterTheGate(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	t.Setenv("HOME", t.TempDir())
+	repo := t.TempDir()
+	testGit(t, repo, "init", "-q")
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(body), 0o600); err != nil { //nolint:gosec // the test's own temp repo
+			t.Fatal(err)
+		}
+	}
+	write("Makefile", "build:\n\t@touch built\n")
+	testGit(t, repo, "add", ".")
+	testGit(t, repo, "commit", "-q", "-m", "one")
+	withPDP(t, editingPDP{constantPDP{decision: policy.Allow}, func() { write("late.txt", "after the gate\n") }})
+	cfg := &config.ConfigV2{Resources: []config.ResourceDef{{ID: "app", Type: "process", Connector: "local", Config: map[string]any{
+		"dir": repo, "command": []string{"./app"}, "install_after_build": false,
+		"build_strategy": map[string]any{"kind": "make_standard", "rules": map[string]any{"output": "./app"}},
+	}}}}
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
+	out, err := svc.DeployResource(BeginRequest(context.Background(), SurfaceInProcess), "app", WithAcknowledged(true))
+	if err != nil || out == nil || out.Success || !strings.Contains(out.Error, "changed after this deploy was checked") {
+		t.Fatalf("deploy: %+v %v", out, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(repo, "built")); statErr == nil {
+		t.Fatal("the edited tree was built")
+	}
+}
+
+// The deploy plan hashes the tree the gate read, so the approval binds the
+// tree the build is checked against, not one read later.
+func TestADeployPlanHashesTheCheckedTree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	testGit(t, repo, "init", "-q")
+	testGit(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one"), 0o600); err != nil { //nolint:gosec // the test's own temp repo
+		t.Fatal(err)
+	}
+	res := &config.ResourceDef{ID: "app", Type: "process", Connector: "local", Config: map[string]any{
+		"dir": repo, "command": []string{"./app"}, "build_strategy": map[string]any{"kind": "make_standard", "rules": map[string]any{"output": "./app"}},
+	}}
+	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(&config.ConfigV2{Resources: []config.ResourceDef{*res}}))
+	ctx := withCheckedSource(context.Background(), repo)
+	atGate := gitSource(context.Background(), repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("two"), 0o600); err != nil { //nolint:gosec // as above
+		t.Fatal(err)
+	}
+	p, err := svc.planResourceDef(ctx, auditSpec{connector: "local", operation: "deploy"}, res, "deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Source == nil || p.Source.Content != atGate.Content {
+		t.Fatalf("the plan read the tree again: %+v", p.Source)
 	}
 }

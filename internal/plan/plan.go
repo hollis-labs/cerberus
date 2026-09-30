@@ -80,11 +80,15 @@ type Step struct {
 	Env     []string `json:"env,omitempty"`
 }
 
-// Source is a checkout's commit and whether it has uncommitted changes.
+// Source is a checkout's commit and whether it has uncommitted changes, and
+// for a dirty one what they are: a digest of the diff against HEAD and of
+// every untracked file that is not ignored (M10). A deploy approved on a
+// dirty tree does not build edits made after it.
 type Source struct {
-	Path  string `json:"path"`
-	HEAD  string `json:"head"`
-	Dirty bool   `json:"dirty"`
+	Path    string `json:"path"`
+	HEAD    string `json:"head"`
+	Dirty   bool   `json:"dirty"`
+	Content string `json:"content,omitempty"`
 }
 
 // Canonical is v as canonical JSON: keys sorted at every level (encoding/json

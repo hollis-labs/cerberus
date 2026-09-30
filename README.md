@@ -239,7 +239,7 @@ Use the `resource` lane for all active local process management across CLI, daem
 
 Under the hood, v2 resource operations now route through a shared resource runtime service. CLI, daemon/socket API, and MCP are intended to stay thin wrappers over that one execution layer rather than each owning separate runtime logic.
 
-The daemon health surface reports v2 resource state, and the daemon monitor supervises `dev_session` resources that opt into `auto_restart`.
+The daemon health surface reports v2 resource state, and the daemon monitor supervises `dev_session` resources that opt into `auto_restart`. The monitor restarts a resource only with the definition it was last started with through `resource apply`, `deploy`, `reload` or `sync`. After you edit a resource's definition, run `cerberus resource apply <id>`; until then the monitor leaves it down and says so.
 
 ## CLI Quick Reference
 

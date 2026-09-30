@@ -133,6 +133,15 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	// plan hashes the definition and the run executes it, all from this.
 	snap := s.snapshotConfig()
 	ctx = withConfigSnapshot(ctx, snap)
+	// A deploy's checkout is read once too: the plan hashes it, and the
+	// build refuses a tree that changed since (M10).
+	if operation == localconn.OpDeploy {
+		if res := findResourceDef(snap, id); res != nil {
+			if pspec, perr := localconn.SpecFromResourceConfig(res.Config); perr == nil && localconn.HasBuildStrategy(pspec) {
+				ctx = withCheckedSource(ctx, pspec.Dir)
+			}
+		}
+	}
 	spec := auditSpec{
 		connector: def.ID, operation: operation, op: op, known: known,
 		config: config, acknowledged: opts.Acknowledged, resources: resourcesIn(snap),
@@ -156,6 +165,13 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 		return &OpResult{Success: true, ServiceID: id, Message: "plan only; nothing ran", Plan: shown}, nil
 	}
 	out, err := run(ctx, id, options...)
+	if err == nil && out != nil && out.Success && appliedVerbs[operation] {
+		if res := findResourceDef(snap, id); res != nil {
+			if aerr := s.applied.set(id, s.definitionDigest(res)); aerr != nil {
+				s.logger.Warn("resource_runtime.applied_record_failed", "resource", id, "error", aerr.Error())
+			}
+		}
+	}
 	if err == nil && out != nil {
 		// Egress policy on what comes back (P4-4): build and install
 		// output are untrusted.

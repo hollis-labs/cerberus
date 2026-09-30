@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -187,7 +188,92 @@ func gitSource(ctx context.Context, dir string) *plan.Source {
 	src.HEAD = strings.TrimSpace(string(head))
 	status, err := run("status", "--porcelain")
 	src.Dirty = err != nil || len(strings.TrimSpace(string(status))) > 0
+	if src.Dirty {
+		src.Content = dirtyContent(ctx, dir)
+	}
 	return src
+}
+
+// sourceKey carries the checkout a deploy was checked against: its commit
+// and uncommitted content, read once at the gate, so the plan hashes it and
+// the build refuses a tree that changed since (M10).
+type sourceKey struct{}
+
+type checkedCheckout struct {
+	dir string
+	src *plan.Source
+}
+
+// withCheckedSource is ctx carrying dir's checkout as read now.
+func withCheckedSource(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, sourceKey{}, checkedCheckout{dir: dir, src: gitSource(ctx, dir)})
+}
+
+// checkedSource is dir's checkout as the call's gate read it, or as it is
+// now outside such a call.
+func checkedSource(ctx context.Context, dir string) *plan.Source {
+	if c, ok := ctx.Value(sourceKey{}).(checkedCheckout); ok && c.dir == dir && c.src != nil {
+		src := *c.src
+		return &src
+	}
+	return gitSource(ctx, dir)
+}
+
+// sourceChanged says how dir's checkout differs from what the call's gate
+// read, or "" when it does not, or no gate read it.
+func sourceChanged(ctx context.Context, dir string) string {
+	c, ok := ctx.Value(sourceKey{}).(checkedCheckout)
+	if !ok || c.dir != dir || c.src == nil {
+		return ""
+	}
+	now := gitSource(ctx, dir)
+	if now.HEAD == c.src.HEAD && now.Dirty == c.src.Dirty && now.Content == c.src.Content {
+		return ""
+	}
+	describe := func(s *plan.Source) string {
+		out := s.HEAD
+		if len(out) > 12 {
+			out = out[:12]
+		}
+		if s.Dirty {
+			out += " with uncommitted changes"
+		}
+		return out
+	}
+	return fmt.Sprintf("the checkout at %s changed after this deploy was checked (it was %s, it is %s), so nothing was built; run the deploy again, and it is checked as the tree is now", dir, describe(c.src), describe(now))
+}
+
+// dirtyContent is a digest of a checkout's uncommitted changes: its diff
+// against HEAD, and each untracked file that is not ignored, by path and
+// content. It reads the whole repository, not only dir, since a build in a
+// subdirectory can reach the rest of it.
+func dirtyContent(ctx context.Context, dir string) string {
+	run := func(args ...string) ([]byte, error) { return gitenv.Command(ctx, dir, args...).Output() }
+	top, err := run("rev-parse", "--show-toplevel")
+	if err != nil {
+		return "(unreadable)"
+	}
+	root := strings.TrimSpace(string(top))
+	h := sha256.New()
+	diff, err := gitenv.Command(ctx, root, "diff", "HEAD", "--binary").Output()
+	if err != nil {
+		return "(unreadable)"
+	}
+	h.Write(diff)
+	untracked, err := gitenv.Command(ctx, root, "ls-files", "-o", "--exclude-standard", "-z").Output()
+	if err != nil {
+		return "(unreadable)"
+	}
+	paths := strings.Split(strings.TrimRight(string(untracked), "\x00"), "\x00")
+	sort.Strings(paths)
+	for _, rel := range paths {
+		if rel == "" {
+			continue
+		}
+		h.Write([]byte("\x00untracked\x00" + rel + "\x00"))
+		h.Write([]byte(fileDigest(filepath.Join(root, rel))))
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
 // planResource is a resource verb's plan: the resource's definition (as a
@@ -228,7 +314,7 @@ func (s *ResourceRuntimeService) planResourceDef(ctx context.Context, spec audit
 	builds := verb == localconn.OpDeploy || verb == verbBuild
 	installs := builds || verb == localconn.OpApply || verb == localconn.OpSync
 	if builds && localconn.HasBuildStrategy(pspec) {
-		p.Source = gitSource(ctx, pspec.Dir)
+		p.Source = checkedSource(ctx, pspec.Dir)
 	}
 	if installs && pspec.RunFrom == localconn.ProcessRunFromArtifact {
 		if path, perr := localconn.ResolveArtifactSourcePath(pspec); perr == nil {

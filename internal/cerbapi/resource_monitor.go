@@ -243,6 +243,21 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 		return
 	}
 
+	// Only the definition a person last applied restarts (M10): one edited
+	// since waits for `cerberus resource apply`, instead of running
+	// unapproved the next time the workload goes down. A workload with no
+	// record (first seen since this was recorded) is taken as it is.
+	digest := m.runtime.definitionDigest(&res)
+	if prev, ok := m.runtime.applied.get(res.ID); ok && prev != digest {
+		m.lastError[res.ID] = "its definition changed since it was last applied, so the monitor does not restart it; run `cerberus resource apply " + res.ID + "`"
+		m.logger.Warn("daemon.resource_monitor.restart_skipped", "resource", res.ID, "reason", m.lastError[res.ID])
+		return
+	} else if !ok {
+		if aerr := m.runtime.applied.set(res.ID, digest); aerr != nil {
+			m.logger.Warn("daemon.resource_monitor.applied_record_failed", "resource", res.ID, "error", aerr.Error())
+		}
+	}
+
 	for _, warning := range m.runtime.dependencyWarnings(ctx, &res, m.runtime.snapshotConfig()) {
 		m.logger.Warn("daemon.resource_monitor.dependency_unavailable", "resource", res.ID, "warning", warning)
 	}
@@ -258,7 +273,7 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 	// unwritable log is logged and the restart goes ahead.
 	applyOp, _ := localconn.Definition().Operation(localconn.OpApply)
 	call, _ := beginAudit(ctx, m.runtime.audit, m.logger, auditSpec{
-		connector: "local", operation: localconn.OpApply, op: applyOp, known: true, resources: m.runtime.ResourceDef,
+		connector: "local", operation: localconn.OpApply, op: applyOp, known: true, resources: sameResource(&res, m.runtime.ResourceDef),
 		config: map[string]any{localconn.InputID: res.ID}, automation: true,
 		reason: fmt.Sprintf("auto_restart: the workload was %s; restart attempt %d of %d", state, m.failureCount[res.ID], maxAttempts),
 	})
@@ -291,5 +306,16 @@ func resourceStateDown(state domain.State) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// sameResource looks res up as itself, and any other id through lookup: a
+// restart's record is labeled from the definition it restarts.
+func sameResource(res *config.ResourceDef, lookup func(string) (*config.ResourceDef, bool)) func(string) (*config.ResourceDef, bool) {
+	return func(id string) (*config.ResourceDef, bool) {
+		if id == res.ID {
+			return res, true
+		}
+		return lookup(id)
 	}
 }

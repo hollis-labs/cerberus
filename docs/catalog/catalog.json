@@ -456,7 +456,7 @@
           "note": "restart is triggered by PID absence, never by a failed health probe"
         }
       ],
-      "body": "`internal/cerbapi/resource_monitor.go` is the only active supervision in the product. The daemon starts exactly one of these (`cmd_daemon.go` line 446) alongside the artifact drift cache; the v1 `daemon.Monitor` and `service.ServiceRegistry` are never constructed by the daemon at all.\n\nEnrolment is `shouldMonitorResource`: local/process, mode resolves to `dev_session`, and `auto_restart: true`. `os_service` resources are excluded by design — launchd's `KeepAlive` already does that job, and a second restarter would fight it. On this machine six resources are enrolled (`postgres`, `jaeger`, `app-b-daemon`, `app-b-sysop`, `app-d-daemon`, `app-c-api`, `app-e-api` — seven, in fact) and three are deliberately not: `app-a-local` and `tunnel-host-a` set both flags false because an auto-restarting `ssh` against a corporate auth endpoint is a good way to get an account locked out.\n\nEach tick, the loop re-resolves config, garbage-collects retry state for resources that are no longer monitored (so a re-added id does not inherit an exhausted budget), orders resources by declared dependency, and for each enrolled resource: skips it if the operator paused it via `pausectl`, takes the runtime's `opMu` to read status, and treats `stopped`, `failed` or `unknown` as down. Before restarting it refuses on a port conflict, respects `max_restart_attempts` (default 3) and `restart_cooldown` (default 10s), logs the dependency warnings it is about to ignore, then calls `Apply` under `opMu`. A recovery resets the failure count and logs `resource_recovered`.\n\nTwo consequences are worth stating because they are easy to misread. First, the monitor's immediate `checkAllResources` at daemon boot means an `auto_restart: true` resource that is down gets started at boot — so `auto_restart` is effectively also the auto-start switch, and the actual `auto_start` field does nothing (CERB-GAP-142). Second, \"down\" means no owned PID. A process that is alive but wedged, or listening but returning 500s, is never restarted, because nothing probes the declared `health:` URL.\n\n## What it owns\n\n- the 30s supervision tick and the boot-time first pass\n- enrolment by mode + auto_restart (`shouldMonitorResource`)\n- per-resource failure budget, cooldown and retry-state garbage collection\n- dependency-ordered iteration (`resourceStartupOrder`)\n- operator-stop honouring via pausectl\n- port-conflict refusal before restart\n- structured restart_attempt / restart_success / restart_failed / max_restarts_exceeded logging\n\n## What it does not own\n\n- os_service resources — launchd KeepAlive owns those\n- health-probe-driven restart: down means no owned PID\n- auto_start semantics; the field is inert\n- rebuilding before restart — it calls Apply, never Deploy, so a restart relaunches whatever binary is on disk\n- restarting anything a human stopped: a pausectl pause wins until an apply/deploy/reload resumes it\n- restarting the *daemon process* itself, which is `internal/daemon/restart.go` — live code, not v1 debt: `cerberus daemon restart` and `daemon --replace` both route through `daemon.RestartWithVerify` at cmd_daemon.go:258\n\n## Recorded, never gated\n\nSince P1-4b every restart the monitor makes writes an intent and an outcome to\nthe audit log (CERB-CAP-604) with principal kind `automation`, surface\n`monitor`, and a reason naming the state it saw and the attempt count. It is\nnever gated, and an unwritable log does not stop it\n(`TestMonitorRestartIsRecordedAsAutomation`).\n\n## Where it lives\n\n- `internal/cerbapi/resource_monitor.go`\n- `internal/cerbapi/resource_dependencies.go`\n- `internal/pausectl`\n- `cmd/cerberus/cmd_daemon.go`\n\nSurfaces: daemon. Entry points: cerberus daemon (automatic); cerberus resource stop <id> to opt out, apply/deploy/reload to opt back in.\n\n## Recorded reasoning\n\n- `docs/adr/0002-resource-only-local-workload-model.md`",
+      "body": "`internal/cerbapi/resource_monitor.go` is the only active supervision in the product. The daemon starts exactly one of these (`cmd_daemon.go` line 446) alongside the artifact drift cache; the v1 `daemon.Monitor` and `service.ServiceRegistry` are never constructed by the daemon at all.\n\nEnrolment is `shouldMonitorResource`: local/process, mode resolves to `dev_session`, and `auto_restart: true`. `os_service` resources are excluded by design — launchd's `KeepAlive` already does that job, and a second restarter would fight it. On this machine six resources are enrolled (`postgres`, `jaeger`, `app-b-daemon`, `app-b-sysop`, `app-d-daemon`, `app-c-api`, `app-e-api` — seven, in fact) and three are deliberately not: `app-a-local` and `tunnel-host-a` set both flags false because an auto-restarting `ssh` against a corporate auth endpoint is a good way to get an account locked out.\n\nEach tick, the loop re-resolves config, garbage-collects retry state for resources that are no longer monitored (so a re-added id does not inherit an exhausted budget), orders resources by declared dependency, and for each enrolled resource: skips it if the operator paused it via `pausectl`, takes the runtime's `opMu` to read status, and treats `stopped`, `failed` or `unknown` as down. Before restarting it refuses on a port conflict, respects `max_restart_attempts` (default 3) and `restart_cooldown` (default 10s), logs the dependency warnings it is about to ignore, then calls `Apply` under `opMu`. A recovery resets the failure count and logs `resource_recovered`.\n\nTwo consequences are worth stating because they are easy to misread. First, the monitor's immediate `checkAllResources` at daemon boot means an `auto_restart: true` resource that is down gets started at boot — so `auto_restart` is effectively also the auto-start switch, and the actual `auto_start` field does nothing (CERB-GAP-142). Second, \"down\" means no owned PID. A process that is alive but wedged, or listening but returning 500s, is never restarted, because nothing probes the declared `health:` URL.\n\n## What it owns\n\n- the 30s supervision tick and the boot-time first pass\n- enrolment by mode + auto_restart (`shouldMonitorResource`)\n- per-resource failure budget, cooldown and retry-state garbage collection\n- dependency-ordered iteration (`resourceStartupOrder`)\n- operator-stop honouring via pausectl\n- port-conflict refusal before restart\n- structured restart_attempt / restart_success / restart_failed / max_restarts_exceeded logging\n\n## What it does not own\n\n- os_service resources — launchd KeepAlive owns those\n- health-probe-driven restart: down means no owned PID\n- auto_start semantics; the field is inert\n- rebuilding before restart — it calls Apply, never Deploy, so a restart relaunches whatever binary is on disk\n- restarting anything a human stopped: a pausectl pause wins until an apply/deploy/reload resumes it\n- restarting the *daemon process* itself, which is `internal/daemon/restart.go` — live code, not v1 debt: `cerberus daemon restart` and `daemon --replace` both route through `daemon.RestartWithVerify` at cmd_daemon.go:258\n\n## Recorded, never gated\n\nSince P1-4b every restart the monitor makes writes an intent and an outcome to\nthe audit log (CERB-CAP-604) with principal kind `automation`, surface\n`monitor`, and a reason naming the state it saw and the attempt count. It is\nnever gated, and an unwritable log does not stop it\n(`TestMonitorRestartIsRecordedAsAutomation`).\n\n## Where it lives\n\n- `internal/cerbapi/resource_monitor.go`\n- `internal/cerbapi/resource_dependencies.go`\n- `internal/pausectl`\n- `cmd/cerberus/cmd_daemon.go`\n\nSurfaces: daemon. Entry points: cerberus daemon (automatic); cerberus resource stop <id> to opt out, apply/deploy/reload to opt back in.\n\n## Recorded reasoning\n\n- `docs/adr/0002-resource-only-local-workload-model.md`\n\n## Only the applied definition restarts\n\nThe monitor restarts a workload only with the definition it was last started with through a gated verb. A successful `apply`, `deploy`, `reload` or `sync` records a keyed digest of the definition it ran in `~/.cerberus/runtime/applied.json`. A down workload whose current definition has another digest is not restarted. Its last error names `cerberus resource apply <id>`, so a definition edited outside the gate never runs unapproved. A workload with no record yet, such as one first seen after an upgrade, is taken as it is and recorded (trust on first use). The record holds digests, never definitions, since a definition's environment can carry values (CERB-GAP-935).",
       "locus": "core",
       "pointer_locator": "internal/cerbapi/resource_monitor.go",
       "data": {
@@ -18661,6 +18661,51 @@
       },
       "body": "Remaining (M10b, next): a deploy plan binds HEAD and a dirty flag, not dirty content, and the build reads the tree after the gate; the resource monitor restarts whatever the config says now, not the last applied definition; ensure_fresh picks its verb from a separate read before that verb's own gate. The executed definition is the checked config, but files it names (a build tree, a compose file, a key) are read when the connector runs.",
       "id": "CERB-GAP-934"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A deploy built dirty edits made after its approval, and the monitor restarted definitions nobody applied",
+      "summary": "A deploy plan bound HEAD and a dirty flag, so any edit to an already-dirty tree after the approval shipped, and the build read the tree whenever it ran. The resource monitor restarted whatever the config said at the moment the workload went down: an edited, never-approved command ran as soon as the process died. Fixed: the plan's source binds a digest of the uncommitted changes (the diff against HEAD and each untracked, unignored file), read once at the gate, and the build refuses under its lock a tree that changed since; a gated apply, deploy, reload or sync records a keyed digest of the definition it started, and the monitor restarts only a workload whose definition still has that digest.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the e40b63c security review (M10); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "supervision",
+        "approvals",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/plans.go, internal/cerbapi/applied_definitions.go, internal/cerbapi/resource_monitor.go, internal/plan/plan.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-934",
+          "note": "M10's first half: verbs run the definition they were checked against"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-104",
+          "note": "the monitor"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "medium"
+      },
+      "body": "Remaining: the tree is rechecked under the build lock, then read by the build as it runs, so an edit during the build itself still lands (building from a pinned export would close it). A workload the monitor has no record for is trusted on first sight, including after the record file is deleted. ensure_fresh chooses its verb from its own status read before that verb's gate; the verb is gated and runs its own snapshot, so the choice decides nothing the gate does not check.",
+      "id": "CERB-GAP-935"
     },
     {
       "id": "CERB-TOOL-110",

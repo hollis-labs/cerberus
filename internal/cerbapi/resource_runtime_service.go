@@ -55,6 +55,10 @@ type ResourceRuntimeService struct {
 	servingDaemon     bool
 	servingExecutable string
 	servingLabel      string
+
+	// applied is the definition each workload was last started with
+	// through a gated verb (M10), which the monitor restarts only.
+	applied *appliedDefinitions
 }
 
 // AttachDriftCache wires a background drift cache into the runtime so the
@@ -111,6 +115,9 @@ func NewResourceRuntimeService(sink audit.Sink, opts ...ResourceRuntimeOption) *
 	}
 	if s.local == nil {
 		s.local = localconn.New()
+	}
+	if s.applied == nil {
+		s.applied = &appliedDefinitions{}
 	}
 	return s
 }
@@ -769,6 +776,10 @@ func (s *ResourceRuntimeService) deployResource(ctx context.Context, id string, 
 		return &OpResult{Success: false, ServiceID: id, Error: lockErr.Error()}, nil
 	}
 	defer releaseBuild()
+	// Under the build lock, the tree must still be the one the gate read.
+	if changed := sourceChanged(ctx, spec.Dir); changed != "" {
+		return &OpResult{Success: false, ServiceID: id, Error: changed}, nil
+	}
 	buildOutput := ""
 	buildLogPath := ""
 	installOutput := ""

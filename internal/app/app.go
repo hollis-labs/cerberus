@@ -92,6 +92,7 @@ func NewWithOptions(opts Options) (*App, error) {
 		cerbapi.WithResourceRuntimeLocalConnector(local),
 		cerbapi.WithResourceRuntimeConfigV2(v2),
 		cerbapi.WithResourceRuntimeConfigPath(opts.ConfigPath),
+		cerbapi.WithResourceRuntimeAppliedPath(appliedPath()),
 	)
 	external := cerbapi.NewExternalConnectorService(AuditSink(), registry)
 	external.SetResourceLookup(runtime.ResourceDef)
@@ -201,6 +202,17 @@ func installPolicy() {
 	cerbapi.SetRateLimiter(&cerbapi.RateLimiter{AuditDir: auditDir})
 }
 
+// appliedPath is ~/.cerberus/runtime/applied.json: the digest of the
+// definition each workload was last started with through a gated verb,
+// which the monitor restarts only (M10). Empty keeps it in the process.
+func appliedPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".cerberus", "runtime", "applied.json")
+}
+
 // BrakesDir is ~/.cerberus/brakes (§12).
 func BrakesDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -290,7 +302,7 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 // CLI, over the config at configPath (the default when empty), writing to
 // this process's audit sink. cfg, when non-nil, is an already-resolved config.
 func NewResourceRuntimeService(configPath string, cfg *config.ConfigV2) *cerbapi.ResourceRuntimeService {
-	opts := []cerbapi.ResourceRuntimeOption{cerbapi.WithResourceRuntimeConfigPath(configPath)}
+	opts := []cerbapi.ResourceRuntimeOption{cerbapi.WithResourceRuntimeConfigPath(configPath), cerbapi.WithResourceRuntimeAppliedPath(appliedPath())}
 	if cfg != nil {
 		opts = append(opts, cerbapi.WithResourceRuntimeConfigV2(cfg))
 	}
