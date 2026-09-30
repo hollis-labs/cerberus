@@ -17210,12 +17210,12 @@
       "review_status": "draft",
       "locus": "core",
       "class": "gap",
-      "name": "A daemon whose passkey store fails to open lifts brakes on the terminal floor",
-      "summary": "liftProof treats no installed presence the same as no enrolled key, so if the daemon fails to open the passkey store, a brake lifts with just a terminal and the typed phrase, even though a passkey is enrolled on disk.",
+      "name": "A brake lift fell to the terminal floor when the passkey store was unreadable",
+      "summary": "liftProof treated a missing passkey service the same as no enrolled key, and so did a registry that was unreadable or changed outside enrollment. Fixed: the terminal floor applies only when the registry opens, matches the audit log and holds no key; anything else refuses the lift as passkey store unreadable, or until the cool-down ends.",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "shipped",
       "confidence_score": 0.8,
-      "confidence_label": "read from liftProof on the P5-a branch; not reproduced",
+      "confidence_label": "TestLiftFailsClosedWithoutAReadablePasskeyStore on the P5-a branch, which fails without the fix",
       "tags": [
         "cerberus",
         "class:gap",
@@ -17236,10 +17236,10 @@
         "capability": "CERB-CAP-604",
         "priority": "must-have",
         "blocked_by": [],
-        "unlocks_when": "The daemon records a failed presence open, and liftProof fails closed when presence is not installed and the passkeys file exists",
+        "unlocks_when": "shipped with P5-a",
         "effort": "small"
       },
-      "body": "The floor is meant for an operator who never enrolled a key. A store that fails to open (corrupt, or bad permissions) looks the same to liftProof. The fix is small: tell 'not installed because it failed' apart from 'no keys', and refuse the lift with guidance to repair the store.",
+      "body": "Found while building P5-a, and fixed in the same PR. The floor was keyed on the number of enrolled keys. A daemon whose approvals store failed to open has no presence service at all; a registry with bad permissions reads as zero keys; and a registry deleted after enrollment reads as zero keys too. Each of these let a brake lift on just a terminal and a typed phrase. liftProof now switches on the registry state: not_set_up takes the floor, ok takes the passkey approval, and cooldown, a read error, or no service at all refuses the lift with guidance naming the repair.",
       "id": "CERB-GAP-898"
     },
     {

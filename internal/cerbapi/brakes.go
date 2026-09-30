@@ -19,6 +19,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -222,13 +223,33 @@ func liftProof(ctx context.Context, operation string, t audit.Target, id, approv
 		return "", externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.Guidance("a brake is lifted by a person, and this caller is %s over %s; engaging is open to anyone, lifting is not", p.Kind, p.Via))
 	}
+	// The terminal floor is for an operator who never enrolled a key: the
+	// registry opened, matches what the audit log recorded, and holds none.
+	// A registry that cannot be read, or changed outside enrollment (a
+	// deleted file included), refuses the lift; it never falls to the floor.
 	pres := ProcessPresence()
-	if pres == nil || len(pres.Status().Keys) == 0 {
+	if pres == nil {
+		return "", externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("passkey store unreadable: this daemon has no passkey service, so it cannot tell whether a key is enrolled, and a brake is not lifted on a guess; check the daemon log for daemon.approvals.open_failed, repair ~/.cerberus/approvals, restart the daemon, then lift again"))
+	}
+	st := pres.Status()
+	switch st.State {
+	case presence.StateNotSetUp:
 		if p.Via != ViaCLI {
 			return "", externalConnectorError(args, ExternalConnectorApprovalRequired,
 				redact.Guidance("with no passkey enrolled, a brake is lifted on a terminal: run `cerberus lockdown --off` (or `cerberus freeze --off <id>`); enroll one with `cerberus approvals enroll`"))
 		}
 		return "tty", nil
+	case presence.StateOK:
+	case presence.StateCooldown:
+		if !st.CooldownUntil.IsZero() {
+			return "", externalConnectorError(args, ExternalConnectorApprovalRequired,
+				redact.Guidance("the passkey registry changed outside `cerberus approvals enroll`, so a brake is not lifted until the cool-down ends at %s; `cerberus approvals keys` shows the registry", st.CooldownUntil.Local().Format(time.RFC1123)))
+		}
+		fallthrough
+	default:
+		return "", externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("passkey store unreadable: the passkey registry under ~/.cerberus/approvals cannot be read, so a brake is not lifted on a guess; repair its permissions or contents, then lift again"))
 	}
 	broker := ProcessBroker()
 	if broker == nil {

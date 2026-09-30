@@ -590,8 +590,12 @@ enrolled, the lift is also approved with the passkey: the first `--off`
 prints a console link, and you approve it there. Then either click **Lift
 now** on the approval, or run the command again with `--approval <id>`. The
 console's own Lift button takes you to the same approval. With no passkey
-enrolled, the terminal and the typed phrase are the floor. Lifting needs the
-daemon, which is what checks for an enrolled passkey.
+enrolled, the terminal and the typed phrase are the floor. That floor applies
+only when the passkey registry opens and holds no key. If the registry can't
+be read, or it changed outside `cerberus approvals enroll` (it was deleted,
+say), the lift is refused until the registry is repaired or the cool-down
+ends. It never drops to the floor. Lifting needs the daemon, which is what
+checks for an enrolled passkey.
 
 The brake store is `~/.cerberus/brakes/`. It is hash-chained, like the other
 stores. The daemon trusts the store only as far as the verified audit log
