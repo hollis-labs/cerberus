@@ -68,11 +68,7 @@ func NewCerberusDockerLogsTool(client cerbapi.Client) Tool {
 				return connectorFailure(ctx, err)
 			}
 			logs, _ := result.Data.(string)
-			return marshalConnectorData(struct {
-				Container string `json:"container"`
-				Lines     int    `json:"lines"`
-				Output    string `json:"output"`
-			}{
+			return marshalConnectorData(dockerLogsResult{
 				Container: container,
 				Lines:     lines,
 				Output:    logs,

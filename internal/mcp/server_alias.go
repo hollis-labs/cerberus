@@ -16,6 +16,7 @@ type Option = gmcp.Option
 func NewServer(name, version string, opts ...Option) *gmcp.Server {
 	srv := gmcp.NewServer(name, version, opts...)
 	srv.SDKServer().AddSendingMiddleware(announceToolsOnSubscribe)
+	srv.SDKServer().AddReceivingMiddleware(markEgress)
 	return srv
 }
 
