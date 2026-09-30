@@ -115,9 +115,9 @@ logging its own configuration hands a credential straight back through
 
 ### Smaller, real
 
-- **`secret.Provider` requires `Set` and `Delete`.** A read-only enterprise
-  vault cannot implement that interface honestly, which blocks any native vault
-  backend until it is split.
+- **`secret.Provider` required `Set` and `Delete`.** A read-only enterprise
+  vault could not implement that interface honestly, which blocked any native
+  vault backend until it was split. WP-S3 split it.
 - **`helper://` is a fork and exec per secret read**, with no allow-list of
   helper binaries, and it is subject to the daemon's minimal `PATH` — the same
   condition that produced the Docker connector's silent outage.
@@ -281,7 +281,13 @@ connector.
 
 ### WP-S3 — Split `secret.Provider`
 
-**Do:** a read-only interface (`Get`) and a read-write one that embeds it.
+**Done.** `pkg/secret` has `Reader` (`Get`) and `ReadWriter` (`Reader` plus
+`Set` and `Delete`); `Provider` remains as a deprecated alias of `ReadWriter`.
+Every resolution path takes a `Reader`, and `app.ConnectorSecrets` is one and
+nothing more. The console's provider form is the only writer, and it gets the
+keychain through `app.SecretStore` and `webui.Server.SetSecretStore`.
+
+**Did:** a read-only interface (`Get`) and a read-write one that embeds it.
 Resolution depends on the reader; only the web UI's entry management needs the
 writer.
 
@@ -292,7 +298,7 @@ should not be entangled with a new backend.
 
 **Blocked on WP-S3.**
 
-**Do:** two `secret.Provider` readers behind the existing reference syntax, so
+**Do:** two `secret.Reader` backends behind the existing reference syntax, so
 `op://` and a Keeper equivalent resolve without a helper process.
 
 **Design notes:**

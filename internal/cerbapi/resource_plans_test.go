@@ -180,10 +180,8 @@ func (c countingSecrets) Get(context.Context, string, string) (string, error) {
 	*c.gets++
 	return "", nil
 }
-func (countingSecrets) Set(context.Context, string, string, string) error { return nil }
-func (countingSecrets) Delete(context.Context, string, string) error      { return nil }
 
-var _ secret.Provider = countingSecrets{}
+var _ secret.Reader = countingSecrets{}
 
 // A deploy-profile run under an approval runs the plan the gate checked; it
 // does not plan again (CERB-GAP-878).

@@ -54,10 +54,12 @@ func (c *reloadingClient) LoadManagedPlugin(ctx context.Context, id string) (cer
 
 func saveProviderSecret(t *testing.T, client cerbapi.Client, provider, body string) map[string]any {
 	t.Helper()
-	srv, err := New(client, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), &memorySecrets{values: map[string]string{}}, nil)
+	secrets := &memorySecrets{values: map[string]string{}}
+	srv, err := New(client, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv.SetSecretStore(secrets)
 	handler := signedIn(t, srv, testGuard())
 	req := newTestRequest(http.MethodPost, "/api/infra/providers/"+provider, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -152,6 +154,7 @@ func TestConsoleSavesNamecheapClientIPWhereThePluginReadsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv.SetSecretStore(secrets)
 	handler := signedIn(t, srv, testGuard())
 	req := newTestRequest(http.MethodPost, "/api/infra/providers/namecheap", strings.NewReader(`{"secrets":{"client_ip":"203.0.113.7"}}`))
 	req.Header.Set("Content-Type", "application/json")

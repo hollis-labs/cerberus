@@ -29,6 +29,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/store/sqlite"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 // App is the central dependency container for Cerberus. It wires together
@@ -321,6 +322,14 @@ func ConnectorSecrets(configPaths ...string) domain.SecretProvider {
 	}
 	provider := secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"))
 	return secrets.Registering(provider, notACredential)
+}
+
+// SecretStore is the store the console's provider form writes and clears
+// credentials in: the Cerberus keychain entries ConnectorSecrets reads last.
+// It is the only secret writer Cerberus hands out; resolution goes through
+// ConnectorSecrets, which cannot write.
+func SecretStore() secret.ReadWriter {
+	return secrets.NewKeychainProvider()
 }
 
 // nonCredentialSecrets are values read through the secret chain that are

@@ -29,6 +29,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 // Errors returned by Parse and Resolver.
@@ -92,11 +94,9 @@ func Parse(raw string) (Ref, error) {
 	return Ref{Raw: raw, Scheme: scheme, Service: service, Key: key}, nil
 }
 
-// Provider reads a secret from the OS keychain. It matches the Get half of
-// internal/secrets.KeychainProvider so the existing provider satisfies it.
-type Provider interface {
-	Get(ctx context.Context, service, key string) (string, error)
-}
+// Provider reads a secret from the OS keychain for keychain:// references.
+// It is secret.Reader: resolving a reference never needs to write one.
+type Provider = secret.Reader
 
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
 

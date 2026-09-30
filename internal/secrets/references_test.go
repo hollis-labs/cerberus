@@ -12,9 +12,10 @@ import (
 )
 
 type referenceTestProvider struct {
-	secret.Provider
 	value string
 }
+
+var _ secret.Reader = (*referenceTestProvider)(nil)
 
 func (p *referenceTestProvider) Get(context.Context, string, string) (string, error) {
 	return p.value, nil

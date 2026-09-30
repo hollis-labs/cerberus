@@ -16,8 +16,8 @@ import (
 // behalf and hands them over the Init config channel; the plugin never reaches
 // the store itself.
 //
-// It is deliberately narrower than secret.Provider: resolving for a plugin is
-// a host decision, and nothing about the plugin lane should be able to write
+// It is secret.Reader by shape, and deliberately not secret.ReadWriter:
+// resolving for a plugin is a host decision, and nothing about the plugin lane should be able to write
 // to or delete from the operator's credential store.
 type SecretResolver interface {
 	Get(ctx context.Context, service, key string) (string, error)

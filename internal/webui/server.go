@@ -47,7 +47,8 @@ type Server struct {
 	audit      audit.Sink
 	client     cerbapi.Client
 	configPath string
-	secrets    secretpkg.Provider
+	secrets    secretpkg.Reader
+	store      secretpkg.ReadWriter
 	logger     *slog.Logger
 	sessions   *sessionStore
 	guard      *loopback.Guard
@@ -56,7 +57,9 @@ type Server struct {
 
 // New constructs the console. The audit sink is required: operations the
 // console runs itself — a deployment-profile run — are recorded to it.
-func New(client cerbapi.Client, sink audit.Sink, configPath string, secrets secretpkg.Provider, logger *slog.Logger) (*Server, error) {
+// secrets resolves credentials; it cannot write them. The provider form's
+// save and clear need SetSecretStore.
+func New(client cerbapi.Client, sink audit.Sink, configPath string, secrets secretpkg.Reader, logger *slog.Logger) (*Server, error) {
 	if sink == nil {
 		return nil, errors.New("webui: New requires an audit sink")
 	}
@@ -69,6 +72,12 @@ func New(client cerbapi.Client, sink audit.Sink, configPath string, secrets secr
 	}
 	return &Server{client: client, audit: sink, configPath: configPath, secrets: secrets, logger: logger, sessions: sessions}, nil
 }
+
+// SetSecretStore gives the console the store its provider form writes and
+// clears entries in. The console is the only surface that manages entries;
+// everything else resolves through a secret.Reader. Without a store, the form
+// saves provider values and leaves credentials untouched.
+func (s *Server) SetSecretStore(store secretpkg.ReadWriter) { s.store = store }
 
 // SetPosture tells the console where to read the applied posture it shows
 // in its header. Without it the console shows secure, the default.

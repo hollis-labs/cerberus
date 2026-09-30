@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 const resolvedSentinel = "q7Zr2mXv9pLw" //nolint:gosec // a test sentinel, not a credential
@@ -13,7 +14,6 @@ const resolvedSentinel = "q7Zr2mXv9pLw" //nolint:gosec // a test sentinel, not a
 type mapProvider struct {
 	values map[string]string
 	err    error
-	set    []string
 }
 
 func (m *mapProvider) Get(_ context.Context, service, key string) (string, error) {
@@ -22,11 +22,6 @@ func (m *mapProvider) Get(_ context.Context, service, key string) (string, error
 	}
 	return m.values[service+"/"+key], nil
 }
-func (m *mapProvider) Set(_ context.Context, service, key, _ string) error {
-	m.set = append(m.set, service+"/"+key)
-	return nil
-}
-func (m *mapProvider) Delete(context.Context, string, string) error { return nil }
 
 func TestRegisteringProviderRegistersWhatItResolves(t *testing.T) {
 	base := &mapProvider{values: map[string]string{"github/token": resolvedSentinel, "ssh/box/key": "/Users/op/.ssh/id_ed25519"}}
@@ -56,7 +51,7 @@ func TestRegisteringProviderWithoutAScopeOnlyResolves(t *testing.T) {
 	}
 }
 
-func TestRegisteringProviderPassesFailuresAndWritesThrough(t *testing.T) {
+func TestRegisteringProviderPassesFailures(t *testing.T) {
 	base := &mapProvider{err: errors.New("keychain locked")}
 	p := Registering(base, nil)
 	ctx, scope := redact.EnsureScope(context.Background())
@@ -66,8 +61,8 @@ func TestRegisteringProviderPassesFailuresAndWritesThrough(t *testing.T) {
 	if scope.String() != "redact.Scope(0 values)" {
 		t.Fatalf("a failed lookup registered something: %s", scope)
 	}
-	if err := p.Set(ctx, "github", "token", resolvedSentinel); err != nil || len(base.set) != 1 {
-		t.Fatalf("Set did not reach the provider: %v %v", err, base.set)
+	if _, writable := p.(secret.ReadWriter); writable {
+		t.Fatal("the registering wrapper exposes a writer; resolution is read-only")
 	}
 	if Registering(nil, nil) != nil {
 		t.Fatal("Registering(nil) should be nil, so a missing provider stays missing")

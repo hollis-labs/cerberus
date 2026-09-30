@@ -12,7 +12,7 @@ import (
 // a value. Any error or log text the request renders through the scope then
 // loses it, with a label or without one, whoever composed the message.
 type registeringProvider struct {
-	secret.Provider
+	secret.Reader
 	isPath func(service, key string) bool
 }
 
@@ -21,15 +21,15 @@ type registeringProvider struct {
 // path is not registered: a path is guidance, not a credential, and value
 // redaction would cut it out of the error that needs to show it. A ctx with
 // no scope registers nothing, and the value is returned either way.
-func Registering(provider secret.Provider, isPath func(service, key string) bool) secret.Provider {
+func Registering(provider secret.Reader, isPath func(service, key string) bool) secret.Reader {
 	if provider == nil {
 		return nil
 	}
-	return registeringProvider{Provider: provider, isPath: isPath}
+	return registeringProvider{Reader: provider, isPath: isPath}
 }
 
 func (p registeringProvider) Get(ctx context.Context, service, key string) (string, error) {
-	value, err := p.Provider.Get(ctx, service, key)
+	value, err := p.Reader.Get(ctx, service, key)
 	if err == nil && value != "" && (p.isPath == nil || !p.isPath(service, key)) {
 		redact.ScopeFrom(ctx).Add(service+"/"+key, value)
 	}
