@@ -85,3 +85,7 @@ Surfaces: daemon. Entry points: cerberus daemon (automatic); cerberus resource s
 ## Recorded reasoning
 
 - `docs/adr/0002-resource-only-local-workload-model.md`
+
+## Only the applied definition restarts
+
+The monitor restarts a workload only with the definition it was last started with through a gated verb. A successful `apply`, `deploy`, `reload` or `sync` records a keyed digest of the definition it ran in `~/.cerberus/runtime/applied.json`. A down workload whose current definition has another digest is not restarted. Its last error names `cerberus resource apply <id>`, so a definition edited outside the gate never runs unapproved. A workload with no record yet, such as one first seen after an upgrade, is taken as it is and recorded (trust on first use). The record holds digests, never definitions, since a definition's environment can carry values (CERB-GAP-935).

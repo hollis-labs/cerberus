@@ -489,6 +489,19 @@ edit. An ssh or docker plan also binds a keyed digest of the target as it
 would run, with the configured resource merged in. An approval doesn't
 outlive an edit to the host, key, context or compose file it was for.
 
+The same holds after the call:
+
+- **Deploys.** A deploy reads its checkout once. The plan binds the commit
+  and, for a dirty tree, a digest of the uncommitted changes: the diff
+  against HEAD and every untracked file that isn't ignored. Under the build
+  lock, a tree that changed since the gate read it is refused with nothing
+  built.
+- **The monitor.** It restarts a workload only with the definition a gated
+  `apply`, `deploy`, `reload` or `sync` last started it with, recorded as a
+  keyed digest in `~/.cerberus/runtime/applied.json`. A definition edited
+  since then isn't restarted until a person applies it. A workload the
+  monitor has no record for is taken as it is, and recorded.
+
 ```bash
 cerberus resource plan <id> deploy|apply|reload|stop|sync|remove
 cerberus resource stop <id> --ack --approval <id>
