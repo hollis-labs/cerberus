@@ -164,7 +164,11 @@ enforcement, keeps that enforcement over the baseline. An apply past a break
 in the audit chain vouches for nothing, and everything is enforced until the
 chain is reanchored (`cerberus audit reanchor`) and the policy applied again.
 With no apply recorded at all, as on a fresh install or after the applies were
-pruned, the snapshot files are all there is.
+pruned, the snapshot files are all there is. `cerberus status`, `posture show` and `policy
+explain` show what is enforced, as the daemon reads it. On a mismatch they
+name it and the snapshot enforced instead. `policy apply` shows its flips
+against that snapshot, and `posture set` and `policy enforce` refuse until
+the mismatch is resolved.
 
 This makes a change **detectable, not impossible**. A process running as your
 user can edit anything under `~/.cerberus`.

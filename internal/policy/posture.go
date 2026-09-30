@@ -105,10 +105,11 @@ func (m TargetMatch) String() string {
 	return strings.Join(parts, " ")
 }
 
-// CurrentPosture is the applied posture in s: the snapshot `cerberus policy
-// apply` wrote, checked against its hash. Nothing applied, or a snapshot
-// that fails its check, is the baseline, which is secure.
+// CurrentPosture is the posture in force in s, as the daemon reads it
+// (LoadVerified): the applied snapshot when the audit log vouches for it,
+// and on a mismatch the last verified snapshot's. Nothing applied is the
+// baseline, which is secure.
 func (s Store) CurrentPosture() PostureSummary {
-	ev, status := s.Load()
+	ev, status := s.LoadVerified()
 	return ev.File().PostureSummary(status.Snapshot)
 }

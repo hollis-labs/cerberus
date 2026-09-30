@@ -132,9 +132,9 @@ func changePosture(cmd *cobra.Command, edit func(*policy.File, *policy.TargetMat
 	if len(elsewhere) > 0 {
 		return fmt.Errorf("the posture is also declared in %s; `cerberus posture` owns it in posture.yaml, so move it there or remove it, then retry", strings.Join(elsewhere, ", "))
 	}
-	current, status := store.Load()
+	current, status := store.LoadVerified()
 	if status.Mismatch() {
-		return errors.New("the applied policy snapshot fails its hash check, so the baseline is deciding; review the working files and run `cerberus policy apply` before changing the posture")
+		return fmt.Errorf("the applied policy snapshot is a mismatch (%s), and %s; review the working files and run `cerberus policy apply` before changing the posture", status.Problem, strings.TrimPrefix(status.Enforcement, "snapshot mismatch: "))
 	}
 	// posture set applies the working files. If they already differ from the
 	// applied snapshot — including when nothing is applied yet — it would

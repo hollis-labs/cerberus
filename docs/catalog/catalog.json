@@ -18446,6 +18446,55 @@
       "id": "CERB-GAP-929"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "The audit chain is unkeyed: a process running as the operator can append records that verify",
+      "summary": "The audit log's hash chain is plain SHA-256 and its head anchor lives in the operator's own login keychain. Both are writable by any process running as the operator, so an agent with a shell can append well-formed records (a brake lifted, a policy applied, a key enrolled) that verify and are trusted, or rewrite the log and the keychain item together. This is the accepted same-uid limit (CERB-GAP-846, 857, 872), recorded here for the audit log: the chain and anchor make an edit, cut or rewrite of the files evident, not impossible.",
+      "state_field": "status",
+      "state_label": "deferred",
+      "confidence_score": 0.9,
+      "confidence_label": "the e40b63c security review (M2); the limit stands after CERB-GAP-926 and 929",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "audit",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/audit/sink.go, internal/audit/anchor.go, cmd/cerberus/audit_anchor.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-872",
+          "note": "the same limit for the approvals store"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-926",
+          "note": "the anchor and verified-bytes fixes this limit bounds"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-929",
+          "note": "policy and enrollment read back from the chain"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "A writer the operator's uid cannot impersonate holds the key or the head: a MAC key behind user presence (Secure Enclave), a keychain item whose ACL names only the signed Cerberus binary, or the head sent off the machine as it advances",
+        "effort": "large"
+      },
+      "body": "What holds today: a record edited, a log cut at a line boundary, or a log rewritten with its hashes recomputed is caught (verified bytes, the keychain anchor), and state read back from the log past such a problem fails closed until a person reanchors. What does not: an append of a record computed the way Cerberus computes them, since nothing in the chain is secret, and a rewrite of the log together with the keychain item, since go-keyring drives /usr/bin/security and the item's ACL trusts it for any caller.",
+      "id": "CERB-GAP-930"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
