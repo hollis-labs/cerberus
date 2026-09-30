@@ -103,12 +103,17 @@ brew install hollis-labs/tap/cerberus
 
 ```sh
 curl -L -o cerberus.tar.gz \
-  https://github.com/hollis-labs/cerberus/releases/download/v0.4.0-beta.1/cerberus_0.4.0-beta.1_darwin_arm64.tar.gz
+  https://github.com/hollis-labs/cerberus/releases/download/v0.5.0-beta.1/cerberus_0.5.0-beta.1_darwin_arm64.tar.gz
 tar -xzf cerberus.tar.gz
 install -d "$HOME/.local/bin"
-install -m 0755 cerberus "$HOME/.local/bin/"
+install -m 0755 cerberus cerberus-presence "$HOME/.local/bin/"
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+`cerberus-presence` must sit next to `cerberus`: the daemon asks the person at
+the Mac through it (Touch ID or the account password) before allowing a passkey
+enrollment, and refuses without it. `cerberus status` reports whether it is
+installed.
 
 Released checksums sit next to each tarball as `<archive>.tar.gz.sha256`
 plus a combined `checksums.txt` for the whole release.
