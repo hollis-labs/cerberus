@@ -542,17 +542,17 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	lp, ok := m.running[args.Connector]
 	m.mu.RUnlock()
 	if !ok {
-		return OperationResult{}, fmt.Errorf("plugin %q %w", args.Connector, ErrNotLoaded)
+		return OperationResult{}, redact.GuidanceFor(ErrNotLoaded, "plugin %q is not loaded", args.Connector)
 	}
 
 	op, ok := OperationFromToolName(args.Connector, ToolNameForOperation(args.Connector, args.Operation), lp.plugin.Manifest)
 	if !ok {
-		return OperationResult{}, fmt.Errorf("plugin %q: %w %q", args.Connector, ErrOperationUndeclared, args.Operation)
+		return OperationResult{}, redact.GuidanceFor(ErrOperationUndeclared, "plugin %q does not declare operation %q", args.Connector, args.Operation)
 	}
 	// The key table runs first, so a bad argument is refused without
 	// calling the plugin, and before anything needs its credential.
 	if err := op.Operation().CheckInputs(args.Config, true); err != nil {
-		return OperationResult{}, fmt.Errorf("plugin %q operation %q: %w", args.Connector, args.Operation, err)
+		return OperationResult{}, redact.GuidanceWrap(err, "plugin %q operation %q", args.Connector, args.Operation)
 	}
 	// A dry run whose preview the operator accepted at review stands in for
 	// acknowledgment. The plugin is still told the caller's own flag.
@@ -566,7 +566,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// docs/plans/live-systems-security-target.md); install review in P1 is
 	// what turns the claim into something an operator accepted.
 	if args.DryRun && op.EffectivePreview() == contract.PreviewNone {
-		return OperationResult{}, fmt.Errorf("plugin %q operation %q: %w", args.Connector, args.Operation, ErrPreviewUnsupported)
+		return OperationResult{}, redact.GuidanceFor(ErrPreviewUnsupported, "plugin %q operation %q: %s", args.Connector, args.Operation, ErrPreviewUnsupported)
 	}
 
 	// Everything the plugin sends back as text passes the value redactor
@@ -620,7 +620,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 				Err:       err,
 			}
 		}
-		return OperationResult{}, fmt.Errorf("plugin %q tool %q: %w", args.Connector, args.Operation, err)
+		return OperationResult{}, redact.GuidanceWrap(err, "plugin %q tool %q", args.Connector, args.Operation)
 	}
 	out, err := OperationResultFromMCP(args, result)
 	if err != nil {
@@ -640,6 +640,9 @@ func (m *Manager) RegisterInstalled(plugin InstalledPlugin) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.installed[plugin.ID] = plugin
+	// The id is a name by construction; redaction must not read it as a
+	// credential key (an id such as onepassword contains "password").
+	redact.RegisterNames(plugin.ID)
 }
 
 // Remove drops an installed plugin from the registry. The caller unloads it

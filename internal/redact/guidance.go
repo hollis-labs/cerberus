@@ -34,6 +34,14 @@ func GuidanceWrap(cause error, format string, args ...any) error {
 	return guidanceError{prose: fmt.Sprintf(format, args...), cause: cause}
 }
 
+// GuidanceFor is Guidance whose prose already says what cause means, for a
+// sentence built around a sentinel ("plugin %q is not loaded"). The prose is
+// the whole text; cause's text is not appended. Unwrap returns cause, so
+// errors.Is and errors.As still see it.
+func GuidanceFor(cause error, format string, args ...any) error {
+	return guidanceError{prose: fmt.Sprintf(format, args...), sentinel: cause}
+}
+
 // Prose declares that err's whole text is Cerberus-composed prose, for an
 // error made where redact cannot be imported (pkg/connector's input checks).
 // Unwrap returns err, so errors.Is and errors.As still see it.
@@ -47,10 +55,17 @@ func Prose(err error) error {
 type guidanceError struct {
 	prose string
 	cause error
+	// sentinel is what Unwrap returns when the prose already says it.
+	sentinel error
 }
 
 func (e guidanceError) Error() string { return e.RenderRedacted(nil) }
-func (e guidanceError) Unwrap() error { return e.cause }
+func (e guidanceError) Unwrap() error {
+	if e.cause != nil {
+		return e.cause
+	}
+	return e.sentinel
+}
 func (e guidanceError) RenderRedacted(s *Scope) string {
 	prose := s.ReplaceValues(e.prose)
 	if e.cause == nil {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"io"
 	"os"
 	"path/filepath"
@@ -154,7 +155,7 @@ func ReadPluginYAML(pluginDir string) (PluginYAML, error) {
 	// the operator now beats running it without the access and failing later
 	// in a way that looks like a bug.
 	if err := ValidateCapabilities(spec.Capabilities); err != nil {
-		return PluginYAML{}, fmt.Errorf("plugin %q: %w", spec.ID, err)
+		return PluginYAML{}, redact.GuidanceWrap(err, "plugin %q", spec.ID)
 	}
 	return spec, nil
 }

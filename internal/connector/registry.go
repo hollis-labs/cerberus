@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"sort"
 	"sync"
 
@@ -34,6 +35,7 @@ func (r *Registry) Register(c contract.Connector) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.connectors[c.ID()] = c
+	redact.RegisterNames(c.ID())
 	delete(r.factories, c.ID())
 	delete(r.unavailable, c.ID())
 	if describer, ok := c.(contract.Describer); ok {
@@ -48,6 +50,7 @@ func (r *Registry) RegisterDefinition(def contract.Definition) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.definitions[def.ID] = def
+	redact.RegisterNames(def.ID)
 }
 
 // RegisterUnavailable records why a connector with registered metadata is not
@@ -79,6 +82,7 @@ func (r *Registry) RegisterFactory(def contract.Definition, factory func(context
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.definitions[def.ID] = def
+	redact.RegisterNames(def.ID)
 	r.factories[def.ID] = factory
 	delete(r.connectors, def.ID)
 	delete(r.unavailable, def.ID)
