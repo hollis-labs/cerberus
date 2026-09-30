@@ -19122,6 +19122,46 @@
       "id": "CERB-GAP-946"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "With a passkey enrolled, a brake lift consumed an approval met on a terminal",
+      "summary": "liftProof asked for an out-of-band (passkey) approval when a key was enrolled, but consumed the approval without requiring that channel, so the channel came from the approvals store. A same-uid process could write a tty_confirm approval for the lift into the store, chained correctly, and have the lockdown lifted with no passkey, recorded as passkey:apr_... Fixed: with a passkey enrolled, the lift's consume requires out of band (ConsumeCheck.RequireOutOfBand), never reading the channel from the store.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 5931772 re-review (H-b); fixed with a test and a mutation check",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "brakes",
+        "approvals",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/brakes.go (liftProof)",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-919",
+          "note": "H4, which recomputed the channel at consume for connector calls"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "With no passkey enrolled the lift still takes the terminal floor, as documented.",
+      "id": "CERB-GAP-947"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
