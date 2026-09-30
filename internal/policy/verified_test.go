@@ -120,7 +120,7 @@ func TestAnApplyInFlightIsNotAMismatch(t *testing.T) {
 	store, sink := verifiedStore(t)
 	data, _ := Encode(noZones)
 	if _, err := sink.Write(audit.Record{Kind: audit.KindIntent, OperationID: "op1", Connector: "policy", Operation: "apply",
-		Target: audit.Target{Fields: map[string]string{"hash": Hash(data)}}}); err != nil {
+		Target: audit.Target{Kind: "policy.snapshot", Fields: map[string]string{"hash": Hash(data)}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Apply(noZones); err != nil {
@@ -131,7 +131,7 @@ func TestAnApplyInFlightIsNotAMismatch(t *testing.T) {
 	}
 	// A failed apply is passed over.
 	if _, err := sink.Write(audit.Record{Kind: audit.KindOutcome, OperationID: "op1", Connector: "policy", Operation: "apply",
-		Decision: audit.DecisionAllowed, OutcomeCode: "operation_failed"}); err != nil {
+		Target: audit.Target{Kind: "policy.snapshot"}, Decision: audit.DecisionAllowed, OutcomeCode: "operation_failed"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, status := store.LoadVerified(); !status.Mismatch() {
@@ -180,5 +180,26 @@ func breakApplyRecord(t *testing.T, auditDir string) {
 	edited := bytes.Replace(data, []byte(`"policy.snapshot"`), []byte(`"policy.snapshoT"`), 1)
 	if err := os.WriteFile(files[0], edited, 0o600); err != nil { //nolint:gosec // as above
 		t.Fatal(err)
+	}
+}
+
+// A record that says policy apply but is not the host's own shape (its
+// target is not the snapshot, as a plugin's would be) vouches for nothing
+// (H-d): the last verified apply before it still decides.
+func TestAnApplyRecordOfAnotherShapeVouchesForNothing(t *testing.T) {
+	store, sink := verifiedStore(t)
+	applyVerified(t, store, sink, noZones)
+	permissive := File{Version: FileVersion}
+	data, _ := Encode(permissive)
+	if _, err := store.Apply(permissive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sink.Write(audit.Record{Kind: audit.KindOutcome, Connector: "policy", Operation: "apply", Decision: audit.DecisionAllowed, OutcomeCode: audit.OutcomeOK,
+		Target: audit.Target{Kind: "plugin.thing", Fields: map[string]string{"hash": Hash(data)}}, PolicySnapshot: string(data)}); err != nil {
+		t.Fatal(err)
+	}
+	ev, status := store.LoadVerified()
+	if !status.Mismatch() || !zoneDenied(t, ev) {
+		t.Fatalf("a foreign apply record vouched for the snapshot: %+v", status)
 	}
 }

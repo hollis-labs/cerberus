@@ -176,9 +176,13 @@ func WithManagedPluginReservedIDs(ids ...string) ManagedPluginOption {
 
 // hostServedIDs are connector ids the host serves outside the connector
 // registry, so Registry.BuiltInIDs cannot report them and the daemon's
-// reserved set would miss them. local is the supervision lane itself. They are
-// reserved for every managed lane, whatever the caller passes.
-var hostServedIDs = []string{"local"}
+// reserved set would miss them. local is the supervision lane itself; the
+// rest are the ids the host's own records and gates are keyed on (H-d). A
+// plugin named policy, brake or approvals was never braked and never
+// enforced, and its records could pass for a policy apply or an audit
+// prune. They are reserved for every managed lane, whatever the caller
+// passes.
+var hostServedIDs = []string{"local", "policy", "brake", "approvals", "audit", "console", "pipeline", "mcp-http", "plugin", "secrets"}
 
 // NewManagedPluginConnectorService constructs the managed plugin lane. The
 // audit sink is required, as for the admin lane: plugin operations on the
