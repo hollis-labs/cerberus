@@ -1,6 +1,6 @@
 schema_version: "1"
 id: azure
-version: 0.1.0
+version: 0.2.0
 protocol: plugin-sdk/subprocess
 runtime: subprocess
 entrypoint:
@@ -10,7 +10,7 @@ cerberus:
         api_version: cerberus.connector/v1
         kind: Connector
         id: azure
-        version: 0.1.0
+        version: 0.2.0
         resource_types:
             - server
         capabilities:
@@ -50,6 +50,15 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                items:
+                    properties:
+                        display_name:
+                            type: string
+                            x-cerberus-label:
+                                - personal
+                    type: object
+                type: array
             - name: get_subscription
               description: Report one subscription. With no argument it resolves the one operations act on by default, which is the fastest way to confirm which estate Cerberus is reading.
               examples:
@@ -70,6 +79,13 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                properties:
+                    display_name:
+                        type: string
+                        x-cerberus-label:
+                            - personal
+                type: object
             - name: list_resource_groups
               description: 'List resource groups in a subscription: name, location, provisioning state.'
               examples:
@@ -90,6 +106,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: array
             - name: list_resources
               description: 'List the whole resource inventory of a subscription: type, name, resource group, location. Provider-specific properties are deliberately not returned — that field is an untyped blob.'
               examples:
@@ -110,6 +128,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: array
             - name: list_ai_accounts
               description: 'List Cognitive Services / AI Services accounts: name, kind, sku, endpoint. Keys are never returned; local_auth_disabled reports whether key auth is even enabled.'
               examples:
@@ -130,6 +150,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: array
             - name: list_model_deployments
               description: 'List model deployments: deployment name, model, version, sku, capacity. Answers "what models can we actually call, at what version" without opening the portal. With no account it walks every AI account in the subscription.'
               examples:
@@ -159,3 +181,16 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: array
+    host:
+        min_contract: 1
+        max_contract: 1
+    surfaces:
+        mcp:
+            - list_subscriptions
+            - get_subscription
+            - list_resource_groups
+            - list_resources
+            - list_ai_accounts
+            - list_model_deployments

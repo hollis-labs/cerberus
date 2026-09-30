@@ -1,0 +1,281 @@
+schema_version: "1"
+id: digitalocean
+version: 0.2.0
+protocol: plugin-sdk/subprocess
+runtime: subprocess
+entrypoint:
+    command: bin/cerberus-digitalocean-plugin
+cerberus:
+    connector:
+        api_version: cerberus.connector/v1
+        kind: Connector
+        id: digitalocean
+        version: 0.2.0
+        resource_types:
+            - server
+        capabilities:
+            can_create: true
+            can_destroy: true
+            can_build: false
+            can_logs: false
+            can_health: true
+        config:
+            fields:
+                - name: droplet_id
+                  type: integer
+                  description: DigitalOcean droplet ID.
+                - name: name
+                  type: string
+                  description: Droplet name.
+                - name: region
+                  type: string
+                  description: Droplet region slug.
+                - name: size
+                  type: string
+                  description: Droplet size slug.
+                - name: image
+                  type: string
+                  description: Droplet image slug.
+                  required: true
+                - name: ssh_keys
+                  type: array
+                  description: SSH key fingerprints.
+                - name: user_data
+                  type: string
+                  description: Cloud-init user-data.
+            secrets:
+                - name: api_token
+                  description: DigitalOcean API token. A custom-scoped token with droplet:read is enough for the read operations.
+                  env: CERBERUS_DIGITALOCEAN_API_TOKEN
+                  required: true
+        operations:
+            - name: list_droplets
+              description: List DigitalOcean droplets.
+              examples:
+                - cerberus connectors exec digitalocean list_droplets
+              input_schema:
+                additionalProperties: false
+                properties: {}
+                type: object
+              effect: read
+              target:
+                kind: digitalocean.account
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+            - name: get_droplet
+              description: Get detailed status for a droplet.
+              examples:
+                - cerberus connectors exec digitalocean get_droplet --arg droplet_id=123456
+              input_schema:
+                additionalProperties: false
+                properties:
+                    droplet_id:
+                        description: DigitalOcean droplet ID.
+                        type: integer
+                required:
+                    - droplet_id
+                type: object
+              effect: read
+              target:
+                kind: digitalocean.droplet
+                from:
+                    - droplet_id
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+            - name: create_droplet
+              description: Create a new DigitalOcean droplet. It is billable and runs the supplied cloud-init user_data as root.
+              examples:
+                - cerberus connectors exec digitalocean create_droplet --arg name=web-1 --arg region=nyc3 --arg size=s-1vcpu-1gb --arg image=ubuntu-24-04-x64 --dry-run
+                - cerberus connectors exec digitalocean create_droplet --arg name=web-1 --arg region=nyc3 --arg size=s-1vcpu-1gb --arg image=ubuntu-24-04-x64 --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    image:
+                        description: Droplet image slug.
+                        type: string
+                    name:
+                        description: Droplet name.
+                        type: string
+                    region:
+                        description: Droplet region slug.
+                        type: string
+                    size:
+                        description: Droplet size slug.
+                        type: string
+                    ssh_keys:
+                        description: SSH key fingerprints.
+                        items:
+                            type: string
+                        type: array
+                    user_data:
+                        description: Cloud-init user-data.
+                        type: string
+                required:
+                    - name
+                    - region
+                    - size
+                    - image
+                type: object
+              effect: write
+              reversible: true
+              target:
+                kind: digitalocean.account
+              preview: plugin
+              output: structured
+              cost: billable
+              local_fs: none
+              output_schema:
+                type: object
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+            - name: start
+              description: Power on a droplet.
+              examples:
+                - cerberus connectors exec digitalocean start --arg droplet_id=123456
+              input_schema:
+                additionalProperties: false
+                properties:
+                    droplet_id:
+                        description: DigitalOcean droplet ID.
+                        type: integer
+                required:
+                    - droplet_id
+                type: object
+              effect: lifecycle
+              reversible: true
+              target:
+                kind: digitalocean.droplet
+                from:
+                    - droplet_id
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+              destructive: true
+              requires_ack: true
+            - name: stop
+              description: Power off a droplet. A hard power-off takes down whatever it serves.
+              examples:
+                - cerberus connectors exec digitalocean stop --arg droplet_id=123456 --dry-run
+                - cerberus connectors exec digitalocean stop --arg droplet_id=123456 --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    droplet_id:
+                        description: DigitalOcean droplet ID.
+                        type: integer
+                required:
+                    - droplet_id
+                type: object
+              effect: lifecycle
+              reversible: true
+              target:
+                kind: digitalocean.droplet
+                from:
+                    - droplet_id
+              preview: plugin
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+            - name: destroy
+              description: Destroy a droplet permanently.
+              examples:
+                - cerberus connectors exec digitalocean destroy --arg droplet_id=123456 --dry-run
+                - cerberus connectors exec digitalocean destroy --arg droplet_id=123456 --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    droplet_id:
+                        description: DigitalOcean droplet ID.
+                        type: integer
+                required:
+                    - droplet_id
+                type: object
+              effect: destructive
+              target:
+                kind: digitalocean.droplet
+                from:
+                    - droplet_id
+              preview: plugin
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+            - name: status
+              description: Read normalized runtime state for a droplet.
+              examples:
+                - cerberus connectors exec digitalocean status --arg droplet_id=123456
+              input_schema:
+                additionalProperties: false
+                properties:
+                    droplet_id:
+                        description: DigitalOcean droplet ID.
+                        type: integer
+                required:
+                    - droplet_id
+                type: object
+              effect: read
+              target:
+                kind: digitalocean.droplet
+                from:
+                    - droplet_id
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: string
+    host:
+        min_contract: 1
+        max_contract: 1
+    suggested_policy:
+        - operation: create_droplet
+          require: approval_for_agents
+          reason: creates billable infrastructure
+        - operation: destroy
+          require: approval
+          reason: destroys a droplet and its disk; it cannot be undone
+        - operation: stop
+          require: approval_for_agents
+          reason: takes a running droplet offline
+    surfaces:
+        mcp:
+            - list_droplets
+            - get_droplet
+            - status
+    telemetry:
+        - operation: create_droplet
+          events:
+            - change
+            - preview
+        - operation: start
+          events:
+            - change
+        - operation: stop
+          events:
+            - change
+            - preview
+        - operation: destroy
+          events:
+            - change
+            - preview

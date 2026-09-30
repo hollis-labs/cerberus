@@ -1,6 +1,6 @@
 schema_version: "1"
 id: kubernetes
-version: 0.2.0
+version: 0.3.0
 protocol: plugin-sdk/subprocess
 runtime: subprocess
 entrypoint:
@@ -10,7 +10,7 @@ cerberus:
         api_version: cerberus.connector/v1
         kind: Connector
         id: kubernetes
-        version: 0.2.0
+        version: 0.3.0
         resource_types:
             - container
             - server
@@ -62,6 +62,15 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                items:
+                    properties:
+                        user:
+                            type: string
+                            x-cerberus-label:
+                                - personal
+                    type: object
+                type: array
             - name: check_access
               description: 'Report what would happen if a request were attempted: the auth mode, whether an exec credential plugin resolves from the daemon''s PATH, and whether it needs a terminal there is none of. Run this first when something is wrong.'
               examples:
@@ -85,6 +94,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: get_health
               description: Report API server reachability and version. Names what actually failed — a refused dial on a VPN-only endpoint is the VPN, not the cluster.
               examples:
@@ -105,6 +116,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: list_namespaces
               description: List namespaces with status and age.
               examples:
@@ -131,6 +144,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: list_nodes
               description: List nodes with readiness, roles, version and any memory/disk/PID pressure.
               examples:
@@ -157,6 +172,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: list_pods
               description: List pods in a namespace with phase, readiness, restarts and per-container state. Environment variable names are reported; values never are.
               examples:
@@ -193,6 +210,23 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                properties:
+                    items:
+                        items:
+                            properties:
+                                containers:
+                                    items:
+                                        properties:
+                                            message:
+                                                type: string
+                                                x-cerberus-label:
+                                                    - untrusted
+                                        type: object
+                                    type: array
+                            type: object
+                        type: array
+                type: object
             - name: list_workloads
               description: List deployments, statefulsets and daemonsets in a namespace with desired/ready replica counts and rollout condition.
               examples:
@@ -229,6 +263,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: list_events
               description: List recent cluster events, newest last. Usually the fastest answer to why something is not starting.
               examples:
@@ -262,6 +298,18 @@ cerberus:
               output: free_text
               cost: none
               local_fs: none
+              output_schema:
+                properties:
+                    items:
+                        items:
+                            properties:
+                                message:
+                                    type: string
+                                    x-cerberus-label:
+                                        - untrusted
+                            type: object
+                        type: array
+                type: object
             - name: get_logs
               description: Read a bounded snapshot of a container's logs. Not a stream. Note that applications routinely log their own configuration at startup, so treat the output as sensitive.
               examples:
@@ -301,6 +349,15 @@ cerberus:
               output: free_text
               cost: none
               local_fs: none
+              output_schema:
+                properties:
+                    lines:
+                        items:
+                            type: string
+                            x-cerberus-label:
+                                - untrusted
+                        type: array
+                type: object
             - name: describe_workload
               description: 'Describe one deployment, statefulset or daemonset: replica counts, conditions, rollout strategy, container images, ports, resource requests and limits, which probes are set, mounted volume names, the pods it currently owns and the events recorded against it. Environment variable names are reported; values never are.'
               examples:
@@ -336,6 +393,44 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                properties:
+                    conditions:
+                        items:
+                            properties:
+                                message:
+                                    type: string
+                                    x-cerberus-label:
+                                        - untrusted
+                            type: object
+                        type: array
+                    events:
+                        items:
+                            properties:
+                                message:
+                                    type: string
+                                    x-cerberus-label:
+                                        - untrusted
+                            type: object
+                        type: array
+                    pods:
+                        properties:
+                            items:
+                                items:
+                                    properties:
+                                        containers:
+                                            items:
+                                                properties:
+                                                    message:
+                                                        type: string
+                                                        x-cerberus-label:
+                                                            - untrusted
+                                                type: object
+                                            type: array
+                                    type: object
+                                type: array
+                        type: object
+                type: object
             - name: list_services
               description: List services with type, cluster IP, external addresses, ports and selector.
               examples:
@@ -372,6 +467,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: list_ingresses
               description: List ingresses with class, host and path routes to their backend services, and the name of each TLS secret. Secret contents are never read.
               examples:
@@ -408,6 +505,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: list_api_resources
               description: List the resource types the API server serves, including custom resources, with their group, version, scope and verbs. Reports any API group that failed discovery by name rather than returning a silently partial list.
               examples:
@@ -434,6 +533,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: top
               description: 'Report current CPU and memory for nodes or pods, highest CPU first. Needs metrics-server; when the cluster has none, reports available: false with the reason rather than failing.'
               examples:
@@ -473,6 +574,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: scale_workload
               description: Set the replica count of a deployment or statefulset through its scale subresource. Requires --ack. --dry-run sends the change with dryRun=All, so the API server validates it, including RBAC, without applying it.
               examples:
@@ -514,6 +617,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
               destructive: true
               supports_dry: true
               requires_ack: true
@@ -553,6 +658,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
               destructive: true
               supports_dry: true
               requires_ack: true
@@ -583,6 +690,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
               destructive: true
               supports_dry: true
               requires_ack: true
@@ -613,6 +722,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
               destructive: true
               supports_dry: true
               requires_ack: true
@@ -649,6 +760,73 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
               destructive: true
               supports_dry: true
               requires_ack: true
+    host:
+        min_contract: 1
+        max_contract: 1
+    suggested_policy:
+        - operation: cordon_node
+          require: approval_for_agents
+          reason: stops new pods being scheduled on the node
+        - operation: delete_pod
+          require: approval
+          reason: a pod no controller owns does not come back
+        - operation: get_logs
+          require: approval_for_agents
+          reason: container logs are free text and may carry secrets or personal data
+        - operation: list_events
+          require: approval_for_agents
+          reason: event messages are free text written by cluster components
+        - operation: restart_workload
+          require: approval_for_agents
+          reason: rolls every pod of the workload
+        - operation: scale_workload
+          require: approval_for_agents
+          reason: changes the workload's capacity; scaling to zero takes it down
+        - operation: uncordon_node
+          require: approval_for_agents
+          reason: returns the node to scheduling
+    surfaces:
+        mcp:
+            - list_contexts
+            - check_access
+            - get_health
+            - list_namespaces
+            - list_nodes
+            - list_pods
+            - list_workloads
+            - describe_workload
+            - list_services
+            - list_ingresses
+            - list_api_resources
+            - top
+    telemetry:
+        - operation: scale_workload
+          events:
+            - change
+            - preview
+            - warning
+        - operation: restart_workload
+          events:
+            - change
+            - preview
+            - warning
+        - operation: cordon_node
+          events:
+            - change
+            - preview
+            - warning
+        - operation: uncordon_node
+          events:
+            - change
+            - preview
+            - warning
+        - operation: delete_pod
+          events:
+            - change
+            - preview
+            - warning
