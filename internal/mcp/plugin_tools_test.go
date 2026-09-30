@@ -448,3 +448,17 @@ func TestAcknowledgedSubscriptionIsAnnounced(t *testing.T) {
 		t.Fatal("no list_changed after the subscription was acknowledged")
 	}
 }
+
+// connector_describe renders a definition as Cerberus's own schema: a
+// declared secret with no description keeps its name and env.
+func TestConnectorDescribeKeepsDeclaredSecretNames(t *testing.T) {
+	def := demoDefinition()
+	def.Config.Secrets = []contract.SecretRequirement{{Name: "api_token", Env: "CERBERUS_DEMO_API_TOKEN"}}
+	daemon := newPluginDaemon(true)
+	daemon.defs = []contract.Definition{def}
+	out, err := NewCerberusConnectorDescribeTool(daemon).Handler(context.Background(), map[string]any{"id": "demo"})
+	text, _ := out.(string)
+	if err != nil || !strings.Contains(text, `"name": "api_token"`) || !strings.Contains(text, `"env": "CERBERUS_DEMO_API_TOKEN"`) {
+		t.Fatalf("describe: %v\n%s", err, text)
+	}
+}

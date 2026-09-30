@@ -72,6 +72,12 @@ type SecretRequirement struct {
 	// not value-redact it: redaction would cut it out of the very error or
 	// output that has to show it.
 	Kind SecretKind `json:"kind,omitempty" yaml:"kind,omitempty"`
+	// PerResource is a secret the connector resolves per target, as
+	// <connector>/<resource-id>/<name> (ssh's key), not as
+	// <connector>/<name>. A connector-wide editor cannot write it: the
+	// console's credential editor leaves it out, and provider_save refuses
+	// it, rather than store a value under a name nothing reads.
+	PerResource bool `json:"per_resource,omitempty" yaml:"per_resource,omitempty"`
 }
 
 // SecretKind is what a declared secret's value is.

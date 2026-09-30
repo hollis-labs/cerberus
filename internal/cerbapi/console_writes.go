@@ -16,6 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/configops"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/plan"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/hollis-labs/cerberus/pkg/secret"
@@ -59,6 +60,12 @@ func consoleInputError(format string, args ...any) error {
 	return ConsoleWriteInputError{fmt.Errorf(format, args...)}
 }
 
+// consoleGuidance is a console write refused for its input, with a recovery
+// instruction the redaction rules must not rewrite: its arguments are names.
+func consoleGuidance(format string, args ...any) error {
+	return ConsoleWriteInputError{redact.Guidance(format, args...)}
+}
+
 // ConsoleWriteRequest is one console write, as the console sends it.
 type ConsoleWriteRequest struct {
 	Operation string `json:"operation"`
@@ -70,9 +77,11 @@ type ConsoleWriteRequest struct {
 	// Path is the config registry_register registers, or the backup
 	// config_restore restores (empty: the config's own .bak).
 	Path string `json:"path,omitempty"`
-	// Values, Secrets and ClearSecrets are provider_save's settings and
-	// credentials. Secret values travel only to the serving process, over
-	// its socket, and are never recorded, shown or answered with.
+	// Secrets and ClearSecrets are provider_save's credentials, each one a
+	// secret the connector declares. Secret values travel only to the
+	// serving process, over its socket, and are never recorded, shown or
+	// answered with. Values is refused when set: the console used to save
+	// provider settings to infra.yaml, where nothing read them.
 	Values       map[string]string `json:"values,omitempty"`
 	Secrets      map[string]string `json:"secrets,omitempty"`
 	ClearSecrets []string          `json:"clear_secrets,omitempty"`
@@ -158,8 +167,11 @@ type consoleWriteCall struct {
 	req     ConsoleWriteRequest
 	cfgPath string
 	store   secret.ReadWriter
-	target  map[string]any
-	config  map[string]any
+	// declared is the connectors provider_save may write credentials for:
+	// the built-ins and installed plugins, with their declared secrets.
+	declared func() []contract.Definition
+	target   map[string]any
+	config   map[string]any
 	// labels is the definition the target's labels come from; nil, or a
 	// nil answer, is a target with none of its own, which reads as unknown.
 	labels func() *config.ResourceDef
@@ -175,7 +187,7 @@ func (c *InProcessClient) consoleWrite(req ConsoleWriteRequest) (*consoleWriteCa
 	if c.cfgPath == "" {
 		return nil, errors.New("this Cerberus has no config path, so it has no state for the console to write")
 	}
-	w := &consoleWriteCall{req: req, cfgPath: c.cfgPath, store: c.consoleSecrets}
+	w := &consoleWriteCall{req: req, cfgPath: c.cfgPath, store: c.consoleSecrets, declared: c.connectorDefinitions}
 	switch req.Operation {
 	case ConsoleProfileSave:
 		return w, w.checkProfileSave()
@@ -322,27 +334,72 @@ func (w *consoleWriteCall) checkProviderSave() error {
 	if id == "" {
 		return consoleInputError("provider_save needs a provider id")
 	}
-	// Recorded by name: which settings and which credentials changed. The
-	// values are bound by keyed digest, so a confirmed plan holds the call
-	// to the values it was confirmed with, and never carries one.
-	valueKeys := make([]string, 0, len(w.req.Values))
-	for key := range w.req.Values {
-		valueKeys = append(valueKeys, key)
+	// Only a secret a connector declares is written, under its connector's
+	// id: an undeclared id or key would store a credential nothing reads,
+	// under a name another plugin might later declare and be handed.
+	var defs []contract.Definition
+	if w.declared != nil {
+		defs = w.declared()
 	}
+	// A secret resolved per resource is read as <id>/<resource-id>/<name>,
+	// so saving it connector-wide would store it where nothing reads it.
+	perResource := perResourceSecretNames(defs, id)
+	for key := range w.req.Secrets {
+		if perResource[key] {
+			return consoleGuidance("connector %q reads %s per resource, as %s/<resource-id>/%s, which the console cannot set; run `cerberus secrets set %s/<resource-id>/%s`", id, key, id, key, id, key)
+		}
+	}
+	for _, key := range w.req.ClearSecrets {
+		if perResource[key] {
+			return consoleGuidance("connector %q reads %s per resource, as %s/<resource-id>/%s, which the console cannot clear", id, key, id, key)
+		}
+	}
+	names, ok := declaredSecretNames(defs, id)
+	if !ok {
+		return consoleGuidance("no installed connector %q declares a credential, so there is nothing to save for it; install the plugin first", id)
+	}
+	// Settings are not credentials, and the console no longer writes them:
+	// a plugin's settings live in connector-config.yaml, which Cerberus
+	// never writes.
+	if len(w.req.Values) > 0 {
+		return consoleGuidance("provider_save no longer saves settings; a plugin's settings go in connector-config.yaml, which the operator edits")
+	}
+	var undeclared []string
 	var setSecrets []string
 	for key, value := range w.req.Secrets {
+		if !names[key] {
+			undeclared = append(undeclared, key)
+			continue
+		}
 		if strings.TrimSpace(value) != "" {
 			setSecrets = append(setSecrets, key)
 		}
 	}
-	sort.Strings(valueKeys)
+	for _, key := range w.req.ClearSecrets {
+		if !names[key] {
+			undeclared = append(undeclared, key)
+		}
+	}
+	if len(undeclared) > 0 {
+		sort.Strings(undeclared)
+		declared := make([]string, 0, len(names))
+		for name := range names {
+			declared = append(declared, name)
+		}
+		sort.Strings(declared)
+		return consoleGuidance("connector %q does not declare the secrets %s (it declares %s); nothing was saved",
+			id, strings.Join(undeclared, ", "), strings.Join(declared, ", "))
+	}
+	// Recorded by name: which credentials changed. The values are bound by
+	// keyed digest, so a confirmed plan holds the call to the values it was
+	// confirmed with, and never carries one.
 	sort.Strings(setSecrets)
 	cleared := append([]string(nil), w.req.ClearSecrets...)
 	sort.Strings(cleared)
 	w.target = map[string]any{"id": id}
-	w.config = map[string]any{"values": valueKeys, "secrets_set": setSecrets, "secrets_cleared": cleared}
+	w.config = map[string]any{"secrets_set": setSecrets, "secrets_cleared": cleared}
 	w.planned = func(p *plan.Plan, digest func(any) string) {
-		p.Digests = map[string]string{"values": digest(w.req.Values), "secrets": digest(w.req.Secrets)}
+		p.Digests = map[string]string{"secrets": digest(w.req.Secrets)}
 	}
 	return nil
 }
@@ -441,21 +498,6 @@ func (w *consoleWriteCall) saveProvider(ctx context.Context) (*ConsoleWriteResul
 	if credentials && w.store == nil {
 		// Checked before anything is written, so a save is not half done.
 		return nil, errors.New("this Cerberus has no credential store to write; nothing was saved")
-	}
-	state, err := infra.LoadState(w.cfgPath)
-	if err != nil {
-		return nil, err
-	}
-	cfg := state.Providers[id]
-	if cfg.Values == nil {
-		cfg.Values = map[string]string{}
-	}
-	for key, value := range w.req.Values {
-		cfg.Values[key] = strings.TrimSpace(value)
-	}
-	state.Providers[id] = cfg
-	if err := infra.SaveState(w.cfgPath, state); err != nil {
-		return nil, err
 	}
 	result := &ConsoleWriteResult{Success: true}
 	for key, value := range w.req.Secrets {

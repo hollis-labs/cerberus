@@ -410,12 +410,33 @@ func Launchd(value string) string {
 // Schema metadata is traversed as metadata, not as credential assignments.
 func Marshal(value any) ([]byte, error) { return (Redactor{}).Marshal(value) }
 func (r Redactor) Marshal(value any) ([]byte, error) {
+	if declared, ok := value.(DeclaredSchema); ok {
+		data, err := json.Marshal(declared.Value)
+		if err != nil {
+			return nil, err
+		}
+		return r.walkJSON(data, r.walkRoot)
+	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
 	return r.JSON(data)
 }
+
+// DeclaredSchema marks a response whose schema is Cerberus's own and proves
+// its declared-secrets lists hold requirements, never values: connector
+// definitions (a list, as /connectors answers, or one, as connector_describe
+// does) and the console's credential editor. Only a handler that builds such
+// a response wraps it, and only then does Marshal exempt those lists' names
+// (walkRoot). JSON and a plain Marshal never do, whatever the payload looks
+// like: a plugin or vendor result shaped like a definition is not one.
+//
+// It encodes as Value, so the wire shape is unchanged.
+type DeclaredSchema struct{ Value any }
+
+// MarshalJSON encodes the wrapped value unchanged.
+func (d DeclaredSchema) MarshalJSON() ([]byte, error) { return json.Marshal(d.Value) }
 func MarshalIndent(value any, prefix, indent string) ([]byte, error) {
 	return (Redactor{}).MarshalIndent(value, prefix, indent)
 }
@@ -432,13 +453,17 @@ func (r Redactor) MarshalIndent(value any, prefix, indent string) ([]byte, error
 }
 func JSON(data []byte) ([]byte, error) { return (Redactor{}).JSON(data) }
 func (r Redactor) JSON(data []byte) ([]byte, error) {
+	return r.walkJSON(data, func(value any) any { return r.walk(value, false, false) })
+}
+
+func (r Redactor) walkJSON(data []byte, walk func(any) any) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
 		return nil, err
 	}
-	return json.Marshal(r.walk(value, false, false))
+	return json.Marshal(walk(value))
 }
 func (r Redactor) walk(value any, hide, schema bool) any {
 	switch v := value.(type) {
@@ -461,34 +486,7 @@ func (r Redactor) walk(value any, hide, schema bool) any {
 			}
 		}
 		for key, item := range v {
-			if key == "command" || key == "args" || key == "program_arguments" {
-				if list, ok := item.([]any); ok {
-					var args []string
-					for _, arg := range list {
-						if s, ok := arg.(string); ok {
-							args = append(args, s)
-						}
-					}
-					if len(args) == len(list) {
-						v[key] = r.Args(args)
-						continue
-					}
-				}
-			}
-			// A names-only map (credential_sources) is keyed by credential
-			// names: its keys say which credential, not that a value
-			// follows, so they add nothing to hide. Its values still pass
-			// the rules and the known values.
-			if child, ok := item.(map[string]any); ok && NamesOnlyKey(key) {
-				for name, entry := range child {
-					child[name] = r.walk(entry, hide, schema)
-				}
-				continue
-			}
-			// A names-only key suppresses only its own contribution to hide.
-			// An inherited hide still wins: a names-only field nested under
-			// something already hidden stays hidden.
-			v[key] = r.walk(item, hide || (SensitiveKey(key) && !NamesOnlyKey(key)), schema || strings.HasSuffix(key, "_schema"))
+			v[key] = r.walkEntry(key, item, hide, schema)
 		}
 	case []any:
 		for i, item := range v {
@@ -496,6 +494,163 @@ func (r Redactor) walk(value any, hide, schema bool) any {
 		}
 	}
 	return value
+}
+
+// walkEntry walks one key's value in an object: the command keys through
+// Args, a names-only map by its entries, and everything else hidden when the
+// key is credential-shaped or the object already was.
+func (r Redactor) walkEntry(key string, item any, hide, schema bool) any {
+	if key == "command" || key == "args" || key == "program_arguments" {
+		if list, ok := item.([]any); ok {
+			var args []string
+			for _, arg := range list {
+				if s, ok := arg.(string); ok {
+					args = append(args, s)
+				}
+			}
+			if len(args) == len(list) {
+				return r.Args(args)
+			}
+		}
+	}
+	// A names-only map (credential_sources) is keyed by credential names:
+	// its keys say which credential, not that a value follows, so they add
+	// nothing to hide. Its values still pass the rules and the known values.
+	if child, ok := item.(map[string]any); ok && NamesOnlyKey(key) {
+		for name, entry := range child {
+			child[name] = r.walk(entry, hide, schema)
+		}
+		return child
+	}
+	// A names-only key suppresses only its own contribution to hide. An
+	// inherited hide still wins: a names-only field nested under something
+	// already hidden stays hidden.
+	return r.walk(item, hide || (SensitiveKey(key) && !NamesOnlyKey(key)), schema || strings.HasSuffix(key, "_schema"))
+}
+
+// walkRoot walks a response a handler declared as Cerberus's own schema
+// (DeclaredSchema). A declared-secrets list is exempt from its key's hiding
+// there: a connector definition's config.secrets (a list of definitions, or
+// one) and the credential editor's providers[].secrets. Anchored at the
+// root, so a "secrets" key deeper in it gets the ordinary walk. It is never
+// reached from JSON or a plain Marshal.
+func (r Redactor) walkRoot(value any) any {
+	switch v := value.(type) {
+	case []any:
+		for i, item := range v {
+			if def, ok := item.(map[string]any); ok && isDefinition(def) {
+				v[i] = r.walkDefinition(def)
+				continue
+			}
+			v[i] = r.walk(item, false, false)
+		}
+		return v
+	case map[string]any:
+		if isDefinition(v) {
+			return r.walkDefinition(v)
+		}
+		if providers, ok := v["providers"].([]any); ok && len(v) <= 2 {
+			for key, item := range v {
+				if key != "providers" {
+					v[key] = r.walkEntry(key, item, false, false)
+				}
+			}
+			for i, item := range providers {
+				provider, ok := item.(map[string]any)
+				if !ok {
+					providers[i] = r.walk(item, false, false)
+					continue
+				}
+				for key, field := range provider {
+					if list, ok := field.([]any); ok && key == "secrets" {
+						provider[key] = r.walkRequirements(list)
+						continue
+					}
+					provider[key] = r.walkEntry(key, field, false, false)
+				}
+			}
+			return v
+		}
+	}
+	return r.walk(value, false, false)
+}
+
+// isDefinition reports an object shaped as a contract.Definition: an id,
+// operations and a config.
+func isDefinition(v map[string]any) bool {
+	_, id := v["id"]
+	_, ops := v["operations"]
+	_, cfg := v["config"].(map[string]any)
+	return id && ops && cfg
+}
+
+func (r Redactor) walkDefinition(def map[string]any) any {
+	for key, item := range def {
+		if cfg, ok := item.(map[string]any); ok && key == "config" {
+			for ck, citem := range cfg {
+				if list, ok := citem.([]any); ok && ck == "secrets" {
+					cfg[ck] = r.walkRequirements(list)
+					continue
+				}
+				cfg[ck] = r.walkEntry(ck, citem, false, false)
+			}
+			continue
+		}
+		def[key] = r.walkEntry(key, item, false, false)
+	}
+	return def
+}
+
+func (r Redactor) walkRequirements(list []any) []any {
+	for i, entry := range list {
+		if requirement, ok := entry.(map[string]any); ok {
+			list[i] = r.walkSecretRequirement(requirement, false)
+		} else {
+			list[i] = r.walk(entry, true, false)
+		}
+	}
+	return list
+}
+
+// requirementNameKeys are the fields of a declared secret that are names by
+// the schema of a secret requirement (pkg/connector SecretRequirement): which
+// secret, what kind it is, and the variable it is read from. A requirement
+// declares a secret; it never holds one.
+var requirementNameKeys = map[string]bool{"name": true, "kind": true, "env": true}
+
+// walkSecretRequirement walks one entry of a declared-secrets list. Its name,
+// kind and env are exempt from the key's hiding by schema, whatever sibling
+// fields are present, and still lose any known value and anything the rules
+// match. Every other field is walked as any object's is, so a
+// credential-shaped sibling (password, token) stays hidden, and the rest
+// stays hidden unless the entry reads as a descriptor (a name and a
+// description with no value). It is reached only from walkRoot's anchored
+// shapes.
+//
+// Before this, only the descriptor rule kept an entry, so a secret declared
+// with no description (the description is optional) came back over the
+// socket as name "[REDACTED]", and the console's credential editor offered a
+// field nobody could name.
+func (r Redactor) walkSecretRequirement(v map[string]any, schema bool) any {
+	hideRest := true
+	if _, name := v["name"]; name {
+		if _, desc := v["description"]; desc {
+			if _, hasValue := v["value"]; !hasValue {
+				hideRest = false
+			}
+		}
+	}
+	for key, item := range v {
+		if requirementNameKeys[strings.ToLower(key)] {
+			v[key] = r.walk(item, false, schema)
+			continue
+		}
+		// Every other field is walked as any object's is: a
+		// credential-shaped key such as password or token stays hidden
+		// beside a descriptor's name and description.
+		v[key] = r.walkEntry(key, item, hideRest, schema)
+	}
+	return v
 }
 
 type redactedError struct {

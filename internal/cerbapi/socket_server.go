@@ -542,7 +542,9 @@ func (s *SocketServer) handleConnectors(w http.ResponseWriter, r *http.Request) 
 	if list == nil {
 		list = []contract.Definition{}
 	}
-	writeJSON(w, http.StatusOK, list)
+	// Definitions are Cerberus's own schema: their declared secrets' names
+	// are names (redact.DeclaredSchema).
+	writeJSON(w, http.StatusOK, redact.DeclaredSchema{Value: list})
 }
 
 func (s *SocketServer) handleConnectorsLive(w http.ResponseWriter, r *http.Request) {

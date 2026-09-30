@@ -261,3 +261,88 @@ func TestTypeNamePrefixExemptionStillRedacts(t *testing.T) {
 		}
 	}
 }
+
+// A declared-secrets list is exempt only where the response's schema is
+// Cerberus's own: a connector definition (a list, or one) and the credential
+// editor. There, each entry's name, kind and env are names with or without a
+// description beside them, while a credential-shaped sibling, a value and a
+// known value are still removed. Anywhere else, "secrets" is walked as any
+// credential-shaped key is.
+func TestDeclaredSecretRequirementsKeepTheirNames(t *testing.T) {
+	r := FromEnv([]string{"API_KEY=known-value-sentinel-77"})
+	// declared is how the three handlers render: wrapped. plain is how
+	// every other edge does, operation data included.
+	declared := func(t *testing.T, in string) string {
+		t.Helper()
+		out, err := r.Marshal(DeclaredSchema{Value: json.RawMessage(in)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	plain := func(t *testing.T, in string) string {
+		t.Helper()
+		out, err := r.JSON([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	requirements := `[
+		{"name": "token", "env": "CERBERUS_X_TOKEN"},
+		{"name": "api_user", "kind": "name", "required": true},
+		{"name": "db", "description": "d", "password": "plainpw123", "token": "plaintok456"},
+		{"name": "known-value-sentinel-77"},
+		{"name": "withvalue", "value": "hunter2-value-sentinel"}
+	]`
+	exempt := map[string]string{
+		"definition list":   `[{"id": "x", "operations": [], "config": {"secrets": ` + requirements + `}}]`,
+		"one definition":    `{"id": "x", "operations": [], "config": {"secrets": ` + requirements + `}}`,
+		"credential editor": `{"providers": [{"id": "x", "secrets": ` + requirements + `}]}`,
+	}
+	for name, in := range exempt {
+		t.Run(name, func(t *testing.T) {
+			got := declared(t, in)
+			for _, want := range []string{`"name":"token"`, `"env":"CERBERUS_X_TOKEN"`, `"name":"api_user"`, `"kind":"name"`, `"name":"db"`, `"name":"withvalue"`} {
+				if !strings.Contains(got, want) {
+					t.Errorf("lost %s: %s", want, got)
+				}
+			}
+			for _, leaked := range []string{"plainpw123", "plaintok456", "known-value-sentinel-77", "hunter2-value-sentinel"} {
+				if strings.Contains(got, leaked) {
+					t.Errorf("%s survived: %s", leaked, got)
+				}
+			}
+		})
+	}
+	// The same lists anywhere else are hidden as before: an operation's
+	// result (a plugin's or a vendor's), a bare top-level list, a hidden
+	// parent, an object that only looks like a definition in part.
+	hidden := map[string]string{
+		"operation result":   `{"connector": "p", "operation": "o", "data": {"secrets": [{"name": "ghp_tokenShaped123456"}]}}`,
+		"top level":          `{"secrets": [{"name": "ghp_tokenShaped123456"}]}`,
+		"under a hidden key": `{"password": {"secrets": [{"name": "ghp_tokenShaped123456"}]}}`,
+		"config without ops": `{"id": "x", "config": {"secrets": [{"name": "ghp_tokenShaped123456"}]}}`,
+		"result in a list":   `[{"data": {"config": {"secrets": [{"name": "ghp_tokenShaped123456"}]}}}]`,
+	}
+	for name, in := range hidden {
+		t.Run(name, func(t *testing.T) {
+			if got := declared(t, in); strings.Contains(got, "ghp_tokenShaped123456") {
+				t.Errorf("a secrets entry outside Cerberus's own schema was exempt: %s", got)
+			}
+		})
+	}
+	// The exempt shapes themselves, rendered without the wrapper — as an
+	// operation's data is, whoever shaped it — are hidden as on main: the
+	// exemption is the handler's declaration, never the payload's shape.
+	for name, in := range exempt {
+		t.Run("undeclared "+name, func(t *testing.T) {
+			got := plain(t, in)
+			for _, leaked := range []string{`"name":"token"`, "CERBERUS_X_TOKEN", `"name":"api_user"`, `"name":"withvalue"`} {
+				if strings.Contains(got, leaked) {
+					t.Errorf("%s survived without the declaration: %s", leaked, got)
+				}
+			}
+		})
+	}
+}

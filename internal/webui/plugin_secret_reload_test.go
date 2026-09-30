@@ -65,7 +65,7 @@ func saveProviderSecret(t *testing.T, client cerbapi.Client, provider, body stri
 	}
 	srv.SetSecretStore(secrets)
 	handler := signedIn(t, srv, testGuard())
-	req := newTestRequest(http.MethodPost, "/api/infra/providers/"+provider, strings.NewReader(body))
+	req := newTestRequest(http.MethodPost, "/api/credentials/"+provider, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Cerberus-Web-Token", sessionToken(t, handler))
 	rec := httptest.NewRecorder()
@@ -116,10 +116,11 @@ func TestConsoleSecretSaveLeavesOtherPluginsAlone(t *testing.T) {
 	}
 }
 
-// A save with no secret change touches no plugin.
-func TestConsoleFieldOnlySaveDoesNotReload(t *testing.T) {
+// A save with no secret change touches no plugin: a blank value keeps the
+// stored one.
+func TestConsoleUnchangedSaveDoesNotReload(t *testing.T) {
 	client := &reloadingClient{fakeClient: &fakeClient{}, plugins: []cerbapi.ManagedPluginConnectorState{{ID: "cloudflare", Loaded: true}}}
-	resp := saveProviderSecret(t, client, "cloudflare", `{"values":{"account_id":"acct"}}`)
+	resp := saveProviderSecret(t, client, "cloudflare", `{"secrets":{"api_token":""}}`)
 	if _, reported := resp["plugin_reloaded"]; reported || len(client.calls) != 0 {
 		t.Fatalf("response = %v, calls = %v", resp, client.calls)
 	}
@@ -136,35 +137,40 @@ func TestConsoleSecretSaveReportsAFailedReload(t *testing.T) {
 }
 
 // The console's Namecheap client IP goes where the namecheap plugin reads it:
-// the secret chain as namecheap/client_ip. It used to be saved as a field in
-// infra.yaml, which nothing read, so the plugin fell back to 127.0.0.1.
+// the secret chain as namecheap/client_ip, because the plugin declares it as
+// a secret. It used to be saved as a field in infra.yaml, which nothing read,
+// so the plugin fell back to 127.0.0.1; now the editor offers exactly what
+// the plugin declares.
 func TestConsoleSavesNamecheapClientIPWhereThePluginReadsIt(t *testing.T) {
-	spec := providerCatalog()["namecheap"]
-	for _, field := range spec.Fields {
-		if field.Name == "client_ip" {
-			t.Fatal("client_ip is a namecheap field again; the plugin resolves it as a secret")
-		}
-	}
-	found := false
-	for _, secret := range spec.Secrets {
-		found = found || secret.Name == "client_ip"
-	}
-	if !found {
-		t.Fatal("namecheap has no client_ip secret in the console catalog")
-	}
-
 	secrets := &memorySecrets{values: map[string]string{}}
 	cfgPath, sink := filepath.Join(t.TempDir(), "config.yaml"), audit.NewMemory()
-	srv, err := New(&reloadingClient{fakeClient: &fakeClient{consoleWrites: consoleDaemon(cfgPath, sink, secrets)}}, sink, cfgPath, secrets, nil)
+	srv, err := New(&reloadingClient{fakeClient: &fakeClient{connectors: credentialFixtures(), consoleWrites: consoleDaemon(cfgPath, sink, secrets)}}, sink, cfgPath, secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv.SetSecretStore(secrets)
 	handler := signedIn(t, srv, testGuard())
-	req := newTestRequest(http.MethodPost, "/api/infra/providers/namecheap", strings.NewReader(`{"secrets":{"client_ip":"203.0.113.7"}}`))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/credentials", nil))
+	var listed credentialsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	found := false
+	for _, p := range listed.Providers {
+		for _, secret := range p.Secrets {
+			found = found || (p.ID == "namecheap" && secret.Name == "client_ip" && secret.Kind == "name")
+		}
+	}
+	if !found {
+		t.Fatalf("namecheap's declared client_ip is not in the editor: %s", rec.Body.String())
+	}
+
+	req := newTestRequest(http.MethodPost, "/api/credentials/namecheap", strings.NewReader(`{"secrets":{"client_ip":"203.0.113.7"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Cerberus-Web-Token", sessionToken(t, handler))
-	rec := httptest.NewRecorder()
+	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || secrets.values["namecheap/client_ip"] != "203.0.113.7" {
 		t.Fatalf("status %d, stored %v; want namecheap/client_ip in the secret store", rec.Code, secrets.values)

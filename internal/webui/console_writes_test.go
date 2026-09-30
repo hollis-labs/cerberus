@@ -98,10 +98,10 @@ func TestConsoleWritesAreRecorded(t *testing.T) {
 	_ = cfgPath
 }
 
-// Provider settings and credentials are recorded by name, never by value.
+// Credentials are recorded by name, never by value.
 func TestProviderSaveRecordsNamesOnly(t *testing.T) {
 	sink, _, post := consoleWriter(t)
-	if rec := post("/api/infra/providers/cloudflare", `{"values":{"account_id":"acc-123"},"secrets":{"api_token":"cf-token-sentinel-0123456789"}}`); rec.Code != http.StatusOK {
+	if rec := post("/api/credentials/cloudflare", `{"secrets":{"api_token":"cf-token-sentinel-0123456789"}}`); rec.Code != http.StatusOK {
 		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
 	}
 	if _, outcome := consoleRecords(sink, "provider_save"); outcome.OutcomeCode != audit.OutcomeOK {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/connector"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -180,6 +181,7 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 		"/api/config/resolve",
 		"/api/config/backups",
 		"/api/infra",
+		"/api/credentials",
 		"/api/deployments",
 		"/api/connectors",
 		"/api/plugins/connectors",
@@ -205,7 +207,7 @@ func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
 		"/api/pipelines/p1/run",
 		"/api/config/migrate",
 		"/api/config/backups/restore",
-		"/api/infra/providers/vercel",
+		"/api/credentials/cloudflare",
 		"/api/deployments",
 		"/api/deployments/site-dev/delete",
 		"/api/deployments/site-dev/run",
@@ -247,6 +249,8 @@ type fakeClient struct {
 	listResourcesErr error
 	// consoleWrites serves console writes, as the daemon would.
 	consoleWrites *cerbapi.InProcessClient
+	// connectors is what ListConnectors answers.
+	connectors []contract.Definition
 }
 
 // calls counts every mutating client call, so a guard test can assert that
@@ -341,7 +345,14 @@ func (f *fakeClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.M
 // consoleDaemon is the serving process's side of console writes: the
 // state under cfgPath, recorded to sink, credentials into store.
 func consoleDaemon(cfgPath string, sink audit.Sink, store secretpkg.ReadWriter) *cerbapi.InProcessClient {
-	opts := []cerbapi.InProcessOption{cerbapi.WithConfigPath(cfgPath), cerbapi.WithInProcessAudit(sink)}
+	// The daemon's connectors, whose declared secrets are what provider_save
+	// may write.
+	registry := connector.NewRegistry()
+	for _, def := range credentialFixtures() {
+		registry.RegisterDefinition(def)
+	}
+	opts := []cerbapi.InProcessOption{cerbapi.WithConfigPath(cfgPath), cerbapi.WithInProcessAudit(sink),
+		cerbapi.WithExternalConnectorService(cerbapi.NewExternalConnectorService(sink, registry))}
 	if store != nil {
 		opts = append(opts, cerbapi.WithConsoleSecretStore(store))
 	}
@@ -365,7 +376,7 @@ func (f *fakeClient) PlanConsoleWrite(ctx context.Context, req cerbapi.ConsoleWr
 }
 
 func (f *fakeClient) ListConnectors(context.Context) ([]contract.Definition, error) {
-	return nil, nil
+	return f.connectors, nil
 }
 
 func (f *fakeClient) ListLiveConnectors(context.Context) ([]string, error) {
@@ -421,4 +432,22 @@ func (f *fakeClient) ExecuteManagedPlugin(context.Context, string, cerbapi.Plugi
 
 func (*fakeClient) GetPipeline(context.Context, string) (*cerbapi.PipelineDetail, error) {
 	return nil, nil
+}
+
+// credentialFixtures are connectors as their plugins declare them, for the
+// credential editor: what the daemon lists and provider_save checks against.
+func credentialFixtures() []contract.Definition {
+	return []contract.Definition{
+		{ID: "cloudflare", Version: "0.2.0", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{
+			{Name: "api_token", Description: "Cloudflare API token.", Env: "CERBERUS_CLOUDFLARE_API_TOKEN", Required: true},
+		}}},
+		{ID: "namecheap", Version: "0.2.1", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{
+			{Name: "api_user", Description: "Namecheap API user.", Kind: contract.SecretKindName},
+			{Name: "api_key", Description: "Namecheap API key."},
+			{Name: "username", Description: "Namecheap username.", Kind: contract.SecretKindName},
+			{Name: "client_ip", Description: "The address on the account's API allow-list.", Kind: contract.SecretKindName},
+		}}},
+		// A connector with no secrets is not in the editor.
+		{ID: "docker", Version: "builtin"},
+	}
 }

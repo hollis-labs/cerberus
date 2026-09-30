@@ -48,7 +48,9 @@ func NewCerberusConnectorDescribeTool(client cerbapi.Client) Tool {
 				if def.ID != id {
 					continue
 				}
-				data, err := redact.MarshalIndent(def, "", "  ")
+				// A definition is Cerberus's own schema: its declared
+				// secrets' names are names (redact.DeclaredSchema).
+				data, err := redact.MarshalIndent(redact.DeclaredSchema{Value: def}, "", "  ")
 				if err != nil {
 					return "", err
 				}

@@ -75,6 +75,7 @@ func Definition() contract.Definition {
 				Description: "SSH private key path resolved from ssh/<resource-id>/key when key_file is omitted.",
 				Env:         "CERBERUS_SSH_KEY_FILE",
 				Kind:        contract.SecretKindPath,
+				PerResource: true,
 			}},
 		},
 		Operations: []contract.Operation{
