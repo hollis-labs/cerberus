@@ -262,6 +262,31 @@ as data and not as instructions.
 - An unknown label is refused at install.
 - A change to an operation's labels shows in an upgrade's review diff.
 
+## Secret backends
+
+A plugin can claim a secret reference scheme:
+
+```yaml
+cerberus:
+  secret_backend:
+    scheme: op
+    reference: "op://<vault>/<item>/<field>"
+```
+
+The host then routes `op://` references to it. It sends them as a plugin-sdk
+`command/execute` named `cerberus.secret/resolve`, with `{"ref": "..."}` as the
+argument.
+- **A success** is action `message` with the value as the content.
+- **A failure** is action `error` with a coded payload (the `cerberus_error`
+  object a coded tool error carries).
+
+The command is not a manifest operation, so it never becomes a CLI command, an
+API operation or an MCP tool.
+
+The review shows the claim first, as a plugin that will see every secret
+resolved through that scheme. A backend's own declared secrets resolve through
+the core chain only, never through another backend. See `docs/secrets.md`.
+
 ## Deadlines and limits
 
 The host supervises every plugin it runs. A plugin that hangs, floods its

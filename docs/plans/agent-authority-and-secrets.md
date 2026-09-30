@@ -296,7 +296,29 @@ should not be entangled with a new backend.
 
 ### WP-S4 — Native 1Password and Keeper providers
 
-**Blocked on WP-S3.**
+**Redesigned as secret-backend plugins, and in progress.**
+- **The decision:** the vendor SDKs are heavy, so the two readers are plugins
+  (`onepassword`, `keeper` in `cerberus-plugins`), not compiled in. The OS
+  credential store stays core.
+- **Host routing is done:**
+  - the `secret_backend` manifest claim, with one claimant per scheme and
+    reserved core schemes;
+  - the review notice;
+  - backends restoring first;
+  - `Manager.ResolveSecret` over `command/execute`;
+  - a core-only chain for a backend's own credential;
+  - `op://` and `keeper://` as references, never literals;
+  - `keyring://` as the platform-neutral name for the OS credential store.
+- **Still to come:**
+  - the `secret_backend` claim in the two plugins' `plugin.yaml`;
+  - `credential_sources` on audit outcomes;
+  - resolution inside `cerberus run-secrets`, which loads the backend in the
+    service's own process rather than asking the daemon, because a socket call
+    that returns values would be an oracle for any same-user process
+    (CERB-GAP-906).
+- `docs/secrets.md` has the rules.
+
+The original notes follow.
 
 **Do:** two `secret.Reader` backends behind the existing reference syntax, so
 `op://` and a Keeper equivalent resolve without a helper process.
