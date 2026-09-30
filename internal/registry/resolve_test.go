@@ -10,7 +10,7 @@ import (
 const globalConfigYAML = `version: 2
 projects:
   - id: demo
-    name: demo (global)
+    name: Demo (global)
 resources:
   - id: demo-api
     name: GLOBAL
@@ -30,7 +30,7 @@ func TestResolveRegisteredOnly(t *testing.T) {
 	reg := New(indexPath)
 	cfgDir := t.TempDir()
 	mustRegister(t, reg, writeProjectConfig(t, cfgDir, "demo"))
-	mustRegister(t, reg, writeProjectConfig(t, cfgDir, "app-e"))
+	mustRegister(t, reg, writeProjectConfig(t, cfgDir, "foxtrot"))
 
 	resolved, err := Resolve(ResolveOptions{IndexPath: indexPath})
 	if err != nil {
@@ -107,7 +107,7 @@ func TestResolveSkipsBrokenRegisteredConfig(t *testing.T) {
 	reg := New(indexPath)
 	cfgDir := t.TempDir()
 	mustRegister(t, reg, writeProjectConfig(t, cfgDir, "demo"))
-	brokenPath := writeProjectConfig(t, cfgDir, "app-e")
+	brokenPath := writeProjectConfig(t, cfgDir, "foxtrot")
 	mustRegister(t, reg, brokenPath)
 
 	if err := os.Remove(brokenPath); err != nil {
@@ -121,8 +121,8 @@ func TestResolveSkipsBrokenRegisteredConfig(t *testing.T) {
 	if len(resolved.Config.Resources) != 1 {
 		t.Errorf("resources = %d, want 1 (broken one skipped)", len(resolved.Config.Resources))
 	}
-	if len(resolved.Skipped) != 1 || resolved.Skipped[0].Owner != "app-e" {
-		t.Errorf("Skipped = %+v, want one app-e entry", resolved.Skipped)
+	if len(resolved.Skipped) != 1 || resolved.Skipped[0].Owner != "foxtrot" {
+		t.Errorf("Skipped = %+v, want one foxtrot entry", resolved.Skipped)
 	}
 	if len(resolved.Warnings) == 0 {
 		t.Error("expected a warning for the skipped config")
@@ -150,7 +150,7 @@ func TestResolveConfigDerivesSiblingIndex(t *testing.T) {
 }
 
 func TestResolveRegisteredOutOfRepoConfigWithRegistryURN(t *testing.T) {
-	// app-b's bootstrap/write-back flow operates against app-owned project
+	// A shared directory's bootstrap/write-back flow operates against app-owned project
 	// configs that may live outside ~/.cerberus and may add shared-directory
 	// identity metadata (`registry_urn`). Cerberus must keep resolving the
 	// local runtime config from the pointed-to file without copying bodies
@@ -167,7 +167,7 @@ func TestResolveRegisteredOutOfRepoConfigWithRegistryURN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read project config: %v", err)
 	}
-	withURN := strings.Replace(string(data), "project:\n", "registry_urn: msg://project/directory/prj_clockwork\nproject:\n", 1)
+	withURN := strings.Replace(string(data), "project:\n", "registry_urn: msg://project/directory/prj_demo\nproject:\n", 1)
 	if err := os.WriteFile(projectPath, []byte(withURN), 0o600); err != nil {
 		t.Fatalf("rewrite project config with registry_urn: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestResolveRegisteredOutOfRepoConfigWithRegistryURN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadProjectConfig: %v", err)
 	}
-	if pc.RegistryURN != "msg://project/directory/prj_clockwork" {
+	if pc.RegistryURN != "msg://project/directory/prj_demo" {
 		t.Fatalf("registry_urn = %q, want shared URN", pc.RegistryURN)
 	}
 

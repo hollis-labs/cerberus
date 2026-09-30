@@ -1,5 +1,5 @@
 # lefthook.yml — Fragments Engine shared pre-commit/pre-push hooks
-# Reference copy lives in app-f repo; copied to all FE projects.
+# Shared hook configuration.
 # Target: all checks complete in <15 seconds on staged files only.
 
 pre-commit:

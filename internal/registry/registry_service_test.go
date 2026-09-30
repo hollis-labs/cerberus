@@ -65,7 +65,7 @@ func TestRegisterProjectConfig(t *testing.T) {
 
 func TestRegisterPersistsAcrossInstances(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), DefaultIndexFilename)
-	path := writeProjectConfig(t, t.TempDir(), "app-e")
+	path := writeProjectConfig(t, t.TempDir(), "foxtrot")
 
 	if _, err := New(indexPath).Register(path); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -75,8 +75,8 @@ func TestRegisterPersistsAcrossInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Owner != "app-e" {
-		t.Fatalf("List = %+v, want one app-e entry", entries)
+	if len(entries) != 1 || entries[0].Owner != "foxtrot" {
+		t.Fatalf("List = %+v, want one foxtrot entry", entries)
 	}
 }
 
@@ -101,10 +101,10 @@ func TestRegisterBundleManifest(t *testing.T) {
 	reg := newRegistry(t)
 	dir := t.TempDir()
 	writeProjectConfig(t, dir, "demo")
-	writeProjectConfig(t, dir, "app-e")
+	writeProjectConfig(t, dir, "foxtrot")
 
 	manifest := filepath.Join(dir, DefaultBundleFilename)
-	content := "kind: cerberus-bundle/v1\nprojects:\n  - ./demo.cerberus.yaml\n  - ./app-e.cerberus.yaml\n"
+	content := "kind: cerberus-bundle/v1\nprojects:\n  - ./demo.cerberus.yaml\n  - ./foxtrot.cerberus.yaml\n"
 	if err := os.WriteFile(manifest, []byte(content), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -184,14 +184,14 @@ func TestDeregister(t *testing.T) {
 func TestListIsSorted(t *testing.T) {
 	reg := newRegistry(t)
 	dir := t.TempDir()
-	for _, owner := range []string{"app-e", "demo", "echo"} {
+	for _, owner := range []string{"foxtrot", "demo", "echo"} {
 		if _, err := reg.Register(writeProjectConfig(t, dir, owner)); err != nil {
 			t.Fatalf("Register %s: %v", owner, err)
 		}
 	}
 	entries, _ := reg.List()
 	got := []string{entries[0].Owner, entries[1].Owner, entries[2].Owner}
-	want := []string{"demo", "echo", "app-e"}
+	want := []string{"demo", "echo", "foxtrot"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("List order = %v, want %v", got, want)
@@ -203,7 +203,7 @@ func TestHealth(t *testing.T) {
 	reg := newRegistry(t)
 	dir := t.TempDir()
 	okPath := writeProjectConfig(t, dir, "demo")
-	missingPath := writeProjectConfig(t, dir, "app-e")
+	missingPath := writeProjectConfig(t, dir, "foxtrot")
 	invalidPath := writeProjectConfig(t, dir, "echo")
 	for _, p := range []string{okPath, missingPath, invalidPath} {
 		if _, err := reg.Register(p); err != nil {
@@ -211,7 +211,7 @@ func TestHealth(t *testing.T) {
 		}
 	}
 
-	// Make app-e's file disappear and echo's file unparseable.
+	// Make foxtrot's file disappear and echo's file unparseable.
 	if err := os.Remove(missingPath); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
@@ -230,8 +230,8 @@ func TestHealth(t *testing.T) {
 	if status["demo"] != HealthOK {
 		t.Errorf("demo = %q, want %q", status["demo"], HealthOK)
 	}
-	if status["app-e"] != HealthMissing {
-		t.Errorf("app-e = %q, want %q", status["app-e"], HealthMissing)
+	if status["foxtrot"] != HealthMissing {
+		t.Errorf("foxtrot = %q, want %q", status["foxtrot"], HealthMissing)
 	}
 	if status["echo"] != HealthInvalid {
 		t.Errorf("echo = %q, want %q", status["echo"], HealthInvalid)

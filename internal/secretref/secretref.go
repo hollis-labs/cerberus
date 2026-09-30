@@ -14,9 +14,9 @@
 //	helper://<helper>/<authority>/<path>    → `<helper> resolve keychain://<authority>/<path>`
 //
 // The helper scheme exists so a secret shared with another Hollis Labs app does
-// not need a second copy in a second keychain namespace. app-b's OpenAI key,
-// for instance, is reachable as helper://apikey-helper/openai/work, which
-// resolves the same single keychain entry app-b's own resolver reads.
+// not need a second copy in a second keychain namespace. Another app's API
+// key, for instance, is reachable as helper://<helper>/openai/work, which
+// resolves the same single keychain entry that app's own resolver reads.
 package secretref
 
 import (

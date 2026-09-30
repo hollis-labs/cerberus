@@ -68,7 +68,7 @@ the operator to start one with 'cerberus daemon'.`,
 		// CW-20260519-0053: selfexec.WatchAndExit removed. CERB-4 added it
 		// so a binary swap triggered respawn-on-next-tool-call, assuming the
 		// parent MCP host respawns dead children. That holds for Claude Code
-		// but not for `mux mcp --proxy`, which leaves dead children dead.
+		// but not for an MCP proxy host that leaves dead children dead.
 		// `cerberus resource deploy cerberus-daemon-service` rebuilds the
 		// binary on disk, so every selfexec watcher in every running
 		// `cerberus mcp` child fires within 30s and exits — wiping out MCP

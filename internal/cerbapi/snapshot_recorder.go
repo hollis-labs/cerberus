@@ -395,7 +395,7 @@ func SnapshotStatePath() (string, error) {
 // buckets before the first sample remain at 0. Returned slice is oldest →
 // newest, length == buckets.
 //
-// This is cerberus's gauge equivalent of app-b's bucketCounts (which
+// This is cerberus's gauge equivalent of an event bucketCounts (which
 // distributes timestamped events). The semantics differ — gauge value vs.
 // event count — but the output shape and bucket math match, so the same
 // chart widgets render either kind.

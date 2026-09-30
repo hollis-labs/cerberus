@@ -54,7 +54,7 @@ func TestWebDockerTakesAResourceNotAnAdHocTarget(t *testing.T) {
 	svc := cerbapi.NewExternalConnectorService(audit.NewMemory(), registry)
 	svc.SetResourceLookup(cerbapi.ConfigResourceLookup(&config.ConfigV2{Version: 2, Resources: []config.ResourceDef{{
 		ID: "web-monitor", Type: "container", Connector: "docker",
-		Config: map[string]any{"compose_file": "/srv/web/docker-compose.yml"},
+		Config: map[string]any{"compose_file": "/srv/web-monitor/docker-compose.yml"},
 	}}}))
 	srv, err := New(cerbapi.NewInProcessClient(cerbapi.WithExternalConnectorService(svc)), audit.NewMemory(), "", nil, nil)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestWebDockerTakesAResourceNotAnAdHocTarget(t *testing.T) {
 	if rec := post(`{"config":{"resource":"web-monitor"},"acknowledged":true}`); rec.Code != http.StatusOK {
 		t.Fatalf("by resource: %d %s", rec.Code, rec.Body.String())
 	}
-	if backend.upFile != "/srv/web/docker-compose.yml" {
+	if backend.upFile != "/srv/web-monitor/docker-compose.yml" {
 		t.Fatalf("compose up ran %q, want the declared file", backend.upFile)
 	}
 }

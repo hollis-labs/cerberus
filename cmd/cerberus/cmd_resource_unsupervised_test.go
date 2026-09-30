@@ -45,7 +45,7 @@ project:
   name: Demo
 resources:
   - id: web-monitor
-    name: web Monitor
+    name: Web Monitor
     type: container
     connector: docker
     config:

@@ -32,8 +32,8 @@ func TestPrintResolveNoticeReportsSkipsAndWarnings(t *testing.T) {
 	}{
 		{
 			name: "skips only",
-			diag: cerbapi.ResolveDiagnostics{Skipped: 2, SkippedOwners: []string{"app-e", "app-b"}},
-			want: []string{"2 config(s) skipped", "skipped: app-e, app-b", "cerberus registry health"},
+			diag: cerbapi.ResolveDiagnostics{Skipped: 2, SkippedOwners: []string{"foxtrot", "golf"}},
+			want: []string{"2 config(s) skipped", "skipped: foxtrot, golf", "cerberus registry health"},
 			omit: []string{"with warnings"},
 		},
 		{
@@ -45,10 +45,10 @@ func TestPrintResolveNoticeReportsSkipsAndWarnings(t *testing.T) {
 		{
 			name: "both",
 			diag: cerbapi.ResolveDiagnostics{
-				Skipped: 2, SkippedOwners: []string{"app-e", "app-b"},
+				Skipped: 2, SkippedOwners: []string{"foxtrot", "golf"},
 				Warned: 1, WarnedOwners: []string{"futureapp"},
 			},
-			want: []string{"2 config(s) skipped, 1 with warnings", "skipped: app-e, app-b", "warnings: futureapp"},
+			want: []string{"2 config(s) skipped, 1 with warnings", "skipped: foxtrot, golf", "warnings: futureapp"},
 		},
 	}
 

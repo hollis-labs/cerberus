@@ -132,7 +132,7 @@ func NewResourceRuntimeService(sink audit.Sink, opts ...ResourceRuntimeOption) *
 // cmd_project.go. Both now route through this.
 //
 // Capabilities and Links are carried verbatim from the app-owned
-// config. Nothing is derived here: the app-c namespace is computed
+// config. Nothing is derived here: the App C namespace is computed
 // at materialization from the slug plus local identity, and the repo
 // root is dirname(configPath) — storing either would be the stale state
 // the project-object work exists to remove.

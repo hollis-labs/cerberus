@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/hollis-labs/cerberus/schema/cerberus.yaml.schema.json",
   "title": "Cerberus Config (v2)",
-  "description": "Configuration file for Cerberus, the suite ecosystem service manager. This schema describes the v2 lane: projects + resources + pipelines as first-class concepts, with per-connector resource config.",
+  "description": "Configuration file for Cerberus, the local control plane. This schema describes the v2 lane: projects + resources + pipelines as first-class concepts, with per-connector resource config.",
   "type": "object",
   "properties": {
     "version": {
@@ -51,7 +51,7 @@
         "id": {
           "type": "string",
           "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
-          "description": "The portfolio-wide project slug. Lowercase kebab-case. This is the join key other systems use: it is the Cerberus registry key (equal to `owner`), the app-c memory namespace segment, and the agent-setup project-template basename. Choose it once; changing it is a rename across every one of those."
+          "description": "The portfolio-wide project slug. Lowercase kebab-case. This is the join key other systems use: it is the Cerberus registry key (equal to `owner`), the App C memory namespace segment, and the agent-setup project-template basename. Choose it once; changing it is a rename across every one of those."
         },
         "name": {
           "type": "string",

@@ -73,4 +73,3 @@ resources:
       - infrastructure
       - otel
       - v2
-registry_urn: msg://agent/directory/prj_fq2tp0ee0s

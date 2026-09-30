@@ -24,7 +24,7 @@ var identPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 //
 // Stricter than identPattern on purpose. identPattern admits a trailing
 // or doubled hyphen ("app-", "a--b"); those are harmless as a local
-// registry key but this value is also a app-c namespace segment and
+// registry key but this value is also a App C namespace segment and
 // an agent-setup template basename, and a slug that round-trips
 // differently through those is a join that silently misses. Single
 // interior hyphens only.
@@ -148,7 +148,7 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 	// --- project ---
 	//
 	// project.id is the portfolio-wide slug, not merely a local label:
-	// Cerberus keys the registry on it, app-c uses it as a memory
+	// Cerberus keys the registry on it, App C uses it as a memory
 	// namespace segment, and agent-setup names project templates after
 	// it. Validating it here is the only place that invariant is
 	// enforced before those systems join on it.
@@ -168,7 +168,7 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 
 	for i, link := range pc.Project.Links {
 		field := fmt.Sprintf("project.links[%d]", i)
-		// kind stays free-form (app-b ADR 0041 D16) — validated as
+		// kind stays free-form — validated as
 		// present, never against a closed vocabulary.
 		if link.Kind == "" {
 			add(SeverityError, field+".kind", "missing; a link must say what kind of relation it is")

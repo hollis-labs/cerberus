@@ -8,7 +8,7 @@ import (
 )
 
 // The slug is the portfolio-wide join key: Cerberus's registry key, the
-// app-c namespace segment, and the agent-setup template basename.
+// App C namespace segment, and the agent-setup template basename.
 // A slug that round-trips differently through any of those is a join
 // that silently misses, so the pattern is stricter than the one used
 // for owner and namespace.
@@ -91,10 +91,10 @@ func TestLoadProjectConfigDefaultsOwnerFromSlug(t *testing.T) {
 	const body = `kind: cerberus-project/v1
 project:
   id: demo
-  name: demo
+  name: Demo
 resources:
   - id: demo-api
-    name: demo API
+    name: Demo API
     type: process
     connector: local
     project: demo
@@ -118,7 +118,7 @@ func TestLoadProjectConfigReadsCapabilitiesAndLinks(t *testing.T) {
 owner: demo
 project:
   id: demo
-  name: demo
+  name: Demo
   capabilities: [go, launchd, mcp]
   links:
     - { kind: repo, target: "git@github.com:hollis-labs/demo.git" }
@@ -126,7 +126,7 @@ project:
     - { kind: owned_by, target: "org:hollis-labs" }
 resources:
   - id: demo-api
-    name: demo API
+    name: Demo API
     type: process
     connector: local
     project: demo
@@ -152,7 +152,7 @@ resources:
 	}
 }
 
-// link.kind is free-form on purpose (app-b ADR 0041 D16): a closed
+// link.kind is free-form on purpose: a closed
 // vocabulary would need a coordinated schema change in every reader for
 // each new relation. A kind nobody has blessed still has to validate.
 func TestValidateProjectConfigAcceptsUnblessedLinkKind(t *testing.T) {

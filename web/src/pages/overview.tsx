@@ -77,7 +77,7 @@ export function OverviewPage() {
   // Runtime = running + attention (active service signal).
   // Interaction = projects + pipelines (declarative-surface activity).
   // Stacked together on the big SignalBars chart so the two layers read
-  // distinctly. Matches app-b's runtime/interaction split.
+  // distinctly: runtime against interaction.
   const runtimeSeries = addSeries(trends.running, trends.attention)
   const interactionSeries = addSeries(trends.projects, trends.pipelines)
 

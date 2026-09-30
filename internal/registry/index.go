@@ -17,7 +17,7 @@ const DefaultIndexFilename = "registry.yaml"
 
 // IndexEntry is one registered project config — a pointer, never the
 // config body. The body is always re-read fresh from Path, keeping the
-// index a local-first resolver handle (app-b D2).
+// index a local-first resolver handle.
 type IndexEntry struct {
 	// Owner is the registry key, copied from the project config.
 	Owner string `yaml:"owner" json:"owner"`

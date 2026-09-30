@@ -38,7 +38,7 @@ func TestCLIBackendSetsDockerHostWithoutStrippingTheEnvironment(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "/private/tmp/agent.sock")
 
 	backend := newCLIBackendWithPath(fakeDockerCLI(t, reportInvocation)).
-		WithTarget(Target{Host: "ssh://operator@host-a"}).(*CLIBackend)
+		WithTarget(Target{Host: "ssh://alice@host-a"}).(*CLIBackend)
 
 	out, err := backend.run(context.Background(), "ps")
 	if err != nil {
@@ -46,7 +46,7 @@ func TestCLIBackendSetsDockerHostWithoutStrippingTheEnvironment(t *testing.T) {
 	}
 	got := string(out)
 
-	if !strings.Contains(got, "DOCKER_HOST=ssh://operator@host-a") {
+	if !strings.Contains(got, "DOCKER_HOST=ssh://alice@host-a") {
 		t.Errorf("DOCKER_HOST not passed to docker:\n%s", got)
 	}
 	// cmd.Env replaces rather than extends. Losing HOME breaks docker's own
@@ -150,9 +150,9 @@ func TestTargetRejectsHostAndContextTogether(t *testing.T) {
 
 func TestTargetDescribeNamesTheHost(t *testing.T) {
 	cases := map[Target]string{
-		{}:                               "the local Docker daemon",
-		{Host: "ssh://operator@host-a"}: "ssh://operator@host-a",
-		{Context: "azure-dev"}:           "docker context azure-dev",
+		{}:                           "the local Docker daemon",
+		{Host: "ssh://alice@host-a"}: "ssh://alice@host-a",
+		{Context: "azure-dev"}:       "docker context azure-dev",
 	}
 	for target, want := range cases {
 		if got := target.Describe(); got != want {
@@ -161,20 +161,20 @@ func TestTargetDescribeNamesTheHost(t *testing.T) {
 	}
 }
 
-// host-aStderr is the verbatim stderr of
+// hostAStderr is the verbatim stderr of
 //
 //	DOCKER_HOST=ssh://host-a docker --log-level debug ps
 //
 // captured 2026-09-16. It is the shape the whole diagnosis exists for: the one
 // line docker means for a human names a host that does not exist and blames the
 // wrong thing, and the real cause is only on a debug line.
-const host-aStderr = `time="2026-09-16T22:37:50-05:00" level=debug msg="commandconn: starting ssh with [-- host-a docker system dial-stdio]"
+const hostAStderr = `time="2026-09-16T22:37:50-05:00" level=debug msg="commandconn: starting ssh with [-- host-a docker system dial-stdio]"
 time="2026-09-16T22:37:50-05:00" level=debug msg="commandconn (ssh):failed to open the raw stream connection: dial unix /var/run/docker.sock: connect: permission denied\n"
 Cannot connect to the Docker daemon at http://docker.example.com. Is the docker daemon running?
 `
 
 func TestFailureReasonRecoversTheCauseTheCLIHides(t *testing.T) {
-	reason := failureReason([]byte(host-aStderr))
+	reason := failureReason([]byte(hostAStderr))
 
 	if !strings.Contains(reason, "permission denied") {
 		t.Errorf("the real cause was lost:\n%s", reason)
@@ -208,11 +208,11 @@ func TestFailureReasonReportsSilentFailures(t *testing.T) {
 
 func TestRunNamesTheTargetHostInErrors(t *testing.T) {
 	stderrFile := filepath.Join(t.TempDir(), "stderr")
-	if err := os.WriteFile(stderrFile, []byte(host-aStderr), 0o600); err != nil {
+	if err := os.WriteFile(stderrFile, []byte(hostAStderr), 0o600); err != nil {
 		t.Fatalf("writing fixture: %v", err)
 	}
 	backend := newCLIBackendWithPath(fakeDockerCLI(t, "cat "+stderrFile+" >&2; exit 1")).
-		WithTarget(Target{Host: "ssh://operator@host-a"}).(*CLIBackend)
+		WithTarget(Target{Host: "ssh://alice@host-a"}).(*CLIBackend)
 
 	_, err := backend.run(context.Background(), "ps")
 	if err == nil {
@@ -220,7 +220,7 @@ func TestRunNamesTheTargetHostInErrors(t *testing.T) {
 	}
 	// "connection refused" with no host named is the failure mode this exists
 	// to prevent: the CLI's own text is identical whichever host was asked for.
-	if !strings.Contains(err.Error(), "ssh://operator@host-a") {
+	if !strings.Contains(err.Error(), "ssh://alice@host-a") {
 		t.Errorf("error does not name the target host:\n%s", err)
 	}
 	if !strings.Contains(err.Error(), "docker group") {
@@ -233,7 +233,7 @@ func TestRunNamesTheTargetHostInErrors(t *testing.T) {
 // guidance four times. A recovery instruction that arrives as [REDACTED] is
 // worse than none.
 func TestSocketPermissionRecoverySurvivesRedaction(t *testing.T) {
-	err := failureReason([]byte(host-aStderr))
+	err := failureReason([]byte(hostAStderr))
 	if got := redact.Text(err); got != err {
 		t.Errorf("redaction rewrote the failure reason:\ngot:  %s\nwant: %s", got, err)
 	}
@@ -242,7 +242,7 @@ func TestSocketPermissionRecoverySurvivesRedaction(t *testing.T) {
 	}
 	// The host is the other thing an operator needs and the other thing a
 	// credential-shaped pattern could swallow.
-	for _, host := range []string{"ssh://operator@host-a", "tcp://10.0.0.4:2376", "ssh://host-a.example.com"} {
+	for _, host := range []string{"ssh://alice@host-a", "tcp://10.0.0.4:2376", "ssh://host-a.example.com"} {
 		if got := redact.Text(Target{Host: host}.Describe()); got != host {
 			t.Errorf("redaction rewrote the target host: %q -> %q", host, got)
 		}

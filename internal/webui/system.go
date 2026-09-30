@@ -291,7 +291,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 // overviewTrendBuckets is the bucket count the UI expects per trend (one
-// per hour, last 24h). Mirrors app-b's overviewTrendBuckets constant.
+// per hour, last 24h). Matches the UI's own bucket count.
 const overviewTrendBuckets = 24
 
 // overviewTrendWindow is the lookback period the trend covers.

@@ -44,7 +44,7 @@ func TestUnsupervisedNextStepNamesTheConnectorsOwnCommands(t *testing.T) {
 func TestUnsupervisedRuntimeStatusAnswersInsteadOfRefusing(t *testing.T) {
 	st := NewUnsupervisedRuntimeStatus(&config.ResourceDef{
 		ID:        "web-monitor",
-		Name:      "web Monitor",
+		Name:      "Web Monitor",
 		Type:      "container",
 		Connector: "docker",
 		Config:    map[string]any{"compose_file": "/tmp/docker-compose.yml", "port": 8090},
@@ -53,7 +53,7 @@ func TestUnsupervisedRuntimeStatusAnswersInsteadOfRefusing(t *testing.T) {
 	if st.Status != UnsupervisedStatus {
 		t.Errorf("Status = %q, want %q", st.Status, UnsupervisedStatus)
 	}
-	if st.ID != "web-monitor" || st.Name != "web Monitor" || st.Type != "container" {
+	if st.ID != "web-monitor" || st.Name != "Web Monitor" || st.Type != "container" {
 		t.Errorf("identity not carried over: %#v", st)
 	}
 	if st.Port != 8090 {
