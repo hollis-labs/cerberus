@@ -52,6 +52,9 @@ const http = createApiClient({ baseUrl: '', headers: sessionHeaders })
 export interface SessionInfo {
   action_token: string
   session?: string
+  // scope is the one approval a sign-in from an approval link may act on
+  // (M7); absent for the full console.
+  scope?: string
   posture?: PostureInfo
   passkeys?: PasskeysAlert | null
   break_glass?: BreakGlassAlert | null

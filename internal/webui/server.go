@@ -212,7 +212,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"action_token": sess.actionToken, "session": sess.ID,
 		"posture":  map[string]any{"summary": posture.String(), "permissive": posture.Permissive(), "detail": posture},
 		"passkeys": s.passkeysAlert(r.Context()), "break_glass": s.breakGlassAlert(r.Context()), "enforcement": enforcementAlert(),
-		"brakes": s.brakesState(r.Context())})
+		"brakes": s.brakesState(r.Context()), "scope": sess.scope})
 }
 
 func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {

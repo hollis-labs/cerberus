@@ -18151,6 +18151,47 @@
       "id": "CERB-GAP-922"
     },
     {
+      "class": "gap",
+      "name": "The out-of-band elicitation handed the MCP client a full console sign-in link",
+      "summary": "The URL elicitation for an out-of-band approval carried the same one-time login link `cerberus approvals approve` prints, so whoever held the agent's channel could open a human web session that outlived the sign-in, decide tty_confirm approvals and write credentials. The elicitation now carries an approval-scoped link: a session that can see and decide that one approval, approving only with a passkey, and nothing else.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 2026-09-30 adversarial review (M7); fixed at the token, session and route layers and tested; the scoped page is typechecked, not browser-driven",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "approvals",
+        "web-console",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/webui/session.go, internal/webui/approvals.go, cmd/cerberus/cmd_approvals_decide.go, cmd/cerberus/cmd_mcp.go, web/src/App.tsx",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-920",
+          "note": "the session key binding the scoped session also carries"
+        }
+      ],
+      "body": "Review M7. `internal/mcp/oob_elicitation.go` put `ConsoleApprovalURL`, a one-time console login link, in the URL elicitation, for stdio and mcp-http alike. Opening it gave a `human via web` session that lasted beyond the sign-in: it could decide tty_confirm approvals, confirm on the call and write credentials. That is a human credential sent down the agent's channel.\n\nNow the elicitation's link comes from `webui.MintApprovalURL`: `/login?approval=<id>&token=...`, where the token's MAC covers the approval id, so the link can't be redeemed as a full sign-in, for another approval, or as a scoped one from a full token. Redeeming it starts a session with a scope. That session may read `/api/session` and its one approval, list approvals (filtered to that one, without the store's problems), request the passkey challenge, decide (approve only with a passkey assertion, even for a typed-target approval; deny as anyone may), and sign out. Every other route answers 403 `scoped_session`, naming `cerberus web open`. The console renders a scoped session as that approval alone, with a banner and no nav, grants or passkey management. `cerberus approvals approve` in a terminal still mints a full sign-in.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-403",
+        "effort": "small",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-923"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

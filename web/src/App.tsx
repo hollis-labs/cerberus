@@ -53,6 +53,7 @@ const useRoute = createRouter({
 type SessionState =
   | { kind: 'checking' }
   | { kind: 'signed-out' }
+  | { kind: 'scoped'; token: string; approval: string }
   | { kind: 'signed-in'; token: string; posture?: PostureInfo; passkeys?: PasskeysAlert | null; breakGlass?: BreakGlassAlert | null; enforcement?: EnforcementAlert | null; brakes?: BrakeState | null }
 
 // The console needs a signed-in session (`cerberus web open`). Without one
@@ -64,7 +65,11 @@ export function App() {
     const controller = new AbortController()
     apiClient
       .getSession(controller.signal)
-      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture, passkeys: info.passkeys, breakGlass: info.break_glass, enforcement: info.enforcement, brakes: info.brakes }))
+      .then((info) =>
+        info.scope
+          ? setSession({ kind: 'scoped', token: info.action_token, approval: info.scope })
+          : setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture, passkeys: info.passkeys, breakGlass: info.break_glass, enforcement: info.enforcement, brakes: info.brakes }),
+      )
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) setSession({ kind: 'signed-out' })
       })
@@ -73,10 +78,33 @@ export function App() {
 
   if (session.kind === 'checking') return null
   if (session.kind === 'signed-out') return <SignedOut />
+  if (session.kind === 'scoped') return <ScopedApproval approval={session.approval} token={session.token} onSignedOut={() => setSession({ kind: 'signed-out' })} />
   const signOut = () => {
     void apiClient.logout(session.token).finally(() => setSession({ kind: 'signed-out' }))
   }
   return <Console onSignOut={signOut} posture={session.posture} passkeys={session.passkeys} breakGlass={session.breakGlass} enforcement={session.enforcement} brakes={session.brakes} token={session.token} />
+}
+
+// ScopedApproval is a sign-in from an approval link, the one an MCP client
+// was handed (M7): that approval's page and nothing else. Approving it takes
+// a passkey. The full console needs `cerberus web open`.
+function ScopedApproval({ approval, token, onSignedOut }: { approval: string; token: string; onSignedOut: () => void }) {
+  return (
+    <div className="flex h-dvh w-dvw flex-col bg-bg text-text" data-testid="scoped-approval">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm">
+        <span>
+          Signed in for approval <code className="font-mono">{approval}</code> only. Approving it takes your passkey. For the full console, run{' '}
+          <code className="font-mono">cerberus web open</code> in a terminal.
+        </span>
+        <button className="rounded border border-border px-2 py-0.5 text-xs" onClick={() => void apiClient.logout(token).finally(onSignedOut)}>
+          Sign out
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        <ApprovalsPage scoped />
+      </div>
+    </div>
+  )
 }
 
 function SignedOut() {
