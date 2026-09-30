@@ -79,6 +79,12 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 		}
 		return &PipelineRunResult{Success: true, Plan: shown}, nil
 	}
+	// A pipeline does not run while any resource it touches is frozen (§12);
+	// a lockdown has already refused it at the gate.
+	if refusal := s.pipelineFrozen(id); refusal != nil {
+		call.finish(refusal)
+		return nil, refusal
+	}
 	out, err := s.runPipeline(ctx, id, checked, options...)
 	call.finish(resultError(err, out != nil && !out.Success))
 	return out, err

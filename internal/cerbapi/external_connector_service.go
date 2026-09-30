@@ -73,11 +73,18 @@ const (
 	// ExternalConnectorEgressRefused: the operation ran, and an enforced
 	// egress rule withholds its labeled output from this caller (P4-4).
 	ExternalConnectorEgressRefused ExternalConnectorErrorCode = "egress_refused"
+	// ExternalConnectorLockdown: Cerberus is in lockdown (§12) and only
+	// plain reads run.
+	ExternalConnectorLockdown ExternalConnectorErrorCode = "lockdown"
+	// ExternalConnectorFrozen: the target is frozen (§12).
+	ExternalConnectorFrozen ExternalConnectorErrorCode = "frozen"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
 // each code intact through redaction.
 var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
+	ExternalConnectorLockdown,
+	ExternalConnectorFrozen,
 	ExternalConnectorUnavailable,
 	ExternalConnectorCredentialMissing,
 	ExternalConnectorUnsupported,

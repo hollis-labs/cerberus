@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Boxes, Cable, CheckCheck, Gauge, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
 import { ConfirmOnCallProvider } from './components/plan-confirm'
+import { BrakesBanner, LockdownButton } from './components/brakes'
 import { ApiError, createRouter } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type PasskeysAlert, type PostureInfo, type BreakGlassAlert, type EnforcementAlert } from './api/client'
+import { apiClient, type PasskeysAlert, type PostureInfo, type BreakGlassAlert, type EnforcementAlert, type BrakeState } from './api/client'
 import { ApprovalsPage } from './pages/approvals'
 import { ConnectorsPage } from './pages/connectors'
 import { DeploymentsPage } from './pages/deployments'
@@ -52,7 +53,7 @@ const useRoute = createRouter({
 type SessionState =
   | { kind: 'checking' }
   | { kind: 'signed-out' }
-  | { kind: 'signed-in'; token: string; posture?: PostureInfo; passkeys?: PasskeysAlert | null; breakGlass?: BreakGlassAlert | null; enforcement?: EnforcementAlert | null }
+  | { kind: 'signed-in'; token: string; posture?: PostureInfo; passkeys?: PasskeysAlert | null; breakGlass?: BreakGlassAlert | null; enforcement?: EnforcementAlert | null; brakes?: BrakeState | null }
 
 // The console needs a signed-in session (`cerberus web open`). Without one
 // every API route answers 401, so the app shows how to sign in instead.
@@ -63,7 +64,7 @@ export function App() {
     const controller = new AbortController()
     apiClient
       .getSession(controller.signal)
-      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture, passkeys: info.passkeys, breakGlass: info.break_glass, enforcement: info.enforcement }))
+      .then((info) => setSession({ kind: 'signed-in', token: info.action_token, posture: info.posture, passkeys: info.passkeys, breakGlass: info.break_glass, enforcement: info.enforcement, brakes: info.brakes }))
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) setSession({ kind: 'signed-out' })
       })
@@ -75,7 +76,7 @@ export function App() {
   const signOut = () => {
     void apiClient.logout(session.token).finally(() => setSession({ kind: 'signed-out' }))
   }
-  return <Console onSignOut={signOut} posture={session.posture} passkeys={session.passkeys} breakGlass={session.breakGlass} enforcement={session.enforcement} />
+  return <Console onSignOut={signOut} posture={session.posture} passkeys={session.passkeys} breakGlass={session.breakGlass} enforcement={session.enforcement} brakes={session.brakes} token={session.token} />
 }
 
 function SignedOut() {
@@ -172,8 +173,12 @@ function Console({
   passkeys,
   breakGlass,
   enforcement,
+  brakes,
+  token,
 }: {
   onSignOut: () => void
+  brakes?: BrakeState | null
+  token: string
   posture?: PostureInfo
   passkeys?: PasskeysAlert | null
   breakGlass?: BreakGlassAlert | null
@@ -285,7 +290,9 @@ function Console({
             <PasskeysBadge passkeys={passkeys} />
             <BreakGlassBadge breakGlass={breakGlass} />
             <EnforcementBadge enforcement={enforcement} />
+            <LockdownButton token={token} />
           </PageHeader>
+          <BrakesBanner brakes={brakes} token={token} />
           <main className="flex min-h-0 flex-1 flex-col">
             <RouteView route={route} />
           </main>

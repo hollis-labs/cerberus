@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/loopback"
@@ -104,6 +105,8 @@ resources:
 	origins := []string{"http://localhost:4799", "http://127.0.0.1:4799"}
 	passkeys := presence.New(filepath.Join(dir, "approvals", "passkeys"), sink, presence.Options{Origins: func() []string { return origins }})
 	cerbapi.SetPresence(passkeys)
+	// The emergency brake (§12), engaged and lifted from the console.
+	cerbapi.SetBrakes(&cerbapi.Brakes{Store: brake.Store{Dir: filepath.Join(dir, "brakes")}, Sink: sink})
 
 	runtime := cerbapi.NewResourceRuntimeService(sink, cerbapi.WithResourceRuntimeConfigPath(cfgPath))
 	inProc := cerbapi.NewInProcessClient(cerbapi.WithConfigPath(cfgPath), cerbapi.WithResourceRuntimeService(runtime),
@@ -170,6 +173,16 @@ resources:
 		_ = json.NewEncoder(w).Encode(result)
 	}
 	ctl.HandleFunc("/break-glass", breakGlass)
+	// A person's stop from the CLI, which a lockdown refuses.
+	ctl.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
+		_, err := cli.StopResource(r.Context(), "web", cerbapi.WithAcknowledged(true))
+		result := map[string]any{}
+		if err != nil {
+			result["error"] = err.Error()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	})
 	ctl.HandleFunc("/follow-ups", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(broker.UnackedBreakGlass())

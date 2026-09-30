@@ -3,7 +3,8 @@
 # resource stop and a deploy-profile run (each shown its plan, refused on a
 # wrong target and on a stale plan, run on the right target), and break
 # glass on a protected target (a passkey enrolled on a virtual
-# authenticator, the BREAK GLASS approval, the retry, the follow-up). Needs the web bundle built
+# authenticator, the BREAK GLASS approval, the retry, the follow-up), and
+# a lockdown engaged, refusing and lifted with the passkey. Needs the web bundle built
 # (`make all`), Node 22+ and Google Chrome. Everything lives in a scratch
 # HOME under /tmp; nothing touches ~/.cerberus or a running daemon.
 set -eu

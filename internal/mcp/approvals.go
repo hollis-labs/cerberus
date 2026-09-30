@@ -51,10 +51,12 @@ func withApprovalArg(t Tool, op contract.Operation) Tool {
 
 // ungatedTools are tools over a non-read operation that does not pass the
 // gate, so an approval can neither be asked for nor used there, and the
-// tool does not offer approval_id. Each says why. It is empty, and should
-// stay so: one enforcement point, no exceptions (I1). Resource logs were
-// the last (CERB-GAP-889).
-var ungatedTools = map[string]string{}
+// tool does not offer approval_id. Each says why. It should stay as short
+// as it is: one enforcement point (I1). Resource logs were the last gap
+// (CERB-GAP-889); the one entry is the emergency brake, by design.
+var ungatedTools = map[string]string{
+	"cerberus_lockdown": "the emergency brake (§12) is never gated: engaging it must always work, even under policy or a lockdown, and it only restricts; it is recorded as brake_changed",
+}
 
 func approvalArgSchema() map[string]any {
 	return map[string]any{"type": "string", "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale."}

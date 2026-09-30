@@ -139,6 +139,7 @@ var policyExplainCmd = &cobra.Command{
 				fmt.Fprintf(cmd.OutOrStdout(), "! %s\n", note)
 			}
 		}
+		writeExplainBrakes(cmd.OutOrStdout(), connectorID, req)
 		fmt.Fprintf(cmd.OutOrStdout(), "\nBreak glass: gets past an approve, never a deny; at most %s.\n", policy.BreakGlassLimitsOf(pdp))
 		why := "the global posture"
 		if len(postureRules) > 0 {
@@ -415,4 +416,25 @@ func init() {
 	addOutputFlag(policyExplainCmd, &policyExplainFlags.output)
 	policyCmd.AddCommand(policyExplainCmd, policyApplyCmd, policyReportCmd)
 	rootCmd.AddCommand(policyCmd)
+}
+
+// writeExplainBrakes names the brake that would refuse a call (§12). The
+// brakes run before policy in every mode, so this line outranks the
+// decision above.
+func writeExplainBrakes(w io.Writer, connectorID string, req policy.Request) {
+	if cerbapi.Unbraked(connectorID) {
+		return
+	}
+	st := statusOfBrakes()
+	blocked, l, f := st.Blocks(connectorID, req.Effect, req.Target)
+	switch {
+	case !blocked || req.DryRun:
+		if st.Engaged() && !req.DryRun {
+			fmt.Fprintln(w, "\nBrakes: engaged, and this call passes them.")
+		}
+	case l != nil:
+		fmt.Fprintf(w, "\nBrakes: REFUSED by lockdown %s%s, whatever the policy says. Lift: cerberus lockdown --off\n", l.ID, brakeReason(l.Reason))
+	default:
+		fmt.Fprintf(w, "\nBrakes: REFUSED by freeze %s on %s%s, whatever the policy says. Lift: cerberus freeze --off %s\n", f.ID, f.Match.String(), brakeReason(f.Reason), f.ID)
+	}
 }

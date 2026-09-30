@@ -537,6 +537,72 @@ Break glass is limited per target: by default 3 uses per rolling 24h, set in
 policy with `break_glass: {per_target: 3, window: 24h}` and changed with
 `cerberus policy apply`. `policy explain` and `posture show` print the limit.
 
+### Lockdown and freeze: the emergency brake
+
+When something is going wrong and you want Cerberus to stop acting, engage
+the brake:
+
+```bash
+cerberus lockdown --reason "an agent is looping"   # everything but plain reads
+cerberus freeze --scope env=prod --reason "..."    # only the targets a scope selects
+cerberus freeze list
+```
+
+A **lockdown** refuses every operation except a plain `read`. It refuses
+`read_sensitive` too, so logs and command output stop as well. A **freeze**
+does the same only for the targets its `--scope` matches. The scope keys are
+`id`, `connector`, `kind`, `env`, `owner`, `admin` and `tag`.
+
+Engaging is meant to be trivially easy:
+
+- **one command, with no confirmation.** It works with the daemon down: the
+  CLI writes the brake store itself, and the daemon reads it when it starts.
+- **the Lockdown button in the console header**, with an optional reason
+  and no typed phrase;
+- **the `cerberus_lockdown` MCP tool**, so an agent can stop itself. The tool
+  can only engage a lockdown. It is the one tool policy never gates.
+
+The brakes run before policy, in every enforcement mode, shadow included.
+A refused call answers `lockdown` or `frozen` (HTTP 423). The refusal says
+who engaged the brake, when and why, and how to lift it. Dry runs and plans
+still work, because they run nothing. Policy changes, approval decisions and
+the brakes themselves are never braked, so the way back stays open.
+
+It is loud:
+
+- a red banner on every console page;
+- `!!! LOCKDOWN` and `!!! FREEZE` lines at the top of `cerberus status`;
+- a `Brakes:` line in `policy explain`;
+- a `brake_changed` audit record and a desktop notification for every change.
+
+Background work under a brake:
+
+- **Auto-restarts.** Under a lockdown the monitor keeps restarting declared
+  services, because pausing them would turn an incident into an outage.
+  Under a freeze that covers a resource, its restarts pause. Each skipped
+  restart is logged.
+- **Pipelines** don't run under either kind of brake.
+
+**Lifting is a person's act.** Run `cerberus lockdown --off` or
+`cerberus freeze --off <id>` on an interactive terminal, and type the phrase
+it asks for. An agent or an MCP client can never lift a brake. If a passkey is
+enrolled, the lift is also approved with the passkey: the first `--off`
+prints a console link, and you approve it there. Then either click **Lift
+now** on the approval, or run the command again with `--approval <id>`. The
+console's own Lift button takes you to the same approval. With no passkey
+enrolled, the terminal and the typed phrase are the floor. That floor applies
+only when the passkey registry opens and holds no key. If the registry can't
+be read, or it changed outside `cerberus approvals enroll` (it was deleted,
+say), the lift is refused until the registry is repaired or the cool-down
+ends. It never drops to the floor. Lifting needs the daemon, which is what
+checks for an enrolled passkey.
+
+The brake store is `~/.cerberus/brakes/`. It is hash-chained, like the other
+stores. The daemon trusts the store only as far as the verified audit log
+agrees: if the store and the newest `brake_changed` record disagree, the
+more restrictive of the two applies. Deleting the store therefore doesn't
+lift a lockdown the audit log recorded.
+
 ### When an agent asks
 
 An agent working through MCP can't approve anything. There is no MCP tool that

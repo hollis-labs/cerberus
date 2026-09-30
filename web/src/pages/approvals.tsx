@@ -3,6 +3,7 @@ import { Button, Callout, EmptyState, Input } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
 import { apiClient, type ApprovalInfo, type ApprovalPrincipal, type EnrollBegin, type PasskeyCeremony } from '../api/client'
 import { assertPasskey, createPasskey } from '../webauthn'
+import { liftFromApproval } from '../components/brakes'
 
 // The approvals page (P3-4): every request, who asked, and the plan it would
 // run. A pending request is approved by typing its target, as on a terminal,
@@ -230,6 +231,20 @@ function ApprovalDetail({ approval: a, token, onChanged }: { approval: ApprovalI
             </Button>
           </div>
         </div>
+      )}
+      {a.status === 'approved' && a.connector === 'brake' && (
+        <Button
+          data-testid="lift-now"
+          disabled={busy || !token}
+          onClick={() =>
+            act(async () => {
+              await liftFromApproval(token, a.operation, a.target.fields?.id, a.id)
+              window.location.assign('/')
+            })
+          }
+        >
+          Lift now
+        </Button>
       )}
       {a.status === 'approved' && (
         <Button data-testid="revoke" variant="outline" disabled={busy || !token} onClick={() => act(() => apiClient.revokeApproval(a.id, token, reason))}>

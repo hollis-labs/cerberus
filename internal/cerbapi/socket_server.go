@@ -224,6 +224,8 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/ping", s.handlePing)
 	mux.HandleFunc("/whoami", s.handleWhoAmI)
 	mux.HandleFunc("/approvals", s.handleApprovals)
+	mux.HandleFunc("/brakes", s.handleBrakes)
+	mux.HandleFunc("/brakes/", s.handleBrakes)
 	mux.HandleFunc("/approvals/", s.handleApprovals)
 
 	// /project, /resource, /pipeline list + run — active v2 surface.

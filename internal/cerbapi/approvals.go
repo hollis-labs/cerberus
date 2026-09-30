@@ -290,6 +290,11 @@ func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 	if err != nil {
 		return nil, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}
+	// The brakes (§12) come before policy, in every enforcement mode.
+	if refusal := brakeRefusal(spec, resolved, spec.dryRun); refusal != nil {
+		call.finish(refusal)
+		return nil, refusal
+	}
 	if !enforced(req) {
 		// A confirmed plan is checked whether or not policy asked for
 		// one: whoever confirmed it was shown it (I6).

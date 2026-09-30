@@ -19,13 +19,17 @@ import (
 
 const consoleOrigin = "http://localhost:4783"
 
+// passkeyDir is the registry directory of the last passkeyRoutes.
+var passkeyDir string
+
 // passkeyRoutes is a broker with a passkey service behind the socket's
 // approvals routes, and a passkey enrolled through them.
 func passkeyRoutes(t *testing.T, channel string) (post func(Principal, string, any) *httptest.ResponseRecorder, a approval.Approval, key *presencetest.Authenticator, broker *Broker) {
 	t.Helper()
 	broker, a, sink := pendingApproval(t, agentMCP, channel)
 	SetBroker(broker)
-	SetPresence(presence.New(t.TempDir(), sink, presence.Options{Origins: func() []string { return []string{consoleOrigin} }}))
+	passkeyDir = t.TempDir()
+	SetPresence(presence.New(passkeyDir, sink, presence.Options{Origins: func() []string { return []string{consoleOrigin} }}))
 	t.Cleanup(func() { SetBroker(nil); presencePoint.Store(nil) })
 	s := &SocketServer{}
 	post = func(p Principal, path string, body any) *httptest.ResponseRecorder {

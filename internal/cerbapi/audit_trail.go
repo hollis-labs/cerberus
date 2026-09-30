@@ -217,6 +217,9 @@ var refusalCodes = map[string]bool{
 	string(ExternalConnectorApprovalPending):  true,
 	string(ExternalConnectorApprovalExpired):  true,
 	string(ExternalConnectorPlanStale):        true,
+	// The brakes (§12).
+	string(ExternalConnectorLockdown):         true,
+	string(ExternalConnectorFrozen):           true,
 	string(ExternalConnectorAuditUnavailable): true,
 }
 

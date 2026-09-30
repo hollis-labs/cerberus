@@ -130,6 +130,8 @@ func (s *Server) routeTable() []route {
 		{"/api/logout", s.handleLogout},
 		{"/api/approvals", s.handleApprovals},
 		{"/api/approvals/", s.handleApprovalByID},
+		{"/api/brakes", s.handleBrakes},
+		{"/api/brakes/", s.handleBrakes},
 		{"/api/resources", s.handleResources},
 		{"/api/resources/", s.handleResourceByID},
 		// Full cerbapi.Client domain (CW-20260517-0039). Handlers stay thin
@@ -200,7 +202,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	posture := s.currentPosture()
 	_ = json.NewEncoder(w).Encode(map[string]any{"action_token": sess.actionToken, "session": sess.ID,
 		"posture":  map[string]any{"summary": posture.String(), "permissive": posture.Permissive(), "detail": posture},
-		"passkeys": s.passkeysAlert(r.Context()), "break_glass": s.breakGlassAlert(r.Context()), "enforcement": enforcementAlert()})
+		"passkeys": s.passkeysAlert(r.Context()), "break_glass": s.breakGlassAlert(r.Context()), "enforcement": enforcementAlert(),
+		"brakes": s.brakesState(r.Context())})
 }
 
 func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {

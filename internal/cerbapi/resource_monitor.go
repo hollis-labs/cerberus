@@ -235,6 +235,13 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 	if last, ok := m.lastRestart[res.ID]; ok && time.Since(last) < cooldown {
 		return
 	}
+	// A freeze means "don't touch this": its restarts pause. A lockdown
+	// does not pause them, since they restore declared state and pausing
+	// them would turn a lockdown into an outage (§12).
+	if f, frozen := frozenResource(res); frozen {
+		m.logger.Warn("daemon.resource_monitor.restart_skipped", "resource", res.ID, "freeze", f.ID, "reason", "the resource is frozen; lift it with `cerberus freeze --off "+f.ID+"`")
+		return
+	}
 
 	for _, warning := range m.runtime.dependencyWarnings(ctx, &res, m.runtime.snapshotConfig()) {
 		m.logger.Warn("daemon.resource_monitor.dependency_unavailable", "resource", res.ID, "warning", warning)

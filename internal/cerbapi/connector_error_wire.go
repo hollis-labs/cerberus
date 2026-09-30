@@ -48,6 +48,8 @@ var externalConnectorHTTPStatus = map[ExternalConnectorErrorCode]int{
 	ExternalConnectorApprovalPending:  http.StatusConflict,
 	ExternalConnectorApprovalExpired:  http.StatusConflict,
 	ExternalConnectorPlanStale:        http.StatusConflict,
+	ExternalConnectorLockdown:         http.StatusLocked,
+	ExternalConnectorFrozen:           http.StatusLocked,
 }
 
 // ExternalConnectorHTTPStatus returns the status for err when it carries a
