@@ -86,7 +86,8 @@ been written there since the v2 migration on the same day. Even when it ran, its
 only remote destination was a hardcoded `http://127.0.0.1:8085/v1/notifications`
 belonging to app-h, an app that is not installed here and never was; there is no
 configuration key, environment variable or schema entry anywhere in the repo for
-an alert destination.
+an alert destination. That POST has since been deleted (the de-estate pass), so the
+monitor now writes only the alert file.
 
 **Health silently drops the resource that is not local/process.**
 `ResourceRuntimeService.Health` filters to `r.Type == process && r.Connector ==
