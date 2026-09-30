@@ -193,6 +193,23 @@ type policyReportData struct {
 	ByChannel  map[string]int   `json:"by_channel"`
 	NotReady   int              `json:"not_ready"`
 	Groups     []reportRow      `json:"groups"`
+	// Egress is what egress rules did or would have done (P4-4), from the
+	// outcome records.
+	Egress []egressRow `json:"egress"`
+}
+
+// egressRow is one group of egress decisions: one rule, label, action,
+// mode, principal kind and target.
+type egressRow struct {
+	Rule      string    `json:"rule"`
+	Label     string    `json:"label"`
+	Action    string    `json:"action"`
+	Applied   bool      `json:"applied"`
+	Principal string    `json:"principal"`
+	Target    string    `json:"target"`
+	Count     int       `json:"count"`
+	Withheld  int       `json:"withheld"`
+	Last      time.Time `json:"last"`
 }
 
 // reportRow is one group of would-block decisions: one rule, principal kind
@@ -269,6 +286,7 @@ func policyReport(recs []audit.Record, o reportOptions) policyReportData {
 		sort.Strings(g.Operations)
 		rep.Groups = append(rep.Groups, *g)
 	}
+	rep.Egress = egressSummary(recs, o)
 	sort.Slice(rep.Groups, func(i, j int) bool {
 		a, b := rep.Groups[i], rep.Groups[j]
 		if a.Count != b.Count {
@@ -348,6 +366,72 @@ func recordLabels(t audit.Target) string {
 	return fmt.Sprintf("env %s, owner %s, admin %s", orUnknown(t.Env), orUnknown(t.Owner), orUnknown(t.Admin))
 }
 
+// egressSummary groups the outcome records' egress decisions, in the report's
+// window and scope (whose rule= term names an egress rule here).
+func egressSummary(recs []audit.Record, o reportOptions) []egressRow {
+	groups := map[string]*egressRow{}
+	for _, rec := range recs {
+		if rec.Kind != audit.KindOutcome || len(rec.Egress) == 0 {
+			continue
+		}
+		if (!o.since.IsZero() && rec.Time.Before(o.since)) || (!o.until.IsZero() && !rec.Time.Before(o.until)) {
+			continue
+		}
+		for _, e := range rec.Egress {
+			if !o.scope.matches(rec, e.Rule) {
+				continue
+			}
+			row := egressRow{Rule: e.Rule, Label: e.Label, Action: e.Action, Applied: e.Applied, Principal: rec.Principal.Kind, Target: recordTarget(rec.Target)}
+			key := fmt.Sprintf("%s|%s|%s|%v|%s|%s", row.Rule, row.Label, row.Action, row.Applied, row.Principal, row.Target)
+			g, ok := groups[key]
+			if !ok {
+				g = &row
+				groups[key] = g
+			}
+			g.Count++
+			g.Withheld += e.Withheld
+			if rec.Time.After(g.Last) {
+				g.Last = rec.Time
+			}
+		}
+	}
+	out := make([]egressRow, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, *g)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Rule < out[j].Rule
+	})
+	return out
+}
+
+// writeEgressSummary is the egress part of the report.
+func writeEgressSummary(w io.Writer, rows []egressRow) {
+	if len(rows) == 0 {
+		return
+	}
+	shadow := 0
+	for _, r := range rows {
+		if !r.Applied {
+			shadow += r.Count
+		}
+	}
+	fmt.Fprintf(w, "\nEgress: %d decision group(s); %d decision(s) recorded in shadow (would have applied).\n", len(rows), shadow)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "COUNT\tRULE\tLABEL\tACTION\tMODE\tPRINCIPAL\tTARGET\tWITHHELD\tLAST")
+	for _, r := range rows {
+		mode := "shadow"
+		if r.Applied {
+			mode = "applied"
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n", r.Count, r.Rule, r.Label, r.Action, mode, r.Principal, r.Target, r.Withheld, r.Last.UTC().Format(time.RFC3339))
+	}
+	_ = tw.Flush()
+}
+
 func writePolicyReport(w io.Writer, rep policyReportData) error {
 	scope := ""
 	if rep.Scope != "" {
@@ -358,6 +442,7 @@ func writePolicyReport(w io.Writer, rep policyReportData) error {
 		fmt.Fprintln(w, "No shadow decisions are recorded yet. The daemon records one for every gated operation a person or an agent asks for "+
 			"(automation, such as plugin loads at start, is not authorized); use Cerberus as usual for a while, then run this again.")
 	}
+	defer writeEgressSummary(w, rep.Egress)
 	defer writeChannels(w, rep)
 	if rep.WouldBlock == 0 {
 		return nil

@@ -13,6 +13,7 @@ import (
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // A cap keeps the first lines and says how many it held back; a mask says
@@ -131,13 +132,13 @@ func TestEgressRefuseOnANonReadWithholdsAndSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a refuse on a non-read failed the call: %v", err)
 	}
+	// A typed result keeps its type and its success: the labeled fields carry
+	// the note, and the exit code of the command that ran stays.
 	withheld, ok := result.Data.(map[string]any)
-	note, _ := withheld["withheld"].(string)
-	if !ok || !strings.Contains(note, "ssh exec ran and succeeded; its untrusted output is withheld by egress rule no-output") || withheld["egress_rule"] != "no-output" {
+	note, _ := withheld["stdout"].(string)
+	if !ok || note != "[cerberus: output withheld by egress rule no-output; the operation ran and succeeded]" ||
+		withheld["stderr"] != note || withheld["exit_code"] != float64(0) {
 		t.Fatalf("result: %#v", result.Data)
-	}
-	if _, leaked := withheld["stdout"]; leaked || len(withheld) != 2 {
-		t.Fatalf("the output leaked: %#v", result.Data)
 	}
 	if backend.execs != 1 {
 		t.Fatalf("the command ran %d times", backend.execs)
@@ -148,5 +149,54 @@ func TestEgressRefuseOnANonReadWithholdsAndSucceeds(t *testing.T) {
 	o := outcome(sink.Records())
 	if o.OutcomeCode != audit.OutcomeOK || len(o.Egress) != 1 || o.Egress[0].Action != EgressRefuseWithheld || !o.Egress[0].Applied {
 		t.Fatalf("outcome: %+v", o)
+	}
+}
+
+func agentCall(effect contract.Effect, connector, operation string) *auditCall {
+	return &auditCall{
+		spec:   auditSpec{connector: connector, operation: operation, known: true, op: contract.Operation{Name: operation, Effect: effect}},
+		intent: audit.Record{Principal: audit.Principal{Kind: "agent"}},
+	}
+}
+
+// A lifecycle result's build and install output are untrusted: capped when
+// a rule enforces, with the success and the rest of the result intact; a
+// refusal there withholds them and keeps the success.
+func TestLifecycleResultsAreShaped(t *testing.T) {
+	withEgressPolicy(t, policy.EgressRule{ID: "cap-builds", Label: "untrusted", Action: policy.EgressCap, Lines: 1, Mode: policy.EgressEnforce})
+	out := &OpResult{Success: true, ServiceID: "svc", Message: "deployed", BuildOutput: "go build\nwarning: x\nwarning: y"}
+	call := agentCall(contract.EffectLifecycle, "local", "deploy")
+	got, err := shapeAs(call, out)
+	if err != nil || !got.Success || got.Message != "deployed" || got.BuildOutput != "go build\n[cerberus: 2 more lines withheld by egress rule cap-builds]" {
+		t.Fatalf("capped: %v %+v", err, got)
+	}
+	if len(call.egress) != 1 || call.egress[0].Pointers[0] != "/build_output" && call.egress[0].Pointers[0] != "/install_output" {
+		t.Fatalf("recorded: %+v", call.egress)
+	}
+
+	withEgressPolicy(t, policy.EgressRule{ID: "no-builds", Label: "untrusted", Action: policy.EgressRefuse, Mode: policy.EgressEnforce})
+	call = agentCall(contract.EffectLifecycle, "local", "deploy")
+	got, err = shapeAs(call, out)
+	if err != nil || !got.Success || !strings.Contains(got.BuildOutput, "withheld by egress rule no-builds; the operation ran and succeeded") {
+		t.Fatalf("withheld: %v %+v", err, got)
+	}
+	if call.egress[0].Action != EgressRefuseWithheld || !call.egress[0].Applied {
+		t.Fatalf("recorded: %+v", call.egress)
+	}
+}
+
+// A pipeline run's stage errors are shaped inside its executor JSON, which
+// is written back.
+func TestPipelineResultsAreShaped(t *testing.T) {
+	withEgressPolicy(t, policy.EgressRule{ID: "mask-stage-text", Label: "untrusted", Action: policy.EgressMask, Mode: policy.EgressEnforce})
+	raw := []byte(`{"pipeline_id":"ship","status":"failed","error":"stage build: make said hi","stages":[{"name":"build","status":"failed","error":"make said hi"}]}`)
+	got, err := shapePipelineResult(agentCall(contract.EffectExec, "pipeline", "run"), &PipelineRunResult{Success: false, Raw: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := got.Execution()
+	if err != nil || run.PipelineID != "ship" || !strings.Contains(run.Error, "masked by egress rule mask-stage-text") ||
+		!strings.Contains(run.Stages[0].Error, "masked") || strings.Contains(string(got.Raw), "make said hi") {
+		t.Fatalf("pipeline: %v %s", err, got.Raw)
 	}
 }
