@@ -534,7 +534,7 @@ func runDaemonBody() error {
 	} else {
 		cerbapi.SetBroker(broker)
 		cerbapi.SetPresence(newPresenceService(logger, approvalsDir))
-		cerbapi.SetUserPresence(newUserPresence(logger))
+		cerbapi.SetUserPresenceWith(newUserPresence(logger), app.AuditSink())
 		// Approvals approved with a pre-v2 passkey proof no longer verify
 		// (H4): expire them now, with the reason, rather than leave them
 		// looking usable.

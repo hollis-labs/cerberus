@@ -135,19 +135,28 @@ listens. The web console is loopback-only in every posture.`,
 			}
 		}
 
-		ln, err := net.Listen("tcp", mcpHTTPListen)
+		// Both loopback families, one port, as the console does (H6): a
+		// client told localhost may try ::1 first, and another account
+		// holding [::1] on this port would be handed its bearer token. A
+		// squatted other family refuses to start.
+		lns, err := listenMCPHTTP(mcpHTTPListen)
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", mcpHTTPListen, err)
 		}
-		guard, err := loopback.NewGuardForAddr(mcpHTTPListen, ln.Addr(), mcpHTTPOrigins...)
+		closeAll := func() {
+			for _, ln := range lns {
+				_ = ln.Close()
+			}
+		}
+		guard, err := loopback.NewGuardForAddr(mcpHTTPListen, lns[0].Addr(), mcpHTTPOrigins...)
 		if err != nil {
-			_ = ln.Close()
+			closeAll()
 			return err
 		}
 		if certs != nil {
 			hosts, herr := certHosts(certFile)
 			if herr != nil {
-				_ = ln.Close()
+				closeAll()
 				return herr
 			}
 			guard.AllowHosts(hosts...)
@@ -161,7 +170,7 @@ listens. The web console is loopback-only in every posture.`,
 		if mcpHTTPInsecure {
 			guard.AllowHosts(mcpHTTPHosts...)
 			if err = cerbapi.RecordInsecureListen(inProcessContext(cmd.Context()), mcpHTTPAuditSink(), "mcp-http", mcpHTTPListen, mcpHTTPHosts); err != nil {
-				_ = ln.Close()
+				closeAll()
 				return fmt.Errorf("mcp-http did not start: --insecure-listen is recorded in the audit log before it listens, and the record could not be written: %w", err)
 			}
 			fmt.Fprint(os.Stderr, insecureListenWarning(mcpHTTPListen))
@@ -185,14 +194,16 @@ listens. The web console is loopback-only in every posture.`,
 			httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: certs.GetCertificate}
 		}
 
-		errCh := make(chan error, 1)
-		go func() {
-			if certs != nil {
-				errCh <- httpServer.ServeTLS(ln, "", "")
-				return
-			}
-			errCh <- httpServer.Serve(ln)
-		}()
+		errCh := make(chan error, len(lns))
+		for _, ln := range lns {
+			go func(ln net.Listener) {
+				if certs != nil {
+					errCh <- httpServer.ServeTLS(ln, "", "")
+					return
+				}
+				errCh <- httpServer.Serve(ln)
+			}(ln)
+		}
 
 		fmt.Printf("Cerberus MCP HTTP listening at %s://%s%s\n", scheme, mcpHTTPListen, mcpHTTPPath)
 		if auth != nil {
@@ -320,3 +331,7 @@ func init() {
 	mcpHTTPCmd.Flags().StringSliceVar(&mcpHTTPHosts, "allow-host", nil, "off loopback: more host names or addresses clients reach the endpoint by (Host header), beyond the certificate's")
 	mcpHTTPCmd.Flags().StringSliceVar(&mcpHTTPOrigins, "allow-origin", mcpHTTPOrigins, "additional exact Origin values (scheme://host:port) for browser-based HTTP MCP requests; loopback origins on the listen port are always allowed")
 }
+
+// listenMCPHTTP binds mcp-http's listen address: both loopback families on
+// one port when it is loopback, refusing beside a squatter (H-a).
+func listenMCPHTTP(addr string) ([]net.Listener, error) { return loopback.ListenBoth(addr) }

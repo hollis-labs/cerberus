@@ -16,7 +16,8 @@ type SquattedError struct {
 }
 
 func (e *SquattedError) Error() string {
-	return fmt.Sprintf("%s is already bound by another process, and a browser may try it first for localhost: it would receive your sign-in and approval links and your session. "+
+	return fmt.Sprintf("%s is already bound by another process, and a client told localhost may try it first: it would receive what this server hands out or is sent, "+
+		"such as the console's sign-in links and session, or the token an MCP client sends with each call. "+
 		"Find it with `lsof -nP -iTCP:%s -sTCP:LISTEN` and stop it, or choose another port with --listen", e.Addr, e.Port)
 }
 
