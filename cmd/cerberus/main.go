@@ -79,8 +79,9 @@ Every resource mutation and pipeline run needs --ack: each is a lifecycle,
 write, destructive or exec operation.
 - cerberus web                    # compact local web console
 
-The Cerberus daemon itself now also fits this model as the v2 local process
-resource "cerberus-daemon-service" on macOS launchd.
+The Cerberus daemon itself can also run under this model as the v2 local
+process resource "cerberus-daemon-service": under launchd on macOS, under a
+systemd user unit on Linux.
 
 MIT licensed. Published by Hollis Labs.`,
 	Version: version,

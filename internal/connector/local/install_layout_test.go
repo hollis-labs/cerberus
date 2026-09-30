@@ -26,6 +26,12 @@ func TestDefaultInstallLayout(t *testing.T) {
 	if layout.PlistPath != filepath.Join("/Users/me", "Library", "LaunchAgents", "com.hollis-labs.cerberus.app-h.app-h-api.plist") {
 		t.Fatalf("PlistPath = %q", layout.PlistPath)
 	}
+	if layout.UnitName != "com.hollis-labs.cerberus.app-h.app-h-api.service" {
+		t.Fatalf("UnitName = %q", layout.UnitName)
+	}
+	if layout.UnitPath != filepath.Join("/Users/me", ".config", "systemd", "user", "com.hollis-labs.cerberus.app-h.app-h-api.service") {
+		t.Fatalf("UnitPath = %q", layout.UnitPath)
+	}
 }
 
 func TestDefaultInstallLayoutHonorsOverrides(t *testing.T) {
@@ -54,6 +60,15 @@ func TestDefaultInstallLayoutHonorsOverrides(t *testing.T) {
 	}
 	if layout.ArtifactPath != "/tmp/artifact/app-h-api" {
 		t.Fatalf("ArtifactPath = %q", layout.ArtifactPath)
+	}
+	if layout.UnitName != "com.example.app-h.api.service" {
+		t.Fatalf("UnitName = %q", layout.UnitName)
+	}
+}
+
+func TestSystemdUnitNameKeepsAnExplicitSuffix(t *testing.T) {
+	if got := SystemdUnitName("torque.service"); got != "torque.service" {
+		t.Fatalf("SystemdUnitName = %q", got)
 	}
 }
 

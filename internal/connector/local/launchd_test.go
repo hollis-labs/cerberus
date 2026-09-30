@@ -1108,3 +1108,36 @@ func TestAnExplicitServiceNameHasNoLegacyLabel(t *testing.T) {
 		t.Fatalf("layout = %+v %v", layout, err)
 	}
 }
+
+// A plist whose resource sets no PATH gets the serving daemon's, absolute
+// entries first and launchd's own four last; a resource's own PATH wins.
+func TestLaunchdPlistComposesPathUnlessTheResourceSetsOne(t *testing.T) {
+	tmp := t.TempDir()
+	backend := launchdBackend{
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		envPath: func() string { return "/Users/op/.local/bin:.:/opt/homebrew/bin" },
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{Mode: ProcessModeOSService, Supervisor: ProcessSupervisorLaunchd, Dir: tmp, Command: []string{"/bin/app"}}
+	layout, err := defaultInstallLayoutFromBackend(backend, res, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := backend.renderPlist(res, spec, layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "<key>PATH</key>\n        <string>/Users/op/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>"; !strings.Contains(string(out), want) {
+		t.Fatalf("plist missing composed PATH %q:\n%s", want, out)
+	}
+
+	spec.Env = map[string]string{"PATH": "/custom/bin"}
+	out, err = backend.renderPlist(res, spec, layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "<string>/custom/bin</string>") || strings.Contains(string(out), "/opt/homebrew/bin") {
+		t.Fatalf("a resource's own PATH must win:\n%s", out)
+	}
+}

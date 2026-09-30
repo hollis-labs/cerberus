@@ -5,7 +5,7 @@ project:
   id: cerberus
   name: Cerberus
   description: Single-binary Go control plane for local infrastructure.
-  capabilities: [go, launchd, mcp, connectors, http-api, web-console]
+  capabilities: [go, launchd, systemd, mcp, connectors, http-api, web-console]
   links:
     - { kind: repo, target: "git@github.com:hollis-labs/cerberus.git" }
     - { kind: docs, target: ./docs }
@@ -23,7 +23,7 @@ resources:
       - uat
       - v2
     config:
-      dir: /Users/me/src/cerberus
+      dir: .
       build_strategy:
         kind: go_standard
         source:
@@ -33,14 +33,12 @@ resources:
           target: ./cmd/cerberus
       command: ["./cerberus", "daemon", "--foreground"]
       mode: os_service
-      supervisor: launchd
+      supervisor: auto
       run_from: artifact
       service_name: com.hollis-labs.cerberus
-      env:
-        # launchd hands the daemon a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
-        # so `cerberus resource deploy` can't find `go` to build. Same env the
-        # web service uses.
-        PATH: /opt/homebrew/bin:/Users/me/go/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      # No env PATH: the plist or unit gets the PATH the serving daemon runs
+      # with, which `cerberus install` composed from the installing shell, so
+      # the deployed daemon finds `go` on any host.
   - id: cerberus-web-service
     name: Cerberus Web UI
     type: process
@@ -53,7 +51,7 @@ resources:
       - launchd
       - v2
     config:
-      dir: /Users/me/src/cerberus
+      dir: .
       # `make all` builds the web/ React bundle into internal/webui/dist
       # (gitignored) and then the binary, so the embedded web UI is never
       # stale or blank — a plain go build would embed whatever dist exists.
@@ -68,14 +66,12 @@ resources:
           output: bin/cerberus
       command: ["./cerberus", "web", "--listen", "127.0.0.1:4783", "--open=false"]
       mode: os_service
-      supervisor: launchd
+      supervisor: auto
       run_from: artifact
       service_name: com.hollis-labs.cerberus.web
       port: 4783
       url: http://127.0.0.1:4783
       protected: true
-      env:
-        PATH: /opt/homebrew/bin:/Users/me/go/bin:/usr/bin:/bin:/usr/sbin:/sbin
   - id: cerberus-release-artifacts
     name: Cerberus Release Artifacts
     type: process
@@ -86,7 +82,7 @@ resources:
       - artifact
       - self-hosted
     config:
-      dir: /Users/me/src/cerberus
+      dir: .
       build_strategy:
         kind: go_standard
         source:
@@ -106,12 +102,12 @@ resources:
 pipelines:
   - id: cerberus-daemon-deploy
     name: Cerberus Daemon Deploy
-    description: Build Cerberus through its build strategy and activate the launchd daemon.
+    description: Build Cerberus through its build strategy and activate the supervised daemon.
     stages:
       - name: verify
         actions:
           - type: shell
-            dir: /Users/me/src/cerberus
+            dir: .
             command: |
               go test ./cmd/cerberus
       - name: deploy
@@ -126,7 +122,7 @@ pipelines:
       - name: verify
         actions:
           - type: shell
-            dir: /Users/me/src/cerberus
+            dir: .
             command: |
               git status --short
               go test ./cmd/cerberus
@@ -139,7 +135,7 @@ pipelines:
         depends_on: [package]
         actions:
           - type: shell
-            dir: /Users/me/src/cerberus
+            dir: .
             command: |
               : "${VERSION:?set VERSION, for example VERSION=0.3.0-beta.1}"
               ls -la dist

@@ -35,7 +35,7 @@ the seed directly to add projects.`,
 		fmt.Printf("  1. Edit %s to add projects + resources, OR\n", path)
 		fmt.Println("     register an existing project config:")
 		fmt.Println("       cerberus register <path-to-project.yaml>")
-		fmt.Println("  2. Bootstrap the macOS launch agent (one-time, optional):")
+		fmt.Println("  2. Run the daemon as a service: a launch agent on macOS, a systemd user unit on Linux (one-time, optional):")
 		fmt.Println("       cerberus install")
 		fmt.Println("  3. List what's now visible:")
 		fmt.Println("       cerberus resource list")

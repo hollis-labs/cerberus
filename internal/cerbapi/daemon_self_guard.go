@@ -51,7 +51,7 @@ func (s *ResourceRuntimeService) refuseSelfMutation(res *config.ResourceDef, spe
 	if !self {
 		return nil
 	}
-	return fmt.Errorf("refusing to mutate serving Cerberus daemon resource %q through its own runtime: build to a temporary path, atomically move the binary over the daemon artifact, then run `launchctl kickstart -k %s` from an external terminal; do not use resource deploy, apply, sync, reload, stop or remove for this self-upgrade", res.ID, daemon.LaunchdServiceTarget())
+	return fmt.Errorf("refusing to mutate serving Cerberus daemon resource %q through its own runtime: build to a temporary path, atomically move the binary over the daemon artifact, then run `%s` from an external terminal; do not use resource deploy, apply, sync, reload, stop or remove for this self-upgrade", res.ID, daemon.SupervisorRestartCommand())
 }
 
 func sameExecutablePath(a, b string) bool {

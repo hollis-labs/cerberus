@@ -304,6 +304,11 @@ func (s *ResourceRuntimeService) planResourceDef(ctx context.Context, spec audit
 		} else if ok {
 			p.Digests["plist"] = s.audit.Digest(string(rendered))
 		}
+		if rendered, ok, perr := s.localConnector().PreviewSystemdUnit(dr); perr != nil {
+			return plan.Plan{}, fmt.Errorf("render the systemd unit %q would install: %w", id, perr)
+		} else if ok {
+			p.Digests["unit"] = s.audit.Digest(string(rendered))
+		}
 	}
 	state, err := s.statusWithTimeout(ctx, dr)
 	if err != nil {

@@ -295,6 +295,7 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 	recommendedAction := ""
 	recommendedReason := ""
 	var launchdRec localconn.LaunchdRecord
+	var systemdRec localconn.SystemdRecord
 	if spec.Mode == localconn.ProcessModeOSService {
 		if layout, art, inspectErr := localconn.InspectArtifactInstall(dr, spec); inspectErr == nil {
 			if installRoot == "" {
@@ -315,8 +316,17 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 			}
 			recommendedAction, recommendedReason = localconn.RecommendedStatusAction(spec, state, art)
 		}
-		if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
-			launchdRec = rec
+		switch osServiceSupervisor(spec) {
+		case localconn.ProcessSupervisorLaunchd:
+			if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
+				launchdRec = rec
+			}
+		case localconn.ProcessSupervisorSystemdUser:
+			if rec, recErr := localconn.InspectSystemdRecord(ctx, dr, spec); recErr == nil {
+				systemdRec = rec
+			}
+		case localconn.ProcessSupervisorAuto, localconn.ProcessSupervisorWindowsService:
+			// auto is already resolved by here; windows_service has no backend.
 		}
 	} else {
 		// Non-os_service (dev_session) resources have no artifact;
@@ -326,40 +336,50 @@ func (s *ResourceRuntimeService) GetResourceRuntime(ctx context.Context, id stri
 	}
 
 	return &ResourceRuntimeStatus{
-		ConfigWarnings:      localconn.ProcessConfigWarnings(res.Config),
-		DependencyWarnings:  s.dependencyWarnings(ctx, res, cfg),
-		ID:                  res.ID,
-		Name:                res.Name,
-		Type:                res.Type,
-		Project:             res.Project,
-		Connector:           res.Connector,
-		Mode:                resourceMode(*res),
-		Supervisor:          resourceSupervisor(*res),
-		RunFrom:             resourceRunFrom(*res),
-		URL:                 spec.URL,
-		Port:                spec.Port,
-		HasBuild:            localconn.HasBuildStrategy(spec),
-		Status:              string(state),
-		OperatorStopped:     pausectl.IsServicePaused(res.ID),
-		ServiceName:         serviceName,
-		ArtifactPath:        artifactPath,
-		InstallRoot:         installRoot,
-		ArtifactInstalled:   artifactInstalled,
-		ArtifactStale:       artifactStale,
-		ArtifactStaleReason: artifactStaleReason,
-		ArtifactSource:      artifactSource,
-		ArtifactSyncedAt:    artifactSyncedAt,
-		RecommendedAction:   recommendedAction,
-		RecommendedReason:   recommendedReason,
-		RecommendedNextStep: localconn.RecommendedNextStep(recommendedAction, recommendedReason),
-		LaunchdLoaded:       launchdRec.Loaded,
-		LaunchdState:        launchdRec.State,
-		LaunchdPID:          launchdRec.PID,
-		LaunchdLastExitCode: launchdRec.LastExitCode,
-		LaunchdThrottled:    launchdRec.Throttled,
-		LaunchdReason:       launchdRec.Reason,
-		LaunchdDiagnosis:    launchdRec.Diagnosis,
-		LaunchdHighlights:   append([]string(nil), launchdRec.Highlights...),
+		ConfigWarnings:       localconn.ProcessConfigWarnings(res.Config),
+		DependencyWarnings:   s.dependencyWarnings(ctx, res, cfg),
+		ID:                   res.ID,
+		Name:                 res.Name,
+		Type:                 res.Type,
+		Project:              res.Project,
+		Connector:            res.Connector,
+		Mode:                 resourceMode(*res),
+		Supervisor:           resourceSupervisor(*res),
+		RunFrom:              resourceRunFrom(*res),
+		URL:                  spec.URL,
+		Port:                 spec.Port,
+		HasBuild:             localconn.HasBuildStrategy(spec),
+		Status:               string(state),
+		OperatorStopped:      pausectl.IsServicePaused(res.ID),
+		ServiceName:          serviceName,
+		ArtifactPath:         artifactPath,
+		InstallRoot:          installRoot,
+		ArtifactInstalled:    artifactInstalled,
+		ArtifactStale:        artifactStale,
+		ArtifactStaleReason:  artifactStaleReason,
+		ArtifactSource:       artifactSource,
+		ArtifactSyncedAt:     artifactSyncedAt,
+		RecommendedAction:    recommendedAction,
+		RecommendedReason:    recommendedReason,
+		RecommendedNextStep:  localconn.RecommendedNextStep(recommendedAction, recommendedReason),
+		LaunchdLoaded:        launchdRec.Loaded,
+		LaunchdState:         launchdRec.State,
+		LaunchdPID:           launchdRec.PID,
+		LaunchdLastExitCode:  launchdRec.LastExitCode,
+		LaunchdThrottled:     launchdRec.Throttled,
+		LaunchdReason:        launchdRec.Reason,
+		LaunchdDiagnosis:     launchdRec.Diagnosis,
+		LaunchdHighlights:    append([]string(nil), launchdRec.Highlights...),
+		SystemdLoadState:     systemdRec.LoadState,
+		SystemdActiveState:   systemdRec.ActiveState,
+		SystemdSubState:      systemdRec.SubState,
+		SystemdUnitFileState: systemdRec.UnitFileState,
+		SystemdResult:        systemdRec.Result,
+		SystemdPID:           systemdRec.PID,
+		SystemdExitStatus:    systemdRec.ExecMainStatus,
+		SystemdRestarts:      systemdRec.Restarts,
+		SystemdDiagnosis:     systemdRec.Diagnosis,
+		SystemdHighlights:    append([]string(nil), systemdRec.Highlights...),
 	}, nil
 }
 
@@ -413,7 +433,7 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 			if layout, layoutErr := localconn.DefaultInstallLayout(home, dr, spec); layoutErr == nil {
 				out.WorkingDir = layout.WorkingDir
 				out.ServiceName = layout.ServiceName
-				out.PlistPath = layout.PlistPath
+				out.PlistPath, out.UnitPath = serviceDefinitionPaths(spec, layout)
 				out.InstallRoot = layout.RootDir
 				out.InstallWorkDir = layout.CurrentDir
 				out.BinDir = layout.BinDir
@@ -426,8 +446,8 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 			if out.ServiceName == "" {
 				out.ServiceName = layout.ServiceName
 			}
-			if out.PlistPath == "" {
-				out.PlistPath = layout.PlistPath
+			if out.PlistPath == "" && out.UnitPath == "" {
+				out.PlistPath, out.UnitPath = serviceDefinitionPaths(spec, layout)
 			}
 			if out.InstallRoot == "" {
 				out.InstallRoot = layout.RootDir
@@ -457,7 +477,22 @@ func (s *ResourceRuntimeService) GetResourceInspect(ctx context.Context, id stri
 			out.RecommendedAction, out.RecommendedReason = localconn.RecommendedStatusAction(spec, state, art)
 			out.RecommendedNextStep = localconn.RecommendedNextStep(out.RecommendedAction, out.RecommendedReason)
 		}
-		if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
+		if osServiceSupervisor(spec) == localconn.ProcessSupervisorSystemdUser {
+			if rec, recErr := localconn.InspectSystemdRecord(ctx, dr, spec); recErr == nil {
+				out.SystemdLoadState = rec.LoadState
+				out.SystemdActiveState = rec.ActiveState
+				out.SystemdSubState = rec.SubState
+				out.SystemdUnitFileState = rec.UnitFileState
+				out.SystemdResult = rec.Result
+				out.SystemdPID = rec.PID
+				out.SystemdExitStatus = rec.ExecMainStatus
+				out.SystemdRestarts = rec.Restarts
+				out.SystemdDiagnosis = rec.Diagnosis
+				out.SystemdHighlights = append([]string(nil), rec.Highlights...)
+				out.SystemdRaw = rec.Raw
+				out.SystemdJournal = rec.Journal
+			}
+		} else if rec, recErr := localconn.InspectLaunchdRecord(ctx, dr, spec); recErr == nil {
 			out.LaunchdLoaded = rec.Loaded
 			out.LaunchdState = rec.State
 			out.LaunchdPID = rec.PID
@@ -532,12 +567,32 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 		}
 
 		checkPathCheck("install_root", inspect.InstallRoot, true)
-		checkPathCheck("plist", inspect.PlistPath, true)
-		if _, spec, specErr := s.requireLocalProcessSpec(ctx, id); specErr == nil && secretref.EnvHasRefs(spec.Env) {
-			if checkErr := localconn.CheckSecretReferencePlist(inspect.PlistPath, spec); checkErr != nil {
-				add("secret_reference_shim", "fail", checkErr.Error())
-			} else {
-				add("secret_reference_shim", "pass", "plist retains secret references and fronts the service with run-secrets; live credential resolution is a separate check")
+		_, spec, specErr := s.requireLocalProcessSpec(ctx, id)
+		if specErr == nil && osServiceSupervisor(spec) == localconn.ProcessSupervisorSystemdUser {
+			checkPathCheck("unit", inspect.UnitPath, true)
+			if secretref.EnvHasRefs(spec.Env) {
+				if checkErr := localconn.CheckSecretReferenceUnit(inspect.UnitPath, spec); checkErr != nil {
+					add("secret_reference_shim", "fail", checkErr.Error())
+				} else {
+					add("secret_reference_shim", "pass", "unit retains secret references and fronts the service with run-secrets; live credential resolution is a separate check")
+				}
+			}
+			switch linger, lingerErr := localconn.SystemdUserLinger(ctx); {
+			case lingerErr != nil:
+				add("user_linger", "warn", fmt.Sprintf("could not read lingering for this user (%v); without it, user services stop at logout and do not start at boot", lingerErr))
+			case linger:
+				add("user_linger", "pass", "lingering is enabled: the user manager and its services run without a login session and start at boot")
+			default:
+				add("user_linger", "warn", "lingering is off: user services stop at logout and do not start at boot; enable it with `loginctl enable-linger`")
+			}
+		} else {
+			checkPathCheck("plist", inspect.PlistPath, true)
+			if specErr == nil && secretref.EnvHasRefs(spec.Env) {
+				if checkErr := localconn.CheckSecretReferencePlist(inspect.PlistPath, spec); checkErr != nil {
+					add("secret_reference_shim", "fail", checkErr.Error())
+				} else {
+					add("secret_reference_shim", "pass", "plist retains secret references and fronts the service with run-secrets; live credential resolution is a separate check")
+				}
 			}
 		}
 		checkPathCheck("stdout_log", inspect.StdoutLogPath, false)
@@ -571,36 +626,67 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 				add("workspace_runtime", "warn", "workspace-backed resource has no command configured")
 			}
 		}
-		if inspect.LaunchdLoaded {
-			add("launchd_loaded", "pass", fmt.Sprintf("launchd state is %s", valueOrUnknown(inspect.LaunchdState)))
+		if specErr == nil && osServiceSupervisor(spec) == localconn.ProcessSupervisorSystemdUser {
+			switch inspect.SystemdLoadState {
+			case "loaded":
+				add("systemd_loaded", "pass", fmt.Sprintf("unit is loaded (%s/%s, %s)", inspect.SystemdActiveState, inspect.SystemdSubState, valueOrUnknown(inspect.SystemdUnitFileState)))
+			case "":
+				add("systemd_loaded", "warn", "systemd state could not be read")
+			default:
+				add("systemd_loaded", "warn", fmt.Sprintf("unit is not loaded (LoadState=%s)", inspect.SystemdLoadState))
+			}
+			if inspect.SystemdLoadState == "loaded" && inspect.SystemdUnitFileState != "enabled" {
+				add("systemd_enabled", "warn", fmt.Sprintf("unit is %s, so it will not start at login or boot; resource apply enables it", valueOrUnknown(inspect.SystemdUnitFileState)))
+			}
+			if inspect.SystemdExitStatus != nil {
+				if *inspect.SystemdExitStatus == 0 {
+					add("systemd_exit", "pass", "last exit status is 0")
+				} else {
+					add("systemd_exit", "warn", fmt.Sprintf("last exit status is %d", *inspect.SystemdExitStatus))
+				}
+			}
+			if inspect.SystemdDiagnosis != "" {
+				status := "warn"
+				switch {
+				case inspect.SystemdActiveState == "active" && inspect.SystemdSubState == "running":
+					status = "pass"
+				case inspect.Status == string(domain.StateFailed):
+					status = "fail"
+				}
+				add("systemd_diagnosis", status, inspect.SystemdDiagnosis)
+			}
 		} else {
-			add("launchd_loaded", "warn", "launchd service is not loaded")
-		}
-		if inspect.LaunchdThrottled {
-			add("launchd_throttle", "fail", "launchd reports the service as throttled")
-		}
-		if inspect.LaunchdLastExitCode != nil {
-			if *inspect.LaunchdLastExitCode == 0 {
-				add("launchd_exit", "pass", "last exit code is 0")
+			if inspect.LaunchdLoaded {
+				add("launchd_loaded", "pass", fmt.Sprintf("launchd state is %s", valueOrUnknown(inspect.LaunchdState)))
 			} else {
-				add("launchd_exit", "warn", fmt.Sprintf("last exit code is %d", *inspect.LaunchdLastExitCode))
+				add("launchd_loaded", "warn", "launchd service is not loaded")
 			}
-		}
-		if inspect.LaunchdReason != "" {
-			add("launchd_reason", "warn", inspect.LaunchdReason)
-		}
-		if inspect.LaunchdDiagnosis != "" {
-			status := "warn"
-			diagnosis := strings.TrimSpace(strings.ToLower(inspect.LaunchdDiagnosis))
-			switch {
-			case inspect.LaunchdThrottled:
-				status = "fail"
-			case diagnosis == "service is loaded and running":
-				status = "pass"
-			case inspect.LaunchdLoaded && strings.TrimSpace(strings.ToLower(inspect.LaunchdState)) == "running":
-				status = "pass"
+			if inspect.LaunchdThrottled {
+				add("launchd_throttle", "fail", "launchd reports the service as throttled")
 			}
-			add("launchd_diagnosis", status, inspect.LaunchdDiagnosis)
+			if inspect.LaunchdLastExitCode != nil {
+				if *inspect.LaunchdLastExitCode == 0 {
+					add("launchd_exit", "pass", "last exit code is 0")
+				} else {
+					add("launchd_exit", "warn", fmt.Sprintf("last exit code is %d", *inspect.LaunchdLastExitCode))
+				}
+			}
+			if inspect.LaunchdReason != "" {
+				add("launchd_reason", "warn", inspect.LaunchdReason)
+			}
+			if inspect.LaunchdDiagnosis != "" {
+				status := "warn"
+				diagnosis := strings.TrimSpace(strings.ToLower(inspect.LaunchdDiagnosis))
+				switch {
+				case inspect.LaunchdThrottled:
+					status = "fail"
+				case diagnosis == "service is loaded and running":
+					status = "pass"
+				case inspect.LaunchdLoaded && strings.TrimSpace(strings.ToLower(inspect.LaunchdState)) == "running":
+					status = "pass"
+				}
+				add("launchd_diagnosis", status, inspect.LaunchdDiagnosis)
+			}
 		}
 
 		// CW-20260519-0054: surface a rogue manual daemon squatting the
@@ -609,11 +695,15 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 		// services the daemon-lock check is meaningless.
 		if inspect.ID == daemon.CanonicalDaemonResourceID {
 			if info, err := daemon.ReadDaemonLockInfo(); err == nil && info.Origin == "manual" && info.PID > 0 {
+				supervisor := "launchd"
+				if osServiceSupervisor(spec) == localconn.ProcessSupervisorSystemdUser {
+					supervisor = "systemd"
+				}
 				add("daemon_lock_origin", "fail", fmt.Sprintf(
 					"daemon lock is held by a manual cerberus daemon (PID %d). "+
-						"This squats the launchd-managed service and causes the launchd job to crash-loop with exit 1. "+
+						"This squats the %s-managed service and causes the %s job to crash-loop with exit 1. "+
 						"Kill the manual PID, then `cerberus resource reload %s --ack`.",
-					info.PID, daemon.CanonicalDaemonResourceID))
+					info.PID, supervisor, supervisor, daemon.CanonicalDaemonResourceID))
 			}
 		}
 	}
@@ -1020,11 +1110,15 @@ func (s *ResourceRuntimeService) formatApplyError(id string, res *config.Resourc
 	dr := resourceDefToDomain(res)
 	if home, homeErr := os.UserHomeDir(); homeErr == nil {
 		if layout, layoutErr := localconn.DefaultInstallLayout(home, dr, spec); layoutErr == nil {
-			return fmt.Sprintf("%s; stderr log: %s; stdout log: %s; plist: %s; install: %s; artifact: %s; %s",
+			definition := "plist: " + layout.PlistPath
+			if osServiceSupervisor(spec) == localconn.ProcessSupervisorSystemdUser {
+				definition = "unit: " + layout.UnitPath
+			}
+			return fmt.Sprintf("%s; stderr log: %s; stdout log: %s; %s; install: %s; artifact: %s; %s",
 				msg,
 				filepath.Join(layout.RootDir, "logs", "stderr.log"),
 				filepath.Join(layout.RootDir, "logs", "stdout.log"),
-				layout.PlistPath,
+				definition,
 				layout.RootDir,
 				layout.ArtifactPath,
 				inspectHint,
@@ -1511,6 +1605,25 @@ func resourceMode(r config.ResourceDef) string {
 		return string(localconn.ProcessModeDevSession)
 	}
 	return string(spec.Mode)
+}
+
+// osServiceSupervisor is the supervisor an os_service spec runs under on this
+// host, or "" when it has none here.
+func osServiceSupervisor(spec localconn.ProcessSpec) localconn.ProcessSupervisor {
+	supervisor, err := localconn.EffectiveSupervisor(spec)
+	if err != nil {
+		return ""
+	}
+	return supervisor
+}
+
+// serviceDefinitionPaths is the plist or the unit an os_service resource is
+// installed as, whichever its supervisor uses; the other is empty.
+func serviceDefinitionPaths(spec localconn.ProcessSpec, layout localconn.InstallLayout) (plist, unit string) {
+	if osServiceSupervisor(spec) == localconn.ProcessSupervisorSystemdUser {
+		return "", layout.UnitPath
+	}
+	return layout.PlistPath, ""
 }
 
 func resourceSupervisor(r config.ResourceDef) string {

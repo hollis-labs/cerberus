@@ -531,7 +531,7 @@ func logsApproval(cmd *cobra.Command) cerbapi.MutationOption {
 var resourceLogsCmd = &cobra.Command{
 	Use:   "logs <resource-id>",
 	Short: "Show local process resource logs",
-	Long:  "Shows recent logs for a local process resource. For os_service resources on macOS, use --stream stdout or --stream stderr to select the launchd log stream.",
+	Long:  "Shows recent logs for a local process resource. For os_service resources, use --stream stdout or --stream stderr to select the stream the service writes under its install root (the same files under launchd and systemd).",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		res, err := loadResource(args[0])
@@ -807,6 +807,33 @@ func printResourceRuntimeStatus(st *cerbapi.ResourceRuntimeStatus) {
 	if len(st.LaunchdHighlights) > 0 {
 		fmt.Printf("Highlights:  %s\n", strings.Join(st.LaunchdHighlights, " | "))
 	}
+	printSystemdSummary(st.SystemdActiveState, st.SystemdSubState, st.SystemdUnitFileState, st.SystemdPID, st.SystemdExitStatus, st.SystemdRestarts, st.SystemdDiagnosis, st.SystemdHighlights)
+}
+
+// printSystemdSummary prints a systemd unit's record, the counterpart of the
+// Launchd lines; it prints nothing for a resource that is not under systemd.
+func printSystemdSummary(active, sub, unitFileState string, pid int, exitStatus *int, restarts int, diagnosis string, highlights []string) {
+	if active != "" {
+		fmt.Printf("Systemd:     %s/%s\n", active, sub)
+	}
+	if unitFileState != "" {
+		fmt.Printf("Unit File:   %s\n", unitFileState)
+	}
+	if pid > 0 {
+		fmt.Printf("Main PID:    %d\n", pid)
+	}
+	if exitStatus != nil {
+		fmt.Printf("Last Exit:   %d\n", *exitStatus)
+	}
+	if restarts > 0 {
+		fmt.Printf("Restarts:    %d\n", restarts)
+	}
+	if diagnosis != "" {
+		fmt.Printf("Diagnosis:   %s\n", diagnosis)
+	}
+	if len(highlights) > 0 {
+		fmt.Printf("Highlights:  %s\n", strings.Join(highlights, " | "))
+	}
 }
 
 func printResourceInspect(st *cerbapi.ResourceInspect) {
@@ -848,6 +875,9 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 	}
 	if st.PlistPath != "" {
 		fmt.Printf("Plist:       %s\n", st.PlistPath)
+	}
+	if st.UnitPath != "" {
+		fmt.Printf("Unit:        %s\n", st.UnitPath)
 	}
 	if st.InstallRoot != "" {
 		fmt.Printf("Install:     %s\n", st.InstallRoot)
@@ -922,6 +952,17 @@ func printResourceInspect(st *cerbapi.ResourceInspect) {
 		fmt.Println("Launchctl:")
 		fmt.Print(st.LaunchdRaw)
 		if !strings.HasSuffix(st.LaunchdRaw, "\n") {
+			fmt.Println()
+		}
+	}
+	printSystemdSummary(st.SystemdActiveState, st.SystemdSubState, st.SystemdUnitFileState, st.SystemdPID, st.SystemdExitStatus, st.SystemdRestarts, st.SystemdDiagnosis, st.SystemdHighlights)
+	for _, block := range []struct{ title, text string }{{"Systemctl:", st.SystemdRaw}, {"Journal:", st.SystemdJournal}} {
+		if block.text == "" {
+			continue
+		}
+		fmt.Println(block.title)
+		fmt.Print(block.text)
+		if !strings.HasSuffix(block.text, "\n") {
 			fmt.Println()
 		}
 	}
