@@ -156,7 +156,7 @@ cerberus:
               description: 'List model deployments: deployment name, model, version, sku, capacity. Answers "what models can we actually call, at what version" without opening the portal. With no account it walks every AI account in the subscription.'
               examples:
                 - cerberus connectors exec azure list_model_deployments
-                - cerberus connectors exec azure list_model_deployments --arg account=example-ai-account
+                - cerberus connectors exec azure list_model_deployments --arg account=Example-AI-Account
               input_schema:
                 additionalProperties: false
                 properties:
