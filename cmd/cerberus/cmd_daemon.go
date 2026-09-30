@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -42,11 +43,29 @@ const (
 var daemonForeground bool
 
 // daemonOverrideLaunchd lets an operator bypass the "refuse manual start
-// when launchd-managed" guard for debugging. Without it, `cerberus daemon`
-// (or `... --foreground`) on a launchd-managed install refuses to start
-// rather than squatting the daemon lock the launchd-supervised service
-// would otherwise hold (CW-20260519-0054).
+// when supervisor-managed" guard for debugging. Without it, `cerberus daemon`
+// (or `... --foreground`) on a launchd- or systemd-managed install refuses to
+// start rather than squatting the daemon lock the supervised service would
+// otherwise hold (CW-20260519-0054). It is set by --override-supervisor, or
+// --override-launchd from before systemd was supported.
 var daemonOverrideLaunchd bool
+
+// systemdGuardApplies reports whether systemd is the daemon's intended
+// supervisor and this process is not the one it started: the systemd
+// counterpart of the launchd guard, so a CLI start, stop or restart goes
+// through systemctl and the unit keeps owning the daemon.
+func systemdGuardApplies() bool {
+	return daemon.SystemdManagedDaemonExists() && !daemon.SystemdSpawnedSelf() && !daemonOverrideLaunchd
+}
+
+// systemctlDaemon runs `systemctl --user <verb>` on the daemon's unit.
+func systemctlDaemon(ctx context.Context, verb string) error {
+	unit := daemon.SystemdDaemonUnit()
+	if out, err := daemon.SystemctlUser(ctx, verb, unit); err != nil {
+		return fmt.Errorf("systemctl --user %s %s: %w (output: %s)", verb, unit, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
@@ -74,7 +93,8 @@ var daemonStopCmd = &cobra.Command{
 	Long: `Sends SIGTERM to the running daemon and waits up to 5s for clean exit before
 escalating to SIGKILL. When the daemon is launchd-managed, signals via
 'launchctl kill SIGTERM' so the supervisor sees the shutdown rather than
-treating it as a crash.`,
+treating it as a crash. When it is systemd-managed, stops the unit with
+'systemctl --user stop', which leaves it enabled.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		service.InitLifecycleLog()
 		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
@@ -88,6 +108,14 @@ treating it as a crash.`,
 			}
 			fmt.Printf("Sent SIGTERM via launchd (%s). Note: KeepAlive=true will restart the service.\n",
 				daemon.LaunchdServiceTarget())
+			return nil
+		}
+		if systemdGuardApplies() {
+			if err := systemctlDaemon(ctx, "stop"); err != nil {
+				return err
+			}
+			fmt.Printf("Stopped via systemd (%s). The unit stays enabled and starts again at login or boot; `cerberus daemon start` starts it now.\n",
+				daemon.SystemdDaemonUnit())
 			return nil
 		}
 
@@ -179,6 +207,9 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 	if daemon.LaunchdManagedDaemonExists() && !daemon.LaunchdSpawnedSelf() && !daemonOverrideLaunchd {
 		return launchctlStartOrRestart(ctx, false)
 	}
+	if systemdGuardApplies() {
+		return systemctlStartOrRestart(ctx, false)
+	}
 
 	// Plain start: refuse if another daemon is already running. The lockfile
 	// acquired inside the child is the authoritative guard; this pre-check
@@ -205,6 +236,14 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 func refuseIfLaunchdManagedAndManual() error {
 	if daemonOverrideLaunchd {
 		return nil
+	}
+	if systemdGuardApplies() {
+		unitPath, _ := daemon.SystemdManagedDaemonUnitPath()
+		return fmt.Errorf(`refusing to start a manual cerberus daemon: systemd unit exists at %s.
+  - To restart the systemd-managed daemon: systemctl --user restart %s
+  - To start it if stopped:                cerberus daemon start
+  - To debug a parallel daemon (rare):     cerberus daemon --foreground --override-supervisor`,
+			unitPath, daemon.SystemdDaemonUnit())
 	}
 	if !daemon.LaunchdManagedDaemonExists() || daemon.LaunchdSpawnedSelf() {
 		return nil
@@ -236,6 +275,20 @@ func launchctlStartOrRestart(ctx context.Context, restart bool) error {
 	return nil
 }
 
+// systemctlStartOrRestart is launchctlStartOrRestart for a systemd-managed
+// daemon: `systemctl --user start` or `restart` on its unit.
+func systemctlStartOrRestart(ctx context.Context, restart bool) error {
+	verb := "start"
+	if restart {
+		verb = "restart"
+	}
+	if err := systemctlDaemon(ctx, verb); err != nil {
+		return err
+	}
+	fmt.Printf("Cerberus daemon %sed via systemd (%s)\n", verb, daemon.SystemdDaemonUnit())
+	return nil
+}
+
 // runDaemonRestart executes the atomic stop-then-start restart sequence.
 // When launchd is the intended supervisor, restart routes through
 // `launchctl kickstart -k` so the launchd job — not a manual fork — owns
@@ -246,6 +299,9 @@ func runDaemonRestart(ctx context.Context) error {
 
 	if daemon.LaunchdManagedDaemonExists() && !daemon.LaunchdSpawnedSelf() && !daemonOverrideLaunchd {
 		return launchctlStartOrRestart(ctx, true)
+	}
+	if systemdGuardApplies() {
+		return systemctlStartOrRestart(ctx, true)
 	}
 
 	opts := daemon.DefaultRestartOptions()
@@ -300,6 +356,8 @@ type daemonStatusView struct {
 	PIDSource      string `json:"pid_source,omitempty"`
 	Origin         string `json:"origin,omitempty"`
 	LaunchdManaged bool   `json:"launchd_managed"`
+	SystemdManaged bool   `json:"systemd_managed,omitempty"`
+	SystemdUnit    string `json:"systemd_unit,omitempty"`
 	OriginMismatch bool   `json:"origin_mismatch,omitempty"`
 	SocketPath     string `json:"socket_path,omitempty"`
 	SocketPresent  bool   `json:"socket_present"`
@@ -311,6 +369,10 @@ type daemonStatusView struct {
 func currentDaemonStatus(ctx context.Context) (daemonStatusView, error) {
 	out := daemonStatusView{}
 	out.LaunchdManaged = daemon.LaunchdManagedDaemonExists()
+	out.SystemdManaged = daemon.SystemdManagedDaemonExists()
+	if out.SystemdManaged {
+		out.SystemdUnit = daemon.SystemdDaemonUnit()
+	}
 
 	pid, err := daemon.ReadDaemonPID()
 	if err == nil && pid > 0 {
@@ -334,7 +396,7 @@ func currentDaemonStatus(ctx context.Context) (daemonStatusView, error) {
 
 	if info, lockErr := daemon.ReadDaemonLockInfo(); lockErr == nil {
 		out.Origin = info.Origin
-		if out.LaunchdManaged && out.Running && info.Origin == "manual" {
+		if (out.LaunchdManaged || out.SystemdManaged) && out.Running && info.Origin == "manual" {
 			out.OriginMismatch = true
 		}
 	}
@@ -633,15 +695,17 @@ func init() {
 	daemonCmd.Flags().BoolVar(&daemonReplace, "replace", false, "restart: kill existing daemon before starting (routes through the atomic restart sequence)")
 	daemonCmd.Flags().BoolVar(&daemonForeground, "foreground", false, "run in foreground instead of forking to background")
 	daemonCmd.Flags().BoolVar(&daemonOverrideLaunchd, "override-launchd", false, "bypass the launchd-managed guard and route the manual path (for debugging only)")
+	daemonCmd.Flags().BoolVar(&daemonOverrideLaunchd, "override-supervisor", false, "bypass the launchd- or systemd-managed guard and route the manual path (for debugging only)")
 
 	// Mirror --replace + --foreground on `daemon start` so `cerberus daemon start --replace`
 	// behaves identically to `cerberus daemon --replace` (both route through runDaemonStart,
 	// which honors daemonReplace by calling runDaemonRestart).
 	daemonStartCmd.Flags().BoolVar(&daemonReplace, "replace", false, "restart: kill existing daemon before starting (routes through the atomic restart sequence)")
 	daemonStartCmd.Flags().BoolVar(&daemonForeground, "foreground", false, "run in foreground instead of forking to background")
-	daemonStartCmd.Flags().BoolVar(&daemonOverrideLaunchd, "override-launchd", false, "bypass the launchd-managed guard (for debugging only)")
-	daemonStopCmd.Flags().BoolVar(&daemonOverrideLaunchd, "override-launchd", false, "bypass the launchd-managed guard (for debugging only)")
-	daemonRestartCmd.Flags().BoolVar(&daemonOverrideLaunchd, "override-launchd", false, "bypass the launchd-managed guard (for debugging only)")
+	for _, c := range []*cobra.Command{daemonStartCmd, daemonStopCmd, daemonRestartCmd} {
+		c.Flags().BoolVar(&daemonOverrideLaunchd, "override-launchd", false, "bypass the launchd-managed guard (for debugging only)")
+		c.Flags().BoolVar(&daemonOverrideLaunchd, "override-supervisor", false, "bypass the launchd- or systemd-managed guard (for debugging only)")
+	}
 
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(daemonStopCmd)

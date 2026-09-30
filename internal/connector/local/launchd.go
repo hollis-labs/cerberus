@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/launchenv"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secretref"
 	"github.com/hollis-labs/cerberus/internal/service"
@@ -72,7 +73,10 @@ type launchdBackend struct {
 	// selfPath resolves the Cerberus executable used to front a service whose
 	// environment carries secret references. Nil falls back to os.Executable
 	// with a PATH lookup behind it; tests override it.
-	selfPath     func() (string, error)
+	selfPath func() (string, error)
+	// envPath is the PATH a plist's composed PATH starts from; nil is the
+	// serving process's own PATH.
+	envPath      func() string
 	startTimeout time.Duration
 }
 
@@ -133,17 +137,9 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 	// the port ourselves — i.e. a first install or a restart from a
 	// stopped/failed state — so a redeploy's bootout-then-bootstrap of a
 	// port we already own isn't refused.
-	if spec.Port > 0 && state != domain.StateRunning && state != domain.StateStarting {
-		if conflict, conflictErr := service.CheckPortConflict(spec.Port, res.ID); conflictErr == nil && conflict != nil {
-			if conflict.CerberusManaged && conflict.ManagedServiceID == res.ID {
-				return ApplyResult{}, fmt.Errorf("already running on port %d (pid %d)", conflict.Port, conflict.PID)
-			}
-			if conflict.CerberusManaged {
-				return ApplyResult{}, fmt.Errorf("port %d in use by Cerberus service %q (pid %d)",
-					conflict.Port, conflict.ManagedServiceID, conflict.PID)
-			}
-			return ApplyResult{}, fmt.Errorf("port %d in use by external process %q (pid %d)",
-				conflict.Port, conflict.ProcessName, conflict.PID)
+	if state != domain.StateRunning && state != domain.StateStarting {
+		if err := checkServicePortConflict(res, spec); err != nil {
+			return ApplyResult{}, err
 		}
 	}
 
@@ -392,6 +388,21 @@ func (b launchdBackend) renderPlist(res *domain.Resource, spec ProcessSpec, layo
 		StandardErrorPath: filepath.Join(logDir, "stderr.log"),
 	}
 	data.Environment, data.EnvironmentEntries = launchdEnvironment(spec)
+	// launchd hands a job /usr/bin:/bin:/usr/sbin:/sbin, which has none of
+	// the operator's toolchain. Unless the resource sets its own, the job
+	// gets the PATH the serving daemon runs with — which `cerberus install`
+	// composed from the installing shell — as a systemd unit does.
+	if _, ok := data.Environment["PATH"]; !ok {
+		envPath := os.Getenv("PATH")
+		if b.envPath != nil {
+			envPath = b.envPath()
+		}
+		if data.Environment == nil {
+			data.Environment = map[string]string{}
+		}
+		data.Environment["PATH"] = launchenv.Path(envPath, launchenv.LaunchdBasePath)
+		data.EnvironmentEntries = sortedPlistEntries(data.Environment)
+	}
 
 	// A service whose environment carries secret references is fronted by
 	// `cerberus run-secrets`, which resolves them in the service's own process.
@@ -443,6 +454,32 @@ func (b launchdBackend) loadedState(ctx context.Context, label string) (bool, do
 		return false, domain.StateUnknown, fmt.Errorf("launchctl print %s: %w", label, err)
 	}
 	return true, parseLaunchdState(string(out)), nil
+}
+
+// checkServicePortConflict refuses to start a supervised service on a port
+// something else already listens on. A supervised resource carries no
+// Cerberus PID file, so a running/starting instance would misread its own
+// listener as an external conflict: callers only probe when the service is
+// not already presumed to hold the port — a first install or a restart from
+// a stopped/failed state — so a redeploy of a port it already owns isn't
+// refused.
+func checkServicePortConflict(res *domain.Resource, spec ProcessSpec) error {
+	if spec.Port <= 0 {
+		return nil
+	}
+	conflict, conflictErr := service.CheckPortConflict(spec.Port, res.ID)
+	if conflictErr != nil || conflict == nil {
+		return nil //nolint:nilerr // an unreadable probe is not a conflict; the start itself reports a bind failure
+	}
+	if conflict.CerberusManaged && conflict.ManagedServiceID == res.ID {
+		return fmt.Errorf("already running on port %d (pid %d)", conflict.Port, conflict.PID)
+	}
+	if conflict.CerberusManaged {
+		return fmt.Errorf("port %d in use by Cerberus service %q (pid %d)",
+			conflict.Port, conflict.ManagedServiceID, conflict.PID)
+	}
+	return fmt.Errorf("port %d in use by external process %q (pid %d)",
+		conflict.Port, conflict.ProcessName, conflict.PID)
 }
 
 func writeFileIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
@@ -592,6 +629,10 @@ func launchdEnvironment(spec ProcessSpec) (map[string]string, []plistEnvEntry) {
 	if len(env) == 0 {
 		return nil, nil
 	}
+	return env, sortedPlistEntries(env)
+}
+
+func sortedPlistEntries(env map[string]string) []plistEnvEntry {
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -601,7 +642,7 @@ func launchdEnvironment(spec ProcessSpec) (map[string]string, []plistEnvEntry) {
 	for _, key := range keys {
 		entries = append(entries, plistEnvEntry{Key: key, Value: env[key]})
 	}
-	return env, entries
+	return entries
 }
 
 func launchdProgramArguments(layout InstallLayout, spec ProcessSpec) ([]string, error) {

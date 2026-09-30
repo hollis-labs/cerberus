@@ -406,6 +406,49 @@ func Launchd(value string) string {
 	return Text(strings.Join(lines, "\n"))
 }
 
+// Systemd redacts `systemctl show` output the way Launchd redacts
+// `launchctl print`: the argument after a credential-named flag in an
+// ExecStart record (`argv[]=/bin/app --token abc`) is hidden, and the whole
+// text then goes through Text. An Environment= line is dropped to its
+// variable names, since its values are the service's environment.
+func Systemd(value string) string {
+	lines := strings.Split(value, "\n")
+	for i, line := range lines {
+		key, rest, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(key, "ExecStart") || strings.HasPrefix(key, "ExecStop") || strings.HasPrefix(key, "ExecReload"):
+			lines[i] = key + "=" + redactSystemdArgv(rest)
+		case key == "Environment":
+			names := make([]string, 0)
+			for _, word := range strings.Fields(rest) {
+				if name, _, ok := strings.Cut(word, "="); ok {
+					names = append(names, name+"="+Marker)
+				}
+			}
+			lines[i] = key + "=" + strings.Join(names, " ")
+		}
+	}
+	return Text(strings.Join(lines, "\n"))
+}
+
+func redactSystemdArgv(record string) string {
+	const marker = "argv[]="
+	start := strings.Index(record, marker)
+	if start < 0 {
+		return record
+	}
+	start += len(marker)
+	end := strings.Index(record[start:], " ;")
+	if end < 0 {
+		end = len(record) - start
+	}
+	args := (Redactor{}).Args(strings.Fields(record[start : start+end]))
+	return record[:start] + strings.Join(args, " ") + record[start+end:]
+}
+
 // Marshal redacts data while preserving valid JSON and numbers.
 // Schema metadata is traversed as metadata, not as credential assignments.
 func Marshal(value any) ([]byte, error) { return (Redactor{}).Marshal(value) }

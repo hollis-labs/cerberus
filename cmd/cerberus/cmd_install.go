@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/hollis-labs/cerberus/internal/daemon"
+	"github.com/hollis-labs/cerberus/internal/launchenv"
 	"github.com/spf13/cobra"
 )
 
@@ -85,7 +86,7 @@ type launchdData struct {
 // EnvironmentVariables of its own. Every entry is kept as the tail of the
 // composed PATH so the daemon can still find the system tools even if the
 // installing user's PATH is odd.
-const launchdBasePath = "/usr/bin:/bin:/usr/sbin:/sbin"
+const launchdBasePath = launchenv.LaunchdBasePath
 
 // daemonLaunchPath composes the PATH baked into the daemon's launchd job.
 //
@@ -105,25 +106,9 @@ const launchdBasePath = "/usr/bin:/bin:/usr/sbin:/sbin"
 // environment (see AGENTS.md), and copying the installing shell's whole
 // environment into a persistent launchd job would do exactly that.
 //
-// Entries are filtered to absolute paths: a relative entry — "." or "" — in a
-// long-lived background job's PATH is a way to get arbitrary code run as the
-// operator, and it cannot mean anything useful to a daemon whose working
-// directory is fixed.
+// Entries are filtered to absolute paths (launchenv.Path says why).
 func daemonLaunchPath(envPath string) string {
-	seen := make(map[string]bool)
-	var entries []string
-	add := func(candidates string) {
-		for _, entry := range filepath.SplitList(candidates) {
-			if entry == "" || !filepath.IsAbs(entry) || seen[entry] {
-				continue
-			}
-			seen[entry] = true
-			entries = append(entries, entry)
-		}
-	}
-	add(envPath)
-	add(launchdBasePath)
-	return strings.Join(entries, string(filepath.ListSeparator))
+	return launchenv.Path(envPath, launchdBasePath)
 }
 
 // resolveDaemonBinaryPath returns the absolute path of the cerberus binary that
@@ -145,11 +130,18 @@ func resolveDaemonBinaryPath(executable func() (string, error)) (string, error) 
 
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install the cerberus daemon launch agent",
-	Long:  "Bootstraps or repairs the macOS launch agent for the Cerberus daemon label (`com.hollis-labs.cerberus`). A daemon installed under the label it had before the rename (`com.fragments-engine.cerberus`) is booted out and its plist removed first. The canonical ongoing management path is now the v2 `cerberus-daemon-service` resource; this command remains as a low-level bootstrap and recovery helper when the daemon is not yet available over the socket.",
+	Short: "Install the cerberus daemon as a launch agent (macOS) or systemd user unit (Linux)",
+	Long:  "Bootstraps or repairs the service that runs the Cerberus daemon. On macOS, the launch agent for the daemon label (`com.hollis-labs.cerberus`); a daemon installed under the label it had before the rename (`com.fragments-engine.cerberus`) is booted out and its plist removed first. On Linux, the systemd user unit `com.hollis-labs.cerberus.service` in ~/.config/systemd/user; a hand-written `cerberus.service` that runs `cerberus daemon` is disabled and removed first, so two daemons never run, and install says how to enable lingering if it is off. The canonical ongoing management path is now the v2 `cerberus-daemon-service` resource; this command remains as a low-level bootstrap and recovery helper when the daemon is not yet available over the socket.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS == "linux" {
+			installer, err := newSystemdInstaller(cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			return installer.install(cmd.Context())
+		}
 		if runtime.GOOS != "darwin" {
-			return fmt.Errorf("install is currently supported on macOS only")
+			return fmt.Errorf("install is currently supported on macOS and Linux only")
 		}
 
 		home, err := os.UserHomeDir()
@@ -229,11 +221,18 @@ var installCmd = &cobra.Command{
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Remove the cerberus daemon launch agent",
-	Long:  "Unloads and removes the macOS launch agent for the Cerberus daemon label (`com.hollis-labs.cerberus`), and the one from before the rename (`com.fragments-engine.cerberus`) if it is still there. If `cerberus-daemon-service` is present in the v2 resource lane, prefer `cerberus resource remove cerberus-daemon-service --ack` for normal lifecycle management.",
+	Short: "Remove the cerberus daemon launch agent (macOS) or systemd user unit (Linux)",
+	Long:  "Unloads and removes the service that runs the Cerberus daemon. On macOS, the launch agent for the daemon label (`com.hollis-labs.cerberus`), and the one from before the rename (`com.fragments-engine.cerberus`) if it is still there. On Linux, the systemd user unit `com.hollis-labs.cerberus.service`, and a hand-written `cerberus.service` that runs `cerberus daemon` if it is still there. If `cerberus-daemon-service` is present in the v2 resource lane, prefer `cerberus resource remove cerberus-daemon-service --ack` for normal lifecycle management.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if runtime.GOOS == "linux" {
+			installer, err := newSystemdInstaller(cmd.OutOrStdout())
+			if err != nil {
+				return err
+			}
+			return installer.uninstall(cmd.Context())
+		}
 		if runtime.GOOS != "darwin" {
-			return fmt.Errorf("uninstall is currently supported on macOS only")
+			return fmt.Errorf("uninstall is currently supported on macOS and Linux only")
 		}
 
 		home, err := os.UserHomeDir()

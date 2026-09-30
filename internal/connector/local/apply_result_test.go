@@ -41,3 +41,20 @@ func TestFormatApplyResultMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatSystemdApplyResult(t *testing.T) {
+	cases := map[string]struct {
+		res  ApplyResult
+		want string
+	}{
+		"started":   {ApplyResult{Action: ApplyActionStarted, ArtifactChanged: true}, `resource "demo" applied successfully (artifact synced, systemd unit started)`},
+		"reloaded":  {ApplyResult{Action: ApplyActionReloaded, ArtifactChanged: true, PlistChanged: true}, `resource "demo" applied successfully (artifact synced, unit updated, systemd unit restarted)`},
+		"restarted": {ApplyResult{Action: ApplyActionRestarted}, `resource "demo" applied successfully (artifact already current, systemd unit restarted)`},
+		"noop":      {ApplyResult{Action: ApplyActionNoop}, `resource "demo" already current (systemd unit unchanged)`},
+	}
+	for name, tc := range cases {
+		if got := formatSystemdApplyResult("demo", tc.res); got != tc.want {
+			t.Errorf("%s: message = %q, want %q", name, got, tc.want)
+		}
+	}
+}

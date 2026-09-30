@@ -346,3 +346,23 @@ func TestDeclaredSecretRequirementsKeepTheirNames(t *testing.T) {
 		})
 	}
 }
+
+func TestSystemdHidesExecArgumentsAndEnvironmentValues(t *testing.T) {
+	input := strings.Join([]string{
+		"Id=app.service",
+		"ExecStart={ path=/bin/app ; argv[]=/bin/app serve --token sentinel-secret --port 9012 ; ignore_errors=no ; start_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }",
+		"Environment=REGION=us-east SESSION=sentinel-literal",
+		"ActiveState=active",
+	}, "\n")
+	out := Systemd(input)
+	for _, secret := range []string{"sentinel-secret", "sentinel-literal", "us-east"} {
+		if strings.Contains(out, secret) {
+			t.Fatalf("%q survived: %s", secret, out)
+		}
+	}
+	for _, kept := range []string{"argv[]=/bin/app serve --token " + Marker + " --port 9012 ;", "Environment=REGION=" + Marker + " SESSION=" + Marker, "ActiveState=active", "Id=app.service"} {
+		if !strings.Contains(out, kept) {
+			t.Fatalf("missing %q in %s", kept, out)
+		}
+	}
+}

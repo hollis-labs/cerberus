@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/launchenv"
 )
 
 type runtimeBackend interface {
@@ -88,6 +89,7 @@ func (b devSessionBackend) Status(_ context.Context, res *domain.Resource, spec 
 
 type osServiceBackend struct {
 	launchd launchdBackend
+	systemd systemdBackend
 }
 
 func (b osServiceBackend) Start(ctx context.Context, res *domain.Resource, spec ProcessSpec, _ *devSession) error {
@@ -103,6 +105,8 @@ func (b osServiceBackend) Apply(ctx context.Context, res *domain.Resource, spec 
 	switch supervisor {
 	case ProcessSupervisorLaunchd:
 		return b.launchdBackend().Apply(ctx, res, spec)
+	case ProcessSupervisorSystemdUser:
+		return b.systemdBackend().Apply(ctx, res, spec)
 	default:
 		return ApplyResult{}, fmt.Errorf("os_service start not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
 	}
@@ -116,6 +120,8 @@ func (b osServiceBackend) Stop(ctx context.Context, res *domain.Resource, spec P
 	switch supervisor {
 	case ProcessSupervisorLaunchd:
 		return b.launchdBackend().Stop(ctx, res, spec)
+	case ProcessSupervisorSystemdUser:
+		return b.systemdBackend().Stop(ctx, res, spec)
 	default:
 		return fmt.Errorf("os_service stop not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
 	}
@@ -129,6 +135,8 @@ func (b osServiceBackend) Reload(ctx context.Context, res *domain.Resource, spec
 	switch supervisor {
 	case ProcessSupervisorLaunchd:
 		return b.launchdBackend().Reload(ctx, res, spec)
+	case ProcessSupervisorSystemdUser:
+		return b.systemdBackend().Reload(ctx, res, spec)
 	default:
 		return fmt.Errorf("os_service reload not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
 	}
@@ -142,6 +150,8 @@ func (b osServiceBackend) Destroy(ctx context.Context, res *domain.Resource, spe
 	switch supervisor {
 	case ProcessSupervisorLaunchd:
 		return b.launchdBackend().Remove(ctx, res, spec)
+	case ProcessSupervisorSystemdUser:
+		return b.systemdBackend().Remove(ctx, res, spec)
 	default:
 		return fmt.Errorf("os_service remove not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
 	}
@@ -155,8 +165,10 @@ func (b osServiceBackend) Status(ctx context.Context, res *domain.Resource, spec
 	switch supervisor {
 	case ProcessSupervisorLaunchd:
 		return b.launchdBackend().Status(ctx, res, spec)
+	case ProcessSupervisorSystemdUser:
+		return b.systemdBackend().Status(ctx, res, spec)
 	default:
-		return domain.StateUnknown, nil
+		return domain.StateUnknown, fmt.Errorf("os_service status not implemented yet for resource %q via supervisor %q", res.ID, supervisor)
 	}
 }
 
@@ -201,6 +213,11 @@ func newOSServiceBackend() osServiceBackend {
 			uid:     os.Getuid,
 			install: newArtifactInstaller(),
 		},
+		systemd: systemdBackend{
+			runner:  envCommandRunner{environ: launchenv.UserBusEnviron},
+			homeDir: os.UserHomeDir,
+			install: newArtifactInstaller(),
+		},
 	}
 }
 
@@ -222,4 +239,28 @@ func (b osServiceBackend) launchdBackend() launchdBackend {
 		out.install.now = time.Now
 	}
 	return out
+}
+
+func (b osServiceBackend) systemdBackend() systemdBackend {
+	out := b.systemd
+	if out.runner == nil {
+		out.runner = envCommandRunner{environ: launchenv.UserBusEnviron}
+	}
+	if out.homeDir == nil {
+		out.homeDir = os.UserHomeDir
+	}
+	if out.install.homeDir == nil {
+		out.install.homeDir = out.homeDir
+	}
+	if out.install.now == nil {
+		out.install.now = time.Now
+	}
+	return out
+}
+
+// EffectiveSupervisor is the supervisor an os_service spec runs under on this
+// host: auto resolved to the platform's own (launchd on macOS, systemd_user
+// on Linux), and an explicit supervisor checked against the platform.
+func EffectiveSupervisor(spec ProcessSpec) (ProcessSupervisor, error) {
+	return effectiveSupervisor(spec)
 }

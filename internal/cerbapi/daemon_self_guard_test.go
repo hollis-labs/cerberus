@@ -41,7 +41,7 @@ func TestServingDaemonRefusesMutationBeforeBuildOrInstall(t *testing.T) {
 			operations := []func(context.Context, string, ...MutationOption) (*OpResult, error){runtime.ApplyResource, runtime.SyncResource, runtime.ReloadResource, runtime.StopResource, runtime.RemoveResource, runtime.DeployResource}
 			for _, operation := range operations {
 				result, err := operation(context.Background(), identity.id, WithAcknowledged(true))
-				if err != nil || result == nil || result.Success || !strings.Contains(result.Error, "refusing to mutate serving Cerberus") || !strings.Contains(result.Error, "kickstart") {
+				if err != nil || result == nil || result.Success || !strings.Contains(result.Error, "refusing to mutate serving Cerberus") || !strings.Contains(result.Error, daemon.SupervisorRestartCommand()) {
 					t.Fatalf("expected actionable self-mutation refusal, got %+v / %v", result, err)
 				}
 			}

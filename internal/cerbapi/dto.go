@@ -384,6 +384,18 @@ type ResourceRuntimeStatus struct {
 	LaunchdReason       string   `json:"launchd_reason,omitempty"`
 	LaunchdDiagnosis    string   `json:"launchd_diagnosis,omitempty"`
 	LaunchdHighlights   []string `json:"launchd_highlights,omitempty"`
+	// Systemd* describe the unit of an os_service resource under
+	// systemd_user, as Launchd* describe a launch agent.
+	SystemdLoadState     string   `json:"systemd_load_state,omitempty"`
+	SystemdActiveState   string   `json:"systemd_active_state,omitempty"`
+	SystemdSubState      string   `json:"systemd_sub_state,omitempty"`
+	SystemdUnitFileState string   `json:"systemd_unit_file_state,omitempty"`
+	SystemdResult        string   `json:"systemd_result,omitempty"`
+	SystemdPID           int      `json:"systemd_pid,omitempty"`
+	SystemdExitStatus    *int     `json:"systemd_exit_status,omitempty"`
+	SystemdRestarts      int      `json:"systemd_restarts,omitempty"`
+	SystemdDiagnosis     string   `json:"systemd_diagnosis,omitempty"`
+	SystemdHighlights    []string `json:"systemd_highlights,omitempty"`
 }
 
 // ResourceInspect is the detailed operator-facing inspection view for a local process resource.
@@ -431,6 +443,21 @@ type ResourceInspect struct {
 	LaunchdDiagnosis    string   `json:"launchd_diagnosis,omitempty"`
 	LaunchdHighlights   []string `json:"launchd_highlights,omitempty"`
 	LaunchdRaw          string   `json:"launchd_raw,omitempty"`
+	// UnitPath and Systemd* are the systemd_user counterparts of PlistPath
+	// and Launchd*.
+	UnitPath             string   `json:"unit_path,omitempty"`
+	SystemdLoadState     string   `json:"systemd_load_state,omitempty"`
+	SystemdActiveState   string   `json:"systemd_active_state,omitempty"`
+	SystemdSubState      string   `json:"systemd_sub_state,omitempty"`
+	SystemdUnitFileState string   `json:"systemd_unit_file_state,omitempty"`
+	SystemdResult        string   `json:"systemd_result,omitempty"`
+	SystemdPID           int      `json:"systemd_pid,omitempty"`
+	SystemdExitStatus    *int     `json:"systemd_exit_status,omitempty"`
+	SystemdRestarts      int      `json:"systemd_restarts,omitempty"`
+	SystemdDiagnosis     string   `json:"systemd_diagnosis,omitempty"`
+	SystemdHighlights    []string `json:"systemd_highlights,omitempty"`
+	SystemdRaw           string   `json:"systemd_raw,omitempty"`
+	SystemdJournal       string   `json:"systemd_journal,omitempty"`
 }
 
 type ResourceDoctorCheck struct {

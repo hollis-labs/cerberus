@@ -70,11 +70,15 @@ func LaunchdSpawnedSelf() bool {
 }
 
 // DaemonOrigin returns "launchd" when the current process was spawned by
-// launchd under the canonical service label, else "manual". Used to stamp
-// the daemon lock file so observers can tell which entry point owns it.
+// launchd under the canonical service label, "systemd" when it runs as a
+// service of the systemd user manager, else "manual". Used to stamp the
+// daemon lock file so observers can tell which entry point owns it.
 func DaemonOrigin() string {
 	if LaunchdSpawnedSelf() {
 		return "launchd"
+	}
+	if SystemdSpawnedSelf() {
+		return "systemd"
 	}
 	return "manual"
 }

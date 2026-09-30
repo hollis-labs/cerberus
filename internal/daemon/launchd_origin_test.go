@@ -78,3 +78,55 @@ func TestLaunchdSpawnedSelfAcceptsTheLegacyLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestUnderUserManager(t *testing.T) {
+	cases := map[string]bool{
+		"0::/user.slice/user-1000.slice/user@1000.service/app.slice/cerberus.service\n":                         true,
+		"0::/user.slice/user-1000.slice/user@1000.service/app.slice/com.hollis-labs.cerberus.service\n":         true,
+		"0::/user.slice/user-1000.slice/session-3.scope\n":                                                      false,
+		"0::/user.slice/user-1001.slice/user@1001.service/app.slice/cerberus.service\n":                         false,
+		"12:pids:/user.slice/user-1000.slice/user@1000.service/app.slice/x.service\n0::/system.slice/y.service": true,
+	}
+	for cgroup, want := range cases {
+		if got := underUserManager(cgroup, 1000); got != want {
+			t.Errorf("underUserManager(%q) = %v, want %v", cgroup, got, want)
+		}
+	}
+}
+
+func TestSystemdSpawnedSelfNeedsInvocationID(t *testing.T) {
+	t.Setenv("INVOCATION_ID", "")
+	t.Setenv("XPC_SERVICE_NAME", "")
+	if SystemdSpawnedSelf() {
+		t.Fatal("SystemdSpawnedSelf without INVOCATION_ID")
+	}
+	if DaemonOrigin() != "manual" {
+		t.Fatalf("DaemonOrigin = %q, want manual", DaemonOrigin())
+	}
+}
+
+// The daemon's unit is addressed under the name it is installed as: a
+// hand-written cerberus.service only while it alone is installed.
+func TestSystemdDaemonUnitPrefersTheCanonicalUnit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "systemd", "user")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := SystemdDaemonUnit(); got != CanonicalDaemonUnit {
+		t.Errorf("nothing installed: %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, HandWrittenDaemonUnit), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := SystemdDaemonUnit(); got != HandWrittenDaemonUnit {
+		t.Errorf("only the hand-written unit: %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, CanonicalDaemonUnit), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := SystemdDaemonUnit(); got != CanonicalDaemonUnit {
+		t.Errorf("both installed: %q", got)
+	}
+}
