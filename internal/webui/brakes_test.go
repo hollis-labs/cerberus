@@ -52,7 +52,7 @@ func brakesConsole(t *testing.T) (*brakesDaemon, http.Handler, string) {
 	cookie := signIn(t, srv, h)
 	_, token := sessionOf(t, h, cookie)
 	return d, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.AddCookie(cookie)
+		withCookie(r, cookie)
 		h.ServeHTTP(w, r)
 	}), token
 }

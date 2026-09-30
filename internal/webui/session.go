@@ -40,7 +40,20 @@ import (
 // invalidates every link it handed out.
 
 const (
+	// sessionCookie is the session cookie's name before the port: the
+	// console names its cookie for the port it listens on (cookieName).
 	sessionCookie = "cerberus_session"
+
+	// sessionKeyHeader carries the key a session is bound to. The console
+	// page holds it in localStorage, which a browser scopes to the origin,
+	// port included; a cookie is sent to every port on localhost. A cookie
+	// that reaches another local server (any port, any account) is not a
+	// session without it (H6).
+	sessionKeyHeader = "X-Cerberus-Session-Key"
+	// sessionKeyFragment is the fragment parameter the key reaches the page
+	// in, after sign-in: a fragment is never sent to a server, and the page
+	// removes it from the address bar.
+	sessionKeyFragment = "cerberus-key"
 
 	// DefaultLoginTTL is how long a one-time URL is good for.
 	DefaultLoginTTL = 2 * time.Minute
@@ -59,8 +72,10 @@ const (
 type session struct {
 	ID          string
 	actionToken string
-	created     time.Time
-	lastSeen    time.Time
+	// bindHash is sha256 of the key the signing-in page was given.
+	bindHash string
+	created  time.Time
+	lastSeen time.Time
 }
 
 type sessionStore struct {
@@ -102,17 +117,17 @@ func mintLoginToken(key []byte, now time.Time, ttl time.Duration) (string, error
 var errLoginToken = errors.New("sign-in link expired, already used, or not from this console")
 
 // redeem checks a login token and, if it is good, spends it and starts a
-// session, returning the cookie value.
-func (st *sessionStore) redeem(token string) (string, *session, error) {
+// session, returning the cookie value and the key the session is bound to.
+func (st *sessionStore) redeem(token string) (string, string, *session, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(raw) != 8+loginNonceBytes+sha256.Size {
-		return "", nil, errLoginToken
+		return "", "", nil, errLoginToken
 	}
 	payload, sum := raw[:8+loginNonceBytes], raw[8+loginNonceBytes:]
 	mac := hmac.New(sha256.New, st.key)
 	mac.Write(payload)
 	if !hmac.Equal(sum, mac.Sum(nil)) {
-		return "", nil, errLoginToken
+		return "", "", nil, errLoginToken
 	}
 	expiry := time.Unix(int64(binary.BigEndian.Uint64(payload[:8])), 0) //nolint:gosec // written by mintLoginToken
 	nonce := hex.EncodeToString(payload[8:])
@@ -126,46 +141,54 @@ func (st *sessionStore) redeem(token string) (string, *session, error) {
 		}
 	}
 	if now.After(expiry) {
-		return "", nil, errLoginToken
+		return "", "", nil, errLoginToken
 	}
 	if _, spent := st.used[nonce]; spent {
-		return "", nil, errLoginToken
+		return "", "", nil, errLoginToken
 	}
 	st.used[nonce] = expiry
 
 	cookie, err := randomToken()
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	action, err := randomToken()
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	id, err := randomBytes(8)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
-	s := &session{ID: hex.EncodeToString(id), actionToken: action, created: now, lastSeen: now}
+	bind, err := randomToken()
+	if err != nil {
+		return "", "", nil, err
+	}
+	s := &session{ID: hex.EncodeToString(id), actionToken: action, bindHash: cookieKey(bind), created: now, lastSeen: now}
 	st.sessions[cookieKey(cookie)] = s
-	return cookie, s, nil
+	return cookie, bind, s, nil
 }
 
-// lookup returns the live session for a cookie value and marks it used. An
-// idle or over-age session is ended here.
-func (st *sessionStore) lookup(cookie string) *session {
-	if cookie == "" {
+// lookup returns the live session for a cookie value and the key it is
+// bound to, and marks it used. An idle or over-age session is ended here. A
+// cookie without its key is not a session: it is what another server on
+// localhost receives.
+func (st *sessionStore) lookup(cookie, key string) *session {
+	if cookie == "" || key == "" {
 		return nil
 	}
-	key := cookieKey(cookie)
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	s, ok := st.sessions[key]
+	s, ok := st.sessions[cookieKey(cookie)]
 	if !ok {
+		return nil
+	}
+	if subtle.ConstantTimeCompare([]byte(cookieKey(key)), []byte(s.bindHash)) != 1 {
 		return nil
 	}
 	now := st.now()
 	if now.Sub(s.lastSeen) > st.idle || now.Sub(s.created) > st.max {
-		delete(st.sessions, key)
+		delete(st.sessions, cookieKey(cookie))
 		return nil
 	}
 	s.lastSeen = now
@@ -205,12 +228,12 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		cookie, _ := r.Cookie(sessionCookie)
+		cookie, _ := r.Cookie(s.cookieName())
 		var value string
 		if cookie != nil {
 			value = cookie.Value
 		}
-		sess := s.sessions.lookup(value)
+		sess := s.sessions.lookup(value, r.Header.Get(sessionKeyHeader))
 		if sess == nil {
 			writeErrorBody(w, http.StatusUnauthorized, loginRequired, "login_required")
 			return
@@ -231,7 +254,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	cookie, sess, err := s.sessions.redeem(r.URL.Query().Get("token"))
+	cookie, bind, sess, err := s.sessions.redeem(r.URL.Query().Get("token"))
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -239,12 +262,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: cookie, Path: "/",
+		Name: s.cookieName(), Value: cookie, Path: "/",
 		HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		MaxAge: int(s.sessions.max / time.Second),
 	})
 	s.logger.Info("webui.session.started", "session", sess.ID)
-	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
+	// The key goes to the page in the fragment, which no server sees; the
+	// page keeps it in its origin's localStorage and sends it on every
+	// request.
+	next, _, _ := strings.Cut(safeNext(r.URL.Query().Get("next")), "#")
+	http.Redirect(w, r, next+"#"+sessionKeyFragment+"="+bind, http.StatusSeeOther)
 }
 
 // handleLogout ends the session and clears its cookie.
@@ -257,14 +284,25 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "state-changing request rejected")
 		return
 	}
-	if cookie, err := r.Cookie(sessionCookie); err == nil {
+	if cookie, err := r.Cookie(s.cookieName()); err == nil {
 		s.sessions.end(cookie.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	if sess := webSession(r.Context()); sess != nil {
 		s.logger.Info("webui.session.ended", "session", sess.ID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// cookieName is the session cookie's name for the port this console
+// listens on. A browser sends every localhost cookie to every port, so two
+// consoles on two ports would otherwise overwrite each other's session, and
+// a cookie another local server set could stand in for this one's.
+func (s *Server) cookieName() string {
+	if s.guard == nil || s.guard.Port() == "" {
+		return sessionCookie
+	}
+	return sessionCookie + "_" + s.guard.Port()
 }
 
 // LoginURL mints a one-time sign-in URL for base, the console's own address.
