@@ -49,6 +49,8 @@ func fakePluginMain(mode string) {
 		raw, _ := json.Marshal(v)
 		return map[string]any{"content": json.RawMessage(raw)}
 	}
+	var credMu sync.Mutex
+	var initToken string
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 0, 64<<10), 8<<20)
 	for in.Scan() {
@@ -56,7 +58,8 @@ func fakePluginMain(mode string) {
 			ID     int64  `json:"id"`
 			Method string `json:"method"`
 			Params struct {
-				ToolName string `json:"tool_name"`
+				ToolName string            `json:"tool_name"`
+				Config   map[string]string `json:"config"`
 			} `json:"params"`
 		}
 		if json.Unmarshal(in.Bytes(), &req) != nil {
@@ -75,6 +78,9 @@ func fakePluginMain(mode string) {
 					_ = child.Start()
 					_ = os.WriteFile(filepath.Join(dir, "child.pid"), []byte(strconv.Itoa(child.Process.Pid)), 0o600) //nolint:gosec // the test's own temp dir
 				}
+				credMu.Lock()
+				initToken = req.Params.Config["token"]
+				credMu.Unlock()
 				reply(req.ID, map[string]any{"id": "docker", "version": "dev", "protocol": SDKProtocolVersion})
 			case SDKMethodLoad:
 				reply(req.ID, map[string]any{})
@@ -111,6 +117,11 @@ func fakePluginMain(mode string) {
 						_, _ = os.Stderr.WriteString(line)
 					}
 					reply(req.ID, content(map[string]any{"ok": true}))
+				case "creds":
+					credMu.Lock()
+					tok := initToken
+					credMu.Unlock()
+					reply(req.ID, content(map[string]any{"token": tok, "pid": os.Getpid()}))
 				case "rlimits":
 					var nofile, fsize, core syscall.Rlimit
 					_ = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &nofile)

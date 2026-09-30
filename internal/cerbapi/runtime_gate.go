@@ -44,6 +44,9 @@ func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.R
 		checked = dp
 		return p, err
 	}
+	// The run's credentials resolve for a write, the plan the gate hashes
+	// included: it is the plan that runs (I9).
+	ctx = withCredentialScope(ctx, spec)
 	call, err := beginGated(ctx, sink, slog.Default(), spec)
 	if err != nil {
 		return nil, err
@@ -97,6 +100,7 @@ func PlanDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.
 		p, _, err := planDeploymentProfile(ctx, planSpec, sink, secrets, profile)
 		return p, err
 	}
+	ctx = withCredentialScope(ctx, spec)
 	call, err := beginGated(ctx, sink, slog.Default(), spec)
 	if err != nil {
 		return nil, err

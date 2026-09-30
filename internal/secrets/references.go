@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/secretref"
 	"github.com/hollis-labs/cerberus/pkg/secret"
-	"gopkg.in/yaml.v3"
 )
 
 // ReferenceProvider reads connector-to-reference mappings on each lookup.
@@ -32,39 +30,81 @@ func NewReferenceProvider(base secret.Reader, path string, opts ...secretref.Opt
 func (p *ReferenceProvider) Get(ctx context.Context, service, key string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	value := os.Getenv(envVarName(service, key))
-	if value == "" && p.path != "" {
-		data, err := os.ReadFile(p.path) //nolint:gosec // operator-owned connector reference mapping
-		if err != nil && !os.IsNotExist(err) {
-			return "", fmt.Errorf("read connector secret references: %w", err)
-		}
-		if err == nil {
-			var refs map[string]map[string]string
-			if yaml.Unmarshal(data, &refs) != nil {
-				return "", fmt.Errorf("invalid connector secret reference mapping in %s; expected connector -> key -> reference", p.path)
-			}
-			for connector, keys := range refs {
-				for name, ref := range keys {
-					if !p.resolver.IsRef(ref) {
-						return "", fmt.Errorf("connector secret %s/%s must be a secret reference (%s://); literal credentials are not allowed in %s",
-							connector, name, strings.Join(secretref.Schemes(), "://, "), p.path)
-					}
-				}
-			}
-			value = refs[service][key]
-		}
+	file, err := p.Bindings()
+	if err != nil {
+		return "", err
 	}
-	if value == "" && p.base != nil {
-		var err error
-		value, err = p.base.Get(ctx, service, key)
-		if err != nil {
-			return "", err
+	// A per-access binding (I9) decides for its key, ahead of the legacy
+	// chain: an environment value cannot put a write credential under a
+	// read binding.
+	var b Binding
+	if scope, ok := CredentialScopeFrom(ctx); ok {
+		b = file[service].Resolve(service, key, &scope)
+		if b.None {
+			return "", &NoCredentialError{Connector: service, Key: key, Access: scope.Access, Target: scope.Target.ID, Label: b.Label}
+		}
+	} else {
+		b = file[service].Resolve(service, key, nil)
+	}
+	value := b.Ref
+	if b.Label == "" {
+		// The legacy chain: the environment, the flat key, the keychain.
+		if env := os.Getenv(envVarName(service, key)); env != "" {
+			value = env
+		}
+		if value == "" && p.base != nil {
+			if value, err = p.base.Get(ctx, service, key); err != nil {
+				return "", err
+			}
 		}
 	}
 	if p.resolver.IsRef(value) {
 		return p.resolver.Resolve(ctx, value)
 	}
 	return value, nil
+}
+
+// Bindings is the parsed mapping file; an absent file binds nothing.
+func (p *ReferenceProvider) Bindings() (BindingFile, error) {
+	if p.path == "" {
+		return BindingFile{}, nil
+	}
+	data, err := os.ReadFile(p.path) //nolint:gosec // operator-owned connector reference mapping
+	if os.IsNotExist(err) {
+		return BindingFile{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read connector secret references: %w", err)
+	}
+	return ParseBindings(data, p.path, p.resolver.IsRef)
+}
+
+// NoCredentialError is a call whose binding says there is no credential
+// for its access: refused, never retried with the other access.
+type NoCredentialError struct {
+	Connector, Key string
+	Access         Access
+	Target         string
+	Label          string
+}
+
+func (e *NoCredentialError) Error() string {
+	on := ""
+	if e.Target != "" {
+		on = " on " + e.Target
+	}
+	return fmt.Sprintf("%s %ss%s have no %s credential (connector-secrets.yaml %s sets %s to null), so nothing ran; the %s credential is never used instead. Bind a %s credential there if this should be allowed",
+		e.Connector, e.Access, on, e.Access, e.Label, e.Key, otherAccess(e.Access), e.Access)
+}
+
+// Unwrap is ErrNoCredential.
+func (e *NoCredentialError) Unwrap() error { return ErrNoCredential }
+
+func otherAccess(a Access) string {
+	if a == AccessWrite {
+		return "read"
+	}
+	return "write"
 }
 
 type contextualProvider struct {

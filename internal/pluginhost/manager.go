@@ -7,9 +7,11 @@ import (
 	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -79,6 +81,11 @@ type Manager struct {
 	restartDelays  []time.Duration
 	rssFn          func(int) (int64, error)
 	memoryInterval time.Duration
+
+	// bindings are connector-secrets.yaml's credential bindings (I9); a
+	// plugin bound per access runs a read and a write instance.
+	bindings   func() (secrets.BindingFile, error)
+	writerIdle time.Duration
 }
 
 func (m *Manager) clock() time.Time {
@@ -135,6 +142,15 @@ type loadedPlugin struct {
 	stopMu     sync.Mutex
 	stopReason string
 	done       chan struct{}
+
+	// access is which credentials this instance holds (I9): "" for an
+	// unsplit plugin, read for a split plugin as loaded, write for its
+	// write instance. writer is the plugin's write side, on the read
+	// instance; parent is the read instance, on the write one.
+	access  secrets.Access
+	writer  *writerState
+	parent  *loadedPlugin
+	lastUse atomic.Int64
 }
 
 // ManagerOption configures a Manager. The constructor stays positional for the
@@ -256,6 +272,11 @@ func (m *Manager) load(ctx context.Context, id string, restart bool) error {
 		m.mu.Unlock()
 		return err
 	}
+	access, err := m.credentialAccess(id)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	done := make(chan struct{})
 	m.loading[id] = done
 	m.mu.Unlock()
@@ -266,7 +287,7 @@ func (m *Manager) load(ctx context.Context, id string, restart bool) error {
 		m.sup.mu.Unlock()
 	}
 
-	lp, err := m.start(ctx, id, plugin, settings)
+	lp, err := m.start(scoped(ctx, access), id, plugin, settings, access)
 
 	m.mu.Lock()
 	delete(m.loading, id)
@@ -317,7 +338,7 @@ func (m *Manager) prepareLoad(id string) (InstalledPlugin, ResolvedSettings, err
 
 // start launches, initializes and loads a plugin, each call under its
 // deadline. A missed deadline kills the plugin's process group.
-func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, settings ResolvedSettings) (*loadedPlugin, error) {
+func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, settings ResolvedSettings, access secrets.Access) (*loadedPlugin, error) {
 	limits := settings.Limits
 	if limits.Init == 0 {
 		limits, _ = ClampLimits(nil)
@@ -400,6 +421,8 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 		stderr:         tap,
 		limits:         limits,
 		done:           make(chan struct{}),
+		access:         access,
+		writer:         writerFor(access),
 	}, nil
 }
 
@@ -503,6 +526,12 @@ func (m *Manager) Unload(ctx context.Context, id string) error {
 	}
 	// Marked first, so the exit watcher does not read the exit as a crash.
 	lp.markStopped("unloaded")
+	if w := lp.takeWriter(); w != nil && w.markStopped("unloaded") {
+		wctx, wcancel := context.WithTimeout(ctx, w.limits.Unload)
+		_ = w.process.Unload(wctx)
+		wcancel()
+		kill(w.process)
+	}
 
 	uctx, cancel := context.WithTimeout(ctx, lp.limits.Unload)
 	defer cancel()
@@ -582,6 +611,14 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	if args.DryRun && op.EffectivePreview() == contract.PreviewNone {
 		return OperationResult{}, redact.GuidanceFor(ErrPreviewUnsupported, "plugin %q operation %q: %s", args.Connector, args.Operation, ErrPreviewUnsupported)
 	}
+	effect := op.Operation().Effect
+	// A split plugin's writes go to its write instance, which alone holds
+	// the write-bound credentials (I9).
+	inst, err := m.instanceFor(ctx, args.Connector, lp, effect, args.DryRun)
+	if err != nil {
+		return OperationResult{}, err
+	}
+	lp = inst
 
 	// Everything the plugin sends back as text passes the value redactor
 	// before it can reach an error, a log line or an MCP notification. The
@@ -598,9 +635,8 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// operation's output — a success result included, which the plugin
 	// redactor below never sees — removes them.
 	redact.ScopeFrom(ctx).Merge(lp.currentRedactor())
-	effect := op.Operation().Effect
 	var result SDKMCPCallResult
-	err := m.supervisedCall(ctx, args.Connector, lp, rpcCall{Phase: "call", Name: args.Operation, Timeout: lp.limits.CallTimeout(args.Operation), Effect: effect},
+	err = m.supervisedCall(ctx, args.Connector, lp, rpcCall{Phase: "call", Name: args.Operation, Timeout: lp.limits.CallTimeout(args.Operation), Effect: effect},
 		func(callCtx context.Context) (err error) {
 			result, err = lp.process.CallTool(callCtx, MCPRequestFromOperation(args))
 			return err
@@ -696,4 +732,12 @@ func (m *Manager) Loaded(id string) bool {
 	defer m.mu.RUnlock()
 	_, ok := m.running[id]
 	return ok
+}
+
+// writerFor is the write side a split plugin's read instance carries.
+func writerFor(access secrets.Access) *writerState {
+	if access == secrets.AccessRead {
+		return &writerState{}
+	}
+	return nil
 }

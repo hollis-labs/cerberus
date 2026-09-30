@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"os"
 	"path/filepath"
 	"strings"
@@ -348,5 +351,23 @@ func TestPolicyExplainShowsTheBreaker(t *testing.T) {
 	out, err := runPolicy(t, "", "explain", "local.deploy", "--target", "notes-api", "--as", "agent", "--working")
 	if err != nil || !strings.Contains(out, "Circuit breaker: an agent session is suspended after 5 policy denials in 10m0s") {
 		t.Fatalf("explain with a breaker: %v\n%s", err, out)
+	}
+}
+
+// explain names the binding each credential would use (I9), and says when
+// the call would be refused for having none.
+func TestPolicyExplainShowsCredentialBindings(t *testing.T) {
+	policyFixture(t, false)
+	def := contract.Definition{ID: "fake", Config: contract.ConfigSchema{Secrets: []contract.SecretRequirement{{Name: "token"}}},
+		Operations: []contract.Operation{{Name: "set", Effect: contract.EffectWrite, Target: contract.TargetDescriptor{Kind: "fake.thing", From: []string{"id"}}}}}
+	oldDefs, oldBind := policyDefinitions, explainBindings
+	policyDefinitions = func(context.Context) []contract.Definition { return []contract.Definition{def} }
+	explainBindings = func() (secrets.BindingFile, error) {
+		return secrets.ParseBindings([]byte("fake:\n  read: { token: keychain://fake/ro }\n  write: { token: null }\n"), "f", secretref.IsRef)
+	}
+	t.Cleanup(func() { policyDefinitions, explainBindings = oldDefs, oldBind; cerbapi.SetCredentialBindings(nil) })
+	out, err := runPolicy(t, "", "explain", "fake.set", "--adhoc")
+	if err != nil || !strings.Contains(out, "Credentials: fake/token@write (none: no credential for this access)") || !strings.Contains(out, "refused as credential_missing") {
+		t.Fatalf("explain: %v\n%s", err, out)
 	}
 }

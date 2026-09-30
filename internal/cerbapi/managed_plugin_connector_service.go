@@ -16,6 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secretref"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
@@ -42,6 +43,11 @@ type ManagedPluginConnectorState struct {
 	// keeps loading, unchecked, until `cerberus connectors plugin managed
 	// review <id>` is run in a terminal. Always present.
 	ReviewPending bool `json:"review_pending"`
+
+	// CredentialSplit is a plugin whose credentials are bound per access
+	// (I9): it runs a read instance and, while writes run, a write one.
+	CredentialSplit bool `json:"credential_split,omitempty"`
+	WriteInstance   bool `json:"write_instance,omitempty"`
 
 	// GaveUp is why the host stopped restarting the plugin after too many
 	// restarts (P5-d); it stays unloaded until loaded again.
@@ -204,6 +210,7 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 		pluginhost.WithLoadWarning(func(line string) { service.warnf("%s", line) }),
 		pluginhost.WithChangedBundles(service.acceptChangedBundle),
 		pluginhost.WithRestartObserver(service.onSupervision),
+		pluginhost.WithCredentialBindings(func() (secrets.BindingFile, error) { return credentialBindings(), nil }),
 	)
 	if cfg.bindBackends != nil {
 		cfg.bindBackends(service)
@@ -451,7 +458,7 @@ func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, 
 	for _, def := range s.Definitions() {
 		if def.ID == id {
 			spec.op, spec.known = def.Operation(args.Operation)
-			spec.credentials = credentialNames(def)
+			spec.credentials = labeledCredentialNames(def, credentialScope(spec))
 		}
 	}
 	// The direct route's plan is the admin lane's plugin plan: the same
@@ -559,6 +566,7 @@ func (s *ManagedPluginConnectorService) state(plugin pluginhost.InstalledPlugin,
 	}
 	out.ConfigProblems = s.manager.ConfigProblems(plugin.ID)
 	out.GaveUp = s.manager.GaveUp(plugin.ID)
+	out.CredentialSplit, out.WriteInstance = s.manager.WriteInstanceRunning(plugin.ID)
 	if out.ConfigFields == nil {
 		out.ConfigFields = []string{}
 	}

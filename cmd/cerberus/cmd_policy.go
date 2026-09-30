@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -140,6 +143,11 @@ var policyExplainCmd = &cobra.Command{
 			}
 		}
 		writeExplainBrakes(cmd.OutOrStdout(), connectorID, req)
+		for _, d := range defs {
+			if d.ID == connectorID {
+				writeExplainCredentials(cmd.OutOrStdout(), d, operation, req.DryRun, t)
+			}
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "\nBreak glass: gets past an approve, never a deny; at most %s.\n", policy.BreakGlassLimitsOf(pdp))
 		if cb := policy.CircuitBreakerOf(pdp); cb != nil {
 			fmt.Fprintf(cmd.OutOrStdout(), "Circuit breaker: an agent session is suspended after %s, until a person resets it (`cerberus breaker list`).\n", cb)
@@ -456,5 +464,44 @@ func writeExplainBrakes(w io.Writer, connectorID string, req policy.Request) {
 		fmt.Fprintf(w, "\nBrakes: REFUSED by lockdown %s%s, whatever the policy says. Lift: cerberus lockdown --off\n", l.ID, brakeReason(l.Reason))
 	default:
 		fmt.Fprintf(w, "\nBrakes: REFUSED by freeze %s on %s%s, whatever the policy says. Lift: cerberus freeze --off %s\n", f.ID, f.Match.String(), brakeReason(f.Reason), f.ID)
+	}
+}
+
+// explainBindings are connector-secrets.yaml's credential bindings (I9).
+// Tests swap it.
+var explainBindings = func() (secrets.BindingFile, error) {
+	return secrets.NewReferenceProvider(nil, filepath.Join(filepath.Dir(config.DefaultPath()), "connector-secrets.yaml")).Bindings()
+}
+
+// writeExplainCredentials says which binding each of the connector's
+// declared credentials would use for this call, or that none would, which
+// refuses it.
+func writeExplainCredentials(w io.Writer, def contract.Definition, operation string, preview bool, t target.Target) {
+	if len(def.Config.Secrets) == 0 {
+		return
+	}
+	file, err := explainBindings()
+	if err != nil {
+		fmt.Fprintf(w, "\nCredentials: connector-secrets.yaml does not load (%v), so every call needing one fails.\n", err)
+		return
+	}
+	cerbapi.SetCredentialBindings(func() (secrets.BindingFile, error) { return file, nil })
+	views := cerbapi.ExplainCredentials(def, operation, preview, t)
+	var parts []string
+	refused := false
+	for _, v := range views {
+		switch {
+		case v.None:
+			refused = true
+			parts = append(parts, v.Name+" (none: no credential for this access)")
+		case v.Label == "":
+			parts = append(parts, v.Name+" (the legacy chain)")
+		default:
+			parts = append(parts, v.Name)
+		}
+	}
+	fmt.Fprintf(w, "\nCredentials: %s.\n", strings.Join(parts, ", "))
+	if refused {
+		fmt.Fprintln(w, "  This call would be refused as credential_missing, whatever policy decides.")
 	}
 }

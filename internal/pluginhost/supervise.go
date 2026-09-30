@@ -192,8 +192,16 @@ func kill(p Process) {
 // stop takes lp out of service for reason, kills its process group and
 // schedules a restart. A plugin already stopped is left alone.
 func (m *Manager) stop(id string, lp *loadedPlugin, reason string) {
+	if lp.parent != nil {
+		// A write instance (I9) is not restarted: the next write starts one.
+		m.stopWriter(id, lp.parent, lp, reason, true)
+		return
+	}
 	if !lp.markStopped(reason) {
 		return
+	}
+	if w := lp.takeWriter(); w != nil && w.markStopped(reason) {
+		go kill(w.process)
 	}
 	m.mu.Lock()
 	if m.running[id] == lp {

@@ -293,7 +293,10 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if args.Plan {
 		args.DryRun, args.ApprovalID, args.ConfirmedPlanHash, args.BreakGlass = true, "", "", nil
 	}
-	call, err := beginGated(ctx, s.audit, s.logger, s.auditSpec(args))
+	spec := s.auditSpec(args)
+	// The call's credentials resolve for its access and target (I9).
+	ctx = withCredentialScope(ctx, spec)
+	call, err := beginGated(ctx, s.audit, s.logger, spec)
 	if err != nil {
 		return ExternalConnectorOperationResult{}, err
 	}
@@ -303,6 +306,7 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 		return result, scopeError(scope, planErr)
 	}
 	result, err := s.execute(call.withTelemetry(ctx), args)
+	err = noCredentialRefusal(args, err)
 	if err == nil && !args.DryRun {
 		// Egress policy on what comes back (P4-4): recorded on the outcome,
 		// and applied where a rule enforces.
@@ -350,7 +354,7 @@ func (s *ExternalConnectorService) auditSpec(args ExternalConnectorOperationArgs
 		approvalID: args.ApprovalID, planOnly: args.Plan, confirmedPlanHash: args.ConfirmedPlanHash, breakGlass: args.BreakGlass, plan: func(ctx context.Context) (plan.Plan, error) { return s.planOperation(ctx, args) }}
 	if def, ok := s.definitionFor(args.Connector); ok {
 		spec.op, spec.known = def.Operation(args.Operation)
-		spec.credentials = credentialNames(def)
+		spec.credentials = labeledCredentialNames(def, credentialScope(spec))
 	}
 	if s.managedPlugins != nil && s.managedPlugins.Loaded(args.Connector) {
 		spec.pluginConfigSHA256, spec.pluginEntrypointSHA256 = s.managedPlugins.fingerprints(args.Connector)
