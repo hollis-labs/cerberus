@@ -289,6 +289,21 @@ cerberus connectors exec namecheap set_custom_nameservers --arg domain=<domain> 
 cerberus connectors exec namecheap get_dns_record_set --arg domain=<domain>
 ```
 
+Vercel deployments are the `vercel` plugin. You name a profile, and the
+profile, kept in a file the plugin reads (`profiles_file` in
+`connector-config.yaml`), decides what runs. The dry run shows every step
+before anything runs; see the plugin's README:
+
+```bash
+cerberus connectors exec vercel list_profiles
+cerberus connectors exec vercel deploy --arg profile=<profile-id> --dry-run --ack
+cerberus connectors exec vercel deploy --arg profile=<profile-id> --ack
+```
+
+A connector's declared credentials can also be set on the console's
+Credentials page, which lists exactly the secrets each installed connector
+declares.
+
 Vault references (`op://`, `keeper://`) resolve through secret-backend plugins.
 A backend's own credential goes in the OS credential store with an interactive
 `secrets set`; see [docs/secrets.md](docs/secrets.md) for the setup:

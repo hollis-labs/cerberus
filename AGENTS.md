@@ -61,7 +61,7 @@ A resource that is not local/process is a **named handle for connector operation
 
 Cerberus ships as a single installed binary. Compiled in: `local`, `ssh`, `docker` — the primitives the control plane is built on, none of which carries a vendor SDK. Everything else that talks to a provider is a plugin: optional per user, its own release schedule, loaded at runtime without rebuilding the host.
 
-**That is the whole core: `local`, `ssh`, `docker`.** Every provider connector is a plugin. First-party plugins live in `hollis-labs/cerberus-plugins`, and third-party plugins are standalone repos. No provider SDK is left in the host. See `docs/plans/provider-plugin-extraction.md`.
+**That is the whole core: `local`, `ssh`, `docker`.** Every provider connector is a plugin. First-party plugins live in `hollis-labs/cerberus-plugins`, and third-party plugins are standalone repos. No provider SDK is left in the host, and no provider-specific lane: the console's former Vercel deploy runner is the `vercel` plugin, and the console's credential editor lists what connectors declare. See `docs/plans/provider-plugin-extraction.md`.
 
 A plugin's operations reach every surface without host code. On the CLI, `cerberus connectors exec <id> <op>` runs any operation, built-in or plugin, with arguments typed from its schema. On MCP, a plugin operation is a generated tool, `cerberus_<id>_<op>`, served only when the operator lists it under `<id>: mcp: expose:` in `~/.cerberus/connector-config.yaml`; nothing is exposed by default. On the API and in the console, it is the generic connector route. Each call goes through `ExternalConnectorService.Execute`, the one path that gates, refuses and audits.
 

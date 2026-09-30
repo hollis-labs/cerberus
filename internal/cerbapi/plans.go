@@ -16,11 +16,9 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/gitenv"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
 // The plan functions: one per lane, used when an approval is asked for and
@@ -139,35 +137,6 @@ func (s *ManagedPluginConnectorService) planPlugin(ctx context.Context, p *plan.
 		return fmt.Errorf("the plugin's preview, which the plan needs, failed: %w", err)
 	}
 	return p.WithPreview(string(op.Preview), res.Data)
-}
-
-// planDeploymentProfile is a deploy profile's plan: the steps it would run
-// as shown (the token as a placeholder, reaching the child only in its
-// environment), the profile's definition, and the checkout it deploys —
-// its commit and whether it has uncommitted changes. An edited profile, a
-// new commit or a dirty tree is a different plan (CERB-GAP-853).
-//
-// It returns the deployment plan it described too, so that a run checked
-// against an approval runs those steps and does not plan again.
-func planDeploymentProfile(ctx context.Context, spec auditSpec, sink interface{ Digest(any) string }, secrets secret.Reader, profile infra.DeploymentProfile) (plan.Plan, *infra.DeploymentPlan, error) {
-	tgt, _ := auditTarget(spec)
-	p := plan.Plan{Lane: plan.LaneDeployProfile, Connector: spec.connector, Operation: spec.operation, Effect: string(spec.op.Effect),
-		Target: tgt, ArgsDigest: sink.Digest(spec.config)}
-	dp := infra.PlanDeployment(ctx, secrets, profile)
-	if dp.Error != "" {
-		return plan.Plan{}, nil, redact.Guidance("deploy profile %q cannot be planned: %s", profile.ID, dp.Error)
-	}
-	for _, step := range dp.Steps {
-		p.Steps = append(p.Steps, plan.Step{Name: step.Name, Command: step.Command, Dir: profile.RepoPath, Env: step.Env})
-	}
-	def, err := plan.Canonical(profile)
-	if err != nil {
-		return plan.Plan{}, nil, err
-	}
-	sum := sha256.Sum256(def)
-	p.Digests = map[string]string{"profile": "sha256:" + hex.EncodeToString(sum[:])}
-	p.Source = gitSource(ctx, profile.RepoPath)
-	return p, dp, nil
 }
 
 // gitSource is a checkout's commit and dirty flag. A directory that is not a

@@ -33,9 +33,6 @@ relationships:
     target: "CERB-TOOL-414"
     note: "the generic connector operation runner"
   - type: "blocks"
-    target: "CERB-GAP-439"
-    note: "internal/infra is console-only"
-  - type: "blocks"
     target: "CERB-GAP-440"
     note: "the overview trend is console-only"
   - type: "blocks"
@@ -84,11 +81,13 @@ It also owns capability that exists nowhere else:
   `~/.cerberus/state/overview_snapshots.json`, written by a recorder goroutine
   in the daemon on a one-minute tick. `Overview` appears in no CLI command, no
   socket route and no MCP tool.
-- **`/api/infra`, `/api/deployments`** — a provider/deployment-profile subsystem
-  backed by `~/.cerberus/infra.yaml`. `internal/infra` is imported by exactly one
-  file, `internal/webui/infra.go`. It used to carry a hardcoded suggestion for
-  another user's site path; PR #63 removed it and the suggestions feature with
-  it.
+- **`/api/credentials`** — the credential editor (the Credentials page). It
+  lists every connector that declares a secret, built-in or installed plugin,
+  from its definition: each secret's name, kind, env and whether a value is
+  stored, never a value. `POST /api/credentials/{id}` is the `provider_save`
+  console write, which the daemon makes only for a declared secret. It replaced
+  `/api/infra` and `/api/deployments` on 2026-09-30, when the Vercel
+  deploy-profile runner left the host as the `vercel` plugin.
 - **`/api/settings`**, **`/api/config/backups`**, **`/api/registry/register`**
   and **`/api/registry/deregister`** — config-adjacent operations with CLI
   equivalents but no MCP tools.
@@ -136,18 +135,14 @@ renders, and `code`.
 **Every mutation asks first.** A shared `ActionConfirm` dialog (sysop-ui
 `ConfirmDialog`) is the only thing in the console that sends
 `acknowledged: true`, and it names the operation's effect. It fronts every
-resource action (row quick actions and the detail dialog), pipeline Run and
-deployment-profile Run. The Connectors page's Acknowledge checkbox follows the
+resource action (row quick actions and the detail dialog) and pipeline Run.
+The Connectors page's Acknowledge checkbox follows the
 operation's `requires_ack` and shows its effect.
 
-**A deployment is confirmed against its plan.** The confirm dialog lists every
-command a profile run will execute and the directory it runs in, from
-`GET /api/deployments/{id}/plan` (CERB-TOOL-418). The Vercel token appears as
-`VERCEL_TOKEN=<vercel token>` and reaches the child only in its environment,
-never in argv or a shell string. A run under an approval is bound to its plan
-(CERB-GAP-853): the steps, the profile, and the checkout's commit and dirty
-flag. The confirm step carries the plan hash from P3-3; until then a console
-run is confirmed but not bound.
+**Deployments are a plugin's operation now.** The Vercel deploy-profile run
+(CERB-TOOL-418) is the `vercel` plugin's `deploy`. It runs through the generic
+connector route like any plugin operation, and its dry run is the plugin's
+claim of the steps it would run.
 
 The console marks every request as the `web` surface, so an in-process client
 behind it refuses local-only inputs just as the daemon would.

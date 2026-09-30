@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Boxes, Cable, CheckCheck, Gauge, KeyRound, LayoutDashboard, LogOut, Plug, Rocket, Route, Server, Settings2, Waypoints } from 'lucide-react'
+import { Boxes, Cable, CheckCheck, Gauge, KeyRound, LayoutDashboard, LogOut, Plug, Route, Server, Settings2, Waypoints } from 'lucide-react'
 import { NavRail, PageHeader, ThemeSwitcher, Toaster, TooltipProvider, type NavRailItem } from '@hollis-labs/sysop-ui/ui'
 import { ConfirmOnCallProvider } from './components/plan-confirm'
 import { BrakesBanner, LockdownButton } from './components/brakes'
@@ -8,7 +8,6 @@ import { apiClient, type PasskeysAlert, type PostureInfo, type BreakGlassAlert, 
 import { ApprovalsPage } from './pages/approvals'
 import { ConnectorsPage } from './pages/connectors'
 import { CredentialsPage } from './pages/credentials'
-import { DeploymentsPage } from './pages/deployments'
 import { OverviewPage } from './pages/overview'
 import { PipelinesPage } from './pages/pipelines'
 import { PluginsPage } from './pages/plugins'
@@ -24,7 +23,6 @@ const ROUTES = [
   'pipelines',
   'approvals',
   'registry',
-  'deployments',
   'credentials',
   'connectors',
   'plugins',
@@ -39,7 +37,6 @@ const TITLES: Record<RouteKey, string> = {
   pipelines: 'Pipelines',
   approvals: 'Approvals',
   registry: 'Registry',
-  deployments: 'Deployments',
   credentials: 'Credentials',
   connectors: 'Connectors',
   plugins: 'Plugins',
@@ -261,13 +258,6 @@ function Console({
       onSelect: () => navigate('registry'),
     },
     {
-      key: 'deployments',
-      label: 'Deployments',
-      icon: <Rocket className="h-4 w-4" />,
-      active: route === 'deployments',
-      onSelect: () => navigate('deployments'),
-    },
-    {
       key: 'credentials',
       label: 'Credentials',
       icon: <KeyRound className="h-4 w-4" />,
@@ -356,8 +346,6 @@ function RouteView({ route }: { route: RouteKey }) {
       return <PipelinesPage />
     case 'registry':
       return <RegistryPage />
-    case 'deployments':
-      return <DeploymentsPage />
     case 'credentials':
       return <CredentialsPage />
     case 'connectors':

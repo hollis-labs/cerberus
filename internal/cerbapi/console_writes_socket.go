@@ -118,12 +118,10 @@ func (s *SocketServer) handleConsoleWrite(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, out)
 }
 
-// writeConsoleWriteError answers a failed console write: not found as 404,
-// a refused input as 400, a gate refusal with its own status.
+// writeConsoleWriteError answers a failed console write: a refused input as
+// 400, a gate refusal with its own status.
 func writeConsoleWriteError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, ErrConsoleWriteNotFound):
-		writeJSONError(w, http.StatusNotFound, err.Error())
 	case errors.As(err, new(ConsoleWriteInputError)):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 	default:

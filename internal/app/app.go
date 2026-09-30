@@ -349,15 +349,13 @@ func newConnectorRegistry(configPaths ...string) (*connector.Registry, domain.Se
 // resolves through: process env, then `connector-secrets.yaml` beside the
 // config, then the Cerberus keychain. Exported so the plugin host resolves a
 // plugin's declared secrets from the same place a built-in connector does,
-// rather than each plugin reimplementing the lookup, and so the web console
-// resolves deployment credentials from it too.
+// rather than each plugin reimplementing the lookup, and so the web console's
+// credential editor reports which declared secrets have a value.
 //
 // Every value it resolves is registered with the request's redaction scope
 // (WP-S2), except a value that is not a credential: a secret a built-in
-// connector declares with a non-credential Kind, and the non-credential
-// values the console keeps beside credentials (nonCredentialSecrets). A
-// plugin's secrets are registered by the plugin host, which reads the
-// plugin's own manifest.
+// connector declares with a non-credential Kind. A plugin's secrets are
+// registered by the plugin host, which reads the plugin's own manifest.
 func ConnectorSecrets(configPaths ...string) domain.SecretProvider {
 	configPath := config.DefaultPath()
 	if len(configPaths) > 0 && configPaths[0] != "" {
@@ -401,17 +399,10 @@ func SecretStore() secret.ReadWriter {
 	return secrets.NewKeychainProvider()
 }
 
-// nonCredentialSecrets are values read through the secret chain that are
-// names, not credentials. The Vercel deploy falls back to vercel/scope, a
-// team slug the console's provider catalog declares as a field, and the
-// deploy prints it; registering it would cut the team's name out of the
-// deploy's own output.
-var nonCredentialSecrets = map[string]bool{"vercel/scope": true}
-
 // notACredential reports the values ConnectorSecrets resolves without
 // registering them for value redaction.
 func notACredential(service, key string) bool {
-	return builtInNonCredential(service, key) || nonCredentialSecrets[service+"/"+key]
+	return builtInNonCredential(service, key)
 }
 
 // builtInNonCredentials is, per built-in connector id, the secrets its

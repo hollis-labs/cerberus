@@ -507,7 +507,6 @@ func runDaemonBody() error {
 		cerbapi.WithExternalConnectorService(external),
 		cerbapi.WithManagedPluginConnectorService(managedPlugins),
 		cerbapi.WithInProcessLogger(logger),
-		cerbapi.WithDeploySecrets(app.ConnectorSecrets(cfgPath)),
 		cerbapi.WithConsoleSecretStore(app.SecretStore()),
 	)
 	// A break glass tells the operator on the desktop, as passkey

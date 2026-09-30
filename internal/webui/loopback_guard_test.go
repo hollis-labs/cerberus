@@ -115,10 +115,6 @@ var guardedRoutes = map[string][]string{
 	"/api/config/backups/restore/confirm": {"/api/config/backups/restore/confirm"},
 	"/api/connectors/":                    {"/api/connectors/c/operations/op"},
 	"/api/credentials/":                   {"/api/credentials/cloudflare", "/api/credentials/cloudflare/plan", "/api/credentials/cloudflare/confirm"},
-	"/api/deployments":                    {"/api/deployments"},
-	"/api/deployments/plan":               {"/api/deployments/plan"},
-	"/api/deployments/confirm":            {"/api/deployments/confirm"},
-	"/api/deployments/":                   {"/api/deployments/d/delete", "/api/deployments/d/delete/plan", "/api/deployments/d/delete/confirm", "/api/deployments/d/run"},
 	"/api/plugins/connectors/": {
 		"/api/plugins/connectors/p/load",
 		"/api/plugins/connectors/p/unload", "/api/plugins/connectors/p/operations/op",
@@ -153,7 +149,7 @@ var readOnlyRoutes = map[string]bool{
 	"/api/projects": true, "/api/pipelines": true, "/api/registry": true,
 	"/api/registry/health": true, "/api/config/validate": true,
 	"/api/config/resolve": true, "/api/config/migrate/preview": true,
-	"/api/config/backups": true, "/api/connectors": true, "/api/infra": true, "/api/credentials": true,
+	"/api/config/backups": true, "/api/connectors": true, "/api/credentials": true,
 	"/api/plugins/connectors": true, "/api/approvals": true, "/api/brakes": true,
 }
 

@@ -38,6 +38,9 @@ Survey of the current codebase found:
   connector model because Vercel doesn't decompose into local verbs. Docker +
   SSH do decompose into discrete connector verbs (build, push, exec), so that
   precedent does not apply here.
+  *(2026-09-30: that runner left the host. It is now the `vercel` plugin in
+  `hollis-labs/cerberus-plugins`, a connector like any other; see the addendum
+  in `docs/plans/provider-plugin-extraction.md`.)*
 - `go-workflow` (`github.com/hollis-labs/go-workflow`), the workflow engine
   extracted from an earlier application: durable graph-visible compensation (SAGA), suspend/
   resume waits, typed values/artifacts, verification, memoization, and an

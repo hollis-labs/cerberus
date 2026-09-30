@@ -11,6 +11,12 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 ### Changed
 
 - **The `github` connector is a plugin now** (breaking). The core is exactly `local`, `ssh` and `docker`; no provider SDK remains in the host binary.
+- **Vercel deployments are the `vercel` plugin now** (breaking). The console's deploy-profile runner (`internal/infra`), its `/api/infra` and `/api/deployments` routes, the Deployments page and the `profile_save`/`profile_delete` console writes are removed. Profiles move to a file the plugin reads (`profiles_file` in `connector-config.yaml`); `vercel/token` and `vercel/scope` keep their names.
+- **The console's credential editor lists what connectors declare.** `/api/credentials` and a Credentials page replace the hardcoded provider catalog; `provider_save` writes only a declared secret of an installed connector and refuses any other id, key or setting.
+
+### Fixed
+
+- A plugin secret declared without a description came back over the socket with its name redacted; a declared secret's `name`, `kind` and `env` are now names by schema.
 
 ## [0.5.0-beta.1] - 2026-09-30
 

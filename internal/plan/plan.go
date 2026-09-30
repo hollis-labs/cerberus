@@ -25,11 +25,10 @@ const Version = 2
 
 // Lanes.
 const (
-	LaneAdmin         = "admin"
-	LaneDeployProfile = "deploy_profile"
-	LaneResource      = "resource"
-	LanePipeline      = "pipeline"
-	LaneConsole       = "console"
+	LaneAdmin    = "admin"
+	LaneResource = "resource"
+	LanePipeline = "pipeline"
+	LaneConsole  = "console"
 )
 
 // Plan is what an operation would do.

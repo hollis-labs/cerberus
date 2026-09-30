@@ -14,7 +14,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
@@ -119,33 +118,6 @@ func TestRuntimeOperationsAreRecorded(t *testing.T) {
 		}
 		if outcome.Target.Fields["id"] == "" {
 			t.Errorf("%s: target not recorded: %+v", outcome.Operation, outcome.Target)
-		}
-	}
-}
-
-func TestDeployProfileRunIsRecorded(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".vercel"), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, ".vercel", "project.json"), []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sink := audit.NewMemory()
-	profile := infra.DeploymentProfile{ID: "site", Provider: "vercel", RepoPath: repo, DeployCommand: "true"}
-	if _, err := RunDeploymentProfile(context.Background(), sink, nil, profile); connectorErrorCode(err) != ExternalConnectorAckRequired {
-		t.Fatalf("unacknowledged run: %v", err)
-	}
-	if _, err := RunDeploymentProfile(context.Background(), sink, nil, profile, WithAcknowledged(true)); err != nil {
-		t.Fatal(err)
-	}
-	got := pairs(t, sink.Records())
-	if len(got) != 2 {
-		t.Fatalf("%d runs recorded, want 2", len(got))
-	}
-	for _, p := range got {
-		if p[1].Decision == audit.DecisionAllowed && strings.Join(p[1].CredentialNames, ",") != "vercel/scope,vercel/token" {
-			t.Fatalf("an allowed run does not name its credentials: %+v", p[1])
 		}
 	}
 }

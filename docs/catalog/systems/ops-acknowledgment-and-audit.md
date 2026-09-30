@@ -151,8 +151,6 @@ newly need `--ack`:
   `stop`, `sync` and `remove`, and `pipeline run`.
 - **MCP:** `acknowledged` on the matching tools.
 - **Web console:** a confirm step, the only thing that sends `acknowledged`.
-- **Deploy profiles:** the console confirms a deployment-profile run against
-  the commands it will execute.
 
 **It runs before anything resolves.** Argument refusals (key table, required,
 one-of, JSON type) and the acknowledgment check come before credential
@@ -242,9 +240,8 @@ directory in `TestMain`.
 outcome after, and an `OpResult` or pipeline result reporting failure is
 recorded as `operation_failed`. A pipeline run is one record, as it is one
 acknowledgment. Decision 8 holds: an unwritable log refuses them as
-`audit_unavailable` before the operation lock. A deploy-profile run
-(`RunDeploymentProfile`) is recorded with its credential names, and the web
-console is constructed with the sink. Every `cerbapi.Client` method is now
+`audit_unavailable` before the operation lock. The web console is constructed
+with the sink. Every `cerbapi.Client` method is now
 classified audited or read-only; none is pending.
 
 **Every attempt is recorded, whichever surface it came from.** The CLI used
@@ -356,7 +353,7 @@ Every operation a gate covers is now authorized by the policy decision point,
 and the decision is recorded. `beginAudit` calls `shadowDecision`
 (`internal/cerbapi/policy_point.go`) for every spec that is not the monitor's
 automation, so the admin lane, the runtime mutators, pipeline runs,
-deploy-profile runs, both plugin routes and the plugin and policy admin
+both plugin routes and the plugin and policy admin
 events are all covered by one call (I1).
 
 The intent carries `policy: {decision, matched_rules, would_block, snapshot,

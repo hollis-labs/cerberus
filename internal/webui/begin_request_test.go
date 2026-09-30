@@ -50,7 +50,7 @@ func TestConsoleResponsesRenderThroughTheRequestScope(t *testing.T) {
 	markWebSurface(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redact.ScopeFrom(r.Context()).Add("vercel/token", sentinel)
 		writeError(w, http.StatusBadGateway, "deploy step printed "+sentinel)
-	})).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/deployments/site/run", nil))
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/resources/site/stop", nil))
 	if body := rec.Body.String(); strings.Contains(body, sentinel) || !strings.Contains(body, redact.Marker) {
 		t.Fatalf("console body = %s", body)
 	}

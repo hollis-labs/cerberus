@@ -2,113 +2,19 @@ package cerbapi
 
 import (
 	"context"
-	"log/slog"
-
-	"github.com/hollis-labs/cerberus/internal/audit"
-	"github.com/hollis-labs/cerberus/internal/config"
-	"github.com/hollis-labs/cerberus/internal/plan"
 
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	"github.com/hollis-labs/cerberus/pkg/secret"
 )
 
-// RuntimeDefinitions are the contracts of the supervision lane's mutations,
-// pipeline runs and deployment-profile runs. They are not admin-lane connectors — nothing
+// RuntimeDefinitions are the contracts of the supervision lane's mutations
+// and pipeline runs. They are not admin-lane connectors — nothing
 // dispatches them through ExternalConnectorService — but they are gated on
 // the same contract, and conformance enumerates them with the rest.
 func RuntimeDefinitions() []contract.Definition {
-	return []contract.Definition{localconn.Definition(), pipeline.Definition(), infra.Definition(), ControlPlaneDefinition()}
-}
-
-// RunDeploymentProfile runs a saved deployment profile through the contract
-// gate. It is exec — the profile's commands run in a shell — so it needs the
-// caller's acknowledgment, which the console gives from a confirm step that
-// shows the plan (infra.PlanDeployment) it is about to run.
-//
-// It is recorded like every operation: an intent before the gate and an
-// outcome after, under the caller's audit sink.
-func RunDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Reader, profile infra.DeploymentProfile, options ...MutationOption) (*infra.DeploymentRunResult, error) {
-	opts := ApplyMutationOptions(options)
-	def := infra.Definition()
-	spec := deployProfileSpec(profile, opts)
-	planSpec := spec
-	// checked is the deployment plan the gate hashed, when it hashed one:
-	// the run executes it rather than planning again (CERB-GAP-878).
-	var checked *infra.DeploymentPlan
-	spec.plan = func(ctx context.Context) (plan.Plan, error) {
-		p, dp, err := planDeploymentProfile(ctx, planSpec, sink, secrets, profile)
-		checked = dp
-		return p, err
-	}
-	// The run's credentials resolve for a write, the plan the gate hashes
-	// included: it is the plan that runs (I9).
-	ctx = withCredentialScope(ctx, spec)
-	call, err := beginGated(ctx, sink, slog.Default(), spec)
-	if err != nil {
-		return nil, err
-	}
-	ctx = call.withSources(ctx)
-	if gateErr := runtimeGate(ctx, def, infra.OpRunProfile, map[string]any{"id": profile.ID}, opts); gateErr != nil {
-		call.finish(gateErr)
-		return nil, gateErr
-	}
-	var result *infra.DeploymentRunResult
-	if checked != nil {
-		result, err = infra.RunPlannedDeployment(ctx, checked, profile)
-	} else {
-		result, err = infra.RunDeployment(ctx, secrets, profile)
-	}
-	call.finish(resultError(err, result != nil && !result.Success))
-	return result, err
-}
-
-// deployProfileSpec is a deploy-profile run's audit spec.
-func deployProfileSpec(profile infra.DeploymentProfile, opts MutationOpts) auditSpec {
-	def := infra.Definition()
-	op, known := def.Operation(infra.OpRunProfile)
-	return auditSpec{
-		connector: def.ID, operation: infra.OpRunProfile, op: op, known: known,
-		config: map[string]any{"id": profile.ID}, acknowledged: opts.Acknowledged,
-		// The run reads the Vercel token and scope to pass on the command line.
-		credentials:       []string{"vercel/scope", "vercel/token"},
-		approvalID:        opts.ApprovalID,
-		confirmedPlanHash: opts.ConfirmedPlanHash,
-		// The target is labeled by the profile itself (CERB-GAP-886).
-		resources: func(id string) (*config.ResourceDef, bool) {
-			if id != profile.ID {
-				return nil, false
-			}
-			def := profile.ResourceDef()
-			return &def, true
-		},
-	}
-}
-
-// PlanDeploymentProfile is a deploy-profile run's plan and its hash, as an
-// approval of the run would bind it: the console's confirm step shows it
-// and sends the hash back (P3-3b). It runs nothing and is recorded as a dry
-// run; it resolves the Vercel token to plan, as a run does.
-func PlanDeploymentProfile(ctx context.Context, sink audit.Sink, secrets secret.Reader, profile infra.DeploymentProfile, options ...MutationOption) (*ConnectorPlan, error) {
-	opts := ApplyMutationOptions(options)
-	spec := deployProfileSpec(profile, opts)
-	spec.planOnly, spec.dryRun, spec.approvalID, spec.confirmedPlanHash = true, true, "", ""
-	planSpec := spec
-	spec.plan = func(ctx context.Context) (plan.Plan, error) {
-		p, _, err := planDeploymentProfile(ctx, planSpec, sink, secrets, profile)
-		return p, err
-	}
-	ctx = withCredentialScope(ctx, spec)
-	call, err := beginGated(ctx, sink, slog.Default(), spec)
-	if err != nil {
-		return nil, err
-	}
-	shown, err := showPlan(ctx, spec)
-	call.finish(err)
-	return shown, err
+	return []contract.Definition{localconn.Definition(), pipeline.Definition(), ControlPlaneDefinition()}
 }
 
 // runtimeGate is the contract gate for a resource mutation or a pipeline run:

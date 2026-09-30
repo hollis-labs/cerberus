@@ -13,7 +13,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/connector"
-	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	secretpkg "github.com/hollis-labs/cerberus/pkg/secret"
@@ -180,9 +179,7 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 		"/api/config/validate",
 		"/api/config/resolve",
 		"/api/config/backups",
-		"/api/infra",
 		"/api/credentials",
-		"/api/deployments",
 		"/api/connectors",
 		"/api/plugins/connectors",
 		"/api/resources/app/inspect",
@@ -208,9 +205,6 @@ func TestDomainMutatingEndpointsRequireToken(t *testing.T) {
 		"/api/config/migrate",
 		"/api/config/backups/restore",
 		"/api/credentials/cloudflare",
-		"/api/deployments",
-		"/api/deployments/site-dev/delete",
-		"/api/deployments/site-dev/run",
 		"/api/connectors/c1/operations/list",
 		// The plugin_dir routes are retired (410); see loopback_guard_test.go.
 		"/api/plugins/connectors/pl/load",
@@ -332,14 +326,6 @@ func (f *fakeClient) ListPipelines(context.Context) ([]cerbapi.PipelineInfo, err
 func (f *fakeClient) RunPipeline(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.PipelineRunResult, error) {
 	f.mutations++
 	return &cerbapi.PipelineRunResult{}, nil
-}
-
-func (f *fakeClient) RunDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*infra.DeploymentRunResult, error) {
-	return &infra.DeploymentRunResult{}, nil
-}
-
-func (f *fakeClient) PlanDeploymentProfile(context.Context, string, ...cerbapi.MutationOption) (*cerbapi.ConnectorPlan, error) {
-	return &cerbapi.ConnectorPlan{}, nil
 }
 
 // consoleDaemon is the serving process's side of console writes: the

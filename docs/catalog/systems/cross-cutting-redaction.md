@@ -178,9 +178,9 @@ a request is added to that request's scope under `service/key`. The only
 values it skips are ones that are not credentials. The first is a secret a
 built-in connector's definition declares with `Path: true`: ssh's
 `ssh/<resource-id>/key` is a key file's path, and a path is what "reading SSH
-key <path>: no such file" has to show. The second is `vercel/scope`, a team
-slug the deploy prints. Which secrets are paths is read from the definitions,
-not listed by hand.
+key <path>: no such file" has to show. Which secrets are paths is read from
+the definitions, not listed by hand. (`vercel/scope` used to be a second,
+hand-listed exemption; the `vercel` plugin now declares it `kind: name`.)
 
 Two leaks of the same kind were closed in the same change. The `secretref`
 helper's stderr is no longer copied into its error, which now names the
@@ -217,9 +217,9 @@ message around it. `TestResolvedCredentialNeverReachesAnySurface`
 (`cmd/cerberus`) runs the failure through the in-process CLI, the socket's
 error and progress stream, MCP over the socket (the tool list `cerberus mcp`
 and mcp-http serve) and the daemon's stdio MCP, and reads the audit log.
-`TestConsoleNeverShowsAResolvedCredential` covers the console, and
-`TestDeployOutputNeverShowsTheResolvedToken` covers a Vercel step that echoes
-its token. Each test first checks that the regex net alone misses the
+`TestConsoleNeverShowsAResolvedCredential` covers the console. (A Vercel step
+that echoed its token was covered here until the deploy lane became the
+`vercel` plugin, which scrubs the token it holds from its own results.) Each test first checks that the regex net alone misses the
 sentinel. With registration switched off, every surface leaks it.
 
 ssh, docker and local resolve no credential value, so they have no case. ssh
@@ -236,6 +236,14 @@ plugin half of the acceptance test.
 The tenth casualty landed with PR #77: the Vercel plan's own placeholder,
 `--token [vercel token]`, came back as `--token [REDACTED] token]`, and was
 fixed by changing the placeholder rather than the rule.
+
+The thirteenth was a declared secret's name. The key walk hides everything
+under `secrets` and kept an entry only when it read as a descriptor, a name
+beside a description. A plugin secret declared without a description came back
+over the socket as `"name": "[REDACTED]"`. Each entry of a `secrets` list is
+now a secret requirement by schema (`walkSecretRequirement`): its `name`,
+`kind` and `env` are names whatever sits beside them, a `value` beside them
+stays hidden, and a resolved credential is still removed.
 
 **The Message/Detail split (S2-6).** Cerberus's own refusals are
 `redact.Guidance`, or `redact.Prose` for an error made where redact cannot be
