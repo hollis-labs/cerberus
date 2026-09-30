@@ -116,6 +116,9 @@ func (b launchdBackend) Apply(ctx context.Context, res *domain.Resource, spec Pr
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	if retireErr := b.retireLegacy(ctx, layout); retireErr != nil {
+		return ApplyResult{}, retireErr
+	}
 
 	domainTarget := b.domainTarget()
 	serviceTarget := b.serviceTarget(label)
@@ -337,6 +340,9 @@ func (b launchdBackend) Remove(ctx context.Context, res *domain.Resource, spec P
 	if rmErr := os.Remove(layout.PlistPath); rmErr != nil && !os.IsNotExist(rmErr) {
 		return fmt.Errorf("remove plist: %w", rmErr)
 	}
+	if err := b.retireLegacy(ctx, layout); err != nil {
+		return err
+	}
 	if _, rmErr := b.artifactInstaller().Remove(res, spec); rmErr != nil {
 		return rmErr
 	}
@@ -489,12 +495,43 @@ func waitLaunchdSlot(ctx context.Context) error {
 	}
 }
 
+// serviceName is the label the resource's job runs under: the legacy one
+// while only its legacy plist is installed, so a resource installed before
+// the rename is stopped, inspected and reloaded where it runs until Apply
+// moves it.
 func (b launchdBackend) serviceName(res *domain.Resource, spec ProcessSpec) (string, error) {
 	layout, err := defaultInstallLayoutFromBackend(b, res, spec)
 	if err != nil {
 		return "", err
 	}
+	if layout.LegacyPlistPath != "" {
+		if _, err := os.Stat(layout.PlistPath); err != nil {
+			if _, err := os.Stat(layout.LegacyPlistPath); err == nil {
+				return layout.LegacyServiceName, nil
+			}
+		}
+	}
 	return layout.ServiceName, nil
+}
+
+// retireLegacy moves a resource off its legacy label: its job is booted out
+// and its plist removed, so the renamed job never runs beside it. A resource
+// with no legacy plist is left alone.
+func (b launchdBackend) retireLegacy(ctx context.Context, layout InstallLayout) error {
+	if layout.LegacyPlistPath == "" {
+		return nil
+	}
+	if _, statErr := os.Stat(layout.LegacyPlistPath); os.IsNotExist(statErr) {
+		return nil
+	}
+	target := b.serviceTarget(layout.LegacyServiceName)
+	if out, err := b.runner.CombinedOutput(ctx, "launchctl", "bootout", target); err != nil && !isLaunchdNotFound(string(out), err) {
+		return fmt.Errorf("launchctl bootout %s (the label before the rename): %w%s", layout.LegacyServiceName, err, formatLaunchdFailureDetails(out, layout))
+	}
+	if err := os.Remove(layout.LegacyPlistPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove the plist from before the rename: %w", err)
+	}
+	return waitLaunchdSlot(ctx)
 }
 
 func (b launchdBackend) domainTarget() string {

@@ -1,5 +1,4 @@
-# Fragments Engine — Shared golangci-lint Configuration (v2 format)
-# Shared lint configuration.
+# Shared golangci-lint configuration (v2 format)
 #
 # Philosophy:
 #   - Catch real bugs, not style nits

@@ -122,7 +122,7 @@ func TestLaunchdBackendStartWritesPlistAndRunsLaunchctl(t *testing.T) {
 		out: map[string][]byte{},
 		err: map[string]error{},
 	}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.app-h.app-h-api")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.app-h.app-h-api")
 	backend := launchdBackend{
 		runner: runner,
 		homeDir: func() (string, error) {
@@ -150,7 +150,7 @@ func TestLaunchdBackendStartWritesPlistAndRunsLaunchctl(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.app-h.app-h-api.plist")
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.hollis-labs.cerberus.app-h.app-h-api.plist")
 	data, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
 	if err != nil {
 		t.Fatalf("expected plist at %s: %v", plistPath, err)
@@ -178,7 +178,7 @@ func TestLaunchdBackendStartIncludesEnvFileInPlist(t *testing.T) {
 	}
 
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.acme-relay.relay-api-service")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.acme-relay.relay-api-service")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
@@ -201,7 +201,7 @@ func TestLaunchdBackendStartIncludesEnvFileInPlist(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.acme-relay.relay-api-service.plist")
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.hollis-labs.cerberus.acme-relay.relay-api-service.plist")
 	data, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
 	if err != nil {
 		t.Fatalf("read plist: %v", err)
@@ -234,7 +234,7 @@ func TestLaunchdBackendStartNoopsWhenLoadedAndCurrent(t *testing.T) {
 	}
 
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.demo.app")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
@@ -255,8 +255,8 @@ func TestLaunchdBackendStartNoopsWhenLoadedAndCurrent(t *testing.T) {
 	}
 
 	runner.calls = nil
-	runner.out["launchctl print gui/501/com.fragments-engine.cerberus.demo.app"] = []byte("state = running")
-	delete(runner.err, "launchctl print gui/501/com.fragments-engine.cerberus.demo.app")
+	runner.out["launchctl print gui/501/com.hollis-labs.cerberus.demo.app"] = []byte("state = running")
+	delete(runner.err, "launchctl print gui/501/com.hollis-labs.cerberus.demo.app")
 	applyRes, err := backend.Apply(context.Background(), res, spec)
 	if err != nil {
 		t.Fatalf("Apply failed: %v", err)
@@ -265,7 +265,7 @@ func TestLaunchdBackendStartNoopsWhenLoadedAndCurrent(t *testing.T) {
 	if len(runner.calls) != 1 {
 		t.Fatalf("launchctl calls = %d, want 1", len(runner.calls))
 	}
-	if got := runner.calls[0]; got.name != "launchctl" || strings.Join(got.args, " ") != "print gui/501/com.fragments-engine.cerberus.demo.app" {
+	if got := runner.calls[0]; got.name != "launchctl" || strings.Join(got.args, " ") != "print gui/501/com.hollis-labs.cerberus.demo.app" {
 		t.Fatalf("unexpected call: %#v", got)
 	}
 	if applyRes.Action != ApplyActionNoop {
@@ -285,7 +285,7 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 	}
 
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.demo.app")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
@@ -309,8 +309,8 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner.calls = nil
-	runner.out["launchctl print gui/501/com.fragments-engine.cerberus.demo.app"] = []byte("state = running")
-	delete(runner.err, "launchctl print gui/501/com.fragments-engine.cerberus.demo.app")
+	runner.out["launchctl print gui/501/com.hollis-labs.cerberus.demo.app"] = []byte("state = running")
+	delete(runner.err, "launchctl print gui/501/com.hollis-labs.cerberus.demo.app")
 	applyRes, err := backend.Apply(context.Background(), res, spec)
 	if err != nil {
 		t.Fatalf("Apply failed: %v", err)
@@ -326,10 +326,10 @@ func TestLaunchdBackendStartReloadsWhenArtifactChanges(t *testing.T) {
 		runner.calls[3].name + " " + strings.Join(runner.calls[3].args, " "),
 	}
 	want := []string{
-		"launchctl print gui/501/com.fragments-engine.cerberus.demo.app",
-		"launchctl bootout gui/501/com.fragments-engine.cerberus.demo.app",
-		"launchctl bootstrap gui/501 " + filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.demo.app.plist"),
-		"launchctl kickstart -k gui/501/com.fragments-engine.cerberus.demo.app",
+		"launchctl print gui/501/com.hollis-labs.cerberus.demo.app",
+		"launchctl bootout gui/501/com.hollis-labs.cerberus.demo.app",
+		"launchctl bootstrap gui/501 " + filepath.Join(tmp, "Library", "LaunchAgents", "com.hollis-labs.cerberus.demo.app.plist"),
+		"launchctl kickstart -k gui/501/com.hollis-labs.cerberus.demo.app",
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -357,7 +357,7 @@ func TestLaunchdBackendApplyRefusesForeignPortConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	label := "com.fragments-engine.cerberus.demo.app"
+	label := "com.hollis-labs.cerberus.demo.app"
 	runner := &fakeCommandRunner{
 		out: map[string][]byte{
 			"launchctl print gui/501/" + label: []byte("Could not find service"),
@@ -410,7 +410,7 @@ func TestLaunchdBackendApplyIncludesDiagnosticsOnBootstrapFailure(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	label := "com.fragments-engine.cerberus.demo.app"
+	label := "com.hollis-labs.cerberus.demo.app"
 	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", label+".plist")
 	runner := &fakeCommandRunner{
 		out: map[string][]byte{
@@ -467,7 +467,7 @@ func TestLaunchdBackendApplyRetriesBootstrapAfterConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	label := "com.fragments-engine.cerberus.demo.app"
+	label := "com.hollis-labs.cerberus.demo.app"
 	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", label+".plist")
 	runner := &fakeCommandRunner{
 		out: map[string][]byte{
@@ -578,7 +578,7 @@ func TestLaunchdBackendStopPreservesInstallRootAndPlist(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.demo.app")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
@@ -723,7 +723,7 @@ func TestLaunchdBackendRemoveRemovesInstallRootAndPlist(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.demo.app")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.demo.app")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
@@ -774,7 +774,7 @@ func TestLaunchdBackendFrontsSecretRefsWithRunSecrets(t *testing.T) {
 	}
 
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.app-c.app-c-api-service")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.app-c.app-c-api-service")
 	backend := launchdBackend{
 		runner:   runner,
 		homeDir:  func() (string, error) { return tmp, nil },
@@ -795,7 +795,7 @@ func TestLaunchdBackendFrontsSecretRefsWithRunSecrets(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.app-c.app-c-api-service.plist")
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.hollis-labs.cerberus.app-c.app-c-api-service.plist")
 	raw, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
 	if err != nil {
 		t.Fatalf("expected plist at %s: %v", plistPath, err)
@@ -837,7 +837,7 @@ func TestLaunchdBackendLeavesLiteralEnvUnfronted(t *testing.T) {
 	}
 
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.plain.plain-api")
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.plain.plain-api")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
@@ -860,7 +860,7 @@ func TestLaunchdBackendLeavesLiteralEnvUnfronted(t *testing.T) {
 	if err := backend.Start(context.Background(), res, spec); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.plain.plain-api.plist")
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.hollis-labs.cerberus.plain.plain-api.plist")
 	raw, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
 	if err != nil {
 		t.Fatalf("expected plist: %v", err)
@@ -1024,5 +1024,87 @@ func TestApplyWaitsForRemovedLaunchdSlotBeforeBootstrap(t *testing.T) {
 	}
 	if runner.bootstraps != 1 {
 		t.Fatalf("bootstrap raced the draining slot: %d attempts", runner.bootstraps)
+	}
+}
+
+// A resource installed before the label prefix was renamed is found where it
+// runs, and Apply moves it: the legacy job is booted out and its plist
+// removed before the renamed job is bootstrapped, so the two never run side
+// by side. Remove clears a legacy plist too.
+func TestLaunchdBackendRetiresTheLegacyLabel(t *testing.T) {
+	tmp := t.TempDir()
+	workspace := filepath.Join(tmp, "workspace")
+	if err := os.MkdirAll(workspace, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "app"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	agents := filepath.Join(tmp, "Library", "LaunchAgents")
+	if err := os.MkdirAll(agents, 0755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	legacyPlist := filepath.Join(agents, "com.fragments-engine.cerberus.demo.app.plist")
+	writeLegacy := func() {
+		t.Helper()
+		if err := os.WriteFile(legacyPlist, []byte("<plist/>"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeLegacy()
+
+	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
+	setLaunchdPrintNotFound(runner, "com.hollis-labs.cerberus.demo.app")
+	backend := launchdBackend{
+		runner:  runner,
+		homeDir: func() (string, error) { return tmp, nil },
+		uid:     func() int { return 501 },
+		install: artifactInstaller{homeDir: func() (string, error) { return tmp, nil }, now: time.Now},
+	}
+	res := &domain.Resource{ID: "app", ProjectID: "demo"}
+	spec := ProcessSpec{Mode: ProcessModeOSService, Supervisor: ProcessSupervisorLaunchd, RunFrom: ProcessRunFromArtifact, Dir: workspace, Command: []string{"./app", "serve"}}
+
+	if label, err := backend.serviceName(res, spec); err != nil || label != "com.fragments-engine.cerberus.demo.app" {
+		t.Fatalf("before Apply the job is under the legacy label: %q %v", label, err)
+	}
+	if err := backend.Start(context.Background(), res, spec); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	calls := make([]string, 0, len(runner.calls))
+	for _, c := range runner.calls {
+		calls = append(calls, strings.Join(c.args, " "))
+	}
+	joined := strings.Join(calls, "\n")
+	bootout := strings.Index(joined, "bootout gui/501/com.fragments-engine.cerberus.demo.app")
+	bootstrap := strings.Index(joined, "bootstrap gui/501 "+filepath.Join(agents, "com.hollis-labs.cerberus.demo.app.plist"))
+	if bootout < 0 || bootstrap < 0 || bootout > bootstrap {
+		t.Fatalf("want the legacy bootout before the renamed bootstrap:\n%s", joined)
+	}
+	if _, err := os.Stat(legacyPlist); !os.IsNotExist(err) {
+		t.Fatalf("the legacy plist is still there: %v", err)
+	}
+	if label, _ := backend.serviceName(res, spec); label != "com.hollis-labs.cerberus.demo.app" {
+		t.Fatalf("after Apply: %q", label)
+	}
+
+	writeLegacy()
+	runner.calls = nil
+	if err := backend.Remove(context.Background(), res, spec); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Stat(legacyPlist); !os.IsNotExist(err) {
+		t.Fatalf("Remove left the legacy plist: %v", err)
+	}
+}
+
+// A resource that names its own service has no legacy label to retire.
+func TestAnExplicitServiceNameHasNoLegacyLabel(t *testing.T) {
+	layout, err := DefaultInstallLayout("/Users/me", &domain.Resource{ID: "app", ProjectID: "demo"}, ProcessSpec{ServiceName: "com.example.app"})
+	if err != nil || layout.ServiceName != "com.example.app" || layout.LegacyServiceName != "" || layout.LegacyPlistPath != "" {
+		t.Fatalf("layout = %+v %v", layout, err)
+	}
+	layout, err = DefaultInstallLayout("/Users/me", &domain.Resource{ID: "app", ProjectID: "demo"}, ProcessSpec{})
+	if err != nil || layout.ServiceName != "com.hollis-labs.cerberus.demo.app" || layout.LegacyServiceName != "com.fragments-engine.cerberus.demo.app" {
+		t.Fatalf("layout = %+v %v", layout, err)
 	}
 }

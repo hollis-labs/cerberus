@@ -18,7 +18,7 @@ resources:
       mode: os_service
       port: 11434
       run_from: workspace
-      service_name: com.fragments-engine.cerberus.ollama-service
+      service_name: com.hollis-labs.cerberus.ollama-service
       supervisor: launchd
       url: http://127.0.0.1:11434
     tags:
@@ -44,7 +44,7 @@ resources:
       mode: os_service
       port: 5432
       run_from: workspace
-      service_name: com.fragments-engine.cerberus.postgres-service
+      service_name: com.hollis-labs.cerberus.postgres-service
       supervisor: launchd
     tags:
       - db

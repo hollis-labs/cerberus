@@ -35,7 +35,7 @@ resources:
       mode: os_service
       supervisor: launchd
       run_from: artifact
-      service_name: com.fragments-engine.cerberus
+      service_name: com.hollis-labs.cerberus
       env:
         # launchd hands the daemon a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
         # so `cerberus resource deploy` can't find `go` to build. Same env the
@@ -70,7 +70,7 @@ resources:
       mode: os_service
       supervisor: launchd
       run_from: artifact
-      service_name: com.fragments-engine.cerberus.web
+      service_name: com.hollis-labs.cerberus.web
       port: 4783
       url: http://127.0.0.1:4783
       protected: true

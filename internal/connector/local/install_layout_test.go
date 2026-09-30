@@ -23,7 +23,7 @@ func TestDefaultInstallLayout(t *testing.T) {
 	if layout.ArtifactPath != filepath.Join(wantRoot, "bin", "app-h-api") {
 		t.Fatalf("ArtifactPath = %q", layout.ArtifactPath)
 	}
-	if layout.PlistPath != filepath.Join("/Users/me", "Library", "LaunchAgents", "com.fragments-engine.cerberus.app-h.app-h-api.plist") {
+	if layout.PlistPath != filepath.Join("/Users/me", "Library", "LaunchAgents", "com.hollis-labs.cerberus.app-h.app-h-api.plist") {
 		t.Fatalf("PlistPath = %q", layout.PlistPath)
 	}
 }

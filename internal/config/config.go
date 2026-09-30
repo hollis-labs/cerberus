@@ -141,7 +141,7 @@ func EnsureDefault() error {
 	return os.WriteFile(path, []byte(defaultConfig), PrivateFileMode)
 }
 
-const defaultConfig = `# Cerberus — Fragments Engine Local Runtime
+const defaultConfig = `# Cerberus — local runtime
 # This is a SEED template. It is only written when ~/.cerberus/config.yaml
 # does not exist. The live config is ALWAYS ~/.cerberus/config.yaml.
 # Edit that file directly — changes here have NO effect on running systems.

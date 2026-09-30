@@ -1,5 +1,4 @@
-# lefthook.yml — Fragments Engine shared pre-commit/pre-push hooks
-# Shared hook configuration.
+# lefthook.yml — pre-commit and pre-push hooks
 # Target: all checks complete in <15 seconds on staged files only.
 
 pre-commit:
