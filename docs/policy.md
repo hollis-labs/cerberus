@@ -175,6 +175,33 @@ The error codes `policy_denied`, `approval_required`, `approval_pending`,
 `approval_expired` and `plan_stale` are reserved for enforcement. Nothing
 returns them yet.
 
+**The console's own writes are operations too.** Each of these is an `admin`
+operation on the `console` connector, gated and recorded like any call:
+
+| Write | Operation |
+|---|---|
+| Saving or deleting a deploy profile | `profile_save`, `profile_delete` |
+| Saving a provider's settings or credentials | `provider_save` |
+| Registering or deregistering a project config | `registry_register`, `registry_deregister` |
+| Restoring a config backup | `config_restore` |
+
+The record names what changed in the clear: a profile's id and its `env`,
+`owner` and `admin` labels, and the config and backup paths. A relabelled
+target is visible in the record, since labels decide an approval channel.
+Everything else is a keyed digest, and a credential is named, never shown. A
+lockdown stops them, and under enforcement for humans they need your approval,
+as any admin operation does.
+
+**An in-process mutation needs Cerberus's real state.** The brakes, policy,
+approvals and audit log live under your account's home, and the CLI finds them
+through `$HOME`. So a mutation the CLI runs in its own process is refused when
+`HOME` is not your account's home as the system records it (looked up by uid,
+never from `$HOME` or `$USER`): `HOME=/tmp/x cerberus --config … ssh exec …`
+would otherwise run under a scratch lockdown, a scratch policy and a scratch
+audit log. The refusal is `audit_unavailable` and names both directories.
+Reads, dry runs and plans still work, and so does anything routed through the
+daemon, which reads its own state.
+
 ## Switching enforcement on
 
 Until you switch it on, policy runs in **shadow**: every decision is recorded

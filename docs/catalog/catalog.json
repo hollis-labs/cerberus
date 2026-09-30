@@ -18319,6 +18319,88 @@
       "id": "CERB-GAP-926"
     },
     {
+      "class": "gap",
+      "name": "Console writes to deploy profiles, the registry and config backups skipped the gate and the audit log",
+      "summary": "Deploy-profile save and delete, provider settings and credentials, registry register and deregister, and config backup restore wrote Cerberus's state directly. Profiles carry shell commands and target labels, and labels decide the approval channel, so relabelling a prod target as dev downgraded its approvals unrecorded. Each is now an admin operation on the console connector: gated and recorded.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 2026-09-30 adversarial review (M9); fixed in the console handlers; tested for records, names-only credentials and a lockdown",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "web-console",
+        "audit",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/console_writes.go, internal/webui/console_writes.go, internal/webui/infra.go, internal/webui/system.go",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-833",
+          "note": "the console writing credentials"
+        }
+      ],
+      "body": "Review M9. `internal/webui/infra.go` (profile create, update, delete; provider save) and `internal/webui/system.go` (registry register and deregister; config backup restore) never reached beginGated or beginAudit.\n\nNow `cerbapi.RunConsoleWrite` runs each as an admin operation on the `console` connector through the full gate (a verified caller's scopes, the brakes, policy), writing its intent first (an unwritable log refuses) and its outcome after. The target names what changed in the clear (a profile's id and env, owner and admin labels; the config and backup paths), so a relabel shows in the record; the rest is a keyed digest, and provider credentials are recorded by name only. The handlers keep their answers (404 for a missing profile, 400 for a registry input error, success:false for a failed restore), with the failure on the outcome. Under enforcement for humans an admin write asks for approval, which the console does not yet walk through for these routes.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-403",
+        "effort": "small",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-927"
+    },
+    {
+      "class": "gap",
+      "name": "A scratch HOME in the CLI ran mutations without the real brakes, policy and audit log",
+      "summary": "`HOME=/tmp/x cerberus --config ~/.cerberus/config.yaml ssh exec ... --ack` ran in-process (--config forces it) with every state directory under /tmp/x: no lockdown, shadow policy, and its audit record in the scratch directory, no pty needed. An in-process mutation is now refused unless HOME is the account's home as the system records it, looked up by uid.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 2026-09-30 adversarial review (M11, CERB-GAP-846 class); fixed in the gate with a CLI-installed check; tested and smoke-run with the built binary",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "brakes",
+        "audit",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/inprocess_state.go, cmd/cerberus/state_home.go",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-846",
+          "note": "the same-uid class this narrows"
+        }
+      ],
+      "body": "Review M11. `--config` selects the in-process lane (cmd_transport.go), and every state directory comes from $HOME (internal/app), so a scratch HOME ran mutations under a scratch lockdown, a scratch policy and a scratch audit log.\n\nNow the CLI installs `cerbapi.SetInProcessStateCheck(realStateCheck)`, and beginGated runs it first for an in-process, non-automation call that is not a read, a dry run or a plan. The check compares $HOME (symlinks resolved) with the account's home by uid: /usr/bin/dscl on macOS (os/user falls back to $HOME in a build without cgo, which would make the check agree with the caller), user.LookupId elsewhere. A mismatch, or a lookup that fails, refuses as audit_unavailable, naming both directories, before anything runs or is recorded. Calls through the daemon, which reads its own state, are unaffected. Not done: moving state resolution itself off $HOME; the same-uid agent can still edit the real state (CERB-GAP-846).",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-604",
+        "effort": "small",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-928"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

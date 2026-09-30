@@ -100,6 +100,9 @@ MIT licensed. Published by Hollis Labs.`,
 			ctx = context.Background()
 		}
 		cmd.SetContext(cerbapi.WithPrincipal(ctx, detectCLI().Principal))
+		// An in-process mutation must read Cerberus's real brakes, policy
+		// and audit log (M11); the gate asks this before it runs one.
+		cerbapi.SetInProcessStateCheck(inProcessStateCheck)
 		// Cerberus's state is the operator's alone (M12): made private
 		// before any writer runs, and said out loud when it was not.
 		fixed, err := config.EnsurePrivate(cfgPath)
@@ -114,6 +117,10 @@ MIT licensed. Published by Hollis Labs.`,
 		return cmd.Help()
 	},
 }
+
+// inProcessStateCheck is the check the gate runs before an in-process
+// mutation. Tests, which run under a scratch HOME, swap it.
+var inProcessStateCheck = realStateCheck
 
 // detectCLI classifies this process; tests swap it for a terminal.
 var detectCLI = cerbapi.DetectCLI

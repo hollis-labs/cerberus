@@ -1,7 +1,9 @@
 package webui
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -594,19 +596,29 @@ func (s *Server) handleRegistryRegister(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
-	reg, err := registry.ForConfig(s.configPath)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	entries, err := reg.Register(strings.TrimSpace(req.Path))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	// Registering a project config brings its resources, and their target
+	// labels, into what Cerberus runs: an admin write, gated and recorded
+	// (M9).
+	path := strings.TrimSpace(req.Path)
+	var count int
+	if !s.consoleWrite(w, r, cerbapi.ConsoleWrite{Operation: "registry_register", Target: map[string]any{"id": path, "config_path": path}},
+		func(context.Context) error {
+			reg, err := registry.ForConfig(s.configPath)
+			if err != nil {
+				return err
+			}
+			entries, err := reg.Register(path)
+			if err != nil {
+				return badRequest{err}
+			}
+			count = len(entries)
+			return nil
+		}) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
-		"count":   len(entries),
+		"count":   count,
 	})
 }
 
@@ -629,13 +641,17 @@ func (s *Server) handleRegistryDeregister(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "owner is required")
 		return
 	}
-	reg, err := registry.ForConfig(s.configPath)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := reg.Deregister(owner); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if !s.consoleWrite(w, r, cerbapi.ConsoleWrite{Operation: "registry_deregister", Target: map[string]any{"id": owner}},
+		func(context.Context) error {
+			reg, err := registry.ForConfig(s.configPath)
+			if err != nil {
+				return err
+			}
+			if err := reg.Deregister(owner); err != nil {
+				return badRequest{err}
+			}
+			return nil
+		}) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -762,8 +778,24 @@ func (s *Server) handleConfigRestoreBackup(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := configops.RestoreConfigBackup(s.configPath, strings.TrimSpace(req.BackupPath))
-	if err != nil {
+	// Restoring a backup replaces the whole config, every target label in
+	// it included: an admin write, gated and recorded (M9).
+	backup := strings.TrimSpace(req.BackupPath)
+	var result *configops.RestoreResult
+	err := cerbapi.RunConsoleWrite(r.Context(), s.audit, cerbapi.ConsoleWrite{Operation: "config_restore", Target: map[string]any{"id": s.configPath, "config_path": s.configPath, "backup_path": backup}},
+		func(context.Context) error {
+			var restoreErr error
+			result, restoreErr = configops.RestoreConfigBackup(s.configPath, backup)
+			return restoreErr
+		})
+	var coded *cerbapi.ExternalConnectorError
+	switch {
+	case errors.As(err, &coded):
+		// The gate refused it: nothing was restored.
+		writeClientError(w, err)
+		return
+	case err != nil:
+		// The restore itself failed; the outcome record says so.
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "error": err.Error()})
 		return
 	}

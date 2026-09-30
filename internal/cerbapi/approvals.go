@@ -273,6 +273,11 @@ func enforced(req policy.Request) bool {
 // and nothing more: shadow mode is unchanged.
 func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec auditSpec) (*auditCall, error) {
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
+	// Before anything else: an in-process mutation reading state other
+	// than the real one is refused, not recorded in the wrong log (M11).
+	if refusal := inProcessStateRefusal(ctx, spec); refusal != nil {
+		return nil, refusal
+	}
 	if spec.automation {
 		call, err := beginAudit(ctx, sink, logger, spec)
 		if err != nil {
