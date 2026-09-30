@@ -40,12 +40,8 @@ github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/hollis-labs/go-apppaths v0.1.0 h1:LJQv483BhOoizLL4qKwsLcCbM0lQoVrNvksJ1thycd4=
 github.com/hollis-labs/go-apppaths v0.1.0/go.mod h1:b3gOdAFgSYY9ZT7VUooAczFdb6o0C2xSGQa7ktcyw30=
-github.com/hollis-labs/go-mcp v0.4.3 h1:i43GZhA/NLoPCCsFGiMAHuntKRW1QQhWu/d6K1pNYiI=
-github.com/hollis-labs/go-mcp v0.4.3/go.mod h1:sy+7ptjvPxcwu3XDL5EGC6OUlze0iy/hHddLh5T4MZQ=
-github.com/hollis-labs/go-mcp v0.9.0 h1:c1djxyD3hV+H/ta+3NsfcRVMr3xVXSh7J1VIMaP3+T0=
-github.com/hollis-labs/go-mcp v0.9.0/go.mod h1:Ff+towTWDfy6lheDalxfzZh15RwWiKM4yQKW91Pr+eM=
-github.com/hollis-labs/go-mcp v0.9.1-0.20260930003406-91ad821a1b68 h1:BvN2e0s54zXxO0tlL2fWb2Nq1ImZVxjey2jPxCXbcww=
-github.com/hollis-labs/go-mcp v0.9.1-0.20260930003406-91ad821a1b68/go.mod h1:Ff+towTWDfy6lheDalxfzZh15RwWiKM4yQKW91Pr+eM=
+github.com/hollis-labs/go-mcp v0.10.0 h1:EA2/oK+31J/x2yUOtO2jAjPAhjH9qlLCozsLeekHrFI=
+github.com/hollis-labs/go-mcp v0.10.0/go.mod h1:Ff+towTWDfy6lheDalxfzZh15RwWiKM4yQKW91Pr+eM=
 github.com/hollis-labs/go-sftpsync v0.1.1 h1:T148mCsmhEXyh+6G3YtaFRAI2UIPblKu9G1aiITMpxE=
 github.com/hollis-labs/go-sftpsync v0.1.1/go.mod h1:/tdtDawz0r263DRcEghXk1Ny0GlTHiSUxDPuteSMh60=
 github.com/hollis-labs/go-webui v0.1.0 h1:j+seGHO3FBehZvUhiJWIS3/aLeEETlJ0G23qpx8gFRE=
