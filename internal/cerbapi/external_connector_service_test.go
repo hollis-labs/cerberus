@@ -17,7 +17,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -96,12 +95,6 @@ func (b *fakeDockerBackend) ComposePS(_ context.Context, _ string) (*dockerconn.
 	return nil, nil
 }
 
-type fakeGitHubBackend struct {
-	owner string
-	repo  string
-	limit int
-}
-
 type fakeSSHBackend struct {
 	command     string
 	localPath   string
@@ -159,23 +152,6 @@ func (b *fakeSSHBackend) Ping(_ context.Context) error {
 
 func (b *fakeSSHBackend) Close() error {
 	return nil
-}
-
-func (b *fakeGitHubBackend) RepoStatus(_ context.Context, owner, repo string) (*ghconn.RepoStatus, error) {
-	b.owner = owner
-	b.repo = repo
-	return &ghconn.RepoStatus{Owner: owner, Repo: repo}, nil
-}
-
-func (b *fakeGitHubBackend) ListReleases(_ context.Context, owner, repo string, limit int) ([]ghconn.Release, error) {
-	b.owner = owner
-	b.repo = repo
-	b.limit = limit
-	return []ghconn.Release{{TagName: "v1"}}, nil
-}
-
-func (b *fakeGitHubBackend) ListWorkflowRuns(_ context.Context, _ string, _ string, _ int) ([]ghconn.WorkflowRun, error) {
-	return nil, nil
 }
 
 func TestExternalConnectorServiceExecutesDockerOperation(t *testing.T) {
@@ -247,29 +223,6 @@ func TestExternalConnectorServiceRejectsDockerHostAndContextTogether(t *testing.
 	var opErr *ExternalConnectorError
 	if !errors.As(err, &opErr) || opErr.Code != ExternalConnectorInvalidArgs {
 		t.Fatalf("err = %v, want %s", err, ExternalConnectorInvalidArgs)
-	}
-}
-
-func TestExternalConnectorServiceExecutesGitHubOperation(t *testing.T) {
-	backend := &fakeGitHubBackend{}
-	registry := connector.NewRegistry()
-	registry.Register(ghconn.NewWithBackend(backend))
-	svc := NewExternalConnectorService(audit.NewMemory(), registry)
-
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
-		Connector: "github",
-		Operation: "list_releases",
-		Config:    map[string]any{"owner": "hollis-labs", "repo": "cerberus", "limit": 3},
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	releases, ok := result.Data.([]ghconn.Release)
-	if !ok || len(releases) != 1 || releases[0].TagName != "v1" {
-		t.Fatalf("Data = %#v, want release slice", result.Data)
-	}
-	if backend.owner != "hollis-labs" || backend.repo != "cerberus" || backend.limit != 3 {
-		t.Fatalf("backend called with %q/%q/%d", backend.owner, backend.repo, backend.limit)
 	}
 }
 
@@ -639,11 +592,16 @@ func TestExternalConnectorServiceSSHTransferRequiresPaths(t *testing.T) {
 
 func TestExternalConnectorServiceUnavailableConnectorReturnsStructuredError(t *testing.T) {
 	registry := connector.NewRegistry()
-	registry.RegisterDefinition(ghconn.Definition())
-	registry.RegisterUnavailable("github", errors.New("missing token"))
+	registry.RegisterDefinition(contract.Finalize(contract.Definition{
+		ID:            "credfake",
+		ResourceTypes: []string{"repository"},
+		Config:        contract.ConfigSchema{Secrets: []contract.SecretRequirement{{Name: "token", Env: "CERBERUS_CREDFAKE_TOKEN"}}},
+		Operations:    []contract.Operation{{Name: "status", Effect: contract.EffectRead, InputSchema: contract.ObjectSchema(map[string]any{})}},
+	}))
+	registry.RegisterUnavailable("credfake", errors.New("missing token"))
 	svc := NewExternalConnectorService(audit.NewMemory(), registry)
 
-	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "github", Operation: "status", Config: map[string]any{"owner": "o", "repo": "r"}})
+	_, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{Connector: "credfake", Operation: "status"})
 	var connErr *ExternalConnectorError
 	if !errors.As(err, &connErr) {
 		t.Fatalf("err = %T, want ExternalConnectorError", err)

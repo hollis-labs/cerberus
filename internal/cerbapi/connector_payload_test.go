@@ -7,7 +7,6 @@ import (
 	"time"
 
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
-	gh "github.com/hollis-labs/cerberus/internal/connector/github"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
@@ -22,16 +21,12 @@ func (c connectorPayloadClient) ExecuteConnectorOperation(_ context.Context, arg
 }
 
 func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {
-	timestamp := time.Date(2026, 9, 12, 12, 30, 0, 123, time.UTC)
 	for _, tt := range []struct {
 		connector, operation string
 		payload              any
 	}{
 		{"docker", "list_containers", []docker.Container{{ID: "abc", Name: "web", State: "running"}}},
 		{"docker", "logs", "line one\nline two\n"},
-		{"github", "status", &gh.RepoStatus{Owner: "org", Repo: "repo", UpdatedAt: timestamp}},
-		{"github", "list_releases", []gh.Release{{TagName: "v1", PublishedAt: timestamp}}},
-		{"github", "list_workflow_runs", []gh.WorkflowRun{{ID: 9007199254740993, Name: "Build", CreatedAt: timestamp}}},
 		{"ssh", "exec", &ssh.ExecResult{Stdout: "hello\n", ExitCode: 7}},
 		{"ssh", "status", `{"state":"running"}`},
 		{"ssh", "put_dir", &ssh.DirTransferResult{Direction: "upload", LocalPath: "./deploy", RemotePath: "/opt/app/deploy", Files: 2, Dirs: 1, Bytes: 4096, DurationMS: 12, Entries: []ssh.DirTransferEntry{{Path: ".", Action: "dir", Mode: "-rwxr-xr-x"}, {Path: "run.sh", Action: "file", Mode: "-rwxr-xr-x", Size: 4096}}}},

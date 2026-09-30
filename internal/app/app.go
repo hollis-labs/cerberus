@@ -18,7 +18,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	githubconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/domain"
@@ -422,7 +421,7 @@ func notACredential(service, key string) bool {
 // file changing.
 var builtInNonCredentials = func() map[string]map[string]bool {
 	out := map[string]map[string]bool{}
-	for _, def := range []contract.Definition{dockerconn.Definition(), githubconn.Definition(), sshconn.Definition()} {
+	for _, def := range []contract.Definition{dockerconn.Definition(), sshconn.Definition()} {
 		for _, req := range def.Config.Secrets {
 			if !req.IsCredential() {
 				if out[def.ID] == nil {
@@ -457,13 +456,9 @@ func ConnectorConfigPath(configPaths ...string) string {
 
 func registerBuiltInConnectors(registry *connector.Registry, sec domain.SecretProvider) {
 	registry.RegisterDefinition(dockerconn.Definition())
-	registry.RegisterDefinition(githubconn.Definition())
 	registry.RegisterDefinition(sshconn.Definition())
 
-	registry.RegisterFactory(githubconn.Definition(), func(ctx context.Context) (contract.Connector, error) {
-		return githubconn.New(secrets.WithContext(ctx, sec))
-	})
-	// Docker resolves per call, like the credentialed connectors above. Eager
+	// Docker resolves per call, as a credentialed connector does. Eager
 	// registration cached a boot-time "docker CLI not found" for the daemon's
 	// whole lifetime, so starting Docker Desktop — or correcting the daemon's
 	// PATH — could not recover without a restart.

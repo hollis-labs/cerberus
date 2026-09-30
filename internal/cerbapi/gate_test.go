@@ -10,7 +10,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -20,7 +19,6 @@ import (
 func builtinConnectorDefinitions() []contract.Definition {
 	return []contract.Definition{
 		dockerconn.Definition(),
-		ghconn.Definition(),
 		sshconn.Definition(),
 	}
 }

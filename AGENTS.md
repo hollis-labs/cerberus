@@ -127,18 +127,18 @@ operate it, rather than erroring or leaving a blank status.
 
 Cerberus ships as a single installed binary. Compiled in: `local`, `ssh`,
 `docker` — the primitives the control plane is built on, none of which carries a
-vendor SDK — plus `github`, which does carry one but earns its place because
-Cerberus's own release and pipeline story leans on it. Everything else that
-talks to a provider is a plugin: optional per user, its own release schedule,
-loaded at runtime without rebuilding the host.
+vendor SDK. Everything else that talks to a provider is a plugin: optional per
+user, its own release schedule, loaded at runtime without rebuilding the host.
 
-**That is the whole core: `local`, `ssh`, `docker`, `github`.** Every provider
-connector is a plugin. Ours live in `hollis-labs/cerberus-plugins`
-(`cloudflare`, `digitalocean`, `namecheap`, `forge`, `contextforge`, `azure`,
-`kubernetes`), and third-party plugins are standalone repos. The four providers
+**That is the whole core: `local`, `ssh`, `docker`.** Every provider connector
+is a plugin. Ours live in `hollis-labs/cerberus-plugins` (`cloudflare`,
+`digitalocean`, `namecheap`, `forge`, `github`, `contextforge`, `azure`,
+`kubernetes`), and third-party plugins are standalone repos. The five providers
 that used to be compiled in moved out in 2026-09
-(`docs/plans/provider-plugin-extraction.md`), taking a stripped build from
-62.8MB to 21.7MB with no provider SDK left in the host.
+(`docs/plans/provider-plugin-extraction.md`): the first four took a stripped
+build from 62.8MB to 21.7MB, and `github`, the last, took go-github with it, so
+no provider SDK is left in the host. Anything that is not core becomes a
+plugin.
 
 A plugin's operations reach every surface without host code. On the CLI,
 `cerberus connectors exec <id> <op>` runs any operation, built-in or plugin,
@@ -177,8 +177,8 @@ fails as `credential_missing` with the recovery named. This matters concretely:
 ContextForge's `get_health` is open and must keep working while `list_gateways`
 401s, because that is how you tell a down tunnel from a down gateway.
 
-**Built-in connector ids are reserved.** A plugin claiming `ssh`, `docker`,
-`local` or `github` is refused at install — it would shadow the connector
+**Built-in connector ids are reserved.** A plugin claiming `ssh`, `docker` or
+`local` is refused at install — it would shadow the connector
 Cerberus serves itself and, since the secret channel namespaces by connector id,
 would be handed that connector's credentials. The set comes from
 `Registry.BuiltInIDs()`, plus `local`, which the supervision lane serves outside

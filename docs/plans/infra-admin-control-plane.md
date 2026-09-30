@@ -145,10 +145,10 @@ URL and depends on the tunnel being up.
 ## Core or plugin
 
 Cerberus ships as a single installed binary. What is in that binary is the
-primitives the control plane is built on — `local`, `ssh`, `docker`, `github`.
+primitives the control plane is built on — `local`, `ssh`, `docker`.
 Provider integrations that are optional per user, carry a vendor SDK, and ship
 on someone else's schedule are plugins: `cloudflare`, `digitalocean`, `forge`,
-`namecheap`, and the new ContextForge and Azure connectors.
+`namecheap`, `github`, and the new ContextForge and Azure connectors.
 
 Our plugins live in `hollis-labs/cerberus-plugins`, one directory each. Third-
 party plugins are standalone repos. The full table, the migration order, and why

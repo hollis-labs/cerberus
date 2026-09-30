@@ -218,11 +218,13 @@ func TestPluginPathsAreRecordedOnce(t *testing.T) {
 // a place a service could be built on a sink nobody reads.
 func TestServicesAreConstructedOnlyInApp(t *testing.T) {
 	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true, "NewResourceRuntimeService": true, "NewProcessSecretBackends": true}
-	// The one construction outside internal/app that is allowed, and why.
+	// The constructions outside internal/app that are allowed, and why.
 	allowed := map[string]string{
-		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService":                      "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
-		filepath.Join("internal", "smoke", "confirmdialog", "main.go") + ":NewResourceRuntimeService":            "the confirm-dialog browser smoke's scratch daemon, with its own sink",
-		filepath.Join("internal", "cerbapi", "process_secret_backends.go") + ":NewManagedPluginConnectorService": "run-secrets' backends are the managed lane in register-only mode, on the sink NewProcessSecretBackends is given (itself built only in internal/app)",
+		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService":                       "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
+		filepath.Join("internal", "smoke", "confirmdialog", "main.go") + ":NewResourceRuntimeService":             "the confirm-dialog browser smoke's scratch daemon, with its own sink",
+		filepath.Join("internal", "cerbapi", "process_secret_backends.go") + ":NewManagedPluginConnectorService":  "run-secrets' backends are the managed lane in register-only mode, on the sink NewProcessSecretBackends is given (itself built only in internal/app)",
+		filepath.Join("internal", "testfixture", "sentinel", "sentinel.go") + ":NewManagedPluginConnectorService": "the WP-S2 acceptance fixture, imported only by tests, on the sink the test passes in",
+		filepath.Join("internal", "testfixture", "sentinel", "sentinel.go") + ":NewExternalConnectorService":      "the WP-S2 acceptance fixture, imported only by tests, on the sink the test passes in",
 	}
 	root := filepath.Join("..", "..")
 	fset := token.NewFileSet()

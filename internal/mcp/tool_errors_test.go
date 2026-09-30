@@ -115,7 +115,6 @@ func TestToolRefusalsSetIsError(t *testing.T) {
 		{NewCerberusSSHGetTool(client), map[string]any{"resource_id": "box", "remote_path": "/a", "local_path": "/tmp/a"}, ackRefusal},
 		{NewCerberusDockerDownTool(client), map[string]any{"resource_id": "stack"}, ackRefusal},
 		{NewCerberusDockerPSTool(client), map[string]any{}, ackRefusal},
-		{NewCerberusGithubStatusTool(client), map[string]any{"owner": "o", "repo": "r"}, ackRefusal},
 		// Refusals the tool makes itself, before reaching the serving process.
 		{NewCerberusConnectorDescribeTool(client), map[string]any{"id": ""}, `missing \"id\"`},
 		// Resource and pipeline verbs whose OpResult reports failure.

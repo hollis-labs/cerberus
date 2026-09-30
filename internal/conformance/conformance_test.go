@@ -11,7 +11,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -21,7 +20,7 @@ import (
 func builtins() []contract.Definition {
 	defs := []contract.Definition{
 		dockerconn.Definition(),
-		ghconn.Definition(), sshconn.Definition(),
+		sshconn.Definition(),
 	}
 	return append(defs, cerbapi.RuntimeDefinitions()...)
 }

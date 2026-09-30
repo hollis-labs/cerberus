@@ -15,7 +15,6 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
-	ghconn "github.com/hollis-labs/cerberus/internal/connector/github"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -524,8 +523,6 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 	switch args.Connector {
 	case "docker":
 		result, err = s.executeDocker(ctx, c, args)
-	case "github":
-		result, err = s.executeGitHub(ctx, c, args)
 	case "ssh":
 		result, err = s.executeSSH(ctx, c, args)
 	default:
@@ -770,32 +767,6 @@ func (s *ExternalConnectorService) executeDocker(ctx context.Context, c contract
 	}
 }
 
-func (s *ExternalConnectorService) executeGitHub(ctx context.Context, c contract.Connector, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	github, ok := c.(*ghconn.Connector)
-	if !ok {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("registered connector has type %T", c))
-	}
-
-	owner, repo, err := ownerRepoFromConfig(args.Config)
-	if err != nil {
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorInvalidArgs, err)
-	}
-
-	switch args.Operation {
-	case "status":
-		status, err := github.RepoStatus(ctx, owner, repo)
-		return externalConnectorResult(args, status), err
-	case "list_releases":
-		releases, err := github.ListReleases(ctx, owner, repo, intFromConfig(args.Config, "limit", 10))
-		return externalConnectorResult(args, releases), err
-	case "list_workflow_runs":
-		runs, err := github.ListWorkflowRuns(ctx, owner, repo, intFromConfig(args.Config, "limit", 10))
-		return externalConnectorResult(args, runs), err
-	default:
-		return ExternalConnectorOperationResult{}, externalConnectorError(args, ExternalConnectorUnsupported, nil)
-	}
-}
-
 func (s *ExternalConnectorService) executeSSH(ctx context.Context, c contract.Connector, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	ssh, ok := c.(*sshconn.Connector)
 	if !ok {
@@ -970,18 +941,6 @@ func unavailableCode(err error) ExternalConnectorErrorCode {
 		return ExternalConnectorCredentialMissing
 	}
 	return ExternalConnectorUnavailable
-}
-
-func ownerRepoFromConfig(cfg map[string]any) (string, string, error) {
-	owner, err := requiredString(cfg, "owner")
-	if err != nil {
-		return "", "", err
-	}
-	repo, err := requiredString(cfg, "repo")
-	if err != nil {
-		return "", "", err
-	}
-	return owner, repo, nil
 }
 
 func requiredString(cfg map[string]any, key string) (string, error) {

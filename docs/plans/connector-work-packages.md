@@ -68,7 +68,7 @@ no rebuild of the host.
 | `local` | compiled | **Core** | It *is* the supervision lane (process/launchd), not an external connector | none |
 | `ssh` | compiled | **Core** | Primitive: remote docker rides it, deploys and file transfer are built on it | `x/crypto`, `pkg/sftp` (already core) |
 | `docker` | compiled | **Core** | Primitive: shells out to the CLI, remote docker rides ssh | none |
-| `github` | compiled | **Core** | Cerberus's own release and pipeline story leans on it | `go-github` (7MB) |
+| `github` | **plugin** (2026-09-30) | **Plugin** | Once core because Cerberus's own release and pipeline story leaned on it. Nothing in the host did beyond the three reads, so it moved out when core was narrowed to the primitives. Measured on removal: a stripped build went 26.3MB → 23.5MB | `go-github` (7MB); the plugin uses net/http |
 | `cloudflare` | **plugin** (2026-09-25) | **Plugin** | DNS provider, optional; the largest dependency win available. Measured on removal: a stripped build went 62.8MB → 23.6MB | `cloudflare-go/v4` (33MB source) |
 | `digitalocean` | **plugin** (2026-09-25) | **Plugin** | VPS provider, optional | `godo` (2.7MB) |
 | `forge` | **plugin** (2026-09-25) | **Plugin** | Laravel Forge, niche | none |
@@ -85,7 +85,9 @@ was to build ContextForge first, learn what authoring feels like, then migrate
 starting with `cloudflare` where the payoff was largest, with Forge and
 Namecheap last because they had no SDK to shed. That is what happened, in
 `docs/plans/provider-plugin-extraction.md` (H0 to H7, A1 to A4). The core is now
-`local`, `ssh`, `docker` and `github`, and nothing else.
+`local`, `ssh`, `docker` and `github`, and nothing else. `github` followed on
+2026-09-30, when core was narrowed to the primitives (`local`, `ssh`,
+`docker`); see the addendum in `provider-plugin-extraction.md`.
 
 Binary size, stripped: 62.8MB before (88.1MB unstripped), 21.7MB after (31.6MB
 unstripped). Nearly all of it was `cloudflare-go/v4`, whose generated types
