@@ -18901,12 +18901,12 @@
       "review_status": "draft",
       "locus": "core",
       "class": "gap",
-      "name": "cerberus web open mints a full console session without a terminal",
-      "summary": "cerberus web open prints a one-time sign-in link for the running console from any process, terminal or not, so an agent with a shell gets a human/web console session and can do what the console does: confirm terminal-channel approvals by typing their target, engage brakes, and drive passkey ceremonies. It cannot start an enrollment on its own (the daemon now allows those only for a person at the CLI), but the session is a person's.",
+      "name": "cerberus web open mints a full console session without a terminal: not a boundary, by design",
+      "summary": "cerberus web open prints a one-time sign-in link for the running console from any process, so an agent with a shell as the operator gets a human/web console session. Closed as not a boundary: gating link minting would add nothing, because such a process can send a person's claim (human/cli or human/web) straight to the daemon socket, pass the terminal checks under a pseudo-terminal, or run a console of its own, link or no link. What it cannot do is produce a passkey assertion, and enrolling a passkey now needs the person at the Mac (CERB-GAP-939). Folded into docs/policy.md, What Cerberus bounds.",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "deferred",
       "confidence_score": 0.8,
-      "confidence_label": "the 5931772 re-review (first-run, B1); the same-uid class, recorded because the session it grants is labeled human",
+      "confidence_label": "the 5931772 re-review; closed by the lead's decision after the B1-b analysis",
       "tags": [
         "cerberus",
         "class:gap",
@@ -18921,16 +18921,21 @@
           "type": "relates_to",
           "target": "CERB-GAP-862",
           "note": "the self-reported CLI claim"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-944",
+          "note": "what would make a console session unforgeable"
         }
       ],
       "data": {
         "capability": "CERB-CAP-604",
         "priority": "nice-to-have",
         "blocked_by": [],
-        "unlocks_when": "web open requires an interactive terminal (as approvals enroll does), or the link it mints is scoped to reading until a passkey confirms the session",
+        "unlocks_when": "Daemon-issued console session tokens, which make a web principal unforgeable, on the signing path in CERB-GAP-944",
         "effort": "small"
       },
-      "body": "Left for triage: requiring a terminal would break a script or launcher that reopens the console after a session ends, which is what web open is for.",
+      "body": "No link-minting gate and no key-in-daemon redesign, by decision: they would not bound a same-uid process while its claims are forgeable.",
       "id": "CERB-GAP-941"
     },
     {

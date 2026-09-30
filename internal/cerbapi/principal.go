@@ -37,6 +37,10 @@ type Principal struct {
 	Client     string `json:"client,omitempty"`
 	Session    string `json:"session,omitempty"`
 	OnBehalfOf string `json:"on_behalf_of,omitempty"`
+	// ActingFor is the kind of caller automation acts for: a pipeline run's
+	// initiator. Set by Cerberus, never from a claim; policy treats
+	// automation acting for an agent as that agent (B2).
+	ActingFor PrincipalKind `json:"acting_for,omitempty"`
 	// SelfReported marks Kind, Via and Client as the caller's own claim.
 	SelfReported bool `json:"self_reported"`
 
@@ -184,6 +188,10 @@ func pipelinePrincipal(ctx context.Context, id string) Principal {
 	p := Principal{Kind: PrincipalAutomation, Via: ViaPipeline, UID: os.Getuid(), UIDVerified: true, Client: "pipeline:" + id}
 	if caller, ok := PrincipalFrom(ctx); ok {
 		p.OnBehalfOf = fmt.Sprintf("%s via %s", caller.Kind, caller.Via)
+		p.ActingFor = caller.Kind
+		if caller.Kind == PrincipalAutomation {
+			p.ActingFor = caller.ActingFor
+		}
 		if caller.Client != "" {
 			p.OnBehalfOf += " (" + caller.Client + ")"
 		}

@@ -393,6 +393,12 @@ var pipelineVerbs = map[string]string{
 // snapshot.
 func (s *ResourceRuntimeService) planPipeline(ctx context.Context, spec auditSpec, id string) (plan.Plan, *pipelineSnapshot, error) {
 	snap, problem := s.lookupPipeline(id)
+	return s.planPipelineSnapshot(ctx, spec, id, snap, problem)
+}
+
+// planPipelineSnapshot is planPipeline for a definition already read, so a
+// run's gate labels, plan and stages all come from one read (M10).
+func (s *ResourceRuntimeService) planPipelineSnapshot(ctx context.Context, spec auditSpec, id string, snap *pipelineSnapshot, problem string) (plan.Plan, *pipelineSnapshot, error) {
 	if snap == nil {
 		return plan.Plan{}, nil, redact.Guidance("pipeline %q cannot be planned: %s", id, problem)
 	}

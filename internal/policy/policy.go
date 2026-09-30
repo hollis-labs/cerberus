@@ -76,9 +76,12 @@ type Request struct {
 
 // Principal is who asks, for matching. A label, never approval.
 type Principal struct {
-	Kind    string
-	Client  string
-	Session string
+	Kind string
+	// ActingFor is, for automation, the kind of caller it acts for: a
+	// pipeline run's initiator. Empty is Cerberus acting on its own.
+	ActingFor string
+	Client    string
+	Session   string
 	// Subject and Issuer are a verified bearer token's (WP-S8); Verified
 	// says they are, so a rule naming a subject never matches a claim.
 	Subject  string

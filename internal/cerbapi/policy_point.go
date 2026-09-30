@@ -48,7 +48,7 @@ func policyRequest(ctx context.Context, spec auditSpec, t target.Target) policy.
 	// plan request is the plan step itself: it runs nothing but the preview.
 	r.DryRun = spec.planOnly || spec.dryRun && spec.op.Preview != contract.PreviewNone
 	if p, ok := PrincipalFrom(ctx); ok {
-		r.Principal = policy.Principal{Kind: string(p.Kind), Client: p.Client, Session: p.Session}
+		r.Principal = policy.Principal{Kind: string(p.Kind), Client: p.Client, Session: p.Session, ActingFor: string(p.ActingFor)}
 		if p.Verified() {
 			r.Principal.Subject, r.Principal.Issuer, r.Principal.Verified = p.Subject, p.Issuer, true
 		}
