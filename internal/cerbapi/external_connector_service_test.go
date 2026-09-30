@@ -387,7 +387,7 @@ func TestExternalConnectorServiceExecutesSSHPut(t *testing.T) {
 	backend := &fakeSSHBackend{}
 	svc := newSSHTestService(backend)
 
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+	result, err := svc.Execute(as(humanCLI), ExternalConnectorOperationArgs{
 		Connector:    "ssh",
 		Operation:    "put",
 		Acknowledged: true,
@@ -475,7 +475,7 @@ func TestExternalConnectorServiceExecutesSSHPutDir(t *testing.T) {
 	backend := &fakeSSHBackend{}
 	svc := newSSHTestService(backend)
 
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+	result, err := svc.Execute(as(humanCLI), ExternalConnectorOperationArgs{
 		Connector:    "ssh",
 		Operation:    "put_dir",
 		Acknowledged: true,
@@ -542,7 +542,7 @@ func TestExternalConnectorServiceSSHPutDirDryRunNeedsNoAcknowledgment(t *testing
 	backend := &fakeSSHBackend{}
 	svc := newSSHTestService(backend)
 
-	result, err := svc.Execute(context.Background(), ExternalConnectorOperationArgs{
+	result, err := svc.Execute(as(humanCLI), ExternalConnectorOperationArgs{
 		Connector: "ssh",
 		Operation: "put_dir",
 		DryRun:    true,

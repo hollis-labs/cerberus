@@ -66,7 +66,7 @@ func NewCerberusSSHPutTool(client cerbapi.Client) Tool {
 		Description: "Upload a local file to an SSH resource over SFTP, replacing the remote file if it exists.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
-			"local_path":   map[string]interface{}{"type": "string", "description": "Local file to upload."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local file to upload. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it."},
 			"remote_path":  map[string]interface{}{"type": "string", "description": "Destination path on the remote host."},
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
@@ -86,7 +86,7 @@ func NewCerberusSSHGetTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
 			"remote_path":  map[string]interface{}{"type": "string", "description": "File to download from the remote host."},
-			"local_path":   map[string]interface{}{"type": "string", "description": "Local destination path."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local destination path. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge overwriting local_path. Required: the download writes to the local filesystem."},
 		}, "resource_id", "remote_path", "local_path"),
 		// Not read-only: the download overwrites local_path, which the caller
@@ -104,7 +104,7 @@ func NewCerberusSSHPutDirTool(client cerbapi.Client) Tool {
 		Description: "Recursively upload a local directory tree to an SSH resource over SFTP, replacing remote files that already exist. Permission bits are carried and a symlink pointing outside the tree is refused. Every byte is copied every time — there is no delta transfer.",
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
-			"local_path":   map[string]interface{}{"type": "string", "description": "Local directory to upload."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local directory to upload. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it."},
 			"remote_path":  map[string]interface{}{"type": "string", "description": "Destination directory on the remote host."},
 			"dry_run":      map[string]interface{}{"type": "boolean", "description": "Preview only. Reports file count and total bytes without transferring."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge this change."},
@@ -124,7 +124,7 @@ func NewCerberusSSHGetDirTool(client cerbapi.Client) Tool {
 		InputSchema: objectSchema(map[string]interface{}{
 			"resource_id":  map[string]interface{}{"type": "string", "description": "SSH resource ID."},
 			"remote_path":  map[string]interface{}{"type": "string", "description": "Directory to download from the remote host."},
-			"local_path":   map[string]interface{}{"type": "string", "description": "Local destination directory."},
+			"local_path":   map[string]interface{}{"type": "string", "description": "Local destination directory. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it."},
 			"acknowledged": map[string]interface{}{"type": "boolean", "description": "Acknowledge overwriting local files. Required: the download writes to the local filesystem."},
 		}, "resource_id", "remote_path", "local_path"),
 		// Not read-only: the download overwrites local_path, which the caller

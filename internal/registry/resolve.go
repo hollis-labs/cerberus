@@ -86,6 +86,9 @@ func resolveIndex(opts ResolveOptions, idx *Index) (*ResolvedConfig, error) {
 				return nil, fmt.Errorf("load global config %s: %w", opts.GlobalPath, loadErr)
 			}
 			resolved.Config.Build = global.Build
+			// The transfer root is the operator's alone: only the global config
+			// sets it, never a registered project config.
+			resolved.Config.Transfers = global.Transfers
 			for _, p := range global.Projects {
 				projects[p.ID] = p
 				projectOwner[p.ID] = ""

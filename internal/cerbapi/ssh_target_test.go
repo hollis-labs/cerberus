@@ -42,6 +42,8 @@ func TestSSHVerbsOverSocketByID(t *testing.T) {
 	} {
 		t.Run(tc.operation, func(t *testing.T) {
 			client, backend := sshSocket(t)
+			// A person at the CLI: a transfer's local path is theirs to name.
+			client.claim = func(context.Context) Principal { return humanCLI }
 			cfg := map[string]any{"id": "server-1"}
 			for k, v := range tc.config {
 				cfg[k] = v

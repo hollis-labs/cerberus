@@ -82,6 +82,8 @@ func NewWithOptions(opts Options) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+	// Where non-CLI callers may transfer files (B3): the operator's config.
+	cerbapi.SetTransferRoot(v2.TransferRoot())
 
 	registry, sec := newConnectorRegistry(opts.ConfigPath)
 	local := localconn.New()
@@ -130,6 +132,9 @@ func NewExternalConnectorService(configPath ...string) *cerbapi.ExternalConnecto
 		path = configPath[0]
 	}
 	connectors, _ := newConnectorRegistry(path)
+	if cfg, err := registry.ResolveConfig(path); err == nil {
+		cerbapi.SetTransferRoot(cfg.TransferRoot())
+	}
 	svc := cerbapi.NewExternalConnectorService(AuditSink(), connectors)
 	svc.SetResourceLookup(func(id string) (*config.ResourceDef, bool) {
 		cfg, err := registry.ResolveConfig(path)

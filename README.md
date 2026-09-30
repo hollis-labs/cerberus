@@ -367,6 +367,21 @@ cerberus ssh put-dir <resource-id> ./deploy /opt/app/deploy --ack
 cerberus ssh get-dir <resource-id> /opt/app/conf ./conf --ack
 ```
 
+The local path is yours to name only at your own terminal. Any other caller
+(an MCP client, the HTTP API, the console, or an agent at the CLI) reads and
+writes local files only under the transfer root, with symlinks resolved. A
+relative path is taken from the root, and a path that leads out of it is
+refused. The root is `~/.cerberus/transfers` unless your global config names
+another:
+
+```yaml
+transfers:
+  root: ~/cerberus-transfers
+```
+
+Only `~/.cerberus/config.yaml` can set it. A registered project config can't,
+and neither can a call.
+
 Every `ssh` verb names its target by resource id and nothing else: host, port,
 user, key and host-key settings live on the resource. Whoever runs the
 operation — the daemon, or the CLI itself when no daemon is running or

@@ -306,6 +306,16 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if err != nil {
 		return ExternalConnectorOperationResult{}, err
 	}
+	// A local path is held to the transfer root for every caller but a
+	// person at the CLI (B3), before a plan, a preview or a run reads it.
+	if spec.known {
+		confined, confineErr := confineLocalPath(args, spec.op, call.intent.Principal)
+		if confineErr != nil {
+			call.finish(confineErr)
+			return ExternalConnectorOperationResult{}, scopeError(scope, confineErr)
+		}
+		args = confined
+	}
 	if args.Plan {
 		result, planErr := s.showPlan(call.withTelemetry(ctx), args)
 		call.finish(planErr)
