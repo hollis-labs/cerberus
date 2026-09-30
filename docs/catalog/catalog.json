@@ -9705,6 +9705,48 @@
       "last_reviewed": "2026-09-29"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "decision",
+      "name": "Credentials are bound per access and target, and a plugin's reads run in a process without its write credential",
+      "summary": "connector-secrets.yaml binds a key for read and for write, at the connector level and per target (null means none). A call's effect picks the access (dry runs and plans read); the most specific level decides, and there is never a fallback across accesses. A plugin whose credentials are split runs a read instance and a lazily started write instance, so a read never holds the write credential.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.8,
+      "confidence_label": "approved in the I9 design review; built on the I9-a branch",
+      "tags": [
+        "cerberus",
+        "locus:core",
+        "p5",
+        "secrets",
+        "class:decision"
+      ],
+      "pointer_locator": "internal/secrets/bindings.go, internal/cerbapi/credentials.go, internal/pluginhost/credential_split.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-908",
+          "note": "the write instance is supervised like any plugin"
+        }
+      ],
+      "data": {
+        "decision": "Bind credentials per access and target in the operator's mapping, choose by the operation's declared effect, and enforce the split for plugins with separate processes.",
+        "alternatives_considered": [
+          "The plugin declares separate read and write secrets and picks per call",
+          "Per-target plugin instances now (I9-b)",
+          "A read binding that falls back to the legacy key when the write half is undeclared"
+        ],
+        "rationale": "I9 asks that a policy bug meet a credential that can't write. For built-ins the credential chain already resolves per call, so a scope on the context chooses the binding with no connector code changes. A plugin gets its credentials once, so only a process that never received the write token guarantees a read can't use it. Requiring both halves at a level, and letting the most specific level decide across accesses, makes what a write uses never an accident of what was left out.",
+        "reversible": true,
+        "superseded_by": ""
+      },
+      "body": "The scope is set before the gate, because a plan the gate hashes resolves the credentials the run uses. Records name each credential as `connector/key@binding`, and `policy explain` has a Credentials line. A refusal is `credential_missing`, as guidance naming the binding. An older binary refuses a nested mapping outright, which fails closed.",
+      "id": "CERB-DEC-914"
+    },
+    {
       "id": "CERB-GAP-140",
       "class": "gap",
       "name": "go_standard builds cannot resolve `go` when issued through the daemon",
@@ -17790,6 +17832,45 @@
       },
       "body": "Revocation is enforced by the daemon, and mcp-http checks only signature, audience, issuer and expiry. Any token may still engage the lockdown through the ungated brake tool, which is in the safety direction.",
       "id": "CERB-GAP-912"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-29",
+      "created_at": "2026-09-29",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "Per-target credential bindings don't reach plugins, and no binding proves a read token can't write",
+      "summary": "A plugin whose connector-secrets.yaml entry has targets: is refused at load until I9-b gives plugins an instance per binding set. And Cerberus hands only the read credential to a read, but whether that credential can write is decided by how the operator scoped it with the provider.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "from the I9 design review",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "secrets",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/pluginhost/credential_split.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-914",
+          "note": "the binding model"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "I9-b: a bounded pool of plugin instances keyed by the hash of their binding set's references, with LRU unload; and a provider probe that checks a read token is refused a write",
+        "effort": "medium"
+      },
+      "body": "The docs name each provider's read-only token type. A probe that tests write capability is provider-specific, and it would itself have to attempt a write.",
+      "id": "CERB-GAP-915"
     },
     {
       "id": "CERB-TOOL-110",

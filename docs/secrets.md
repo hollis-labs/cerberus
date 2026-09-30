@@ -113,6 +113,84 @@ Where it works today:
 The `onepassword` and `keeper` plugins live in `cerberus-plugins`; each README
 covers its bootstrap credential and what it pins in its vendor's SDK.
 
+## Read and write bindings
+
+A connector's entry can bind a credential separately for reads and for
+writes, and per target. Then a policy bug meets a credential that can't
+write:
+
+```yaml
+cloudflare:
+  api_token: keychain://cloudflare/api_token        # as before: used for both, when nothing below binds it
+  read:  { api_token: keychain://cloudflare/api_token_ro }
+  write: { api_token: keychain://cloudflare/api_token_rw }
+  targets:
+    - match: { env: prod }                          # the same target matching policy uses
+      read:  { api_token: op://Prod/cf-readonly/token }
+      write: { api_token: null }                    # no write credential for prod at all
+```
+
+**Which binding a call uses:**
+
+- The operation's effect decides. `read` and `read_sensitive` use the read
+  binding. Everything else uses the write binding, including anything with
+  no declared effect.
+- A dry run or a plan request uses the read binding, because a preview must
+  not need to write.
+
+**Which level applies:** Cerberus uses the first `targets` entry that binds
+the key, then the connector level, then the chain from before (the
+environment, the flat key, the keychain). The most specific level that
+mentions a key decides it, for both accesses. That's how `write: null` on
+prod refuses a prod write even though the connector level has a write
+credential. There is never a fallback from one access to the other.
+
+**The rules:**
+
+- **`null` means none.** A call with no credential for its access is refused
+  as `credential_missing` before anything runs, and the refusal names the
+  binding.
+- **Bind both halves.** If a level binds a key for read, it must bind it (or
+  `null` it) for write too, and the other way round.
+- **References only**, as everywhere in this file. `read`, `write` and
+  `targets` are reserved names.
+- An environment value can't stand in for a key that has a per-access
+  binding.
+
+`policy explain <connector.op>` has a `Credentials:` line saying which binding
+each credential would use, and when the call would be refused for having
+none. The audit log records each credential as `connector/key@binding`, for
+example `cloudflare/api_token@targets[0].read`. It records names only, never
+values.
+
+**Plugins.** A plugin receives its credentials once, when it loads. So when
+its credentials are bound per access, Cerberus runs two copies of it:
+
+- **The plugin as loaded holds only its read credentials** and serves every
+  read.
+- **A write copy**, started on the first write, holds only the write
+  credentials and serves the writes. It stops after 15 idle minutes.
+
+A read operation can't write, whatever the plugin does, because its process
+never received a write credential. Which copy serves a call follows the
+effect the plugin's manifest declares, which you reviewed at install. Both
+copies run under the same deadlines and limits, and both stop with the
+plugin. Per-target bindings aren't supported for plugins yet. A plugin whose
+entry has `targets:` is refused at load, not quietly given the connector-level
+credentials.
+
+**Cerberus can't prove a read credential can't write.** That depends entirely
+on how you scope the token with its provider. Use the provider's scoped
+tokens: a Cloudflare token with only `Zone:Read`, a DigitalOcean token with
+read scope, or a GitHub fine-grained token with read-only contents. The
+bindings make sure the write token is never *handed* to a read. The
+provider is what makes the read token unable to write.
+
+**Older binaries** read this file as a flat `connector: key: reference` map.
+A file that uses `read:`, `write:` or `targets:` makes an older binary refuse
+the whole file, so every connector credential fails rather than a write
+credential being used by mistake. Update the daemon before you add bindings.
+
 ## Plugin capabilities
 
 A credential is not the only thing a plugin can be handed. An SSH agent socket

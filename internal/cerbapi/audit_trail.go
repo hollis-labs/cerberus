@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -304,17 +303,6 @@ func resolveTarget(spec auditSpec, id string) target.Target {
 		}
 	}
 	return target.Resolve(spec.connector, spec.op.Target.Kind, id, res, adhoc)
-}
-
-// credentialNames are a definition's declared secrets, as the audit record
-// names them.
-func credentialNames(def contract.Definition) []string {
-	var names []string
-	for _, secret := range def.Config.Secrets {
-		names = append(names, def.ID+"/"+secret.Name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 // withTelemetry gives a plugin call a collector, so what the plugin reports

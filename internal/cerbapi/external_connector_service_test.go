@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"io"
 	"net"
 	"os"
@@ -33,6 +34,8 @@ type fakeDockerBackend struct {
 	stopFile string
 	lists    int
 	stopped  string
+	// scopes are the credential scopes (I9) the calls ran under.
+	scopes []secrets.CredentialScope
 }
 
 func (b *fakeDockerBackend) WithTarget(target dockerconn.Target) dockerconn.Backend {
@@ -40,8 +43,11 @@ func (b *fakeDockerBackend) WithTarget(target dockerconn.Target) dockerconn.Back
 	return b
 }
 
-func (b *fakeDockerBackend) ListContainers(_ context.Context) ([]dockerconn.Container, error) {
+func (b *fakeDockerBackend) ListContainers(ctx context.Context) ([]dockerconn.Container, error) {
 	b.lists++
+	if s, ok := secrets.CredentialScopeFrom(ctx); ok {
+		b.scopes = append(b.scopes, s)
+	}
 	return []dockerconn.Container{{ID: "abc", Name: "web", State: "running"}}, nil
 }
 
@@ -54,8 +60,11 @@ func (b *fakeDockerBackend) StartContainer(_ context.Context, nameOrID string) e
 	return nil
 }
 
-func (b *fakeDockerBackend) StopContainer(_ context.Context, nameOrID string) error {
+func (b *fakeDockerBackend) StopContainer(ctx context.Context, nameOrID string) error {
 	b.stopped = nameOrID
+	if s, ok := secrets.CredentialScopeFrom(ctx); ok {
+		b.scopes = append(b.scopes, s)
+	}
 	return nil
 }
 

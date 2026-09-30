@@ -349,6 +349,8 @@ func ConnectorSecrets(configPaths ...string) domain.SecretProvider {
 	}
 	provider := secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"),
 		secretref.WithSchemeRouter(secretBackends))
+	// Records and explain name the binding each credential would use (I9).
+	cerbapi.SetCredentialBindings(provider.Bindings)
 	return secrets.Registering(provider, notACredential)
 }
 
