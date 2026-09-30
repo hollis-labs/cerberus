@@ -37,7 +37,7 @@ relationships:
 # Daemon install, uninstall and self-upgrade
 
 `cerberus install` renders a fixed plist template to
-`~/Library/LaunchAgents/com.fragments-engine.cerberus.plist`, pointing
+`~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`, pointing
 `ProgramArguments` at the symlink-resolved path of the binary that was invoked,
 and `launchctl load`s it. `cerberus uninstall` unloads and removes it. Both are
 macOS-only and both use the deprecated `load`/`unload` verbs rather than
@@ -67,7 +67,7 @@ running daemon — matched by canonical resource id, by launchd label, by artifa
 path for an `os_service` resource, or by `command[0]` for a dev_session one. It
 does not merely refuse; it names the recovery in the error: build to a temporary
 path, atomically move the binary over the daemon artifact, then
-`launchctl kickstart -k gui/<uid>/com.fragments-engine.cerberus` from an external
+`launchctl kickstart -k gui/<uid>/com.hollis-labs.cerberus` from an external
 terminal. That guard is generic enough to fire on the audit machine even though no
 `cerberus-daemon-service` resource is registered here, because the `command[0]`
 comparison would catch it.

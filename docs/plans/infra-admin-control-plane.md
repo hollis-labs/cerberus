@@ -196,7 +196,7 @@ Error: daemon: docker list_containers: connector_unavailable:
 
 Three compounding causes:
 
-1. **The daemon's PATH.** `~/Library/LaunchAgents/com.fragments-engine.cerberus.plist`
+1. **The daemon's PATH.** `~/Library/LaunchAgents/com.hollis-labs.cerberus.plist`
    declares no `EnvironmentVariables`, so launchd gives the daemon
    `PATH=/usr/bin:/bin:/usr/sbin:/sbin`. Docker Desktop's CLI is at
    `/usr/local/bin/docker`. Confirmed with `ps eww`.

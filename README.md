@@ -433,7 +433,7 @@ Recommended project pattern:
 
 For artifact-backed services with a declared `build_strategy:` contract, Cerberus now records repo state at sync time and can warn when the installed release/UAT artifact is older than the current Git commit or worktree, even if the workspace binary itself was never rebuilt.
 
-The Cerberus daemon itself now follows this same model as `cerberus-daemon-service`, a v2 local process resource using the canonical launchd label `com.fragments-engine.cerberus`.
+The Cerberus daemon itself now follows this same model as `cerberus-daemon-service`, a v2 local process resource using the canonical launchd label `com.hollis-labs.cerberus`.
 
 For the repo-side rules a project should satisfy before it is added to the v2 lane, see [docs/guides/setting-up-a-project-for-cerberus-v2.md](docs/guides/setting-up-a-project-for-cerberus-v2.md). For recovery help, see [docs/guides/local-runtime-troubleshooting.md](docs/guides/local-runtime-troubleshooting.md).
 
@@ -558,7 +558,7 @@ Cerberus now has a canonical v2 daemon resource:
       mode: os_service
       supervisor: launchd
       run_from: artifact
-      service_name: com.fragments-engine.cerberus
+      service_name: com.hollis-labs.cerberus
 ```
 
 For normal lifecycle management, use the resource lane:
