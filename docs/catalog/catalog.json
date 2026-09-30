@@ -17953,6 +17953,46 @@
       "id": "CERB-GAP-917"
     },
     {
+      "class": "gap",
+      "name": "Out-of-band approvals were decided on an operation name and a plan hash",
+      "summary": "An approver saw the operation, target, rule and only the plan hash (and a keyed args digest), so an injected agent could describe a malicious ssh exec as a harmless one in chat and get a passkey approval for it. Approvals now store the redacted plan and arguments, with the requester's text marked, and the CLI and console show them.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 2026-09-30 adversarial review (H3); fixed and tested through the admin lane, break glass and the CLI rendering",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "approvals",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "internal/cerbapi/approval_shown.go, internal/approval/approval.go, cmd/cerberus/cmd_approvals.go, web/src/pages/approvals.tsx",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-DEC-913",
+          "note": "the requester's text is marked untrusted, as egress labels are"
+        }
+      ],
+      "body": "Found by the adversarial review of main at e40b63c (H3). The approval record held PlanHash and a keyed ArgsDigest, and `cerberus approvals show/approve` and the console's approvals page showed those, so an approver decided on `ssh.exec on db1` plus a hash. The MCP guidance told the agent the operator \"sees the plan\", which was not true of an out-of-band approval.\n\nNow every approval request (the gated call, a daemon-held tty_confirm, and break glass) computes the plan once, hashes it, and stores `Shown`: the plan and the call's arguments as JSON rendered through the request's redaction scope, with JSON pointers naming what the requester wrote (`/arguments`, `/plan/preview`). The CLI prints both, JSON-escaped so a requester's control characters stay inert on a terminal, with a \"written by the requester, not Cerberus\" note; the console renders the plan with the confirm dialog's PlanBody and the arguments as JSON, flagged the same way. Over 32 KiB is replaced by a note rather than cut. An approval from before the change says nothing was recorded.\n\nNot done here: the passkey challenge does not bind Shown (it binds the plan hash, which covers the plan but not its rendering); a same-uid edit of the stored view is H4's class. The review's suggestion to require viewing the plan before Approve is enabled was not taken: the view is on the page, above the button, rather than behind a disclosure.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-604",
+        "effort": "medium",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-918"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

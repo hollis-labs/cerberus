@@ -262,7 +262,7 @@ func liftProof(ctx context.Context, operation string, t audit.Target, id, approv
 	if approvalID == "" {
 		intent := audit.Record{OperationID: audit.NewID(), Principal: p, Connector: "brake", Operation: operation, Effect: string(contract.EffectAdmin), Target: t, ArgsDigest: id}
 		a, err := broker.request(ctx, intent, policy.Result{Matched: []policy.Match{{Rule: "brake.lift", Decision: policy.Approve, Reason: "a brake is lifted with a passkey"}}},
-			approval.ChannelOutOfBand, approval.ScopeOnce, 30*time.Minute, "", nil)
+			approval.ChannelOutOfBand, approval.ScopeOnce, 30*time.Minute, planSnapshot{}, nil)
 		if err != nil {
 			return "", externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 		}

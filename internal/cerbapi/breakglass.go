@@ -114,7 +114,7 @@ func breakGlassOnCall(ctx context.Context, call *auditCall, spec auditSpec, req 
 		return refuse("break glass on %s is limited to %s, and it has been used %d times; the next is possible at %s. The limit is break_glass in policy, changed with `cerberus policy apply`",
 			name, limits, len(uses), next.Local().Format(time.RFC3339))
 	}
-	planHash, err := specPlanHash(ctx, spec)
+	snap, err := specPlanSnapshot(ctx, spec)
 	if err != nil {
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.GuidanceWrap(err, "break glass binds to a plan, which could not be computed; nothing ran"))
@@ -124,7 +124,7 @@ func breakGlassOnCall(ctx context.Context, call *auditCall, spec auditSpec, req 
 	if protectedTarget(req.Target) {
 		// D2: on a protected target the break glass is completed with a
 		// passkey, on the console, so a pty is not enough.
-		a, reqErr := broker.request(ctx, call.intent, res, approval.ChannelOutOfBand, approval.ScopeOnce, ttl, planHash, record)
+		a, reqErr := broker.request(ctx, call.intent, res, approval.ChannelOutOfBand, approval.ScopeOnce, ttl, snap, record)
 		if reqErr != nil {
 			return externalConnectorError(args, ExternalConnectorAuditUnavailable, reqErr)
 		}
@@ -138,7 +138,7 @@ func breakGlassOnCall(ctx context.Context, call *auditCall, spec auditSpec, req 
 		}
 		return pending
 	}
-	a, err := broker.request(ctx, call.intent, res, approval.ChannelBreakGlass, approval.ScopeOnce, ttl, planHash, record)
+	a, err := broker.request(ctx, call.intent, res, approval.ChannelBreakGlass, approval.ScopeOnce, ttl, snap, record)
 	if err != nil {
 		return externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}

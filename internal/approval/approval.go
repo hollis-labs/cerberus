@@ -19,6 +19,7 @@
 package approval
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -75,6 +76,11 @@ type Approval struct {
 	Target     audit.Target    `json:"target"`
 	ArgsDigest string          `json:"args_digest"`
 	PlanHash   string          `json:"plan_hash,omitempty"`
+	// Shown is what the approver is shown: the plan the approval binds to
+	// and the call's arguments, redacted. Without it an approval is decided
+	// on an operation name and a hash, which proves presence and not
+	// consent (H3).
+	Shown *Shown `json:"shown,omitempty"`
 
 	// Why approval is needed: the rule that decided, and how it may be met.
 	Rule      string `json:"rule,omitempty"`
@@ -105,6 +111,27 @@ type Approval struct {
 	LastUsedAt          time.Time     `json:"last_used_at,omitzero"`
 	LastUsedOperationID string        `json:"last_used_operation_id,omitempty"`
 }
+
+// Shown is what an approver sees of the call they are asked to approve.
+//
+// Plan is the plan the approval binds to (its hash is PlanHash) and
+// Arguments the call's arguments, both as JSON rendered through the request's
+// redaction scope: credential values the request resolved are removed, and
+// the rules run over the text. Untrusted names, as JSON pointers into Shown
+// (for example "/arguments" or "/plan/preview"), the parts Cerberus did not
+// compose: an agent wrote the arguments, and a preview echoes them. An
+// approver reads those as claims to check, not as Cerberus's description.
+type Shown struct {
+	Plan      json.RawMessage `json:"plan,omitempty"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Untrusted []string        `json:"untrusted,omitempty"`
+	// Truncated says the rendering was over ShownMaxBytes and was cut; the
+	// hash still binds the whole plan.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// ShownMaxBytes bounds what an approval stores for its approver.
+const ShownMaxBytes = 32 << 10
 
 // BreakGlass is a break-glass use: the reason given, the target typed, and
 // the operator's acknowledgment of the follow-up it opens.

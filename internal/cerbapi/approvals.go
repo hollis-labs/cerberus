@@ -63,14 +63,15 @@ func (b *Broker) Get(id string) (approval.Approval, bool) { return b.store.Get(i
 func (b *Broker) Problems() []string { return append([]string(nil), b.store.Problems...) }
 
 // Request records a pending approval for the call behind intent.
-func (b *Broker) Request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration, planHash string) (approval.Approval, error) {
-	return b.request(ctx, intent, res, channel, scope, ttl, planHash, nil)
+// snap is the plan it binds to and what its approver is shown.
+func (b *Broker) Request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration, snap planSnapshot) (approval.Approval, error) {
+	return b.request(ctx, intent, res, channel, scope, ttl, snap, nil)
 }
 
-func (b *Broker) request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration, planHash string, bg *approval.BreakGlass) (approval.Approval, error) {
+func (b *Broker) request(ctx context.Context, intent audit.Record, res policy.Result, channel, scope string, ttl time.Duration, snap planSnapshot, bg *approval.BreakGlass) (approval.Approval, error) {
 	a, err := b.store.Request(approval.Approval{
 		Principal: intent.Principal, Connector: intent.Connector, Operation: intent.Operation, Effect: intent.Effect,
-		Target: intent.Target, ArgsDigest: intent.ArgsDigest, PlanHash: planHash, Rule: decidingRule(res), Reason: res.Reason(),
+		Target: intent.Target, ArgsDigest: intent.ArgsDigest, PlanHash: snap.hash, Shown: snap.shown, Rule: decidingRule(res), Reason: res.Reason(),
 		Channel: channel, Scope: scope, RequestOperationID: intent.OperationID, BreakGlass: bg,
 	}, ttl)
 	if err != nil {
@@ -413,12 +414,12 @@ func requestApproval(ctx context.Context, call *auditCall, spec auditSpec, req p
 		return externalConnectorError(args, ExternalConnectorApprovalPending,
 			redact.Guidance("%s %s needs an out-of-band approval (rule %s), and only the daemon can hold one; start it with `cerberus daemon`, then retry", spec.connector, spec.operation, decidingRule(res)))
 	}
-	planHash, err := specPlanHash(ctx, spec)
+	snap, err := specPlanSnapshot(ctx, spec)
 	if err != nil {
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.GuidanceWrap(err, "%s %s needs approval, and approval binds to a plan, which could not be computed", spec.connector, spec.operation))
 	}
-	a, err := broker.Request(ctx, call.intent, res, channel, scope, ttl, planHash)
+	a, err := broker.Request(ctx, call.intent, res, channel, scope, ttl, snap)
 	if err != nil {
 		return externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}

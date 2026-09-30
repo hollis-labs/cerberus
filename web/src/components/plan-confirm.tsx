@@ -145,7 +145,7 @@ function targetLine(t: PlanTarget): string {
   return `${[t.kind, name].filter(Boolean).join(' ')} (${labels.join(', ')})`
 }
 
-function PlanBody({ plan }: { plan: PlanView }) {
+export function PlanBody({ plan }: { plan: PlanView }) {
   const lines: string[] = []
   if (plan.state) lines.push(`State:    ${plan.state}`)
   if (plan.source) lines.push(`Source:   ${plan.source.path} at ${plan.source.head}${plan.source.dirty ? ' (uncommitted changes)' : ''}`)

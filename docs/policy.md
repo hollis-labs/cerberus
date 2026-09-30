@@ -302,9 +302,23 @@ cerberus approvals revoke <id>     # withdraw an approval before it is used
 ```
 
 These run only on an interactive terminal, never from a script or an agent.
-`approve` shows the request in full, including who asked and the plan hash,
-and is confirmed by typing the target's name. The console's Approvals page
-does the same.
+`approve` shows the request in full, and is confirmed by typing the target's
+name. The console's Approvals page does the same. The request shows:
+
+- who asked;
+- the plan hash;
+- **what the call would run**: the plan the approval binds to, and the
+  call's arguments.
+
+Cerberus stores those with the approval when it is asked for, rendered through
+the request's redaction: a credential the request resolved, or a value under a
+credential-named key, never reaches the approvals store. The arguments, and a
+preview that echoes them, are marked **written by the requester, not
+Cerberus**. An agent wrote them, and a passkey proves you were there, not that
+you read them: check what the command, path or input actually is, whatever
+the requester said it was in chat. A view over 32 KiB is replaced by a note
+rather than cut, and the approval still binds the whole plan by its hash. An
+approval asked for before approvals stored their plan says so.
 
 The surface a request came from can never approve it. A request made over MCP
 is approved on the terminal or the console, and an MCP client never approves

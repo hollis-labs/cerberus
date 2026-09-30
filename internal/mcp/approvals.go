@@ -103,7 +103,7 @@ func nextStep(code cerbapi.ExternalConnectorErrorCode, ref *cerbapi.ApprovalRef)
 		}
 		ask := redact.Guidance("ask your operator to run `%s` in their terminal, where they see the plan and confirm it", ref.ApproveWith)
 		if ref.Channel == approval.ChannelOutOfBand {
-			ask = redact.Guidance("ask your operator to approve %s on the Cerberus console with their passkey (Touch ID or a security key); `%s` in their terminal opens the page", ref.ID, ref.ApproveWith)
+			ask = redact.Guidance("ask your operator to approve %s on the Cerberus console, where they see the plan and the arguments of this call, with their passkey (Touch ID or a security key); `%s` in their terminal opens the page", ref.ID, ref.ApproveWith)
 		}
 		return redact.Guidance("%s. You cannot approve it yourself. Then call cerberus_approval_wait with id %s, and once it is approved retry this call with the same arguments and approval_id %s", ask.Error(), ref.ID, ref.ID)
 	case cerbapi.ExternalConnectorApprovalRequired:
