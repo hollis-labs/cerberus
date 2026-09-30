@@ -25,6 +25,9 @@ func TestMain(m *testing.M) {
 	// CLI reaches KeychainProvider through the connector chain and the
 	// console's store.
 	secrets.MockStoreForTests()
+	// The tests run under the scratch HOME above, which is exactly what
+	// the in-process state check refuses in real use (M11).
+	inProcessStateCheck = func() error { return nil }
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)

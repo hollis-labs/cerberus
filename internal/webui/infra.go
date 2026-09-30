@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/target"
@@ -109,41 +111,59 @@ func (s *Server) handleInfraProviderByID(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	state, err := infra.LoadState(s.configPath)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	// Provider settings and credentials are an admin write, gated and
+	// recorded by name (M9): which settings and which credentials changed,
+	// never their values.
+	valueKeys := make([]string, 0, len(req.Values))
+	for key := range req.Values {
+		valueKeys = append(valueKeys, key)
 	}
-	cfg := state.Providers[id]
-	if cfg.Values == nil {
-		cfg.Values = map[string]string{}
-	}
-	for key, value := range req.Values {
-		cfg.Values[key] = strings.TrimSpace(value)
-	}
-	state.Providers[id] = cfg
-	if err := infra.SaveState(s.configPath, state); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	secretsChanged := false
+	var setSecrets []string
 	for key, value := range req.Secrets {
-		if s.store != nil && strings.TrimSpace(value) != "" {
-			if err := s.store.Set(r.Context(), id, key, value); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			secretsChanged = true
+		if strings.TrimSpace(value) != "" {
+			setSecrets = append(setSecrets, key)
 		}
 	}
-	for _, key := range req.ClearSecrets {
-		if s.store != nil {
-			if err := s.store.Delete(r.Context(), id, key); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
+	sort.Strings(valueKeys)
+	sort.Strings(setSecrets)
+	secretsChanged := false
+	if !s.consoleWrite(w, r, cerbapi.ConsoleWrite{Operation: "provider_save", Target: map[string]any{"id": id},
+		Config: map[string]any{"values": valueKeys, "secrets_set": setSecrets, "secrets_cleared": req.ClearSecrets}},
+		func(ctx context.Context) error {
+			state, err := infra.LoadState(s.configPath)
+			if err != nil {
+				return err
 			}
-			secretsChanged = true
-		}
+			cfg := state.Providers[id]
+			if cfg.Values == nil {
+				cfg.Values = map[string]string{}
+			}
+			for key, value := range req.Values {
+				cfg.Values[key] = strings.TrimSpace(value)
+			}
+			state.Providers[id] = cfg
+			if err := infra.SaveState(s.configPath, state); err != nil {
+				return err
+			}
+			for key, value := range req.Secrets {
+				if s.store != nil && strings.TrimSpace(value) != "" {
+					if err := s.store.Set(ctx, id, key, value); err != nil {
+						return err
+					}
+					secretsChanged = true
+				}
+			}
+			for _, key := range req.ClearSecrets {
+				if s.store != nil {
+					if err := s.store.Delete(ctx, id, key); err != nil {
+						return err
+					}
+					secretsChanged = true
+				}
+			}
+			return nil
+		}) {
+		return
 	}
 	resp := map[string]any{"success": true}
 	if secretsChanged {
@@ -216,14 +236,17 @@ func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "deployment profile labels: "+strings.Join(problems, "; "))
 			return
 		}
-		state, err := infra.LoadState(s.configPath)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		state.UpsertProfile(profile)
-		if err := infra.SaveState(s.configPath, state); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+		// A profile carries shell commands and target labels: saving one is
+		// an admin write, gated and recorded (M9).
+		if !s.consoleWrite(w, r, cerbapi.ConsoleWrite{Operation: "profile_save", Target: profileTarget(profile), Config: map[string]any{"profile": profile}},
+			func(context.Context) error {
+				state, err := infra.LoadState(s.configPath)
+				if err != nil {
+					return err
+				}
+				state.UpsertProfile(profile)
+				return infra.SaveState(s.configPath, state)
+			}) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -252,17 +275,17 @@ func (s *Server) handleDeploymentByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "state-changing request rejected")
 			return
 		}
-		state, err := infra.LoadState(s.configPath)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if !state.DeleteProfile(id) {
-			writeError(w, http.StatusNotFound, "deployment profile not found")
-			return
-		}
-		if err := infra.SaveState(s.configPath, state); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+		if !s.consoleWrite(w, r, cerbapi.ConsoleWrite{Operation: "profile_delete", Target: map[string]any{"id": id}},
+			func(context.Context) error {
+				state, err := infra.LoadState(s.configPath)
+				if err != nil {
+					return err
+				}
+				if !state.DeleteProfile(id) {
+					return fmt.Errorf("deployment profile %w", errConsoleNotFound)
+				}
+				return infra.SaveState(s.configPath, state)
+			}) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"success": true})
