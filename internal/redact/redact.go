@@ -58,8 +58,20 @@ func looksLikeToken(value string) bool {
 	return false
 }
 
+// referenceSchemes are the secret reference schemes: a value that is a
+// reference names a credential and is not one. It mirrors secretref.Schemes,
+// which cannot be imported here; TestRedactKnowsEveryReferenceScheme in
+// internal/secretref holds the two together.
+var referenceSchemes = []string{"keychain://", "keyring://", "helper://", "op://", "keeper://"}
+
+// IsReference reports whether value is a secret reference.
 func IsReference(value string) bool {
-	return strings.HasPrefix(value, "keychain://") || strings.HasPrefix(value, "helper://")
+	for _, scheme := range referenceSchemes {
+		if strings.HasPrefix(value, scheme) {
+			return true
+		}
+	}
+	return false
 }
 
 func SensitiveKey(key string) bool {
@@ -193,6 +205,13 @@ func (r Redactor) renderedAfterValues(text string) bool {
 		}
 	}
 	return false
+}
+
+// With is r that also removes values. r is unchanged.
+func (r Redactor) With(values ...string) Redactor {
+	combined := New(append(append([]string(nil), r.values...), values...)...)
+	combined.rendered = r.rendered
+	return combined
 }
 
 // New also removes known credential values when they appear without a label.

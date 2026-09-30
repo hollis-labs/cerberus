@@ -260,10 +260,15 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 }
 
 // restorePhase orders plugin loads at daemon start: lower phases load, all
-// of them, before higher ones start. Every plugin is phase 1 today; a
-// plugin others resolve through at load (a secret provider) goes in phase
-// 0, so it is up before the plugins that need it.
-func restorePhase(pluginhost.InstalledPlugin) int { return 1 }
+// of them, before higher ones start. A secret backend, which other plugins
+// resolve their credentials through at load, is phase 0, so it is up before
+// the plugins that need it; every other plugin is phase 1.
+func restorePhase(p pluginhost.InstalledPlugin) int {
+	if p.Spec.Cerberus.SecretBackend != nil {
+		return 0
+	}
+	return 1
+}
 
 // restoreSpec is the audit record of a plugin loaded when the daemon starts:
 // automation, with the reason, and whether the bundle was checked against

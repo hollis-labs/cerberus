@@ -63,6 +63,10 @@ type CerberusPluginBlock struct {
 	Surfaces Surfaces `json:"surfaces,omitzero" yaml:"surfaces,omitempty"`
 	// Telemetry names the events each operation reports.
 	Telemetry []TelemetryDeclaration `json:"telemetry,omitempty" yaml:"telemetry,omitempty"`
+	// SecretBackend, when set, claims a secret reference scheme the host
+	// routes to this plugin. The review shows it as the plugin seeing every
+	// secret resolved through that scheme.
+	SecretBackend *SecretBackend `json:"secret_backend,omitempty" yaml:"secret_backend,omitempty"`
 }
 
 // PluginYAMLFromManifest builds the descriptor for a subprocess plugin serving

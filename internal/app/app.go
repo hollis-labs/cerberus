@@ -26,6 +26,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/secretref"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/store/sqlite"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -273,6 +274,8 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 	}
 	managed, err := cerbapi.NewManagedPluginConnectorService(AuditSink(), hostVersion, stderr, statePath,
 		append([]cerbapi.ManagedPluginOption{cerbapi.WithManagedPluginSecrets(a.Secrets),
+			cerbapi.WithManagedPluginCoreSecrets(CoreConnectorSecrets(configPath)),
+			cerbapi.WithSecretBackendBinder(secretBackends.Bind),
 			cerbapi.WithManagedPluginConnectorConfig(ConnectorConfigPath(configPath)),
 			cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...)}, shimOpts...)...)
 	if err != nil {
@@ -344,7 +347,31 @@ func ConnectorSecrets(configPaths ...string) domain.SecretProvider {
 	if len(configPaths) > 0 && configPaths[0] != "" {
 		configPath = configPaths[0]
 	}
-	provider := secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"))
+	provider := secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"),
+		secretref.WithSchemeRouter(secretBackends))
+	return secrets.Registering(provider, notACredential)
+}
+
+// secretBackends routes vault references (op://, keeper://, and any scheme
+// an installed plugin claims) to the daemon's secret-backend plugins. The
+// daemon binds it when its plugin host exists; in a process without one, a
+// vault reference fails as credential_missing naming the daemon.
+var secretBackends = &secrets.BackendRouter{}
+
+// coreSecretsOnly explains a vault reference in the core chain.
+const coreSecretsOnly = "a secret backend's own credential must come from the OS credential store (keyring://) or the environment, never from another vault"
+
+// CoreConnectorSecrets is ConnectorSecrets with no vault in it: the
+// environment, the reference mapping and the OS credential store only. A
+// secret backend's own credentials resolve through it, so no backend depends
+// on another and none can unlock itself.
+func CoreConnectorSecrets(configPaths ...string) domain.SecretProvider {
+	configPath := config.DefaultPath()
+	if len(configPaths) > 0 && configPaths[0] != "" {
+		configPath = configPaths[0]
+	}
+	provider := secrets.NewReferenceProvider(secrets.NewKeychainProvider(), filepath.Join(filepath.Dir(configPath), "connector-secrets.yaml"),
+		secretref.WithoutSchemeRouter(coreSecretsOnly))
 	return secrets.Registering(provider, notACredential)
 }
 

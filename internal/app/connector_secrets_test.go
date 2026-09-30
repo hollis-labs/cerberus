@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -73,5 +74,36 @@ func TestConnectorSecretsIsReadOnlyAndSecretStoreIsTheWriter(t *testing.T) {
 	}
 	if SecretStore() == nil {
 		t.Fatal("SecretStore is nil; the console's provider form would silently drop credentials")
+	}
+}
+
+// WP-S4's latent bug, end to end: a vault reference in the environment was
+// handed to a connector as a literal token. Now it is a reference, and with no
+// daemon to route it the lookup fails as credential_missing, naming the
+// daemon; it never returns the reference as a value.
+func TestAVaultReferenceIsNeverHandedOnAsAToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CERBERUS_GITHUB_TOKEN", "op://Deploy/GitHub/token")
+	value, err := ConnectorSecrets(filepath.Join(t.TempDir(), "config.yaml")).Get(context.Background(), "github", "token")
+	if err == nil || value != "" {
+		t.Fatalf("Get = %q, %v; a vault reference must not resolve without a backend", value, err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "credential_missing") || !strings.Contains(msg, "cerberus daemon start") {
+		t.Fatalf("err = %v", err)
+	}
+	if got := redact.Text(msg); got != msg {
+		t.Fatalf("the recovery does not survive redaction:\n  %s\n  %s", msg, got)
+	}
+}
+
+// The core chain, which a secret backend's own credential comes from, has no
+// vault in it.
+func TestTheCoreChainRefusesVaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CERBERUS_ONEPASSWORD_SERVICE_ACCOUNT_TOKEN", "keeper://AbCdEfGhIjKlMnOpQrStUv/field/password")
+	_, err := CoreConnectorSecrets(filepath.Join(t.TempDir(), "config.yaml")).Get(context.Background(), "onepassword", "service_account_token")
+	if err == nil || !strings.Contains(err.Error(), "never from another vault") {
+		t.Fatalf("err = %v", err)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/secretref"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/go-mcp/server"
 )
@@ -106,6 +107,25 @@ type managedPluginConfig struct {
 	// shim is the cerberus binary whose __plugin-exec sets rlimits before
 	// a plugin starts (P5-d); empty launches plugins directly.
 	shim string
+	// coreSecrets resolves a secret backend's own credentials: the core
+	// chain, with no plugin scheme in it.
+	coreSecrets pluginhost.SecretResolver
+	// bindBackends hands the service to the credential chain as its secret
+	// backend router, before any plugin is restored.
+	bindBackends func(secretref.SchemeRouter)
+}
+
+// WithManagedPluginCoreSecrets sets the resolver a secret backend's own
+// credentials come from: the core chain, never another backend.
+func WithManagedPluginCoreSecrets(resolver pluginhost.SecretResolver) ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.coreSecrets = resolver }
+}
+
+// WithSecretBackendBinder receives the service as the router for vault
+// references, once its plugin host exists and before any plugin is
+// restored, so a plugin restored after a backend can resolve through it.
+func WithSecretBackendBinder(bind func(secretref.SchemeRouter)) ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.bindBackends = bind }
 }
 
 // WithPluginShim launches plugins through the cerberus binary at path,
@@ -179,11 +199,15 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 		},
 		hostVersion,
 		pluginhost.WithSecretResolver(cfg.secrets),
+		pluginhost.WithCoreSecretResolver(cfg.coreSecrets),
 		pluginhost.WithConnectorConfig(connectorConfigLoader(cfg.configPath)),
 		pluginhost.WithLoadWarning(func(line string) { service.warnf("%s", line) }),
 		pluginhost.WithChangedBundles(service.acceptChangedBundle),
 		pluginhost.WithRestartObserver(service.onSupervision),
 	)
+	if cfg.bindBackends != nil {
+		cfg.bindBackends(service)
+	}
 	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
 		return nil, err
 	}
@@ -578,6 +602,14 @@ func (s *ManagedPluginConnectorService) register(entry pluginConnectorPersistedE
 	if err != nil {
 		return pluginhost.InstalledPlugin{}, err
 	}
+	// One claimant per secret reference scheme: a second would make which
+	// plugin sees a secret depend on install order.
+	if b := installed.Spec.Cerberus.SecretBackend; b != nil {
+		if other := s.manager.SchemeClaimant(b.Scheme); other != "" && other != installed.ID {
+			return pluginhost.InstalledPlugin{}, fmt.Errorf("plugin %q claims the %s:// secret scheme, which plugin %q already claims; uninstall %q first with `cerberus connectors plugin managed uninstall %s`",
+				installed.ID, b.Scheme, other, other, other)
+		}
+	}
 	s.manager.RegisterInstalled(installed)
 	entry.ID = installed.ID
 	s.records[installed.ID] = entry
@@ -737,4 +769,17 @@ func (s *ManagedPluginConnectorService) onSupervision(ev pluginhost.RestartEvent
 		s.warnf("%s", msg)
 		notify("Cerberus: plugin "+ev.ID+" stopped", msg)
 	}
+}
+
+// Claims reports whether an installed plugin claims scheme as a secret
+// backend.
+func (s *ManagedPluginConnectorService) Claims(scheme string) bool {
+	return s.manager.SchemeClaimant(scheme) != ""
+}
+
+// ResolveSecret resolves a vault reference through the secret backend that
+// claims its scheme. It is the credential chain's router, not an operation:
+// no surface reaches it, and its value goes only to the caller that asked.
+func (s *ManagedPluginConnectorService) ResolveSecret(ctx context.Context, ref string) (string, error) {
+	return s.manager.ResolveSecret(ctx, ref)
 }

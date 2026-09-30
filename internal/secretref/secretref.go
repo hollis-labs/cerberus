@@ -51,8 +51,33 @@ const keyringBase64Prefix = "go-keyring-base64:"
 // Scheme prefixes recognized by IsRef and Parse.
 const (
 	keychainScheme = "keychain://"
-	helperScheme   = "helper://"
 )
+
+// VaultSchemes are the schemes of the vaults a secret-backend plugin
+// resolves: op:// for 1Password, keeper:// for Keeper. They are references
+// whether or not the plugin is installed, so a value that names a vault is
+// never mistaken for a literal credential and sent somewhere as one; without
+// the plugin it fails as credential_missing.
+var VaultSchemes = []string{"op", "keeper"}
+
+// Schemes are every scheme IsRef recognizes. keyring:// is keychain://'s
+// platform-neutral name, and the two behave identically: the OS credential
+// store is the macOS Keychain, the Windows Credential Manager or the Linux
+// Secret Service.
+func Schemes() []string {
+	return append([]string{"keychain", "keyring", "helper"}, VaultSchemes...)
+}
+
+// SchemeRouter resolves references whose scheme a secret-backend plugin
+// claims. The daemon's plugin host is one.
+type SchemeRouter interface {
+	// Claims reports whether a loaded or installed plugin claims scheme.
+	Claims(scheme string) bool
+	ResolveSecret(ctx context.Context, ref string) (string, error)
+}
+
+// ErrNoSecretBackend is a vault reference with nothing to resolve it.
+var ErrNoSecretBackend = errors.New("no secret backend resolves this scheme here")
 
 // Ref is a parsed secret reference.
 type Ref struct {
@@ -69,7 +94,21 @@ type Ref struct {
 // are not references are literals and are passed through untouched, so an
 // existing configuration of plain values keeps working.
 func IsRef(value string) bool {
-	return strings.HasPrefix(value, keychainScheme) || strings.HasPrefix(value, helperScheme)
+	for _, scheme := range Schemes() {
+		if strings.HasPrefix(value, scheme+"://") {
+			return true
+		}
+	}
+	return false
+}
+
+func isVaultScheme(scheme string) bool {
+	for _, s := range VaultSchemes {
+		if s == scheme {
+			return true
+		}
+	}
+	return false
 }
 
 // Parse validates a secret reference.
@@ -79,6 +118,14 @@ func Parse(raw string) (Ref, error) {
 		return Ref{}, fmt.Errorf("%w: %q", ErrNotAReference, raw)
 	}
 	scheme, rest, _ := strings.Cut(raw, "://")
+	if isVaultScheme(scheme) {
+		// A vault reference's shape is its backend's business; the host
+		// only needs it non-empty.
+		if strings.TrimSpace(rest) == "" {
+			return Ref{}, fmt.Errorf("parse %q: empty %s:// reference", raw, scheme)
+		}
+		return Ref{Raw: raw, Scheme: scheme}, nil
+	}
 	service, key, ok := strings.Cut(rest, "/")
 	if !ok || service == "" || key == "" {
 		return Ref{}, fmt.Errorf("parse %q: expected %s://<service>/<key>", raw, scheme)
@@ -105,6 +152,33 @@ type Resolver struct {
 	provider   Provider
 	lookHelper func(string) (string, error)
 	run        commandRunner
+	router     SchemeRouter
+	// noRouter explains a vault reference when there is no router.
+	noRouter string
+}
+
+// WithSchemeRouter routes vault references to secret-backend plugins.
+func WithSchemeRouter(router SchemeRouter) Option {
+	return func(r *Resolver) { r.router = router }
+}
+
+// WithoutSchemeRouter makes a vault reference fail with reason: the core
+// chain a secret backend's own credential comes from, where a vault must not
+// be reachable, or a process with no plugin host to ask.
+func WithoutSchemeRouter(reason string) Option {
+	return func(r *Resolver) { r.router, r.noRouter = nil, reason }
+}
+
+// IsRef is the package IsRef, plus any scheme the router claims.
+func (r *Resolver) IsRef(value string) bool {
+	if IsRef(value) {
+		return true
+	}
+	if r.router == nil {
+		return false
+	}
+	scheme, _, ok := strings.Cut(value, "://")
+	return ok && scheme != "" && r.router.Claims(scheme)
 }
 
 // Option customizes a Resolver.
@@ -135,13 +209,20 @@ func NewResolver(provider Provider, opts ...Option) *Resolver {
 // The resolved value is never placed in the returned error — only the
 // reference itself, which is non-sensitive by construction.
 func (r *Resolver) Resolve(ctx context.Context, raw string) (string, error) {
+	if scheme, _, ok := strings.Cut(strings.TrimSpace(raw), "://"); ok && !IsRef(raw) && r.IsRef(raw) {
+		// A scheme only an installed plugin claims.
+		return r.resolveVault(ctx, strings.TrimSpace(raw), scheme)
+	}
 	ref, err := Parse(raw)
 	if err != nil {
 		return "", err
 	}
+	if isVaultScheme(ref.Scheme) {
+		return r.resolveVault(ctx, ref.Raw, ref.Scheme)
+	}
 	var secret string
 	switch ref.Scheme {
-	case "keychain":
+	case "keychain", "keyring":
 		if r.provider == nil {
 			return "", fmt.Errorf("resolve %s: no keychain provider configured", ref.Raw)
 		}
@@ -173,6 +254,27 @@ func (r *Resolver) Resolve(ctx context.Context, raw string) (string, error) {
 	// from success until the credential is used.
 	if IsRef(secret) {
 		return "", fmt.Errorf("resolve %s: %w", ref.Raw, ErrResolvedToRef)
+	}
+	return secret, nil
+}
+
+// resolveVault resolves a reference a secret-backend plugin serves. The
+// error never carries the reference's path, which can hold vault and item
+// names; the router's own error is what the backend and host composed.
+func (r *Resolver) resolveVault(ctx context.Context, raw, scheme string) (string, error) {
+	if r.router == nil {
+		reason := r.noRouter
+		if reason == "" {
+			reason = "resolving " + scheme + ":// needs the Cerberus daemon, where secret-backend plugins run; start it with `cerberus daemon start`"
+		}
+		return "", fmt.Errorf("%s:// reference: %w: %s", scheme, ErrNoSecretBackend, reason)
+	}
+	secret, err := r.router.ResolveSecret(ctx, raw)
+	if err != nil {
+		return "", err
+	}
+	if IsRef(secret) {
+		return "", fmt.Errorf("%s:// reference: %w", scheme, ErrResolvedToRef)
 	}
 	return secret, nil
 }
@@ -219,7 +321,7 @@ func (r *Resolver) resolveHelper(ctx context.Context, ref Ref) (string, error) {
 func (r *Resolver) ResolveEnv(ctx context.Context, env map[string]string) (map[string]string, error) {
 	out := make(map[string]string, len(env))
 	for key, value := range env {
-		if !IsRef(value) {
+		if !r.IsRef(value) {
 			out[key] = value
 			continue
 		}

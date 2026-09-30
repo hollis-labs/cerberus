@@ -57,6 +57,18 @@ func (p *sdkTestPlugin) MCPCallTool(_ context.Context, req sdksubprocess.MCPCall
 	return sdksubprocess.MCPCallResult{Content: content}, nil
 }
 
+// Command answers a secret backend's resolve with the reference it was asked
+// for, so a test can see the request crossed the boundary intact.
+func (p *sdkTestPlugin) Command(_ context.Context, req sdksubprocess.CommandRequest) (sdksubprocess.CommandResult, error) {
+	var args struct {
+		Ref string `json:"ref"`
+	}
+	if err := json.Unmarshal([]byte(req.Args), &args); err != nil {
+		return sdksubprocess.CommandResult{}, err
+	}
+	return sdksubprocess.CommandResult{Action: "message", Content: req.Name + " " + args.Ref}, nil
+}
+
 func TestPluginSDKHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_PLUGINHOST_HELPER") != "1" {
 		return
@@ -114,6 +126,31 @@ func TestStdioTransportFactoryRoundTripWithPluginSDKServer(t *testing.T) {
 	}
 	if err := process.Unload(context.Background()); err != nil {
 		t.Fatalf("Unload: %v", err)
+	}
+}
+
+// A secret backend's resolve travels as command/execute over the real
+// subprocess transport.
+func TestStdioTransportCarriesACommand(t *testing.T) {
+	process, err := startSDKHelperProcess(t)
+	if err != nil {
+		t.Fatalf("startSDKHelperProcess: %v", err)
+	}
+	defer func() { _ = process.Close() }()
+	if _, err = process.Init(context.Background(), SDKInitParams{PluginDir: t.TempDir(), HostInfo: SDKHostInfo{Version: "test", Protocol: SDKProtocolVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	var asProcess Process = process
+	cmd, ok := asProcess.(commander)
+	if !ok {
+		t.Fatal("the subprocess transport cannot carry a command")
+	}
+	res, err := cmd.Command(context.Background(), SDKCommandRequest{Name: "cerberus.secret/resolve", Args: `{"ref":"op://a/b/c"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Action != "message" || res.Content != "cerberus.secret/resolve op://a/b/c" {
+		t.Fatalf("result = %+v", res)
 	}
 }
 
