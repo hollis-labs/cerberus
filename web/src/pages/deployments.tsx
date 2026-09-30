@@ -1,8 +1,8 @@
-import { Globe, KeyRound, Rocket } from 'lucide-react'
+import { Globe, Rocket } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button, Callout, EmptyState, Input, Pill, SettingsPanel, SummaryCards, Textarea } from '@hollis-labs/sysop-ui/ui'
 import { usePoll } from '@hollis-labs/sysop-ui/api'
-import { apiClient, type DeploymentProfile, type DeploymentRunResult, type InfraProvider } from '../api/client'
+import { apiClient, type DeploymentProfile, type DeploymentRunResult } from '../api/client'
 import { ActionConfirm, type PendingConfirm } from '../components/action-confirm'
 import { useConfirmOnCall, useConsoleWrite } from '../components/plan-confirm'
 
@@ -12,9 +12,7 @@ export function DeploymentsPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const withConfirm = useConfirmOnCall()
   const write = useConsoleWrite()
-  const [providerDrafts, setProviderDrafts] = useState<Record<string, Record<string, string>>>({})
   const [profileDrafts, setProfileDrafts] = useState<Record<string, DeploymentProfile>>({})
-  const [secretDrafts, setSecretDrafts] = useState<Record<string, Record<string, string>>>({})
   const [runResults, setRunResults] = useState<Record<string, DeploymentRunResult>>({})
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingConfirm | null>(null)
@@ -32,13 +30,6 @@ export function DeploymentsPage() {
   useEffect(() => {
     const data = infra.data
     if (!data) return
-    setProviderDrafts((current) => {
-      const next = { ...current }
-      for (const provider of data.providers) {
-        next[provider.id] = { ...(provider.values ?? {}), ...(current[provider.id] ?? {}) }
-      }
-      return next
-    })
     setProfileDrafts((current) => {
       const next = { ...current }
       for (const profile of data.deployments) {
@@ -60,33 +51,11 @@ export function DeploymentsPage() {
     )
   }
 
-  const providers = infra.data?.providers ?? []
   const deployments = infra.data?.deployments ?? []
   const cards = [
-    { label: 'Providers', value: providers.length, accentColor: 'var(--color-text)' },
     { label: 'Profiles', value: deployments.length, accentColor: 'var(--color-status-done)' },
     { label: 'Deployable now', value: deployments.filter((profile) => profile.provider === 'vercel').length, accentColor: 'var(--color-text)' },
   ]
-
-  async function saveProvider(provider: InfraProvider) {
-    if (!sessionToken || busy) return
-    setBusy(`provider:${provider.id}`)
-    setError(null)
-    try {
-      await write(
-        apiClient.saveInfraProvider(provider.id, {
-          values: providerDrafts[provider.id] ?? {},
-          secrets: secretDrafts[provider.id] ?? {},
-        }, sessionToken),
-      )
-      setSecretDrafts((current) => ({ ...current, [provider.id]: {} }))
-      await infra.refetch()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
-  }
 
   async function saveProfile(profileID: string) {
     if (!sessionToken || busy) return
@@ -166,62 +135,6 @@ export function DeploymentsPage() {
       <SummaryCards cards={cards} />
       <div className="space-y-4">
         {error && <Callout tone="danger" className="mx-4">{error}</Callout>}
-
-        <SettingsPanel title="Provider settings" icon={<KeyRound className="h-4 w-4" />}>
-          <div className="px-4 py-3">
-          <div className="grid gap-4 xl:grid-cols-2">
-            {providers.map((provider) => (
-              <div key={provider.id} className="rounded-none border border-border bg-bg p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm text-text">{provider.label}</div>
-                    <div className="mt-1 text-xs text-text-soft">{provider.id}</div>
-                  </div>
-                  <Pill tone="neutral">
-                    {(provider.fields ?? []).length} fields · {(provider.secrets ?? []).length} secrets
-                  </Pill>
-                </div>
-                <div className="space-y-3">
-                  {provider.fields.map((field) => (
-                    <label key={field.name} className="block">
-                      <div className="mb-1 text-xs uppercase tracking-wide text-text-subtle">{field.label}</div>
-                      <Input
-                        value={providerDrafts[provider.id]?.[field.name] ?? ''}
-                        onChange={(event) => setProviderDrafts((current) => ({
-                          ...current,
-                          [provider.id]: { ...(current[provider.id] ?? {}), [field.name]: event.target.value },
-                        }))}
-                      />
-                      {field.description && <div className="mt-1 text-xs text-text-soft">{field.description}</div>}
-                    </label>
-                  ))}
-                  {provider.secrets.map((field) => (
-                    <label key={field.name} className="block">
-                      <div className="mb-1 flex items-center justify-between gap-3 text-xs uppercase tracking-wide text-text-subtle">
-                        <span>{field.label}</span>
-                        <Pill tone={field.present ? 'success' : 'warning'}>{field.present ? 'Stored' : 'Missing'}</Pill>
-                      </div>
-                      <Input
-                        type="password"
-                        value={secretDrafts[provider.id]?.[field.name] ?? ''}
-                        onChange={(event) => setSecretDrafts((current) => ({
-                          ...current,
-                          [provider.id]: { ...(current[provider.id] ?? {}), [field.name]: event.target.value },
-                        }))}
-                        placeholder={field.present ? 'Leave blank to keep current secret' : 'Enter secret'}
-                      />
-                      {field.description && <div className="mt-1 text-xs text-text-soft">{field.description}</div>}
-                    </label>
-                  ))}
-                  <Button variant="secondary" size="sm" disabled={!sessionToken || busy !== null} onClick={() => void saveProvider(provider)}>
-                    {busy === `provider:${provider.id}` ? 'Saving...' : 'Save provider'}
-                  </Button>
-                </div>
-              </div>
-              ))}
-          </div>
-          </div>
-        </SettingsPanel>
 
         <SettingsPanel title="Deployment profiles" icon={<Rocket className="h-4 w-4" />} className="border-b-0">
           <div className="px-4 py-3">

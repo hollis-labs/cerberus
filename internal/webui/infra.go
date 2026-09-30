@@ -1,50 +1,19 @@
 package webui
 
 import (
-	"context"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/infra"
-	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/target"
 )
 
 type infraResponse struct {
 	StatePath   string               `json:"state_path,omitempty"`
-	Providers   []infraProviderDTO   `json:"providers"`
 	Deployments []infraDeploymentDTO `json:"deployments"`
 	Error       string               `json:"error,omitempty"`
-}
-
-type infraProviderDTO struct {
-	ID      string                   `json:"id"`
-	Label   string                   `json:"label"`
-	Fields  []infraProviderFieldDTO  `json:"fields"`
-	Secrets []infraProviderSecretDTO `json:"secrets"`
-	Values  map[string]string        `json:"values,omitempty"`
-}
-
-type infraProviderFieldDTO struct {
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
-}
-
-type infraProviderSecretDTO struct {
-	Name        string `json:"name"`
-	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
-	Present     bool   `json:"present"`
-}
-
-type infraProviderSaveRequest struct {
-	Values       map[string]string `json:"values"`
-	Secrets      map[string]string `json:"secrets"`
-	ClearSecrets []string          `json:"clear_secrets"`
 }
 
 type infraDeploymentDTO struct {
@@ -84,79 +53,6 @@ func (s *Server) handleInfra(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleInfraProviderByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !s.allowStateChangingRequest(r) {
-		writeError(w, http.StatusForbidden, "state-changing request rejected")
-		return
-	}
-	id, route := consoleRoute(strings.TrimPrefix(r.URL.Path, "/api/infra/providers/"))
-	if id == "" || strings.Contains(id, "/") {
-		writeError(w, http.StatusNotFound, "expected POST /api/infra/providers/{id}")
-		return
-	}
-	if _, ok := providerCatalog()[id]; !ok {
-		writeError(w, http.StatusNotFound, "unknown provider")
-		return
-	}
-
-	var req struct {
-		infraProviderSaveRequest
-		consoleConfirm
-	}
-	if err := decodeJSONBody(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// Provider settings and credentials are an admin write (M9), recorded
-	// by name: which settings and which credentials changed, never values.
-	result, ok := s.consoleWrite(w, r, route, req.consoleConfirm, cerbapi.ConsoleWriteRequest{Operation: cerbapi.ConsoleProviderSave, ID: id,
-		Values: req.Values, Secrets: req.Secrets, ClearSecrets: req.ClearSecrets})
-	if !ok {
-		return
-	}
-	secretsChanged := result.SecretsChanged
-	resp := map[string]any{"success": true}
-	if secretsChanged {
-		reloaded, reloadErr := s.reloadPluginForSecrets(r.Context(), id)
-		resp["plugin_reloaded"] = reloaded
-		if reloadErr != nil {
-			// The secret is saved either way; say the plugin still holds the
-			// old value rather than failing the save.
-			resp["plugin_reload_error"] = redact.Text(reloadErr.Error())
-		}
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-// reloadPluginForSecrets restarts the loaded managed plugin whose id matches a
-// provider whose secrets were just saved. A plugin receives its credentials at
-// load, unlike a built-in, which resolves them on every call, so without this a
-// console save would not take effect until someone ran `managed load`. It
-// reports false when no loaded plugin has the id.
-func (s *Server) reloadPluginForSecrets(ctx context.Context, id string) (bool, error) {
-	plugins, err := s.client.ListManagedPlugins(ctx)
-	if err != nil {
-		return false, fmt.Errorf("list managed plugins: %w", err)
-	}
-	for _, plugin := range plugins {
-		if plugin.ID != id || !plugin.Loaded {
-			continue
-		}
-		if _, err := s.client.UnloadManagedPlugin(ctx, id); err != nil {
-			return false, fmt.Errorf("unload plugin %q to pick up the new credential: %w", id, err)
-		}
-		if _, err := s.client.LoadManagedPlugin(ctx, id); err != nil {
-			return false, fmt.Errorf("reload plugin %q after the credential change: %w; run `cerberus connectors plugin managed load %s`", id, err, id)
-		}
-		return true, nil
-	}
-	return false, nil
 }
 
 func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
@@ -316,108 +212,9 @@ func (s *Server) infraResponse(r *http.Request) (infraResponse, error) {
 
 	resp := infraResponse{
 		StatePath:   statePath,
-		Providers:   s.providerDTOs(r, state),
 		Deployments: deployments,
 	}
 	return resp, nil
-}
-
-func (s *Server) providerDTOs(r *http.Request, state *infra.State) []infraProviderDTO {
-	catalog := providerCatalog()
-	order := []string{"vercel", "github", "cloudflare", "namecheap", "git"}
-	out := make([]infraProviderDTO, 0, len(order))
-	for _, id := range order {
-		spec := catalog[id]
-		dto := infraProviderDTO{
-			ID:    id,
-			Label: spec.Label,
-			// Never null: a provider with no fields is an empty list, which
-			// the Deployments page counts (a null crashed it).
-			Fields:  append(make([]infraProviderFieldDTO, 0, len(spec.Fields)), spec.Fields...),
-			Secrets: make([]infraProviderSecretDTO, 0, len(spec.Secrets)),
-			Values:  map[string]string{},
-		}
-		if cfg, ok := state.Providers[id]; ok {
-			for key, value := range cfg.Values {
-				dto.Values[key] = value
-			}
-		}
-		for _, secret := range spec.Secrets {
-			present := false
-			if s.secrets != nil {
-				value, _ := s.secrets.Get(r.Context(), id, secret.Name)
-				present = strings.TrimSpace(value) != ""
-			}
-			dto.Secrets = append(dto.Secrets, infraProviderSecretDTO{
-				Name:        secret.Name,
-				Label:       secret.Label,
-				Description: secret.Description,
-				Present:     present,
-			})
-		}
-		out = append(out, dto)
-	}
-	return out
-}
-
-type providerSpec struct {
-	Label   string
-	Fields  []infraProviderFieldDTO
-	Secrets []infraProviderSecretDTO
-}
-
-func providerCatalog() map[string]providerSpec {
-	return map[string]providerSpec{
-		"vercel": {
-			Label: "Vercel",
-			Fields: []infraProviderFieldDTO{
-				{Name: "scope", Label: "Scope", Description: "Optional Vercel scope/team slug used for link and deploy commands."},
-			},
-			Secrets: []infraProviderSecretDTO{
-				{Name: "token", Label: "Token", Description: "Vercel token used for non-interactive CLI operations."},
-			},
-		},
-		"github": {
-			Label: "GitHub",
-			Fields: []infraProviderFieldDTO{
-				{Name: "default_owner", Label: "Default owner", Description: "Default GitHub owner or organization for deployment profiles."},
-			},
-			Secrets: []infraProviderSecretDTO{
-				{Name: "token", Label: "Token", Description: "GitHub API token used by the GitHub connector."},
-			},
-		},
-		"cloudflare": {
-			Label: "Cloudflare",
-			Fields: []infraProviderFieldDTO{
-				{Name: "account_id", Label: "Account ID", Description: "Cloudflare account ID used when creating new zones."},
-				{Name: "default_zone_id", Label: "Default zone ID", Description: "Default Cloudflare zone ID for deployment and DNS flows."},
-			},
-			Secrets: []infraProviderSecretDTO{
-				{Name: "api_token", Label: "API token", Description: "Cloudflare API token used by the Cloudflare connector."},
-			},
-		},
-		"namecheap": {
-			Label: "Namecheap",
-			// client_ip is stored with the credentials, not as a field: the
-			// namecheap plugin resolves it as namecheap/client_ip through the
-			// secret chain, exactly like api_key. It used to be saved to
-			// infra.yaml, which nothing read, so an IP entered here never
-			// reached the connector and it fell back to 127.0.0.1.
-			Secrets: []infraProviderSecretDTO{
-				{Name: "api_user", Label: "API user", Description: "Namecheap API user."},
-				{Name: "api_key", Label: "API key", Description: "Namecheap API key."},
-				{Name: "username", Label: "Username", Description: "Namecheap account username."},
-				{Name: "client_ip", Label: "Client IP", Description: "The IP address on the account's Namecheap API allow-list. Without it the plugin sends 127.0.0.1."},
-			},
-		},
-		"git": {
-			Label: "Git",
-			Fields: []infraProviderFieldDTO{
-				{Name: "default_remote", Label: "Default remote", Description: "Default Git remote name for deployment profiles."},
-				{Name: "default_branch", Label: "Default branch", Description: "Default production branch for deployment profiles."},
-			},
-		},
-	}
 }
 
 func dtoFromProfile(profile infra.DeploymentProfile) infraDeploymentDTO {

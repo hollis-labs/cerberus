@@ -261,3 +261,32 @@ func TestTypeNamePrefixExemptionStillRedacts(t *testing.T) {
 		}
 	}
 }
+
+// A declared-secrets list holds requirements: each entry's name, kind and env
+// are names by schema, with or without a description beside them, while a
+// value beside them, a hidden parent and a known value still win.
+func TestDeclaredSecretRequirementsKeepTheirNames(t *testing.T) {
+	out, err := FromEnv([]string{"API_KEY=known-value-sentinel-77"}).JSON([]byte(`{
+		"config": {"secrets": [
+			{"name": "token", "env": "CERBERUS_X_TOKEN"},
+			{"name": "api_user", "kind": "name", "required": true},
+			{"name": "known-value-sentinel-77"}
+		]},
+		"secrets": [{"name": "token", "value": "hunter2-value-sentinel"}],
+		"password": {"secrets": [{"name": "under-a-hidden-key"}]}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	for _, want := range []string{`"name":"token"`, `"env":"CERBERUS_X_TOKEN"`, `"name":"api_user"`, `"kind":"name"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lost %s: %s", want, got)
+		}
+	}
+	for _, leaked := range []string{"known-value-sentinel-77", "hunter2-value-sentinel", "under-a-hidden-key"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("%s survived: %s", leaked, got)
+		}
+	}
+}

@@ -1,14 +1,16 @@
 package webui
 
 import (
-	"github.com/hollis-labs/cerberus/internal/audit"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/infra"
@@ -133,22 +135,40 @@ func TestDeploymentProfileLabels(t *testing.T) {
 	}
 }
 
-// Every provider's fields and secrets are lists, never null: the
-// Deployments page counts them, and a null (Namecheap declares no fields)
-// crashed the page.
-func TestInfraProvidersHaveNoNullLists(t *testing.T) {
-	srv, err := New(&fakeClient{}, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), nil, nil)
+// The credential editor lists every connector that declares a secret, with
+// each secret's name, kind and whether a value is stored, never the value;
+// its lists are never null, and a connector declaring nothing is left out.
+func TestCredentialEditorListsDeclaredSecrets(t *testing.T) {
+	const stored = "cf-token-sentinel-0123456789"
+	secrets := &memorySecrets{values: map[string]string{"cloudflare/api_token": stored}}
+	srv, err := New(&fakeClient{connectors: credentialFixtures()}, audit.NewMemory(), filepath.Join(t.TempDir(), "config.yaml"), secrets, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	handler := signedIn(t, srv, testGuard())
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/infra", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("infra: %d %s", rec.Code, rec.Body.String())
+	handler.ServeHTTP(rec, newTestRequest(http.MethodGet, "/api/credentials", nil))
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || strings.Contains(body, "null") || strings.Contains(body, stored) || strings.Contains(body, "[REDACTED]") {
+		t.Fatalf("credentials: %d %s", rec.Code, body)
 	}
-	if strings.Contains(rec.Body.String(), `"fields":null`) || strings.Contains(rec.Body.String(), `"secrets":null`) {
-		t.Fatalf("a provider list is null: %s", rec.Body.String())
+	var resp credentialsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	want := credentialsResponse{Providers: []credentialProviderDTO{
+		{ID: "cloudflare", Version: "0.2.0", Secrets: []credentialSecretDTO{
+			{Name: "api_token", Description: "Cloudflare API token.", Env: "CERBERUS_CLOUDFLARE_API_TOKEN", Required: true, Kind: "credential", Present: true},
+		}},
+		{ID: "namecheap", Version: "0.2.1", Secrets: []credentialSecretDTO{
+			{Name: "api_user", Description: "Namecheap API user.", Kind: "name"},
+			{Name: "api_key", Description: "Namecheap API key.", Kind: "credential"},
+			{Name: "username", Description: "Namecheap username.", Kind: "name"},
+			{Name: "client_ip", Description: "The address on the account's API allow-list.", Kind: "name"},
+		}},
+	}}
+	if !reflect.DeepEqual(resp, want) {
+		t.Fatalf("credentials = %+v\nwant %+v", resp, want)
 	}
 }
 

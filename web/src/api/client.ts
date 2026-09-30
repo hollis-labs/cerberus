@@ -417,25 +417,32 @@ export interface ConfigRestoreResponse {
   error?: string
 }
 
-export interface InfraProviderField {
+// A connector's declared secrets, as the credential editor lists them: names,
+// kinds and whether a value is stored, never a value.
+export interface CredentialSecret {
   name: string
-  label: string
-  description?: string
-}
-
-export interface InfraProviderSecret {
-  name: string
-  label: string
-  description?: string
+  description: string
+  env?: string
+  required?: boolean
+  kind: 'credential' | 'name' | 'path' | string
   present: boolean
 }
 
-export interface InfraProvider {
+export interface CredentialProvider {
   id: string
-  label: string
-  fields: InfraProviderField[]
-  secrets: InfraProviderSecret[]
-  values?: Record<string, string>
+  version?: string
+  secrets: CredentialSecret[]
+}
+
+export interface CredentialsResponse {
+  providers: CredentialProvider[]
+  error?: string
+}
+
+export interface CredentialSaveResult {
+  success: boolean
+  plugin_reloaded?: boolean
+  plugin_reload_error?: string
 }
 
 export interface DeploymentProfile {
@@ -491,7 +498,6 @@ export interface DeploymentRunResult {
 
 export interface InfraResponse {
   state_path?: string
-  providers: InfraProvider[]
   deployments: DeploymentProfile[]
   error?: string
 }
@@ -792,8 +798,9 @@ export const apiClient = {
   registerConfig: (path: string, token: string) => consoleWrite<{ success: boolean; count: number }>('/api/registry/register', { path }, token),
   deregisterOwner: (owner: string, token: string) => consoleWrite<{ success: boolean }>('/api/registry/deregister', { owner }, token),
   listConnectors: (signal?: AbortSignal) => http.get<ConnectorDefinition[]>('/api/connectors', { signal }),
-  saveInfraProvider: (id: string, body: { values?: Record<string, string>; secrets?: Record<string, string>; clear_secrets?: string[] }, token: string) =>
-    consoleWrite<{ success: boolean }>(`/api/infra/providers/${encodeURIComponent(id)}`, body as JsonObject, token),
+  getCredentials: (signal?: AbortSignal) => http.get<CredentialsResponse>('/api/credentials', { signal }),
+  saveCredentials: (id: string, body: { secrets?: Record<string, string>; clear_secrets?: string[] }, token: string) =>
+    consoleWrite<CredentialSaveResult>(`/api/credentials/${encodeURIComponent(id)}`, body as JsonObject, token),
   listDeployments: (signal?: AbortSignal) =>
     http.get<{ deployments: DeploymentProfile[]; state_path?: string }>('/api/deployments', { signal }),
   planDeployment: (id: string) => http.get<DeploymentPlan>(`/api/deployments/${encodeURIComponent(id)}/plan`),

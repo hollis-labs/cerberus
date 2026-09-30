@@ -228,7 +228,7 @@ operation on the `console` connector, gated and recorded like any call:
 | Write | Operation |
 |---|---|
 | Saving or deleting a deploy profile | `profile_save`, `profile_delete` |
-| Saving a provider's settings or credentials | `provider_save` |
+| Saving a connector's declared credentials (the Credentials page) | `provider_save` |
 | Registering or deregistering a project config | `registry_register`, `registry_deregister` |
 | Restoring a config backup | `config_restore` |
 
@@ -244,8 +244,11 @@ lives with its broker, and the console's confirm dialog handles them the way
 it handles a resource verb (see "In the console" below). Each write's plan
 binds what it would change as it reads now: the profile, and the saved one it
 replaces; the file a registration reads; the backup and the config a restore
-swaps. A provider's credentials are bound by keyed digest and travel only to
-the daemon, over its socket.
+swaps. A connector's credentials are bound by keyed digest and travel only to
+the daemon, over its socket. The daemon writes only a secret the connector
+declares (a built-in's definition, an installed plugin's manifest), under
+that connector's id, and refuses any other id or key before anything is
+stored.
 
 A profile write is labeled by the profile. A save that changes a profile's
 labels is labeled by neither the old nor the new ones: relabeling is what

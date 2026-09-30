@@ -475,6 +475,18 @@ func (r Redactor) walk(value any, hide, schema bool) any {
 					}
 				}
 			}
+			// A declared-secrets list (a connector's config.secrets, the
+			// console's credential editor) holds requirements, not values.
+			if list, ok := item.([]any); ok && !hide && strings.EqualFold(key, "secrets") {
+				for i, entry := range list {
+					if requirement, ok := entry.(map[string]any); ok {
+						list[i] = r.walkSecretRequirement(requirement, schema)
+					} else {
+						list[i] = r.walk(entry, true, schema)
+					}
+				}
+				continue
+			}
 			// A names-only map (credential_sources) is keyed by credential
 			// names: its keys say which credential, not that a value
 			// follows, so they add nothing to hide. Its values still pass
@@ -496,6 +508,37 @@ func (r Redactor) walk(value any, hide, schema bool) any {
 		}
 	}
 	return value
+}
+
+// requirementNameKeys are the fields of a declared secret that are names by
+// the schema of a secret requirement (pkg/connector SecretRequirement): which
+// secret, what kind it is, and the variable it is read from. A requirement
+// declares a secret; it never holds one.
+var requirementNameKeys = map[string]bool{"name": true, "kind": true, "env": true}
+
+// walkSecretRequirement walks one entry of a declared-secrets list. Its name,
+// kind and env are exempt from the key's hiding by schema, whatever sibling
+// fields are present, and still lose any known value and anything the rules
+// match. The rest stays hidden, unless the entry reads as a descriptor (a
+// name and a description with no value), as before.
+//
+// Before this, only the descriptor rule kept an entry, so a secret declared
+// with no description (the description is optional) came back over the
+// socket as name "[REDACTED]", and the console's credential editor offered a
+// field nobody could name.
+func (r Redactor) walkSecretRequirement(v map[string]any, schema bool) any {
+	hideRest := true
+	if _, name := v["name"]; name {
+		if _, desc := v["description"]; desc {
+			if _, hasValue := v["value"]; !hasValue {
+				hideRest = false
+			}
+		}
+	}
+	for key, item := range v {
+		v[key] = r.walk(item, hideRest && !requirementNameKeys[strings.ToLower(key)], schema)
+	}
+	return v
 }
 
 type redactedError struct {

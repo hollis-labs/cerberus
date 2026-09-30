@@ -12,9 +12,11 @@ import (
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/connector"
 	"github.com/hollis-labs/cerberus/internal/infra"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/target"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // consoleSecrets is a credential store for console writes to write.
@@ -36,7 +38,13 @@ func (m *consoleSecrets) Delete(_ context.Context, service, key string) error {
 // console's claim to it: a signed-in session.
 func consoleDaemon(t *testing.T, sink audit.Sink, cfgPath string, store *consoleSecrets) *SocketClient {
 	t.Helper()
+	// The daemon's connectors: cloudflare as its plugin declares it, the
+	// one provider_save may write for here.
+	registry := connector.NewRegistry()
+	registry.RegisterDefinition(contract.Definition{ID: "cloudflare", Version: "0.2.0", Config: contract.ConfigSchema{
+		Secrets: []contract.SecretRequirement{{Name: "api_token", Description: "Cloudflare API token."}}}})
 	client := NewInProcessClient(WithConfigPath(cfgPath), WithConsoleSecretStore(store),
+		WithExternalConnectorService(NewExternalConnectorService(sink, registry)),
 		WithResourceRuntimeService(NewResourceRuntimeService(sink, WithResourceRuntimeConfigV2(&config.ConfigV2{}))))
 	socket := startConnectorSocket(t, client)
 	socket.claim = func(context.Context) Principal { return WebSessionPrincipal("sess-1") }
@@ -121,7 +129,7 @@ func TestAConsoleRelabelNeedsOutOfBand(t *testing.T) {
 		{Operation: ConsoleProfileDelete, ID: "site"},
 		{Operation: ConsoleRegistryDeregister, ID: "someone"},
 		{Operation: ConsoleConfigRestore},
-		{Operation: ConsoleProviderSave, ID: "cloudflare", Values: map[string]string{"account_id": "a"}},
+		{Operation: ConsoleProviderSave, ID: "cloudflare", Secrets: map[string]string{"api_token": "a"}},
 	} {
 		_, err := client.ConsoleWrite(context.Background(), req)
 		if ref := approvalOf(t, err); ref.Channel != approval.ChannelOutOfBand {
@@ -172,7 +180,7 @@ func TestConsoleWriteRefusalsOverTheSocket(t *testing.T) {
 	client := consoleDaemon(t, sink, cfgPath, store)
 	ctx := context.Background()
 
-	result, err := client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleProviderSave, ID: "cloudflare", Values: map[string]string{"account_id": "acc"}, Secrets: map[string]string{"api_token": "tok"}})
+	result, err := client.ConsoleWrite(ctx, ConsoleWriteRequest{Operation: ConsoleProviderSave, ID: "cloudflare", Secrets: map[string]string{"api_token": "tok"}})
 	if err != nil || !result.Success || !result.SecretsChanged || store.values["cloudflare/api_token"] != "tok" {
 		t.Fatalf("provider save: %+v %v %v", result, err, store.values)
 	}
