@@ -320,7 +320,7 @@ func TestHungInitHoldsNothingUp(t *testing.T) {
 			return
 		}
 		if health, err := h.m.Health(context.Background(), "good"); err != nil || !health.Healthy {
-			other <- fmt.Errorf("another plugin's health: %+v %v", health, err)
+			other <- fmt.Errorf("another plugin's health: %+v: %w", health, err)
 			return
 		}
 		other <- nil
