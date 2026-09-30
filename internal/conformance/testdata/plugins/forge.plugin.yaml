@@ -224,7 +224,7 @@ cerberus:
               supports_dry: true
               requires_ack: true
             - name: exec_site_command
-              description: Execute a command on a Forge site.
+              description: Run a command on a Forge site. Returns the command record (id, command, status, times), not its output.
               examples:
                 - cerberus connectors exec forge exec_site_command --arg server_id=12 --arg site_id=34 --arg command='php artisan migrate --force' --dry-run --ack
                 - cerberus connectors exec forge exec_site_command --arg server_id=12 --arg site_id=34 --arg command='php artisan migrate --force' --ack
@@ -252,7 +252,7 @@ cerberus:
                     - server_id
                     - site_id
               preview: plugin
-              output: free_text
+              output: structured
               cost: none
               local_fs: none
               output_schema:
