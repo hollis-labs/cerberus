@@ -56,7 +56,7 @@ func policyRequest(ctx context.Context, spec auditSpec, t target.Target) policy.
 // record, and the posture it was evaluated under. In P2 nothing reads it to
 // decide: it is recorded, never enforced.
 func shadowDecision(ctx context.Context, spec auditSpec, t target.Target) (*audit.PolicyDecision, string) {
-	res := PolicyDecisionPoint().Authorize(policyRequest(ctx, spec, t))
+	res := authorizeRated(ctx, spec, policyRequest(ctx, spec, t))
 	out := &audit.PolicyDecision{Decision: string(res.Decision), WouldBlock: res.WouldBlock, Snapshot: res.Snapshot, Shadow: true,
 		MatchedRules: make([]audit.MatchedRule, 0, len(res.Matched))}
 	for _, m := range res.Matched {

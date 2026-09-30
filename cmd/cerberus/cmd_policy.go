@@ -194,10 +194,25 @@ func writeExplain(w io.Writer, req policy.Request, res policy.Result, source str
 	}
 	fmt.Fprintf(w, "Decision: %s (%s).\nPolicy:   %s\n\nMatched rules:\n", res.Decision, block, source)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	var rated []string
 	for _, m := range res.Matched {
-		fmt.Fprintf(tw, "  %s\t%s\t%s\n", m.Decision, m.Rule, m.Reason)
+		reason := m.Reason
+		if m.Rate != nil {
+			reason = strings.TrimSpace(reason + " [rate " + m.Rate.String() + "]")
+			rated = append(rated, m.Rule+" "+m.Rate.String())
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\n", m.Decision, m.Rule, reason)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if len(rated) > 0 {
+		// explain names a principal kind, not a caller, so it has no count
+		// to show: the gate counts per principal and effect.
+		_, err := fmt.Fprintf(w, "\nRate limits: %s, counted per caller and effect over a sliding window; past it the call is denied (in shadow, a would-block).\n", strings.Join(rated, ", "))
+		return err
+	}
+	return nil
 }
 
 var policyApplyCmd = &cobra.Command{

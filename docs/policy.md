@@ -544,6 +544,44 @@ Break glass is limited per target: by default 3 uses per rolling 24h, set in
 policy with `break_glass: {per_target: 3, window: 24h}` and changed with
 `cerberus policy apply`. `policy explain` and `posture show` print the limit.
 
+### Rate limits
+
+An `allow` or `approve` rule can cap how often it lets a call through:
+
+```yaml
+principals:
+  - match: { kind: agent }
+    rules:
+      - { id: agent-deploys, ops: [deploy], decision: approve, rate: 5/h }
+```
+
+`rate:` is `N/m`, `N/h` or `N/d`. A rule with a rate needs an `id`. The id
+names the rule's counter, so the count survives edits that move the rule
+around the file.
+
+**What counts:**
+
+- Calls the rule matched **that ran**, including ones that ran and failed.
+- Each caller is counted separately: an agent's MCP session, or a person's
+  client and uid. Each effect is counted separately too.
+- The window slides: a call leaves it one window after it ran.
+- Calls that were refused don't count, and neither do dry runs, plans, or the
+  daemon's own automation.
+
+**Past the limit, the call is denied.**
+
+- Where enforcement is on, it's refused as `policy_denied`. The refusal names
+  the rule and the time the next call is allowed.
+- In shadow, the call runs and is recorded as a would-block under the rule
+  `rate.<id>`. `policy report` counts it with the other would-blocks.
+- An approval doesn't get past a spent rate, and neither does break glass,
+  because the limit is a deny.
+
+The counters live in whichever process gates the call. They are seeded from
+the audit log the first time a rate matters, so a daemon that restarts counts
+what already ran in the last day. `policy explain` marks a matched rule's
+rate with `[rate 5/h]`.
+
 ### Lockdown and freeze: the emergency brake
 
 When something is going wrong and you want Cerberus to stop acting, engage

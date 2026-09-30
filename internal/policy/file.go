@@ -155,6 +155,8 @@ type Rule struct {
 	Decision  Decision          `yaml:"decision"`
 	Approval  *Approval         `yaml:"approval,omitempty"`
 	Reason    string            `yaml:"reason,omitempty"`
+	// Rate limits the calls this rule allows (P5-b), as N/m, N/h or N/d.
+	Rate string `yaml:"rate,omitempty"`
 }
 
 // TargetMatch selects targets. Each set field must match; a value prefixed
@@ -281,6 +283,7 @@ func (f File) Validate() []string {
 		}
 		problems = append(problems, r.Match.problems(fmt.Sprintf("posture_rules[%d].match", i))...)
 	}
+	rates := map[string]string{}
 	check := func(where string, rules []Rule) {
 		for i, r := range rules {
 			at := fmt.Sprintf("%s.rules[%d]", where, i)
@@ -299,6 +302,7 @@ func (f File) Validate() []string {
 				problems = append(problems, fmt.Sprintf("%s: approval scope %q is not once, session or window", at, r.Approval.Scope))
 			}
 			problems = append(problems, approvalProblems(at, r)...)
+			problems = append(problems, rateProblems(at, r, rates)...)
 			if r.Principal != nil && r.Principal.Kind != "" && !validKind(strings.TrimPrefix(r.Principal.Kind, "!")) {
 				problems = append(problems, fmt.Sprintf("%s: principal kind %q is not human, agent or automation", at, r.Principal.Kind))
 			}

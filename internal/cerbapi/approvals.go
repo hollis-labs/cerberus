@@ -304,13 +304,27 @@ func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 				return nil, refusal
 			}
 		}
+		call.holdRates(ctx, req)
 		return call, nil
 	}
 	if refusal := enforceDecision(ctx, call, spec, req); refusal != nil {
 		call.finish(refusal)
 		return nil, refusal
 	}
+	call.holdRates(ctx, req)
 	return call, nil
+}
+
+// holdRates counts the call against its matched rates (P5-b) as it is
+// about to run; finish gives the holds back if it is then refused.
+func (c *auditCall) holdRates(ctx context.Context, req policy.Request) {
+	l := ProcessRateLimiter()
+	if l == nil || req.DryRun {
+		return
+	}
+	if holds := rateHolds(ctx, c.spec, PolicyDecisionPoint().Authorize(req)); len(holds) > 0 {
+		c.rates, c.limiter = l.hold(holds), l
+	}
 }
 
 // enforceDecision is the enforced decision for a call: nil to let it run, or
@@ -318,7 +332,7 @@ func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 // (tty_confirm, P3-3) come later; here an approve decision asks the broker
 // for an approval and answers approval_pending.
 func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req policy.Request) error {
-	res := PolicyDecisionPoint().Authorize(req)
+	res := authorizeRated(ctx, spec, req)
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
 	switch res.Decision {
 	case policy.Allow:

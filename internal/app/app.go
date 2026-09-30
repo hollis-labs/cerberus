@@ -195,6 +195,8 @@ func installPolicy() {
 	if brakesDir, err := BrakesDir(); err == nil {
 		cerbapi.SetBrakes(&cerbapi.Brakes{Store: brake.Store{Dir: brakesDir}, AuditDir: auditDir, Sink: auditSink})
 	}
+	// Rate limits (P5-b), seeded from the same audit log in every process.
+	cerbapi.SetRateLimiter(&cerbapi.RateLimiter{AuditDir: auditDir})
 }
 
 // BrakesDir is ~/.cerberus/brakes (§12).
