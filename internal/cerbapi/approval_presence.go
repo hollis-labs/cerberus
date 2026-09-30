@@ -1,6 +1,7 @@
 package cerbapi
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -138,6 +139,33 @@ func presenceErrorStatus(err error) (int, string) {
 	return http.StatusBadRequest, redact.Text(err.Error())
 }
 
+// passkeyAdminRefusal is the daemon's own check on who may change the
+// passkeys out-of-band approvals are verified against (B1). The CLI's
+// terminal check is not enough on its own: the socket routes were open to
+// any caller, so an agent could allow an enrollment, register a key it
+// made itself (the first is trusted on first use) and from then on approve
+// its own requests. Allowing an enrollment is a person at the CLI on an
+// interactive terminal — the human CLI claim, which the CLI makes only with
+// stdin and stdout both terminals. The ceremonies that follow run on the
+// console, for a person there or at the CLI. An agent, automation or an
+// unknown caller is refused; so is any MCP surface and any verified token
+// caller. A key after the first also needs an enrolled key's assertion,
+// which presence checks.
+func passkeyAdminRefusal(ctx context.Context, action string) error {
+	p, _ := PrincipalFrom(ctx)
+	allowed := p.Kind == PrincipalHuman && !strings.HasPrefix(p.Via, "mcp") && !p.Verified()
+	if action == "enroll-allow" {
+		allowed = allowed && p.Via == ViaCLI
+	} else {
+		allowed = allowed && (p.Via == ViaCLI || p.Via == ViaWeb)
+	}
+	if allowed {
+		return nil
+	}
+	return externalConnectorError(ExternalConnectorOperationArgs{Connector: "approvals", Operation: "keys_" + strings.ReplaceAll(action, "/", "_")}, ExternalConnectorApprovalRequired,
+		redact.Guidance("passkeys are enrolled and removed by a person: run `cerberus approvals enroll` in an interactive terminal, then finish on the console. This caller is %s over %s, so nothing was changed", p.Kind, p.Via))
+}
+
 // handleApprovalKeys is /approvals/keys: GET the registry's state, POST
 // enroll-allow (from `cerberus approvals enroll` on a terminal), and the
 // enrollment and removal ceremonies, which the console drives.
@@ -158,6 +186,10 @@ func (s *SocketServer) handleApprovalKeys(w http.ResponseWriter, r *http.Request
 	}
 	if r.Method != http.MethodPost {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if refusal := passkeyAdminRefusal(r.Context(), rest); refusal != nil {
+		writeServiceError(w, http.StatusForbidden, refusal)
 		return
 	}
 	var (
