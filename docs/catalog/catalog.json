@@ -17499,6 +17499,53 @@
       "id": "CERB-GAP-905"
     },
     {
+      "class": "gap",
+      "name": "run-secrets resolves any reference for any caller, and records nothing",
+      "summary": "`cerberus run-secrets -- <program>` resolves every keychain:// and helper:// reference in its own environment and execs the program with the values, so `FOO=keychain://svc/key cerberus run-secrets -- env` prints a credential; nothing binds the call to a registered resource, and no audit record is written.",
+      "state_field": "status",
+      "state_label": "planned",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "read from cmd/cerberus/cmd_run_secrets.go and internal/secretref; go-keyring's darwin backend (/usr/bin/security) read to bound the impact; not exercised against a real keychain entry",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "credentials",
+        "secrets",
+        "audit",
+        "run-secrets",
+        "gap",
+        "priority:must-have",
+        "class:gap",
+        "locus:core"
+      ],
+      "locus": "core",
+      "pointer_locator": "cmd/cerberus/cmd_run_secrets.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-CAP-504",
+          "note": "the credential chain run-secrets resolves through"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-844",
+          "note": "WP-S4's secret-backend plugins resolve through run-secrets too, and must not widen this"
+        }
+      ],
+      "body": "`run-secrets` is the exec-time half of keeping credentials out of launchd plists: the plist carries references and the shim resolves them in the service's own process at start. It resolves whatever references are in its environment, for whoever runs it. There is no check that the caller is a launchd job for a registered resource, or that the references are ones that resource's config declares, and no audit record of what was resolved.\n\nWhat this is and is not. On macOS it does not cross a privilege boundary: go-keyring stores entries through `/usr/bin/security`, so a same-uid process can already read them with `security find-generic-password`. What it adds is convenience and invisibility: one command resolves any reference, including running a `helper://` binary, and nothing records it. For an agent with a shell that is the difference between a deliberate keychain read and an unremarkable `cerberus` invocation.\n\nWP-S4 v2 routes plugin schemes (op://, keeper://) through run-secrets as a one-shot backend load in the service's process, which was chosen over a daemon socket call precisely because a socket op returning values would be an oracle for every same-uid process. That design must not widen this gap: whatever run-secrets resolves, it should resolve for a declared resource and record.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-504",
+        "effort": "medium — an audit record is small; binding a call to a resource (a --resource flag the plist passes, resolving only the refs that resource declares) is the design work",
+        "priority": "must-have",
+        "unlocks_when": "run-secrets takes the resource it runs for, resolves only references that resource's config declares, refuses anything else, and writes an audit record naming the resource and each reference's scheme (never a value)"
+      },
+      "id": "CERB-GAP-906",
+      "created_at": "2026-09-29",
+      "last_reviewed": "2026-09-29"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
