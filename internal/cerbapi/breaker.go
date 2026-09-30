@@ -167,7 +167,10 @@ func ResetSuspension(ctx context.Context, sink audit.Sink, store brake.Store, id
 		return cur, externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.Guidance("type %q to reset it; nothing was reset", "reset "+id))
 	}
-	st, err := store.ResetSuspension(id, principalFor(ctx, auditSpec{}))
+	if err := liftUntrusted(sink, "reset_suspension"); err != nil {
+		return cur, err
+	}
+	st, err := store.ResetSuspension(id, principalFor(ctx, auditSpec{}), "typed")
 	if err != nil {
 		return st, err
 	}

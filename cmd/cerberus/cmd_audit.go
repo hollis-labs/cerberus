@@ -119,29 +119,44 @@ content, and each month file continuing from the last.
 
 A torn write followed by the chain_break record Cerberus writes when it finds
 one is not a break. Month files removed by a recorded 'cerberus audit prune'
-are not a break either. Anything else exits non-zero.`,
+are not a break either. Anything else exits non-zero.
+
+The daemon also keeps the chain's head in the login keychain, and verify checks
+the log still holds it: a log cut short at a line boundary, or rewritten with
+its hashes recomputed, chains correctly but no longer holds the anchored
+record.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		dir, err := auditDir()
 		if err != nil {
 			return err
 		}
+		installAuditAnchor()
 		files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 		if len(files) == 0 {
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "no audit records in %s\n", dir)
 			return err
 		}
-		if err = audit.Verify(dir); err != nil {
-			return err
-		}
-		recs, err := audit.ReadRecords(dir)
+		checked, err := audit.Check(dir)
 		if err != nil {
 			return err
 		}
-		breaks := 0
+		recs := checked.Records
+		breaks, reanchors := 0, 0
 		for _, rec := range recs {
-			if rec.Kind == audit.KindChainBreak {
+			switch rec.Kind {
+			case audit.KindChainBreak:
 				breaks++
+			case audit.KindChainReanchored:
+				reanchors++
+			}
+		}
+		if err = checked.Err(); err != nil {
+			switch {
+			case checked.TailTrusted() && reanchors > 0:
+				return fmt.Errorf("%w (acknowledged by %d reanchor(s): what follows the last one is trusted)", err, reanchors)
+			default:
+				return fmt.Errorf("%w; past the first problem a brake engaged stays engaged and a lift is not applied. Investigate, then a person runs `cerberus audit reanchor`", err)
 			}
 		}
 		msg := fmt.Sprintf("audit chain intact: %d records in %d month file(s)", len(recs), len(files))
@@ -211,6 +226,66 @@ verify' accepts a chain whose earlier files a recorded prune removed.`,
 		return err
 	},
 }
+
+var auditReanchorCmd = &cobra.Command{
+	Use:   "reanchor",
+	Short: "Acknowledge an audit chain that does not verify (interactive only)",
+	Long: `Acknowledge an audit chain that does not verify, so that what Cerberus reads
+from the log is trusted again from here on.
+
+A chain that does not verify is read with suspicion: a brake engaged anywhere
+past the break stays engaged, a lift recorded there is not applied, and lifting
+is refused until the chain is reanchored. Check what 'cerberus audit verify'
+reports first: a break you did not cause is something to investigate, not
+acknowledge.
+
+Reanchoring rewrites nothing. It appends a chain_reanchored record naming the
+problems it acknowledges, and 'cerberus audit verify' still reports them. It
+runs only from an interactive terminal and asks you to type a confirmation.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		if !auditIsTerminal() {
+			return errAuditReanchorNotInteractive
+		}
+		dir, err := auditDir()
+		if err != nil {
+			return err
+		}
+		installAuditAnchor()
+		checked, err := audit.Check(dir)
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		if checked.TailTrusted() {
+			_, err = fmt.Fprintln(out, audit.ErrNothingToReanchor.Error())
+			return err
+		}
+		_, _ = fmt.Fprintf(out, "The audit chain in %s has %d problem(s):\n", dir, len(checked.Problems))
+		for _, p := range checked.Problems {
+			_, _ = fmt.Fprintf(out, "  %s\n", p)
+		}
+		_, _ = fmt.Fprintf(out, "Type %q to acknowledge them and trust what is written from here on: ", auditReanchorPhrase)
+		line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		if strings.TrimSpace(line) != auditReanchorPhrase {
+			return errors.New("confirmation did not match; nothing was written")
+		}
+		principal := audit.Principal{Kind: string(cerbapi.PrincipalHuman), Surface: string(cerbapi.SurfaceInProcess), Via: "cli", SelfReported: true}
+		rec, err := audit.Reanchor(auditSink(), dir, principal)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "reanchored at seq %d; brakes are read from here on, and can be lifted again\n", rec.Seq)
+		return err
+	},
+}
+
+const auditReanchorPhrase = "reanchor"
+
+var errAuditReanchorNotInteractive = errors.New("audit reanchor runs only from an interactive terminal, where it asks for a typed confirmation; run it from a terminal, not a script or an agent")
 
 var errAuditPruneNotInteractive = errors.New("audit prune runs only from an interactive terminal, where it asks for a typed confirmation; run it from a terminal, not a script or an agent")
 
@@ -333,6 +408,6 @@ func init() {
 
 	auditPruneCmd.Flags().StringVar(&auditPruneBefore, "before", "", "remove month files wholly before this date (required)")
 
-	auditCmd.AddCommand(auditTailCmd, auditQueryCmd, auditVerifyCmd, auditPruneCmd)
+	auditCmd.AddCommand(auditTailCmd, auditQueryCmd, auditVerifyCmd, auditPruneCmd, auditReanchorCmd)
 	rootCmd.AddCommand(auditCmd)
 }

@@ -426,6 +426,10 @@ func runDaemonBody() error {
 	}
 	defer daemon.RemoveDaemonPID()
 
+	// The audit chain's head is anchored outside the log before anything
+	// writes to it (M2).
+	installAuditAnchor()
+
 	a, err := app.NewWithOptions(appOptions())
 	if err != nil {
 		return fmt.Errorf("init app: %w", err)

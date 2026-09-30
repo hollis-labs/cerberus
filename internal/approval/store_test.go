@@ -261,3 +261,25 @@ func TestConsumeRefusesAWeakerChannel(t *testing.T) {
 		t.Fatalf("the same approval where a terminal suffices: %v", err)
 	}
 }
+
+// An event carrying a name that is not valid UTF-8 (a caller's claim cut
+// mid-character) chains: it is checked against the bytes it was hashed as
+// (M2), so the approval it holds folds on reopen.
+func TestAnEventWithInvalidUTF8Chains(t *testing.T) {
+	s, c, dir := newStore(t)
+	a, err := s.Request(Approval{Principal: audit.Principal{Kind: "agent", Client: "clipped \xc3"}, Connector: "kubernetes", Operation: "delete_pod",
+		Effect: "destructive", Target: audit.Target{Kind: "kubernetes.pod"}, ArgsDigest: "hmac:args", PlanHash: "sha256:plan", Channel: ChannelOutOfBand}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := open(dir, c.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.Problems) != 0 {
+		t.Fatalf("problems %v", again.Problems)
+	}
+	if _, ok := again.Get(a.ID); !ok {
+		t.Fatal("the approval did not fold")
+	}
+}

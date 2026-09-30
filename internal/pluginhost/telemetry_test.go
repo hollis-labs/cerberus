@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/pkg/plugin"
@@ -75,6 +76,21 @@ func TestCollectorBoundsEvents(t *testing.T) {
 	data, _ := json.Marshal(got)
 	if len(data) > maxTelemetryBytes*2 {
 		t.Fatalf("telemetry is %d bytes", len(data))
+	}
+}
+
+// A field is cut on a character boundary, and bytes that are not UTF-8 are
+// replaced: it goes into a hash-chained audit record (M2).
+func TestCollectorKeepsFieldsValidUTF8(t *testing.T) {
+	_, c := WithTelemetry(context.Background())
+	c.addEvents([]plugin.TelemetryEvent{
+		{Kind: "step", Message: "x" + strings.Repeat("é", maxTelemetryField)},
+		{Kind: "step", Message: "bad \xff bytes"},
+	}, redact.New())
+	for _, ev := range c.Snapshot().Events {
+		if !utf8.ValidString(ev.Message) || len(ev.Message) > maxTelemetryField {
+			t.Fatalf("a field of %d bytes, valid %v", len(ev.Message), utf8.ValidString(ev.Message))
+		}
 	}
 }
 

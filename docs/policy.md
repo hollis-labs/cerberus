@@ -711,10 +711,26 @@ ends. It never drops to the floor. Lifting needs the daemon, which is what
 checks for an enrolled passkey.
 
 The brake store is `~/.cerberus/brakes/`. It is hash-chained, like the other
-stores. The daemon trusts the store only as far as the verified audit log
-agrees: if the store and the newest `brake_changed` record disagree, the
-more restrictive of the two applies. Deleting the store therefore doesn't
-lift a lockdown the audit log recorded.
+stores. The daemon trusts the store only as far as the audit log agrees: if
+the store and the log's `brake_changed` records disagree, the more restrictive
+of the two applies. Deleting or editing the store therefore doesn't lift a
+brake the audit log recorded. The daemon writes such a brake back into the
+store, so it can be lifted the usual way.
+
+Neither record lifts a brake on its own say-so:
+
+- **A lift or reset in the store needs its proof.** An event without one is
+  reported and not applied, however well it chains. Past a break in the
+  store's own chain, events that engage a brake still apply, but lifts don't.
+  The next lift a person makes takes the store up again from there.
+- **A broken audit chain fails closed.** A brake engaged in any record past
+  the break stays engaged, and a lift recorded there isn't applied. Lifting is
+  refused with `audit_unavailable` until the chain is trusted again, because
+  the lift's record wouldn't count. Look at what `cerberus audit verify`
+  reports, then run `cerberus audit reanchor` on a terminal and type
+  `reanchor`. That appends a record that acknowledges the problems, without
+  rewriting anything, and the log is read as usual from there. `verify` keeps
+  reporting the problems, noting that a reanchor acknowledged them.
 
 ### When an agent asks
 

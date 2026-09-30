@@ -18274,6 +18274,51 @@
       "id": "CERB-GAP-925"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "The brakes failed open on a broken audit chain, and the chain broke by accident and hid a cut",
+      "summary": "When the audit chain did not verify, the brakes were read from their store alone, and a store lift needed no proof and applied past a store break: breaking one line of the log and appending lockdown_lifted lifted a lockdown live. The chain broke by itself: a caller's name clipped mid-character (clip, plugin telemetry fit) re-marshalled differently and failed verification for good. And the unkeyed chain verified after a cut at a line boundary or a full rewrite. Fixed: records are verified from the bytes they were hashed as, names are cut on character boundaries; brakes past an audit break keep every engagement and apply no lift, lifting is refused until a person runs cerberus audit reanchor, store lifts need their proof and apply past a store break only after a reanchor, and a brake the log holds is restored to the store; the daemon anchors the chain head in the login keychain and verification checks the log still holds it.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the e40b63c security review (M1, M2); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "audit",
+        "brakes",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/audit/sink.go, internal/audit/anchor.go, internal/audit/linehash.go, internal/brake/brake.go, internal/cerbapi/brakes.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-898",
+          "note": "the other brake-lift fail-open"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-919",
+          "note": "the approvals store's matching restrictive-only fold and reanchor"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "medium"
+      },
+      "body": "Remaining: the anchor is in the operator's own keychain (go-keyring drives /usr/bin/security, so any same-uid process can rewrite the item); it catches a log edited as files, not an agent forging both. The anchor advances at most every 30s for ordinary records, so a cut of the last few ordinary records goes unseen; records the daemon folds state from advance it every time. The in-process CLI with the daemon down neither advances nor checks it. Verified enforcement (policy) and passkey enrollment still read the log with Verify rather than the trusted prefix: M3 and M4.",
+      "id": "CERB-GAP-926"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

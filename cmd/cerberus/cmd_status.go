@@ -103,9 +103,8 @@ var statusOfBrakes = func() brake.State {
 	}
 	st, _ := store.Load()
 	if dir, derr := app.AuditDir(); derr == nil {
-		if recorded, ok := brake.Recorded(dir); ok {
-			st = brake.Effective(st, recorded)
-		}
+		recorded, _ := brake.Recorded(dir)
+		st = brake.Effective(st, recorded)
 	}
 	return st
 }

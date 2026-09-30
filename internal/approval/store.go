@@ -152,7 +152,7 @@ func (s *Store) fold() error {
 			s.Problems = append(s.Problems, fmt.Sprintf("line after seq %d does not parse", s.seq))
 			continue
 		}
-		chained := ev.Seq == s.seq+1 && ev.PrevHash == s.last && hashEvent(ev) == ev.Hash
+		chained := ev.Seq == s.seq+1 && ev.PrevHash == s.last && (audit.LineHashMatches(line, ev.Hash) || hashEvent(ev) == ev.Hash)
 		if !chained {
 			s.Problems = append(s.Problems, fmt.Sprintf("seq %d does not chain to the one before it", ev.Seq))
 			s.broken = true
