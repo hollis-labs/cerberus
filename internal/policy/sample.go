@@ -52,7 +52,7 @@ func Sample(defs []contract.Definition, resources []SampleTarget) []Case {
 				target.Resolve(def.ID, op.Target.Kind, "(ad hoc)", nil, true))
 			for _, t := range targets {
 				for _, kind := range Kinds {
-					out = append(out, Case{Connector: def.ID, Operation: op.Name, Effect: op.Effect, Target: t, Kind: kind})
+					out = append(out, Case{Connector: def.ID, Operation: op.Name, Effect: op.PolicyEffect(), Target: t, Kind: kind})
 				}
 			}
 		}

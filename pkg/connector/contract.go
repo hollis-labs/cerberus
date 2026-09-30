@@ -553,3 +553,16 @@ func jsonKind(value any) string {
 	}
 	return "unknown"
 }
+
+// PolicyEffect is the effect an operation is authorized as: its declared
+// effect, except that a read which touches the local filesystem (an SFTP
+// download into a local path, say) is at least a write. Such a read can
+// overwrite the operator's files, so it must not ride a read scope, a read
+// rule or a read baseline. The declared effect still says what it does to
+// its target, which is what credential bindings go by.
+func (op Operation) PolicyEffect() Effect {
+	if op.LocalFS != "" && op.LocalFS != LocalFSNone && (op.Effect == EffectRead || op.Effect == EffectReadSensitive) {
+		return EffectWrite
+	}
+	return op.Effect
+}

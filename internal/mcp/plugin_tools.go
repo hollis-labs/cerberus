@@ -142,7 +142,7 @@ func pluginTool(client cerbapi.Client, connectorID string, op contract.Operation
 		description = op.Name
 	}
 	operation := op.Name
-	pluginToolEffects.Store(name, op.Effect)
+	pluginToolEffects.Store(name, op.PolicyEffect())
 	tool := Tool{
 		Name:        name,
 		Description: fmt.Sprintf("%s (plugin %s, effect %s)", description, connectorID, op.Effect),

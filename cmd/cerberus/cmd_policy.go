@@ -102,7 +102,7 @@ var policyExplainCmd = &cobra.Command{
 			}
 		}
 		t := target.Resolve(connectorID, op.Target.Kind, policyExplainFlags.target, labels, policyExplainFlags.adhoc)
-		req := policy.Request{Connector: connectorID, Operation: operation, Effect: op.Effect, EffectUndeclared: op.EffectUndeclared, Target: t,
+		req := policy.Request{Connector: connectorID, Operation: operation, Effect: op.PolicyEffect(), EffectUndeclared: op.EffectUndeclared, Target: t,
 			DryRun: policyExplainFlags.dryRun && op.Preview != contract.PreviewNone, Principal: policy.Principal{Kind: kind}}
 		pdp, source, err := explainPDP(policyExplainFlags.working)
 		if err != nil {
