@@ -613,7 +613,7 @@ export interface ApprovalInfo {
   // What the approver is shown (H3): the plan the approval binds to and the
   // call's arguments, redacted by the daemon. untrusted names, as JSON
   // pointers, the parts the requester wrote rather than Cerberus.
-  shown?: { plan?: PlanView; arguments?: Record<string, unknown>; untrusted?: string[]; truncated?: boolean }
+  shown?: { plan?: PlanView; arguments?: Record<string, unknown>; untrusted?: string[]; flagged?: string[]; truncated?: boolean }
   rule?: string
   reason?: string
   channel: string

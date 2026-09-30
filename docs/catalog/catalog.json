@@ -18934,6 +18934,40 @@
       "id": "CERB-GAP-941"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "An approval's view ran the redaction rules over the requester's own text, hiding the command that would run",
+      "summary": "renderShown stored the plan and arguments through the request's redaction scope, which applies the text rules as well as resolved values. A requester could disguise a payload as a credential assignment: CACHE_TOKEN=$(curl ... | sh) systemctl restart nginx rendered as CACHE_TOKEN=[REDACTED] systemctl restart nginx, while the approval bound the real plan, so the operator approved a command they could not see (an H3 bypass). Fixed: the view removes only resolved credential values and fields named for a credential; a string the rules would have changed is shown verbatim and flagged, zero-width and bidi characters are shown escaped and flagged, and the CLI and console list the flagged strings.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 5931772 re-review (B4); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "redaction",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/approval_shown.go, cmd/cerberus/cmd_approvals.go, web/src/components/approval-detail.tsx",
+      "relationships": [],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "A credential an agent writes into a free-text argument itself (rather than one Cerberus resolved) is now shown and stored with the approval, flagged; the approvals store is the operator's own 0600 file. A field named for a credential is still hidden (and flagged), which an operation that executed such a field could use to hide a payload; no built-in operation does.",
+      "id": "CERB-GAP-942"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

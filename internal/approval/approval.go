@@ -128,6 +128,13 @@ type Shown struct {
 	Plan      json.RawMessage `json:"plan,omitempty"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 	Untrusted []string        `json:"untrusted,omitempty"`
+	// Flagged are the strings, as JSON pointers, that look like they carry
+	// a credential, a command substitution or an invisible or
+	// direction-changing character. They are shown as they will run, never
+	// rewritten (B4): an approver who is shown "[REDACTED]" where the
+	// command is cannot see what they approve. Invisible and bidi
+	// characters are shown escaped, so the text reads as it runs.
+	Flagged []string `json:"flagged,omitempty"`
 	// Truncated says the rendering was over ShownMaxBytes and was cut; the
 	// hash still binds the whole plan.
 	Truncated bool `json:"truncated,omitempty"`
