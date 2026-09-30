@@ -18624,6 +18624,45 @@
       "id": "CERB-GAP-933"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "Resource, ssh and docker verbs re-read their definition between the gate and the run",
+      "summary": "A gated resource verb resolved the config for its target labels (twice), again for its plan, and again for its run, which executed the last read; ssh and docker operations resolved their configured resource for the plan and again for the run, and the plan bound nothing of the merged target (docker nothing at all). A definition edited between the gate and the run ran under the approval of the one checked. CERB-GAP-878 had closed this for profiles and pipelines only when a plan was computed. Fixed: a resource verb carries one config snapshot through its labels, plan and run (configFor); an admin call resolves each resource once (onceLookup) for labels, credential scope, plan and run; the ssh and docker plan binds a keyed digest of the resolved target; a pipeline with no plan computed reads its definition once for the freeze check and the run.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the e40b63c security review (M10); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/runtime_audit.go, internal/cerbapi/resource_runtime_service.go, internal/cerbapi/ssh_target.go, internal/cerbapi/plans.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-878",
+          "note": "the same fix for profiles and pipelines, now also when no plan is computed"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "medium"
+      },
+      "body": "Remaining (M10b, next): a deploy plan binds HEAD and a dirty flag, not dirty content, and the build reads the tree after the gate; the resource monitor restarts whatever the config says now, not the last applied definition; ensure_fresh picks its verb from a separate read before that verb's own gate. The executed definition is the checked config, but files it names (a build tree, a compose file, a key) are read when the connector runs.",
+      "id": "CERB-GAP-934"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

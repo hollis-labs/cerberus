@@ -80,9 +80,14 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 		}
 		return &PipelineRunResult{Success: true, Plan: shown}, nil
 	}
+	// Where the gate hashed no plan, the definition is read once here, and
+	// the freeze check and the run both use that read (M10).
+	if checked == nil {
+		checked, _ = s.lookupPipeline(id)
+	}
 	// A pipeline does not run while any resource it touches is frozen (§12);
 	// a lockdown has already refused it at the gate.
-	if refusal := s.pipelineFrozen(id); refusal != nil {
+	if refusal := s.pipelineFrozen(checked); refusal != nil {
 		call.finish(refusal)
 		return nil, refusal
 	}
@@ -124,9 +129,13 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	}
 	def := localconn.Definition()
 	op, known := def.Operation(operation)
+	// One resolve for the whole call (M10): the gate labels the target, the
+	// plan hashes the definition and the run executes it, all from this.
+	snap := s.snapshotConfig()
+	ctx = withConfigSnapshot(ctx, snap)
 	spec := auditSpec{
 		connector: def.ID, operation: operation, op: op, known: known,
-		config: config, acknowledged: opts.Acknowledged, resources: s.ResourceDef,
+		config: config, acknowledged: opts.Acknowledged, resources: resourcesIn(snap),
 		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan, confirmedPlanHash: opts.ConfirmedPlanHash, breakGlass: opts.BreakGlass,
 	}
 	if opts.Plan {

@@ -295,7 +295,11 @@ func (s *ExternalConnectorService) Execute(ctx context.Context, args ExternalCon
 	if args.Plan {
 		args.DryRun, args.ApprovalID, args.ConfirmedPlanHash, args.BreakGlass = true, "", "", nil
 	}
-	spec := s.auditSpec(args)
+	// One resolve of each configured resource for the whole call (M10): the
+	// gate's labels, the plan and the run all see the same definition, so
+	// a resource edited between the gate and the run does not run.
+	ctx = withResourceLookup(ctx, onceLookup(s.resources))
+	spec := s.auditSpecIn(ctx, args)
 	// The call's credentials resolve for its access and target (I9).
 	ctx = withCredentialScope(ctx, spec)
 	call, err := beginGated(ctx, s.audit, s.logger, spec)
@@ -350,10 +354,22 @@ func scopeError(scope *redact.Scope, err error) error {
 	return wrapped
 }
 
+// auditSpecIn is auditSpec with the target labels looked up through ctx's
+// resource lookup: the one the call resolves its resources through.
+func (s *ExternalConnectorService) auditSpecIn(ctx context.Context, args ExternalConnectorOperationArgs) auditSpec {
+	return s.auditSpecWith(args, s.lookupFor(ctx))
+}
+
 // auditSpec describes a request for its records, from the contract when the
 // operation declares one. It checks nothing: the gates in execute do that.
 func (s *ExternalConnectorService) auditSpec(args ExternalConnectorOperationArgs) auditSpec {
-	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun, resources: s.resources,
+	return s.auditSpecWith(args, s.resources)
+}
+
+// auditSpecWith is auditSpec with its target labels, and the credential
+// scope they decide, looked up through resources.
+func (s *ExternalConnectorService) auditSpecWith(args ExternalConnectorOperationArgs, resources ResourceLookup) auditSpec {
+	spec := auditSpec{connector: args.Connector, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun, resources: resources,
 		approvalID: args.ApprovalID, planOnly: args.Plan, confirmedPlanHash: args.ConfirmedPlanHash, breakGlass: args.BreakGlass, plan: func(ctx context.Context) (plan.Plan, error) { return s.planOperation(ctx, args) }}
 	if def, ok := s.definitionFor(args.Connector); ok {
 		spec.op, spec.known = def.Operation(args.Operation)
@@ -396,7 +412,7 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 	// An SSH target is always a configured resource. Resolve it first, so a
 	// dry-run preview shows the target that would really be used.
 	if args.Connector == "ssh" {
-		resolved, err := s.resolveSSHTarget(args)
+		resolved, err := s.resolveSSHTarget(ctx, args)
 		if err != nil {
 			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "SSH target refused")
@@ -407,7 +423,7 @@ func (s *ExternalConnectorService) execute(ctx context.Context, args ExternalCon
 	// A docker operation may name a configured resource by id; its target
 	// (host, context, compose file) then comes from the resource.
 	if args.Connector == "docker" {
-		resolved, err := s.resolveDockerResource(args)
+		resolved, err := s.resolveDockerResource(ctx, args)
 		if err != nil {
 			gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Connector operation %s.%s failed: %s", args.Connector, args.Operation, redact.Text(err.Error())))
 			gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Docker resource refused")
