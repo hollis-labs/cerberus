@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -106,7 +107,7 @@ func (e Enforcement) Summary() string {
 		return "enforce (everything)"
 	}
 	if len(e.Enforce) == 0 {
-		return "shadow (nothing enforced)"
+		return "shadow (only the built-in protections are enforced)"
 	}
 	scopes := make([]string, len(e.Enforce))
 	for i, entry := range e.Enforce {
@@ -230,4 +231,27 @@ func LastVerified(auditDir string) (Verified, History) {
 		return Verified{}, UnverifiedApplies
 	}
 	return Verified{}, NoApplies
+}
+
+// BaselineEnforcedSummary is what is always enforced, as a person reads it.
+const BaselineEnforcedSummary = "an agent's write, lifecycle, destructive or exec operation on a target labeled env: prod or admin: owner"
+
+// BaselineEnforced reports whether req is enforced whatever the snapshot's
+// enforcement says (B2): a change by an agent, or by a caller Cerberus
+// cannot place, to a target labeled production or administered by its
+// owner. Shadow stays the default for the policy an operator writes; these
+// built-in protections are not something an agent's own acknowledgment
+// should be able to walk past on a new install. A person's call and
+// automation are not covered, and a target with no such label is not
+// either: an unlabeled local resource is not read as production here.
+func BaselineEnforced(req Request) bool {
+	switch req.Principal.Kind {
+	case "human", "automation":
+		return false
+	}
+	if !isChange(effectOf(req)) {
+		return false
+	}
+	t := req.Target
+	return t.Env == target.EnvProd || t.AdminFor == target.AdminOwner
 }

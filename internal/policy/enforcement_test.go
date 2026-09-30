@@ -129,8 +129,12 @@ func TestMismatchEnforcesTheLastVerified(t *testing.T) {
 		if !status.Mismatch() || !strings.Contains(status.Enforcement, "last verified") {
 			t.Fatalf("status %+v", status)
 		}
-		if on, _ := ev.Enforced(agentProd); on {
+		if on, _ := ev.Enforced(enforceReq("dev", "agent", contract.EffectLifecycle)); on {
 			t.Fatal("a mismatch after shadow enforced something")
+		}
+		// Except what is always enforced (B2): an agent's change to prod.
+		if on, by := ev.Enforced(agentProd); !on || !strings.Contains(by, "built-in") {
+			t.Fatalf("an agent's change to prod: %v %q", on, by)
 		}
 	})
 	t.Run("scopes survive a restart", func(t *testing.T) {

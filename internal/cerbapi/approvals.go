@@ -260,7 +260,14 @@ func (SnapshotEnforcement) Enforced(req policy.Request) bool {
 // process has a notifier (the daemon's desktop notification).
 func Notify(title, message string) { notify(title, message) }
 
+// enforced reports whether policy's decision on req is applied. The built-in
+// protections policy.BaselineEnforced names are applied whatever policy
+// decision point or enforcement is installed (B2); changing policy itself
+// never is (SnapshotEnforcement).
 func enforced(req policy.Request) bool {
+	if req.Connector != "policy" && policy.BaselineEnforced(req) {
+		return true
+	}
 	h := enforcementPoint.Load()
 	return h != nil && h.e.Enforced(req)
 }

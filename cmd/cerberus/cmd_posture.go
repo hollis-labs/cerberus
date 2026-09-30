@@ -334,7 +334,9 @@ func writePostureShow(w io.Writer, s policy.PostureSummary) error {
 	if s.BreakGlass.PerTarget > 0 {
 		fmt.Fprintf(w, "\nBreak glass: at most %s (break_glass in policy; change it with `cerberus policy apply`).\n", s.BreakGlass)
 	}
-	_, err := fmt.Fprintln(w, "\nNever relaxed: the audit log, credential redaction, the --ack gate, and the deny on a target labeled admin: owner.")
+	fmt.Fprintf(w, "\nAlways enforced, whatever the enforcement above: %s. Policy's decision on those is applied, in shadow too.\n", policy.BaselineEnforcedSummary)
+	fmt.Fprintln(w, "Enforced only where the enforcement above covers it: everything else, including a person's calls and targets with no env or admin label.")
+	_, err := fmt.Fprintln(w, "Always on: the audit log, and credential redaction. The --ack gate is an intent check the caller sets itself, not a person's approval.")
 	return err
 }
 

@@ -2,7 +2,10 @@
 
 > **Status: pre-release.** Policy runs in **shadow mode** until you switch
 > it on: every decision is recorded, and nothing is refused on its account
-> except in the scopes you enforce with `cerberus policy enforce`.
+> except the built-in protections, which are always enforced, and the scopes
+> you enforce with `cerberus policy enforce`. The built-in protections cover an
+> agent's write, lifecycle, destructive or exec operation on a target labeled
+> `env: prod` or `admin: owner`.
 
 Cerberus authorizes every operation it runs against a policy, on every
 surface: the CLI, the daemon socket, the web console and MCP. The decision is
@@ -257,9 +260,20 @@ daemon, which reads its own state.
 
 ## Switching enforcement on
 
-Until you switch it on, policy runs in **shadow**: every decision is recorded
-and nothing is refused. `cerberus policy report` shows what policy would have
-blocked, and what enforcing it would need. When the shadow data says a scope
+Until you switch it on, policy runs in **shadow**: every decision is recorded,
+and nothing is refused except the built-in protections.
+
+The built-in protections are enforced whatever the mode. They cover an agent's
+(or an unknown caller's) write, lifecycle, destructive or exec operation on a
+target labeled `env: prod` or `admin: owner`. On a new install, an agent that
+sets `acknowledged` itself still can't change a production target or one its
+owner administers: it gets policy's decision (`policy_denied` for an
+`admin: owner` target, `approval_required` for production). A person's calls,
+and targets with no `env` or `admin` label, are in shadow until you enforce
+them. `cerberus posture show` says exactly which is which.
+
+`cerberus policy report` shows what policy would have blocked, and what
+enforcing it would need. When the shadow data says a scope
 is ready, enforce it:
 
 ```bash
