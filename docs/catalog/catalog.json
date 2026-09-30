@@ -18598,7 +18598,7 @@
         "gap"
       ],
       "locus": "core",
-      "pointer_locator": "internal/cerbapi/console_writes.go, internal/cerbapi/console_writes_socket.go, internal/webui/console_writes.go, web/src/components/plan-confirm.tsx",
+      "pointer_locator": "internal/cerbapi/console_writes.go, internal/cerbapi/console_writes_socket.go, internal/webui/console_writes.go, web/src/components/plan-confirm.tsx, web/src/components/brakes.tsx",
       "created_at": "2026-09-30",
       "last_reviewed": "2026-09-30",
       "relationships": [
@@ -18613,7 +18613,7 @@
           "note": "the same move, for deploy-profile runs"
         }
       ],
-      "body": "The daemon now makes the console's writes (ConsoleWrite and PlanConsoleWrite on the client, /console/{op}, /plan and /confirm on the socket), and the web handlers are its clients, each with /plan and /confirm routes beside it. A write's plan binds what it would change as it reads now: the profile and the saved one it replaces, the file a registration reads, the backup and config a restore swaps; a provider's credentials by keyed digest, and they travel only to the daemon, never into a record, plan, approval or response. A profile write is labeled by the profile, and a relabel by neither label set, so it is out of band either way; registry, provider and restore writes are named by their id with no labels, so out of band. The console confirms a tty_confirm write in the resource-verb dialog, and for out of band shows the approval in place, approved with the passkey (CERB-DEC-932), then sends the write again under it. make smoke-confirm covers a profile save confirmed on the call and a relabel approved with the passkey.",
+      "body": "The daemon now makes the console's writes (ConsoleWrite and PlanConsoleWrite on the client, /console/{op}, /plan and /confirm on the socket), and the web handlers are its clients, each with /plan and /confirm routes beside it. A write's plan binds what it would change as it reads now: the profile and the saved one it replaces, the file a registration reads, the backup and config a restore swaps; a provider's credentials by keyed digest, and they travel only to the daemon, never into a record, plan, approval or response. A profile write is labeled by the profile, and a relabel by neither label set, so it is out of band either way; registry, provider and restore writes are named by their id with no labels, so out of band. The console confirms a tty_confirm write in the resource-verb dialog, and for out of band shows the approval in place, approved with the passkey (CERB-DEC-932), then sends the write again under it. make smoke-confirm covers a profile save confirmed on the call and a relabel approved with the passkey. The follow-up gives every call the console confirms the same in-place step: resource actions, pipeline and deploy runs and connector operations retry with approval_id, and a brake lift is approved in place rather than on the approvals page; the smoke covers an out-of-band prod stop and the in-place lift.",
       "data": {
         "blocked_by": [],
         "capability": "CERB-CAP-403",

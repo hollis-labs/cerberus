@@ -73,6 +73,7 @@ export function ConnectorsPage() {
       const result = await withConfirm(() => apiClient.runConnectorOperation(connector.id, operation, body, sessionToken), {
         plan: () => apiClient.planConnectorOperation(connector.id, operation, body, sessionToken),
         confirm: (c) => apiClient.confirmConnectorOperation(connector.id, operation, body, sessionToken, c),
+        retry: (approvalID) => apiClient.runConnectorOperation(connector.id, operation, { ...body, approval_id: approvalID }, sessionToken),
       })
       setResultByOp((current) => ({
         ...current,

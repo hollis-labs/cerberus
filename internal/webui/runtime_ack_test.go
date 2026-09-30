@@ -151,3 +151,22 @@ func TestInfraProvidersHaveNoNullLists(t *testing.T) {
 		t.Fatalf("a provider list is null: %s", rec.Body.String())
 	}
 }
+
+// A resource action, pipeline run or deploy-profile run retried after its
+// out-of-band approval names that approval, and the daemon is sent it;
+// without one, none.
+func TestAMutationRetryNamesItsApproval(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"acknowledged":true,"approval_id":"apr_1"}`: "apr_1",
+		`{"acknowledged":true}`:                       "",
+	} {
+		req := newTestRequest(http.MethodPost, "/api/resources/web/stop", strings.NewReader(body))
+		opts, err := decodeMutationBody(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cerbapi.ApplyMutationOptions(opts); got.ApprovalID != want || !got.Acknowledged {
+			t.Fatalf("%s: %+v", body, got)
+		}
+	}
+}

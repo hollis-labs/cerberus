@@ -370,10 +370,14 @@ func (s *Server) allowStateChangingRequest(r *http.Request) bool {
 	return s.guard.OriginAllowed(origin)
 }
 
-// mutationBody is what the console sends with a resource action or a
-// pipeline run: the operator's acknowledgment, given in the confirm step.
+// mutationBody is what the console sends with a resource action, a
+// pipeline run or a deploy-profile run: the operator's acknowledgment, given
+// in the confirm step, and on a retry the out-of-band approval it runs
+// under, approved in place with the passkey. The daemon holds the call to
+// that approval's requester, arguments and plan.
 type mutationBody struct {
-	Acknowledged bool `json:"acknowledged"`
+	Acknowledged bool   `json:"acknowledged"`
+	ApprovalID   string `json:"approval_id"`
 }
 
 // confirmBody is a call confirmed in the console's dialog (P3-3b): the
@@ -429,7 +433,7 @@ func decodeMutationBody(r *http.Request) ([]cerbapi.MutationOption, error) {
 	if err := decodeJSONBody(r, &body); err != nil {
 		return nil, err
 	}
-	return []cerbapi.MutationOption{cerbapi.WithAcknowledged(body.Acknowledged)}, nil
+	return []cerbapi.MutationOption{cerbapi.WithAcknowledged(body.Acknowledged), cerbapi.WithApprovalID(body.ApprovalID)}, nil
 }
 
 func (s *Server) performAction(ctx context.Context, id, action string, opts ...cerbapi.MutationOption) (*cerbapi.OpResult, error) {

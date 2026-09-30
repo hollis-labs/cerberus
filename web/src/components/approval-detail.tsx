@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Button, Callout, Input } from '@hollis-labs/sysop-ui/ui'
 import { apiClient, type ApprovalInfo, type ApprovalPrincipal } from '../api/client'
 import { assertPasskey } from '../webauthn'
-import { liftFromApproval } from './brakes'
 import { PlanBody } from './plan-body'
 
 // ApprovalDetail is one approval request as its approver sees it: who
@@ -10,7 +9,9 @@ import { PlanBody } from './plan-body'
 // and deny controls. The approvals page shows it, and so does the console's
 // out-of-band step for a call the console itself asked for.
 
-export function ApprovalDetail({ approval: a, token, onChanged }: { approval: ApprovalInfo; token: string; onChanged: () => void }) {
+// inPlace is the detail inside the console's out-of-band step, which sends
+// the call again itself once it is approved: no Lift now of its own.
+export function ApprovalDetail({ approval: a, token, onChanged, inPlace = false }: { approval: ApprovalInfo; token: string; onChanged: () => void; inPlace?: boolean }) {
   const [typed, setTyped] = useState('')
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -127,7 +128,7 @@ export function ApprovalDetail({ approval: a, token, onChanged }: { approval: Ap
           </div>
         </div>
       )}
-      {a.status === 'approved' && a.connector === 'brake' && (
+      {a.status === 'approved' && a.connector === 'brake' && !inPlace && (
         <Button
           data-testid="lift-now"
           disabled={busy || !token}
@@ -214,3 +215,8 @@ export function who(p?: ApprovalPrincipal): string {
   return s
 }
 
+// liftFromApproval completes a lift approved with a passkey (an approval of
+// connector brake).
+function liftFromApproval(token: string, operation: string, freezeID: string | undefined, approvalID: string) {
+  return operation === 'lift_freeze' && freezeID ? apiClient.liftFreeze(token, freezeID, approvalID) : apiClient.liftLockdown(token, approvalID)
+}

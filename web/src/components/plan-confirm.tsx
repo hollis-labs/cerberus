@@ -15,11 +15,13 @@ export { PlanBody } from './plan-body'
 // daemon decides and consumes in that one call.
 //
 // Out of band is the passkey. For a call whose step can retry under an
-// approval (the console's own writes), the console shows the approval it
-// asked for, approved here with the passkey (I5: the passkey is the
-// boundary, so the surface that asked may approve with it), and sends the
-// call again under it once approved. A step without retry leaves an
-// out-of-band approval to the approvals page.
+// approval (every call the console confirms: resource verbs, pipeline and
+// deploy runs, connector operations, the console's own writes, a brake
+// lift), the console shows the approval it asked for, approved here with
+// the passkey (I5: the passkey is the boundary, so the surface that asked
+// may approve with it), and sends the call again under it once approved.
+// Nothing sends the operator to another page to approve. A step without
+// retry leaves an out-of-band approval to the approvals page.
 
 export interface ConfirmStep<T> {
   // The call's plan, as an approval binds it.
@@ -49,6 +51,22 @@ export function useConfirmOnCall(): WithConfirm {
   const withConfirm = useContext(ConfirmContext)
   if (!withConfirm) throw new Error('useConfirmOnCall needs a ConfirmOnCallProvider')
   return withConfirm
+}
+
+// useApproveInPlace sends a call that has no plan to confirm, only an
+// out-of-band approval to meet (a brake lift), and retries it under that
+// approval once it is approved in place.
+export function useApproveInPlace(): <T>(send: () => Promise<T>, retry: (approvalID: string) => Promise<T>) => Promise<T> {
+  const withConfirm = useConfirmOnCall()
+  return useCallback(
+    <T,>(send: () => Promise<T>, retry: (approvalID: string) => Promise<T>) =>
+      withConfirm(send, {
+        plan: () => Promise.reject(new Error('this call has no plan to confirm on the call')),
+        confirm: () => Promise.reject(new Error('this call has no plan to confirm on the call')),
+        retry,
+      }),
+    [withConfirm],
+  )
 }
 
 // Waiting is a call held for its out-of-band approval.
@@ -243,7 +261,7 @@ function OutOfBandStep({ waiting, onDone }: { waiting: Waiting; onDone: () => vo
         onDone()
       }}
       title="Approve with your passkey"
-      description="This change needs an out-of-band approval. Approve it here with a passkey enrolled for this Cerberus, and it runs under that approval."
+      description="This needs an out-of-band approval. Approve it here with a passkey enrolled for this Cerberus, and it runs under that approval."
       submitLabel="Run it"
       submitDisabled={a?.status !== 'approved' || busy}
       submitting={busy}
@@ -253,8 +271,8 @@ function OutOfBandStep({ waiting, onDone }: { waiting: Waiting; onDone: () => vo
       <div data-testid="out-of-band-step" className="space-y-3 text-sm">
         {!a && !approvals.error && <div>Loading approval {waiting.id}…</div>}
         {approvals.error != null && <Callout tone="danger">{approvals.error instanceof Error ? approvals.error.message : String(approvals.error)}</Callout>}
-        {a && <ApprovalDetail approval={a} token={token} onChanged={approvals.refetch} />}
-        {a && ended && <Callout tone="warning">This approval is {a.status}, so the change did not run. Close this and try again to ask anew.</Callout>}
+        {a && <ApprovalDetail approval={a} token={token} onChanged={approvals.refetch} inPlace />}
+        {a && ended && <Callout tone="warning">This approval is {a.status}, so nothing ran. Close this and try again to ask anew.</Callout>}
         {error && <div className="text-danger">{error}</div>}
       </div>
     </FormDialog>

@@ -556,6 +556,8 @@ export interface ConnectorOperationRequest {
   config?: Record<string, unknown>
   dry_run?: boolean
   acknowledged?: boolean
+  // The out-of-band approval a retry runs under.
+  approval_id?: string
 }
 
 export interface ConnectorOperationResult {
@@ -773,8 +775,10 @@ export const apiClient = {
     }),
   listPipelines: (signal?: AbortSignal) => http.get<PipelineInfo[]>('/api/pipelines', { signal }),
   // acknowledged is true only when the operator confirmed the run.
-  runPipeline: (id: string, token: string, acknowledged: boolean) =>
-    http.post<PipelineRunResult>(`/api/pipelines/${encodeURIComponent(id)}/run`, { acknowledged } as JsonObject, {
+  // approvalID, on each run, is the retry under an out-of-band approval
+  // approved in place (useConfirmOnCall's retry).
+  runPipeline: (id: string, token: string, acknowledged: boolean, approvalID?: string) =>
+    http.post<PipelineRunResult>(`/api/pipelines/${encodeURIComponent(id)}/run`, { acknowledged, approval_id: approvalID ?? '' } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   listRegistry: (signal?: AbortSignal) => http.get<RegistryListResponse>('/api/registry', { signal }),
@@ -797,8 +801,8 @@ export const apiClient = {
     consoleWrite<{ success: boolean }>('/api/deployments', profile as unknown as JsonObject, token),
   deleteDeployment: (id: string, token: string) => consoleWrite<{ success: boolean }>(`/api/deployments/${encodeURIComponent(id)}/delete`, {}, token),
   // acknowledged is true only when the operator confirmed the plan.
-  runDeployment: (id: string, token: string, acknowledged: boolean) =>
-    http.post<DeploymentRunResult>(`/api/deployments/${encodeURIComponent(id)}/run`, { acknowledged } as JsonObject, {
+  runDeployment: (id: string, token: string, acknowledged: boolean, approvalID?: string) =>
+    http.post<DeploymentRunResult>(`/api/deployments/${encodeURIComponent(id)}/run`, { acknowledged, approval_id: approvalID ?? '' } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   runConnectorOperation: (id: string, operation: string, body: ConnectorOperationRequest, token: string) =>
@@ -817,8 +821,8 @@ export const apiClient = {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   // acknowledged is true only when the operator confirmed the action.
-  runResourceAction: (id: string, action: ResourceAction, token: string, acknowledged: boolean) =>
-    http.post<OpResult>(`/api/resources/${encodeURIComponent(id)}/${action}`, { acknowledged } as JsonObject, {
+  runResourceAction: (id: string, action: ResourceAction, token: string, acknowledged: boolean, approvalID?: string) =>
+    http.post<OpResult>(`/api/resources/${encodeURIComponent(id)}/${action}`, { acknowledged, approval_id: approvalID ?? '' } as JsonObject, {
       headers: { 'X-Cerberus-Web-Token': token },
     }),
   // The confirm step (P3-3b): each call's plan, and the call confirmed
