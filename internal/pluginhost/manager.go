@@ -198,7 +198,7 @@ func NewManager(installer Installer, launcher Launcher, hostVersion string, opts
 		configProblems: make(map[string][]string),
 		loading:        make(map[string]chan struct{}),
 		loadErr:        make(map[string]error),
-		sup:            supervision{restarts: map[string][]time.Time{}, gaveUp: map[string]string{}, held: map[string]bool{}},
+		sup:            supervision{restarts: map[string][]time.Time{}, gaveUp: map[string]string{}, held: map[string]bool{}, pending: map[string]bool{}},
 	}
 	for _, opt := range opts {
 		opt(m)

@@ -243,3 +243,76 @@ func TestReviewShowsTheSecretBackend(t *testing.T) {
 		t.Errorf("diff = %s", diff)
 	}
 }
+
+// hangingBackend never answers a resolve until its context ends.
+type hangingBackend struct{ fakeProcess }
+
+func (h *hangingBackend) Command(ctx context.Context, _ SDKCommandRequest) (SDKCommandResult, error) {
+	<-ctx.Done()
+	return SDKCommandResult{}, ctx.Err()
+}
+func (h *hangingBackend) Kill() {}
+
+// A resolve has its own short deadline, not the two-minute call deadline:
+// a hung backend holds a dependent plugin's load for seconds, not minutes.
+func TestAResolveHasItsOwnDeadline(t *testing.T) {
+	if DefaultLimits.Resolve != 10*time.Second || DefaultLimits.Resolve >= DefaultLimits.Call {
+		t.Fatalf("default resolve deadline %s", DefaultLimits.Resolve)
+	}
+	m := loadedBackend(t, &hangingBackend{fakeProcess: fakeProcess{initResult: SDKInitResult{ID: "onepassword", Protocol: SDKProtocolVersion}}})
+	m.mu.Lock()
+	m.running["onepassword"].limits.Resolve = 40 * time.Millisecond
+	m.mu.Unlock()
+	start := time.Now()
+	_, err := m.ResolveSecret(context.Background(), "op://a/b/c")
+	if err == nil || !strings.Contains(err.Error(), "did not answer resolve within 40ms") {
+		t.Fatalf("err = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("the resolve took %s", elapsed)
+	}
+}
+
+func TestResolveTimeoutIsALimitClampedLikeTheOthers(t *testing.T) {
+	l, warnings := ClampLimits(&LimitSettings{ResolveTimeout: 5 * time.Second})
+	if l.ResolveTimeout() != 5*time.Second || len(warnings) != 0 {
+		t.Fatalf("set: %s %v", l.ResolveTimeout(), warnings)
+	}
+	l, warnings = ClampLimits(&LimitSettings{ResolveTimeout: time.Hour})
+	if l.ResolveTimeout() != MaxLimits.Resolve || len(warnings) != 1 || !strings.Contains(warnings[0], "limits.resolve_timeout") {
+		t.Fatalf("clamp: %s %v", l.ResolveTimeout(), warnings)
+	}
+	if l, _ := ClampLimits(nil); l.ResolveTimeout() != DefaultLimits.Resolve {
+		t.Fatalf("default: %s", l.ResolveTimeout())
+	}
+}
+
+// With no core chain configured, a backend's own credential resolves
+// through nothing, rather than falling back to the chain that routes to
+// backends.
+func TestABackendWithNoCoreChainFailsClosed(t *testing.T) {
+	full := &fakeResolver{values: map[string]string{"onepassword/token": "from-full"}}
+	m := NewManager(nil, fakeLauncher{}, "test", WithSecretResolver(full))
+	backend := backendPlugin("onepassword", "op")
+	resolved := resolvePluginSecrets(context.Background(), m.secretsFor(backend), backend)
+	if resolved.Config["token"] != "" || len(full.lookups) != 0 {
+		t.Fatalf("a backend reached the full chain: %v %v", resolved.Config, full.lookups)
+	}
+	if len(resolved.Problems) == 0 || !strings.Contains(strings.Join(resolved.Problems, " "), "no core credential chain") {
+		t.Fatalf("problems = %v", resolved.Problems)
+	}
+}
+
+// A backend in its restart backoff is being restarted: the caller is told
+// to retry, not to load it.
+func TestAResolveDuringARestartSaysRetry(t *testing.T) {
+	m := NewManager(nil, fakeLauncher{}, "test")
+	m.RegisterInstalled(backendPlugin("onepassword", "op"))
+	m.sup.mu.Lock()
+	m.sup.pending["onepassword"] = true
+	m.sup.mu.Unlock()
+	_, err := m.ResolveSecret(context.Background(), "op://a/b/c")
+	if err == nil || !strings.Contains(err.Error(), "Cerberus is restarting it; retry shortly") || strings.Contains(err.Error(), "managed load") {
+		t.Fatalf("err = %v", err)
+	}
+}

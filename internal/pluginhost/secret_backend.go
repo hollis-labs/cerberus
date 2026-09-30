@@ -26,12 +26,26 @@ func WithCoreSecretResolver(resolver SecretResolver) ManagerOption {
 	return func(m *Manager) { m.coreSecrets = resolver }
 }
 
-// secretsFor is the resolver a plugin's declared credentials come from.
+// secretsFor is the resolver a plugin's declared credentials come from. A
+// secret backend with no core resolver configured gets none that could reach
+// a vault: it fails closed rather than falling back to the full chain, where
+// a backend could depend on another, or on itself.
 func (m *Manager) secretsFor(p InstalledPlugin) SecretResolver {
-	if p.Spec.Cerberus.SecretBackend != nil && m.coreSecrets != nil {
+	if p.Spec.Cerberus.SecretBackend == nil {
+		return m.secrets
+	}
+	if m.coreSecrets != nil {
 		return m.coreSecrets
 	}
-	return m.secrets
+	return noCoreResolver{}
+}
+
+// noCoreResolver is the core chain when none was configured: it resolves
+// nothing, and says why.
+type noCoreResolver struct{}
+
+func (noCoreResolver) Get(context.Context, string, string) (string, error) {
+	return "", errors.New("credential_missing: this host has no core credential chain configured for secret backends, so a backend's own credential cannot be resolved; a backend's credential must come from the OS credential store or the environment")
 }
 
 // SecretBackendError is a reference a secret backend could not resolve. It
@@ -127,7 +141,7 @@ func (m *Manager) ResolveSecret(ctx context.Context, ref string) (string, error)
 	}
 	var res SDKCommandResult
 	err = m.supervisedCall(ctx, id, lp,
-		rpcCall{Phase: "call", Name: "resolve", Timeout: lp.limits.CallTimeout("resolve"), Effect: contract.EffectReadSensitive},
+		rpcCall{Phase: "call", Name: "resolve", Timeout: lp.limits.ResolveTimeout(), Effect: contract.EffectReadSensitive},
 		func(callCtx context.Context) error {
 			var callErr error
 			res, callErr = cmd.Command(callCtx, SDKCommandRequest{Name: plugin.ResolveCommand, Args: string(args)})
@@ -167,6 +181,9 @@ func (m *Manager) awaitBackend(ctx context.Context, id string) (*loadedPlugin, e
 	if !loading {
 		if reason := m.GaveUp(id); reason != "" {
 			return nil, fmt.Errorf("the plugin stopped and Cerberus gave up restarting it (%s); load it again with `cerberus connectors plugin managed load %s`", reason, id)
+		}
+		if m.restarting(id) {
+			return nil, errors.New("the plugin stopped and Cerberus is restarting it; retry shortly")
 		}
 		return nil, fmt.Errorf("the plugin is installed but not loaded; load it with `cerberus connectors plugin managed load %s`", id)
 	}
