@@ -17830,7 +17830,7 @@
         "unlocks_when": "Phase B: an authorization-code plus PKCE endpoint whose consent is the loopback console with a passkey, identifying clients by CIMD",
         "effort": "medium"
       },
-      "body": "Revocation is enforced by the daemon, and mcp-http checks only signature, audience, issuer and expiry. Any token may still engage the lockdown through the ungated brake tool, which is in the safety direction.",
+      "body": "Revocation is enforced by the daemon, and mcp-http checks only signature, audience, issuer and expiry. The lockdown tool is ungated by policy, but mcp-http's scope check reads its effect (write), so engaging it needs a cerberus:operate token; a read token cannot. (Corrected after the e40b63c security review, which found the earlier text wrong.)",
       "id": "CERB-GAP-912"
     },
     {
@@ -17871,6 +17871,46 @@
       },
       "body": "The docs name each provider's read-only token type. A probe that tests write capability is provider-specific, and it would itself have to attempt a write.",
       "id": "CERB-GAP-915"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "Egress policy was never applied in the shipped daemon",
+      "summary": "applyEgress type-asserted the decision point to *policy.Evaluator, but the daemon and CLI install a *policy.Reloading, so every egress rule (cap, mask, refuse) was a no-op and was not even recorded in shadow. Fixed: the file is read through policy.FileOf, the egress tests run through a Reloading, and a test refuses any new concrete-type assertion.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the e40b63c security review (H1), with a probe test; fixed with a test that fails on the old code",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "egress",
+        "policy",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/egress_apply.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-912",
+          "note": "corrected in the same review"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "The P4-4 tests installed an *Evaluator directly, so they passed while the shipped path never shaped anything. The same assertion in `policy explain` hid posture rules and grant and egress warnings for a reloading decision point. The class of bug is a concrete-type check against an interface the daemon satisfies with another type, and `TestNoConcreteEvaluatorAssertions` now guards it.",
+      "id": "CERB-GAP-916"
     },
     {
       "id": "CERB-TOOL-110",

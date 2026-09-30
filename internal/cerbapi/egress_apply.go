@@ -53,8 +53,10 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 	if c == nil {
 		return value, nil
 	}
-	ev, ok := PolicyDecisionPoint().(*policy.Evaluator)
-	if !ok || len(ev.File().Egress) == 0 {
+	// Through FileOf, not a concrete type: the daemon's decision point is a
+	// Reloading, and an *Evaluator check left egress unapplied (H1).
+	file, ok := policy.FileOf(PolicyDecisionPoint())
+	if !ok || len(file.Egress) == 0 {
 		return value, nil
 	}
 	fields := egressFields(c.spec, value)
@@ -78,7 +80,7 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 	var doc any
 	transformed := false
 	for _, label := range order {
-		d := ev.File().EgressFor(c.spec.connector, c.target, c.intent.Principal.Kind, c.spec.op.Effect, label)
+		d := file.EgressFor(c.spec.connector, c.target, c.intent.Principal.Kind, c.spec.op.Effect, label)
 		if d.Action == policy.EgressPass {
 			continue
 		}
