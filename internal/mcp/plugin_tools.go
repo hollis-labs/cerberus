@@ -164,7 +164,7 @@ func pluginTool(client cerbapi.Client, connectorID string, op contract.Operation
 		return Tool{}, fmt.Errorf("plugin %q operation %q output_schema: %w; not generated", connectorID, op.Name, err)
 	}
 	markers.Store(name, markerFor(fields))
-	return withRequestScope(withApprovalArg(WithHints(tool, op), op)), nil
+	return withRequestScope(withOutOfBandElicitation(client, withApprovalArg(WithHints(tool, op), op))), nil
 }
 
 // ReservedToolNames is the set of names the hand-written tools occupy.

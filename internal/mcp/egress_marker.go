@@ -110,7 +110,9 @@ func markEgress(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		}
 		call, ok := req.(*mcpsdk.CallToolRequest)
 		result, isResult := res.(*mcpsdk.CallToolResult)
-		if !ok || !isResult || call.Params == nil || result == nil || result.IsError {
+		if !ok || !isResult || call.Params == nil || result == nil || result.IsError || result.InputRequests != nil {
+			// A refusal's body is the refusal DTO, and an input request
+			// carries no content at all.
 			return res, err
 		}
 		meta := toolMarker(call.Params.Name)

@@ -8,7 +8,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/go-github/v72 v72.0.0
 	github.com/hollis-labs/go-apppaths v0.1.0
-	github.com/hollis-labs/go-mcp v0.9.0
+	github.com/hollis-labs/go-mcp v0.9.1-0.20260930003406-91ad821a1b68
 	github.com/hollis-labs/go-sftpsync v0.1.1
 	github.com/hollis-labs/go-webui v0.1.0
 	github.com/hollis-labs/plugin-sdk v0.5.0

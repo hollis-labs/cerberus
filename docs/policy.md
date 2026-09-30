@@ -720,6 +720,14 @@ Once you have approved it, the agent retries the same call with
 those arguments, for that caller. `expired`, `plan_stale` and
 `policy_denied` answers carry a `next_step` too.
 
+For an out-of-band approval, a client that can open links for its user
+(URL-mode elicitation, which Claude Code's changelog lists from v2.1.281) gets
+something better than `approval_pending`: it's asked to open the console's
+page for that approval, if a console is running. You approve there with your
+passkey, and the agent's call finishes on its own, run again with the approval
+id. If you decline, or don't decide within a minute, the agent gets
+`approval_pending` for the same approval, never a new one.
+
 **The store is not trusted on its own word.** Anything running as your user
 can edit it. An out-of-band approval therefore carries proof that a person
 was present, and that proof is verified again when the approval is used, so a

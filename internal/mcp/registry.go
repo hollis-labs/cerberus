@@ -54,7 +54,7 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusDockerDestroyTool(client),
 	}
 	for i := range tools {
-		tools[i] = withRequestScope(tools[i])
+		tools[i] = withRequestScope(withOutOfBandElicitation(client, tools[i]))
 	}
 	return tools
 }
@@ -97,6 +97,10 @@ func scopedToolResult(scope *redact.Scope, result any) any {
 	switch v := result.(type) {
 	case nil:
 		return nil
+	case gmcp.InputRequired, *gmcp.InputRequired:
+		// An input request goes to go-mcp as it is: marshaled, it would
+		// read as a result.
+		return v
 	case string:
 		return scope.ReplaceValues(v)
 	default:
