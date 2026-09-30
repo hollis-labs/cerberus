@@ -58,6 +58,15 @@ pre-commit:
       skip_empty: true
       run: python3 docs/catalog/validate.py
 
+    # ── Estate denylist ───────────────────────────────────────────────
+    # Repo-specific. No tracked file may name one operator's estate: the
+    # generic shapes are committed, the specific names come from the
+    # operator's untracked denylist (internal/hygiene). Scans every tracked
+    # file, so it runs on any commit.
+
+    estate-denylist:
+      run: go test ./internal/hygiene/ -run TestTrackedFilesCarryNoEstateSpecifics -count=1
+
 pre-push:
   commands:
 
