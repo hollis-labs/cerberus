@@ -60,6 +60,36 @@ func TestPluginManifestsConform(t *testing.T) {
 	}
 }
 
+// Our plugins label every operation's output (P4-3): no operation reaches
+// agents unlabeled, and every label is in the vocabulary. The fixtures are
+// the dist cerberus-plugins builds, so a plugin that drops a label, or adds
+// an operation without one, fails here when they are refreshed.
+func TestOurPluginsLabelEveryOutput(t *testing.T) {
+	paths, _ := filepath.Glob("testdata/plugins/*.plugin.yaml")
+	if len(paths) < 7 {
+		t.Fatalf("expected all seven of our plugins as fixtures, found %d", len(paths))
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path) //nolint:gosec // a testdata fixture from the glob above
+		if err != nil {
+			t.Fatal(err)
+		}
+		var spec pluginhost.PluginYAML
+		if err := yaml.Unmarshal(data, &spec); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		for _, op := range spec.Cerberus.Connector.Operations {
+			if op.OutputSchema == nil {
+				t.Errorf("%s: operation %q has no output_schema", filepath.Base(path), op.Name)
+				continue
+			}
+			if _, err := contract.OutputLabelPointers(op.OutputSchema); err != nil {
+				t.Errorf("%s: operation %q: %v", filepath.Base(path), op.Name, err)
+			}
+		}
+	}
+}
+
 // The suite catches what it claims to: a missing effect, an ack that
 // disagrees with the effect, a preview flag without a preview, a schema that
 // advertises a key the table refuses.

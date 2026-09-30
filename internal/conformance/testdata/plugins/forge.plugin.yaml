@@ -1,0 +1,299 @@
+schema_version: "1"
+id: forge
+version: 0.2.0
+protocol: plugin-sdk/subprocess
+runtime: subprocess
+entrypoint:
+    command: bin/cerberus-forge-plugin
+cerberus:
+    connector:
+        api_version: cerberus.connector/v1
+        kind: Connector
+        id: forge
+        version: 0.2.0
+        resource_types:
+            - server
+        capabilities:
+            can_create: false
+            can_destroy: false
+            can_build: false
+            can_logs: false
+            can_health: true
+        config:
+            fields:
+                - name: server_id
+                  type: integer
+                  description: Forge server ID.
+                - name: site_id
+                  type: integer
+                  description: Forge site ID.
+                - name: command
+                  type: string
+                  description: Command to execute within the site's root directory.
+                - name: content
+                  type: string
+                  description: Deployment script content.
+                - name: auto_source
+                  type: boolean
+                  description: Automatically source environment variables in the deploy script.
+            secrets:
+                - name: api_token
+                  description: Laravel Forge API token. Forge tokens are account-wide; there is no read-only scope.
+                  env: CERBERUS_FORGE_API_TOKEN
+                  required: true
+        operations:
+            - name: list_servers
+              description: List Forge servers.
+              examples:
+                - cerberus connectors exec forge list_servers
+              input_schema:
+                additionalProperties: false
+                properties: {}
+                type: object
+              effect: read
+              target:
+                kind: forge.account
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: array
+            - name: get_server
+              description: Get a Forge server.
+              examples:
+                - cerberus connectors exec forge get_server --arg server_id=12
+              input_schema:
+                additionalProperties: false
+                properties:
+                    server_id:
+                        description: Forge server ID.
+                        type: integer
+                required:
+                    - server_id
+                type: object
+              effect: read
+              target:
+                kind: forge.server
+                from:
+                    - server_id
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+            - name: list_sites
+              description: List sites on a Forge server.
+              examples:
+                - cerberus connectors exec forge list_sites --arg server_id=12
+              input_schema:
+                additionalProperties: false
+                properties:
+                    server_id:
+                        description: Forge server ID.
+                        type: integer
+                required:
+                    - server_id
+                type: object
+              effect: read
+              target:
+                kind: forge.server
+                from:
+                    - server_id
+              preview: none
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                items:
+                    properties:
+                        deployment_branch:
+                            type: string
+                            x-cerberus-label:
+                                - untrusted
+                        repository:
+                            type: string
+                            x-cerberus-label:
+                                - untrusted
+                    type: object
+                type: array
+            - name: get_deployment_script
+              description: Read a site's deployment script. A script can carry secrets, so this is read_sensitive.
+              examples:
+                - cerberus connectors exec forge get_deployment_script --arg server_id=12 --arg site_id=34
+              input_schema:
+                additionalProperties: false
+                properties:
+                    server_id:
+                        description: Forge server ID.
+                        type: integer
+                    site_id:
+                        description: Forge site ID.
+                        type: integer
+                required:
+                    - server_id
+                    - site_id
+                type: object
+              effect: read_sensitive
+              target:
+                kind: forge.site
+                from:
+                    - server_id
+                    - site_id
+              preview: none
+              output: free_text
+              cost: none
+              local_fs: none
+              output_schema:
+                type: string
+                x-cerberus-label:
+                    - untrusted
+            - name: update_deployment_script
+              description: Update a site's deployment script. The script is what deploy_site runs next. The dry run reads the current script (a real Forge call, so it needs the token) and returns a line diff against the proposed content; the diff shows changed script lines, which can carry secrets.
+              examples:
+                - cerberus connectors exec forge update_deployment_script --arg server_id=12 --arg site_id=34 --arg content="$(cat deploy.sh)" --dry-run --ack
+                - cerberus connectors exec forge update_deployment_script --arg server_id=12 --arg site_id=34 --arg content="$(cat deploy.sh)" --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    auto_source:
+                        description: Automatically source environment variables.
+                        type: boolean
+                    content:
+                        description: Deployment script content.
+                        type: string
+                    server_id:
+                        description: Forge server ID.
+                        type: integer
+                    site_id:
+                        description: Forge site ID.
+                        type: integer
+                required:
+                    - server_id
+                    - site_id
+                    - content
+                type: object
+              effect: write
+              reversible: true
+              target:
+                kind: forge.site
+                from:
+                    - server_id
+                    - site_id
+              preview: plugin
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+            - name: deploy_site
+              description: Trigger a Forge site deployment.
+              examples:
+                - cerberus connectors exec forge deploy_site --arg server_id=12 --arg site_id=34 --dry-run --ack
+                - cerberus connectors exec forge deploy_site --arg server_id=12 --arg site_id=34 --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    server_id:
+                        description: Forge server ID.
+                        type: integer
+                    site_id:
+                        description: Forge site ID.
+                        type: integer
+                required:
+                    - server_id
+                    - site_id
+                type: object
+              effect: lifecycle
+              target:
+                kind: forge.site
+                from:
+                    - server_id
+                    - site_id
+              preview: plugin
+              output: structured
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+            - name: exec_site_command
+              description: Execute a command on a Forge site.
+              examples:
+                - cerberus connectors exec forge exec_site_command --arg server_id=12 --arg site_id=34 --arg command='php artisan migrate --force' --dry-run --ack
+                - cerberus connectors exec forge exec_site_command --arg server_id=12 --arg site_id=34 --arg command='php artisan migrate --force' --ack
+              input_schema:
+                additionalProperties: false
+                properties:
+                    command:
+                        description: Command to execute.
+                        type: string
+                    server_id:
+                        description: Forge server ID.
+                        type: integer
+                    site_id:
+                        description: Forge site ID.
+                        type: integer
+                required:
+                    - server_id
+                    - site_id
+                    - command
+                type: object
+              effect: exec
+              target:
+                kind: forge.site
+                from:
+                    - server_id
+                    - site_id
+              preview: plugin
+              output: free_text
+              cost: none
+              local_fs: none
+              output_schema:
+                type: object
+              destructive: true
+              supports_dry: true
+              requires_ack: true
+    host:
+        min_contract: 1
+        max_contract: 1
+    suggested_policy:
+        - operation: deploy_site
+          require: approval_for_agents
+          reason: deploys to a live site
+        - operation: exec_site_command
+          require: approval
+          reason: runs an arbitrary command on a production server
+        - operation: get_deployment_script
+          require: approval_for_agents
+          reason: returns a script that may embed secrets
+        - operation: update_deployment_script
+          require: approval
+          reason: replaces the script every later deploy runs, so it is code execution on the next deploy
+    surfaces:
+        mcp:
+            - list_servers
+            - get_server
+            - list_sites
+        cli_only:
+            - exec_site_command
+            - update_deployment_script
+    telemetry:
+        - operation: update_deployment_script
+          events:
+            - change
+            - preview
+        - operation: deploy_site
+          events:
+            - change
+            - preview
+        - operation: exec_site_command
+          events:
+            - change
+            - preview

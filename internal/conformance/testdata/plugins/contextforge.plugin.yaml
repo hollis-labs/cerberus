@@ -1,6 +1,6 @@
 schema_version: "1"
 id: contextforge
-version: 0.1.0
+version: 0.2.0
 protocol: plugin-sdk/subprocess
 runtime: subprocess
 entrypoint:
@@ -10,7 +10,7 @@ cerberus:
         api_version: cerberus.connector/v1
         kind: Connector
         id: contextforge
-        version: 0.1.0
+        version: 0.2.0
         resource_types:
             - server
         capabilities:
@@ -23,7 +23,7 @@ cerberus:
             fields:
                 - name: address
                   type: string
-                  description: ContextForge base URL. Defaults to a local tunnel endpoint.
+                  description: ContextForge base URL. Defaults to the tunnel-host-a local endpoint.
                   default: http://127.0.0.1:14444
             secrets:
                 - name: token
@@ -46,6 +46,8 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                type: object
             - name: list_gateways
               description: 'List upstream MCP server registrations. Credentials are never returned: auth_type reports the kind of auth configured, auth_configured whether any is set.'
               examples:
@@ -61,6 +63,15 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                items:
+                    properties:
+                        description:
+                            type: string
+                            x-cerberus-label:
+                                - untrusted
+                    type: object
+                type: array
             - name: list_virtual_servers
               description: List the composed catalogs. These have no auth fields; auth lives on the gateway.
               examples:
@@ -76,6 +87,15 @@ cerberus:
               output: structured
               cost: none
               local_fs: none
+              output_schema:
+                items:
+                    properties:
+                        description:
+                            type: string
+                            x-cerberus-label:
+                                - untrusted
+                    type: object
+                type: array
             - name: list_tools
               description: List tool registrations. Names are gateway-prefixed and change when a virtual server is renamed, so read them here rather than guessing.
               examples:
@@ -91,3 +111,28 @@ cerberus:
               output: free_text
               cost: none
               local_fs: none
+              output_schema:
+                items:
+                    properties:
+                        description:
+                            type: string
+                            x-cerberus-label:
+                                - untrusted
+                        name:
+                            type: string
+                            x-cerberus-label:
+                                - untrusted
+                    type: object
+                type: array
+    host:
+        min_contract: 1
+        max_contract: 1
+    suggested_policy:
+        - operation: list_tools
+          require: approval_for_agents
+          reason: 'returns tool descriptions written by the upstream servers: free text of unknown origin'
+    surfaces:
+        mcp:
+            - get_health
+            - list_gateways
+            - list_virtual_servers
