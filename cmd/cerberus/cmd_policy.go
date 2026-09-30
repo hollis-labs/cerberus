@@ -107,18 +107,20 @@ var policyExplainCmd = &cobra.Command{
 		}
 		res := pdp.Authorize(req)
 		posture, postureRules := res.Posture, []int(nil)
-		var grantWarnings []string
+		var grantWarnings, egressWarnings []string
 		if ev, ok := pdp.(*policy.Evaluator); ok {
 			_, postureRules = ev.File().PostureFor(req)
 			grantWarnings = ev.File().GrantWarnings()
+			egressWarnings = ev.File().EgressWarnings()
 		}
 		if policyExplainFlags.output == outputFormatJSON {
-			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules, "grant_warnings": grantWarnings, "break_glass": policy.BreakGlassLimitsOf(pdp)})
+			return printJSON(map[string]any{"request": req, "result": res, "policy": source, "posture": posture, "posture_rules": postureRules, "grant_warnings": grantWarnings, "egress_warnings": egressWarnings, "break_glass": policy.BreakGlassLimitsOf(pdp)})
 		}
 		if err = writeExplain(cmd.OutOrStdout(), req, res, source); err != nil {
 			return err
 		}
 		writeGrantWarnings(cmd.OutOrStdout(), grantWarnings)
+		writeEgressWarnings(cmd.OutOrStdout(), egressWarnings)
 		if e, ok := pdp.(interface {
 			Enforced(policy.Request) (bool, string)
 			Enforcement() (policy.Enforcement, string)
@@ -241,6 +243,7 @@ check is not used: the baseline decides until you apply again.`,
 		fmt.Fprintf(out, "Applying %s over %s.\n", shortHash(hash), status.Snapshot)
 		writeFlips(out, flips)
 		writeGrantWarnings(out, working.GrantWarnings())
+		writeEgressWarnings(out, working.EgressWarnings())
 		phrase := "apply " + shortHash(hash)
 		fmt.Fprintf(out, "\nType %q to apply: ", phrase)
 		line, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
@@ -268,6 +271,18 @@ func writeGrantWarnings(w io.Writer, warnings []string) {
 		return
 	}
 	fmt.Fprintf(w, "\n! %d rule(s) allow a grant on a protected target:\n", len(warnings))
+	for _, warning := range warnings {
+		fmt.Fprintf(w, "  ! %s\n", warning)
+	}
+}
+
+// writeEgressWarnings names the refuse rules that can reach an operation
+// that is not a read, and what refuse does there.
+func writeEgressWarnings(w io.Writer, warnings []string) {
+	if len(warnings) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n! %d egress rule(s) refuse output on operations that are not reads:\n", len(warnings))
 	for _, warning := range warnings {
 		fmt.Fprintf(w, "  ! %s\n", warning)
 	}

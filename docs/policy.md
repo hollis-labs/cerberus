@@ -228,6 +228,7 @@ egress:
   - id: agent-logs-off-dev
     match: { env: "!dev" }        # a target match, as in targets:
     principal: { kind: agent }
+    effect: [read_sensitive]      # optional: only operations of these effects
     label: untrusted              # untrusted | personal
     action: cap                   # pass | cap | mask | refuse
     lines: 200                    # cap only: lines of text, or list entries
@@ -242,8 +243,13 @@ egress:
     by egress rule …]".
   - `mask` replaces the text with a note of what was masked and by which
     rule.
-  - `refuse` answers `egress_refused` after the operation has run, saying
-    which rule withholds which label.
+  - `refuse` on a read answers `egress_refused`, saying which rule withholds
+    which label. On anything that isn't a read, the operation has already
+    run, and an agent told it failed would run it again. So there `refuse`
+    reports success with the output replaced by a note naming the rule, and
+    the outcome records `refuse→withheld`. `policy explain` and
+    `policy apply` warn about any refuse rule that can match such an
+    operation; `effect: [read, read_sensitive]` limits it to reads.
   - Nothing is dropped silently.
 - **Most restrictive wins.** `refuse`, then `mask`, then `cap` (the smaller
   limit when two apply), then `pass`. The rule enforces if any matching rule

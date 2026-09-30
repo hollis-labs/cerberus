@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/connector"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
@@ -107,5 +109,44 @@ func TestNoEgressPolicyChangesNothing(t *testing.T) {
 	v := &LogLines{Content: "a"}
 	if out, err := c.applyEgress(v); err != nil || out != any(v) || len(c.egress) != 0 {
 		t.Fatalf("%v %v %v", out, err, c.egress)
+	}
+}
+
+// An enforced refuse on an operation that is not a read (ssh exec) does not
+// answer an error after the command ran: the call succeeds, its output is
+// replaced by a note naming the rule, the command ran exactly once, and the
+// outcome records refuse→withheld.
+func TestEgressRefuseOnANonReadWithholdsAndSucceeds(t *testing.T) {
+	backend := &fakeSSHBackend{}
+	sink := audit.NewMemory()
+	registry := connector.NewRegistry()
+	registry.Register(sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend }))
+	svc := NewExternalConnectorService(sink, registry)
+	svc.SetResourceLookup(sshTestLookup())
+	withEgressPolicy(t, policy.EgressRule{ID: "no-output", Label: "untrusted", Action: policy.EgressRefuse, Mode: policy.EgressEnforce})
+
+	agent := Principal{Kind: PrincipalAgent, Via: ViaMCPStdio, Client: "claude-code"}
+	result, err := svc.Execute(as(agent), ExternalConnectorOperationArgs{Connector: "ssh", Operation: "exec", Acknowledged: true,
+		Config: map[string]any{"id": "server-1", "command": "uptime"}})
+	if err != nil {
+		t.Fatalf("a refuse on a non-read failed the call: %v", err)
+	}
+	withheld, ok := result.Data.(map[string]any)
+	note, _ := withheld["withheld"].(string)
+	if !ok || !strings.Contains(note, "ssh exec ran and succeeded; its untrusted output is withheld by egress rule no-output") || withheld["egress_rule"] != "no-output" {
+		t.Fatalf("result: %#v", result.Data)
+	}
+	if _, leaked := withheld["stdout"]; leaked || len(withheld) != 2 {
+		t.Fatalf("the output leaked: %#v", result.Data)
+	}
+	if backend.execs != 1 {
+		t.Fatalf("the command ran %d times", backend.execs)
+	}
+	if redact.Text(note) != note {
+		t.Fatalf("the note did not survive redaction: %q", redact.Text(note))
+	}
+	o := outcome(sink.Records())
+	if o.OutcomeCode != audit.OutcomeOK || len(o.Egress) != 1 || o.Egress[0].Action != EgressRefuseWithheld || !o.Egress[0].Applied {
+		t.Fatalf("outcome: %+v", o)
 	}
 }

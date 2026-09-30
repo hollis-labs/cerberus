@@ -71,10 +71,14 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 			byLabel[string(l)] = append(byLabel[string(l)], f.Pointer)
 		}
 	}
+	// A refusal is an error only on a read. Anything else has already run,
+	// and a caller told it failed would run it again, so there the output is
+	// withheld and the call still succeeds.
+	read := c.spec.known && c.spec.op.Effect.ReadOnly()
 	var doc any
 	transformed := false
 	for _, label := range order {
-		d := ev.File().EgressFor(c.spec.connector, c.target, c.intent.Principal.Kind, label)
+		d := ev.File().EgressFor(c.spec.connector, c.target, c.intent.Principal.Kind, c.spec.op.Effect, label)
 		if d.Action == policy.EgressPass {
 			continue
 		}
@@ -83,12 +87,18 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 			doc = toJSONValue(value)
 		}
 		if d.Action == policy.EgressRefuse {
-			if d.Enforced() {
-				c.egress = append(c.egress, action)
-				return nil, egressRefusedError(c.spec, d)
+			if !read {
+				action.Action = EgressRefuseWithheld
 			}
 			c.egress = append(c.egress, action)
-			continue
+			switch {
+			case !d.Enforced():
+				continue
+			case read:
+				return nil, egressRefusedError(c.spec, d)
+			default:
+				return withheldResult(value, c.spec, d), nil
+			}
 		}
 		// Measure what would be withheld on a copy; apply it only when
 		// enforced.
@@ -107,6 +117,20 @@ func (c *auditCall) applyEgress(value any) (any, error) {
 		return doc, nil
 	}
 	return value, nil
+}
+
+// EgressRefuseWithheld is how a refusal on an operation that is not a read
+// is recorded: the output was withheld and the call reported success.
+const EgressRefuseWithheld = "refuse→withheld"
+
+// withheldResult is a non-read operation's result when a rule refuses its
+// output: a success whose payload is a note naming the rule.
+func withheldResult(value any, spec auditSpec, d policy.EgressDecision) any {
+	note := redact.Guidance("%s %s ran and succeeded; its %s output is withheld by egress rule %s", spec.connector, spec.operation, d.Label, d.Rule).Error()
+	if _, isString := value.(string); isString {
+		return "[cerberus: " + note + "]"
+	}
+	return map[string]any{"withheld": note, "egress_rule": d.Rule}
 }
 
 func egressRefusedError(spec auditSpec, d policy.EgressDecision) error {

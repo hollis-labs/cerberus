@@ -104,6 +104,7 @@ type fakeSSHBackend struct {
 	connects    int
 	connectHost string
 	connectKey  string
+	execs       int
 }
 
 func (b *fakeSSHBackend) Connect(_ context.Context, host string, _ int, _ string, keyFile string, _ sshconn.HostKeyConfig) error {
@@ -114,6 +115,7 @@ func (b *fakeSSHBackend) Connect(_ context.Context, host string, _ int, _ string
 }
 
 func (b *fakeSSHBackend) Exec(_ context.Context, command string) (*sshconn.ExecResult, error) {
+	b.execs++
 	b.command = command
 	return &sshconn.ExecResult{Stdout: "ok", ExitCode: 0}, nil
 }

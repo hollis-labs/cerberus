@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/target"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 func TestEgressRulesAreValidated(t *testing.T) {
@@ -50,16 +51,49 @@ func TestEgressForPrecedence(t *testing.T) {
 		{ID: "mask-prod", Label: "untrusted", Action: EgressMask, Principal: agent, Match: TargetMatch{Env: "prod"}},
 		{ID: "refuse-personal", Label: "personal", Action: EgressRefuse, Mode: EgressEnforce},
 	}}
-	if d := f.EgressFor("local", dev, "agent", "untrusted"); d.Action != EgressCap || d.Lines != 20 || d.Mode != EgressEnforce || !d.Enforced() {
+	if d := f.EgressFor("local", dev, "agent", contract.EffectRead, "untrusted"); d.Action != EgressCap || d.Lines != 20 || d.Mode != EgressEnforce || !d.Enforced() {
 		t.Errorf("two caps: %+v", d)
 	}
-	if d := f.EgressFor("local", prod, "agent", "untrusted"); d.Action != EgressMask || d.Rule != "mask-prod" || d.Mode != EgressShadow || d.Enforced() {
+	if d := f.EgressFor("local", prod, "agent", contract.EffectRead, "untrusted"); d.Action != EgressMask || d.Rule != "mask-prod" || d.Mode != EgressShadow || d.Enforced() {
 		t.Errorf("mask beats cap, and defaults to shadow: %+v", d)
 	}
-	if d := f.EgressFor("local", dev, "human", "untrusted"); d.Action != EgressPass {
+	if d := f.EgressFor("local", dev, "human", contract.EffectRead, "untrusted"); d.Action != EgressPass {
 		t.Errorf("no rule for a human: %+v", d)
 	}
-	if d := f.EgressFor("local", dev, "human", "personal"); d.Action != EgressRefuse || !d.Enforced() {
+	if d := f.EgressFor("local", dev, "human", contract.EffectRead, "personal"); d.Action != EgressRefuse || !d.Enforced() {
 		t.Errorf("personal: %+v", d)
+	}
+}
+
+// A rule narrowed by effect matches only those effects, and an effect typo
+// is refused.
+func TestEgressEffectNarrowing(t *testing.T) {
+	dev := target.Target{Connector: "ssh", Labels: target.Labels{Env: target.EnvDev, Owner: "self"}, AdminFor: "self"}
+	f := File{Version: FileVersion, Egress: []EgressRule{{ID: "reads", Effect: []contract.Effect{contract.EffectRead, contract.EffectReadSensitive}, Label: "untrusted", Action: EgressRefuse, Mode: EgressEnforce}}}
+	if d := f.EgressFor("ssh", dev, "agent", contract.EffectReadSensitive, "untrusted"); d.Action != EgressRefuse {
+		t.Errorf("a read: %+v", d)
+	}
+	if d := f.EgressFor("ssh", dev, "agent", contract.EffectExec, "untrusted"); d.Action != EgressPass {
+		t.Errorf("an exec: %+v", d)
+	}
+	f.Egress[0].Effect = []contract.Effect{"reads"}
+	if got := strings.Join(f.Validate(), " "); !strings.Contains(got, `effect "reads"`) {
+		t.Errorf("an effect typo: %q", got)
+	}
+}
+
+// A refuse rule that can match a non-read warns, saying what it will do
+// there; one narrowed to reads does not.
+func TestEgressWarnings(t *testing.T) {
+	f := File{Egress: []EgressRule{
+		{ID: "any", Label: "untrusted", Action: EgressRefuse},
+		{ID: "some-writes", Label: "personal", Action: EgressRefuse, Effect: []contract.Effect{contract.EffectRead, contract.EffectWrite}},
+		{ID: "reads-only", Label: "untrusted", Action: EgressRefuse, Effect: []contract.Effect{contract.EffectRead, contract.EffectReadSensitive}},
+		{ID: "a-cap", Label: "untrusted", Action: EgressCap, Lines: 5},
+	}}
+	w := f.EgressWarnings()
+	if len(w) != 2 || !strings.Contains(w[0], "egress rule any refuses untrusted output") || !strings.Contains(w[0], "(any effect)") ||
+		!strings.Contains(w[1], "(write)") || !strings.Contains(w[0], "reports success rather than an error") {
+		t.Fatalf("warnings: %v", w)
 	}
 }
