@@ -294,7 +294,7 @@ search locations, and per-call resolution over boot-time resolution.
 
 **Anything an agent must act on goes in the MCP result's text, not its
 `_meta`.** Claude Code does not show a tool result's `_meta` to the model; only
-the content blocks reach it (verified live, CERB-DEC-910). The untrusted-text
+the content blocks reach it (verified live, CERB-DEC-913). The untrusted-text
 labels are therefore carried twice: as `_meta` for hosts and clients that read
 it, and as a short second text block that the model actually sees. The same
 applies to an approval's next step, a scope refusal, or any warning: if it
