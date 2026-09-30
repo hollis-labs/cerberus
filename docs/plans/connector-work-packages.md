@@ -701,7 +701,7 @@ The reachable subscription is `example-subscription`
 subscription**. Its entire resource inventory is:
 
 ```
-1  Microsoft.CognitiveServices/accounts            example-ai-account (AIServices, S0)
+1  Microsoft.CognitiveServices/accounts            Example-AI-Account (AIServices, S0)
 1  Microsoft.CognitiveServices/accounts/projects
 ```
 
@@ -846,7 +846,7 @@ operation executed live against `example-subscription`:
   example-subscription (00000000…), state Enabled`.
 - `cerberus connectors list` shows `azure  server  yes  6`.
 - Error paths: an unknown account answers `no AI account named "nope" …
-  Accounts present: example-ai-account`; a bad subscription answers
+  Accounts present: Example-AI-Account`; a bad subscription answers
   `not found (404, SubscriptionNotFound)` and points at `list_subscriptions`
   rather than at a listing that needs a good subscription to run.
 - `Microsoft.Compute` and `Microsoft.Network` re-confirmed `NotRegistered`, so
