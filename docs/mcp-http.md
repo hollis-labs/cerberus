@@ -127,6 +127,12 @@ Scopes narrow what a caller may ask for. They never widen what policy allows.
 | Off loopback, with TLS | Refused (unless `--insecure-listen`, below) | Token required |
 | Off loopback, no TLS | Refused | Refused: a bearer token must not cross a network in plaintext |
 
+On loopback, mcp-http binds both `127.0.0.1` and `[::1]` on its port, as the
+console does. A client configured with `localhost` may try `::1` first, and
+another account holding `[::1]` on that port would be handed the client's
+bearer token. If the other address family is already taken, mcp-http refuses
+to start and names the process to look for with `lsof`.
+
 Pass the certificate with `--tls-cert` and `--tls-key`, or put it under `tls:`
 in the file.
 
