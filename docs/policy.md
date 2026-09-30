@@ -411,7 +411,13 @@ cerberus approvals keys remove <fingerprint>
 `enroll` prints and opens a console link, good once and for ten minutes,
 where the browser creates the passkey. The first key is trusted on first use.
 After it, adding a key or removing one has to be confirmed with a key that is
-already enrolled. Passkeys work on `localhost`, so the console's links use
+already enrolled.
+
+The daemon holds this, not just the CLI. It allows an enrollment only for a
+person at the CLI on an interactive terminal. The ceremonies that follow are
+accepted only from a person at the console or the CLI. An agent, automation,
+an MCP client, a verified token caller or a caller that makes no claim is
+refused with `approval_required`, whatever it sends the socket. Passkeys work on `localhost`, so the console's links use
 `http://localhost:<port>`. `--listen` names a console on another port.
 
 Every enrollment is recorded in the audit log and raises a notification.

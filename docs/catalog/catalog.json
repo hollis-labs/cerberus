@@ -18822,6 +18822,118 @@
       "id": "CERB-GAP-938"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "An agent could enroll its own passkey on a fresh install and approve its own requests",
+      "summary": "The socket routes /approvals/keys/enroll-allow and register/* checked neither principal nor surface; only the CLI's terminal check stood in the way. Any socket caller, including one that makes no claim (classified agent), could allow an enrollment, register a software key (the first key is trusted on first use) and then pass every out-of-band approval, lockdown lift included. Fixed: the daemon allows an enrollment only for the human CLI claim, and accepts the ceremonies (register and remove) only from a person at the console or CLI; agents, automation, MCP surfaces, verified token callers and claimless callers are refused with approval_required.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 5931772 re-review (B1) with a software authenticator on a scratch daemon; fixed with a real-socket test and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "presence",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/cerbapi/approval_presence.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-879",
+          "note": "the passkey registry's same-uid limit"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "Remaining: the human CLI claim is self-reported, so an agent with a shell as the operator can still make it (the same-uid limit). Attestation fmt:none is still accepted, since synced platform passkeys (Touch ID with iCloud Keychain) carry no attestation; recorded separately.",
+      "id": "CERB-GAP-939"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A passkey enrollment accepts an attestation of fmt none, so a software key is indistinguishable from Touch ID",
+      "summary": "Enrollment asks for no attestation (PreferNoAttestation) and accepts fmt none, so the registry cannot tell a platform authenticator from a software one an agent built. Requiring attestation would break the common case: synced platform passkeys (Touch ID with iCloud Keychain) return no attestation at all.",
+      "state_field": "status",
+      "state_label": "deferred",
+      "confidence_score": 0.8,
+      "confidence_label": "the 5931772 re-review (B1); left open because rejecting none breaks Touch ID platform enrollment",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "presence",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "internal/presence/presence.go (BeginEnroll, WithConveyancePreference)",
+      "relationships": [],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "Enrollment offers an attested path (direct conveyance for device-bound keys, or a signed Secure Enclave helper) and the operator can require it",
+        "effort": "medium"
+      },
+      "body": "With the daemon now refusing enrollment to anything but a person at the CLI and console (B1), the exposure is an agent with a shell as the operator, which can make those claims anyway.",
+      "id": "CERB-GAP-940"
+    },
+    {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "cerberus web open mints a full console session without a terminal",
+      "summary": "cerberus web open prints a one-time sign-in link for the running console from any process, terminal or not, so an agent with a shell gets a human/web console session and can do what the console does: confirm terminal-channel approvals by typing their target, engage brakes, and drive passkey ceremonies. It cannot start an enrollment on its own (the daemon now allows those only for a person at the CLI), but the session is a person's.",
+      "state_field": "status",
+      "state_label": "planned",
+      "confidence_score": 0.8,
+      "confidence_label": "the 5931772 re-review (first-run, B1); the same-uid class, recorded because the session it grants is labeled human",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "console",
+        "locus:core",
+        "priority:nice-to-have"
+      ],
+      "pointer_locator": "cmd/cerberus/cmd_web.go (webOpenCmd)",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-862",
+          "note": "the self-reported CLI claim"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "nice-to-have",
+        "blocked_by": [],
+        "unlocks_when": "web open requires an interactive terminal (as approvals enroll does), or the link it mints is scoped to reading until a passkey confirms the session",
+        "effort": "small"
+      },
+      "body": "Left for triage: requiring a terminal would break a script or launcher that reopens the console after a session ends, which is what web open is for.",
+      "id": "CERB-GAP-941"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
