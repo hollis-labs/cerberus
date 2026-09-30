@@ -228,7 +228,8 @@ the artifact is left half-synced, and the launchd job can end up booted out
 where `KeepAlive` will not bring it back. The serving runtime now refuses
 resource mutations targeting itself. Build to a temp path, `mv` it over the
 artifact, then `launchctl kickstart -k
-gui/$(id -u)/com.fragments-engine.cerberus`.
+gui/$(id -u)/com.hollis-labs.cerberus` (`com.fragments-engine.cerberus` on a
+daemon installed before the rename, until `cerberus install` migrates it).
 
 **A request field that restricts or changes a mutation must not be ignorable
 by an older daemon.** A daemon that does not know a JSON field ignores it and
