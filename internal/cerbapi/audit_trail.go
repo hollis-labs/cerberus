@@ -156,6 +156,10 @@ func principalFor(ctx context.Context, spec auditSpec) audit.Principal {
 	if who, ok := PrincipalFrom(ctx); ok {
 		p.Kind, p.Via, p.Client, p.Session, p.OnBehalfOf = string(who.Kind), who.Via, who.Client, who.Session, who.OnBehalfOf
 		p.SelfReported = who.SelfReported
+		if who.Verified() {
+			p.Subject, p.Issuer, p.AuthMethod, p.TokenID = who.Subject, who.Issuer, who.AuthMethod, who.TokenID
+			p.Scopes = append([]string(nil), who.Scopes...)
+		}
 		if who.UID >= 0 { // -1 is unknown
 			uid := who.UID
 			p.UID, p.UIDVerified = &uid, who.UIDVerified
@@ -229,10 +233,11 @@ var refusalCodes = map[string]bool{
 	string(ExternalConnectorApprovalExpired):  true,
 	string(ExternalConnectorPlanStale):        true,
 	// The brakes (§12).
-	string(ExternalConnectorLockdown):         true,
-	string(ExternalConnectorFrozen):           true,
-	string(ExternalConnectorSessionSuspended): true,
-	string(ExternalConnectorAuditUnavailable): true,
+	string(ExternalConnectorLockdown):          true,
+	string(ExternalConnectorFrozen):            true,
+	string(ExternalConnectorSessionSuspended):  true,
+	string(ExternalConnectorInsufficientScope): true,
+	string(ExternalConnectorAuditUnavailable):  true,
 }
 
 func outcomeCode(err error) string {

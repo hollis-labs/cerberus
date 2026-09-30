@@ -123,6 +123,7 @@ var errorCodes = map[string]bool{
 	"session_suspended":       true,
 	"deadline_exceeded":       true,
 	"output_too_large":        true,
+	"insufficient_scope":      true,
 }
 
 // IsErrorCode reports whether code is one of Cerberus's own error codes,

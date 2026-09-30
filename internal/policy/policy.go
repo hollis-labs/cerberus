@@ -79,6 +79,11 @@ type Principal struct {
 	Kind    string
 	Client  string
 	Session string
+	// Subject and Issuer are a verified bearer token's (WP-S8); Verified
+	// says they are, so a rule naming a subject never matches a claim.
+	Subject  string
+	Issuer   string
+	Verified bool
 }
 
 // Match is one rule that matched, and what it said.

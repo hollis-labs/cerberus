@@ -38,7 +38,22 @@ type Principal struct {
 	OnBehalfOf string `json:"on_behalf_of,omitempty"`
 	// SelfReported marks Kind, Via and Client as the caller's own claim.
 	SelfReported bool `json:"self_reported"`
+
+	// A caller whose bearer token the daemon verified (WP-S8): who the
+	// token names, which issuer vouched for it, and what it may ask for.
+	// Set only by the daemon, never from a claim.
+	Subject    string   `json:"subject,omitempty"`
+	Issuer     string   `json:"issuer,omitempty"`
+	AuthMethod string   `json:"auth_method,omitempty"`
+	TokenID    string   `json:"token_id,omitempty"`
+	Scopes     []string `json:"scopes,omitempty"`
 }
+
+// Verified reports whether the caller's identity is a verified token's.
+func (p Principal) Verified() bool { return p.AuthMethod == AuthOAuth && !p.SelfReported }
+
+// AuthOAuth is a principal established by a verified bearer token.
+const AuthOAuth = "oauth"
 
 // PrincipalKind is the coarse class of a principal.
 type PrincipalKind string

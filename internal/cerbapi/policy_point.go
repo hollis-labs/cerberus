@@ -48,6 +48,9 @@ func policyRequest(ctx context.Context, spec auditSpec, t target.Target) policy.
 	r.DryRun = spec.planOnly || spec.dryRun && spec.op.Preview != contract.PreviewNone
 	if p, ok := PrincipalFrom(ctx); ok {
 		r.Principal = policy.Principal{Kind: string(p.Kind), Client: p.Client, Session: p.Session}
+		if p.Verified() {
+			r.Principal.Subject, r.Principal.Issuer, r.Principal.Verified = p.Subject, p.Issuer, true
+		}
 	}
 	return r
 }

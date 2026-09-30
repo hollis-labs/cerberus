@@ -181,6 +181,10 @@ type PrincipalMatch struct {
 	Kind    string `yaml:"kind,omitempty"`
 	Client  string `yaml:"client,omitempty"`
 	Session string `yaml:"session,omitempty"`
+	// Subject and Issuer match only a caller whose bearer token the
+	// daemon verified (WP-S8): a self-reported claim never matches them.
+	Subject string `yaml:"subject,omitempty"`
+	Issuer  string `yaml:"issuer,omitempty"`
 }
 
 // matches reports whether a rule covers this operation and principal.
@@ -232,9 +236,14 @@ func (m TargetMatch) Matches(connector string, t target.Target) bool {
 }
 
 func (m PrincipalMatch) matches(p Principal) bool {
+	if (m.Subject != "" || m.Issuer != "") && !p.Verified {
+		return false
+	}
 	return (m.Kind == "" || valueMatches(m.Kind, p.Kind)) &&
 		(m.Client == "" || globMatches(m.Client, p.Client)) &&
-		(m.Session == "" || globMatches(m.Session, p.Session))
+		(m.Session == "" || globMatches(m.Session, p.Session)) &&
+		(m.Subject == "" || globMatches(m.Subject, p.Subject)) &&
+		(m.Issuer == "" || strings.EqualFold(strings.TrimSuffix(m.Issuer, "/"), strings.TrimSuffix(p.Issuer, "/")))
 }
 
 // valueMatches is equality, or inequality for a "!"-prefixed want.

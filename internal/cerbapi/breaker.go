@@ -43,6 +43,11 @@ var breakerNow = time.Now
 // or client and uid where there is no session. Rate limits (P5-b) and the
 // breaker count on it.
 func callerKey(p audit.Principal) string {
+	// A verified caller is its token's subject, which outlives any one
+	// session: a suspension survives the agent reconnecting.
+	if p.AuthMethod == AuthOAuth && !p.SelfReported {
+		return p.Kind + "|oauth:" + p.Issuer + "#" + p.Subject + "|client:" + p.Client
+	}
 	who := p.Kind + "|" + p.Via + "|"
 	if p.Session != "" {
 		return who + "session:" + p.Session

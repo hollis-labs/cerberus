@@ -290,6 +290,12 @@ func beginGated(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 	if err != nil {
 		return nil, externalConnectorError(args, ExternalConnectorAuditUnavailable, err)
 	}
+	// A verified token's scopes (WP-S8) come first: they are what the
+	// operator granted the token, in every mode.
+	if refusal := scopeRefusal(ctx, spec); refusal != nil {
+		call.finish(refusal)
+		return nil, refusal
+	}
 	// The brakes (§12) come before policy, in every enforcement mode.
 	if refusal := brakeRefusal(ctx, spec, resolved, spec.dryRun); refusal != nil {
 		call.finish(refusal)

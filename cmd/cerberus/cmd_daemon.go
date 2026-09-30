@@ -509,6 +509,15 @@ func runDaemonBody() error {
 	// enrollment does (P3-5b).
 	cerbapi.SetNotifier(func(title, message string) { go notifyOperator(title, message) })
 
+	// mcp-http auth (WP-S8): the daemon verifies every forwarded bearer
+	// token itself. A config that does not load leaves auth off, and
+	// mcp-http then refuses to require it (it asks /auth/capabilities).
+	if auth, authErr := newAuth(ctx, app.AuditSink(), app.SecretStore()); authErr != nil {
+		logger.Warn("daemon.auth.config_refused", "error", authErr.Error())
+	} else if auth != nil {
+		cerbapi.SetAuth(auth)
+	}
+
 	// The approval broker (P3-1): the daemon is its one writer. A store it
 	// cannot open leaves the daemon without one, so an operation that
 	// needs an approval is answered approval_pending with the reason

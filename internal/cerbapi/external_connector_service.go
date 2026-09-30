@@ -88,6 +88,9 @@ const (
 	// ExternalConnectorOutputTooLarge: a read's result was over the
 	// plugin's cap and is withheld (P5-d).
 	ExternalConnectorOutputTooLarge ExternalConnectorErrorCode = "output_too_large"
+	// ExternalConnectorInsufficientScope: a verified bearer token's scopes
+	// do not cover the operation's effect (WP-S8).
+	ExternalConnectorInsufficientScope ExternalConnectorErrorCode = "insufficient_scope"
 )
 
 // externalConnectorErrorCodes is the whole vocabulary, for tests that hold
@@ -98,6 +101,7 @@ var externalConnectorErrorCodes = []ExternalConnectorErrorCode{
 	ExternalConnectorSessionSuspended,
 	ExternalConnectorDeadlineExceeded,
 	ExternalConnectorOutputTooLarge,
+	ExternalConnectorInsufficientScope,
 	ExternalConnectorUnavailable,
 	ExternalConnectorCredentialMissing,
 	ExternalConnectorUnsupported,

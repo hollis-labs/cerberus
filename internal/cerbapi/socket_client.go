@@ -41,6 +41,8 @@ type SocketClient struct {
 	// claim, when set, is this process's own identity (an MCP server's
 	// clientInfo), sent in place of whatever principal ctx carries.
 	claim func(context.Context) Principal
+	// bearer is the caller's bearer token to forward (WithBearer).
+	bearer func(context.Context) string
 }
 
 // WithPrincipalClaim sets the principal this client claims on every
@@ -52,8 +54,21 @@ func WithPrincipalClaim(claim func(context.Context) Principal) SocketClientOptio
 	return func(c *SocketClient) { c.claim = claim }
 }
 
-// setPrincipal puts the caller's claim about itself on req.
+// WithBearer forwards the caller's bearer token with each request (WP-S8):
+// mcp-http passes on the token it checked, and the daemon verifies it
+// again before the call gets a verified principal.
+func WithBearer(token func(context.Context) string) SocketClientOption {
+	return func(c *SocketClient) { c.bearer = token }
+}
+
+// setPrincipal puts the caller's claim about itself on req, and its bearer
+// token when it has one.
 func (c *SocketClient) setPrincipal(req *http.Request) {
+	if c.bearer != nil {
+		if tok := c.bearer(req.Context()); tok != "" {
+			req.Header.Set(BearerHeader, tok)
+		}
+	}
 	if c.claim != nil {
 		setPrincipalHeader(req.Header, c.claim(req.Context()))
 		return

@@ -92,6 +92,13 @@ type Principal struct {
 	Session      string `json:"session,omitempty"`
 	OnBehalfOf   string `json:"on_behalf_of,omitempty"`
 	SelfReported bool   `json:"self_reported"`
+	// A verified bearer token's caller (WP-S8): names and ids, never the
+	// token.
+	Subject    string   `json:"subject,omitempty"`
+	Issuer     string   `json:"issuer,omitempty"`
+	AuthMethod string   `json:"auth_method,omitempty"`
+	TokenID    string   `json:"token_id,omitempty"`
+	Scopes     []string `json:"scopes,omitempty"`
 }
 
 // PrincipalAutomation is the kind of a principal that is Cerberus itself.

@@ -211,6 +211,14 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 			writeServiceError(w, http.StatusForbidden, err)
 			return
 		}
+		// A forwarded bearer token is verified again here (WP-S8); one that
+		// fails refuses the request rather than falling back to a claim.
+		var authErr error
+		if r, authErr = verifyBearer(r); authErr != nil {
+			s.logger.Warn("daemon.socket.bearer_refused", "method", r.Method, "path", r.URL.Path, "error", redact.ScopeFrom(r.Context()).Text(authErr.Error()))
+			writeJSONError(w, http.StatusUnauthorized, redact.ScopeFrom(r.Context()).Text(authErr.Error()))
+			return
+		}
 		s.logger.Info("daemon.socket.request", "method", r.Method, "path", r.URL.Path)
 		h.ServeHTTP(w, r)
 	})
@@ -223,6 +231,7 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ping", s.handlePing)
 	mux.HandleFunc("/whoami", s.handleWhoAmI)
+	mux.HandleFunc("/auth/", s.handleAuth)
 	mux.HandleFunc("/approvals", s.handleApprovals)
 	mux.HandleFunc("/brakes", s.handleBrakes)
 	mux.HandleFunc("/brakes/", s.handleBrakes)

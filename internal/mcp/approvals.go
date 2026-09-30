@@ -117,6 +117,8 @@ func nextStep(code cerbapi.ExternalConnectorErrorCode, ref *cerbapi.ApprovalRef)
 		return redact.Guidance("what would run changed since it was approved, so nothing ran; retry without approval_id to see the new plan and ask again")
 	case cerbapi.ExternalConnectorPolicyDenied:
 		return redact.Guidance("policy denies this call and no approval can change that; do not retry, and tell your operator what you were trying to do")
+	case cerbapi.ExternalConnectorInsufficientScope:
+		return redact.Guidance("your token's scopes do not cover this call and you cannot widen them; do not retry, and ask your operator for a token with the scope the error names")
 	case cerbapi.ExternalConnectorSessionSuspended:
 		return redact.Guidance("the circuit breaker suspended this session after repeated policy denials; stop, do not retry anything but plain reads, and tell your operator what you were trying to do. Only a person can reset it")
 	case cerbapi.ExternalConnectorLockdown, cerbapi.ExternalConnectorFrozen:
