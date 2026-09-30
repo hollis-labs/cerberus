@@ -384,10 +384,20 @@ authenticator ignored `allowCredentials`. Only a run through a real browser
 their JSON (`cerbapi.WebAuthnOptions`), and the CLI keeps the enrollment token
 and hands the daemon its sha256, so no credential is in a response at all.
 
+**The twelfth came from a plugin's name.** The plugin id `onepassword` contains
+`password`, so the text rules read `onepassword: <word>` or `"onepassword":
+<word>` as an assignment and ate the word. That broke every generic plugin
+message for that one plugin. Cerberus's own plugin messages are now
+`redact.Guidance`, so the rules never run over them. Every connector and plugin
+id is also registered as a name (`redact.RegisterNames`), and is handed back
+the way an error code is, but only when the following word reads as prose. A
+plugin named `api_key` still can't shield `api_key: sk-...`.
+
 The rules that remain:
 
 - **Do not run redaction over a value that is a name by construction.** Declare
-  it: a secret that is a path or a name says `kind: path` or `kind: name`.
+  it: a secret that is a path or a name says `kind: path` or `kind: name`, and
+  an id Cerberus learns (connector, plugin) is registered as a name.
 - **A response field that is public by construction but credential-named is
   encoded or exempted by schema, never renamed to slip past.** Encode it as an
   opaque value, as `WebAuthnOptions` does, or exempt it by schema where the
