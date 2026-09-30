@@ -527,10 +527,20 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 
 // SameRequester reports whether user is the principal that asked.
 func SameRequester(asked, user audit.Principal) bool {
-	if asked.Kind != user.Kind || asked.Via != user.Via {
+	if asked.Kind != user.Kind || asked.Via != user.Via || !sameCaller(asked, user) {
 		return false
 	}
 	return asked.Session == "" || asked.Session == user.Session
+}
+
+// sameCaller reports whether two principals are the same verified caller:
+// the same token issuer and subject, or both unverified (M6). Every
+// mcp-http caller is an agent over mcp_http with no session, so without
+// this one token holder's grant covered every other's calls, and a once
+// approval was anyone's who learned its id. The token id is not compared:
+// a token refreshed while its approval waits is the same caller.
+func sameCaller(asked, user audit.Principal) bool {
+	return asked.Issuer == user.Issuer && asked.Subject == user.Subject
 }
 
 // Revoke withdraws an approved approval before it is used.

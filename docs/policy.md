@@ -435,7 +435,9 @@ refused, and nothing runs, when:
 - it was already used, denied or revoked: `approval_required`;
 - it belongs to another caller: `approval_required`. An approval is the
   requester's. The principal's kind and channel must match, and so must its
-  session where the request carried one.
+  session where the request carried one. For a verified mcp-http caller,
+  the token's issuer and subject must match too. The same applies to a
+  grant.
 
 To see the plan and its hash without running anything:
 

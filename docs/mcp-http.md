@@ -106,9 +106,16 @@ Scopes narrow what a caller may ask for. They never widen what policy allows.
 
 **A verified caller is recorded by who its token names:**
 
-- its subject, issuer, client and token id;
-- rate limits and the circuit breaker count it by subject, so a suspension
-  survives the client reconnecting;
+- its subject, issuer, client and token id. The client is the token's own
+  client claim, or none. It is never the name the MCP client gives itself,
+  which it could change on every call;
+- rate limits and the circuit breaker count it by issuer and subject alone,
+  so a suspension survives the client reconnecting, and a changed client name
+  doesn't reset its counters;
+- an approval or a grant belongs to the subject that asked for it. One token
+  holder's window grant doesn't cover another's calls, and a once approval
+  can't be used by another token holder who learns its id. A refreshed token
+  for the same subject is the same caller;
 - a policy rule can name `subject:` or `issuer:` under `principals:`. Such a
   rule matches only a verified caller, never a claim.
 

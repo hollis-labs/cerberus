@@ -18495,6 +18495,46 @@
       "id": "CERB-GAP-930"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "An mcp-http token holder could use another's grants and approvals, and reset its own rate and breaker counters",
+      "summary": "Grants (covers) and approvals (SameRequester) matched only kind, via and session, and every mcp-http caller is an agent over mcp_http with no session: one teammate's window grant covered every other token holder's calls, and a once approval was consumable by anyone who learned its id. And a verified caller whose token carried no client claim kept its own per-call clientInfo as Client, which was part of its rate and breaker key, so varying it gave fresh counters. Fixed: both match the token's issuer and subject (not the token id, so a refreshed token is the same caller); a verified caller's Client is its token's or none; its key is issuer and subject alone, and a suspension recorded under the old key still holds.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the e40b63c security review (M6, M13); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "oauth",
+        "approvals",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/approval/grants.go, internal/approval/store.go, internal/cerbapi/auth.go, internal/cerbapi/breaker.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-919",
+          "note": "the approval integrity work this binds to the caller"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "Remaining: two tokens minted for the same subject (the built-in issuer's subject is client:<name>, so two tokens for one client name) are the same caller by design. An audit record of a verified caller no longer carries the MCP client's self-reported name when its token has no client claim.",
+      "id": "CERB-GAP-931"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",
