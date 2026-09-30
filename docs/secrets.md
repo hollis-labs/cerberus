@@ -60,7 +60,9 @@ into a second store. Use item/field IDs when names contain path separators.
 Namecheap's `client_ip` must match the address allowed by the account's API
 whitelist. An unresolved reference fails the operation without falling back to a
 different credential or reporting success. The Cerberus web UI can still manage
-unmapped keychain entries; there is no `cerberus secrets set` command.
+unmapped keychain entries for the providers it lists. `cerberus secrets set
+<service>/<key>` stores any entry from an interactive terminal (see "Setting up
+a secret backend" below).
 
 ## Vault references and secret-backend plugins
 
@@ -100,15 +102,95 @@ operation, so no CLI command, API operation or MCP tool reaches it.
   in the environment was handed to a connector as its token. Now, without a
   backend, it fails.
 
-Where it works today:
+Where it works:
 
-- **Connectors and plugins resolved by the daemon**: yes.
-- **A CLI process with no daemon**: no. The reference fails, naming `cerberus
+- **Connectors and plugins resolved by the daemon**: the daemon routes to the
+  loaded backend.
+- **A managed service's environment** (`cerberus run-secrets`): the shim reads
+  the installed plugins, loads only the backend a reference needs, in the
+  service's own process, and stops it before it execs the service. It does not
+  ask the daemon, so a service starts while the daemon is down, and there is no
+  socket call that returns a value. It refuses a backend whose install review
+  is pending, and it records the backend's load in the audit log
+  (`via: run_secrets`). A 1Password backend's first resolve in a process
+  compiles its SDK's WASM core, about two seconds, so a service that references
+  `op://` starts that much slower.
+- **A CLI process with no daemon**: the reference fails, naming `cerberus
   daemon start`.
-- **A managed service's environment** (`cerberus run-secrets`): not yet. A
-  vault reference fails closed there and names `keyring://` and `helper://` as
-  what works. A later change resolves it by loading the backend plugin inside
-  the service's own process.
+
+**Where each credential came from** is on every gated call's audit outcome, as
+`credential_sources`. It is names and sources only, never a value or a
+reference's path:
+
+```json
+"credential_sources": {
+  "cloudflare/api_token": "mapping:op via onepassword@0.1.0",
+  "github/token": "keyring",
+  "namecheap/client_ip": "missing"
+}
+```
+
+A source is where the value or reference was found (`env`, `mapping`,
+`keyring`, or `binding:<label>` for a per-access binding such as
+`binding:targets[0].write`), then the reference's scheme, then the backend
+plugin for a vault. `, unresolved` marks a lookup that failed, and `, none` a
+binding that sets the credential to null.
+
+### Setting up a secret backend
+
+Both backends live in `hollis-labs/cerberus-plugins`. Run the commands below
+from a checkout of it, in your own terminal: installing a plugin and storing a
+secret are both interactive, and both refuse a script or an agent.
+
+**Keeper (`keeper://`)**
+
+1. Build the plugin: `make -C keeper dist`. This writes `dist/keeper`.
+2. Install it: `cerberus connectors plugin managed install "$PWD/dist/keeper"`.
+   The review opens with `SECRET BACKEND: this plugin will see every secret
+   resolved through keeper://`. Type `keeper` to accept.
+3. In Keeper, create a Secrets Manager application. Share the records Cerberus
+   may read with it, read-only. Create a one-time access token for it.
+4. Bind the token **outside Cerberus**, with Keeper's own CLI:
+   `ksm init default <one-time token>`. It prints the application's
+   configuration, base64. Binding consumes the token. The plugin never binds
+   one, and it refuses an unbound configuration.
+5. Store the configuration: `cerberus secrets set keeper/ksm_config`, and
+   paste it.
+6. Load the plugin: `cerberus connectors plugin managed load keeper`. If it was
+   already loaded, unload it first, because a plugin reads its credential when
+   it loads.
+7. Check it: `cerberus connectors exec keeper status` should say
+   `configured: true` and name the Keeper region. It makes no network call.
+8. Name secrets by reference, for example in `connector-secrets.yaml`:
+   ```yaml
+   cloudflare:
+     api_token: keeper://<record uid>/field/password
+   ```
+   Prefer a record UID to a title. A title makes Keeper return every record
+   shared with the application.
+
+**1Password (`op://`)**
+
+1. Build the plugin: `make -C onepassword dist`. This writes
+   `dist/onepassword`.
+2. Install it: `cerberus connectors plugin managed install
+   "$PWD/dist/onepassword"`, and type `onepassword` to accept the review.
+3. In 1Password, create a service account with **read** access to only the
+   vaults Cerberus may read, and copy its token (`ops_...`).
+4. Store the token: `cerberus secrets set onepassword/service_account_token`,
+   and paste it.
+5. Load the plugin: `cerberus connectors plugin managed load onepassword`.
+6. Check it: `cerberus connectors exec onepassword status` should say
+   `configured: true` and name the sign-in address. It makes no network call.
+   The token must name a production 1Password domain (`1password.com`, `.ca`
+   or `.eu`).
+7. Name secrets by reference, for example `op://<vault>/<item>/<field>` in
+   `connector-secrets.yaml` or in a resource's `env:`.
+
+Each plugin's `scripts/live-check.sh` resolves one reference you name, twice,
+against the real vault. It prints the value's length and never the value. The
+1Password check also makes 1Password unreachable after a real resolve and
+requires the next one to fail, which shows the SDK does not answer from memory.
 
 The `onepassword` and `keeper` plugins live in `cerberus-plugins`; each README
 covers its bootstrap credential and what it pins in its vendor's SDK.

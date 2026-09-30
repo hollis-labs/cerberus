@@ -91,13 +91,15 @@ type ManagedPluginConnectorState struct {
 }
 
 type ManagedPluginConnectorService struct {
-	manager     *pluginhost.Manager
-	hostVersion string
-	statePath   string
-	store       pluginhost.Store
-	records     map[string]pluginConnectorPersistedEntry
-	warn        io.Writer
-	reservedIDs []string
+	// registerOnly: see managedPluginConfig.registerOnly.
+	registerOnly bool
+	manager      *pluginhost.Manager
+	hostVersion  string
+	statePath    string
+	store        pluginhost.Store
+	records      map[string]pluginConnectorPersistedEntry
+	warn         io.Writer
+	reservedIDs  []string
 
 	audit  audit.Sink
 	logger *slog.Logger
@@ -119,6 +121,10 @@ type managedPluginConfig struct {
 	// bindBackends hands the service to the credential chain as its secret
 	// backend router, before any plugin is restored.
 	bindBackends func(secretref.SchemeRouter)
+	// registerOnly registers the state file's plugins and loads none: a
+	// process that is not the daemon (run-secrets) loads only the backend
+	// it needs, and never writes the state file.
+	registerOnly bool
 }
 
 // WithManagedPluginCoreSecrets sets the resolver a secret backend's own
@@ -187,14 +193,15 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 		opt(&cfg)
 	}
 	service := &ManagedPluginConnectorService{
-		hostVersion: hostVersion,
-		statePath:   statePath,
-		store:       pluginStoreFor(statePath),
-		records:     make(map[string]pluginConnectorPersistedEntry),
-		warn:        stderr,
-		reservedIDs: append(append([]string(nil), hostServedIDs...), cfg.reservedIDs...),
-		audit:       sink,
-		logger:      slog.Default(),
+		registerOnly: cfg.registerOnly,
+		hostVersion:  hostVersion,
+		statePath:    statePath,
+		store:        pluginStoreFor(statePath),
+		records:      make(map[string]pluginConnectorPersistedEntry),
+		warn:         stderr,
+		reservedIDs:  append(append([]string(nil), hostServedIDs...), cfg.reservedIDs...),
+		audit:        sink,
+		logger:       slog.Default(),
 	}
 	service.manager = pluginhost.NewManager(
 		nil,
@@ -790,4 +797,10 @@ func (s *ManagedPluginConnectorService) Claims(scheme string) bool {
 // no surface reaches it, and its value goes only to the caller that asked.
 func (s *ManagedPluginConnectorService) ResolveSecret(ctx context.Context, ref string) (string, error) {
 	return s.manager.ResolveSecret(ctx, ref)
+}
+
+// Backend names the plugin that resolves scheme, as id@version, for the
+// audit record's credential_sources.
+func (s *ManagedPluginConnectorService) Backend(scheme string) string {
+	return s.manager.BackendLabel(scheme)
 }

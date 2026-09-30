@@ -217,7 +217,7 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 		if installed.ReviewPending {
 			service.warnf("plugin %q was installed before install review and loads unchecked until reviewed; run `cerberus connectors plugin managed review %s` in a terminal", installed.ID, installed.ID)
 		}
-		if entry.Loaded {
+		if entry.Loaded && !service.registerOnly {
 			toLoad = append(toLoad, installed)
 		}
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/secretref"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 )
@@ -65,11 +66,14 @@ func runSecrets(ctx context.Context, args []string) error {
 	ctx, cancel := context.WithTimeout(ctx, runSecretsTimeout)
 	defer cancel()
 
-	// Vault references (op://, keeper://) are not resolved here yet: a
-	// managed service resolves them by loading the backend plugin itself in
-	// a later change. Until then they fail closed, naming what works.
-	resolver := secretref.NewResolver(secrets.NewKeychainProvider(), secretref.WithoutSchemeRouter(
-		"a managed service's environment cannot resolve vault references yet; reference the credential as keyring://<service>/<key> or helper://<helper>/<authority>/<path>"))
+	// Vault references (op://, keeper://) resolve through the installed
+	// secret-backend plugins, loaded here, in the service's own process, and
+	// stopped before exec. The daemon is not asked: a socket call that
+	// returned values would be an oracle for any same-user process, and a
+	// service must start while the daemon is down.
+	backends := app.ServiceSecretBackends(version, os.Stderr)
+	defer backends.Close(context.Background())
+	resolver := secretref.NewResolver(secrets.NewKeychainProvider(), secretref.WithSchemeRouter(backends))
 
 	env := environMap()
 	resolved, err := resolver.ResolveEnv(ctx, env)
@@ -81,6 +85,10 @@ func runSecrets(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("locate %s: %w", args[0], err)
 	}
+
+	// No backend outlives resolution: execve would orphan it, still holding
+	// the service's resolved secrets in its memory.
+	backends.Close(ctx)
 
 	// execve replaces this process so launchd supervises the target directly
 	// rather than this shim. On success it does not return.

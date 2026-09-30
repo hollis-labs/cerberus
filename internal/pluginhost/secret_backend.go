@@ -94,6 +94,17 @@ func (m *Manager) claimantLocked(scheme string) string {
 	return ""
 }
 
+// BackendLabel names the plugin that claims scheme as id@version, or "".
+func (m *Manager) BackendLabel(scheme string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id := m.claimantLocked(scheme)
+	if id == "" {
+		return ""
+	}
+	return id + "@" + m.installed[id].Version
+}
+
 // ClaimedSchemes lists the schemes installed plugins claim, by plugin id.
 func (m *Manager) ClaimedSchemes() map[string]string {
 	m.mu.RLock()

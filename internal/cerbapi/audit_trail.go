@@ -12,6 +12,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
@@ -78,11 +79,13 @@ type auditCall struct {
 	// telemetry collects what a plugin reports for this call, for the
 	// outcome record. Set by withTelemetry on the plugin paths.
 	telemetry *pluginhost.Collector
-	sink      audit.Sink
-	logger    *slog.Logger
-	start     time.Time
-	intent    audit.Record
-	spec      auditSpec
+	// sources collects where each credential the call resolved came from.
+	sources *secrets.Sources
+	sink    audit.Sink
+	logger  *slog.Logger
+	start   time.Time
+	intent  audit.Record
+	spec    auditSpec
 	// target is the resolved target, which egress policy matches on.
 	target target.Target
 	// egress is what egress policy said about the result, for the outcome.
@@ -170,6 +173,11 @@ func principalFor(ctx context.Context, spec auditSpec) audit.Principal {
 		p.Via = ViaMonitor
 		if spec.automationVia != "" {
 			p.Surface, p.Via = "daemon", spec.automationVia
+			if spec.automationVia == "run_secrets" {
+				// Not the daemon: a managed service's own process, before
+				// it execs.
+				p.Surface = "run_secrets"
+			}
 		}
 		p.SelfReported = false
 	}
@@ -194,6 +202,7 @@ func (c *auditCall) finish(err error) {
 	outcome.Kind = audit.KindOutcome
 	outcome.ID = ""
 	outcome.DurationMS = time.Since(c.start).Milliseconds()
+	outcome.CredentialSources = c.sources.Snapshot()
 	code := outcomeCode(err)
 	outcome.OutcomeCode = code
 	outcome.Decision = audit.DecisionAllowed
@@ -312,6 +321,16 @@ func (c *auditCall) withTelemetry(ctx context.Context) context.Context {
 		return ctx
 	}
 	ctx, c.telemetry = pluginhost.WithTelemetry(ctx)
+	return c.withSources(ctx)
+}
+
+// withSources returns ctx collecting where each credential resolved under it
+// came from, for the outcome's credential_sources.
+func (c *auditCall) withSources(ctx context.Context) context.Context {
+	if c == nil {
+		return ctx
+	}
+	ctx, c.sources = secrets.WithSources(ctx)
 	return ctx
 }
 

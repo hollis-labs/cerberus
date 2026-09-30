@@ -167,6 +167,11 @@ type Record struct {
 	// and redacted by the host. It enriches the host's outcome record; a
 	// plugin cannot write a record of its own.
 	PluginTelemetry *PluginTelemetry `json:"plugin_telemetry,omitempty"`
+	// CredentialSources names, on an outcome, where each credential the call
+	// resolved came from: "cloudflare/api_token": "mapping:op via
+	// onepassword@0.1.0", "github/token": "keyring". Names only, never a value
+	// or a reference's path.
+	CredentialSources map[string]string `json:"credential_sources,omitempty"`
 
 	// Egress is what egress policy said about the result (P4-4): each
 	// labeled part a rule matched, the action, and whether it was applied

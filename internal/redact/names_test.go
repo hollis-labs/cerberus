@@ -48,3 +48,32 @@ func TestGuidanceForKeepsTheSentinel(t *testing.T) {
 		t.Fatalf("text = %q", err.Error())
 	}
 }
+
+// credential_sources carries names by construction; redacting it would blank
+// the one field that says where a credential came from.
+func TestCredentialSourcesSurviveRedaction(t *testing.T) {
+	in := map[string]any{"credential_sources": map[string]string{"cloudflare/api_token": "mapping:op via onepassword@0.1.0", "github/token": "keyring"}} //nolint:gosec // credential names and sources, not credentials
+	out, err := (Redactor{}).Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"mapping:op via onepassword@0.1.0", `"github/token":"keyring"`} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("redaction changed credential_sources: %s", out)
+		}
+	}
+}
+
+// The names-only map exemption keeps the rules: a credential value that
+// somehow landed in one is still removed, and a hidden parent still wins.
+func TestANamesOnlyMapStillLosesValues(t *testing.T) {
+	r := New("sk-live-9f8e7d6c5b4a")
+	out, err := r.Marshal(map[string]any{"credential_sources": map[string]string{"x/token": "env sk-live-9f8e7d6c5b4a"}}) //nolint:gosec // a test sentinel
+	if err != nil || strings.Contains(string(out), "sk-live") {
+		t.Fatalf("a value survived: %s %v", out, err)
+	}
+	out, err = r.Marshal(map[string]any{"api_token": map[string]any{"credential_sources": map[string]string{"x/token": "keyring"}}})
+	if err != nil || strings.Contains(string(out), "keyring") {
+		t.Fatalf("a names-only map under a hidden key surfaced: %s %v", out, err)
+	}
+}

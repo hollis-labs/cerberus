@@ -52,3 +52,12 @@ func (r *BackendRouter) ResolveSecret(ctx context.Context, ref string) (string, 
 	}
 	return t.ResolveSecret(ctx, ref)
 }
+
+// Backend names the plugin that resolves scheme, as id@version, when the
+// bound host can say.
+func (r *BackendRouter) Backend(scheme string) string {
+	if t, ok := r.bound().(interface{ Backend(string) string }); ok {
+		return t.Backend(scheme)
+	}
+	return ""
+}

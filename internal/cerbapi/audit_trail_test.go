@@ -217,11 +217,12 @@ func TestPluginPathsAreRecordedOnce(t *testing.T) {
 // in internal/app, which is what opens the real sink. Anywhere else would be
 // a place a service could be built on a sink nobody reads.
 func TestServicesAreConstructedOnlyInApp(t *testing.T) {
-	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true, "NewResourceRuntimeService": true}
+	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true, "NewResourceRuntimeService": true, "NewProcessSecretBackends": true}
 	// The one construction outside internal/app that is allowed, and why.
 	allowed := map[string]string{
-		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService":           "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
-		filepath.Join("internal", "smoke", "confirmdialog", "main.go") + ":NewResourceRuntimeService": "the confirm-dialog browser smoke's scratch daemon, with its own sink",
+		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService":                      "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
+		filepath.Join("internal", "smoke", "confirmdialog", "main.go") + ":NewResourceRuntimeService":            "the confirm-dialog browser smoke's scratch daemon, with its own sink",
+		filepath.Join("internal", "cerbapi", "process_secret_backends.go") + ":NewManagedPluginConnectorService": "run-secrets' backends are the managed lane in register-only mode, on the sink NewProcessSecretBackends is given (itself built only in internal/app)",
 	}
 	root := filepath.Join("..", "..")
 	fset := token.NewFileSet()
