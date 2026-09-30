@@ -292,6 +292,14 @@ failing, and caching that failure for the daemon's lifetime while
 `cerberus connectors list` reported it healthy. Prefer explicit paths, fallback
 search locations, and per-call resolution over boot-time resolution.
 
+**Anything an agent must act on goes in the MCP result's text, not its
+`_meta`.** Claude Code does not show a tool result's `_meta` to the model; only
+the content blocks reach it (verified live, CERB-DEC-910). The untrusted-text
+labels are therefore carried twice: as `_meta` for hosts and clients that read
+it, and as a short second text block that the model actually sees. The same
+applies to an approval's next step, a scope refusal, or any warning: if it
+exists only in `_meta` or a header, the agent never learns about it.
+
 **Redaction runs over operator-facing error text, and it cannot read.**
 `redact.Text` rewrites anything that parses as a credential on every error path.
 It has eaten its own guidance six times: `Bearer JWT` became `Bearer
