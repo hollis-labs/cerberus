@@ -8,7 +8,7 @@ state_label: "partial"
 review_status: "reviewed"
 confidence_score: 0.9
 confidence_label: "Operation lists from connectors describe at audit time; plugin rows and the generic route re-read on main after P0 (#48 to #54)"
-last_reviewed: "2026-09-25"
+last_reviewed: "2026-09-30"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -180,7 +180,19 @@ which is authoritative:
 | contextforge (plugin) | 4 | 4 via `plugin managed exec` | **0** | 4 |
 | **total** | **48** | **44** | **33** | **48** |
 
-**Since 2026-09-25 the table above is history.** Every connector operation,
+**Current, 2026-09-30.** Only `ssh` and `docker` are compiled in. Every
+other connector is a plugin, and it reaches every surface generically:
+
+| Connector | Ops | CLI | MCP | Socket + HTTP + Console |
+|---|---|---|---|---|
+| ssh | 7 | 7 | 6 — no `stop` | 7 |
+| docker | 5 | 5 | 5 | 5 |
+| any plugin | as declared | all, via `connectors exec` | each operation the operator exposes in `connector-config.yaml`, as a generated `cerberus_<id>_<op>`; none by default | all |
+
+The plugins with a compiled-in past are `cloudflare`, `digitalocean`,
+`namecheap`, `forge` and `github`.
+
+**Since 2026-09-25 the first table above is history.** Every connector operation,
 built-in or plugin, is on the CLI through `cerberus connectors exec <id> <op>`,
 and every plugin operation reaches MCP as a generated `cerberus_<id>_<op>` tool
 once the operator exposes it in `connector-config.yaml`. cloudflare,

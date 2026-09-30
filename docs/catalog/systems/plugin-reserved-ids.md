@@ -8,7 +8,7 @@ state_label: "shipped"
 review_status: "draft"
 confidence_score: 0.9
 confidence_label: "Wiring read end to end and three tests cover refusal, non-refusal and restore; not exercised live because installing is a mutation"
-last_reviewed: "2026-09-17"
+last_reviewed: "2026-09-30"
 created_at: "2026-09-17"
 namespace: "cerberus"
 locus: "core"
@@ -46,8 +46,10 @@ reaches the inventory.
 
 Two reasons, and the second is the one people miss. A plugin claiming a built-in
 id would shadow the connector Cerberus serves itself. And because the secret
-channel namespaces by connector id, a plugin called `github` would be handed
-`CERBERUS_GITHUB_TOKEN` — the built-in's credential — simply by declaring a
+channel namespaces by connector id, a plugin that claims a built-in's id
+resolves its declared secrets in that built-in's credential namespace. While
+`github` was compiled in, a plugin called `github` would have been handed
+`CERBERUS_GITHUB_TOKEN` (the built-in's credential) simply by declaring a
 secret named `token`. The guard is a credential boundary, not only a naming one.
 
 `pluginhost` has no opinion about what a host compiled in, so the caller
@@ -55,15 +57,22 @@ supplies the set. The daemon fills it from `Registry.BuiltInIDs()`, the union of
 registered instances, factories and definitions. Derived rather than hardcoded
 is the point, and it worked as intended: when `cloudflare` moved out to a plugin
 on 2026-09-25 it stopped being registered, and a `cloudflare` plugin became
-installable the same day with no guard to edit. The set is now `ssh`, `docker`,
-`github`, `digitalocean`, `forge` and `namecheap`.
+installable the same day with no guard to edit. The same happened for
+`digitalocean`, `namecheap` and `forge` on 2026-09-25 and for `github` on
+2026-09-30. `Registry.BuiltInIDs()` now reports `docker` and `ssh`, and nothing
+else.
 
 One id was never in it. `local` is served by the supervision lane, not the
 connector registry, so `BuiltInIDs` could not report it, and a plugin could
 claim the id `local` despite `AGENTS.md` naming it as reserved. The managed
 lane now always reserves the ids the host serves outside the registry
-(`hostServedIDs`, currently `local`) on top of whatever the daemon passes, and
-`TestManagedPluginInstallRefusesLocalWithoutBeingTold` holds it.
+(`hostServedIDs`) on top of whatever the daemon passes, and
+`TestManagedPluginInstallRefusesLocalWithoutBeingTold` holds it. That list began
+as `local` alone. It now also holds the ids Cerberus keys its own records and
+gates on: `policy`, `brake`, `approvals`, `audit`, `console`, `pipeline`,
+`mcp-http`, `plugin` and `secrets` (`internal/cerbapi/managed_plugin_connector_service.go`).
+So the full reserved set is `docker` and `ssh` from the registry, plus those
+ten.
 
 Only the managed lane reserves. `connectors plugin exec` installs into a
 throwaway host for one call and registers nothing, so it cannot shadow anything
