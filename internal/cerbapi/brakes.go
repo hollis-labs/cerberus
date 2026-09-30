@@ -474,9 +474,9 @@ func frozenResource(res config.ResourceDef) (brake.Freeze, bool) {
 	return b.Current().FreezeCovering("local", target.Resolve("local", "local.resource", res.ID, &labels, false))
 }
 
-// pipelineFrozen refuses a pipeline run that would touch a frozen resource.
-func (s *ResourceRuntimeService) pipelineFrozen(id string) error {
-	snap, _ := s.lookupPipeline(id)
+// pipelineFrozen refuses a pipeline run that would touch a frozen resource:
+// the run's definition, as its gate checked it.
+func (s *ResourceRuntimeService) pipelineFrozen(snap *pipelineSnapshot) error {
 	if snap == nil {
 		return nil
 	}
@@ -493,7 +493,7 @@ func (s *ResourceRuntimeService) pipelineFrozen(id string) error {
 			if f, frozen := frozenResource(def); frozen {
 				return externalConnectorError(ExternalConnectorOperationArgs{Connector: "pipeline", Operation: "run"}, ExternalConnectorFrozen,
 					redact.Guidance("pipeline %q does not run: its %s/%s action touches %s, which is FROZEN by %s%s. A person lifts it with `cerberus freeze --off %s`",
-						id, stage.Name, action.Type, def.ID, f.ID, reasonSuffix(f.Reason), f.ID))
+						snap.def.ID, stage.Name, action.Type, def.ID, f.ID, reasonSuffix(f.Reason), f.ID))
 			}
 		}
 	}

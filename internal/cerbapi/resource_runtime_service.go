@@ -526,7 +526,7 @@ func (s *ResourceRuntimeService) GetResourceDoctor(ctx context.Context, id strin
 
 		checkPathCheck("install_root", inspect.InstallRoot, true)
 		checkPathCheck("plist", inspect.PlistPath, true)
-		if _, spec, specErr := s.requireLocalProcessSpec(id); specErr == nil && secretref.EnvHasRefs(spec.Env) {
+		if _, spec, specErr := s.requireLocalProcessSpec(ctx, id); specErr == nil && secretref.EnvHasRefs(spec.Env) {
 			if checkErr := localconn.CheckSecretReferencePlist(inspect.PlistPath, spec); checkErr != nil {
 				add("secret_reference_shim", "fail", checkErr.Error())
 			} else {
@@ -656,7 +656,7 @@ func (s *ResourceRuntimeService) reloadResource(ctx context.Context, id string, 
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
-	res, err := s.requireLocalProcessResource(id)
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
@@ -664,7 +664,7 @@ func (s *ResourceRuntimeService) reloadResource(ctx context.Context, id string, 
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	if portErr := s.refusePortConflict(id); portErr != nil {
+	if portErr := s.refusePortConflict(ctx, id); portErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: portErr.Error()}, nil
 	}
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
@@ -690,7 +690,7 @@ func (s *ResourceRuntimeService) stopResource(ctx context.Context, id string, op
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
-	res, err := s.requireLocalProcessResource(id)
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
@@ -733,14 +733,14 @@ func (s *ResourceRuntimeService) deployResource(ctx context.Context, id string, 
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting deploy for resource %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 4, "Resolving resource")
 
-	res, err := s.requireLocalProcessResource(id)
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
 	defer func() {
 		if out != nil {
 			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
-			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.snapshotConfig())...)
+			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.configFor(ctx))...)
 			if spec, parseErr := localconn.SpecFromResourceConfig(res.Config); parseErr == nil {
 				r := localconn.OutputRedactor(spec)
 				out.Message = r.Text(out.Message)
@@ -754,7 +754,7 @@ func (s *ResourceRuntimeService) deployResource(ctx context.Context, id string, 
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	if portErr := s.refusePortConflict(id); portErr != nil {
+	if portErr := s.refusePortConflict(ctx, id); portErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: portErr.Error()}, nil
 	}
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
@@ -763,7 +763,7 @@ func (s *ResourceRuntimeService) deployResource(ctx context.Context, id string, 
 	if outputErr := localconn.ValidateDeployOutput(spec); outputErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: outputErr.Error()}, nil
 	}
-	installAfterBuild := s.resolveInstallAfterBuild(res.Config, spec, opts)
+	installAfterBuild := s.resolveInstallAfterBuild(ctx, res.Config, spec, opts)
 	ctx, releaseBuild, lockErr := localconn.WithBuildLock(ctx, spec, id)
 	if lockErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: lockErr.Error()}, nil
@@ -899,8 +899,8 @@ func (s *ResourceRuntimeService) deployResource(ctx context.Context, id string, 
 // resolveInstallAfterBuild is the method-shaped entry point used by
 // DeployResource. It snapshots the live config and delegates to the pure
 // resolver so the precedence logic stays testable in isolation.
-func (s *ResourceRuntimeService) resolveInstallAfterBuild(rawCfg map[string]any, spec localconn.ProcessSpec, opts MutationOpts) bool {
-	return ResolveInstallAfterBuild(rawCfg, spec.InstallAfterBuild, s.snapshotConfig().InstallAfterBuildDefault(), opts.InstallAfterBuildOverride)
+func (s *ResourceRuntimeService) resolveInstallAfterBuild(ctx context.Context, rawCfg map[string]any, spec localconn.ProcessSpec, opts MutationOpts) bool {
+	return ResolveInstallAfterBuild(rawCfg, spec.InstallAfterBuild, s.configFor(ctx).InstallAfterBuildDefault(), opts.InstallAfterBuildOverride)
 }
 
 // ResolveInstallAfterBuild collapses the three-layer precedence (CLI override >
@@ -951,14 +951,14 @@ func (s *ResourceRuntimeService) applyResource(ctx context.Context, id string, o
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting apply for resource %s", id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Resolving resource")
 
-	res, err := s.requireLocalProcessResource(id)
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
 	defer func() {
 		if out != nil {
 			out.Warnings = append(out.Warnings, localconn.ProcessConfigWarnings(res.Config)...)
-			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.snapshotConfig())...)
+			out.Warnings = append(out.Warnings, s.dependencyWarnings(ctx, res, s.configFor(ctx))...)
 			if spec, parseErr := localconn.SpecFromResourceConfig(res.Config); parseErr == nil {
 				r := localconn.OutputRedactor(spec)
 				out.Message = r.Text(out.Message)
@@ -972,7 +972,7 @@ func (s *ResourceRuntimeService) applyResource(ctx context.Context, id string, o
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
-	if portErr := s.refusePortConflict(id); portErr != nil {
+	if portErr := s.refusePortConflict(ctx, id); portErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: portErr.Error()}, nil
 	}
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
@@ -1040,7 +1040,7 @@ func (s *ResourceRuntimeService) syncResource(ctx context.Context, id string, op
 		return nil, err
 	}
 
-	res, err := s.requireLocalProcessResource(id)
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
@@ -1088,7 +1088,7 @@ func (s *ResourceRuntimeService) removeResource(ctx context.Context, id string, 
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 
-	res, err := s.requireLocalProcessResource(id)
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: err.Error()}, nil
 	}
@@ -1171,7 +1171,7 @@ func shapeAs[T any](call *auditCall, out *T) (*T, error) {
 }
 
 func (s *ResourceRuntimeService) readResourceLogs(ctx context.Context, id string, lines int, stream string) (*LogLines, error) {
-	res, spec, err := s.requireLocalProcessSpec(id)
+	res, spec, err := s.requireLocalProcessSpec(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1293,8 +1293,8 @@ func (s *ResourceRuntimeService) statusWithTimeout(ctx context.Context, dr *doma
 	return domain.StateUnknown, err
 }
 
-func (s *ResourceRuntimeService) requireLocalProcessResource(id string) (*config.ResourceDef, error) {
-	cfg := s.snapshotConfig()
+func (s *ResourceRuntimeService) requireLocalProcessResource(ctx context.Context, id string) (*config.ResourceDef, error) {
+	cfg := s.configFor(ctx)
 	if cfg == nil {
 		return nil, fmt.Errorf("no config available")
 	}
@@ -1308,8 +1308,8 @@ func (s *ResourceRuntimeService) requireLocalProcessResource(id string) (*config
 	return res, nil
 }
 
-func (s *ResourceRuntimeService) requireLocalProcessSpec(id string) (*config.ResourceDef, localconn.ProcessSpec, error) {
-	res, err := s.requireLocalProcessResource(id)
+func (s *ResourceRuntimeService) requireLocalProcessSpec(ctx context.Context, id string) (*config.ResourceDef, localconn.ProcessSpec, error) {
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return nil, localconn.ProcessSpec{}, err
 	}
@@ -1318,6 +1318,25 @@ func (s *ResourceRuntimeService) requireLocalProcessSpec(id string) (*config.Res
 		return nil, localconn.ProcessSpec{}, fmt.Errorf("decode process spec for %q: %w", id, err)
 	}
 	return res, spec, nil
+}
+
+// configSnapshotKey carries the config a gated mutation was checked
+// against (M10): its target labels, its plan and its run read this one
+// resolve, so a config edited between the gate and the run does not run.
+type configSnapshotKey struct{}
+
+// withConfigSnapshot is ctx carrying cfg as its call's config.
+func withConfigSnapshot(ctx context.Context, cfg *config.ConfigV2) context.Context {
+	return context.WithValue(ctx, configSnapshotKey{}, cfg)
+}
+
+// configFor is the config a call runs on: the snapshot its gate checked,
+// or, outside a gated call, a fresh resolve.
+func (s *ResourceRuntimeService) configFor(ctx context.Context) *config.ConfigV2 {
+	if cfg, ok := ctx.Value(configSnapshotKey{}).(*config.ConfigV2); ok && cfg != nil {
+		return cfg
+	}
+	return s.snapshotConfig()
 }
 
 func (s *ResourceRuntimeService) snapshotConfig() *config.ConfigV2 {
@@ -1433,6 +1452,15 @@ func containsTagFold(tags []string, target string) bool {
 func (s *ResourceRuntimeService) ResourceDef(id string) (*config.ResourceDef, bool) {
 	def := findResourceDef(s.snapshotConfig(), id)
 	return def, def != nil
+}
+
+// resourcesIn looks resources up in one config, as a gate's target labels
+// must come from the config its call runs on.
+func resourcesIn(cfg *config.ConfigV2) func(string) (*config.ResourceDef, bool) {
+	return func(id string) (*config.ResourceDef, bool) {
+		def := findResourceDef(cfg, id)
+		return def, def != nil
+	}
 }
 
 func findResourceDef(cfg *config.ConfigV2, id string) *config.ResourceDef {
@@ -1561,8 +1589,8 @@ func resourceStateHealthy(state domain.State) bool {
 	}
 }
 
-func (s *ResourceRuntimeService) refusePortConflict(id string) error {
-	cfg := s.snapshotConfig()
+func (s *ResourceRuntimeService) refusePortConflict(ctx context.Context, id string) error {
+	cfg := s.configFor(ctx)
 	if cfg == nil {
 		return fmt.Errorf("no config available")
 	}

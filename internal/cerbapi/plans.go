@@ -33,7 +33,7 @@ func (s *ExternalConnectorService) planOperation(ctx context.Context, args Exter
 	if err != nil {
 		return plan.Plan{}, err
 	}
-	spec := s.auditSpec(args)
+	spec := s.auditSpecIn(ctx, args)
 	tgt, _ := auditTarget(spec)
 	p := plan.Plan{Lane: plan.LaneAdmin, Connector: args.Connector, Operation: args.Operation, Effect: string(op.Effect),
 		Target: tgt, ArgsDigest: s.audit.Digest(args.Config)}
@@ -46,13 +46,22 @@ func (s *ExternalConnectorService) planOperation(ctx context.Context, args Exter
 	resolved := args
 	switch args.Connector {
 	case "ssh":
-		if resolved, err = s.resolveSSHTarget(args); err != nil {
+		if resolved, err = s.resolveSSHTarget(ctx, args); err != nil {
 			return plan.Plan{}, err
 		}
 	case "docker":
-		if resolved, err = s.resolveDockerResource(args); err != nil {
+		if resolved, err = s.resolveDockerResource(ctx, args); err != nil {
 			return plan.Plan{}, err
 		}
+	}
+	if args.Connector == "ssh" || args.Connector == "docker" {
+		// The target as it would run, the configured resource merged in,
+		// keyed like the arguments (M10): an approval does not outlive an
+		// edit to the host, key, context or compose file it was for.
+		if p.Digests == nil {
+			p.Digests = map[string]string{}
+		}
+		p.Digests["target"] = s.audit.Digest(resolved.Config)
 	}
 	if op.Preview != contract.PreviewNone {
 		if preview, ok, perr := s.dryRunPreview(resolved); perr != nil {
@@ -83,7 +92,7 @@ type ConnectorPlan struct {
 // one an approval is asked for and used with — so what is shown is what
 // would be bound. It runs nothing but the preview.
 func (s *ExternalConnectorService) showPlan(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	shown, err := showPlan(ctx, s.auditSpec(args))
+	shown, err := showPlan(ctx, s.auditSpecIn(ctx, args))
 	if err != nil {
 		return ExternalConnectorOperationResult{}, err
 	}
@@ -193,7 +202,7 @@ func gitSource(ctx context.Context, dir string) *plan.Source {
 //   - every verb: the observed state, so an approval to stop a running
 //     service does not stop it after it was restarted as something else.
 func (s *ResourceRuntimeService) planResource(ctx context.Context, spec auditSpec, id string) (plan.Plan, error) {
-	res, err := s.requireLocalProcessResource(id)
+	res, err := s.requireLocalProcessResource(ctx, id)
 	if err != nil {
 		return plan.Plan{}, err
 	}

@@ -208,7 +208,7 @@ func (m *ResourceMonitor) checkResource(ctx context.Context, res config.Resource
 		return
 	}
 
-	if conflictErr := m.runtime.refusePortConflict(res.ID); conflictErr != nil {
+	if conflictErr := m.runtime.refusePortConflict(ctx, res.ID); conflictErr != nil {
 		m.lastError[res.ID] = conflictErr.Error()
 		m.logger.Warn("daemon.resource_monitor.port_conflict", "resource", res.ID, "error", conflictErr.Error())
 		return

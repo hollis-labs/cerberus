@@ -1,6 +1,7 @@
 package cerbapi
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -62,11 +63,11 @@ func withEgressPolicy(t *testing.T, rules ...policy.EgressRule) {
 func TestResourceLogsUnderEgressPolicy(t *testing.T) {
 	sink := audit.NewMemory()
 	svc := logsRuntime(t, sink)
-	_, spec, err := svc.requireLocalProcessSpec("svc")
+	_, spec, err := svc.requireLocalProcessSpec(context.Background(), "svc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, _, _ := svc.requireLocalProcessSpec("svc")
+	res, _, _ := svc.requireLocalProcessSpec(context.Background(), "svc")
 	path := localconn.DevSessionLogPath(res.ID, spec)
 	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)

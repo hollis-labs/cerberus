@@ -480,6 +480,15 @@ the launch agent `apply` and `deploy` would write (as a keyed digest), and the
 resource's observed state. An approval to stop a service does not stop it
 after it has been redefined or restarted as something else.
 
+A call reads its definitions once. A resource verb's target labels, its plan
+and its run all come from one read of the config. So do an ssh or docker
+operation's labels, plan and run, from one read of the configured resource it
+names. A definition edited between the gate and the run therefore doesn't
+run: the call runs what it was checked against, and the next call reads the
+edit. An ssh or docker plan also binds a keyed digest of the target as it
+would run, with the configured resource merged in. An approval doesn't
+outlive an edit to the host, key, context or compose file it was for.
+
 ```bash
 cerberus resource plan <id> deploy|apply|reload|stop|sync|remove
 cerberus resource stop <id> --ack --approval <id>

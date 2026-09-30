@@ -1,6 +1,7 @@
 package cerbapi
 
 import (
+	"context"
 	"fmt"
 
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
@@ -10,15 +11,16 @@ import (
 // resource's config. Fields the caller sent alongside it are kept and win, as
 // `-f` beats a resource's compose file on the CLI. The key table has already
 // refused the target fields to every caller but the operator's own shell.
-func (s *ExternalConnectorService) resolveDockerResource(args ExternalConnectorOperationArgs) (ExternalConnectorOperationArgs, error) {
+func (s *ExternalConnectorService) resolveDockerResource(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationArgs, error) {
+	lookup := s.lookupFor(ctx)
 	id := stringFromConfig(args.Config, dockerconn.ResourceKey, "")
 	if id == "" {
 		return args, nil
 	}
-	if s.resources == nil {
+	if lookup == nil {
 		return args, externalConnectorError(args, ExternalConnectorUnavailable, fmt.Errorf("no resource configuration is loaded, so docker resource %q cannot be resolved", id))
 	}
-	def, ok := s.resources(id)
+	def, ok := lookup(id)
 	if !ok {
 		return args, externalConnectorError(args, ExternalConnectorInvalidArgs, fmt.Errorf("resource %q not found in config; run `cerberus resource list` to see available resources", id))
 	}

@@ -182,8 +182,8 @@ func TestDockerRefusalsSurviveRedaction(t *testing.T) {
 	})
 	svc := NewExternalConnectorService(audit.NewMemory(), connector.NewRegistry())
 	svc.SetResourceLookup(dockerTestResources())
-	_, notDocker := svc.resolveDockerResource(ExternalConnectorOperationArgs{Connector: "docker", Operation: "start", Config: map[string]any{"resource": "host-a"}})
-	_, missing := svc.resolveDockerResource(ExternalConnectorOperationArgs{Connector: "docker", Operation: "start", Config: map[string]any{"resource": "nope"}})
+	_, notDocker := svc.resolveDockerResource(context.Background(), ExternalConnectorOperationArgs{Connector: "docker", Operation: "start", Config: map[string]any{"resource": "host-a"}})
+	_, missing := svc.resolveDockerResource(context.Background(), ExternalConnectorOperationArgs{Connector: "docker", Operation: "start", Config: map[string]any{"resource": "nope"}})
 	for _, e := range []error{err, notDocker, missing} {
 		var connErr *ExternalConnectorError
 		if !errors.As(e, &connErr) {

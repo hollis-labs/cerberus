@@ -141,7 +141,7 @@ func TestSSHRefusalsSurviveRedaction(t *testing.T) {
 		args := ExternalConnectorOperationArgs{Connector: "ssh", Operation: "exec", Config: cfg}
 		err := checkFromSurface(SurfaceInProcess, args)
 		if err == nil {
-			_, err = svc.resolveSSHTarget(args)
+			_, err = svc.resolveSSHTarget(context.Background(), args)
 		}
 		var connErr *ExternalConnectorError
 		if !errors.As(err, &connErr) {
