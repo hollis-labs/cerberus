@@ -39,7 +39,7 @@ func TestDockerToolsNeverSendAdHocTargets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &capturingDockerClient{}
 			args := map[string]interface{}{
-				"docker_host":    "ssh://operator@host-a",
+				"docker_host":    "ssh://alice@host-a",
 				"docker_context": "azure-dev",
 				"compose_file":   "/tmp/evil.yml",
 			}

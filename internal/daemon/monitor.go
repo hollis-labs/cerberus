@@ -332,23 +332,23 @@ func (m *Monitor) checkService(ctx context.Context, svc *service.ManagedService)
 
 // alert handles all three layers of alerting when a service exceeds max restart attempts:
 // 1. Structured log (already emitted by caller)
-// 2. app-h API notification
+// 2. App H API notification
 // 3. Fallback alert file
 func (m *Monitor) alert(serviceID string, failureCount int, lastError string) {
 	now := time.Now()
 
-	// Layer 2: app-h notification
-	volonOK := m.sendVolonAlert(serviceID, failureCount, lastError)
+	// Layer 2: App H notification
+	notifiedOK := m.sendNotificationAlert(serviceID, failureCount, lastError)
 
-	// Layer 3: Fallback alert file (always written if app-h failed or was skipped)
-	if !volonOK {
+	// Layer 3: Fallback alert file (always written if App H failed or was skipped)
+	if !notifiedOK {
 		m.writeAlertFile(serviceID, failureCount, lastError, now)
 	}
 }
 
-// sendVolonAlert attempts to POST a notification to the app-h API.
+// sendNotificationAlert attempts to POST a notification to the App H API.
 // Returns true if the POST succeeded (2xx), false otherwise.
-func (m *Monitor) sendVolonAlert(serviceID string, failureCount int, lastError string) bool {
+func (m *Monitor) sendNotificationAlert(serviceID string, failureCount int, lastError string) bool {
 	payload := map[string]interface{}{
 		"task_id":  "",
 		"kind":     "cerberus-alert",
@@ -358,24 +358,24 @@ func (m *Monitor) sendVolonAlert(serviceID string, failureCount int, lastError s
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		m.logger.Warn("daemon.monitor.alert.volon_marshal_failed", "error", err.Error())
+		m.logger.Warn("daemon.monitor.alert.notify_marshal_failed", "error", err.Error())
 		return false
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Post("http://127.0.0.1:8085/v1/notifications", "application/json", bytes.NewReader(body))
 	if err != nil {
-		m.logger.Warn("daemon.monitor.alert.volon_failed", "service_id", serviceID, "error", err.Error())
+		m.logger.Warn("daemon.monitor.alert.notify_failed", "service_id", serviceID, "error", err.Error())
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		m.logger.Info("daemon.monitor.alert.volon_sent", "service_id", serviceID, "status", resp.StatusCode)
+		m.logger.Info("daemon.monitor.alert.notify_sent", "service_id", serviceID, "status", resp.StatusCode)
 		return true
 	}
 
-	m.logger.Warn("daemon.monitor.alert.volon_rejected", "service_id", serviceID, "status", resp.StatusCode)
+	m.logger.Warn("daemon.monitor.alert.notify_rejected", "service_id", serviceID, "status", resp.StatusCode)
 	return false
 }
 

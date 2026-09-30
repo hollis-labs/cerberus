@@ -380,10 +380,10 @@ func TestResourceStatusTool_ViaSocket_ReturnsRuntimeMetadata(t *testing.T) {
 version: 2
 projects:
   - id: app-h
-    name: app-h
+    name: App H
 resources:
   - id: app-h-api
-    name: app-h API
+    name: App H API
     type: process
     project: app-h
     connector: local

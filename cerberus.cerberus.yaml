@@ -23,7 +23,7 @@ resources:
       - uat
       - v2
     config:
-      dir: /Users/me/dev/hollis-labs/apps/cerberus
+      dir: /Users/me/src/cerberus
       build_strategy:
         kind: go_standard
         source:
@@ -53,7 +53,7 @@ resources:
       - launchd
       - v2
     config:
-      dir: /Users/me/dev/hollis-labs/apps/cerberus
+      dir: /Users/me/src/cerberus
       # `make all` builds the web/ React bundle into internal/webui/dist
       # (gitignored) and then the binary, so the embedded web UI is never
       # stale or blank — a plain go build would embed whatever dist exists.
@@ -61,7 +61,7 @@ resources:
         kind: make_standard
         rules:
           target: all
-          # Makefile builds to bin/cerberus (app-d-style install layout from
+          # Makefile builds to bin/cerberus (the conventional install layout from
           # PR #14); without this `output:` cerberus falls back to command[0]
           # (./cerberus at project root) and the install step can't find the
           # binary to sync.
@@ -86,7 +86,7 @@ resources:
       - artifact
       - self-hosted
     config:
-      dir: /Users/me/dev/hollis-labs/apps/cerberus
+      dir: /Users/me/src/cerberus
       build_strategy:
         kind: go_standard
         source:
@@ -111,7 +111,7 @@ pipelines:
       - name: verify
         actions:
           - type: shell
-            dir: /Users/me/dev/hollis-labs/apps/cerberus
+            dir: /Users/me/src/cerberus
             command: |
               go test ./cmd/cerberus
       - name: deploy
@@ -126,7 +126,7 @@ pipelines:
       - name: verify
         actions:
           - type: shell
-            dir: /Users/me/dev/hollis-labs/apps/cerberus
+            dir: /Users/me/src/cerberus
             command: |
               git status --short
               go test ./cmd/cerberus
@@ -139,11 +139,10 @@ pipelines:
         depends_on: [package]
         actions:
           - type: shell
-            dir: /Users/me/dev/hollis-labs/apps/cerberus
+            dir: /Users/me/src/cerberus
             command: |
               : "${VERSION:?set VERSION, for example VERSION=0.3.0-beta.1}"
               ls -la dist
               test -f dist/checksums.txt
               tar -tzf "dist/cerberus_${VERSION}_darwin_arm64.tar.gz"
               tar -tzf "dist/cerberus_${VERSION}_darwin_amd64.tar.gz"
-registry_urn: msg://agent/directory/prj_wpn7mdxdgn

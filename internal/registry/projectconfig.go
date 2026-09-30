@@ -39,7 +39,7 @@ const (
 	DefaultNamespace = "local"
 
 	// FileSuffix is the conventional suffix for every Cerberus config
-	// file. The basename is free (e.g. app-e.cerberus.yaml) so apps can
+	// file. The basename is free (e.g. foxtrot.cerberus.yaml) so apps can
 	// name a config after the project it describes.
 	FileSuffix = ".cerberus.yaml"
 )
@@ -69,7 +69,7 @@ type ProjectConfig struct {
 	Namespace string `yaml:"namespace,omitempty"`
 
 	// RegistryURN is the optional shared-directory identity written back
-	// by app-b's cross-substrate registry bootstrap. Cerberus treats it
+	// by a shared-directory registry bootstrap. Cerberus treats it
 	// as metadata only: local runtime ownership remains with the app-owned
 	// config and Cerberus's local pointer registry.
 	RegistryURN string `yaml:"registry_urn,omitempty"`

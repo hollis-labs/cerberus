@@ -10,16 +10,16 @@ import (
 )
 
 func TestHumanAccountsFromDirectoryServices(t *testing.T) {
-	uids := []byte("_www 70\noperator 501\nguest 201\nalex 502\nbuild 503\nroot 0\n_spotlight 89\nrestricted 504\n")
-	shells := []byte("_www /usr/bin/false\noperator /bin/zsh\nguest /bin/zsh\nalex /bin/zsh\nbuild /usr/bin/false\nroot /bin/sh\nrestricted /sbin/nologin\n")
-	if got := dsclHumanAccounts(uids, shells, "operator"); !reflect.DeepEqual(got, []string{"alex"}) {
+	uids := []byte("_www 70\nalice 501\nguest 201\nalex 502\nbuild 503\nroot 0\n_spotlight 89\nrestricted 504\n")
+	shells := []byte("_www /usr/bin/false\nalice /bin/zsh\nguest /bin/zsh\nalex /bin/zsh\nbuild /usr/bin/false\nroot /bin/sh\nrestricted /sbin/nologin\n")
+	if got := dsclHumanAccounts(uids, shells, "alice"); !reflect.DeepEqual(got, []string{"alex"}) {
 		t.Fatalf("got %v", got)
 	}
 }
 
 func TestHumanAccountsFromPasswd(t *testing.T) {
-	passwd := []byte("root:x:0:0:root:/root:/bin/bash\nme:x:1000:1000::/home/me:/bin/bash\nsam:x:1001:1001::/home/sam:/bin/zsh\nsvc:x:1002:1002::/:/usr/sbin/nologin\nnobody:x:65534:65534::/:/bin/sh\n# comment\n")
-	if got := passwdHumanAccounts(passwd, "me"); !reflect.DeepEqual(got, []string{"sam"}) {
+	passwd := []byte("root:x:0:0:root:/root:/bin/bash\nme:x:1000:1000::/home/me:/bin/bash\nuser:x:1001:1001::/home/user:/bin/zsh\nsvc:x:1002:1002::/:/usr/sbin/nologin\nnobody:x:65534:65534::/:/bin/sh\n# comment\n")
+	if got := passwdHumanAccounts(passwd, "me"); !reflect.DeepEqual(got, []string{"user"}) {
 		t.Fatalf("got %v", got)
 	}
 }

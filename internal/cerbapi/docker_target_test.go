@@ -20,8 +20,8 @@ import (
 // documents, one on a remote daemon, and a plain container.
 func dockerTestResources() ResourceLookup {
 	return ConfigResourceLookup(&config.ConfigV2{Version: 2, Resources: []config.ResourceDef{
-		{ID: "web-monitor", Name: "web Monitor", Type: "container", Connector: "docker",
-			Config: map[string]any{"compose_file": "/srv/web/docker-compose.yml"}},
+		{ID: "web-monitor", Name: "Web Monitor", Type: "container", Connector: "docker",
+			Config: map[string]any{"compose_file": "/srv/web-monitor/docker-compose.yml"}},
 		{ID: "remote-stack", Type: "container", Connector: "docker",
 			Config: map[string]any{"compose_file": "/srv/app/compose.yml", "host": "ssh://ops@docker-host"}},
 		{ID: "single", Type: "container", Connector: "docker",
@@ -51,7 +51,7 @@ func TestDockerUpByResourceIDOverSocket(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("up by id: %v", err)
 	}
-	if backend.upFile != "/srv/web/docker-compose.yml" || !backend.target.IsZero() {
+	if backend.upFile != "/srv/web-monitor/docker-compose.yml" || !backend.target.IsZero() {
 		t.Fatalf("compose up ran %q on %+v, want the declared file on the local daemon", backend.upFile, backend.target)
 	}
 
@@ -60,7 +60,7 @@ func TestDockerUpByResourceIDOverSocket(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("down by id: %v", err)
 	}
-	if backend.stopFile != "/srv/web/docker-compose.yml" {
+	if backend.stopFile != "/srv/web-monitor/docker-compose.yml" {
 		t.Fatalf("compose stop ran %q, want the declared file", backend.stopFile)
 	}
 }

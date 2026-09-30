@@ -1,6 +1,6 @@
 // Package selfexec watches the running binary's inode + mtime. If the binary
 // is replaced on disk, the current process self-terminates with exit code 0
-// so its parent (Claude Code, app-a, Carrier, any MCP host) can respawn it
+// so its parent (Claude Code, App A, Carrier, any MCP host) can respawn it
 // cleanly against the new binary on the next tool call.
 //
 // # Why this exists
@@ -42,6 +42,6 @@
 // # Rollout
 //
 // Cerberus's `cerberus mcp` subprocess wires this in cmd/cerberus/cmd_mcp.go.
-// Other portfolio repos (demo, app-a, future MCP services) can adopt
+// Other portfolio repos (Demo, App A, future MCP services) can adopt
 // the same three-line pattern by importing this package.
 package selfexec

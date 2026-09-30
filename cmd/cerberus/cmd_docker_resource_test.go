@@ -16,7 +16,7 @@ project:
   name: Demo
 resources:
   - id: web-monitor
-    name: web Monitor
+    name: Web Monitor
     type: container
     connector: docker
     config:
@@ -31,7 +31,7 @@ resources:
     connector: ssh
     config:
       host: host-a.example.com
-      user: operator
+      user: alice
 `
 
 // dockerTestCommand builds a command carrying the flags the real docker
@@ -119,7 +119,7 @@ func TestDockerOperationConfigLetsFlagsBeatTheDeclaration(t *testing.T) {
 	if err := cmd.Flags().Set("file", "/tmp/override-compose.yml"); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmd.Flags().Set("host", "ssh://operator@host-a"); err != nil {
+	if err := cmd.Flags().Set("host", "ssh://alice@host-a"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,7 +136,7 @@ func TestDockerOperationConfigLetsFlagsBeatTheDeclaration(t *testing.T) {
 	if cfg["compose_file"] != "/tmp/override-compose.yml" {
 		t.Fatalf("compose_file = %#v, want the -f override", cfg["compose_file"])
 	}
-	if cfg["host"] != "ssh://operator@host-a" {
+	if cfg["host"] != "ssh://alice@host-a" {
 		t.Fatalf("host = %#v, want the --host override", cfg["host"])
 	}
 }

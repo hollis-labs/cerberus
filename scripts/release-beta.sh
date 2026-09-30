@@ -61,7 +61,7 @@ for target in "${TARGETS[@]}"; do
       -o "${work_dir}/cerberus" ./cmd/cerberus
   )
 
-  # Stage README + LICENSE alongside the binary, matching app-d's layout.
+  # Stage README + LICENSE alongside the binary, the conventional release layout.
   cp "${REPO_ROOT}/README.md" "${REPO_ROOT}/LICENSE" "${work_dir}/"
 
   tar -C "${work_dir}" -czf "${archive_path}" cerberus README.md LICENSE

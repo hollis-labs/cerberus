@@ -18,7 +18,7 @@
 //  3. Sending SIGTERM with a short grace window, then SIGKILL to any
 //     survivors (KillAndWait).
 //
-// The expectation is that the parent of each killed subprocess (app-a,
+// The expectation is that the parent of each killed subprocess (App A,
 // Claude Code, etc.) will respawn the subprocess on its next tool call —
 // at which point it picks up the freshly-installed binary.
 //

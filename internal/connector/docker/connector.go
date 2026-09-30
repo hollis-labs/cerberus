@@ -49,7 +49,7 @@ func NewWithBackend(b Backend) *Connector {
 //
 // Callers select the host per operation rather than per process: the admin lane
 // resolves this connector on every call and reads the target from that call's
-// config, so one daemon administers the Azure box and the work host without
+// config, so one daemon administers a cloud dev box and a remote host without
 // either becoming a default the next call inherits.
 func (c *Connector) WithTarget(target Target) *Connector {
 	if target.IsZero() {

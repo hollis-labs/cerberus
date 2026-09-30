@@ -209,11 +209,11 @@ func TestExternalConnectorServiceRoutesDockerOperationsToTheRequestedHost(t *tes
 	if _, err := svc.Execute(WithCallerSurface(context.Background(), SurfaceInProcess), ExternalConnectorOperationArgs{
 		Connector: "docker",
 		Operation: "list_containers",
-		Config:    map[string]any{"host": "ssh://operator@host-a"},
+		Config:    map[string]any{"host": "ssh://alice@host-a"},
 	}); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if backend.target.Host != "ssh://operator@host-a" {
+	if backend.target.Host != "ssh://alice@host-a" {
 		t.Fatalf("backend target = %#v, want the requested host", backend.target)
 	}
 

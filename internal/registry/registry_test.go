@@ -12,17 +12,17 @@ const validProjectConfigYAML = `kind: cerberus-project/v1
 owner: demo
 project:
   id: demo
-  name: demo
+  name: Demo
 resources:
   - id: demo-api
-    name: demo API
+    name: Demo API
     type: process
     connector: local
     project: demo
     config:
       port: 8080
   - id: demo-worker
-    name: demo Worker
+    name: Demo Worker
     type: process
     connector: local
     project: demo
@@ -80,11 +80,11 @@ func TestLoadProjectConfigRecordsUnknownField(t *testing.T) {
 
 func TestLoadProjectConfigAcceptsRegistryURN(t *testing.T) {
 	pc, err := LoadProjectConfig(writeFile(t, "demo.cerberus.yaml",
-		validProjectConfigYAML+"registry_urn: msg://project/directory/prj_clockwork\n"))
+		validProjectConfigYAML+"registry_urn: msg://project/directory/prj_demo\n"))
 	if err != nil {
 		t.Fatalf("LoadProjectConfig: %v", err)
 	}
-	if pc.RegistryURN != "msg://project/directory/prj_clockwork" {
+	if pc.RegistryURN != "msg://project/directory/prj_demo" {
 		t.Fatalf("registry_urn = %q, want shared URN", pc.RegistryURN)
 	}
 }
@@ -197,7 +197,7 @@ func TestValidateProjectConfigLegacyBuildIsWarning(t *testing.T) {
 func TestLoadBundleResolvesRelativePaths(t *testing.T) {
 	dir := t.TempDir()
 	manifest := filepath.Join(dir, DefaultBundleFilename)
-	content := "kind: cerberus-bundle/v1\nprojects:\n  - ./app-e.cerberus.yaml\n  - /abs/demo.cerberus.yaml\n"
+	content := "kind: cerberus-bundle/v1\nprojects:\n  - ./foxtrot.cerberus.yaml\n  - /abs/demo.cerberus.yaml\n"
 	if err := os.WriteFile(manifest, []byte(content), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestLoadBundleResolvesRelativePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadBundle: %v", err)
 	}
-	want := filepath.Join(dir, "app-e.cerberus.yaml")
+	want := filepath.Join(dir, "foxtrot.cerberus.yaml")
 	if bundle.Projects[0] != want {
 		t.Errorf("relative path = %q, want %q", bundle.Projects[0], want)
 	}
@@ -256,10 +256,10 @@ func newValidProjectConfig() *ProjectConfig {
 		Kind:      ProjectConfigKind,
 		Owner:     "demo",
 		Namespace: DefaultNamespace,
-		Project:   config.ProjectDef{ID: "demo", Name: "demo"},
+		Project:   config.ProjectDef{ID: "demo", Name: "Demo"},
 		Resources: []config.ResourceDef{
-			{ID: "demo-api", Name: "demo API", Type: "process", Connector: "local", Project: "demo"},
-			{ID: "demo-worker", Name: "demo Worker", Type: "process", Connector: "local", Project: "demo"},
+			{ID: "demo-api", Name: "Demo API", Type: "process", Connector: "local", Project: "demo"},
+			{ID: "demo-worker", Name: "Demo Worker", Type: "process", Connector: "local", Project: "demo"},
 		},
 	}
 }

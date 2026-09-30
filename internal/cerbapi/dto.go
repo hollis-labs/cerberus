@@ -300,15 +300,15 @@ func (d ResolveDiagnostics) Clean() bool { return d.Skipped == 0 && d.Warned == 
 
 // ProjectInfo is the DTO for project-list responses.
 type ProjectInfo struct {
-	// ID is the portfolio-wide project slug — the value app-k and
-	// anything else joins on. See config.ProjectDef.
+	// ID is the portfolio-wide project slug — the value other systems
+	// join on. See config.ProjectDef.
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Resources   int    `json:"resource_count"`
 	// Capabilities and Links are the app-owned portable props, carried
 	// verbatim from the project config. config.Link is reused rather
-	// than remapped so the JSON is literally app-b's registry shape.
+	// than remapped so the JSON is literally the registry shape it mirrors.
 	Capabilities []string      `json:"capabilities,omitempty"`
 	Links        []config.Link `json:"links,omitempty"`
 }

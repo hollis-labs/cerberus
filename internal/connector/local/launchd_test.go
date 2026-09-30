@@ -178,13 +178,13 @@ func TestLaunchdBackendStartIncludesEnvFileInPlist(t *testing.T) {
 	}
 
 	runner := &fakeCommandRunner{out: map[string][]byte{}, err: map[string]error{}}
-	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.acme-conduit.conduit-api-service")
+	setLaunchdPrintNotFound(runner, "com.fragments-engine.cerberus.acme-relay.relay-api-service")
 	backend := launchdBackend{
 		runner:  runner,
 		homeDir: func() (string, error) { return tmp, nil },
 		uid:     func() int { return 501 },
 	}
-	res := &domain.Resource{ID: "conduit-api-service", ProjectID: "acme-conduit"}
+	res := &domain.Resource{ID: "relay-api-service", ProjectID: "acme-relay"}
 	spec := ProcessSpec{
 		Mode:       ProcessModeOSService,
 		Supervisor: ProcessSupervisorLaunchd,
@@ -193,7 +193,7 @@ func TestLaunchdBackendStartIncludesEnvFileInPlist(t *testing.T) {
 		Command:    []string{"./contextd", "serve", "--addr", ":8089"},
 		EnvFile:    ".env",
 		Env: map[string]string{
-			"CONTEXTD_ROOT": "/Users/me/.conduit",
+			"CONTEXTD_ROOT": "/Users/me/.relay",
 		},
 	}
 
@@ -201,7 +201,7 @@ func TestLaunchdBackendStartIncludesEnvFileInPlist(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.acme-conduit.conduit-api-service.plist")
+	plistPath := filepath.Join(tmp, "Library", "LaunchAgents", "com.fragments-engine.cerberus.acme-relay.relay-api-service.plist")
 	data, err := os.ReadFile(plistPath) //nolint:gosec // test path is constructed in temp dir
 	if err != nil {
 		t.Fatalf("read plist: %v", err)
@@ -211,7 +211,7 @@ func TestLaunchdBackendStartIncludesEnvFileInPlist(t *testing.T) {
 		"<key>OPENAI_API_KEY</key>",
 		"<string>from-dotenv</string>",
 		"<key>CONTEXTD_ROOT</key>",
-		"<string>/Users/me/.conduit</string>",
+		"<string>/Users/me/.relay</string>",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("plist missing %q:\n%s", needle, text)

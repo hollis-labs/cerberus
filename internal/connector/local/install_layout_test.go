@@ -30,8 +30,8 @@ func TestDefaultInstallLayout(t *testing.T) {
 
 func TestDefaultInstallLayoutHonorsOverrides(t *testing.T) {
 	layout, err := DefaultInstallLayout("/Users/me", &domain.Resource{
-		ID:        "app-h API",
-		ProjectID: "app-h UI",
+		ID:        "App H API",
+		ProjectID: "App H UI",
 	}, ProcessSpec{
 		ServiceName:    "com.example.app-h.api",
 		ArtifactPath:   "/tmp/artifact/app-h-api",
@@ -58,7 +58,7 @@ func TestDefaultInstallLayoutHonorsOverrides(t *testing.T) {
 }
 
 func TestSanitizeSlug(t *testing.T) {
-	if got := sanitizeSlug("app-h UI/API"); got != "app-h-ui-api" {
+	if got := sanitizeSlug("App H UI/API"); got != "app-h-ui-api" {
 		t.Fatalf("sanitizeSlug = %q", got)
 	}
 }
