@@ -2,8 +2,9 @@ package secrets
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/zalando/go-keyring"
@@ -29,42 +30,62 @@ func NewKeychainProviderWithService(serviceName string) *KeychainProvider {
 // 1. Environment variable CERBERUS_<SERVICE>_<KEY> (uppercase, hyphens to underscores)
 // 2. OS keychain via go-keyring
 // 3. Returns empty string and nil error if not found
+//
+// A store that is not there at all (no Secret Service on a headless Linux
+// box, a locked or refusing keychain) is not "not found": it is a
+// *StoreUnavailableError, credential_missing naming the fix.
 func (k *KeychainProvider) Get(_ context.Context, service, key string) (string, error) {
 	// Check environment variable first.
 	envKey := envVarName(service, key)
 	if val := os.Getenv(envKey); val != "" {
 		return val, nil
 	}
+	if err := realStoreGuard(); err != nil {
+		return "", err
+	}
 
 	// Check OS keychain.
 	user := service + "/" + key
 	secret, err := keyring.Get(k.serviceName, user)
 	if err != nil {
-		if err == keyring.ErrNotFound { //nolint:errorlint
+		if errors.Is(err, keyring.ErrNotFound) {
 			return "", nil
 		}
-		return "", fmt.Errorf("keychain get %s/%s: %w", service, key, err)
+		return "", &StoreUnavailableError{Op: "read", Name: user, Cause: err}
 	}
 	return secret, nil
 }
 
-// Set stores a secret in the OS keychain.
+// Set stores a secret in the OS keychain. A value over the platform's limit
+// is refused before the store is touched, with the limit named.
 func (k *KeychainProvider) Set(_ context.Context, service, key, value string) error {
 	user := service + "/" + key
+	if err := CheckStoreLimit(k.serviceName, user, value); err != nil {
+		return err
+	}
+	if err := realStoreGuard(); err != nil {
+		return err
+	}
 	if err := keyring.Set(k.serviceName, user, value); err != nil {
-		return fmt.Errorf("keychain set %s/%s: %w", service, key, err)
+		if errors.Is(err, keyring.ErrSetDataTooBig) {
+			return &StoreLimitError{Name: user, Bytes: len(value), Platform: runtime.GOOS}
+		}
+		return &StoreUnavailableError{Op: "write", Name: user, Cause: err}
 	}
 	return nil
 }
 
 // Delete removes a secret from the OS keychain.
 func (k *KeychainProvider) Delete(_ context.Context, service, key string) error {
+	if err := realStoreGuard(); err != nil {
+		return err
+	}
 	user := service + "/" + key
 	if err := keyring.Delete(k.serviceName, user); err != nil {
-		if err == keyring.ErrNotFound { //nolint:errorlint
+		if errors.Is(err, keyring.ErrNotFound) {
 			return nil
 		}
-		return fmt.Errorf("keychain delete %s/%s: %w", service, key, err)
+		return &StoreUnavailableError{Op: "delete", Name: user, Cause: err}
 	}
 	return nil
 }

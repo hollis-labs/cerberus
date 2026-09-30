@@ -13,6 +13,29 @@ The OS credential store is the macOS Keychain, the Windows Credential Manager or
 the Linux Secret Service. `keyring://` and `keychain://` name the same entry and
 behave identically; `keychain://` is kept for good.
 
+**When the store is not there.** On a headless Linux machine, or in a systemd
+user unit, no Secret Service answers on the D-Bus session bus. A locked
+keychain can also refuse, and a Windows process that is not the signed-in user
+cannot reach that user's Credential Manager. Any of these is
+`credential_missing` naming what makes the store available, never an empty
+value that looks like a missing entry. A credential in its
+`CERBERUS_<CONNECTOR>_<KEY>` environment variable still works without a store.
+The headless-Linux plan (systemd credentials, never plaintext) is CERB-GAP-904.
+
+**Size limits.** The store refuses a large value, and Cerberus refuses it first,
+naming the limit:
+
+| Platform | Limit |
+|---|---|
+| Windows | 2560 bytes |
+| macOS | about 3000 bytes |
+| Linux | 100 KiB, as a sanity bound |
+
+A Keeper configuration or a 1Password service account token is about 1 KB.
+
+**Tests never touch the real store.** A test binary that reaches it without
+calling `secrets.MockStoreForTests()` from `TestMain` is refused.
+
 When any env value is a reference, `writePlist` fronts the service with
 `cerberus run-secrets -- <program> …`. That shim resolves the references in the
 service's own process and `execve`s the target, so launchd still supervises the
