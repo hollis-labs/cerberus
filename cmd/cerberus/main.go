@@ -8,6 +8,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/spf13/cobra"
@@ -35,6 +36,14 @@ func appOptions() app.Options {
 }
 
 func main() {
+	// The plugin shim (P5-d): set a plugin's rlimits and exec it. It runs
+	// before anything else, so no config, HOME or daemon is touched on the
+	// way to the plugin.
+	if len(os.Args) > 1 && os.Args[1] == pluginhost.PluginExecCommand {
+		err := pluginhost.RunPluginExec(os.Args[2:], os.Environ())
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(127)
+	}
 	if err := rootCmd.Execute(); err != nil {
 		// A pre-rendered error — rendered where it was made, here or by a
 		// daemon that said so — keeps its prose; anything else gets the

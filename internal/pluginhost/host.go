@@ -64,4 +64,7 @@ type OperationResult struct {
 	Connector string `json:"connector"`
 	Operation string `json:"operation"`
 	Data      any    `json:"data"`
+	// OutputCap says the result was over the plugin's cap and what the host
+	// did about it (P5-d); nil when it was not.
+	OutputCap *OutputCap `json:"output_cap,omitempty"`
 }

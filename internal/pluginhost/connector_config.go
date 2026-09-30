@@ -39,6 +39,9 @@ const ConnectorConfigFilename = "connector-config.yaml"
 type PluginSettings struct {
 	Fields map[string]any `yaml:"fields"`
 	MCP    MCPSettings    `yaml:"mcp"`
+	// Limits override the host's deadlines and resource limits for this
+	// plugin (P5-d), within the host maximums.
+	Limits *LimitSettings `yaml:"limits"`
 }
 
 // MCPSettings is the plugin's MCP exposure: the operations, by name, whose
@@ -116,6 +119,9 @@ type ResolvedSettings struct {
 	Problems []string
 	SHA256   string
 	Warnings []string
+	// Limits are the plugin's deadlines and resource limits: the defaults,
+	// with this file's limits applied and clamped.
+	Limits Limits
 }
 
 // ForPlugin checks the plugin's entry against its manifest: only declared
@@ -123,9 +129,15 @@ type ResolvedSettings struct {
 // only declared operations in mcp.expose.
 func (c ConnectorConfig) ForPlugin(plugin InstalledPlugin) ResolvedSettings {
 	out := ResolvedSettings{Config: map[string]string{}, Fields: []string{}, Expose: []string{}, Problems: []string{}, SHA256: c.SHA256, Warnings: append([]string(nil), c.Warnings...)}
+	out.Limits, _ = ClampLimits(nil)
 	entry, ok := c.Entries[plugin.ID]
 	if !ok {
 		return out
+	}
+	var clamped []string
+	out.Limits, clamped = ClampLimits(entry.Limits)
+	for _, w := range clamped {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("plugin %q: %s", plugin.ID, w))
 	}
 
 	declared := map[string]contract.ConfigField{}
@@ -189,6 +201,13 @@ func (c ConnectorConfig) ForPlugin(plugin InstalledPlugin) ResolvedSettings {
 		}
 	}
 	sort.Strings(out.Expose)
+	if entry.Limits != nil {
+		for name := range entry.Limits.Operations {
+			if !ops[name] {
+				out.Problems = append(out.Problems, fmt.Sprintf("limits.operations names %q, which the plugin does not declare (operations: %s)", name, joinOrNone(opNames)))
+			}
+		}
+	}
 	return out
 }
 

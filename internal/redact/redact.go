@@ -117,7 +117,17 @@ var errorCodes = map[string]bool{
 	"approval_pending":        true,
 	"approval_expired":        true,
 	"plan_stale":              true,
+	"egress_refused":          true,
+	"lockdown":                true,
+	"frozen":                  true,
+	"session_suspended":       true,
+	"deadline_exceeded":       true,
+	"output_too_large":        true,
 }
+
+// IsErrorCode reports whether code is one of Cerberus's own error codes,
+// which redaction leaves alone (a test holds this list to the vocabulary).
+func IsErrorCode(code string) bool { return errorCodes[code] }
 
 // isErrorCode reports whether an assignment rule's captured key is really a
 // Cerberus error code in rendered prose rather than a key with a value.

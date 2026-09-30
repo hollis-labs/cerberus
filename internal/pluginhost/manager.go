@@ -7,6 +7,7 @@ import (
 	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
@@ -52,6 +53,43 @@ type Manager struct {
 
 	installed map[string]InstalledPlugin
 	running   map[string]*loadedPlugin
+
+	// loading holds a plugin being started, so a second load of it waits
+	// for the first and no lock is held across the plugin's own calls.
+	loading map[string]chan struct{}
+	loadErr map[string]error
+
+	sup     supervision
+	observe func(RestartEvent)
+	// Test seams: the clock, the backoff's sleep and delays, the memory
+	// poll and its interval.
+	now            func() time.Time
+	sleepFn        func(time.Duration)
+	restartDelays  []time.Duration
+	rssFn          func(int) (int64, error)
+	memoryInterval time.Duration
+}
+
+func (m *Manager) clock() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
+}
+
+func (m *Manager) sleep(d time.Duration) {
+	if m.sleepFn != nil {
+		m.sleepFn(d)
+		return
+	}
+	time.Sleep(d)
+}
+
+func (m *Manager) rss(pgid int) (int64, error) {
+	if m.rssFn != nil {
+		return m.rssFn(pgid)
+	}
+	return groupRSS(pgid)
 }
 
 type loadedPlugin struct {
@@ -75,6 +113,14 @@ type loadedPlugin struct {
 	// stderr correlates the plugin's stderr lines with the operations
 	// running when it wrote them.
 	stderr *stderrTap
+
+	// limits are the plugin's deadlines and resource limits (P5-d).
+	limits Limits
+	// done closes, and stopReason is set, when the plugin is taken out of
+	// service: stopped by the host, or unloaded.
+	stopMu     sync.Mutex
+	stopReason string
+	done       chan struct{}
 }
 
 // ManagerOption configures a Manager. The constructor stays positional for the
@@ -136,6 +182,9 @@ func NewManager(installer Installer, launcher Launcher, hostVersion string, opts
 		installed:      make(map[string]InstalledPlugin),
 		running:        make(map[string]*loadedPlugin),
 		configProblems: make(map[string][]string),
+		loading:        make(map[string]chan struct{}),
+		loadErr:        make(map[string]error),
+		sup:            supervision{restarts: map[string][]time.Time{}, gaveUp: map[string]string{}, held: map[string]bool{}},
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -161,25 +210,80 @@ func (m *Manager) Install(ctx context.Context, source string) (InstalledPlugin, 
 }
 
 func (m *Manager) Load(ctx context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	return m.load(ctx, id, false)
+}
 
+// load starts a plugin. The manager's lock is held only to reserve the
+// slot and to install the result, never across the plugin's own calls, so a
+// plugin that hangs in Init holds up no other plugin. restart is the
+// supervisor's reload; an operator's load clears a give-up and a hold.
+func (m *Manager) load(ctx context.Context, id string, restart bool) error {
+	m.mu.Lock()
 	if _, ok := m.running[id]; ok {
+		m.mu.Unlock()
 		return nil
 	}
+	if wait, ok := m.loading[id]; ok {
+		m.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		if _, ok := m.running[id]; ok {
+			return nil
+		}
+		return m.loadErr[id]
+	}
+	plugin, settings, err := m.prepareLoad(id)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	done := make(chan struct{})
+	m.loading[id] = done
+	m.mu.Unlock()
+	if !restart {
+		m.sup.mu.Lock()
+		delete(m.sup.gaveUp, id)
+		delete(m.sup.held, id)
+		m.sup.mu.Unlock()
+	}
+
+	lp, err := m.start(ctx, id, plugin, settings)
+
+	m.mu.Lock()
+	delete(m.loading, id)
+	m.loadErr[id] = err
+	if err == nil {
+		m.running[id] = lp
+	}
+	close(done)
+	m.mu.Unlock()
+	if err == nil {
+		go m.watch(id, lp)
+	}
+	return err
+}
+
+// prepareLoad checks what can be checked before any plugin code runs.
+// Called with m.mu held.
+func (m *Manager) prepareLoad(id string) (InstalledPlugin, ResolvedSettings, error) {
 	plugin, ok := m.installed[id]
 	if !ok {
-		return fmt.Errorf("plugin %q is not installed", id)
+		return plugin, ResolvedSettings{}, fmt.Errorf("plugin %q is not installed", id)
 	}
 	if m.launcher == nil {
-		return fmt.Errorf("plugin launcher is not configured")
+		return plugin, ResolvedSettings{}, fmt.Errorf("plugin launcher is not configured")
 	}
 
 	// The bundle is checked before anything else runs: a plugin that is not
 	// the one the operator reviewed, or was built for another contract, is
 	// refused before its code starts.
 	if err := m.CheckBundle(plugin); err != nil {
-		return err
+		return plugin, ResolvedSettings{}, err
 	}
 
 	// Settings are checked before the subprocess starts. A problem refuses
@@ -187,18 +291,30 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 	// the plugin acting on its default instead, which is the worse failure.
 	settings, err := m.resolveSettings(plugin)
 	if err != nil {
-		return err
+		return plugin, ResolvedSettings{}, err
 	}
 
 	// Decided once, here, and used for both the environment the subprocess is
 	// launched with and the granted list it is told about. A plugin that
 	// declared nothing gets nothing.
 	plugin.Granted = GrantCapabilities(plugin.Spec.Capabilities)
+	return plugin, settings, nil
+}
 
+// start launches, initializes and loads a plugin, each call under its
+// deadline. A missed deadline kills the plugin's process group.
+func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, settings ResolvedSettings) (*loadedPlugin, error) {
+	limits := settings.Limits
+	if limits.Init == 0 {
+		limits, _ = ClampLimits(nil)
+	}
 	tap := newStderrTap()
-	process, err := m.launcher.Launch(withStderrTap(ctx, tap), plugin)
+	tap.setPlugin(id)
+	// The launch context carries the stderr tap and the process limits.
+	// The process outlives it: nothing here binds the plugin's life to ctx.
+	process, err := m.launcher.Launch(withLaunchLimits(withStderrTap(ctx, tap), limits), plugin)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// The plugin's declared credentials are resolved host-side and travel in
@@ -221,33 +337,45 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		initConfig[name] = value
 	}
 
-	initResult, err := process.Init(ctx, SDKInitParams{
+	initCtx, cancelInit := context.WithTimeout(ctx, limits.Init)
+	initResult, err := process.Init(initCtx, SDKInitParams{
 		PluginDir: plugin.Path,
 		Config:    initConfig,
 		LogLevel:  "info",
 		HostInfo:  m.hostInfo,
 		Granted:   plugin.Granted,
 	})
+	missed := errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
+	cancelInit()
 	if err != nil {
-		_ = process.Close()
+		kill(process)
+		if missed {
+			return nil, &DeadlineError{Connector: id, Phase: "init", Timeout: limits.Init}
+		}
 		// Redacted, not wrapped: this error text originates in the plugin, and
 		// the payload it just received carries credentials. A plugin that
 		// echoes its init params into an error must not launder them into the
 		// daemon log.
-		return fmt.Errorf("plugin %q init: %s", id, redactor.Text(err.Error()))
+		return nil, fmt.Errorf("plugin %q init: %s", id, redactor.Text(err.Error()))
 	}
 	if initResult.Protocol != SDKProtocolVersion {
-		_ = process.Close()
-		return fmt.Errorf("plugin %q protocol %d does not match host protocol %d", id, initResult.Protocol, SDKProtocolVersion)
+		kill(process)
+		return nil, fmt.Errorf("plugin %q protocol %d does not match host protocol %d", id, initResult.Protocol, SDKProtocolVersion)
 	}
 
-	loadResult, err := process.Load(ctx)
+	loadCtx, cancelLoad := context.WithTimeout(ctx, limits.Load)
+	loadResult, err := process.Load(loadCtx)
+	missed = errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
+	cancelLoad()
 	if err != nil {
-		_ = process.Close()
-		return fmt.Errorf("plugin %q load: %w", id, redactor.Error(err))
+		kill(process)
+		if missed {
+			return nil, &DeadlineError{Connector: id, Phase: "load", Timeout: limits.Load}
+		}
+		return nil, fmt.Errorf("plugin %q load: %w", id, redactor.Error(err))
 	}
 
-	m.running[id] = &loadedPlugin{
+	return &loadedPlugin{
 		plugin:         plugin,
 		process:        process,
 		init:           initResult,
@@ -256,8 +384,9 @@ func (m *Manager) Load(ctx context.Context, id string) error {
 		settings:       settings,
 		redactor:       redactor,
 		stderr:         tap,
-	}
-	return nil
+		limits:         limits,
+		done:           make(chan struct{}),
+	}, nil
 }
 
 // resolveSettings reads connector-config.yaml for the plugin and checks it
@@ -348,17 +477,26 @@ func (m *Manager) MissingSecrets(id string) []string {
 }
 
 func (m *Manager) Unload(ctx context.Context, id string) error {
+	m.sup.mu.Lock()
+	m.sup.held[id] = true
+	m.sup.mu.Unlock()
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	lp, ok := m.running[id]
+	delete(m.running, id)
+	m.mu.Unlock()
 	if !ok {
 		return nil
 	}
-	delete(m.running, id)
+	// Marked first, so the exit watcher does not read the exit as a crash.
+	lp.markStopped("unloaded")
 
-	if err := lp.process.Unload(ctx); err != nil {
-		_ = lp.process.Close()
+	uctx, cancel := context.WithTimeout(ctx, lp.limits.Unload)
+	defer cancel()
+	if err := lp.process.Unload(uctx); err != nil {
+		kill(lp.process)
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return &DeadlineError{Connector: id, Phase: "unload", Timeout: lp.limits.Unload}
+		}
 		return fmt.Errorf("plugin %q unload: %w", id, lp.redactor.Error(err))
 	}
 	if err := lp.process.Close(); err != nil {
@@ -373,9 +511,21 @@ func (m *Manager) Health(ctx context.Context, id string) (Health, error) {
 	m.mu.RUnlock()
 
 	if !running {
-		return Health{ID: id, Loaded: false, Healthy: false, Message: "not loaded"}, nil
+		msg := "not loaded"
+		if reason := m.GaveUp(id); reason != "" {
+			msg = fmt.Sprintf("stopped, and not restarted after %d restarts in %s (%s); load it again with `cerberus connectors plugin managed load %s`", maxRestarts, restartWindow, reason, id)
+		}
+		return Health{ID: id, Loaded: false, Healthy: false, Message: msg}, nil
 	}
-	result, err := lp.process.Health(ctx)
+	var result SDKHealthResult
+	err := m.supervisedCall(ctx, id, lp, rpcCall{Phase: "health", Name: "health", Timeout: lp.limits.Health}, func(hctx context.Context) (err error) {
+		result, err = lp.process.Health(hctx)
+		return err
+	})
+	var deadline *DeadlineError
+	if errors.As(err, &deadline) {
+		return Health{ID: id, Loaded: true, Healthy: false, Message: deadline.Error() + " and is restarting it"}, nil
+	}
 	if err != nil {
 		return Health{}, fmt.Errorf("plugin %q health: %w", id, lp.redactor.Error(err))
 	}
@@ -434,7 +584,22 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// operation's output — a success result included, which the plugin
 	// redactor below never sees — removes them.
 	redact.ScopeFrom(ctx).Merge(lp.redactor)
-	result, err := lp.process.CallTool(ctx, MCPRequestFromOperation(args))
+	effect := op.Operation().Effect
+	var result SDKMCPCallResult
+	err := m.supervisedCall(ctx, args.Connector, lp, rpcCall{Phase: "call", Name: args.Operation, Timeout: lp.limits.CallTimeout(args.Operation), Effect: effect},
+		func(callCtx context.Context) (err error) {
+			result, err = lp.process.CallTool(callCtx, MCPRequestFromOperation(args))
+			return err
+		})
+	var tooLarge *OutputTooLargeError
+	if errors.As(err, &tooLarge) && effect != contract.EffectRead && effect != contract.EffectReadSensitive {
+		return unreadableReply(args.Connector, args.Operation), nil
+	}
+	var deadline *DeadlineError
+	var stopped *StoppedError
+	if errors.As(err, &deadline) || errors.As(err, &tooLarge) || errors.As(err, &stopped) {
+		return OperationResult{}, err
+	}
 	if err == nil {
 		var events []pluginsdk.TelemetryEvent
 		result.Content, events = pluginsdk.SplitTelemetry(result.Content)
@@ -464,6 +629,9 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 			coded.MissingSecrets = append([]string(nil), lp.missingSecrets...)
 		}
 		return OperationResult{}, lp.redactor.Error(err)
+	}
+	if err := capOutput(&out, result.Content, lp.limits.MaxResultBytes, effect); err != nil {
+		return OperationResult{}, err
 	}
 	return out, nil
 }

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -205,6 +207,7 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 	// entirely. A plugin is optional by definition and must not be able to take
 	// the host with it. The entry stays in the file either way: the daemon
 	// only ever updates what it owns.
+	var toLoad []pluginhost.InstalledPlugin
 	for _, entry := range state.Entries {
 		installed, err := service.register(entry)
 		if err != nil {
@@ -215,20 +218,52 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 			service.warnf("plugin %q was installed before install review and loads unchecked until reviewed; run `cerberus connectors plugin managed review %s` in a terminal", installed.ID, installed.ID)
 		}
 		if entry.Loaded {
-			// A restart is exactly when a plugin starts new code — for a
-			// review_pending one, code nobody checked — so the load is
-			// recorded, as Cerberus acting on its own. It is never refused:
-			// an unwritable log is logged, and the plugin still loads.
-			call, _ := beginAudit(ctx, service.audit, service.logger, restoreSpec(installed))
-			err := service.manager.Load(ctx, installed.ID)
-			call.finish(managedLoadError(err))
-			if err != nil {
-				service.warnf("plugin %q installed but failed to load: %v", installed.ID, err)
-			}
+			toLoad = append(toLoad, installed)
 		}
+	}
+	// Plugins load in parallel, each bounded by its init and load
+	// deadlines (P5-d), so one that hangs costs daemon start one deadline,
+	// not the sum. They load in phases: a phase starts once the one before
+	// it has finished, for plugins others depend on at load (a secret
+	// provider, say, which restorePhase puts first).
+	phases := map[int][]pluginhost.InstalledPlugin{}
+	var order []int
+	for _, p := range toLoad {
+		n := restorePhase(p)
+		if _, ok := phases[n]; !ok {
+			order = append(order, n)
+		}
+		phases[n] = append(phases[n], p)
+	}
+	sort.Ints(order)
+	for _, n := range order {
+		var wg sync.WaitGroup
+		for _, installed := range phases[n] {
+			wg.Add(1)
+			go func(installed pluginhost.InstalledPlugin) {
+				defer wg.Done()
+				// A restart is exactly when a plugin starts new code — for a
+				// review_pending one, code nobody checked — so the load is
+				// recorded, as Cerberus acting on its own. It is never refused:
+				// an unwritable log is logged, and the plugin still loads.
+				call, _ := beginAudit(ctx, service.audit, service.logger, restoreSpec(installed))
+				err := service.manager.Load(ctx, installed.ID)
+				call.finish(managedLoadError(err))
+				if err != nil {
+					service.warnf("plugin %q installed but failed to load: %v", installed.ID, err)
+				}
+			}(installed)
+		}
+		wg.Wait()
 	}
 	return nil
 }
+
+// restorePhase orders plugin loads at daemon start: lower phases load, all
+// of them, before higher ones start. Every plugin is phase 1 today; a
+// plugin others resolve through at load (a secret provider) goes in phase
+// 0, so it is up before the plugins that need it.
+func restorePhase(pluginhost.InstalledPlugin) int { return 1 }
 
 // restoreSpec is the audit record of a plugin loaded when the daemon starts:
 // automation, with the reason, and whether the bundle was checked against

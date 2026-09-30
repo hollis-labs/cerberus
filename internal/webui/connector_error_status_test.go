@@ -80,6 +80,8 @@ func TestWebConnectorRefusalsKeepTheirStatusAndMessage(t *testing.T) {
 		cerbapi.ExternalConnectorLockdown:           http.StatusLocked,
 		cerbapi.ExternalConnectorFrozen:             http.StatusLocked,
 		cerbapi.ExternalConnectorSessionSuspended:   http.StatusLocked,
+		cerbapi.ExternalConnectorDeadlineExceeded:   http.StatusGatewayTimeout,
+		cerbapi.ExternalConnectorOutputTooLarge:     http.StatusBadGateway,
 	}
 	for _, code := range cerbapi.ExternalConnectorErrorCodes() {
 		t.Run(string(code), func(t *testing.T) {

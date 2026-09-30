@@ -1,15 +1,23 @@
 package pluginhost
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
+
+// ErrMessageTooLarge is a plugin message over MaxMessageBytes. The stream
+// cannot be resynchronized after one, so the plugin is stopped.
+var ErrMessageTooLarge = errors.New("the plugin sent a message larger than the host reads")
 
 const defaultProcessCloseTimeout = 3 * time.Second
 
@@ -87,7 +95,8 @@ func (f StdioTransportFactory) Start(ctx context.Context, cmd *exec.Cmd) (Proces
 		cmd:          cmd,
 		stdin:        stdin,
 		encoder:      json.NewEncoder(stdin),
-		decoder:      json.NewDecoder(stdout),
+		reader:       bufio.NewReaderSize(stdout, 64<<10),
+		maxMessage:   MaxMessageBytes,
 		closeTimeout: closeTimeout,
 		pending:      make(map[int64]chan callResult),
 		exited:       make(chan struct{}),
@@ -102,19 +111,23 @@ type RPCProcess struct {
 	cmd          *exec.Cmd
 	stdin        io.WriteCloser
 	encoder      *json.Encoder
-	decoder      *json.Decoder
+	reader       *bufio.Reader
+	maxMessage   int
 	closeTimeout time.Duration
 
 	writeMu   sync.Mutex
 	pendingMu sync.Mutex
 	pending   map[int64]chan callResult
 
-	nextID    int64
-	closed    atomic.Bool
-	exitErr   error
-	exitErrMu sync.RWMutex
-	exited    chan struct{}
-	failOnce  sync.Once
+	nextID int64
+	closed atomic.Bool
+	// hostKilled is set when the host killed the process, so its exit
+	// status is not reported as the plugin's failure.
+	hostKilled atomic.Bool
+	exitErr    error
+	exitErrMu  sync.RWMutex
+	exited     chan struct{}
+	failOnce   sync.Once
 }
 
 var _ Process = (*RPCProcess)(nil)
@@ -163,13 +176,50 @@ func (p *RPCProcess) Close() error {
 
 	select {
 	case <-p.exited:
-		return p.exitError()
 	case <-time.After(p.closeTimeout):
-		if p.cmd.Process != nil {
-			_ = p.cmd.Process.Kill()
-		}
+		// Past its grace period: the host stops it, which is not the
+		// plugin's error to report.
+		p.hostKilled.Store(true)
+		p.killGroup()
 		<-p.exited
-		return p.exitError()
+	}
+	// Whatever the plugin forked and left behind goes with it.
+	p.killGroup()
+	if p.hostKilled.Load() {
+		return nil
+	}
+	return p.exitError()
+}
+
+// Kill stops the plugin and every process in its group now, and waits for
+// it to be reaped.
+func (p *RPCProcess) Kill() {
+	p.closed.Store(true)
+	p.hostKilled.Store(true)
+	p.killGroup()
+	<-p.exited
+}
+
+// Exited is closed once the plugin process has exited.
+func (p *RPCProcess) Exited() <-chan struct{} { return p.exited }
+
+// ProcessGroup is the plugin's process group id, which is its pid.
+func (p *RPCProcess) ProcessGroup() int {
+	if p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
+
+func (p *RPCProcess) killGroup() {
+	if p.cmd.Process == nil {
+		return
+	}
+	// The group is the plugin's pid (Setpgid). A kill of the group reaches
+	// forked children; one that moved to its own session or group escapes,
+	// which macOS gives no way to prevent.
+	if err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL); err != nil {
+		_ = p.cmd.Process.Kill()
 	}
 }
 
@@ -234,8 +284,22 @@ func (p *RPCProcess) call(ctx context.Context, method string, params any, out an
 
 func (p *RPCProcess) readResponses() {
 	for {
+		line, err := readMessage(p.reader, p.maxMessage)
+		if err != nil {
+			if errors.Is(err, ErrMessageTooLarge) {
+				// Unrecoverable: the rest of the stream is the same message.
+				p.failAll(err)
+				p.killGroup()
+				return
+			}
+			p.failAll(fmt.Errorf("read plugin response: %w", err))
+			return
+		}
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
 		var resp rpcResponse
-		if err := p.decoder.Decode(&resp); err != nil {
+		if err := json.Unmarshal(line, &resp); err != nil {
 			p.failAll(fmt.Errorf("read plugin response: %w", err))
 			return
 		}
@@ -286,4 +350,29 @@ func (p *RPCProcess) exitError() error {
 	p.exitErrMu.RLock()
 	defer p.exitErrMu.RUnlock()
 	return p.exitErr
+}
+
+// readMessage reads one newline-framed message of at most max bytes. The
+// SDK writes one JSON value per line. Past limit it stops reading into memory
+// and reports ErrMessageTooLarge, so a flood costs the host max bytes, not
+// the flood.
+func readMessage(r *bufio.Reader, limit int) ([]byte, error) {
+	var buf []byte
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if len(buf)+len(chunk) > limit {
+			return nil, fmt.Errorf("%w (%d bytes)", ErrMessageTooLarge, limit)
+		}
+		buf = append(buf, chunk...)
+		switch {
+		case err == nil:
+			return buf, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF) && len(bytes.TrimSpace(buf)) > 0:
+			return buf, nil
+		default:
+			return nil, err
+		}
+	}
 }

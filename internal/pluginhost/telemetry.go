@@ -3,8 +3,10 @@ package pluginhost
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/pkg/plugin"
@@ -128,6 +130,47 @@ type stderrTap struct {
 	partial  []byte
 	attached map[*Collector]int
 	redactor redact.Redactor
+
+	// The daemon log's budget for this plugin (P5-d): at most
+	// stderrBudget bytes a minute go on; the rest is dropped and counted,
+	// and one marker line says how many.
+	plugin      string
+	now         func() time.Time
+	windowStart time.Time
+	windowBytes int
+	dropped     int
+}
+
+// stderrBudget is how much of a plugin's stderr reaches the daemon log per
+// minute.
+const stderrBudget = 64 << 10
+
+func (t *stderrTap) setPlugin(id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.plugin = id
+}
+
+// budget decides, under t.mu, whether line goes to the daemon log, and
+// returns a marker to write first when a window with drops has ended.
+func (t *stderrTap) budget(line string) (bool, string) {
+	now := time.Now()
+	if t.now != nil {
+		now = t.now()
+	}
+	var marker string
+	if t.windowStart.IsZero() || now.Sub(t.windowStart) >= time.Minute {
+		if t.dropped > 0 {
+			marker = fmt.Sprintf("[cerberus: plugin %s stderr: %d lines dropped in the last minute, over its %d KiB budget]", t.plugin, t.dropped, stderrBudget>>10)
+		}
+		t.windowStart, t.windowBytes, t.dropped = now, 0, 0
+	}
+	if t.windowBytes+len(line)+1 > stderrBudget {
+		t.dropped++
+		return false, marker
+	}
+	t.windowBytes += len(line) + 1
+	return true, marker
 }
 
 func newStderrTap() *stderrTap {
@@ -185,13 +228,29 @@ func (t *stderrTap) Write(p []byte) (int, error) {
 		collectors = append(collectors, c)
 	}
 	r := t.redactor
+	forward := make([]bool, len(lines))
+	var markers []string
+	for i, line := range lines {
+		var marker string
+		forward[i], marker = t.budget(line)
+		if marker != "" {
+			markers = append(markers, marker)
+		}
+	}
 	t.mu.Unlock()
 
 	shared := len(collectors) > 1
 	var out bytes.Buffer
-	for _, line := range lines {
+	for _, m := range markers {
+		out.WriteString(m)
+		out.WriteByte('\n')
+	}
+	for i, line := range lines {
 		for _, c := range collectors {
 			c.addStderr(line, shared, r)
+		}
+		if !forward[i] {
+			continue
 		}
 		out.WriteString(r.Text(line))
 		out.WriteByte('\n')

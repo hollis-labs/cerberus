@@ -180,7 +180,14 @@ type statusYou struct {
 type statusPlugins struct {
 	Installed     int      `json:"installed"`
 	ReviewPending []string `json:"review_pending"`
-	Note          string   `json:"note,omitempty"`
+	// GaveUp are plugins the host stopped restarting (P5-d), with why.
+	GaveUp []statusGaveUp `json:"gave_up,omitempty"`
+	Note   string         `json:"note,omitempty"`
+}
+
+type statusGaveUp struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
 }
 
 type statusAudit struct {
@@ -262,6 +269,9 @@ func statusFromDaemon(ctx context.Context, client statusDaemonClient) (statusYou
 	for _, p := range list {
 		if p.ReviewPending {
 			plugins.ReviewPending = append(plugins.ReviewPending, p.ID)
+		}
+		if p.GaveUp != "" {
+			plugins.GaveUp = append(plugins.GaveUp, statusGaveUp{ID: p.ID, Reason: p.GaveUp})
 		}
 	}
 	return you, plugins, passkeys
@@ -387,6 +397,9 @@ func writeStatus(w io.Writer, r statusReport) error {
 	}
 	for _, f := range r.Brakes.Freezes {
 		fmt.Fprintf(&b, "!!! FREEZE %s on %s since %s%s. Lift: cerberus freeze --off %s\n", f.ID, f.Match.String(), f.EngagedAt.Local().Format("Jan 2 15:04"), brakeReason(f.Reason), f.ID)
+	}
+	for _, g := range r.Plugins.GaveUp {
+		fmt.Fprintf(&b, "!!! PLUGIN %s stopped after 3 restarts in 10m (%s). Load it again: cerberus connectors plugin managed load %s\n", g.ID, g.Reason, g.ID)
 	}
 	if n := len(r.Brakes.Suspensions); n > 0 {
 		fmt.Fprintf(&b, "!!! BREAKER: %d agent session(s) suspended by the circuit breaker. List: cerberus breaker list; reset: cerberus breaker reset <id>\n", n)
