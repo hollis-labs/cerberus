@@ -273,7 +273,10 @@ cerberus:
     reference: "op://<vault>/<item>/<field>"
 ```
 
-The host then routes `op://` references to it. It sends them as a plugin-sdk
+The host then routes `op://` references to it. Only vault reference schemes can
+be claimed (today `op` and `keeper`): a scheme whose values can carry a
+credential, such as `postgres://user:password@host`, is refused, since the
+backend would be sent every such value. It sends them as a plugin-sdk
 `command/execute` named `cerberus.secret/resolve`, with `{"ref": "..."}` as the
 argument.
 - **A success** is action `message` with the value as the content.

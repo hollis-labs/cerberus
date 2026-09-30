@@ -18192,6 +18192,47 @@
       "id": "CERB-GAP-923"
     },
     {
+      "class": "gap",
+      "name": "A secret-backend plugin claiming a URL scheme would receive every credential shaped like it",
+      "summary": "Only a handful of schemes were reserved, so a backend could claim postgres, redis, s3 or ssh, and the resolver treated any claimed scheme as a reference: every connector's postgres://user:password@host credential would be sent to it. A backend may now claim only an allow-listed vault scheme (op, keeper), and the resolver's references are exactly those, whatever a router claims.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 2026-09-30 adversarial review (M5); fixed at manifest validation and in the resolver; tested",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "secrets",
+        "plugins",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "pkg/plugin/secret_backend.go, internal/secretref/secretref.go",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-844",
+          "note": "the secret-backend plugins this constrains"
+        }
+      ],
+      "body": "Review M5. `Resolver.IsRef` treated any scheme a router claimed as a reference, and `ReferenceProvider.Get` runs raw keychain and environment values through it; only keychain, keyring, helper, env, file, http and https were reserved. A backend claiming postgres, redis, amqp, s3 or ssh was sent any connector's credential shaped like that URL, and the review notice did not say so.\n\nNow `plugin.ClaimableSchemes` is an allow-list of vault reference schemes, whose values name a secret and never carry one: op and keeper. `SecretBackend.Validate` refuses any other scheme with the reason, at install and at restore (an installed plugin claiming one is skipped with a warning). `secretref.VaultSchemes` is that same list, and `Resolver.IsRef` is the package IsRef regardless of what a router claims, so a URL carrying a credential stays a literal and never reaches a plugin. A deny-list was rejected because it would always miss a scheme; adding a vault scheme is a host change. The review's second suggestion (route claimed schemes only for mapping-file values) was not needed once only vault schemes can be claimed: an env or keychain value of op://... is a reference by construction.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-504",
+        "effort": "small",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-924"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

@@ -96,9 +96,13 @@ the loaded plugin that claims its scheme and asks it for the value, over the
 plugin protocol's `command/execute`. That request is not a connector
 operation, so no CLI command, API operation or MCP tool reaches it.
 
-- **One claimant per scheme.** A second plugin claiming the same scheme is not
-  registered. `keychain`, `keyring`, `helper`, `env`, `file`, `http` and
-  `https` are reserved.
+- **Only vault schemes, one claimant each.** A backend may claim only a vault
+  reference scheme, whose values name a secret and never carry one: today `op`
+  and `keeper`. A backend claiming `postgres`, `redis`, `s3`, `ssh`, `https` or
+  any other scheme is refused at install and at restore, because it would be
+  sent every value shaped like that scheme, credentials in URLs included.
+  Adding a vault scheme is a Cerberus change. A second plugin claiming the same
+  scheme is not registered.
 - **The install review says so.** A backend's review opens with `SECRET
   BACKEND: this plugin will see every secret resolved through op://`, and a
   change of scheme is an upgrade diff line.

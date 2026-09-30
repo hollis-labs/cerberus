@@ -63,9 +63,9 @@ func (f *fakeRouter) ResolveSecret(_ context.Context, ref string) (string, error
 }
 
 func TestVaultReferencesGoToTheRouter(t *testing.T) {
-	router := &fakeRouter{claims: map[string]bool{"vault-kv": true}, values: map[string]string{
-		"op://Deploy/Database/password": "from-1password",
-		"vault-kv://secret/app/token":   "from-a-claimed-scheme",
+	router := &fakeRouter{values: map[string]string{
+		"op://Deploy/Database/password":  "from-1password",
+		"keeper://AbCdEf/field/password": "from-keeper",
 	}}
 	r := NewResolver(&stubProvider{}, WithSchemeRouter(router))
 	for ref, want := range router.values {
@@ -77,9 +77,6 @@ func TestVaultReferencesGoToTheRouter(t *testing.T) {
 			t.Fatalf("%s = %q, %v", ref, got, err)
 		}
 	}
-	if IsRef("vault-kv://secret/app/token") {
-		t.Fatal("a claimed scheme leaked into the package-level IsRef")
-	}
 	// No fallback: a failed backend is the answer.
 	router.err = errors.New("credential_missing: vault unreachable")
 	if got, err := r.Resolve(context.Background(), "op://Deploy/Database/password"); err == nil || got != "" {
@@ -90,6 +87,31 @@ func TestVaultReferencesGoToTheRouter(t *testing.T) {
 	router.values["op://Deploy/Database/password"] = "keychain://other/secret"
 	if _, err := r.Resolve(context.Background(), "op://Deploy/Database/password"); !errors.Is(err, ErrResolvedToRef) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A router that claims a scheme whose values carry credentials does not get
+// them: postgres://user:password@host stays a literal, never a reference
+// sent to a plugin (M5).
+func TestAClaimedURLSchemeIsNotAReference(t *testing.T) {
+	router := &fakeRouter{claims: map[string]bool{"postgres": true, "s3": true, "ssh": true}}
+	r := NewResolver(&stubProvider{}, WithSchemeRouter(router))
+	env := map[string]string{ //nolint:gosec // credential-shaped URLs are the point of the test
+		"DATABASE_URL": "postgres://app:hunter2hunter2@db:5432/app",
+		"BUCKET":       "s3://key:secret@bucket",
+		"GIT":          "ssh://git@host/repo",
+	}
+	for _, v := range env {
+		if r.IsRef(v) {
+			t.Fatalf("%s is a reference", v)
+		}
+	}
+	out, err := r.ResolveEnv(context.Background(), env)
+	if err != nil || out["DATABASE_URL"] != env["DATABASE_URL"] {
+		t.Fatalf("ResolveEnv = %v, %v", out, err)
+	}
+	if len(router.asked) != 0 {
+		t.Fatalf("the router was sent %v", router.asked)
 	}
 }
 

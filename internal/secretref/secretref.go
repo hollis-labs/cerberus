@@ -59,7 +59,10 @@ const (
 // whether or not the plugin is installed, so a value that names a vault is
 // never mistaken for a literal credential and sent somewhere as one; without
 // the plugin it fails as credential_missing.
-var VaultSchemes = []string{"op", "keeper"}
+//
+// They are exactly the schemes a backend may claim (plugin.ClaimableSchemes),
+// so a claimed scheme is always a reference, even with its backend absent.
+var VaultSchemes = plugin.ClaimableSchemes
 
 // Schemes are every scheme IsRef recognizes. keyring:// is keychain://'s
 // platform-neutral name, and the two behave identically: the OS credential
@@ -171,17 +174,13 @@ func WithoutSchemeRouter(reason string) Option {
 }
 
 // IsRef is the package IsRef, plus any scheme the router claims.
+//
+// It is the package IsRef, whatever the router claims: a backend may claim
+// only a vault scheme, and those are references already. A router that
+// claimed anything else (postgres, s3, ssh) must not turn a URL that
+// carries a credential into a "reference" sent to a plugin (M5).
 func (r *Resolver) IsRef(value string) bool {
-	if IsRef(value) {
-		return true
-	}
-	if r.router == nil {
-		return false
-	}
-	scheme, _, ok := strings.Cut(value, "://")
-	// A reserved scheme (http, https, file, ...) is never a plugin's, so a
-	// URL in an environment does not send the router to read plugin state.
-	return ok && scheme != "" && !plugin.IsReservedScheme(scheme) && r.router.Claims(scheme)
+	return IsRef(value)
 }
 
 // Backend names the plugin that resolves scheme, as id@version, when the
@@ -221,10 +220,6 @@ func NewResolver(provider Provider, opts ...Option) *Resolver {
 // The resolved value is never placed in the returned error — only the
 // reference itself, which is non-sensitive by construction.
 func (r *Resolver) Resolve(ctx context.Context, raw string) (string, error) {
-	if scheme, _, ok := strings.Cut(strings.TrimSpace(raw), "://"); ok && !IsRef(raw) && r.IsRef(raw) {
-		// A scheme only an installed plugin claims.
-		return r.resolveVault(ctx, strings.TrimSpace(raw), scheme)
-	}
 	ref, err := Parse(raw)
 	if err != nil {
 		return "", err

@@ -47,6 +47,15 @@ const (
 	ResolveActionError = "error"
 )
 
+// ClaimableSchemes are the schemes a secret backend may claim: vault
+// reference schemes, whose values name a secret and never carry one. Any
+// other scheme is refused, because a backend that claims it is sent every
+// value shaped like it: a backend claiming postgres would receive every
+// connector's postgres://user:password@host credential (M5). A deny-list
+// of URL schemes would always miss one, so this is an allow-list; adding a
+// scheme is a host change, reviewed for exactly that property.
+var ClaimableSchemes = []string{"op", "keeper"}
+
 // ReservedSchemes are the schemes no plugin may claim: the host's own
 // (keychain and its platform-neutral alias keyring, helper, env) and schemes
 // that name something other than a secret store.
@@ -62,6 +71,9 @@ func (b SecretBackend) Validate() []string {
 		problems = append(problems, fmt.Sprintf("secret_backend scheme %q must be 2 to 16 lowercase letters, digits or hyphens, starting with a letter", b.Scheme))
 	case IsReservedScheme(b.Scheme):
 		problems = append(problems, fmt.Sprintf("secret_backend scheme %q is reserved (%s)", b.Scheme, strings.Join(ReservedSchemes, ", ")))
+	case !IsClaimableScheme(b.Scheme):
+		problems = append(problems, fmt.Sprintf("secret_backend scheme %q is not a vault scheme this host routes (%s): a backend claiming it would be sent every value shaped like %s://, credentials in URLs included",
+			b.Scheme, strings.Join(ClaimableSchemes, ", "), b.Scheme))
 	}
 	if b.Reference != "" && !strings.HasPrefix(b.Reference, b.Scheme+"://") {
 		problems = append(problems, fmt.Sprintf("secret_backend reference %q must begin %s://", b.Reference, b.Scheme))
@@ -73,6 +85,16 @@ func (b SecretBackend) Validate() []string {
 func IsReservedScheme(scheme string) bool {
 	for _, reserved := range ReservedSchemes {
 		if scheme == reserved {
+			return true
+		}
+	}
+	return false
+}
+
+// IsClaimableScheme reports whether a secret backend may claim scheme.
+func IsClaimableScheme(scheme string) bool {
+	for _, s := range ClaimableSchemes {
+		if scheme == s {
 			return true
 		}
 	}
