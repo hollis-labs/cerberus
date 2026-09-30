@@ -183,9 +183,13 @@ loopback name, which defeats DNS rebinding. An SSH local forward
 forwards a public hostname does not. For browser-based MCP clients,
 `mcp-http --allow-origin` adds exact origins to the loopback set.
 
-`mcp-http` can also be an OAuth 2.1 resource server: with
-`~/.cerberus/mcp-http.yaml` configured, every call needs a bearer token bound to
-its resource URL, and off loopback it needs TLS as well. Tokens come from
+**For a local MCP client, use `cerberus mcp` (stdio).** `mcp-http` needs
+auth, because an HTTP listener can't tell which local account is calling. It is
+an OAuth 2.1 resource server: with `~/.cerberus/mcp-http.yaml` configured, every
+call needs a bearer token bound to its resource URL, and off loopback it needs
+TLS as well. Without that file it refuses to start. On a machine with no other
+human accounts, `--no-auth` runs it on loopback without auth, checked at every
+start, with a banner and an audit record. Tokens come from
 Cerberus's own minimal issuer (`cerberus mcp-http token issue`) or from an
 external authorization server. See [docs/mcp-http.md](mcp-http.md).
 

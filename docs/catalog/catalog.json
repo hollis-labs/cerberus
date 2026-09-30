@@ -18037,6 +18037,46 @@
       "id": "CERB-GAP-919"
     },
     {
+      "class": "gap",
+      "name": "Another local account could run every MCP tool as the operator through no-auth mcp-http",
+      "summary": "mcp-http defaulted to 127.0.0.1:4785 with no auth; a TCP connection on macOS carries no uid, so another local account's process reached every tool as the operator, crossing the boundary the daemon socket's peer check holds. mcp-http now refuses to start without auth, leading with stdio `cerberus mcp`; --no-auth is loopback-only and allowed only on a machine with no other human accounts, checked at every start, audited and bannered.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "review_status": "draft",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the 2026-09-30 adversarial review (H5); design approved by the lead; smoke-tested with the built binary in a scratch HOME (refusal, --no-auth start with banner and audit record)",
+      "namespace": "cerberus",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "locus:core",
+        "priority:must-have",
+        "mcp-http",
+        "security-review",
+        "gap"
+      ],
+      "locus": "core",
+      "pointer_locator": "cmd/cerberus/cmd_mcp_http.go, cmd/cerberus/mcp_http_accounts.go",
+      "created_at": "2026-09-30",
+      "last_reviewed": "2026-09-30",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-443",
+          "note": "the accepted part: loopback is not a trust boundary between processes"
+        }
+      ],
+      "body": "Review H5. `cerberus mcp-http` listened on 127.0.0.1:4785 with no auth by default. go-mcp admits requests with no Origin, and mcp-http relays over the operator's socket, so another uid's `curl 127.0.0.1:4785/mcp` ran tools as an agent under the operator's credentials, with only (shadow-by-default) policy and a self-set --ack in the way. macOS gives a TCP listener no peer uid; mapping the client port to a pid (lsof, libproc) is racy and was not used as a gate.\n\nNow: with no issuer configured, mcp-http refuses to start. The refusal and the help lead with \"for a local client, use `cerberus mcp` (stdio)\", which rides the daemon socket's peer-uid check, then name the token path (`~/.cerberus/mcp-http.yaml`, `cerberus mcp-http token issue`). `--no-auth` runs it on loopback without auth only when the machine has no other human accounts: on macOS from `/usr/bin/dscl` (uid 501 and up, a login shell, no leading underscore), on Linux from /etc/passwd (uid 1000 and up, a login shell), read at every start; the refusal names the accounts found, and an unreadable list or another platform refuses. The start is recorded (`no_auth_listen`) before it listens, and a banner says any process that can reach the port can call every tool as the operator. `--insecure-listen` (no auth off loopback, permissive posture) gets the same account check.\n\nBreaking change for anyone running no-auth mcp-http: they need a token or --no-auth.",
+      "data": {
+        "blocked_by": [],
+        "capability": "CERB-CAP-404",
+        "effort": "small",
+        "priority": "must-have",
+        "unlocks_when": "shipped"
+      },
+      "id": "CERB-GAP-922"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

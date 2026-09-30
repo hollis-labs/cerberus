@@ -90,6 +90,22 @@ func RecordInsecureListen(ctx context.Context, sink audit.Sink, surface, listen 
 	return nil
 }
 
+// RecordNoAuthListen records a listener started with no authentication on
+// loopback (mcp-http --no-auth, H5), before it listens: any process on the
+// machine that can reach the port can call every tool as the operator.
+func RecordNoAuthListen(ctx context.Context, sink audit.Sink, surface, listen string) error {
+	op := contract.Operation{Name: "no_auth_listen", Effect: contract.EffectAdmin,
+		Target:  contract.TargetDescriptor{Kind: "listener", From: []string{"listen"}},
+		Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone}.Finalize()
+	call, err := beginAudit(ctx, sink, slog.Default(), auditSpec{connector: surface, operation: "no_auth_listen", op: op, known: true, acknowledged: true,
+		config: map[string]any{"listen": listen}})
+	if err != nil {
+		return err
+	}
+	call.finish(nil)
+	return nil
+}
+
 // PolicySnapshotChanged is the outcome code of a policy load that found the
 // applied snapshot no longer matching the hash `cerberus policy apply`
 // recorded. The decision point fell back to the baseline.
