@@ -573,6 +573,14 @@ gives the built-ins the coverage they lack today.
   operator's account: a process running as the operator can rewrite the
   keychain item too. It catches a log edited as files, not an agent
   determined to forge both.
+- A record can't be made unreadable. Each caller-supplied string in it (a
+  target's field values, a reason, a note) is cut to 4 KiB when it is
+  written, and a record over 1 MiB is refused, which refuses the operation.
+  A line over the reader's 4 MiB limit, already in a log or a store, reads as
+  one damaged line: it is reported, what follows isn't vouched for, and a
+  reanchor recovers. It no longer makes the whole log unreadable. If the log
+  can't be read at all, the brakes keep the state it last showed rather than
+  their store alone.
 - A record is verified from the bytes it was hashed as. A name that isn't
   valid UTF-8, such as a caller's claim cut in the middle of a character,
   used to break the chain for good. Claims are now cut on character

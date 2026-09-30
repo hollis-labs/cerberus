@@ -19050,6 +19050,46 @@
       "id": "CERB-GAP-944"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "One oversized audit line made the log unreadable: lifts and reanchor refused, and the brakes fell back to their store",
+      "summary": "Caller-supplied target field values went into audit records unbounded, and JSON escaping of < grows six-fold, so a docker call with a 900 KiB argument wrote a line over the readers' 4 MiB scanner limit. From then on audit.Check and Reanchor failed with token too long, a lift was refused as audit_unavailable with no way back through Cerberus, policy dropped to enforce-everything, and brake.Recorded fell back to the store alone, so deleting the store lifted a lockdown the log recorded (the original M1 fail-open). The brake and approvals stores had the same scanner, which silently dropped every event after a long line. Fixed: the sink cuts caller-supplied strings (target fields and resource, reason, note) to 4 KiB and refuses a record over 1 MiB; the log and both stores read a line over the limit as one damaged line and go on (audit.ScanLines); and when the log cannot be read at all, the brakes keep the state it last showed.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the 5931772 re-review (H-e, by two reviewers); fixed with tests and mutation checks",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "audit",
+        "brakes",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/audit/lines.go, internal/audit/sink.go (bound, MaxRecordBytes), internal/audit/read.go, internal/brake/brake.go, internal/approval/store.go, internal/cerbapi/brakes.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-926",
+          "note": "M1/M2, whose fail-closed reading this keeps working"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "A record cut to size says how many bytes were not recorded. The last known brake state lives in the daemon's memory, so a daemon started while the log is unreadable has only the store.",
+      "id": "CERB-GAP-949"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

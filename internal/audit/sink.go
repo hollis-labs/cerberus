@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // Sink takes records. Write is synchronous: when it returns nil the record
@@ -160,12 +161,16 @@ func (s *FileSink) Write(rec Record) (Record, error) {
 		if r.Posture == "" {
 			r.Posture = PostureSecure
 		}
+		bound(&r)
 		r.PrevHash = last
 		r.Hash = ""
 		r.Hash = hashRecord(r)
 		line, encErr := json.Marshal(r)
 		if encErr != nil {
 			return Record{}, fmt.Errorf("audit: encode record: %w", encErr)
+		}
+		if len(line) > MaxRecordBytes {
+			return Record{}, fmt.Errorf("%w: a %s record would be %d bytes, over the %d a record may be", ErrUnavailable, r.Kind, len(line), MaxRecordBytes)
 		}
 		buf.Write(line)
 		buf.WriteByte('\n')
@@ -526,4 +531,43 @@ func joinProblems(p []string) string {
 		b.WriteString(s)
 	}
 	return b.String()
+}
+
+// MaxRecordBytes is the longest record the log writes, well under what it
+// reads (MaxLineBytes): a record over it is refused, which refuses the
+// operation it records (Decision 8), rather than written as a line nothing
+// can read back (H-e).
+const MaxRecordBytes = 1 << 20
+
+// MaxFieldBytes bounds each caller-supplied string in a record: a target's
+// field values and resource, a reason and a note. A caller chose them, and
+// JSON escaping can grow one six-fold.
+const MaxFieldBytes = 4 << 10
+
+// bound cuts a record's caller-supplied strings to MaxFieldBytes, on a
+// character boundary, saying how much was cut.
+func bound(r *Record) {
+	// A copy: the caller's map is the record it holds, and what it compares
+	// approvals and grants against.
+	if len(r.Target.Fields) > 0 {
+		fields := make(map[string]string, len(r.Target.Fields))
+		for k, v := range r.Target.Fields {
+			fields[k] = clipField(v)
+		}
+		r.Target.Fields = fields
+	}
+	r.Target.Resource = clipField(r.Target.Resource)
+	r.Reason = clipField(r.Reason)
+	r.Note = clipField(r.Note)
+}
+
+func clipField(v string) string {
+	if len(v) <= MaxFieldBytes {
+		return v
+	}
+	n := MaxFieldBytes
+	for n > 0 && !utf8.RuneStart(v[n]) {
+		n--
+	}
+	return v[:n] + fmt.Sprintf("…[cerberus: %d more bytes not recorded]", len(v)-n)
 }

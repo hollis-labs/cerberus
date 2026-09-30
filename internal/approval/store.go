@@ -1,7 +1,6 @@
 package approval
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
@@ -140,17 +139,20 @@ func (s *Store) fold() error {
 	if err != nil {
 		return fmt.Errorf("approvals: read %s: %w", s.path, err)
 	}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	_ = audit.ScanLines(bytes.NewReader(data), audit.MaxLineBytes, func(raw []byte, tooLong bool) {
+		if tooLong {
+			s.Problems = append(s.Problems, fmt.Sprintf("a line after seq %d is over %d bytes and is not read", s.seq, audit.MaxLineBytes))
+			s.broken = true
+			return
+		}
+		line := bytes.TrimSpace(raw)
 		if len(line) == 0 {
-			continue
+			return
 		}
 		var ev Event
 		if err := json.Unmarshal(line, &ev); err != nil {
 			s.Problems = append(s.Problems, fmt.Sprintf("line after seq %d does not parse", s.seq))
-			continue
+			return
 		}
 		chained := ev.Seq == s.seq+1 && ev.PrevHash == s.last && (audit.LineHashMatches(line, ev.Hash) || hashEvent(ev) == ev.Hash)
 		if !chained {
@@ -171,8 +173,8 @@ func (s *Store) fold() error {
 			}
 		}
 		s.seq, s.last = ev.Seq, ev.Hash
-	}
-	return scanner.Err()
+	})
+	return nil
 }
 
 // apply moves state by one event, refusing a transition the lifecycle does

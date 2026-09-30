@@ -12,7 +12,6 @@
 package brake
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
@@ -193,12 +192,20 @@ func Effective(store, recorded State) State {
 // problems says why the log was not read as a whole: its chain does not
 // verify, or it could not be read.
 func Recorded(auditDir string) (State, []string) {
+	st, problems, _ := RecordedErr(auditDir)
+	return st, problems
+}
+
+// RecordedErr is Recorded, with the error when the log could not be read at
+// all, so a caller that knew the recorded state before can keep it rather
+// than fall back to the store alone (H-e).
+func RecordedErr(auditDir string) (State, []string, error) {
 	if auditDir == "" {
-		return State{}, nil
+		return State{}, nil, nil
 	}
 	checked, err := audit.Check(auditDir)
 	if err != nil {
-		return State{}, []string{"the audit log could not be read, so the brakes are read from their store alone: " + err.Error()}
+		return State{}, []string{"the audit log could not be read: " + err.Error()}, err
 	}
 	var st State
 	var problems []string
@@ -223,7 +230,7 @@ func Recorded(auditDir string) (State, []string) {
 	case len(checked.Problems) > 0:
 		problems = append(problems, fmt.Sprintf("the audit log's chain has %d problem(s) before its last reanchor; brakes are read from the reanchor on", len(checked.Problems)))
 	}
-	return st, problems
+	return st, problems, nil
 }
 
 // Event is one line of the store.
@@ -290,18 +297,21 @@ func (s Store) fold() folded {
 		}
 		return f
 	}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	_ = audit.ScanLines(bytes.NewReader(data), audit.MaxLineBytes, func(raw []byte, tooLong bool) {
+		if tooLong {
+			f.problems = append(f.problems, fmt.Sprintf("a line after seq %d is over %d bytes and is not read", f.seq, audit.MaxLineBytes))
+			f.broken = true
+			return
+		}
+		line := bytes.TrimSpace(raw)
 		if len(line) == 0 {
-			continue
+			return
 		}
 		var ev Event
 		if err := json.Unmarshal(line, &ev); err != nil {
 			f.problems = append(f.problems, fmt.Sprintf("line after seq %d does not parse", f.seq))
 			f.broken = true
-			continue
+			return
 		}
 		chained := ev.Seq == f.seq+1 && ev.PrevHash == f.last && (audit.LineHashMatches(line, ev.Hash) || hashEvent(ev) == ev.Hash)
 		if !chained {
@@ -319,7 +329,7 @@ func (s Store) fold() folded {
 			apply(&f.state, ev)
 		}
 		f.seq, f.last = ev.Seq, ev.Hash
-	}
+	})
 	return f
 }
 

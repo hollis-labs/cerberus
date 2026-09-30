@@ -180,3 +180,56 @@ func TestAnEventWithInvalidUTF8Chains(t *testing.T) {
 		t.Fatalf("problems %v", problems)
 	}
 }
+
+// The re-review's repro (H-e): one line over the reader's limit made the
+// log unreadable, so the brakes were read from their store alone, and
+// deleting the store lifted a lockdown the log recorded. The log is now
+// read past the line: the lockdown stays, and past the line only
+// engagements apply.
+func TestAnOverlongAuditLineDoesNotLiftABrake(t *testing.T) {
+	auditDir := filepath.Join(t.TempDir(), "audit")
+	sink, err := audit.OpenFileSink(auditDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordBrakes(t, sink, State{Lockdown: &Lockdown{ID: "ldn_1", By: operator}})
+	f, err := os.OpenFile(monthFile(t, auditDir), os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.WriteString(`{"v":1,"note":"` + strings.Repeat("<", audit.MaxLineBytes) + `"}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	recordBrakes(t, sink, State{})
+	st, problems := Recorded(auditDir)
+	if st.Lockdown == nil {
+		t.Fatalf("the lockdown was lifted past an overlong line: %v", problems)
+	}
+	for _, p := range problems {
+		if strings.Contains(p, "store alone") {
+			t.Fatalf("the brakes fell back to the store: %v", problems)
+		}
+	}
+}
+
+// The brake store is read past an overlong line too: it is a break, so an
+// engagement after it applies and a lift after it does not.
+func TestAnOverlongStoreLineIsABreak(t *testing.T) {
+	s := Store{Dir: t.TempDir()}
+	_, l, _ := s.EngageLockdown(operator, "incident")
+	f, err := os.OpenFile(s.path(), os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.WriteString(strings.Repeat("x", audit.MaxLineBytes+10) + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	appendRaw(t, s, Event{Type: EventLockdownLifted, ID: l.ID, Proof: "tty"})
+	appendRaw(t, s, Event{Type: EventFreezeEngaged, Freeze: &Freeze{ID: "frz_1", Match: policy.TargetMatch{ID: "api"}}})
+	st, problems := s.Load()
+	if st.Lockdown == nil || len(st.Freezes) != 1 || !strings.Contains(strings.Join(problems, " "), "is not read") {
+		t.Fatalf("past an overlong line: %+v %v", st, problems)
+	}
+}

@@ -42,6 +42,9 @@ type Brakes struct {
 	stamp  string
 	state  brake.State
 	issues []string
+	// recorded is the last brake state read from the audit log, kept for
+	// when the log cannot be read at all (H-e).
+	recorded brake.State
 }
 
 var brakesPoint atomic.Pointer[Brakes]
@@ -66,8 +69,16 @@ func (b *Brakes) Current() brake.State {
 		return b.state
 	}
 	stored, problems := b.Store.Load()
-	recorded, recordedProblems := brake.Recorded(b.AuditDir)
+	recorded, recordedProblems, readErr := brake.RecordedErr(b.AuditDir)
 	problems = append(problems, recordedProblems...)
+	if readErr != nil {
+		// Keep what the log last said, rather than read the brakes from
+		// the store alone, where deleting a line would lift one.
+		recorded = b.recorded
+		problems = append(problems, "the brakes keep the state the audit log last showed")
+	} else {
+		b.recorded = recorded
+	}
 	if lacks(stored, recorded) {
 		// The log holds a brake the store lost (edited, deleted, or past a
 		// break): engaged either way, and written back so a person can

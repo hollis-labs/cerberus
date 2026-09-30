@@ -102,3 +102,29 @@ func TestClipKeepsValidUTF8(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// When the audit log cannot be read at all, the brakes keep the state it
+// last showed, rather than read the store alone (H-e): deleting the store
+// while the log is unreadable does not lift a lockdown the log recorded.
+func TestTheBrakesKeepWhatTheLogLastShowed(t *testing.T) {
+	store, sink := fileBrakes(t)
+	person := callerAs(confirmHuman, SurfaceSocket)
+	if _, _, err := EngageLockdown(person, sink, store, "incident"); err != nil {
+		t.Fatal(err)
+	}
+	b := ProcessBrakes()
+	if b.Current().Lockdown == nil {
+		t.Fatal("not engaged")
+	}
+	files, _ := filepath.Glob(filepath.Join(sink.Dir(), "*.jsonl"))
+	if err := os.Chmod(files[0], 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(files[0], 0o600) })
+	if err := os.Remove(filepath.Join(store.Dir, brake.FileName)); err != nil {
+		t.Fatal(err)
+	}
+	if b.Current().Lockdown == nil {
+		t.Fatalf("an unreadable log and a deleted store lifted the lockdown: %v", b.Problems())
+	}
+}
