@@ -91,12 +91,15 @@ class Cerberus < Formula
   end
 
   def install
-    bin.install "cerberus"
+    # cerberus-presence sits next to cerberus, where the daemon looks for it:
+    # without it, enrolling a passkey is refused.
+    bin.install "cerberus", "cerberus-presence"
     doc.install "README.md", "LICENSE"
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/cerberus --version")
+    assert_predicate bin/"cerberus-presence", :executable?
   end
 
   livecheck do

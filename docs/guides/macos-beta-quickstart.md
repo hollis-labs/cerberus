@@ -16,6 +16,7 @@ For released beta builds, install the binary to the canonical user-owned path:
 mkdir -p ~/.cerberus/bin
 tar -xzf cerberus_<version>_darwin_<arch>.tar.gz
 install -m 0755 cerberus ~/.cerberus/bin/cerberus
+install -m 0755 cerberus-presence ~/.cerberus/bin/cerberus-presence
 export PATH="$HOME/.cerberus/bin:$PATH"
 ```
 
