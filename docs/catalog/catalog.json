@@ -17913,6 +17913,46 @@
       "id": "CERB-GAP-916"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A read-scoped caller could overwrite local files through an SFTP download",
+      "summary": "ssh get and get_dir are read_sensitive but write a caller-chosen local path, and scopes and policy looked only at the effect, so a cerberus:read_sensitive token, or any read rule for agents, could overwrite ~/.zshrc or a LaunchAgent (code execution as the operator). Fixed: Operation.PolicyEffect authorizes a read that touches the local filesystem as at least a write, for policy, the daemon's scope gate, mcp-http's scope check, explain and the policy samples.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.9,
+      "confidence_label": "found by the e40b63c security review (H2); fixed with tests that fail on the old code",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "auth",
+        "policy",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "pkg/connector/contract.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-850",
+          "note": "no path policy remains open"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "small"
+      },
+      "body": "The declared effect still says what an operation does to its target: audit records, egress and credential bindings use it, so a download still resolves the read credential for the remote side. Only authorization reads PolicyEffect. A rule matching effect read_sensitive no longer covers ssh get. Path policy (which local paths may be written) is still GAP-850.",
+      "id": "CERB-GAP-917"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

@@ -90,7 +90,8 @@ func scopeRefusal(ctx context.Context, spec auditSpec) error {
 	if !ok || !p.Verified() || spec.automation {
 		return nil
 	}
-	effect := spec.op.Effect
+	// A read that touches local files needs operate, like a write (H2).
+	effect := spec.op.PolicyEffect()
 	if !spec.known || effect == "" {
 		effect = contract.EffectExec
 	}

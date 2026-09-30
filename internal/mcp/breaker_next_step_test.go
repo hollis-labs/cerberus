@@ -21,3 +21,15 @@ func TestNextStepForBrakesAndTheBreaker(t *testing.T) {
 		}
 	}
 }
+
+// mcp-http's scope check sees an SFTP download into a local path as a
+// write, so a read_sensitive token is refused before it is forwarded (H2).
+func TestLocalWritesNeedOperateAtTheEdge(t *testing.T) {
+	effect, ok := ToolEffect("cerberus_ssh_get")
+	if !ok || effect != "write" {
+		t.Fatalf("cerberus_ssh_get reads as %q", effect)
+	}
+	if effect, _ := ToolEffect("cerberus_ssh_exec"); effect != "exec" {
+		t.Fatalf("cerberus_ssh_exec reads as %q", effect)
+	}
+}

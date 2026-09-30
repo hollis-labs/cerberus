@@ -21,6 +21,12 @@ explained by listing the rules that matched.
 
 ## Layers
 
+An operation that reads its target but touches the local filesystem is
+authorized as at least a **write**. `ssh get` and `get_dir` download into a
+local path. They can overwrite the operator's files, so a rule, baseline or
+token scope that allows reads doesn't cover them. The audit log still records
+the declared effect.
+
 1. **Baseline**, by effect class and caller kind:
 
    | effect | human | agent |

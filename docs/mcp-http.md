@@ -82,7 +82,7 @@ key id triggers a refetch at most once a minute.
 | Scope | Allows |
 |---|---|
 | `cerberus:read` | plain reads |
-| `cerberus:read_sensitive` | adds reads of text Cerberus didn't compose: logs, command output |
+| `cerberus:read_sensitive` | adds reads of text Cerberus didn't compose: logs, command output. It doesn't cover a read that writes local files, such as an SFTP download into a local path, which needs `operate` |
 | `cerberus:operate` | any effect, each still decided by policy |
 
 Scopes narrow what a caller may ask for. They never widen what policy allows.

@@ -40,7 +40,8 @@ func PolicyDecisionPoint() policy.PDP {
 func policyRequest(ctx context.Context, spec auditSpec, t target.Target) policy.Request {
 	r := policy.Request{Connector: spec.connector, Operation: spec.operation, Target: t}
 	if spec.known {
-		r.Effect = spec.op.Effect
+		// A read that touches local files is authorized as a write (H2).
+		r.Effect = spec.op.PolicyEffect()
 		r.EffectUndeclared = spec.op.EffectUndeclared
 	}
 	// A dry run counts as the plan step only where there is a preview. A

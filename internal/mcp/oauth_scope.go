@@ -23,7 +23,7 @@ var pluginToolEffects sync.Map
 // ToolEffect is the effect of the operation a tool runs.
 func ToolEffect(name string) (contract.Effect, bool) {
 	if op, ok := ToolOperation(name); ok {
-		return op.Effect, true
+		return op.PolicyEffect(), true
 	}
 	if e, ok := pluginToolEffects.Load(name); ok {
 		return e.(contract.Effect), true
