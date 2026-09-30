@@ -2,7 +2,10 @@
 
 > **Status: pre-release.** Policy runs in **shadow mode** until you switch
 > it on: every decision is recorded, and nothing is refused on its account
-> except in the scopes you enforce with `cerberus policy enforce`.
+> except the built-in protections, which are always enforced, and the scopes
+> you enforce with `cerberus policy enforce`. The built-in protections cover an
+> agent's write, lifecycle, destructive or exec operation on a target labeled
+> `env: prod` or `admin: owner`.
 
 Cerberus authorizes every operation it runs against a policy, on every
 surface: the CLI, the daemon socket, the web console and MCP. The decision is
@@ -30,6 +33,8 @@ that has a shell running as you, and does not bound it.**
 - **A process with a shell running as you** can do more:
   - claim to be a person at the CLI;
   - pass the terminal checks with a pseudo-terminal;
+  - get a console session from `cerberus web open`, or run a console of its
+    own;
   - edit the files under `~/.cerberus`;
   - replace the `cerberus` binary itself.
 
@@ -37,9 +42,13 @@ that has a shell running as you, and does not bound it.**
   enrolling a passkey, asks the person at the Mac. What it can't do is
   produce a passkey assertion, so an approval, lift or break glass that needs
   your passkey still needs you.
-- **Making the rest a boundary** would need signed binaries with the hardened
-  runtime and a keychain item gated on user presence that only those binaries
-  can read. That work is on the roadmap after beta (CERB-GAP-944).
+- **Making the rest a boundary** would need two things:
+  - signed binaries with the hardened runtime, and a keychain item gated on
+    user presence that only those binaries can read;
+  - then daemon-issued console sessions, so a console's "a person here" can't
+    be claimed without one.
+
+  That work is on the roadmap after beta (CERB-GAP-944).
 
 ## Layers
 
@@ -257,9 +266,23 @@ daemon, which reads its own state.
 
 ## Switching enforcement on
 
-Until you switch it on, policy runs in **shadow**: every decision is recorded
-and nothing is refused. `cerberus policy report` shows what policy would have
-blocked, and what enforcing it would need. When the shadow data says a scope
+Until you switch it on, policy runs in **shadow**: every decision is recorded,
+and nothing is refused except the built-in protections.
+
+The built-in protections are enforced whatever the mode. They cover an agent's
+(or an unknown caller's) write, lifecycle, destructive or exec operation on a
+target labeled `env: prod` or `admin: owner`. On a new install, an agent that
+sets `acknowledged` itself still can't change a production target or one its
+owner administers: it gets policy's decision (`policy_denied` for an
+`admin: owner` target, `approval_required` for production). A pipeline counts too: its
+stages call the connector directly, so a run is labeled with what its stages
+change. An agent's run of a pipeline that deploys, starts or stops a
+production or `admin: owner` resource is covered, and so are its stages, which
+run as automation acting for that agent. A person's calls, and targets with no
+`env` or `admin` label, are in shadow until you enforce them. `cerberus posture show` says exactly which is which.
+
+`cerberus policy report` shows what policy would have blocked, and what
+enforcing it would need. When the shadow data says a scope
 is ready, enforce it:
 
 ```bash

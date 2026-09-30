@@ -243,7 +243,7 @@ func TestPolicyEnforce(t *testing.T) {
 		t.Fatalf("a rule scope: %v", err)
 	}
 	out, err := run("yes\n", "--scope", "principal=agent,env=prod", "--id", "agents-prod")
-	if err == nil || !strings.Contains(out, "Enforcement: shadow (nothing enforced)") || !strings.Contains(out, "agents-prod") {
+	if err == nil || !strings.Contains(out, "Enforcement: shadow (only the built-in protections are enforced)") || !strings.Contains(out, "agents-prod") {
 		t.Fatalf("a wrong confirmation: %v\n%s", err, out)
 	}
 	if _, st := store.Load(); st.Snapshot != policy.SnapshotBaseline {
@@ -263,7 +263,7 @@ func TestPolicyEnforce(t *testing.T) {
 	}
 	var changed bool
 	for _, r := range sink.Records() {
-		if r.Kind == audit.KindEnforcementChanged && strings.Contains(r.Note, "shadow (nothing enforced)") && strings.Contains(string(r.Enforcement), "agents-prod") {
+		if r.Kind == audit.KindEnforcementChanged && strings.Contains(r.Note, "shadow (only the built-in protections are enforced)") && strings.Contains(string(r.Enforcement), "agents-prod") {
 			changed = true
 		}
 	}

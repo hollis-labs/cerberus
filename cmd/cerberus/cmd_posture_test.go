@@ -174,7 +174,7 @@ func TestPostureShow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"Posture: permissive; secure for env=prod", "plugin install: summary printed; --yes skips the confirmation",
-		"env=prod: secure", "Never relaxed: the audit log, credential redaction, the --ack gate, and the deny on a target labeled admin: owner"} {
+		"env=prod: secure", "Always enforced, whatever the enforcement above: an agent's write, lifecycle, destructive or exec operation on a target labeled env: prod or admin: owner", "not a person's approval"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("show is missing %q:\n%s", want, out)
 		}

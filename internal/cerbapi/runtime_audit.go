@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/target"
 
 	"github.com/hollis-labs/cerberus/internal/plan"
 
@@ -51,9 +53,15 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 	opts := ApplyMutationOptions(options)
 	def := pipeline.Definition()
 	op, known := def.Operation(pipeline.OpRun)
+	// The run's target carries the labels of what its stages change, so an
+	// agent's run of a pipeline that restarts a production resource is an
+	// agent's change to production (B2): its stages call the connector
+	// directly and pass no gate of their own. One read of the definition
+	// labels it, and is the one planned and run.
+	read, problem := s.lookupPipeline(id)
 	spec := auditSpec{
 		connector: def.ID, operation: pipeline.OpRun, op: op, known: known,
-		config: map[string]any{"id": id}, acknowledged: opts.Acknowledged,
+		config: map[string]any{"id": id}, acknowledged: opts.Acknowledged, resources: pipelineTargetLookup(id, read),
 		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan, confirmedPlanHash: opts.ConfirmedPlanHash, breakGlass: opts.BreakGlass,
 	}
 	if opts.Plan {
@@ -62,9 +70,9 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 	planSpec := spec
 	// checked is the definition the gate hashed, when it hashed one: the run
 	// executes it rather than reading the config again.
-	var checked *pipelineSnapshot
+	checked := read
 	spec.plan = func(ctx context.Context) (plan.Plan, error) {
-		p, snap, err := s.planPipeline(ctx, planSpec, id)
+		p, snap, err := s.planPipelineSnapshot(ctx, planSpec, id, read, problem)
 		checked = snap
 		return p, err
 	}
@@ -192,4 +200,45 @@ func resultError(err error, failed bool) error {
 		return err
 	}
 	return &ExternalConnectorError{Code: ExternalConnectorOperationFailed, Err: errOperationReportedFailure}
+}
+
+// pipelineChanges are the actions that change the resource they name.
+var pipelineChanges = map[string]bool{"deploy": true, "deploy_app": true, "start": true, "stop": true}
+
+// pipelineTargetLookup labels a pipeline run's target with the most
+// protective labels among the resources its stages change: production if
+// any is, owner-administered (or shared) if any is, and otherwise the
+// operator's own dev pipeline. A read that found no pipeline
+// labels nothing, and the run then fails on the missing definition.
+func pipelineTargetLookup(id string, snap *pipelineSnapshot) func(string) (*config.ResourceDef, bool) {
+	return func(name string) (*config.ResourceDef, bool) {
+		if name != id || snap == nil {
+			return nil, false
+		}
+		// The pipeline is the operator's own; it takes a stricter label only
+		// from what its stages change.
+		def := config.ResourceDef{ID: id, Type: "pipeline", Connector: "pipeline", Env: target.EnvDev, Owner: target.OwnerSelf, Admin: target.Admin{Default: target.AdminSelf}}
+		byID := map[string]config.ResourceDef{}
+		for _, r := range snap.resources {
+			byID[r.ID] = r
+		}
+		for _, stage := range snap.def.Stages {
+			for _, action := range stage.Actions {
+				r, ok := byID[action.Resource]
+				if !ok || !pipelineChanges[action.Type] {
+					continue
+				}
+				if r.Env == target.EnvProd {
+					def.Env = target.EnvProd
+				}
+				switch {
+				case r.Admin.Default == target.AdminOwner:
+					def.Admin.Default = target.AdminOwner
+				case r.Admin.Default == target.AdminShared && def.Admin.Default != target.AdminOwner:
+					def.Admin.Default = target.AdminShared
+				}
+			}
+		}
+		return &def, true
+	}
 }

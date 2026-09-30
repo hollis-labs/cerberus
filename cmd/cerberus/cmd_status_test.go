@@ -245,7 +245,7 @@ func TestStatusNamesEnforcement(t *testing.T) {
 		e    statusEnforcement
 		want string
 	}{
-		{statusEnforcement{Summary: "shadow (nothing enforced)"}, "enforce  shadow (nothing enforced)"},
+		{statusEnforcement{Summary: "shadow (only the built-in protections are enforced)"}, "enforce  shadow (only the built-in protections are enforced)"},
 		{statusEnforcement{Summary: "shadow, with 1 enforced scope(s): agents-prod", Enforced: true}, "enforce  ! shadow, with 1 enforced scope(s)"},
 		{statusEnforcement{Summary: "enforce (everything)", Enforced: true, Mismatch: "snapshot mismatch: enforcing everything"}, "enforce  ! snapshot mismatch: enforcing everything"},
 	} {

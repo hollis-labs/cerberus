@@ -142,6 +142,15 @@ cerberus init      # write a starter ~/.cerberus/config.yaml
 cerberus install   # bootstrap the macOS launch agent (uses the current binary path)
 ```
 
+**What is enforced on a new install:** policy starts in shadow mode, so most
+decisions are recorded, not applied. The exception is the built-in protections,
+which always apply: an agent can't write to, restart, destroy or run commands on
+a target labeled `env: prod` or `admin: owner`, even when it sets `acknowledged`
+itself. Label your production and owner-administered resources. Everything else
+an agent does runs, and is recorded, until you enforce more with
+`cerberus policy enforce` ([docs/policy.md](docs/policy.md)).
+`cerberus posture show` lists what is enforced and what is shadow.
+
 See [docs/install.md](docs/install.md) for prerequisites, paths, first-run
 walkthrough, and release artifact details. Release packaging steps live in
 [docs/release/beta-release-process.md](docs/release/beta-release-process.md).

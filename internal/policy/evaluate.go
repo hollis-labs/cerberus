@@ -65,6 +65,9 @@ func (e *Evaluator) Enforced(req Request) (bool, string) {
 	if ok && note != "" {
 		by = note + " (" + by + ")"
 	}
+	if !ok && BaselineEnforced(req) {
+		return true, "built-in, always enforced: " + BaselineEnforcedSummary
+	}
 	return ok, by
 }
 
