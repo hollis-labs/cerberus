@@ -17595,7 +17595,7 @@
     },
     {
       "namespace": "cerberus",
-      "last_reviewed": "2026-09-29",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-29",
       "review_status": "draft",
       "locus": "core",
@@ -17603,7 +17603,7 @@
       "name": "The OS credential store is only exercised on macOS; Windows and Linux are unsupported in practice",
       "summary": "keychain:// references resolve through zalando/go-keyring, which already backs onto the Windows Credential Manager and the Linux Secret Service, but nothing is built, tested or documented for those platforms, and a headless Linux box has no Secret Service at all.",
       "state_field": "status",
-      "state_label": "planned",
+      "state_label": "partial",
       "confidence_score": 0.8,
       "confidence_label": "read from go.mod and the secrets chain; not run on Windows or Linux",
       "tags": [
@@ -17628,15 +17628,15 @@
         "capability": "CERB-CAP-504",
         "priority": "nice-to-have",
         "blocked_by": [],
-        "unlocks_when": "keychain:// (or a platform-neutral os:// alias) resolves on Windows (Credential Manager) and Linux (Secret Service via D-Bus) with tests on both; headless Linux has a documented, explicit fallback (for example an age- or systemd-creds-encrypted file keyed to the user) that never silently degrades to plaintext; docs/secrets.md covers all three platforms",
+        "unlocks_when": "keyring:// resolves on Windows (Credential Manager) and Linux, including headless Linux through systemd credentials (LoadCredentialEncrypted, written by cerberus secrets set with systemd-creds), never degrading to plaintext; store_unavailable names the fix on every platform; docs/secrets.md covers all three; the CI jobs recorded here run, when the operator takes them off the backlog",
         "effort": "medium"
       },
-      "body": "The operator's requirement (2026-09-29): Windows and Linux support for the OS credential store is on the roadmap. The library layer is already cross-platform; the work is the scheme name (keychain:// reads as macOS-only), the headless-Linux case where no Secret Service daemon runs, the vault plugins' bootstrap credentials (which also live in the OS store), CI on Windows and Linux, and documentation. Related platform work that this does not cover is recorded separately.",
+      "body": "The operator's requirement (2026-09-29): Windows and Linux support for the OS credential store is on the roadmap. The library layer is already cross-platform; the work is the scheme name (keychain:// reads as macOS-only), the headless-Linux case where no Secret Service daemon runs, the vault plugins' bootstrap credentials (which also live in the OS store), CI on Windows and Linux, and documentation. Related platform work that this does not cover is recorded separately.\n\n## Where it stands\n\nDone: `keyring://` is the platform-neutral scheme (keychain:// stays as an alias), and `cerberus secrets set` writes through go-keyring, which is Keychain on macOS, Credential Manager on Windows and the Secret Service on Linux. Step 1 of the plan below is done too: a store that is not there (no Secret Service on the session bus, a locked or refusing keychain, an unreachable Credential Manager) is a `StoreUnavailableError`, credential_missing naming what makes the store available, never read as not-found; values over a platform's limit are refused before anything is written (Windows 2560 bytes; macOS about 3000, since go-keyring's security(1) command is 4096 bytes with the value base64-encoded; Linux a 100 KiB sanity bound); and no test reads or writes the operator's real store: KeychainProvider refuses it in a test binary that has not called `secrets.MockStoreForTests()` in TestMain.\n\nChecked against go-keyring v0.2.8: on Linux it needs the D-Bus session bus and unlocks the \"login\" collection, so a headless box or a systemd user unit has no store at all; Windows credentials are per user, so a Windows daemon must run as the signed-in user, not as a system service.\n\n## The plan for the rest\n\nLinux headless fallback:\n1. Keep the Secret Service wherever it answers. Its absence is store_unavailable, stated, never a silent fall-through.\n2. The headless store is systemd credentials, not a file format Cerberus invents. Read side: a core secret.Reader over `$CREDENTIALS_DIRECTORY`, which systemd fills for the daemon's unit from `LoadCredentialEncrypted=` (decrypted in memory, bound to the host key and the TPM2 when there is one), one file per `<service>__<key>`; `keyring://` resolves through it like the keychain. Write side: on headless Linux, `cerberus secrets set` runs `systemd-creds encrypt --user` (systemd 256 or later for user scope) into `~/.config/cerberus/credentials/` (0600) and says to restart the unit; `cerberus install` on Linux emits the user unit with `LoadCredentialEncrypted=` for that directory. Older systemd needs root for host-scoped credentials: say so and refuse.\n3. Never plaintext: no 0600 file of raw values, and no passphrase prompt a headless daemon cannot answer. With neither a Secret Service nor systemd-creds, the store is unavailable and credentials are environment-only, said plainly.\n4. Store selection is per call, never cached at boot (the Docker PATH lesson): Secret Service, then the credential directory, then unavailable. macOS and Windows keep go-keyring alone.\n\nSequence: (1) store_unavailable and limits, done; (2) CI, see below; (3) the systemd-creds Reader, the headless `secrets set` path and `LoadCredentialEncrypted=` from a Linux `cerberus install`, which needs the Linux unit writer of CERB-GAP-905; (4) Windows follows the build fixes of CERB-GAP-905.\n\n## CI: backlog\n\nThe repository has no CI (lefthook is the gate), and the operator has put GitHub Actions for Windows and Linux on the backlog (2026-09-30). The job outline, for when it is picked up: (1) a cross-compile check, `GOOS=linux` build and vet and `GOOS=windows` build, with Windows expected to fail until CERB-GAP-905; (2) the Linux suite with the store mocked (TestMain already does this); (3) a Linux keyring integration job, once under dbus-run-session with gnome-keyring-daemon unlocked for the real Secret Service round trip, and once with no bus asserting store_unavailable and the systemd-creds path; (4) Windows tests after the CERB-GAP-905 build fixes, covering the 2560-byte limit; (5) macOS with the store mocked, and a real-keychain test only on a runner that creates and unlocks a temporary keychain. `make all` needs node for the web bundle. Private-module access uses the token pattern cerberus-plugins already has.",
       "id": "CERB-GAP-904"
     },
     {
       "namespace": "cerberus",
-      "last_reviewed": "2026-09-29",
+      "last_reviewed": "2026-09-30",
       "created_at": "2026-09-29",
       "review_status": "draft",
       "locus": "core",
@@ -17671,7 +17671,7 @@
         "unlocks_when": "cerberus install emits a systemd user unit on Linux and a per-user service (or scheduled task) on Windows; the local connector's launchd run mode has systemd and Windows equivalents; notifications use notify-send / Windows toast; peer-credential checks cover Windows (named pipe or AF_UNIX client token); WebAuthn works with Windows Hello and Linux security keys; CI runs on all three",
         "effort": "large"
       },
-      "body": "Recorded alongside the credential-store gap so the platform roadmap is one query. Already portable: the daemon socket (AF_UNIX exists on Windows 10+), Linux peer credentials (SO_PEERCRED, P2-1), the policy, audit and approval stores, and the web console. The launchd-specific pieces are the supervision lane's run mode, cerberus install, the daemon self-deploy guidance in AGENTS.md, and the desktop notification hook.",
+      "body": "Recorded alongside the credential-store gap so the platform roadmap is one query. Already portable: the daemon socket (AF_UNIX exists on Windows 10+), Linux peer credentials (SO_PEERCRED, P2-1), the policy, audit and approval stores, and the web console. The launchd-specific pieces are the supervision lane's run mode, cerberus install, the daemon self-deploy guidance in AGENTS.md, and the desktop notification hook.\n\nMeasured 2026-09-30 by cross-compiling main: `GOOS=linux` builds and vets clean. `GOOS=windows` does not build: syscall.Flock in the audit sink, internal/buildlock and the service lockfile; syscall.Kill and SysProcAttr.Setpgid in internal/service; and, behind those, the plugin host's process groups and rlimit shim, socket peer credentials and the launchd run mode. The fixes are LockFileEx for locks, job objects for process groups, and a per-user logon task for install. CI for Windows and Linux is on the operator's backlog; the job outline is in CERB-GAP-904, and a required Windows build job is this gap's natural done condition.",
       "id": "CERB-GAP-905"
     },
     {

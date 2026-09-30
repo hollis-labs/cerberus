@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"os"
 	"testing"
 )
@@ -20,6 +21,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	// Tests never read or write the operator's real credential store: the
+	// CLI reaches KeychainProvider through the connector chain and the
+	// console's store.
+	secrets.MockStoreForTests()
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)
