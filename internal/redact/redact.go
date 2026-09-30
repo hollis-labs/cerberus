@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -125,6 +126,38 @@ var errorCodes = map[string]bool{
 	"output_too_large":        true,
 }
 
+// names are connector and plugin ids: names by construction, which the
+// assignment rule must not read as a key. A plugin id such as onepassword
+// contains "password", so "plugin \"onepassword\": does not declare ..." read
+// as an assignment and lost the word after the colon. Registered by the
+// connector registry and the plugin host as each id becomes known.
+var names sync.Map
+
+// RegisterNames records connector or plugin ids as names by construction.
+func RegisterNames(ids ...string) {
+	for _, id := range ids {
+		if id = strings.ToLower(strings.TrimSpace(id)); id != "" {
+			names.Store(id, true)
+		}
+	}
+}
+
+// isRegisteredName reports whether an assignment rule's captured key is a
+// registered id in rendered prose, and the word after it prose too. Both
+// halves must agree: an id that happens to be a credential key name, such as
+// a plugin called api_key, must not carry a token past the rule, so a
+// token-shaped value after it is still redacted.
+func isRegisteredName(key, value string) bool {
+	key = strings.TrimSpace(key)
+	key = strings.TrimRight(key, " \t:=>")
+	key = strings.Trim(key, "\"'")
+	if _, ok := names.Load(strings.ToLower(strings.TrimSpace(key))); !ok {
+		return false
+	}
+	value = strings.Trim(value, "\"'")
+	return strings.HasSuffix(value, ":") || !looksLikeToken(value)
+}
+
 // IsErrorCode reports whether code is one of Cerberus's own error codes,
 // which redaction leaves alone (a test holds this list to the vocabulary).
 func IsErrorCode(code string) bool { return errorCodes[code] }
@@ -221,6 +254,11 @@ func redactPairs(pattern *regexp.Regexp, value string) string {
 			// same rule: a real assignment sitting behind the code — as in
 			// "credential_missing: API_KEY=..." — must not ride through on
 			// the exemption.
+			return parts[1] + redactPairs(pattern, parts[2])
+		}
+		if isRegisteredName(parts[1], parts[2]) {
+			// A connector or plugin id, then the next word of a sentence:
+			// hand the rest back, as for an error code.
 			return parts[1] + redactPairs(pattern, parts[2])
 		}
 		if pattern == assignment && isTypeNamePrefix(parts[1], parts[2]) {
