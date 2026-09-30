@@ -140,3 +140,34 @@ func TestSocketDecideAndRevokeRoutes(t *testing.T) {
 		t.Fatalf("unknown id: %d", rec.Code)
 	}
 }
+
+// An approval approved with a pre-v2 passkey proof is expired on load with
+// the reason, so it does not sit there looking usable; a v2 one is left
+// alone (H4).
+func TestUpgradeExpiresOlderProofs(t *testing.T) {
+	broker, old, _ := pendingApproval(t, agentMCP, approval.ChannelTTYConfirm)
+	if _, err := broker.store.Decide(old.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human", Via: "cli"}, Assertion: []byte(`{"v":1}`)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := broker.store.Request(approval.Approval{Connector: "docker", Operation: "stop", Principal: agentMCP, Target: old.Target,
+		ArgsDigest: "digest", Channel: approval.ChannelTTYConfirm}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = broker.store.Decide(fresh.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human", Via: "cli"}, Assertion: []byte(`{"v":2}`)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := broker.ExpireUpgraded(context.Background()); n != 1 {
+		t.Fatalf("expired %d", n)
+	}
+	got, _ := broker.Get(old.ID)
+	if got.Status != approval.Expired || got.ExpiredReason != UpgradeNote {
+		t.Fatalf("the v1 approval: %s %q", got.Status, got.ExpiredReason)
+	}
+	if kept, _ := broker.Get(fresh.ID); kept.Status != approval.Approved {
+		t.Fatalf("the v2 approval: %s", kept.Status)
+	}
+	if n := broker.ExpireUpgraded(context.Background()); n != 0 {
+		t.Fatalf("a second pass expired %d", n)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/target"
 )
@@ -181,6 +182,11 @@ func (b *Broker) record(ctx context.Context, kind string, a approval.Approval, o
 }
 
 func (b *Broker) recordWith(ctx context.Context, kind string, a approval.Approval, operationID string, with func(*audit.ApprovalRef)) {
+	b.recordNoted(ctx, kind, a, operationID, with, "")
+}
+
+// recordNoted is recordWith with a note on the record.
+func (b *Broker) recordNoted(ctx context.Context, kind string, a approval.Approval, operationID string, with func(*audit.ApprovalRef), note string) {
 	ref := &audit.ApprovalRef{ID: a.ID, Status: string(a.Status), Channel: a.Channel, Scope: a.Scope, Rule: a.Rule, PlanHash: a.PlanHash, ExpiresAt: a.ExpiresAt}
 	if a.Decision != nil {
 		by := a.Decision.By
@@ -190,7 +196,7 @@ func (b *Broker) recordWith(ctx context.Context, kind string, a approval.Approva
 		with(ref)
 	}
 	rec := audit.Record{Kind: kind, OperationID: operationID, Principal: principalFor(ctx, auditSpec{}), Connector: a.Connector,
-		Operation: a.Operation, Effect: a.Effect, Target: a.Target, ArgsDigest: a.ArgsDigest, Approval: ref, Posture: audit.PostureSecure}
+		Operation: a.Operation, Effect: a.Effect, Target: a.Target, ArgsDigest: a.ArgsDigest, Approval: ref, Posture: audit.PostureSecure, Note: note}
 	if _, err := b.sink.Write(rec); err != nil {
 		b.logger.Error("audit.write_failed", "kind", kind, "approval", a.ID, "error", redact.Text(err.Error()))
 	}
@@ -349,7 +355,7 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 		// A policy that relaxed to allow since the approval was given still
 		// spends it, so the record shows it was used (D8).
 		if spec.approvalID != "" {
-			return consumeApproval(ctx, call, spec)
+			return consumeApproval(ctx, call, spec, false)
 		}
 		return nil
 	case policy.DryRunOnly:
@@ -369,7 +375,10 @@ func enforceDecision(ctx context.Context, call *auditCall, spec auditSpec, req p
 			return confirmOnCall(ctx, call, spec, req, res)
 		}
 		if spec.approvalID != "" {
-			return consumeApproval(ctx, call, spec)
+			// The channel policy asks for now, not the one the store says
+			// the approval was met on (H4).
+			channel, _, _ := approvalTerms(req.Target, res)
+			return consumeApproval(ctx, call, spec, channel == approval.ChannelOutOfBand)
 		}
 		if used, err := useGrant(ctx, call, spec, req, res); used || err != nil {
 			return err
@@ -470,7 +479,7 @@ func useGrant(ctx context.Context, call *auditCall, spec auditSpec, req policy.R
 // recomputing its plan the same way it was computed when the approval was
 // asked for (I6). What the call runs under is written on its records: the
 // outcome carries approval_id and plan_hash.
-func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec) error {
+func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec, requireOutOfBand bool) error {
 	args := ExternalConnectorOperationArgs{Connector: spec.connector, Operation: spec.operation}
 	broker := ProcessBroker()
 	if broker == nil {
@@ -483,7 +492,7 @@ func consumeApproval(ctx context.Context, call *auditCall, spec auditSpec) error
 			redact.GuidanceWrap(err, "approval %s cannot be checked against the plan, which could not be computed now, so nothing ran", spec.approvalID))
 	}
 	a, err := broker.Consume(ctx, spec.approvalID, approval.ConsumeCheck{Connector: spec.connector, Operation: spec.operation, Principal: call.intent.Principal, Target: call.intent.Target,
-		ArgsDigest: call.intent.ArgsDigest, PlanHash: planHash, OperationID: call.intent.OperationID})
+		ArgsDigest: call.intent.ArgsDigest, PlanHash: planHash, OperationID: call.intent.OperationID, RequireOutOfBand: requireOutOfBand})
 	if err != nil {
 		return consumeRefusal(args, spec.approvalID, a, err)
 	}
@@ -507,6 +516,9 @@ func consumeRefusal(args ExternalConnectorOperationArgs, id string, a approval.A
 	case errors.Is(err, approval.ErrOtherOperation):
 		return externalConnectorError(args, ExternalConnectorPlanStale,
 			redact.Guidance("approval %s is for %s %s, not this operation; nothing ran", a.ID, a.Connector, a.Operation))
+	case errors.Is(err, approval.ErrWeakerChannel):
+		return externalConnectorError(args, ExternalConnectorApprovalRequired,
+			redact.Guidance("approval %s was met on %s, and this call now needs out-of-band approval with a passkey; nothing ran. Retry without the approval id to ask for one", a.ID, a.Channel))
 	case errors.Is(err, approval.ErrOtherPrincipal):
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
 			redact.Guidance("approval %s belongs to another caller (it was asked for by %s over %s); nothing ran. Retry without the approval id to ask for your own", a.ID, a.Principal.Kind, a.Principal.Via))
@@ -623,4 +635,28 @@ func decidingRule(res policy.Result) string {
 type ApprovalList struct {
 	Approvals []approval.Approval `json:"approvals"`
 	Problems  []string            `json:"problems,omitempty"`
+}
+
+// UpgradeNote is why an approval approved before v2 passkey proofs was
+// expired: it is shown wherever the approval is.
+const UpgradeNote = "re-approval required: approved with the older passkey proof, which this Cerberus no longer accepts; ask again"
+
+// ExpireUpgraded expires every approved approval whose passkey proof is
+// older than v2 (H4), so none sits there looking usable, records each, and
+// tells the operator how many need approving again.
+func (b *Broker) ExpireUpgraded(ctx context.Context) int {
+	expired, err := b.store.ExpireWhere(func(a approval.Approval) bool {
+		return a.Decision != nil && len(a.Decision.Assertion) > 0 && presence.AssertionVersion(a.Decision.Assertion) < 2
+	}, UpgradeNote)
+	for _, a := range expired {
+		b.recordNoted(ctx, audit.KindApprovalExpired, a, "", nil, UpgradeNote)
+	}
+	if err != nil {
+		b.logger.Error("approvals.upgrade_expire_failed", "error", redact.Text(err.Error()))
+	}
+	if n := len(expired); n > 0 {
+		b.logger.Warn("approvals.upgrade_expired", "count", n)
+		notify("Cerberus: approvals need approving again", fmt.Sprintf("%d approved approval(s) or grant(s) carried the older passkey proof and were expired; ask again, and approve with your passkey", n))
+	}
+	return len(expired)
 }

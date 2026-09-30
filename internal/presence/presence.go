@@ -127,6 +127,9 @@ type ceremony struct {
 	session    *webauthn.SessionData // enroll: the registration session
 	fp         string                // remove: the key to remove
 	label      string
+	// signedExpiry is the latest the approval may be used (approve): what
+	// the assertion signs, so the store cannot lengthen it.
+	signedExpiry time.Time
 }
 
 // Service is the presence verifier and the enrollment ceremonies.
@@ -327,10 +330,27 @@ func challenge(parts ...[]byte) []byte {
 }
 
 // approvalChallenge binds an assertion to what is approved: editing any of
-// these in the store makes the stored assertion stop verifying.
-func approvalChallenge(a approval.Approval, nonce []byte) []byte {
-	return challenge([]byte("cerberus approval v1"), []byte(a.ID), []byte(a.PlanHash), []byte(a.ArgsDigest),
-		[]byte(a.Connector), []byte(a.Operation), []byte(a.Principal.Via), []byte(a.Principal.Session), nonce)
+// these in the store makes the stored assertion stop verifying. v2 (H4)
+// adds what makes an approval dangerous beyond its call: the channel it
+// was met on, its scope and TTL, the latest it may be used, the requester's
+// kind and the target as labeled, so a same-uid edit cannot turn one
+// passkey "once" into a standing grant, or move it to another target.
+func approvalChallenge(a approval.Approval, expires time.Time, nonce []byte) []byte {
+	target, _ := json.Marshal(a.Target)
+	return challenge([]byte("cerberus approval v2"), []byte(a.ID), []byte(a.PlanHash), []byte(a.ArgsDigest),
+		[]byte(a.Connector), []byte(a.Operation), []byte(a.Principal.Via), []byte(a.Principal.Session),
+		[]byte(a.Principal.Kind), []byte(a.Channel), []byte(a.Scope), []byte(a.TTL.String()), target,
+		[]byte(expires.UTC().Format(time.RFC3339Nano)), nonce)
+}
+
+// signedExpiry is the latest an approval decided in a ceremony begun now
+// may be used: its own expiry, or for a grant, which runs its TTL from the
+// decision, the ceremony's end plus the TTL.
+func (s *Service) signedExpiry(a approval.Approval) time.Time {
+	if a.IsGrant() && a.TTL > 0 {
+		return s.now().Add(ceremonyTTL + a.TTL)
+	}
+	return a.ExpiresAt
 }
 
 func descriptors(keys []Key) []protocol.CredentialDescriptor {
@@ -396,7 +416,10 @@ func verifyAssertion(reg registryFile, raw []byte, ch []byte, origin string) (Ke
 // sealed is what a decision keeps as its assertion: enough to verify it
 // again with nothing from memory.
 type sealed struct {
-	V          int             `json:"v"`
+	V int `json:"v"`
+	// Expires is the latest the approval may be used; the assertion signs
+	// it (v2).
+	Expires    time.Time       `json:"expires"`
 	Ceremony   string          `json:"ceremony"`
 	Origin     string          `json:"origin"`
 	Nonce      []byte          `json:"nonce"`
@@ -424,13 +447,14 @@ func (s *Service) BeginApproval(a approval.Approval, origin string) (string, jso
 		return "", nil, ErrOrigin
 	}
 	nonce := randomBytes(32)
-	opts, err := beginLogin(reg, approvalChallenge(a, nonce), origin)
+	expiry := s.signedExpiry(a)
+	opts, err := beginLogin(reg, approvalChallenge(a, expiry, nonce), origin)
 	if err != nil {
 		return "", nil, err
 	}
 	id := newID()
 	s.prune()
-	s.ceremonies[id] = &ceremony{kind: "approve", approvalID: a.ID, nonce: nonce, origin: origin, expires: s.now().Add(ceremonyTTL)}
+	s.ceremonies[id] = &ceremony{kind: "approve", approvalID: a.ID, nonce: nonce, origin: origin, expires: s.now().Add(ceremonyTTL), signedExpiry: expiry}
 	return id, opts, nil
 }
 
@@ -456,7 +480,7 @@ func (s *Service) Seal(approvalID string, raw json.RawMessage) (json.RawMessage,
 			}
 		}
 	}
-	out, err := json.Marshal(sealed{V: 1, Ceremony: in.Ceremony, Origin: c.origin, Nonce: c.nonce, Credential: in.Credential})
+	out, err := json.Marshal(sealed{V: 2, Expires: c.signedExpiry, Ceremony: in.Ceremony, Origin: c.origin, Nonce: c.nonce, Credential: in.Credential})
 	return out, fp, err
 }
 
@@ -469,7 +493,13 @@ var _ approval.PresenceVerifier = (*Service)(nil)
 // the approval as it now reads, and against the keys as they now are.
 func (s *Service) Verify(a approval.Approval, d approval.Decision) error {
 	var env sealed
-	if len(d.Assertion) == 0 || json.Unmarshal(d.Assertion, &env) != nil || env.V != 1 {
+	// A v1 assertion signed less than an approval's dangerous fields, so it
+	// is not accepted: approve again (H4).
+	if len(d.Assertion) == 0 || json.Unmarshal(d.Assertion, &env) != nil || env.V != 2 {
+		return approval.ErrNoPresence
+	}
+	// The store may not make an approval last longer than was signed.
+	if a.ExpiresAt.IsZero() || a.ExpiresAt.After(env.Expires) || s.now().After(env.Expires) {
 		return approval.ErrNoPresence
 	}
 	s.mu.Lock()
@@ -499,7 +529,7 @@ func (s *Service) Verify(a approval.Approval, d approval.Decision) error {
 	if deciding {
 		check = s.withCounters(reg)
 	}
-	key, cred, err := verifyAssertion(check, env.Credential, approvalChallenge(a, env.Nonce), env.Origin)
+	key, cred, err := verifyAssertion(check, env.Credential, approvalChallenge(a, env.Expires, env.Nonce), env.Origin)
 	if err != nil {
 		return err
 	}
@@ -832,4 +862,16 @@ func keysCount(n int) string {
 		return "1 key"
 	}
 	return fmt.Sprintf("%d keys", n)
+}
+
+// AssertionVersion is the version of a decision's sealed assertion, or 0.
+// v1 signed less than an approval's dangerous fields and is not accepted.
+func AssertionVersion(raw json.RawMessage) int {
+	var env struct {
+		V int `json:"v"`
+	}
+	if json.Unmarshal(raw, &env) != nil {
+		return 0
+	}
+	return env.V
 }

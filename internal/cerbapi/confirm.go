@@ -131,7 +131,7 @@ func confirmOnCall(ctx context.Context, call *auditCall, spec auditSpec, req pol
 		return consumeRefusal(args, a.ID, a, err)
 	}
 	spec.approvalID = a.ID
-	return consumeApproval(ctx, call, spec)
+	return consumeApproval(ctx, call, spec, channel == approval.ChannelOutOfBand)
 }
 
 // confirmInProcess is confirming on the call with no daemon (D3): nothing

@@ -17993,6 +17993,50 @@
       "id": "CERB-GAP-918"
     },
     {
+      "namespace": "cerberus",
+      "last_reviewed": "2026-09-30",
+      "created_at": "2026-09-30",
+      "review_status": "draft",
+      "locus": "core",
+      "class": "gap",
+      "name": "A passkey approval could be widened, extended or downgraded by editing the store",
+      "summary": "The passkey challenge bound only the call (id, plan, args, operation, via, session), approvals folded past a broken chain, and consume trusted the stored channel. So a same-uid edit could turn one passkey 'once' into an unexpiring window grant, move it to a prod target, or mark a prod approval as met on a terminal. Fixed: the challenge (v2) also binds channel, scope, TTL, signed expiry, requester kind and the labelled target; consume enforces the signed expiry and recomputes the required channel from policy; past a chain break only restrictive events fold until the daemon reanchors.",
+      "state_field": "status",
+      "state_label": "shipped",
+      "confidence_score": 0.85,
+      "confidence_label": "found by the e40b63c security review (H4); fixed with tests and mutation checks, CDP smoke 41/41",
+      "tags": [
+        "cerberus",
+        "class:gap",
+        "gap",
+        "approvals",
+        "locus:core",
+        "priority:must-have"
+      ],
+      "pointer_locator": "internal/presence/presence.go, internal/approval/store.go, internal/cerbapi/approvals.go",
+      "relationships": [
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-872",
+          "note": "the store stays same-uid writable; the proof now covers what matters"
+        },
+        {
+          "type": "relates_to",
+          "target": "CERB-GAP-879",
+          "note": "presence"
+        }
+      ],
+      "data": {
+        "capability": "CERB-CAP-604",
+        "priority": "must-have",
+        "blocked_by": [],
+        "unlocks_when": "shipped",
+        "effort": "medium"
+      },
+      "body": "Remaining: the chain is unkeyed, so a full rewrite with recomputed hashes folds (M2's anchor). tty_confirm approvals carry no proof and stay forgeable by the operator's uid (GAP-859). Approvals decided before the change carry v1 assertions, which are refused and must be approved again.",
+      "id": "CERB-GAP-919"
+    },
+    {
       "id": "CERB-TOOL-110",
       "class": "tool",
       "name": "resource list",

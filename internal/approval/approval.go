@@ -83,11 +83,14 @@ type Approval struct {
 	Shown *Shown `json:"shown,omitempty"`
 
 	// Why approval is needed: the rule that decided, and how it may be met.
-	Rule      string `json:"rule,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	Channel   string `json:"channel"`
-	Scope     string `json:"scope"`
-	Approvers int    `json:"approvers,omitempty"`
+	Rule   string `json:"rule,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// ExpiredReason is why an approval expired before its time: an
+	// upgrade that no longer accepts its proof, say.
+	ExpiredReason string `json:"expired_reason,omitempty"`
+	Channel       string `json:"channel"`
+	Scope         string `json:"scope"`
+	Approvers     int    `json:"approvers,omitempty"`
 
 	// RequestOperationID is the audit operation id of the call that asked.
 	RequestOperationID string `json:"request_operation_id,omitempty"`

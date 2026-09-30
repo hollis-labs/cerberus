@@ -25,6 +25,9 @@ const (
 	EventExpired   = "expired"
 	EventConsumed  = "consumed"
 	EventRevoked   = "revoked"
+	// EventReanchored marks where the daemon took up a store whose chain
+	// was broken: events after it chain from it and are trusted again.
+	EventReanchored = "reanchored"
 	// EventUsed is one use of a grant (a session or window approval, P3-5),
 	// which, unlike a once approval, is not spent by it.
 	EventUsed = "used"
@@ -51,6 +54,8 @@ type Event struct {
 	// OperationID links a consumed event to the audit intent of the
 	// operation it let through.
 	OperationID string `json:"operation_id,omitempty"`
+	// Note is why an expired event expired an approval before its time.
+	Note string `json:"note,omitempty"`
 
 	PrevHash string `json:"prev_hash"`
 	Hash     string `json:"hash"`
@@ -70,6 +75,9 @@ var (
 	ErrPlanStale      = errors.New("the plan no longer matches the one approved")
 	ErrNoPresence     = errors.New("the out-of-band decision carries no presence proof this Cerberus can verify")
 	ErrPolicyNowDenys = errors.New("policy now denies the operation")
+	// ErrWeakerChannel is an approval met on a weaker channel than the
+	// call needs now: a terminal confirmation where a passkey is required.
+	ErrWeakerChannel = errors.New("the approval was met on a weaker channel than this call needs")
 )
 
 // Store is the event store and the state folded from it.
@@ -81,6 +89,9 @@ type Store struct {
 	state map[string]*Approval
 	seq   uint64
 	last  string
+	// broken is a fold that has met a broken chain and not yet a
+	// reanchoring after it.
+	broken bool
 
 	// Problems are what the fold found wrong with the file: a broken
 	// chain, a line that did not parse, a transition that did not apply.
@@ -105,6 +116,14 @@ func open(dir string, now func() time.Time) (*Store, error) {
 	s := &Store{path: filepath.Join(dir, FileName), now: now, state: map[string]*Approval{}}
 	if err := s.fold(); err != nil {
 		return nil, err
+	}
+	if s.broken {
+		// Taken up here: what follows chains from this line and is trusted.
+		// What came between the break and here stays as folded, restrictive
+		// events only.
+		if err := s.append(Event{Type: EventReanchored}); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }
@@ -133,11 +152,23 @@ func (s *Store) fold() error {
 			s.Problems = append(s.Problems, fmt.Sprintf("line after seq %d does not parse", s.seq))
 			continue
 		}
-		if ev.Seq != s.seq+1 || ev.PrevHash != s.last || hashEvent(ev) != ev.Hash {
+		chained := ev.Seq == s.seq+1 && ev.PrevHash == s.last && hashEvent(ev) == ev.Hash
+		if !chained {
 			s.Problems = append(s.Problems, fmt.Sprintf("seq %d does not chain to the one before it", ev.Seq))
+			s.broken = true
 		}
-		if err := s.apply(ev); err != nil {
-			s.Problems = append(s.Problems, fmt.Sprintf("seq %d: %v", ev.Seq, err))
+		switch {
+		case ev.Type == EventReanchored && chained:
+			s.broken = false
+		case s.broken && !restrictive(ev):
+			// Past a break, only what restricts is applied (H4): an
+			// approval, a grant's acknowledgment or a request's decision
+			// written there is not trusted.
+			s.Problems = append(s.Problems, fmt.Sprintf("seq %d (%s) is past a broken chain and is not applied", ev.Seq, ev.Type))
+		default:
+			if err := s.apply(ev); err != nil {
+				s.Problems = append(s.Problems, fmt.Sprintf("seq %d: %v", ev.Seq, err))
+			}
 		}
 		s.seq, s.last = ev.Seq, ev.Hash
 	}
@@ -147,6 +178,9 @@ func (s *Store) fold() error {
 // apply moves state by one event, refusing a transition the lifecycle does
 // not allow.
 func (s *Store) apply(ev Event) error {
+	if ev.Type == EventReanchored {
+		return nil
+	}
 	if ev.Type == EventRequested {
 		if ev.Approval == nil || ev.Approval.ID != ev.ApprovalID {
 			return errors.New("a requested event without its approval")
@@ -183,7 +217,7 @@ func (s *Store) apply(ev Event) error {
 		if a.Status != Pending && a.Status != Approved {
 			return fmt.Errorf("expired from %s", a.Status)
 		}
-		a.Status = Expired
+		a.Status, a.ExpiredReason = Expired, ev.Note
 	case EventConsumed:
 		if a.Status != Approved {
 			return fmt.Errorf("consumed from %s", a.Status)
@@ -343,6 +377,31 @@ func (s *Store) Sweep() ([]Approval, error) {
 	return expired, nil
 }
 
+// ExpireWhere expires, with note, every approved approval stale says can
+// no longer be used, and returns them: approvals whose proof an upgrade no
+// longer accepts, so they do not sit there looking valid.
+func (s *Store) ExpireWhere(stale func(Approval) bool, note string) ([]Approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.state))
+	for id := range s.state {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	var out []Approval
+	for _, id := range ids {
+		a := s.state[id]
+		if a.Status != Approved || !stale(*a) {
+			continue
+		}
+		if err := s.append(Event{Type: EventExpired, ApprovalID: id, Note: note}); err != nil {
+			return out, err
+		}
+		out = append(out, *s.state[id])
+	}
+	return out, nil
+}
+
 // PresenceVerifier checks an out-of-band decision's presence proof against
 // the enrolled keys (P3-4). Until one is installed, no out-of-band decision
 // verifies, so none is consumed: the store's word is never enough.
@@ -405,6 +464,10 @@ type ConsumeCheck struct {
 	OperationID string
 	// Reauthorized is the policy decision now: a deny refuses.
 	ReauthorizedDeny bool
+	// RequireOutOfBand is policy as it reads now asking for out of band
+	// for this call: an approval the store says was met on a terminal does
+	// not do, whatever channel it was asked on (H4).
+	RequireOutOfBand bool
 }
 
 // Consume spends an approved approval on one call, write-ahead: the consumed
@@ -424,7 +487,8 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 		// A retry naming a grant uses it: bound to the operation, target
 		// and requester, not to one call's arguments.
 		return s.use(a, view, GrantCheck{Connector: check.Connector, Operation: check.Operation, Target: check.Target,
-			Principal: check.Principal, OperationID: check.OperationID, ReauthorizedDeny: check.ReauthorizedDeny}, verifier)
+			Principal: check.Principal, OperationID: check.OperationID, ReauthorizedDeny: check.ReauthorizedDeny,
+			RequireOutOfBand: check.RequireOutOfBand}, verifier)
 	}
 	switch {
 	case view.Status == Expired:
@@ -441,6 +505,8 @@ func (s *Store) Consume(id string, check ConsumeCheck, verifier PresenceVerifier
 		return view, ErrPlanStale
 	case check.ReauthorizedDeny:
 		return view, ErrPolicyNowDenys
+	case check.RequireOutOfBand && a.Channel != ChannelOutOfBand:
+		return view, ErrWeakerChannel
 	}
 	if a.Channel == ChannelOutOfBand {
 		if verifier == nil {
@@ -484,4 +550,17 @@ func (s *Store) Revoke(id string, by Decision) (Approval, error) {
 		return Approval{}, err
 	}
 	return *s.state[id], nil
+}
+
+// restrictive reports whether an event only narrows what an approval
+// allows: past a broken chain these still apply, so a consume or a revoke
+// is never undone by damage, while an approval written there does nothing.
+func restrictive(ev Event) bool {
+	switch ev.Type {
+	case EventRequested, EventExpired, EventConsumed, EventRevoked, EventUsed:
+		return true
+	case EventDecided:
+		return ev.Decision != nil && !ev.Decision.Approve
+	}
+	return false
 }

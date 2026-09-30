@@ -118,7 +118,11 @@ func writeApprovalList(w io.Writer, list cerbapi.ApprovalList, source string) er
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tSTATUS\tOPERATION\tTARGET\tREQUESTED BY\tCHANNEL\tEXPIRES")
 	for _, a := range list.Approvals {
-		fmt.Fprintf(tw, "%s\t%s\t%s.%s\t%s\t%s\t%s\t%s\n", a.ID, a.Status, a.Connector, a.Operation, approvalTarget(a),
+		status := string(a.Status)
+		if a.ExpiredReason == cerbapi.UpgradeNote {
+			status += " (re-approval required)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s.%s\t%s\t%s\t%s\t%s\n", a.ID, status, a.Connector, a.Operation, approvalTarget(a),
 			who(a.Principal.Kind, a.Principal.Via, a.Principal.Client), a.Channel, expiry(a))
 	}
 	if err := tw.Flush(); err != nil {
@@ -146,6 +150,9 @@ func writeApproval(w io.Writer, a approval.Approval, source string) error {
 		fmt.Fprintf(w, ": %s", a.Reason)
 	}
 	fmt.Fprintf(w, "\n  How:          %s, scope %s, expires %s\n", a.Channel, a.Scope, expiry(a))
+	if a.ExpiredReason != "" {
+		fmt.Fprintf(w, "  Expired:      %s\n", a.ExpiredReason)
+	}
 	if a.PlanHash != "" {
 		fmt.Fprintf(w, "  Plan:         %s\n", a.PlanHash)
 	}

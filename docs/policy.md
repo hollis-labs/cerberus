@@ -752,3 +752,24 @@ id. If you decline, or don't decide within a minute, the agent gets
 can edit it. An out-of-band approval therefore carries proof that a person
 was present, and that proof is verified again when the approval is used, so a
 forged "approved" line lets nothing through.
+
+**What the proof covers.** The passkey signs the call (operation, arguments
+and plan) and also what makes an approval dangerous beyond it:
+
+- the channel it was met on;
+- its scope and TTL;
+- the latest it may be used;
+- who asked for it;
+- the target, with its labels.
+
+So an edit that widens a signed-for "once" into a standing grant, extends it,
+moves it to a prod target or marks it as met on a terminal stops it
+verifying. When the approval is used, Cerberus asks policy again which
+channel the call needs. A call that now needs a passkey refuses an approval
+that was met only on a terminal. Past a break in the store's chain, only
+events that restrict (a consume, a revoke, an expiry, a denial) are applied.
+An approval written there does nothing until it is decided again.
+
+Approvals decided before this change carry the older proof. When the daemon
+starts, it marks each of them `expired (re-approval required)`, and
+`cerberus status` says how many need approving again.
