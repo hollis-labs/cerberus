@@ -1,4 +1,5 @@
 # Shared golangci-lint configuration (v2 format)
+# Reference copy lives in nanite repo; copied to all FE projects.
 #
 # Philosophy:
 #   - Catch real bugs, not style nits
