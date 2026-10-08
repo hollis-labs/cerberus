@@ -206,11 +206,40 @@ hours in any case, on **Sign out**, and whenever `cerberus web` exits.
 mints the link from a key that console keeps under `~/.cerberus/web/`, readable
 only by you. Without a session, every API route answers 401.
 
-The console listens on **both** `127.0.0.1` and `[::1]`, on one port. Every
+The console listens on **both** `127.0.0.1` and `[::1]`, on one port. By default, every
 link it hands out says `localhost`, which a browser may try on `::1` first. If
 another process already holds `[::1]` on that port, `cerberus web` refuses to
 start and says how to find it, rather than let it receive your sign-in and
 approval links. A machine with no IPv6 loopback is served on `127.0.0.1` alone.
+
+For a browser on another machine, set the console's HTTPS origin in the
+operator's `~/.cerberus/config.yaml` (or the file selected by `--config`):
+
+```yaml
+web:
+  public_url: https://cerberus.example.com
+```
+
+Restart `cerberus web` after changing this setting. The listener remains on
+loopback; an HTTPS reverse proxy forwards to `http://127.0.0.1:4783`. The
+proxy must preserve the browser's `Origin` and may preserve `Host` or rewrite
+it to the loopback upstream. Cerberus explicitly allows the configured public
+host and exact HTTPS origin, and sets Secure session cookies. It does not infer
+its public address or allowed origins from forwarded headers.
+
+On the Cerberus server, run `cerberus web open --browser=false`, then open the
+printed link in your browser. Startup links, new sign-in links and approval
+links all use the configured origin. With no setting, links use localhost.
+The URL must be an HTTPS DNS origin at `/`; a nondefault HTTPS port is
+supported, while IP addresses, credentials, subpaths, queries and fragments
+are refused. App-owned project descriptors cannot set this operator setting.
+
+Passkeys are bound to the console hostname. A localhost passkey cannot be
+used on the public domain. If keys are already enrolled, use the existing
+localhost console to remove them through `cerberus approvals keys remove`
+before switching, then enroll a new key for the public domain. Subsequent
+keys still need authorization by an enrolled key; changing the URL does not
+bypass that requirement.
 
 `~/.cerberus` is made `0700` and the config file `0600` on every start. If
 either was readable by other accounts, the command says so once, as it fixes it.
@@ -219,10 +248,9 @@ either was readable by other accounts, the command says so once, as it fixes it.
 loopback-only. For both, `--listen` must name `localhost` or a literal loopback
 IP (`127.0.0.1`, `[::1]`), on any port, and either command refuses to start
 otherwise. Other hostnames are refused even when they resolve to
-loopback. Both also refuse a request whose `Host` header is not a
-loopback name, which defeats DNS rebinding. An SSH local forward
-(`ssh -L 9000:127.0.0.1:4785 host`) works; a tunnel or reverse proxy that
-forwards a public hostname does not. For browser-based MCP clients,
+loopback. Both check request Host and Origin against explicit allow-lists, which
+defeat DNS rebinding. The console can allow a configured HTTPS reverse proxy
+origin with `web.public_url` (above). For browser-based MCP clients,
 `mcp-http --allow-origin` adds exact origins to the loopback set.
 
 `mcp-http` can also be an OAuth 2.1 resource server: with
@@ -236,8 +264,8 @@ non-loopback `--listen`, and `--allow-host` names the host names and
 addresses that clients reach it by. It has no authentication, so anyone who can
 reach the address can call every tool. It warns at start and is recorded in the
 audit log before it listens. The web console stays loopback-only in every
-posture until it serves TLS. `cerberus posture show` lists everything the
-posture changes.
+posture; remote browsers reach it through an HTTPS reverse proxy.
+`cerberus posture show` lists everything the posture changes.
 
 ## Runtime Models
 

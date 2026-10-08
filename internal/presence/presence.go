@@ -46,8 +46,8 @@ import (
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
-// RPID is the WebAuthn relying party: the console is served as localhost,
-// because a passkey cannot be used on an IP address.
+// RPID is the default local WebAuthn relying party. Public consoles use
+// their configured origin's hostname.
 const RPID = "localhost"
 
 // Cooldown is how long out-of-band approvals are refused after the key
@@ -303,15 +303,25 @@ func (u user) WebAuthnCredentials() []webauthn.Credential {
 	return out
 }
 
+// relyingPartyID keeps passkeys bound to the console host. Origins are checked
+// against the running consoles before a ceremony begins.
+func relyingPartyID(origin string) string {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
 func relyingParty(origin string) (*webauthn.WebAuthn, error) {
-	return webauthn.New(&webauthn.Config{RPID: RPID, RPDisplayName: "Cerberus", RPOrigins: []string{origin}})
+	return webauthn.New(&webauthn.Config{RPID: relyingPartyID(origin), RPDisplayName: "Cerberus", RPOrigins: []string{origin}})
 }
 
 // allowedOrigin reports whether origin is a running console's: an
-// http://localhost:<port> origin that one of the consoles names as its own.
+// local HTTP or public HTTPS origin that one of the consoles names as its own.
 func (s *Service) allowedOrigin(origin string) bool {
 	u, err := url.Parse(origin)
-	if err != nil || u.Scheme != "http" || u.Hostname() != RPID || u.Path != "" {
+	if err != nil || (u.Scheme != "https" && (u.Scheme != "http" || u.Hostname() != RPID)) || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return false
 	}
 	for _, o := range s.origins() {
@@ -379,7 +389,7 @@ func sessionFor(reg registryFile, ch []byte, origin string) webauthn.SessionData
 	for _, k := range reg.Keys {
 		ids = append(ids, k.Credential.ID)
 	}
-	return webauthn.SessionData{Challenge: base64.RawURLEncoding.EncodeToString(ch), RelyingPartyID: RPID, Origin: origin, UserID: reg.UserID,
+	return webauthn.SessionData{Challenge: base64.RawURLEncoding.EncodeToString(ch), RelyingPartyID: relyingPartyID(origin), Origin: origin, UserID: reg.UserID,
 		AllowedCredentialIDs: ids, UserVerification: protocol.VerificationRequired}
 }
 

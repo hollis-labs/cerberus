@@ -234,7 +234,7 @@ func webSession(ctx context.Context) *session {
 
 // loginRequired is the answer to an /api/ request with no live session. It
 // names the command that signs in.
-const loginRequired = "sign in required: run `cerberus web open` in a terminal on this machine for a one-time sign-in link"
+const loginRequired = "sign in required: run `cerberus web open` in a terminal on the Cerberus server for a one-time sign-in link"
 
 // requireSession lets an /api/ request through only with a live session,
 // which it puts on the request's context. Everything else — the SPA's
@@ -281,12 +281,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = fmt.Fprintf(w, "%s. Run `cerberus web open` in a terminal on this machine for a new one.\n", errLoginToken)
+		_, _ = fmt.Fprintf(w, "%s. Run `cerberus web open` in a terminal on the Cerberus server for a new one.\n", errLoginToken)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure for HTTPS proxy mode; local-only default uses HTTP
 		Name: s.cookieName(), Value: cookie, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		HttpOnly: true, Secure: s.publicURL != "", SameSite: http.SameSiteStrictMode,
 		MaxAge: int(s.sessions.max / time.Second),
 	})
 	s.logger.Info("webui.session.started", "session", sess.ID, "scope", sess.scope)
@@ -314,7 +314,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(s.cookieName()); err == nil {
 		s.sessions.end(cookie.Value)
 	}
-	http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: "", Path: "/", HttpOnly: true, Secure: s.publicURL != "", SameSite: http.SameSiteStrictMode, MaxAge: -1}) //nolint:gosec // Secure for HTTPS proxy mode; local-only default uses HTTP
 	if sess := webSession(r.Context()); sess != nil {
 		s.logger.Info("webui.session.ended", "session", sess.ID)
 	}
@@ -556,7 +556,7 @@ func ConsoleOrigins(home string) []string {
 		if err != nil || u.Host == "" {
 			continue
 		}
-		origins = append(origins, strings.TrimRight(ConsoleBaseURL(u.Host), "/"))
+		origins = append(origins, u.Scheme+"://"+u.Host)
 	}
 	return origins
 }

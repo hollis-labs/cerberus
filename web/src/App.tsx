@@ -113,8 +113,8 @@ function SignedOut() {
       <div className="max-w-md space-y-3 rounded-lg border border-border p-6" data-testid="signed-out">
         <h1 className="text-lg font-semibold">Sign in to Cerberus</h1>
         <p className="text-sm text-text-muted">
-          Run <code className="font-mono">cerberus web open</code> in a terminal on this machine. It prints and opens a
-          one-time sign-in link, good for two minutes.
+          Run <code className="font-mono">cerberus web open</code> in a terminal on the Cerberus server, then open the printed
+          one-time sign-in link in this browser. The link is good for two minutes.
         </p>
       </div>
     </div>

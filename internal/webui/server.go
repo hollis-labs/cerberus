@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -15,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/policy"
@@ -53,6 +54,7 @@ type Server struct {
 	logger     *slog.Logger
 	sessions   *sessionStore
 	guard      *loopback.Guard
+	publicURL  string
 	posture    func() policy.PostureSummary
 }
 
@@ -112,9 +114,20 @@ func (s *Server) Handler(guard *loopback.Guard) http.Handler {
 	if guard == nil {
 		panic("webui: Handler requires a loopback guard")
 	}
+	if s.publicURL != "" {
+		if err := guard.AllowPublicURL(s.publicURL); err != nil {
+			panic(err)
+		}
+	}
 	s.guard = guard
 	mux := s.routes()
-	return s.withLogging(guard.Middleware(toLocalhost(markWebSurface(s.requireSession(mux)))))
+	handler := markWebSurface(s.requireSession(mux))
+	if s.publicURL == "" {
+		handler = toLocalhost(handler)
+	}
+	// A proxy may rewrite Host to the upstream IP. In public mode keep
+	// relative paths on the browser's configured origin, never localhost.
+	return s.withLogging(guard.Middleware(handler))
 }
 
 // markWebSurface begins every console request as the web surface, so a

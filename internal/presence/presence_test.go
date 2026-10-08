@@ -396,3 +396,66 @@ func TestAForgedEnrollmentRecordDoesNotSkipTheCooldown(t *testing.T) {
 	}
 
 }
+
+func TestPublicConsolePasskeyEnrollsAndApproves(t *testing.T) {
+	const publicOrigin = "https://cerberus.example"
+	f := newFixture(t)
+	f.svc.origins = func() []string { return []string{publicOrigin} }
+	a := presencetest.New(t, "cerberus.example", publicOrigin)
+	begin, err := f.svc.BeginEnroll(allow(t, f.svc), publicOrigin, "public key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, checkErr := f.svc.FinishEnroll(human, begin.Ceremony, a.Register(t, begin.Creation), nil); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	ap := pending()
+	cer, opts, err := f.svc.BeginApproval(ap, publicOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"ceremony": cer, "credential": a.Assert(t, opts)})
+	assertion, _, err := f.svc.Seal(ap.ID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision := approval.Decision{Approve: true, Assertion: assertion}
+	if checkErr := f.svc.Verify(ap, decision); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	ap.Status = approval.Approved
+	if checkErr := f.svc.Verify(ap, decision); checkErr != nil {
+		t.Fatalf("consume: %v", checkErr)
+	}
+	for _, bad := range []string{origin, "https://evil.example", "http://cerberus.example", publicOrigin + ":8443"} {
+		if _, _, checkErr := f.svc.BeginApproval(pending(), bad); !errors.Is(checkErr, ErrOrigin) {
+			t.Errorf("%q: %v", bad, checkErr)
+		}
+	}
+	// Enrollment on another host still requires an existing enrolled key:
+	// changing the console URL must not remove the enrollment authorization gate.
+	f.svc.origins = func() []string { return []string{origin, publicOrigin} }
+	local := newAuthenticator(t)
+	begin, err = f.svc.BeginEnroll(allow(t, f.svc), origin, "local key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, checkErr := f.svc.FinishEnroll(human, begin.Ceremony, local.Register(t, begin.Creation), nil); !errors.Is(checkErr, ErrNeedEnrolled) {
+		t.Fatalf("changed domain bypassed enrollment authorization: %v", checkErr)
+	}
+	// A registered key cannot approve from a different relying party even when
+	// both origins are explicitly allowed.
+	cer, opts, err = f.svc.BeginApproval(pending(), origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Origin = origin
+	raw, _ = json.Marshal(map[string]any{"ceremony": cer, "credential": a.Assert(t, opts)})
+	assertion, _, err = f.svc.Seal(pending().ID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkErr := f.svc.Verify(pending(), approval.Decision{Approve: true, Assertion: assertion}); !errors.Is(checkErr, ErrAssertion) {
+		t.Fatalf("public key used on localhost: %v", checkErr)
+	}
+}

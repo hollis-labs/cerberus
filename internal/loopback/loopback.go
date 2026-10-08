@@ -18,6 +18,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // loopbackNames are the hostnames accepted in a Host header regardless of the
@@ -54,6 +56,23 @@ type Guard struct {
 	hosts   map[string]struct{}
 	origins map[string]struct{}
 	port    string
+}
+
+// AllowPublicURL adds the operator's exact HTTPS proxy origin and host. It
+// never derives trust from Host, Forwarded or X-Forwarded-* request headers.
+// This is opt-in for the console; other HTTP surfaces retain their own rules.
+func (g *Guard) AllowPublicURL(raw string) error {
+	base, err := config.NormalizeWebPublicURL(raw)
+	if err != nil || base == "" {
+		return err
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return err
+	}
+	g.hosts[u.Hostname()] = struct{}{}
+	g.origins[base] = struct{}{}
+	return nil
 }
 
 // NewGuard builds a guard for a server listening on listenHost:port. port is

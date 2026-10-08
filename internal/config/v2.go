@@ -7,6 +7,7 @@ import "github.com/hollis-labs/cerberus/internal/target"
 // enabling multi-connector support (local, cloud, container, etc.).
 type ConfigV2 struct {
 	Version   int              `yaml:"version"`
+	Web       *WebConfig       `yaml:"web,omitempty"`
 	Build     *BuildConfig     `yaml:"build,omitempty"`
 	Transfers *TransfersConfig `yaml:"transfers,omitempty"`
 	Projects  []ProjectDef     `yaml:"projects,omitempty"`

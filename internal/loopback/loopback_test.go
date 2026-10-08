@@ -157,3 +157,27 @@ func TestNewGuardForAddrTakesPortFromListener(t *testing.T) {
 		t.Fatalf("origin on bound port %s should be allowed", port)
 	}
 }
+
+func TestPublicConsoleOriginIsExplicit(t *testing.T) {
+	g := NewGuard("127.0.0.1", "4783")
+	if g.HostAllowed("cerberus.example") || g.OriginAllowed("https://cerberus.example") {
+		t.Fatal("public domain allowed by default")
+	}
+	if err := g.AllowPublicURL("https://cerberus.example:8443"); err != nil {
+		t.Fatal(err)
+	}
+	if !g.HostAllowed("cerberus.example:8443") || !g.OriginAllowed("https://cerberus.example:8443") {
+		t.Fatal("configured host and origin refused")
+	}
+	for _, origin := range []string{"http://cerberus.example:8443", "https://cerberus.example", "https://evil.example:8443", "https://cerberus.example:4783"} {
+		if g.OriginAllowed(origin) {
+			t.Errorf("allowed %q", origin)
+		}
+	}
+	if g.HostAllowed("evil.example") {
+		t.Fatal("unconfigured hostname allowed")
+	}
+	if !g.HostAllowed("localhost:4783") || !g.OriginAllowed("http://localhost:4783") {
+		t.Fatal("local access lost")
+	}
+}
