@@ -1,4 +1,5 @@
 # lefthook.yml — pre-commit and pre-push hooks
+# Reference copy lives in nanite repo; copied to all FE projects.
 # Target: all checks complete in <15 seconds on staged files only.
 
 pre-commit:
@@ -39,12 +40,12 @@ pre-commit:
     # Safe to leave in Go-only repos — skip conditions prevent errors.
 
     frontend-lint:
+      # Run the pinned, lockfile-installed Biome from its package directory.
+      # root makes staged paths package-relative; missing npm ci fails loudly.
+      root: "web/"
       glob: "*.{ts,tsx,js,jsx}"
       skip_empty: true
-      run: npx biome check --no-errors-on-unmatched {staged_files}
-      # Skip entirely if none of the common frontend dirs exist.
-      skip:
-        - run: "test ! -d ui && test ! -d web && test ! -d frontend"
+      run: ./node_modules/.bin/biome check --no-errors-on-unmatched {staged_files}
 
     # ── Catalog ───────────────────────────────────────────────────────
     # Repo-specific, unlike everything above it. docs/catalog/catalog.json
