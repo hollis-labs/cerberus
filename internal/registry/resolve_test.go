@@ -256,3 +256,30 @@ func TestTheTransferRootComesFromTheGlobalConfigOnly(t *testing.T) {
 		t.Fatalf("transfer root = %q", got)
 	}
 }
+
+func TestWebPublicURLComesFromGlobalConfigOnly(t *testing.T) {
+	dir := t.TempDir()
+	reg := New(filepath.Join(dir, DefaultIndexFilename))
+	project := writeProjectConfig(t, t.TempDir(), "demo")
+	data, err := os.ReadFile(project) //nolint:gosec // test-owned temporary project config
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkErr := os.WriteFile(project, append(data, []byte("web:\n  public_url: https://project.example\n")...), 0600); checkErr != nil { //nolint:gosec // test-owned temporary project config
+		t.Fatal(checkErr)
+	}
+	if _, checkErr := reg.Register(project); checkErr == nil || !strings.Contains(checkErr.Error(), "web") {
+		t.Fatalf("project may set console URL: %v", checkErr)
+	}
+	global := filepath.Join(dir, "config.yaml")
+	if checkErr := os.WriteFile(global, []byte("version: 2\nweb:\n  public_url: https://operator.example/\n"), 0600); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	resolved, err := Resolve(ResolveOptions{IndexPath: reg.IndexPath(), GlobalPath: global})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Config.Web == nil || resolved.Config.Web.PublicURL != "https://operator.example" {
+		t.Fatalf("web: %+v", resolved.Config.Web)
+	}
+}

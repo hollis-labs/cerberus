@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/app"
 	"net"
 	"net/http"
 	"os"
@@ -14,7 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/app"
+
 	"github.com/hollis-labs/cerberus/internal/loopback"
+	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/webui"
 	"github.com/spf13/cobra"
 )
@@ -35,10 +37,22 @@ var webCmd = &cobra.Command{
 The console needs a sign-in. On start it prints (and, with --open, opens) a
 one-time sign-in URL, good for two minutes; visiting it gives the browser a
 session that ends after --session-idle without use, twelve hours at most, on
-logout, or when this command exits. Run ` + "`cerberus web open`" + ` for another link.`,
+logout, or when this command exits. Set web.public_url in the operator config
+to the HTTPS origin of a reverse proxy for remote browser access. Restart the
+console after changing it. Run ` + "`cerberus web open`" + ` for another link.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := loopback.CheckListen("cerberus web", webListenAddr); err != nil {
 			return err
+		}
+		cfg, err := registry.ResolveConfig(cfgPath)
+		if err != nil {
+			return err
+		}
+		base := webui.ConsoleBaseURL(webListenAddr)
+		publicURL := ""
+		if cfg.Web != nil && cfg.Web.PublicURL != "" {
+			publicURL = cfg.Web.PublicURL
+			base = publicURL
 		}
 		client, err := newResourceSocketClient()
 		if err != nil {
@@ -46,7 +60,7 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), webWait)
 		defer cancel()
-		if err := waitForDaemon(ctx, client); err != nil {
+		if err = waitForDaemon(ctx, client); err != nil {
 			return fmt.Errorf("connect daemon: %w (try `cerberus daemon status` to check; if not installed, run `cerberus install`)", err)
 		}
 
@@ -54,12 +68,15 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 		if err != nil {
 			return fmt.Errorf("init web ui: %w", err)
 		}
+		if err = webSrv.SetPublicURL(publicURL); err != nil {
+			return err
+		}
 		webSrv.SetSecretStore(app.SecretStore())
 		webSrv.SetSessionLimits(0, webSessionIdle, 0)
 		webSrv.SetPosture(currentPosture)
 
-		// Both loopback families, one port: every link the console hands
-		// out says localhost, which a browser may try on ::1 first (H6).
+		// Both loopback families, one port: local links use localhost,
+		// which a browser may try on ::1 first (H6).
 		lns, err := loopback.ListenBoth(webListenAddr)
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", webListenAddr, err)
@@ -72,7 +89,7 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 			return err
 		}
 
-		url := webui.ConsoleBaseURL(webListenAddr)
+		url := base
 		srv := &http.Server{
 			Handler:           webSrv.Handler(guard),
 			ReadHeaderTimeout: 5 * time.Second,
@@ -99,7 +116,10 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 			return err
 		}
 
-		fmt.Printf("Cerberus web UI listening at %s\n", url)
+		fmt.Printf("Cerberus web UI listening at %s\n", webui.ConsoleBaseURL(webListenAddr))
+		if publicURL != "" {
+			fmt.Printf("Console URL: %s\n", publicURL)
+		}
 		fmt.Printf("Sign in (one-time link, valid %s): %s\n", webui.DefaultLoginTTL, loginURL)
 		if webOpen {
 			if err := openBrowser(loginURL); err != nil {
@@ -129,10 +149,13 @@ logout, or when this command exits. Run ` + "`cerberus web open`" + ` for anothe
 var webOpenCmd = &cobra.Command{
 	Use:   "open",
 	Short: "Print and open a one-time sign-in link for the running web console",
-	Long: `Mints a one-time sign-in URL for the ` + "`cerberus web`" + ` listening on --listen,
-from the key that console keeps in ~/.cerberus/web (readable only by you), prints
-it, and opens it unless --browser=false. The link is good for two minutes and
-for one sign-in.`,
+	Long: `Run this on the Cerberus server to mint a one-time sign-in URL for the
+running console selected by --listen. The link uses the console's configured
+web.public_url, or localhost when unset.
+
+The command mints the link from the key that console keeps in ~/.cerberus/web
+(readable only by you), prints it, and opens it unless --browser=false. The
+link is good for two minutes and for one sign-in.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		home, err := os.UserHomeDir()

@@ -119,6 +119,13 @@ func LoadUnified(path string) (*ConfigV2, error) {
 		if err := yaml.Unmarshal(data, &v2); err != nil {
 			return nil, fmt.Errorf("parse v2 config: %w", err)
 		}
+		if v2.Web != nil {
+			base, err := NormalizeWebPublicURL(v2.Web.PublicURL)
+			if err != nil {
+				return nil, err
+			}
+			v2.Web.PublicURL = base
+		}
 		normalizeV2Config(&v2)
 		return &v2, nil
 
