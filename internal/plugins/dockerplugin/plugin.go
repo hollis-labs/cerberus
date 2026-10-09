@@ -8,7 +8,7 @@ import (
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	"github.com/hollis-labs/cerberus/pkg/resource"
-	"github.com/hollis-labs/plugin-sdk/subprocess"
+	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 )
 
 type connectorFactory func() (*dockerconn.Connector, error)
@@ -36,11 +36,12 @@ func NewWithConnector(connector *dockerconn.Connector) *Plugin {
 func (p *Plugin) Init(context.Context, subprocess.InitParams) (subprocess.InitResult, error) {
 	def := dockerconn.Definition()
 	return subprocess.InitResult{
-		ID:          def.ID,
-		Name:        "Cerberus Docker Connector",
-		Version:     def.Version,
-		Description: "Cerberus Docker connector subprocess plugin",
-		Protocol:    subprocess.ProtocolVersion,
+		ID:                 def.ID,
+		Name:               "Cerberus Docker Connector",
+		Version:            def.Version,
+		Description:        "Cerberus Docker connector subprocess plugin",
+		Protocol:           subprocess.ProtocolVersion,
+		CapabilityContract: 1,
 	}, nil
 }
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"net"
 	"os"
@@ -14,12 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
+
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/connector"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	cerbplugin "github.com/hollis-labs/cerberus/pkg/plugin"
-	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
+	sdksubprocess "github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,11 +28,12 @@ type commandTestPlugin struct{}
 
 func (commandTestPlugin) Init(context.Context, sdksubprocess.InitParams) (sdksubprocess.InitResult, error) {
 	return sdksubprocess.InitResult{
-		ID:          "docker",
-		Name:        "Command Test Plugin",
-		Version:     "test",
-		Description: "command helper",
-		Protocol:    sdksubprocess.ProtocolVersion,
+		ID:                 "docker",
+		Name:               "Command Test Plugin",
+		Version:            "test",
+		Description:        "command helper",
+		Protocol:           sdksubprocess.ProtocolVersion,
+		CapabilityContract: 1,
 	}, nil
 }
 

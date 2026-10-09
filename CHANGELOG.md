@@ -16,6 +16,9 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ### Changed
 
+- Adopt the published `libs/util`, `libs/ui-go` and `libs/plugin-mcp` modules; building now requires Go 1.26.8.
+- Require protocol-2 plugin Init with a fresh host-issued incarnation, explicit no-reverse-authority grant set and separate writable data/cache roots. Protocol-1 plugins must migrate; Cerberus does not offer reverse host RPC or hooks.
+
 - **A launchd plist or systemd unit whose resource sets no `PATH` gets the serving daemon's PATH** instead of the supervisor's minimal one. On macOS, an `os_service` resource without `PATH` in `env` reloads once on its next apply to pick it up.
 - A resource build or install's `make` no longer inherits `MAKEFLAGS`/`MAKELEVEL` from an enclosing make, which added `Entering directory` lines to captured output.
 

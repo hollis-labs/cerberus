@@ -81,10 +81,10 @@ func validInstalledPlugin() InstalledPlugin {
 func TestManagerInstallAndLoad(t *testing.T) {
 	plugin := validInstalledPlugin()
 	process := &fakeProcess{
-		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
+		initResult: SDKInitResult{CapabilityContract: 1, ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 		health:     SDKHealthResult{OK: true, Message: "ready"},
 	}
-	manager := NewManager(fakeInstaller{plugin: plugin}, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, fakeInstaller{plugin: plugin}, fakeLauncher{process: process}, "test")
 
 	installed, err := manager.Install(context.Background(), "local")
 	if err != nil {
@@ -109,10 +109,10 @@ func TestManagerInstallAndLoad(t *testing.T) {
 func TestManagerExecuteOperation(t *testing.T) {
 	plugin := validInstalledPlugin()
 	process := &fakeProcess{
-		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
+		initResult: SDKInitResult{CapabilityContract: 1, ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 		callResult: SDKMCPCallResult{Content: []byte(`{"ok":true}`)},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -135,9 +135,9 @@ func TestManagerExecuteOperation(t *testing.T) {
 func TestManagerUnloadClosesProcess(t *testing.T) {
 	plugin := validInstalledPlugin()
 	process := &fakeProcess{
-		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
+		initResult: SDKInitResult{CapabilityContract: 1, ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -153,9 +153,9 @@ func TestManagerUnloadClosesProcess(t *testing.T) {
 func TestManagerLoadRejectsProtocolMismatch(t *testing.T) {
 	plugin := validInstalledPlugin()
 	process := &fakeProcess{
-		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: 99},
+		initResult: SDKInitResult{CapabilityContract: 1, ID: plugin.ID, Version: plugin.Version, Protocol: 99},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 
 	err := manager.Load(context.Background(), plugin.ID)
@@ -171,9 +171,9 @@ func TestManagerExecuteOperationRejectsDevDestructive(t *testing.T) {
 		{Name: "destroy", Destructive: true, RequiresAck: true, InputSchema: contract.ObjectSchema(map[string]any{})},
 	}
 	process := &fakeProcess{
-		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
+		initResult: SDKInitResult{CapabilityContract: 1, ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -194,9 +194,9 @@ func TestManagerExecuteOperationRequiresAcknowledgmentForInstalledDestructive(t 
 		{Name: "destroy", Destructive: true, RequiresAck: true, InputSchema: contract.ObjectSchema(map[string]any{})},
 	}
 	process := &fakeProcess{
-		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
+		initResult: SDKInitResult{CapabilityContract: 1, ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)

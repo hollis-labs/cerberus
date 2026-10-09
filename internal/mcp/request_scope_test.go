@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/go-mcp/budget"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	"github.com/hollis-labs/libs/plugin-mcp/go-mcp/budget"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/redact"

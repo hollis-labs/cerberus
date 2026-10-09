@@ -57,7 +57,7 @@ func kindedResolver() *fakeResolver {
 // nothing in the loading request's scope.
 func TestPluginCredentialsJoinTheOperationScope(t *testing.T) {
 	process := &echoProcess{}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test", WithSecretResolver(kindedResolver()))
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test", WithSecretResolver(kindedResolver()))
 	manager.RegisterInstalled(kindedPlugin())
 	loadCtx, loadScope := redact.EnsureScope(context.Background())
 	if err := manager.Load(loadCtx, "contextforge"); err != nil {
@@ -90,7 +90,7 @@ func TestPluginCredentialsJoinTheOperationScope(t *testing.T) {
 // manifest declares as a name or a path.
 func TestPluginRedactorSkipsNamesAndPaths(t *testing.T) {
 	process := &echoProcess{fail: true}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test", WithSecretResolver(kindedResolver()))
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test", WithSecretResolver(kindedResolver()))
 	manager.RegisterInstalled(kindedPlugin())
 	if err := manager.Load(context.Background(), "contextforge"); err != nil {
 		t.Fatalf("Load: %v", err)

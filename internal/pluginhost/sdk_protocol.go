@@ -6,10 +6,11 @@ import (
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
+	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 )
 
 const (
-	SDKProtocolVersion = 1
+	SDKProtocolVersion = subprocess.ProtocolVersion
 
 	SDKMethodInit        = "plugin/init"
 	SDKMethodLoad        = "plugin/load"
@@ -23,33 +24,11 @@ const (
 	SDKMethodCommandExecute = "command/execute"
 )
 
-type SDKInitParams struct {
-	PluginDir string            `json:"plugin_dir"`
-	DataDir   string            `json:"data_dir"`
-	CacheDir  string            `json:"cache_dir"`
-	Config    map[string]string `json:"config"`
-	LogLevel  string            `json:"log_level"`
-	HostInfo  SDKHostInfo       `json:"host_info"`
-
-	// Granted names the capabilities the host allowed, so a plugin can degrade
-	// instead of assuming it received what it asked for. Omitted when empty,
-	// which keeps the payload byte-identical to what a pre-capability host
-	// sent.
-	Granted []string `json:"granted,omitempty"`
-}
-
-type SDKHostInfo struct {
-	Version  string `json:"version"`
-	Protocol int    `json:"protocol"`
-}
-
-type SDKInitResult struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
-	Protocol    int    `json:"protocol"`
-}
+// SDKInitParams is the published SDK's strict protocol-2 handshake.
+// Cerberus's environment capability policy is separate from SDK grants.
+type SDKInitParams = subprocess.InitParams
+type SDKHostInfo = subprocess.HostInfo
+type SDKInitResult = subprocess.InitResult
 
 type SDKLoadResult struct {
 	SkippedRegistrations []SDKSkippedRegistration `json:"skipped_registrations,omitempty"`
@@ -69,7 +48,7 @@ type SDKHealthResult struct {
 // SDKCommandRequest is a command/execute request.
 type SDKCommandRequest struct {
 	Name      string `json:"name"`
-	SessionID string `json:"session_id,omitempty"`
+	SessionID string `json:"session_id"`
 	Args      string `json:"args"`
 }
 
@@ -82,7 +61,7 @@ type SDKCommandResult struct {
 type SDKMCPCallRequest struct {
 	ToolName  string                 `json:"tool_name"`
 	Arguments map[string]interface{} `json:"arguments"`
-	SessionID string                 `json:"session_id,omitempty"`
+	SessionID string                 `json:"session_id"`
 }
 
 type SDKMCPCallResult struct {

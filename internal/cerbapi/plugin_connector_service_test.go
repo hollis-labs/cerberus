@@ -3,29 +3,35 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
+
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
+	sdksubprocess "github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 	"gopkg.in/yaml.v3"
 )
 
 type apiTestPlugin struct{}
 
-func (apiTestPlugin) Init(context.Context, sdksubprocess.InitParams) (sdksubprocess.InitResult, error) {
+func (apiTestPlugin) Init(_ context.Context, params sdksubprocess.InitParams) (sdksubprocess.InitResult, error) {
+	spec, err := pluginhost.ReadPluginYAML(params.PluginDir)
+	if err != nil {
+		return sdksubprocess.InitResult{}, err
+	}
 	return sdksubprocess.InitResult{
-		ID:          "docker",
-		Name:        "API Test Plugin",
-		Version:     "test",
-		Description: "api helper",
-		Protocol:    sdksubprocess.ProtocolVersion,
+		ID:                 spec.ID,
+		Name:               "API Test Plugin",
+		Version:            spec.Version,
+		Description:        "api helper",
+		Protocol:           sdksubprocess.ProtocolVersion,
+		CapabilityContract: 1,
 	}, nil
 }
 
@@ -81,7 +87,7 @@ func TestPluginConnectorServiceHealthInProcess(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "launched")
 	t.Setenv("GO_WANT_PLUGIN_CONNECTOR_API_HELPER", "1")
 	t.Setenv("GO_WANT_PLUGIN_LAUNCH_MARKER", marker)
-	health, err := NewPluginConnectorService(audit.NewMemory(), "test", nil).Health(context.Background(), PluginConnectorHealthArgs{
+	health, err := NewPluginConnectorService(audit.NewMemory(), "test", nil, WithPluginConnectorConfig(filepath.Join(t.TempDir(), "connector-config.yaml"))).Health(context.Background(), PluginConnectorHealthArgs{
 		PluginDir: helperPluginDir(t),
 	})
 	if err != nil {
@@ -290,5 +296,7 @@ func mustManagedPluginService(t *testing.T, statePath string) *ManagedPluginConn
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}
+	root := t.TempDir()
+	pluginhost.WithRuntimeRoots(filepath.Join(root, "data"), filepath.Join(root, "cache"))(svc.manager)
 	return svc
 }

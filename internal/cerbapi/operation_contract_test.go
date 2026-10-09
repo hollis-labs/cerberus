@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
@@ -261,8 +262,8 @@ func TestOperationFailureCodesOnlyUncodedErrors(t *testing.T) {
 // healthyPluginProcess answers every call with {"ok":true}.
 type healthyPluginProcess struct{ calls int }
 
-func (p *healthyPluginProcess) Init(context.Context, pluginhost.SDKInitParams) (pluginhost.SDKInitResult, error) {
-	return pluginhost.SDKInitResult{ID: "contextforge", Version: "dev", Protocol: pluginhost.SDKProtocolVersion}, nil
+func (p *healthyPluginProcess) Init(_ context.Context, params pluginhost.SDKInitParams) (pluginhost.SDKInitResult, error) {
+	return pluginhost.SDKInitResult{CapabilityContract: 1, ID: params.Incarnation.OwnerID, Version: "dev", Protocol: pluginhost.SDKProtocolVersion}, nil
 }
 func (p *healthyPluginProcess) Load(context.Context) (pluginhost.SDKLoadResult, error) {
 	return pluginhost.SDKLoadResult{}, nil
@@ -286,8 +287,8 @@ func contextforgeFixture(t *testing.T, effect contract.Effect) (*ManagedPluginCo
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}
 	process := &healthyPluginProcess{}
-	svc.manager = pluginhost.NewManager(nil, echoingLauncher{process: process}, "test")
-	svc.manager.RegisterInstalled(pluginhost.InstalledPlugin{
+	svc.manager = newTestPluginManager(t, nil, echoingLauncher{process: process}, "test")
+	svc.manager.RegisterInstalled(pluginhost.InstalledPlugin{Path: t.TempDir(),
 		ID:     "contextforge",
 		Origin: pluginhost.OriginInstalled,
 		Manifest: contract.Manifest{

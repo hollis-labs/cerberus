@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
+
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/daemon"
@@ -23,7 +24,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/secretref"
 	"github.com/hollis-labs/cerberus/internal/target"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // ResourceRuntimeService owns resource-native local runtime operations.

@@ -671,3 +671,21 @@ Service stdout/stderr goes to `$TMPDIR/cerberus-<service-id>.log`.
 
 - A Wails app run with `wails dev` opens a native desktop window on start — this is inherent to Wails and can't be deferred to click-to-open.
 - Services with `url` set can be opened in browser; services without (Wails apps) show no `[open]` action.
+
+## Published Go dependencies
+
+Cerberus uses `github.com/hollis-labs/libs/util` v0.2.0,
+`github.com/hollis-labs/libs/ui-go` v0.1.0 and
+`github.com/hollis-labs/libs/plugin-mcp` v0.1.1. Building requires Go 1.26.8 or
+newer. Plugin authors import the SDK from
+`github.com/hollis-labs/libs/plugin-mcp/plugin-sdk`.
+
+The subprocess host now requires protocol 2 and capability contract 1; a
+protocol-1 plugin must migrate before it can load. Cerberus remains a
+forward-only host: it offers neither reverse host RPC nor hooks, and sends an
+explicit empty SDK grant set. Cerberus's declared environment capabilities and
+credential delivery remain governed by its existing policy, independently of
+SDK reverse authority. Writable plugin data/cache directories are host-owned
+siblings of the managed state or connector-config file, outside the verified
+plugin bundle. Init must acknowledge the exact protocol/contract and installed
+plugin identity before Load.

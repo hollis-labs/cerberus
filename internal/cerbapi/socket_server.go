@@ -20,7 +20,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/redact"
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // SocketServer exposes a Client over a unix-socket HTTP endpoint. The

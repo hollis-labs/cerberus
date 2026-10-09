@@ -25,11 +25,11 @@ func onepasswordPlugin() InstalledPlugin {
 // render.
 func TestGenericPluginMessagesSurviveAnIDContainingPassword(t *testing.T) {
 	ctx := context.Background()
-	notLoaded := NewManager(nil, fakeLauncher{}, "test")
+	notLoaded := newTestManager(t, nil, fakeLauncher{}, "test")
 	notLoaded.RegisterInstalled(onepasswordPlugin())
 
 	process := &recordingProcess{callErr: errors.New("upstream refused the request")}
-	loaded := NewManager(nil, fakeLauncher{process: process}, "test")
+	loaded := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	loaded.RegisterInstalled(onepasswordPlugin())
 	if err := loaded.Load(ctx, "onepassword"); err != nil {
 		t.Fatal(err)
