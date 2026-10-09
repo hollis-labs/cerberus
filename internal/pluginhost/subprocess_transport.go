@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // ErrMessageTooLarge is a plugin message over MaxMessageBytes. The stream
@@ -21,31 +23,10 @@ var ErrMessageTooLarge = errors.New("the plugin sent a message larger than the h
 
 const defaultProcessCloseTimeout = 3 * time.Second
 
-type rpcRequest struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      int64  `json:"id"`
-	Method  string `json:"method"`
-	Params  any    `json:"params,omitempty"`
-}
-
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-func (e *rpcError) Error() string {
-	if e == nil {
-		return ""
-	}
-	return e.Message
-}
+// Use the SDK's tagged, safe-integer-aware IDs consistently for wire and
+// pending-call correlation.
+type rpcRequest = subprocess.RPCRequest
+type rpcResponse = subprocess.RPCResponse
 
 type callResult struct {
 	response rpcResponse
@@ -98,7 +79,7 @@ func (f StdioTransportFactory) Start(ctx context.Context, cmd *exec.Cmd) (Proces
 		reader:       bufio.NewReaderSize(stdout, 64<<10),
 		maxMessage:   MaxMessageBytes,
 		closeTimeout: closeTimeout,
-		pending:      make(map[int64]chan callResult),
+		pending:      make(map[subprocess.RPCID]chan callResult),
 		exited:       make(chan struct{}),
 	}
 	go p.readResponses()
@@ -117,7 +98,7 @@ type RPCProcess struct {
 
 	writeMu   sync.Mutex
 	pendingMu sync.Mutex
-	pending   map[int64]chan callResult
+	pending   map[subprocess.RPCID]chan callResult
 
 	nextID int64
 	closed atomic.Bool
@@ -133,8 +114,14 @@ type RPCProcess struct {
 var _ Process = (*RPCProcess)(nil)
 
 func (p *RPCProcess) Init(ctx context.Context, params SDKInitParams) (SDKInitResult, error) {
+	if err := params.Validate(); err != nil {
+		return SDKInitResult{}, err
+	}
 	var result SDKInitResult
 	if err := p.call(ctx, SDKMethodInit, params, &result); err != nil {
+		return SDKInitResult{}, err
+	}
+	if err := subprocess.ValidateInitResult(params, result); err != nil {
 		return SDKInitResult{}, err
 	}
 	return result, nil
@@ -244,7 +231,7 @@ func (p *RPCProcess) call(ctx context.Context, method string, params any, out an
 		return fmt.Errorf("plugin process is closed")
 	}
 
-	id := atomic.AddInt64(&p.nextID, 1)
+	id := subprocess.NumberID(atomic.AddInt64(&p.nextID, 1))
 	ch := make(chan callResult, 1)
 	p.pendingMu.Lock()
 	p.pending[id] = ch
@@ -344,7 +331,7 @@ func (p *RPCProcess) failAll(err error) {
 	})
 }
 
-func (p *RPCProcess) deletePending(id int64) {
+func (p *RPCProcess) deletePending(id subprocess.RPCID) {
 	p.pendingMu.Lock()
 	defer p.pendingMu.Unlock()
 	delete(p.pending, id)

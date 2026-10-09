@@ -152,7 +152,7 @@ func TestConnectorConfigWarnsWhenWritableByOthers(t *testing.T) {
 func configManager(t *testing.T, path string, process Process, warnings *[]string) *Manager {
 	t.Helper()
 	resolver := &fakeResolver{values: map[string]string{"contextforge/token": "jwt-value"}}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test",
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test",
 		WithSecretResolver(resolver),
 		WithConnectorConfig(func() (ConnectorConfig, error) { return LoadConnectorConfig(path) }),
 		WithLoadWarning(func(line string) { *warnings = append(*warnings, line) }))

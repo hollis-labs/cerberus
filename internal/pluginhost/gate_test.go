@@ -15,10 +15,10 @@ func loadedGateManager(t *testing.T, ops ...contract.ManifestOperation) (*Manage
 	plugin := validInstalledPlugin()
 	plugin.Manifest.Operations = ops
 	process := &fakeProcess{
-		initResult: SDKInitResult{ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
+		initResult: SDKInitResult{CapabilityContract: 1, ID: plugin.ID, Version: plugin.Version, Protocol: SDKProtocolVersion},
 		callResult: SDKMCPCallResult{Content: []byte(`{"ok":true}`)},
 	}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(plugin)
 	if err := manager.Load(context.Background(), plugin.ID); err != nil {
 		t.Fatalf("Load: %v", err)

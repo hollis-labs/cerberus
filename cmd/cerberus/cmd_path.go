@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"text/tabwriter"
 
-	"github.com/hollis-labs/go-apppaths/paths"
+	paths "github.com/hollis-labs/libs/util/apppaths"
 	"github.com/spf13/cobra"
 
 	"github.com/hollis-labs/cerberus/internal/config"

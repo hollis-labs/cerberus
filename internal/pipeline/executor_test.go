@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // mockAction records execution and optionally fails.

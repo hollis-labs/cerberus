@@ -6,13 +6,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // Refusals for a filesystem path arriving where only an installed plugin's id
@@ -214,6 +215,7 @@ func (s *PluginConnectorService) installAndLoad(ctx context.Context, pluginDir s
 			Env:       pluginLaunchEnv(),
 		},
 		s.hostVersion,
+		pluginRuntimeRoots(s.configPath),
 		pluginhost.WithSecretResolver(s.secrets),
 		pluginhost.WithConnectorConfig(connectorConfigLoader(s.configPath)),
 		pluginhost.WithLoadWarning(s.warn),
@@ -304,4 +306,12 @@ func withPluginDir(config map[string]any, dir string) map[string]any {
 	}
 	out["plugin_dir"] = dir
 	return out
+}
+
+func pluginRuntimeRoots(statePath string) pluginhost.ManagerOption {
+	if statePath == "" {
+		return pluginhost.WithRuntimeRoots("", "")
+	}
+	base := filepath.Dir(statePath)
+	return pluginhost.WithRuntimeRoots(filepath.Join(base, "plugin-data"), filepath.Join(base, "plugin-cache"))
 }

@@ -58,8 +58,11 @@ func fakePluginMain(mode string) {
 			ID     int64  `json:"id"`
 			Method string `json:"method"`
 			Params struct {
-				ToolName string            `json:"tool_name"`
-				Config   map[string]string `json:"config"`
+				ToolName    string            `json:"tool_name"`
+				Config      map[string]string `json:"config"`
+				Incarnation struct {
+					OwnerID string `json:"owner_id"`
+				} `json:"incarnation"`
 			} `json:"params"`
 		}
 		if json.Unmarshal(in.Bytes(), &req) != nil {
@@ -81,7 +84,7 @@ func fakePluginMain(mode string) {
 				credMu.Lock()
 				initToken = req.Params.Config["token"]
 				credMu.Unlock()
-				reply(req.ID, map[string]any{"id": "docker", "version": "dev", "protocol": SDKProtocolVersion})
+				reply(req.ID, map[string]any{"id": req.Params.Incarnation.OwnerID, "name": "Test plugin", "version": "dev", "description": "test helper", "protocol": SDKProtocolVersion, "capability_contract": 1})
 			case SDKMethodLoad:
 				reply(req.ID, map[string]any{})
 				if mode == "exit" {
@@ -218,7 +221,7 @@ func newFakeHost(t *testing.T, shim bool, plugins map[string]string, limits map[
 		script := "#!/bin/sh\nexec " + strconv.Quote(exe) + "\n"
 		writeScript(t, dir, "bin/plugin", script)
 	}
-	h.m = NewManager(nil, &perPluginLauncher{launchers: launchers, host: h}, "test",
+	h.m = newTestManager(t, nil, &perPluginLauncher{launchers: launchers, host: h}, "test",
 		WithConnectorConfig(func() (ConnectorConfig, error) { return cfg, nil }),
 		WithRestartObserver(func(ev RestartEvent) { h.mu.Lock(); h.events = append(h.events, ev); h.mu.Unlock() }))
 	h.m.restartDelays = []time.Duration{10 * time.Millisecond}

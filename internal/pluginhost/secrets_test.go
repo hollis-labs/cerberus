@@ -39,7 +39,7 @@ type recordingProcess struct {
 
 func (p *recordingProcess) Init(_ context.Context, params SDKInitParams) (SDKInitResult, error) {
 	p.initParams = params
-	return SDKInitResult{ID: "contextforge", Version: "dev", Protocol: SDKProtocolVersion}, nil
+	return SDKInitResult{CapabilityContract: 1, ID: params.Incarnation.OwnerID, Version: "dev", Protocol: SDKProtocolVersion}, nil
 }
 func (p *recordingProcess) Load(context.Context) (SDKLoadResult, error) {
 	return SDKLoadResult{}, nil
@@ -78,7 +78,7 @@ func secretDeclaringPlugin() InstalledPlugin {
 func loadWithResolver(t *testing.T, resolver SecretResolver, process Process, plugin InstalledPlugin) (*Manager, *[]string) {
 	t.Helper()
 	var warnings []string
-	manager := NewManager(nil, fakeLauncher{process: process}, "test",
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test",
 		WithSecretResolver(resolver),
 		WithLoadWarning(func(line string) { warnings = append(warnings, line) }),
 	)
@@ -226,7 +226,7 @@ func TestManagerSecretResolverFailureIsReportedNotFatal(t *testing.T) {
 // No resolver configured is the pre-WP-7 behavior, and must stay harmless.
 func TestManagerWithoutSecretResolverStillLoads(t *testing.T) {
 	process := &recordingProcess{}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	manager.RegisterInstalled(secretDeclaringPlugin())
 	if err := manager.Load(context.Background(), "contextforge"); err != nil {
 		t.Fatalf("Load: %v", err)

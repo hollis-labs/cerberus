@@ -12,7 +12,7 @@ import (
 // only the read-bound credentials: a preview can't write, however the plugin
 // behaves (M8).
 func TestAPreviewRunsInTheReadInstance(t *testing.T) {
-	m := NewManager(nil, fakeLauncher{}, "test")
+	m := newTestManager(t, nil, fakeLauncher{}, "test")
 	lp := &loadedPlugin{access: secrets.AccessRead, writer: &writerState{}}
 	for _, effect := range []contract.Effect{contract.EffectWrite, contract.EffectDestructive, contract.EffectExec} {
 		got, err := m.instanceFor(context.Background(), "p", lp, effect, true)

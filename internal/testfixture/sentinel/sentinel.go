@@ -41,7 +41,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	secret "github.com/hollis-labs/cerberus/pkg/secret"
-	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
+	sdksubprocess "github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // Value is the resolved credential: no provider prefix, no label, not
@@ -221,7 +221,7 @@ type echoPlugin struct {
 
 func (p *echoPlugin) Init(_ context.Context, params sdksubprocess.InitParams) (sdksubprocess.InitResult, error) {
 	p.token = params.Config["token"]
-	return sdksubprocess.InitResult{ID: ConnectorID, Name: "WP-S2 sentinel", Version: "1.0.0", Protocol: sdksubprocess.ProtocolVersion}, nil
+	return sdksubprocess.InitResult{ID: ConnectorID, Name: "WP-S2 sentinel", Version: "1.0.0", Protocol: sdksubprocess.ProtocolVersion, CapabilityContract: 1}, nil
 }
 
 func (p *echoPlugin) Load(context.Context) (sdksubprocess.LoadResult, error) {

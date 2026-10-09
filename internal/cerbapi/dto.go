@@ -30,7 +30,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // APIHeaderName is the protocol-version header sent by clients and

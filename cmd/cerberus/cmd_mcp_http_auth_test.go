@@ -17,7 +17,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/mcp"
 	"github.com/hollis-labs/cerberus/internal/oauth"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 type memKS struct {

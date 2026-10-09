@@ -3,12 +3,13 @@ package cerbapi
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/hollis-labs/cerberus/internal/secrets"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/secrets"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
@@ -24,7 +25,7 @@ func claims(scheme string) func(*pluginhost.PluginYAML) {
 
 // A secret backend restores before the plugins that resolve through it.
 func TestRestorePhasePutsSecretBackendsFirst(t *testing.T) {
-	backend := pluginhost.InstalledPlugin{Spec: pluginhost.PluginYAML{Cerberus: plugin.CerberusPluginBlock{SecretBackend: &plugin.SecretBackend{Scheme: "op"}}}}
+	backend := pluginhost.InstalledPlugin{Path: t.TempDir(), Spec: pluginhost.PluginYAML{Cerberus: plugin.CerberusPluginBlock{SecretBackend: &plugin.SecretBackend{Scheme: "op"}}}}
 	if restorePhase(backend) != 0 || restorePhase(pluginhost.InstalledPlugin{}) != 1 {
 		t.Fatalf("phases: backend %d, other %d", restorePhase(backend), restorePhase(pluginhost.InstalledPlugin{}))
 	}
@@ -144,7 +145,7 @@ func TestProcessSecretBackendsRefuseAnUnreviewedBackend(t *testing.T) {
 // from: names and sources, never values.
 func TestOutcomesCarryCredentialSources(t *testing.T) {
 	sink := audit.NewMemory()
-	call, err := beginAudit(t.Context(), sink, slog.Default(), restoreSpec(pluginhost.InstalledPlugin{ID: "x"}))
+	call, err := beginAudit(t.Context(), sink, slog.Default(), restoreSpec(pluginhost.InstalledPlugin{Path: t.TempDir(), ID: "x"}))
 	if err != nil {
 		t.Fatal(err)
 	}

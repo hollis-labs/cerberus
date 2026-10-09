@@ -3,12 +3,13 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -25,9 +26,9 @@ func configuredManagedService(t *testing.T, body string) (*ManagedPluginConnecto
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}
-	svc.manager = pluginhost.NewManager(nil, echoingLauncher{process: &echoingPluginProcess{}}, "test",
+	svc.manager = newTestPluginManager(t, nil, echoingLauncher{process: &echoingPluginProcess{}}, "test",
 		pluginhost.WithConnectorConfig(connectorConfigLoader(path)))
-	plugin := pluginhost.InstalledPlugin{
+	plugin := pluginhost.InstalledPlugin{Path: t.TempDir(),
 		ID:     "leaky",
 		Origin: pluginhost.OriginInstalled,
 		Manifest: contract.Manifest{

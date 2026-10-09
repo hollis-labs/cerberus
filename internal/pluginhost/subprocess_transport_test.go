@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/capability"
+
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	sdksubprocess "github.com/hollis-labs/plugin-sdk/subprocess"
+	sdksubprocess "github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // sdkTestPlugin records the init config so a test can assert what actually
@@ -19,16 +21,19 @@ import (
 // channel reaches a plugin rather than merely being assembled host-side.
 type sdkTestPlugin struct {
 	config map[string]string
+	params sdksubprocess.InitParams
 }
 
 func (p *sdkTestPlugin) Init(_ context.Context, params sdksubprocess.InitParams) (sdksubprocess.InitResult, error) {
 	p.config = params.Config
+	p.params = params
 	return sdksubprocess.InitResult{
-		ID:          "docker",
-		Name:        "Docker Test Plugin",
-		Version:     "dev",
-		Description: "test helper",
-		Protocol:    sdksubprocess.ProtocolVersion,
+		ID:                 "docker",
+		Name:               "Docker Test Plugin",
+		Version:            "dev",
+		Description:        "test helper",
+		Protocol:           sdksubprocess.ProtocolVersion,
+		CapabilityContract: 1,
 	}, nil
 }
 
@@ -50,6 +55,7 @@ func (p *sdkTestPlugin) MCPCallTool(_ context.Context, req sdksubprocess.MCPCall
 		"tool":   req.ToolName,
 		"args":   req.Arguments,
 		"config": p.config,
+		"init":   p.params,
 	})
 	if err != nil {
 		return sdksubprocess.MCPCallResult{}, err
@@ -87,6 +93,7 @@ func TestStdioTransportFactoryRoundTripWithPluginSDKServer(t *testing.T) {
 	defer func() { _ = process.Close() }()
 
 	initResult, err := process.Init(context.Background(), SDKInitParams{
+		CapabilityContract: 1, DataDir: t.TempDir(), CacheDir: t.TempDir(), Incarnation: capability.RuntimeIdentity{HostInstance: "test-host", OwnerID: "docker", OwnerGeneration: 1},
 		PluginDir: t.TempDir(),
 		Config:    map[string]string{"token": "test"},
 		LogLevel:  "info",
@@ -137,7 +144,7 @@ func TestStdioTransportCarriesACommand(t *testing.T) {
 		t.Fatalf("startSDKHelperProcess: %v", err)
 	}
 	defer func() { _ = process.Close() }()
-	if _, err = process.Init(context.Background(), SDKInitParams{PluginDir: t.TempDir(), HostInfo: SDKHostInfo{Version: "test", Protocol: SDKProtocolVersion}}); err != nil {
+	if _, err = process.Init(context.Background(), SDKInitParams{CapabilityContract: 1, DataDir: t.TempDir(), CacheDir: t.TempDir(), Config: map[string]string{}, LogLevel: "info", Incarnation: capability.RuntimeIdentity{HostInstance: "test-host", OwnerID: "docker", OwnerGeneration: 1}, PluginDir: t.TempDir(), HostInfo: SDKHostInfo{Version: "test", Protocol: SDKProtocolVersion}}); err != nil {
 		t.Fatal(err)
 	}
 	var asProcess Process = process
@@ -162,6 +169,7 @@ func TestStdioTransportFactoryPropagatesPluginError(t *testing.T) {
 	defer func() { _ = process.Close() }()
 
 	if _, err := process.Init(context.Background(), SDKInitParams{
+		CapabilityContract: 1, DataDir: t.TempDir(), CacheDir: t.TempDir(), Incarnation: capability.RuntimeIdentity{HostInstance: "test-host", OwnerID: "docker", OwnerGeneration: 1},
 		PluginDir: t.TempDir(),
 		Config:    map[string]string{},
 		LogLevel:  "info",
@@ -197,7 +205,7 @@ func TestManagerLoadAndExecuteWithPluginSDKTransport(t *testing.T) {
 	}
 	writePluginYAMLFile(t, pluginDir, spec)
 
-	manager := NewManager(
+	manager := newTestManager(t,
 		DirectoryInstaller{
 			Policy: LocalInstallPolicy(),
 		},
@@ -315,7 +323,7 @@ func TestManagerDeliversResolvedSecretsAcrossTheSubprocessBoundary(t *testing.T)
 		"cloudflare/api_key": "not-yours",
 	}}
 
-	manager := NewManager(
+	manager := newTestManager(t,
 		DirectoryInstaller{
 			Policy: LocalInstallPolicy(),
 		},

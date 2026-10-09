@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/pkg/plugin"
-	"github.com/hollis-labs/plugin-sdk/subprocess"
+	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // resultProcess answers every call with a fixed tool result.
@@ -29,7 +29,7 @@ func codedFailure(t *testing.T, result SDKMCPCallResult) error {
 	t.Helper()
 	// No resolver: the plugin loads without its required token, which is the
 	// ContextForge case — tunnel down and no JWT configured.
-	manager := NewManager(nil, fakeLauncher{process: &resultProcess{result: result}}, "test")
+	manager := newTestManager(t, nil, fakeLauncher{process: &resultProcess{result: result}}, "test")
 	manager.RegisterInstalled(secretDeclaringPlugin())
 	if err := manager.Load(context.Background(), "contextforge"); err != nil {
 		t.Fatalf("Load: %v", err)

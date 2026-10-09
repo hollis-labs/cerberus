@@ -3,7 +3,7 @@ package mcp
 import (
 	"fmt"
 
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 
 	"github.com/hollis-labs/cerberus/internal/policy"
 )

@@ -27,12 +27,12 @@ func exposureService(t *testing.T, config string) (*ManagedPluginConnectorServic
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.manager = pluginhost.NewManager(nil, echoingLauncher{process: &echoingPluginProcess{}}, "test",
+	svc.manager = newTestPluginManager(t, nil, echoingLauncher{process: &echoingPluginProcess{}}, "test",
 		pluginhost.WithConnectorConfig(connectorConfigLoader(path)))
 	op := func(name string) contract.ManifestOperation {
 		return contract.ManifestOperation{Name: name, Effect: contract.EffectRead, InputSchema: contract.ObjectSchema(map[string]any{})}
 	}
-	plugin := pluginhost.InstalledPlugin{ID: "leaky", Origin: pluginhost.OriginInstalled,
+	plugin := pluginhost.InstalledPlugin{Path: t.TempDir(), ID: "leaky", Origin: pluginhost.OriginInstalled,
 		Spec: pluginsdk.PluginYAML{Cerberus: pluginsdk.CerberusPluginBlock{Surfaces: pluginsdk.Surfaces{CLIOnly: []string{"dump_all"}}}},
 		Manifest: contract.Manifest{APIVersion: contract.ManifestAPIVersion, Kind: "Connector", ID: "leaky", Version: "dev",
 			Operations: []contract.ManifestOperation{op("list_things"), op("get_thing"), op("dump_all")}}}

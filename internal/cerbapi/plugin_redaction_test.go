@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hollis-labs/cerberus/internal/audit"
+
 	"github.com/hollis-labs/cerberus/internal/connector"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	gmcp "github.com/hollis-labs/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // Sentinels for the two ways a credential reaches plugin error text: one the
@@ -32,7 +33,7 @@ type echoingPluginProcess struct{ token string }
 
 func (p *echoingPluginProcess) Init(_ context.Context, params pluginhost.SDKInitParams) (pluginhost.SDKInitResult, error) {
 	p.token = params.Config["token"]
-	return pluginhost.SDKInitResult{ID: "leaky", Version: "dev", Protocol: pluginhost.SDKProtocolVersion}, nil
+	return pluginhost.SDKInitResult{CapabilityContract: 1, ID: "leaky", Version: "dev", Protocol: pluginhost.SDKProtocolVersion}, nil
 }
 func (p *echoingPluginProcess) Load(context.Context) (pluginhost.SDKLoadResult, error) {
 	return pluginhost.SDKLoadResult{}, nil
@@ -70,9 +71,9 @@ func leakyManagedService(t *testing.T) *ManagedPluginConnectorService {
 	if err != nil {
 		t.Fatalf("NewManagedPluginConnectorService: %v", err)
 	}
-	svc.manager = pluginhost.NewManager(nil, echoingLauncher{process: &echoingPluginProcess{}}, "test",
+	svc.manager = newTestPluginManager(t, nil, echoingLauncher{process: &echoingPluginProcess{}}, "test",
 		pluginhost.WithSecretResolver(sentinelResolver{}))
-	svc.manager.RegisterInstalled(pluginhost.InstalledPlugin{
+	svc.manager.RegisterInstalled(pluginhost.InstalledPlugin{Path: t.TempDir(),
 		ID:     "leaky",
 		Origin: pluginhost.OriginInstalled,
 		Manifest: contract.Manifest{

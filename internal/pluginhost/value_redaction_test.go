@@ -30,9 +30,9 @@ func (p *leakyProcess) leak() string {
 func (p *leakyProcess) Init(_ context.Context, params SDKInitParams) (SDKInitResult, error) {
 	p.token = params.Config["token"]
 	if p.initErr {
-		return SDKInitResult{}, errors.New(p.leak())
+		return SDKInitResult{CapabilityContract: 1}, errors.New(p.leak())
 	}
-	return SDKInitResult{ID: "contextforge", Version: "dev", Protocol: SDKProtocolVersion}, nil
+	return SDKInitResult{CapabilityContract: 1, ID: "contextforge", Version: "dev", Protocol: SDKProtocolVersion}, nil
 }
 func (p *leakyProcess) Load(context.Context) (SDKLoadResult, error) {
 	if p.loadErr {
@@ -73,7 +73,7 @@ func assertNoSentinel(t *testing.T, where, text string) {
 func leakyManager(t *testing.T, process *leakyProcess) *Manager {
 	t.Helper()
 	resolver := &fakeResolver{values: map[string]string{"contextforge/token": valueSentinel}}
-	manager := NewManager(nil, fakeLauncher{process: process}, "test", WithSecretResolver(resolver))
+	manager := newTestManager(t, nil, fakeLauncher{process: process}, "test", WithSecretResolver(resolver))
 	manager.RegisterInstalled(secretDeclaringPlugin())
 	return manager
 }
@@ -151,7 +151,7 @@ func TestManagerRedactsResolvedValuesFromPluginText(t *testing.T) {
 func TestManagerValueRedactionKeepsErrorChain(t *testing.T) {
 	sentinelErr := errors.New("upstream said " + valueSentinel)
 	resolver := &fakeResolver{values: map[string]string{"contextforge/token": valueSentinel}}
-	manager := NewManager(nil, fakeLauncher{process: &recordingProcess{callErr: sentinelErr}}, "test", WithSecretResolver(resolver))
+	manager := newTestManager(t, nil, fakeLauncher{process: &recordingProcess{callErr: sentinelErr}}, "test", WithSecretResolver(resolver))
 	manager.RegisterInstalled(secretDeclaringPlugin())
 	if err := manager.Load(context.Background(), "contextforge"); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -178,7 +178,7 @@ func scriptedFailure(t *testing.T, token, message string) (string, []string) {
 	t.Helper()
 	resolver := &fakeResolver{values: map[string]string{"contextforge/token": token}}
 	var warnings []string
-	manager := NewManager(nil, fakeLauncher{process: &scriptedProcess{message: message}}, "test",
+	manager := newTestManager(t, nil, fakeLauncher{process: &scriptedProcess{message: message}}, "test",
 		WithSecretResolver(resolver),
 		WithLoadWarning(func(line string) { warnings = append(warnings, line) }))
 	manager.RegisterInstalled(secretDeclaringPlugin())

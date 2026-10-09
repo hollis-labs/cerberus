@@ -16,12 +16,13 @@ import (
 	"syscall"
 	"time"
 
+	"strings"
+
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	gmcp "github.com/hollis-labs/go-mcp/server"
-	"strings"
+	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // SocketClient satisfies Client by forwarding each call over a unix

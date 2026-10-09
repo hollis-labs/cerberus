@@ -3,7 +3,7 @@ package ssh
 import (
 	"os"
 
-	sftpsync "github.com/hollis-labs/go-sftpsync"
+	sftpsync "github.com/hollis-labs/libs/util/sftpsync"
 )
 
 // DirTransferResult reports what a recursive transfer moved.

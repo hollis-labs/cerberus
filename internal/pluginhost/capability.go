@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hollis-labs/plugin-sdk/subprocess"
+	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // CapabilityRequest is the SDK's declaration type. Aliased rather than

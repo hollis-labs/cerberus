@@ -24,7 +24,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	secretpkg "github.com/hollis-labs/cerberus/pkg/secret"
-	gowebui "github.com/hollis-labs/go-webui"
+	gowebui "github.com/hollis-labs/libs/ui-go/webui"
 )
 
 //go:embed all:dist

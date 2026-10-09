@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/hollis-labs/go-apppaths/paths"
+	paths "github.com/hollis-labs/libs/util/apppaths"
 )
 
 // appName is Cerberus's go-apppaths application identity. It drives the XDG

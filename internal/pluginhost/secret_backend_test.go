@@ -47,7 +47,7 @@ func backendPlugin(id, scheme string) InstalledPlugin {
 func loadedBackend(t *testing.T, process Process, opts ...ManagerOption) *Manager {
 	t.Helper()
 	p := backendPlugin("onepassword", "op")
-	m := NewManager(nil, fakeLauncher{process: process}, "test", opts...)
+	m := newTestManager(t, nil, fakeLauncher{process: process}, "test", opts...)
 	m.RegisterInstalled(p)
 	if err := m.Load(context.Background(), p.ID); err != nil {
 		t.Fatalf("Load: %v", err)
@@ -57,7 +57,7 @@ func loadedBackend(t *testing.T, process Process, opts ...ManagerOption) *Manage
 
 func newBackendProcess(result SDKCommandResult) *backendProcess {
 	return &backendProcess{
-		fakeProcess: fakeProcess{initResult: SDKInitResult{ID: "onepassword", Version: "dev", Protocol: SDKProtocolVersion}},
+		fakeProcess: fakeProcess{initResult: SDKInitResult{CapabilityContract: 1, ID: "onepassword", Version: "dev", Protocol: SDKProtocolVersion}},
 		result:      result,
 	}
 }
@@ -111,9 +111,9 @@ func TestResolveSecretReportsTheBackendsFailureRedacted(t *testing.T) {
 }
 
 func TestResolveSecretFailsClosedWithTheRecoveryNamed(t *testing.T) {
-	unloaded := NewManager(nil, fakeLauncher{process: newBackendProcess(SDKCommandResult{})}, "test")
+	unloaded := newTestManager(t, nil, fakeLauncher{process: newBackendProcess(SDKCommandResult{})}, "test")
 	unloaded.RegisterInstalled(backendPlugin("onepassword", "op"))
-	plainLoaded := NewManager(nil, fakeLauncher{process: &fakeProcess{initResult: SDKInitResult{ID: "onepassword", Protocol: SDKProtocolVersion}}}, "test")
+	plainLoaded := newTestManager(t, nil, fakeLauncher{process: &fakeProcess{initResult: SDKInitResult{CapabilityContract: 1, ID: "onepassword", Version: "dev", Protocol: SDKProtocolVersion}}}, "test")
 	plainLoaded.RegisterInstalled(backendPlugin("onepassword", "op"))
 	if err := plainLoaded.Load(context.Background(), "onepassword"); err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestResolveSecretFailsClosedWithTheRecoveryNamed(t *testing.T) {
 	empty := loadedBackend(t, newBackendProcess(SDKCommandResult{Action: plugin.ResolveActionValue}))
 	odd := loadedBackend(t, newBackendProcess(SDKCommandResult{Action: "noop"}))
 	broken := loadedBackend(t, &backendProcess{
-		fakeProcess: fakeProcess{initResult: SDKInitResult{ID: "onepassword", Protocol: SDKProtocolVersion}},
+		fakeProcess: fakeProcess{initResult: SDKInitResult{CapabilityContract: 1, ID: "onepassword", Version: "dev", Protocol: SDKProtocolVersion}},
 		err:         errors.New("pipe closed"),
 	})
 
@@ -131,7 +131,7 @@ func TestResolveSecretFailsClosedWithTheRecoveryNamed(t *testing.T) {
 		ref  string
 		want string
 	}{
-		{"no claimant", NewManager(nil, fakeLauncher{}, "test"), "op://a/b/c", "cerberus connectors plugin managed install"},
+		{"no claimant", newTestManager(t, nil, fakeLauncher{}, "test"), "op://a/b/c", "cerberus connectors plugin managed install"},
 		{"not a reference", unloaded, "not-a-ref", "not a <scheme>:// reference"},
 		{"installed, not loaded", unloaded, "op://a/b/c", "cerberus connectors plugin managed load onepassword"},
 		{"no command transport", plainLoaded, "op://a/b/c", "cannot carry a resolve"},
@@ -160,7 +160,7 @@ func TestResolveSecretFailsClosedWithTheRecoveryNamed(t *testing.T) {
 // A resolve that arrives while its backend is still loading waits for it.
 func TestResolveSecretWaitsForALoadingBackend(t *testing.T) {
 	process := newBackendProcess(SDKCommandResult{Action: plugin.ResolveActionValue, Content: backendValue})
-	m := NewManager(nil, fakeLauncher{process: process}, "test")
+	m := newTestManager(t, nil, fakeLauncher{process: process}, "test")
 	m.RegisterInstalled(backendPlugin("onepassword", "op"))
 
 	// Hold the load open as P5-d's load does while Init runs.
@@ -188,7 +188,7 @@ func TestResolveSecretStopsWaitingAtItsBound(t *testing.T) {
 	saved := secretBackendWait
 	secretBackendWait = 20 * time.Millisecond
 	t.Cleanup(func() { secretBackendWait = saved })
-	m := NewManager(nil, fakeLauncher{}, "test")
+	m := newTestManager(t, nil, fakeLauncher{}, "test")
 	m.RegisterInstalled(backendPlugin("onepassword", "op"))
 	m.mu.Lock()
 	m.loading["onepassword"] = make(chan struct{})
@@ -204,7 +204,7 @@ func TestResolveSecretStopsWaitingAtItsBound(t *testing.T) {
 func TestABackendsCredentialComesFromTheCoreChain(t *testing.T) {
 	full := &fakeResolver{values: map[string]string{"onepassword/token": "from-full", "docker/token": "from-full"}}
 	core := &fakeResolver{values: map[string]string{"onepassword/token": "from-core"}}
-	m := NewManager(nil, fakeLauncher{}, "test", WithSecretResolver(full), WithCoreSecretResolver(core))
+	m := newTestManager(t, nil, fakeLauncher{}, "test", WithSecretResolver(full), WithCoreSecretResolver(core))
 
 	backend := backendPlugin("onepassword", "op")
 	if got := m.secretsFor(backend); got != core {
@@ -259,7 +259,7 @@ func TestAResolveHasItsOwnDeadline(t *testing.T) {
 	if DefaultLimits.Resolve != 10*time.Second || DefaultLimits.Resolve >= DefaultLimits.Call {
 		t.Fatalf("default resolve deadline %s", DefaultLimits.Resolve)
 	}
-	m := loadedBackend(t, &hangingBackend{fakeProcess: fakeProcess{initResult: SDKInitResult{ID: "onepassword", Protocol: SDKProtocolVersion}}})
+	m := loadedBackend(t, &hangingBackend{fakeProcess: fakeProcess{initResult: SDKInitResult{CapabilityContract: 1, ID: "onepassword", Version: "dev", Protocol: SDKProtocolVersion}}})
 	m.mu.Lock()
 	m.running["onepassword"].limits.Resolve = 40 * time.Millisecond
 	m.mu.Unlock()
@@ -292,7 +292,7 @@ func TestResolveTimeoutIsALimitClampedLikeTheOthers(t *testing.T) {
 // backends.
 func TestABackendWithNoCoreChainFailsClosed(t *testing.T) {
 	full := &fakeResolver{values: map[string]string{"onepassword/token": "from-full"}}
-	m := NewManager(nil, fakeLauncher{}, "test", WithSecretResolver(full))
+	m := newTestManager(t, nil, fakeLauncher{}, "test", WithSecretResolver(full))
 	backend := backendPlugin("onepassword", "op")
 	resolved := resolvePluginSecrets(context.Background(), m.secretsFor(backend), backend)
 	if resolved.Config["token"] != "" || len(full.lookups) != 0 {
@@ -306,7 +306,7 @@ func TestABackendWithNoCoreChainFailsClosed(t *testing.T) {
 // A backend in its restart backoff is being restarted: the caller is told
 // to retry, not to load it.
 func TestAResolveDuringARestartSaysRetry(t *testing.T) {
-	m := NewManager(nil, fakeLauncher{}, "test")
+	m := newTestManager(t, nil, fakeLauncher{}, "test")
 	m.RegisterInstalled(backendPlugin("onepassword", "op"))
 	m.sup.mu.Lock()
 	m.sup.pending["onepassword"] = true

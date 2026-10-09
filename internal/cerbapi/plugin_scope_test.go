@@ -35,9 +35,9 @@ func TestPluginSuccessResultNeverCarriesItsCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc.manager = pluginhost.NewManager(nil, echoingLauncher{process: &succeedingEchoProcess{}}, "test",
+	svc.manager = newTestPluginManager(t, nil, echoingLauncher{process: &succeedingEchoProcess{}}, "test",
 		pluginhost.WithSecretResolver(sentinelResolver{}))
-	svc.manager.RegisterInstalled(pluginhost.InstalledPlugin{
+	svc.manager.RegisterInstalled(pluginhost.InstalledPlugin{Path: t.TempDir(),
 		ID: "leaky", Origin: pluginhost.OriginInstalled,
 		Manifest: contract.Manifest{
 			APIVersion: contract.ManifestAPIVersion, Kind: "Connector", ID: "leaky", Version: "dev",

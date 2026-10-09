@@ -2,13 +2,20 @@ package pluginhost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
-	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
+	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/capability"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secrets"
@@ -45,11 +52,14 @@ type Launcher interface {
 }
 
 type Manager struct {
-	mu        sync.RWMutex
-	installer Installer
-	launcher  Launcher
-	hostInfo  SDKHostInfo
-	secrets   SecretResolver
+	hostInstance        string
+	generation          atomic.Uint64
+	dataRoot, cacheRoot string
+	mu                  sync.RWMutex
+	installer           Installer
+	launcher            Launcher
+	hostInfo            SDKHostInfo
+	secrets             SecretResolver
 	// coreSecrets resolves a secret backend's own credentials: the core
 	// chain alone, never a plugin scheme, so no backend can depend on
 	// another and no cycle can form.
@@ -203,8 +213,9 @@ func (m *Manager) CheckBundle(p InstalledPlugin) error {
 
 func NewManager(installer Installer, launcher Launcher, hostVersion string, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		installer: installer,
-		launcher:  launcher,
+		hostInstance: uuid.NewString(),
+		installer:    installer,
+		launcher:     launcher,
 		hostInfo: SDKHostInfo{
 			Version:  hostVersion,
 			Protocol: SDKProtocolVersion,
@@ -343,14 +354,18 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 	if limits.Init == 0 {
 		limits, _ = ClampLimits(nil)
 	}
-	tap := newStderrTap()
-	tap.setPlugin(id)
-	// The launch context carries the stderr tap and the process limits.
-	// The process outlives it: nothing here binds the plugin's life to ctx.
-	process, err := m.launcher.Launch(withLaunchLimits(withStderrTap(ctx, tap), limits), plugin)
+	// Resolve writable roots before spawn; the verified bundle stays untouched.
+	dataDir, cacheDir, err := m.runtimeDirs(plugin)
 	if err != nil {
 		return nil, err
 	}
+	generation := m.generation.Add(1)
+	if generation > capability.MaxSafeInteger {
+		return nil, fmt.Errorf("plugin runtime generation exhausted")
+	}
+	incarnation := capability.RuntimeIdentity{HostInstance: m.hostInstance, OwnerID: plugin.ID, OwnerGeneration: generation}
+	tap := newStderrTap()
+	tap.setPlugin(id)
 
 	// The plugin's declared credentials are resolved host-side and travel in
 	// the Init config map. They deliberately do not travel in the environment:
@@ -372,14 +387,34 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 		initConfig[name] = value
 	}
 
+	params := SDKInitParams{
+		PluginDir:          plugin.Path,
+		DataDir:            dataDir,
+		CacheDir:           cacheDir,
+		CapabilityContract: capability.ContractVersion,
+		Incarnation:        incarnation,
+		Grants:             capability.GrantSet{},
+		Config:             initConfig,
+		LogLevel:           "info",
+		HostInfo:           m.hostInfo,
+	}
+	// Validate and detach the complete host-issued handshake before spawning.
+	wire, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("prepare plugin init: %w", err)
+	}
+	if snapshotErr := json.Unmarshal(wire, &params); snapshotErr != nil {
+		return nil, fmt.Errorf("snapshot plugin init: %w", snapshotErr)
+	}
+	// The launch context carries the stderr tap and the process limits.
+	// The process outlives it: nothing here binds the plugin's life to ctx.
+	process, err := m.launcher.Launch(withLaunchLimits(withStderrTap(ctx, tap), limits), plugin)
+	if err != nil {
+		return nil, err
+	}
+
 	initCtx, cancelInit := context.WithTimeout(ctx, limits.Init)
-	initResult, err := process.Init(initCtx, SDKInitParams{
-		PluginDir: plugin.Path,
-		Config:    initConfig,
-		LogLevel:  "info",
-		HostInfo:  m.hostInfo,
-		Granted:   plugin.Granted,
-	})
+	initResult, err := process.Init(initCtx, params)
 	missed := errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
 	cancelInit()
 	if err != nil {
@@ -396,6 +431,15 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 	if initResult.Protocol != SDKProtocolVersion {
 		kill(process)
 		return nil, fmt.Errorf("plugin %q protocol %d does not match host protocol %d", id, initResult.Protocol, SDKProtocolVersion)
+	}
+
+	if initResult.CapabilityContract != capability.ContractVersion || initResult.ReverseRPCVersion != nil || initResult.HooksProfileVersion != nil {
+		kill(process)
+		return nil, fmt.Errorf("plugin %q did not agree to the forward-only capability contract", id)
+	}
+	if initResult.ID != plugin.ID || (plugin.Version != "" && initResult.Version != plugin.Version) {
+		kill(process)
+		return nil, fmt.Errorf("plugin %q returned a different identity or version", id)
 	}
 
 	loadCtx, cancelLoad := context.WithTimeout(ctx, limits.Load)
@@ -740,4 +784,79 @@ func writerFor(access secrets.Access) *writerState {
 		return &writerState{}
 	}
 	return nil
+}
+
+// WithRuntimeRoots sets host-owned data/cache locations outside plugin bundles.
+// Callers with persistent installations supply their existing state directory.
+// Missing roots are refused before any plugin process is created.
+func WithRuntimeRoots(dataRoot, cacheRoot string) ManagerOption {
+	return func(m *Manager) { m.dataRoot, m.cacheRoot = dataRoot, cacheRoot }
+}
+
+func (m *Manager) runtimeDirs(plugin InstalledPlugin) (string, string, error) {
+	dataRoot, cacheRoot := m.dataRoot, m.cacheRoot
+	if !filepath.IsAbs(dataRoot) || !filepath.IsAbs(cacheRoot) {
+		return "", "", fmt.Errorf("absolute host-owned plugin data/cache roots are required")
+	}
+	if dataRoot == cacheRoot {
+		return "", "", fmt.Errorf("plugin data/cache roots must be separate")
+	}
+	bundle, err := runtimeCanonicalPath(plugin.Path)
+	if err != nil {
+		return "", "", err
+	}
+	dataRoot, err = runtimeCanonicalPath(dataRoot)
+	if err != nil {
+		return "", "", err
+	}
+	cacheRoot, err = runtimeCanonicalPath(cacheRoot)
+	if err != nil {
+		return "", "", err
+	}
+	if dataRoot == cacheRoot {
+		return "", "", fmt.Errorf("plugin data/cache roots must be separate")
+	}
+	for _, root := range []string{dataRoot, cacheRoot} {
+		rel, err := filepath.Rel(bundle, root)
+		if err != nil || rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			return "", "", fmt.Errorf("plugin runtime roots must be outside its bundle")
+		}
+	}
+	// The installed path distinguishes distinct installations of the same id.
+	namespace := fmt.Sprintf("%x", sha256.Sum256([]byte(plugin.ID+"\x00"+plugin.Path)))
+	dataDir, cacheDir := filepath.Join(dataRoot, namespace), filepath.Join(cacheRoot, namespace)
+	for _, dir := range []string{dataDir, cacheDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", "", fmt.Errorf("prepare plugin runtime directory: %w", err)
+		}
+	}
+	return dataDir, cacheDir, nil
+}
+
+// Resolve existing symlinks before checking containment or creating directories.
+// Future path components are kept beneath their nearest existing ancestor.
+func runtimeCanonicalPath(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("absolute plugin runtime paths are required")
+	}
+	parent := filepath.Clean(path)
+	var suffix []string
+	for {
+		resolved, err := filepath.EvalSymlinks(parent)
+		if err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return resolved, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("resolve plugin runtime path: %w", err)
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return "", fmt.Errorf("resolve plugin runtime path: %w", err)
+		}
+		suffix = append(suffix, filepath.Base(parent))
+		parent = next
+	}
 }
