@@ -153,9 +153,9 @@ library conformance fixtures. Decide how old due occurrences enter the new store
 before migration; do not silently treat advanced cursors as completed ingest.
 This guide changes neither fragments-engine's code nor its live scheduler.
 
-## Upgrade Torque timed activation
+## Upgrade host timed activation
 
-CW-20260904-0163 distinguishes Torque's readiness queue from recurring schedules.
+CW-20260904-0163 distinguishes host's readiness queue from recurring schedules.
 Keep timed activation embedded with the app's authoritative task database. A fire
 must enter the existing readiness, dependency, budget, gate and concurrency path.
 It must not dispatch an agent directly or create a separate Cerberus-owned queue.
@@ -169,7 +169,7 @@ the reference `sqlstore` is SQLite-specific. Retain stable IDs, leased recovery,
 retry bounds and durable terminal history. A refusal of readiness is an app
 activation outcome, not permission to bypass the queue. Verify crash recovery at
 the fire/task/queue boundary with the existing adapter and library conformance
-contracts before enabling it. This guide performs no Torque consumer adoption.
+contracts before enabling it. This guide performs no host consumer adoption.
 
 ## Platform boundary
 
