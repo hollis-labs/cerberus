@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -47,7 +48,11 @@ func TestAPIBackendVerifiedHandshakeAndExec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() {
+		if closeErr := listener.Close(); closeErr != nil {
+			t.Errorf("close listener: %v", closeErr)
+		}
+	}()
 	if err = os.WriteFile(knownPath, []byte(knownhosts.Line([]string{listener.Addr().String()}, host.PublicKey())+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +108,11 @@ func TestAPIBackendVerifiedHandshakeAndExec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	backend := NewAPIBackend()
-	defer backend.Close()
+	defer func() {
+		if closeErr := backend.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
+			t.Errorf("close backend: %v", closeErr)
+		}
+	}()
 	if err = backend.Connect(ctx, "127.0.0.1", listener.Addr().(*net.TCPAddr).Port, "test", keyPath, HostKeyConfig{KnownHostsFile: knownPath}); err != nil {
 		t.Fatal(err)
 	}
