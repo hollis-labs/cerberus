@@ -393,6 +393,8 @@ func (s *ResourceRuntimeService) planPipelineSnapshot(ctx context.Context, spec 
 		for _, action := range stage.Actions {
 			step := plan.Step{Name: stage.Name + "/" + action.Type, Command: action.Type}
 			switch {
+			case len(action.Argv) > 0:
+				step.Command, step.Dir, step.Env = fmt.Sprintf("%q", action.Argv), action.Dir, env
 			case action.Command != "":
 				step.Command, step.Dir, step.Env = action.Command, action.Dir, env
 			case action.Resource != "":

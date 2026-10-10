@@ -15,6 +15,15 @@ import (
 // It is not installed in a daemon or exposed on any caller surface by this task.
 type ScheduledExecutor struct{ Runtime *ResourceRuntimeService }
 
+type scheduledDeliveryKey struct{}
+
+func (e ScheduledExecutor) ExecuteDelivery(ctx context.Context, target scheduling.Target, admit scheduling.Admission, delivery *scheduling.Delivery) error {
+	if target.Kind != scheduling.PipelineRun || delivery == nil {
+		return redact.Guidance("per-fire environment and capture are unavailable for this target; nothing was sent")
+	}
+	return e.Execute(context.WithValue(ctx, scheduledDeliveryKey{}, delivery), target, admit)
+}
+
 type scheduledAdmissionKey struct{}
 type scheduledGateKey struct{}
 type scheduledGate struct {
@@ -84,6 +93,9 @@ func scheduledPipelineResultError(out *PipelineRunResult, runErr error) error {
 	execution, decodeErr := out.Execution()
 	if decodeErr != nil {
 		return decodeErr
+	}
+	if execution.OutcomeUnknown {
+		return redact.Guidance("pipeline output process lifetime is uncertain")
 	}
 	if execution.Status != domain.StateHealthy {
 		return &ExternalConnectorError{Code: ExternalConnectorOperationFailed, Err: scheduling.ErrExecutionFailed}

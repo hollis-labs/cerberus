@@ -8,6 +8,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/scheduling"
 )
 
 // ListPipelines lists definitions from the current shared config.
@@ -44,7 +45,7 @@ func (s *ResourceRuntimeService) lookupPipeline(id string) (*pipelineSnapshot, s
 	}
 	for i := range cfg.Pipelines {
 		if cfg.Pipelines[i].ID == id {
-			return &pipelineSnapshot{def: cfg.Pipelines[i], resources: append([]config.ResourceDef(nil), cfg.Resources...)}, ""
+			return &pipelineSnapshot{def: clonePipelineDefinition(cfg.Pipelines[i]), resources: append([]config.ResourceDef(nil), cfg.Resources...)}, ""
 		}
 	}
 	return nil, fmt.Sprintf("pipeline %q not found in config", id)
@@ -69,6 +70,19 @@ func (s *ResourceRuntimeService) runPipeline(ctx context.Context, id string, che
 
 	s.pipelineMu.Lock()
 	defer s.pipelineMu.Unlock()
+	delivery, wantsDelivery := ctx.Value(scheduledDeliveryKey{}).(*scheduling.Delivery)
+	if wantsDelivery {
+		if CallerSurfaceFrom(ctx) != SurfaceScheduler {
+			return nil, redact.Guidance("pipeline delivery has no scheduler binding")
+		}
+		for _, stage := range snap.def.Stages {
+			for _, action := range stage.Actions {
+				if action.Type != "shell" {
+					return nil, redact.Guidance("per-fire environment and capture are unavailable for mixed pipeline actions; nothing was sent")
+				}
+			}
+		}
+	}
 	p, err := pipeline.Resolve(snap.def, append([]config.ResourceDef(nil), snap.resources...), s.localConnector())
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("resolve pipeline: %s", err.Error())}, nil
@@ -77,13 +91,16 @@ func (s *ResourceRuntimeService) runPipeline(ctx context.Context, id string, che
 		return nil, admissionErr
 	}
 	env := &domain.PipelineEnv{Values: make(map[string]any)}
+	if wantsDelivery {
+		env.RunIO = delivery
+	}
 	exec := pipeline.NewExecutor(nil)
 	// The run is the caller's; its stages are Cerberus acting for them.
 	result, err := exec.Run(WithPrincipal(ctx, pipelinePrincipal(ctx, id)), p, env)
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("pipeline execution: %s", err.Error())}, nil
 	}
-	raw, err := redact.Marshal(result)
+	raw, err := redact.ScopeFrom(ctx).Marshal(result)
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("marshal result: %s", err.Error())}, nil
 	}
@@ -109,4 +126,19 @@ func (s *ResourceRuntimeService) GetPipeline(_ context.Context, id string) (*Pip
 		return detail, nil
 	}
 	return nil, nil
+}
+
+// Snapshot action argv along with stages so later config mutation cannot change
+// the command whose digest the serving gate authorized.
+func clonePipelineDefinition(def config.PipelineDef) config.PipelineDef {
+	out := def
+	out.Stages = append([]config.StageDef(nil), def.Stages...)
+	for i := range out.Stages {
+		out.Stages[i].DependsOn = append([]string(nil), def.Stages[i].DependsOn...)
+		out.Stages[i].Actions = append([]config.ActionDef(nil), def.Stages[i].Actions...)
+		for k := range out.Stages[i].Actions {
+			out.Stages[i].Actions[k].Argv = append([]string(nil), def.Stages[i].Actions[k].Argv...)
+		}
+	}
+	return out
 }

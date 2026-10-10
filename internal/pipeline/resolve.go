@@ -99,12 +99,18 @@ func resolveAction(ad config.ActionDef, resources []config.ResourceDef, local *l
 		return actions.NewHealthWait(ad.Resource, url, timeout), nil
 
 	case "shell":
-		if ad.Command == "" {
-			return nil, fmt.Errorf("shell action: command is required")
+		if (ad.Command == "") == (len(ad.Argv) == 0) {
+			return nil, fmt.Errorf("shell action: choose exactly one command or argv")
 		}
 		name := "shell"
 		if ad.Resource != "" {
 			name = fmt.Sprintf("shell(%s)", ad.Resource)
+		}
+		if len(ad.Argv) > 0 {
+			if ad.Argv[0] == "" || len(ad.Argv) > 128 {
+				return nil, fmt.Errorf("shell action: invalid argv")
+			}
+			return actions.NewShellArgv(name, ad.Argv, ad.Dir), nil
 		}
 		return actions.NewShell(name, ad.Command, ad.Dir), nil
 

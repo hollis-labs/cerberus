@@ -141,9 +141,10 @@ type StageDef struct {
 
 // ActionDef defines a single action within a stage.
 type ActionDef struct {
-	Type     string `yaml:"type"`               // "build", "deploy", "start", "stop", "health_wait", "shell"
-	Resource string `yaml:"resource,omitempty"` // resource ID (for build/deploy/start/stop/health_wait)
-	Command  string `yaml:"command,omitempty"`  // shell command (for shell type)
-	Dir      string `yaml:"dir,omitempty"`      // working directory (for shell type)
-	Timeout  string `yaml:"timeout,omitempty"`  // duration string (for health_wait)
+	Argv     []string `yaml:"argv,omitempty"`     // portable argv form of the existing shell action
+	Type     string   `yaml:"type"`               // "build", "deploy", "start", "stop", "health_wait", "shell"
+	Resource string   `yaml:"resource,omitempty"` // resource ID (for build/deploy/start/stop/health_wait)
+	Command  string   `yaml:"command,omitempty"`  // shell command (for shell type)
+	Dir      string   `yaml:"dir,omitempty"`      // working directory (for shell type)
+	Timeout  string   `yaml:"timeout,omitempty"`  // duration string (for health_wait)
 }

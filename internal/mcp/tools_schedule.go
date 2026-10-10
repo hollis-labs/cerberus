@@ -34,7 +34,7 @@ func ScheduleTools(service scheduling.Service) []Tool {
 			"after":           map[string]any{"type": "string", "description": "RFC3339 dry-run starting instant."},
 			"acknowledged":    map[string]any{"type": "boolean", "description": "Acknowledges metadata mutation, never authorizes execution."},
 		}
-		tool := contractTool(Tool{Name: "cerberus_schedule_" + op, Description: "Schedule " + op + " through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run logs explicitly unavailable until log delivery exists.", InputSchema: objectSchema(properties), Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
+		tool := contractTool(Tool{Name: "cerberus_schedule_" + op, Description: "Schedule " + op + " through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.", InputSchema: objectSchema(properties), Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 			data, err := json.Marshal(args)
 			if err != nil {
 				return nil, err

@@ -65,6 +65,8 @@ type Options struct {
 	Clock          scheduler.Clock
 	Concurrency    int
 	MaxFireTimeout time.Duration
+	Delivery       DeliveryOptions
+	Notifications  NotificationSink
 }
 
 // Core borrows an application-owned SQLite DB; its caller owns closing it.
@@ -78,6 +80,8 @@ type Core struct {
 	now           func() time.Time
 	maxTimeout    time.Duration
 	dispatchSlots chan struct{}
+	delivery      DeliveryOptions
+	notifications NotificationSink
 }
 
 func New(ctx context.Context, db *sql.DB, executor Executor, authority Authorizer, options Options) (*Core, error) {
@@ -123,8 +127,15 @@ func New(ctx context.Context, db *sql.DB, executor Executor, authority Authorize
 	if concurrency == 0 {
 		concurrency = scheduler.DefaultConcurrency
 	}
+	c.delivery, c.notifications = options.Delivery, options.Notifications
+	if err := c.migrateDelivery(ctx); err != nil {
+		return nil, err
+	}
+	if err := c.cleanupLogs(ctx); err != nil {
+		return nil, err
+	}
 	c.dispatchSlots = make(chan struct{}, concurrency)
-	c.engine = scheduler.New(store, c, scheduler.WithClock(options.Clock), scheduler.WithConcurrency(options.Concurrency), scheduler.WithFireTimeout(maxTimeout))
+	c.engine = scheduler.New(store, c, scheduler.WithClock(options.Clock), scheduler.WithConcurrency(options.Concurrency), scheduler.WithFireTimeout(maxTimeout), scheduler.WithObserver(scheduler.ObserverFunc(c.observe)))
 	return c, nil
 }
 
@@ -217,7 +228,14 @@ func (c *Core) History(ctx context.Context, owner, id string, limit int) ([]sche
 // Prune uses the library's retention/high-water fences. Effect receipts are
 // deliberately retained: history deletion must never license effect replay.
 func (c *Core) Prune(ctx context.Context, olderThan time.Time) (int, error) {
-	return c.store.Prune(ctx, olderThan)
+	if err := c.Reconcile(ctx); err != nil {
+		return 0, err
+	}
+	n, err := c.store.Prune(ctx, olderThan)
+	if err != nil {
+		return n, err
+	}
+	return n, c.cleanupLogs(ctx)
 }
 
 type ReceiptState string
@@ -311,8 +329,13 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 	if err != nil {
 		return err
 	}
-	if len(j.EnvRefs) != 0 {
-		return redact.Guidance("scheduled environment delivery is not implemented; nothing was sent")
+	var delivery *Delivery
+	if len(j.EnvRefs) != 0 || j.CaptureLogs {
+		if _, ok := c.executor.(DeliveryExecutor); !ok {
+			return redact.Guidance("scheduled environment or log delivery is unavailable; nothing was sent")
+		}
+		delivery = &Delivery{core: c, job: j, fire: fire, scope: scope}
+		defer delivery.close(context.WithoutCancel(ctx))
 	}
 	if c.executor == nil || c.authority == nil {
 		return redact.Guidance("scheduled effects require explicit per-fire policy authorization; nothing was sent")
@@ -375,6 +398,14 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 		if policyErr := recheck(); policyErr != nil {
 			return policyErr
 		}
+		if delivery != nil {
+			if prepareErr := delivery.prepare(effectCtx, req); prepareErr != nil {
+				return prepareErr
+			}
+			if policyErr := recheck(); policyErr != nil {
+				return policyErr
+			}
+		}
 		if _, currentErr := c.current(effectCtx, fire); currentErr != nil {
 			return currentErr
 		}
@@ -397,7 +428,14 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 		}
 		return nil
 	}
-	err = c.executor.Execute(ctx, j.Target, admit)
+	if delivery != nil {
+		err = c.executor.(DeliveryExecutor).ExecuteDelivery(ctx, j.Target, admit, delivery)
+	} else {
+		err = c.executor.Execute(ctx, j.Target, admit)
+	}
+	if delivery != nil {
+		delivery.close(context.WithoutCancel(ctx))
+	}
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
@@ -421,7 +459,7 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 	if err != nil {
 		text = redact.Render(scope, err)
 	}
-	if _, writeErr := c.db.ExecContext(context.WithoutCancel(ctx), `UPDATE cerberus_schedule_receipts SET state=?,error=? WHERE fire_id=?`, state, text, fire.FireID); writeErr != nil {
+	if writeErr := c.completeReceipt(context.WithoutCancel(ctx), j, fire, state, text); writeErr != nil {
 		return redact.Guidance("scheduled effect outcome could not be recorded; reconcile the receipt before recovery")
 	}
 	return err

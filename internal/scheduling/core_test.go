@@ -445,7 +445,7 @@ func TestJobValidationAndNamesOnlyEnvironment(t *testing.T) {
 	mustCreate(t, c, j)
 	tick(t, c)
 	f := fireFor(t, c, j, j.Timing.At)
-	if f.Status != scheduler.FireExhausted || !strings.Contains(f.LastError, "environment delivery") {
+	if f.Status != scheduler.FireExhausted || !strings.Contains(f.LastError, "delivery is unavailable") {
 		t.Fatalf("environment references silently ignored: %+v", f)
 	}
 }
