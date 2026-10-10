@@ -95,6 +95,7 @@ func TestMutationOriginMustMatchAllowedSet(t *testing.T) {
 // routeTable must appear in exactly one, so a new route cannot arrive
 // unclassified.
 var guardedRoutes = map[string][]string{
+	"/api/schedules/v1/": {"/api/schedules/v1/create", "/api/schedules/v1/update", "/api/schedules/v1/delete", "/api/schedules/v1/pause", "/api/schedules/v1/resume", "/api/schedules/v1/run_now"},
 	"/api/resources/": {
 		"/api/resources/app/apply", "/api/resources/app/deploy", "/api/resources/app/reload",
 		"/api/resources/app/stop", "/api/resources/app/sync", "/api/resources/app/remove",

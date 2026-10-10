@@ -150,6 +150,7 @@ type route struct {
 func (s *Server) routeTable() []route {
 	return []route{
 		{"/api/session", s.handleSession},
+		{"/api/schedules/v1/", s.handleSchedules},
 		{"/api/logout", s.handleLogout},
 		{"/api/approvals", s.handleApprovals},
 		{"/api/approvals/", s.handleApprovalByID},
@@ -895,4 +896,14 @@ func planOf(data any) (*cerbapi.ConnectorPlan, error) {
 		return nil, fmt.Errorf("decode the plan: %w", err)
 	}
 	return &p, nil
+}
+
+// Scheduling requests pass through the console's existing session/Host/Origin
+// middleware, then through the socket's shared gates. This starts no engine.
+func (s *Server) handleSchedules(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return
+	}
+	cerbapi.ScheduleHTTP(cerbapi.ScheduleClient(s.client), "/api/schedules/v1/").ServeHTTP(w, r)
 }

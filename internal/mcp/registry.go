@@ -50,6 +50,7 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusDockerDownTool(client),
 		NewCerberusDockerDestroyTool(client),
 	}
+	tools = append(tools, ScheduleTools(cerbapi.ScheduleClient(client))...)
 	for i := range tools {
 		tools[i] = withRequestScope(withOutOfBandElicitation(client, tools[i]))
 	}

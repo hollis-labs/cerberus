@@ -21,6 +21,7 @@ import (
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/scheduling"
 	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
@@ -422,4 +423,9 @@ func TestApprovalWaitBoundsAndErrors(t *testing.T) {
 func (r *recordingClient) ResourceLogs(_ context.Context, id string, _ int, stream string, o ...cerbapi.MutationOption) (*cerbapi.LogLines, error) {
 	r.seen = cerbapi.ApplyMutationOptions(o).ApprovalID
 	return &cerbapi.LogLines{ResourceID: id, Stream: stream}, nil
+}
+
+func (r *recordingClient) Schedule(_ context.Context, req scheduling.Call) (scheduling.Result, error) {
+	r.seen = req.ApprovalID
+	return scheduling.Result{}, nil
 }

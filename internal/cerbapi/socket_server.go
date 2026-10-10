@@ -226,6 +226,7 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 
 func (s *SocketServer) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.Handle("/schedules/v1/", ScheduleHTTP(ScheduleClient(s.client), "/schedules/v1/"))
 
 	// /health — daemon + v2 resource health.
 	mux.HandleFunc("/health", s.handleHealth)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/scheduling"
 	"log/slog"
 
 	"github.com/hollis-labs/cerberus/internal/config"
@@ -24,6 +25,7 @@ type InProcessClient struct {
 	external       *ExternalConnectorService
 	managedPlugins *ManagedPluginConnectorService
 	consoleSecrets secret.ReadWriter
+	schedules      scheduling.Service
 
 	// Construction options forwarded to the shared runtime.
 	cfgPath string

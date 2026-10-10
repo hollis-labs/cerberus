@@ -561,7 +561,12 @@ func runDaemonBody() error {
 	if servicesErr != nil {
 		return servicesErr
 	}
+	schedules, scheduleErr := a.ScheduleService(ctx)
+	if scheduleErr != nil {
+		return fmt.Errorf("bind inactive scheduling: %w", scheduleErr)
+	}
 	inProc := cerbapi.NewInProcessClient(
+		cerbapi.WithScheduleService(schedules),
 		cerbapi.WithConfigV2(a.Config),
 		cerbapi.WithConfigPath(cfgPath),
 		cerbapi.WithLocalConnector(a.Local),
