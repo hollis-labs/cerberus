@@ -23,7 +23,10 @@ func listenOnPort(t *testing.T) (net.Listener, int) {
 func TestCheckPortConflict_FreePort(t *testing.T) {
 	// Pick a port that is (very likely) free
 	ln, port := listenOnPort(t)
-	ln.Close() // close immediately so the port is free
+	// Close immediately so the port is free.
+	if closeErr := ln.Close(); closeErr != nil {
+		t.Fatalf("close listener: %v", closeErr)
+	}
 
 	conflict, err := CheckPortConflict(port, "test-svc")
 	if err != nil {
@@ -36,7 +39,11 @@ func TestCheckPortConflict_FreePort(t *testing.T) {
 
 func TestCheckPortConflict_InUse(t *testing.T) {
 	ln, port := listenOnPort(t)
-	defer ln.Close()
+	defer func() {
+		if closeErr := ln.Close(); closeErr != nil {
+			t.Errorf("close listener: %v", closeErr)
+		}
+	}()
 
 	conflict, err := CheckPortConflict(port, "test-svc")
 	if err != nil {
@@ -99,7 +106,11 @@ func TestScanAllPorts_NoConflict(t *testing.T) {
 
 func TestScanAllPorts_WithConflict(t *testing.T) {
 	ln, port := listenOnPort(t)
-	defer ln.Close()
+	defer func() {
+		if closeErr := ln.Close(); closeErr != nil {
+			t.Errorf("close listener: %v", closeErr)
+		}
+	}()
 
 	services := []*ManagedService{
 		{Def: config.ServiceDef{ID: "busy-svc", Port: port}},
