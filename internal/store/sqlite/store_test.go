@@ -15,7 +15,11 @@ func openTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
 	return s
 }
 
@@ -39,14 +43,18 @@ func TestOpenIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first open: %v", err)
 	}
-	s1.Close()
+	if closeErr := s1.Close(); closeErr != nil {
+		t.Fatalf("close first store: %v", closeErr)
+	}
 
 	// Opening again should not fail (migrations already applied).
 	s2, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("second open: %v", err)
 	}
-	s2.Close()
+	if closeErr := s2.Close(); closeErr != nil {
+		t.Fatalf("close second store: %v", closeErr)
+	}
 }
 
 func TestProjectCRUD(t *testing.T) {
@@ -91,7 +99,9 @@ func TestProjectCRUD(t *testing.T) {
 
 	// List
 	p2 := &domain.Project{ID: "proj-2", Name: "Another Project"}
-	s.SaveProject(ctx, p2)
+	if saveErr := s.SaveProject(ctx, p2); saveErr != nil {
+		t.Fatalf("save second project: %v", saveErr)
+	}
 
 	list, err := s.ListProjects(ctx)
 	if err != nil {
@@ -122,7 +132,9 @@ func TestResourceCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Create parent project first (foreign key).
-	s.SaveProject(ctx, &domain.Project{ID: "proj-1", Name: "P1"})
+	if err := s.SaveProject(ctx, &domain.Project{ID: "proj-1", Name: "P1"}); err != nil {
+		t.Fatalf("save parent project: %v", err)
+	}
 
 	res := &domain.Resource{
 		ID:        "res-1",
@@ -170,7 +182,9 @@ func TestResourceCRUD(t *testing.T) {
 		ProjectID: "proj-1", Connector: "local",
 		Config: map[string]any{},
 	}
-	s.SaveResource(ctx, res2)
+	if saveErr := s.SaveResource(ctx, res2); saveErr != nil {
+		t.Fatalf("save second resource: %v", saveErr)
+	}
 
 	list, err := s.ListResources(ctx, "proj-1")
 	if err != nil {
