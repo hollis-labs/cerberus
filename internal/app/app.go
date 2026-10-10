@@ -25,6 +25,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/scheduling"
 	"github.com/hollis-labs/cerberus/internal/secretref"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/store/sqlite"
@@ -555,4 +556,21 @@ func (l *LazySecretBackends) Close(ctx context.Context) {
 	if l.b != nil {
 		l.b.Close(ctx)
 	}
+}
+
+// ScheduleService opens the application-owned store and constructs an inactive
+// CRUD service. No executor, authorizer or engine start is supplied here.
+func (a *App) ScheduleService(ctx context.Context) (scheduling.Service, error) {
+	if err := a.OpenStore(); err != nil {
+		return nil, err
+	}
+	store, ok := a.Store.(*sqlite.Store)
+	if !ok {
+		return nil, fmt.Errorf("scheduling requires the application-owned SQLite store")
+	}
+	core, err := scheduling.New(ctx, store.DB(), nil, nil, scheduling.Options{})
+	if err != nil {
+		return nil, err
+	}
+	return cerbapi.NewScheduleService(core, AuditSink()), nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -48,7 +49,10 @@ func main() {
 		// A pre-rendered error — rendered where it was made, here or by a
 		// daemon that said so — keeps its prose; anything else gets the
 		// regex net.
-		fmt.Fprintln(os.Stderr, "Error:", redact.ErrorText(err))
+		var reported *reportedCommandError
+		if !errors.As(err, &reported) {
+			fmt.Fprintln(os.Stderr, "Error:", redact.ErrorText(err))
+		}
 		os.Exit(1)
 	}
 }

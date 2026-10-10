@@ -689,3 +689,8 @@ SDK reverse authority. Writable plugin data/cache directories are host-owned
 siblings of the managed state or connector-config file, outside the verified
 plugin bundle. Init must acknowledge the exact protocol/contract and installed
 plugin identity before Load.
+
+Scheduled-job metadata is available through `cerberus schedule`, the
+`cerberus_schedule_*` tools and versioned HTTP routes on one shared service.
+The engine remains inactive and production run-now refuses without per-fire
+authority. See [scheduled jobs](docs/scheduling.md) for the contract and limits.

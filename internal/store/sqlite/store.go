@@ -41,6 +41,9 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// DB borrows the application-owned connection for inactive scheduling.
+func (s *Store) DB() *sql.DB { return s.db }
+
 // Close closes the underlying database connection.
 func (s *Store) Close() error {
 	return s.db.Close()

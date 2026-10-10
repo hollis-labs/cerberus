@@ -45,8 +45,10 @@ type EnvReference struct {
 }
 
 // Job contains no authority, acknowledgment, credential values or caller claims.
-// Its content hash is its immutable revision. Editing is a later surface task.
+// Its content hash, including server generation, fences each durable revision.
 type Job struct {
+	Incarnation    uint64                  `json:"incarnation,omitempty"`
+	Generation     uint64                  `json:"generation,omitempty"`
 	ID             string                  `json:"id"`
 	Name           string                  `json:"name"`
 	OwnerApp       string                  `json:"owner_app"`

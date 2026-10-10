@@ -10,6 +10,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/libs/util/scheduler"
 	"github.com/hollis-labs/libs/util/scheduler/sqlstore"
@@ -69,13 +70,14 @@ type Options struct {
 // Core borrows an application-owned SQLite DB; its caller owns closing it.
 // Opening/migrating the store never fires jobs. Start or TickNow is explicit.
 type Core struct {
-	store      *sqlstore.Store
-	db         *sql.DB
-	engine     *scheduler.Engine
-	authority  Authorizer
-	executor   Executor
-	now        func() time.Time
-	maxTimeout time.Duration
+	store         *sqlstore.Store
+	db            *sql.DB
+	engine        *scheduler.Engine
+	authority     Authorizer
+	executor      Executor
+	now           func() time.Time
+	maxTimeout    time.Duration
+	dispatchSlots chan struct{}
 }
 
 func New(ctx context.Context, db *sql.DB, executor Executor, authority Authorizer, options Options) (*Core, error) {
@@ -97,6 +99,15 @@ func New(ctx context.Context, db *sql.DB, executor Executor, authority Authorize
 		state TEXT NOT NULL, plan_hash TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '')`); err != nil {
 		return nil, err
 	}
+	for _, query := range []string{
+		`CREATE TABLE IF NOT EXISTS cerberus_schedule_generations(job_key TEXT PRIMARY KEY,generation INTEGER NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS cerberus_schedule_creates(owner_app TEXT NOT NULL,idempotency_key TEXT NOT NULL,fingerprint TEXT NOT NULL,job_key TEXT NOT NULL,incarnation INTEGER NOT NULL,PRIMARY KEY(owner_app,idempotency_key))`,
+		`CREATE TABLE IF NOT EXISTS cerberus_schedule_manual(job_key TEXT NOT NULL,request_id TEXT NOT NULL,fire_id TEXT NOT NULL,PRIMARY KEY(job_key,request_id))`,
+	} {
+		if _, err := db.ExecContext(ctx, query); err != nil {
+			return nil, err
+		}
+	}
 	maxTimeout := options.MaxFireTimeout
 	if maxTimeout == 0 {
 		maxTimeout = scheduler.DefaultFireTimeout
@@ -108,16 +119,21 @@ func New(ctx context.Context, db *sql.DB, executor Executor, authority Authorize
 	if options.Clock != nil {
 		c.now = options.Clock.Now
 	}
+	concurrency := options.Concurrency
+	if concurrency == 0 {
+		concurrency = scheduler.DefaultConcurrency
+	}
+	c.dispatchSlots = make(chan struct{}, concurrency)
 	c.engine = scheduler.New(store, c, scheduler.WithClock(options.Clock), scheduler.WithConcurrency(options.Concurrency), scheduler.WithFireTimeout(maxTimeout))
 	return c, nil
 }
 
 func (c *Core) Create(ctx context.Context, job Job) error {
-	s, err := job.schedule(c.now(), c.maxTimeout)
-	if err != nil {
-		return redact.Guidance("scheduled job refused: %v", err)
+	if job.Generation != 0 || job.Incarnation != 0 {
+		return redact.Guidance("scheduled job generation is server assigned")
 	}
-	return c.store.CreateSchedule(ctx, s)
+	_, err := c.createJob(ctx, job, uuid.NewString())
+	return err
 }
 
 func (c *Core) Get(ctx context.Context, owner, id string) (Job, bool, error) {
@@ -221,12 +237,12 @@ const (
 // Receipt is the write-ahead effect record. A prepared/sent record left after
 // a crash needs explicit reconciliation; reopening never resets or redelivers it.
 type Receipt struct {
-	FireID   string
-	JobKey   string
-	Revision string
-	State    ReceiptState
-	PlanHash string
-	Error    string
+	FireID   string       `json:"fire_id"`
+	JobKey   string       `json:"job_key"`
+	Revision string       `json:"revision"`
+	State    ReceiptState `json:"state"`
+	PlanHash string       `json:"plan_hash"`
+	Error    string       `json:"error,omitempty"`
 }
 
 func (c *Core) Receipt(ctx context.Context, id string) (Receipt, bool, error) {
@@ -282,6 +298,15 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 	if fire.JobType != jobType || fire.FireID != scheduler.DeriveFireID(fire.ScheduleID, fire.ScheduledAt) || fire.Attempt != 1 {
 		return redact.Guidance("unknown scheduled fire; nothing was sent")
 	}
+	// One bound is shared by library dispatch and selected manual fires.
+	// Waiting remains inside the cooperative deadline; admission rechecks the
+	// durable claim after the slot is obtained.
+	select {
+	case c.dispatchSlots <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-c.dispatchSlots }()
 	j, err := c.current(ctx, fire)
 	if err != nil {
 		return err
@@ -359,7 +384,7 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 		if !permit.ExpiresAt.After(c.now()) {
 			return redact.Guidance("scheduled permit expired during admission; nothing was sent")
 		}
-		sentResult, writeErr := c.db.ExecContext(effectCtx, `UPDATE cerberus_schedule_receipts SET state=?,plan_hash=? WHERE fire_id=? AND state=?`, Sent, planHash, fire.FireID, Prepared)
+		sentResult, writeErr := c.db.ExecContext(effectCtx, `UPDATE cerberus_schedule_receipts SET state=?,plan_hash=? WHERE fire_id=? AND state=? AND EXISTS(SELECT 1 FROM gosched_schedules WHERE id=? AND payload=?) AND EXISTS(SELECT 1 FROM gosched_fires WHERE id=? AND status=? AND attempt=? AND fired_at=? AND claim_expires_at>?)`, Sent, planHash, fire.FireID, Prepared, fire.ScheduleID, fire.Payload, fire.FireID, scheduler.FireClaimed, fire.Attempt, stamp(fire.FiredAt), stamp(c.now()))
 		if writeErr != nil {
 			return writeErr
 		}

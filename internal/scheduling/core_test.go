@@ -461,6 +461,10 @@ func TestExpiredClaimRecoveryKeepsUnknownReceiptAcrossReopen(t *testing.T) {
 	}
 	j := dueJob(clock, ResourceDeploy)
 	mustCreate(t, c, j)
+	j, _, err = c.Get(context.Background(), j.OwnerApp, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sch, err := j.schedule(clock.Now(), c.maxTimeout)
 	if err != nil {
 		t.Fatal(err)
