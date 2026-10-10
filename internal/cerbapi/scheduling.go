@@ -126,7 +126,7 @@ func ScheduleHTTP(service scheduling.Service, prefix string) http.Handler {
 			return
 		}
 		var req scheduling.Call
-		decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&req); err != nil {
 			writeScheduleEnvelope(w, http.StatusBadRequest, nil, scheduling.Refusal("invalid", "invalid scheduling JSON body"))

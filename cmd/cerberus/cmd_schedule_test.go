@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,5 +182,21 @@ func TestScheduleCLIJSONErrorIsOneReportedDocument(t *testing.T) {
 	}
 	if body.Error.Code != "unavailable" {
 		t.Fatal(body)
+	}
+}
+
+func TestScheduleCLIOverLimitNeverResolvesService(t *testing.T) {
+	for _, suffix := range []string{"", "{}"} {
+		called := false
+		cmd := newScheduleCommand(func(*cobra.Command) (scheduling.Service, error) {
+			called = true
+			return scheduling.NewService(nil, nil), nil
+		})
+		cmd.SetArgs([]string{"create", "--ack", "--idempotency-key", "fixture"})
+		cmd.SetIn(strings.NewReader(`{"id":"fixture"}` + strings.Repeat(" ", 1<<20) + suffix))
+		err := cmd.Execute()
+		if scheduling.ErrorCode(err) != "invalid" || called {
+			t.Fatalf("oversized job error=%v service resolved=%v", err, called)
+		}
 	}
 }

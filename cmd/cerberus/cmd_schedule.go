@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,7 +79,14 @@ IANA location. Job/app names are selectors, never permission. See docs/schedulin
 					reader = file
 				}
 				var j scheduling.Job
-				decoder := json.NewDecoder(io.LimitReader(reader, 1<<20))
+				data, readErr := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+				if readErr != nil {
+					return readErr
+				}
+				if len(data) > 1<<20 {
+					return scheduling.Refusal("invalid", "job file exceeds the 1 MiB limit")
+				}
+				decoder := json.NewDecoder(bytes.NewReader(data))
 				decoder.DisallowUnknownFields()
 				if err := decoder.Decode(&j); err != nil {
 					return scheduling.Refusal("invalid", "job file does not match the scheduling job JSON schema")

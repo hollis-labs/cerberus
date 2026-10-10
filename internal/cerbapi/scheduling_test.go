@@ -148,3 +148,22 @@ func TestScheduleHTTPUnknownFieldsFailClosed(t *testing.T) {
 		}
 	}
 }
+
+type scheduleBodyProbe struct{ calls int }
+
+func (p *scheduleBodyProbe) Schedule(context.Context, scheduling.Call) (scheduling.Result, error) {
+	p.calls++
+	return scheduling.Result{}, nil
+}
+func TestScheduleHTTPOverLimitNeverCallsService(t *testing.T) {
+	for _, suffix := range []string{"", "{}"} {
+		probe := &scheduleBodyProbe{}
+		body := `{"operation":"list"}` + strings.Repeat(" ", 1<<20) + suffix
+		req := httptest.NewRequest(http.MethodPost, "/schedules/v1/list", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		ScheduleHTTP(probe, "/schedules/v1/").ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || probe.calls != 0 {
+			t.Fatalf("oversized body status=%d service calls=%d", rec.Code, probe.calls)
+		}
+	}
+}
