@@ -37,8 +37,8 @@ type Timing struct {
 	Location string        `json:"location,omitempty"`
 }
 
-// EnvReference carries names only. Resolution and delivery belong to 0117;
-// this core refuses to execute a job with references rather than ignoring them.
+// EnvReference carries names only. A trusted host binds each alias to an exact
+// target/env/service/key; missing or unsupported delivery refuses.
 type EnvReference struct {
 	Env string `json:"env"`
 	Ref string `json:"ref"`
@@ -54,6 +54,7 @@ type Job struct {
 	OwnerApp       string                  `json:"owner_app"`
 	Timing         Timing                  `json:"timing"`
 	Target         Target                  `json:"target"`
+	CaptureLogs    bool                    `json:"capture_logs,omitempty"`
 	EnvRefs        []EnvReference          `json:"env_refs,omitempty"`
 	Enabled        bool                    `json:"enabled"`
 	Timeout        time.Duration           `json:"timeout"`

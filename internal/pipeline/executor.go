@@ -2,30 +2,35 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os/exec"
 	"sync"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 )
 
 // StageResult captures the outcome of a single stage execution.
 type StageResult struct {
-	Name     string        `json:"name"`
-	Status   domain.State  `json:"status"`
-	Duration time.Duration `json:"duration_ms"`
-	Error    string        `json:"error,omitempty" cerb:"untrusted"`
+	OutcomeUnknown bool          `json:"outcome_unknown,omitempty"`
+	Name           string        `json:"name"`
+	Status         domain.State  `json:"status"`
+	Duration       time.Duration `json:"duration_ms"`
+	Error          string        `json:"error,omitempty" cerb:"untrusted"`
 }
 
 // RunResult captures the outcome of a full pipeline run.
 type RunResult struct {
-	PipelineID string        `json:"pipeline_id"`
-	Status     domain.State  `json:"status"`
-	Stages     []StageResult `json:"stages"`
-	Duration   time.Duration `json:"duration_ms"`
-	Error      string        `json:"error,omitempty" cerb:"untrusted"`
+	OutcomeUnknown bool          `json:"outcome_unknown,omitempty"`
+	PipelineID     string        `json:"pipeline_id"`
+	Status         domain.State  `json:"status"`
+	Stages         []StageResult `json:"stages"`
+	Duration       time.Duration `json:"duration_ms"`
+	Error          string        `json:"error,omitempty" cerb:"untrusted"`
 }
 
 // Executor runs pipelines by resolving stage dependencies and executing
@@ -39,7 +44,7 @@ func NewExecutor(logger *slog.Logger) *Executor {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Executor{logger: logger}
+	return &Executor{logger: slog.New(redact.NewHandler(logger.Handler()))}
 }
 
 // Run executes a pipeline. Stages are run in dependency order — stages
@@ -59,15 +64,15 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 	}
 
 	result := &RunResult{
-		PipelineID: p.ID,
+		PipelineID: redact.ScopeFrom(ctx).Text(p.ID),
 		Status:     domain.StateRunning,
 	}
 	totalStages := countStages(levels)
 	completedStages := 0
 	progressToken := fmt.Sprintf("pipeline:%s", p.ID)
 
-	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Starting pipeline %s (%d stage(s))", p.ID, totalStages))
-	gmcp.NotifyProgress(ctx, progressToken, 0, float64(totalStages), "Pipeline queued")
+	pipelineMessage(ctx, "info", fmt.Sprintf("Starting pipeline %s (%d stage(s))", p.ID, totalStages))
+	pipelineProgress(ctx, progressToken, 0, float64(totalStages), "Pipeline queued")
 
 	// Track completed stages for rollback
 	var completed []*Stage
@@ -83,7 +88,7 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 			// Skip remaining levels after a failure
 			for _, stage := range level {
 				result.Stages = append(result.Stages, StageResult{
-					Name:   stage.Name,
+					Name:   redact.ScopeFrom(ctx).Text(stage.Name),
 					Status: domain.StateStopped,
 					Error:  "skipped: prior stage failed",
 				})
@@ -96,6 +101,7 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 
 		for i, sr := range stageResults {
 			result.Stages = append(result.Stages, sr)
+			result.OutcomeUnknown = result.OutcomeUnknown || sr.OutcomeUnknown
 			completedStages++
 			statusLabel := "completed"
 			switch sr.Status {
@@ -104,14 +110,14 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 			case domain.StateStopped:
 				statusLabel = "skipped"
 			}
-			gmcp.NotifyProgress(ctx, progressToken, float64(completedStages), float64(totalStages), fmt.Sprintf("Stage %s %s", sr.Name, statusLabel))
+			pipelineProgress(ctx, progressToken, float64(completedStages), float64(totalStages), fmt.Sprintf("Stage %s %s", sr.Name, statusLabel))
 			if sr.Status == domain.StateFailed {
-				gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Stage %s failed: %s", sr.Name, sr.Error))
+				pipelineMessage(ctx, "error", redact.ScopeFrom(ctx).Text(fmt.Sprintf("Stage %s failed: %s", sr.Name, sr.Error)))
 				if firstErr == nil {
 					firstErr = fmt.Errorf("stage %q failed: %s", sr.Name, sr.Error)
 				}
 			} else {
-				gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Stage %s %s", sr.Name, statusLabel))
+				pipelineMessage(ctx, "info", fmt.Sprintf("Stage %s %s", sr.Name, statusLabel))
 				completed = append(completed, level[i])
 			}
 		}
@@ -121,15 +127,15 @@ func (e *Executor) Run(ctx context.Context, p *Pipeline, env *domain.PipelineEnv
 	if firstErr != nil {
 		e.rollback(ctx, completed, env)
 		result.Status = domain.StateFailed
-		result.Error = firstErr.Error()
-		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Pipeline %s failed: %s", p.ID, firstErr.Error()))
+		result.Error = redact.ScopeFrom(ctx).Text(firstErr.Error())
+		pipelineMessage(ctx, "error", redact.ScopeFrom(ctx).Text(fmt.Sprintf("Pipeline %s failed: %s", p.ID, firstErr.Error())))
 	} else {
 		result.Status = domain.StateHealthy
-		gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Pipeline %s completed", p.ID))
+		pipelineMessage(ctx, "info", fmt.Sprintf("Pipeline %s completed", p.ID))
 	}
 
 	result.Duration = time.Since(start)
-	gmcp.NotifyProgress(ctx, progressToken, float64(completedStages), float64(totalStages), fmt.Sprintf("Pipeline %s %s", p.ID, result.Status))
+	pipelineProgress(ctx, progressToken, float64(completedStages), float64(totalStages), fmt.Sprintf("Pipeline %s %s", p.ID, result.Status))
 	return result, nil
 }
 
@@ -154,12 +160,12 @@ func (e *Executor) runLevel(ctx context.Context, stages []*Stage, env *domain.Pi
 func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineEnv) StageResult {
 	start := time.Now()
 	e.logger.InfoContext(ctx, "pipeline.stage.start", "stage", s.Name)
-	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Stage %s started", s.Name))
+	pipelineMessage(ctx, "info", fmt.Sprintf("Stage %s started", s.Name))
 
 	for _, action := range s.Actions {
 		if ctx.Err() != nil {
 			return StageResult{
-				Name:     s.Name,
+				Name:     redact.ScopeFrom(ctx).Text(s.Name),
 				Status:   domain.StateFailed,
 				Duration: time.Since(start),
 				Error:    ctx.Err().Error(),
@@ -171,10 +177,11 @@ func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineE
 		if err := action.Execute(ctx, env); err != nil {
 			e.logger.ErrorContext(ctx, "pipeline.action.failed", "stage", s.Name, "action", action.Name(), "error", err)
 			return StageResult{
-				Name:     s.Name,
-				Status:   domain.StateFailed,
-				Duration: time.Since(start),
-				Error:    fmt.Sprintf("action %q: %s", action.Name(), err.Error()),
+				Name:           redact.ScopeFrom(ctx).Text(s.Name),
+				Status:         domain.StateFailed,
+				Duration:       time.Since(start),
+				Error:          redact.ScopeFrom(ctx).Text(fmt.Sprintf("action %q: %s", action.Name(), err.Error())),
+				OutcomeUnknown: errors.Is(err, exec.ErrWaitDelay),
 			}
 		}
 
@@ -185,7 +192,7 @@ func (e *Executor) runStage(ctx context.Context, s *Stage, env *domain.PipelineE
 	e.logger.InfoContext(ctx, "pipeline.stage.done", "stage", s.Name, "duration", duration)
 
 	return StageResult{
-		Name:     s.Name,
+		Name:     redact.ScopeFrom(ctx).Text(s.Name),
 		Status:   domain.StateHealthy,
 		Duration: duration,
 	}
@@ -212,4 +219,13 @@ func (e *Executor) rollback(ctx context.Context, completed []*Stage, env *domain
 			}
 		}
 	}
+}
+
+// Every notification field, including labels and tokens, is rendered before
+// reaching a transport. Authored names can coincide with resolved values.
+func pipelineMessage(ctx context.Context, level, message string) {
+	gmcp.NotifyMessage(ctx, redact.ScopeFrom(ctx).Text(level), redact.ScopeFrom(ctx).Text(message))
+}
+func pipelineProgress(ctx context.Context, token string, progress, total float64, message string) {
+	gmcp.NotifyProgress(ctx, redact.ScopeFrom(ctx).Text(token), progress, total, redact.ScopeFrom(ctx).Text(message))
 }

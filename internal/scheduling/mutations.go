@@ -340,6 +340,12 @@ func (c *Core) runNow(ctx context.Context, r Call) (RunView, error) {
 	if err != nil {
 		return RunView{}, err
 	}
+	if err = c.Reconcile(context.WithoutCancel(ctx)); err != nil {
+		return RunView{}, err
+	}
+	if err = c.FlushNotifications(context.WithoutCancel(ctx)); err != nil {
+		return RunView{}, err
+	}
 	f, _, err = c.Fire(context.WithoutCancel(ctx), fireID)
 	if err != nil {
 		return RunView{}, err

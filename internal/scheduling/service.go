@@ -59,6 +59,7 @@ type Result struct {
 	Run           *RunView    `json:"run,omitempty"`
 	Times         []time.Time `json:"times,omitempty"`
 	Deleted       bool        `json:"deleted,omitempty"`
+	Logs          *RunLogs    `json:"logs,omitempty"`
 	LogsAvailable bool        `json:"logs_available"`
 	LogsReason    string      `json:"logs_reason,omitempty"`
 }
@@ -209,8 +210,10 @@ func (s *service) Schedule(ctx context.Context, req Call) (out Result, retErr er
 		if !found || f.ScheduleID != req.OwnerApp+"/"+req.ID {
 			return out, Refusal("not_found", "run was not found for this job")
 		}
-		out.LogsReason = "per-run log delivery is unavailable; history exposes redacted dispatch outcomes, not process logs"
-		return out, nil
+		logs, logErr := c.Logs(ctx, req.OwnerApp, req.ID, req.FireID)
+		out.Logs = &logs
+		out.LogsAvailable, out.LogsReason = logs.Available, logs.Reason
+		return out, logErr
 	case "run_now":
 		v, err := c.runNow(ctx, req)
 		out.Run = &v

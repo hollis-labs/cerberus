@@ -2,8 +2,8 @@
 
 CW-20261008-0115 adds an inactive core in `internal/scheduling`, built on
 `github.com/hollis-labs/libs/util/scheduler` and its `sqlstore` at **util/v0.4.0**
-(`da18d11cb2df5206120c3c1524067bfd17153b72`). It is not wired into the daemon.
-There are no scheduling CLI, MCP or HTTP endpoints yet.
+(`da18d11cb2df5206120c3c1524067bfd17153b72`). 0116 binds inactive CRUD/history surfaces; see `scheduling.md` for the current
+CLI/MCP/HTTP contract and 0117 supported pipeline delivery limits.
 
 `scheduling.New(ctx, db, executor, authorizer, options)` borrows a dedicated,
 application-owned SQLite database. Its host chooses the database path under its
@@ -29,8 +29,10 @@ means UTC. A zero enabled flag disables dispatch. Supported targets are:
 
 There are no command, agent-boot, legacy-service or provider targets in this core.
 Environment references carry only environment and reference **names**. Jobs with
-them are stored but refuse execution until 0117 implements delivery; references
-are never silently ignored or resolved here.
+them require an explicitly bound resolver and the existing gated shell-only
+pipeline transport added by 0117. Resource and mixed-action delivery remain
+unavailable; references are never silently ignored. See `scheduling.md` for the
+binding, capture and redaction limits.
 
 `Create`, `Get`, `List` (by app), `Delete`, `Fire`, `History`, `Receipt` and
 `Prune` are programmatic operations. Editing and pause/resume surfaces belong to

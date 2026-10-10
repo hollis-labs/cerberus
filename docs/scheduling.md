@@ -37,8 +37,9 @@ as an RFC3339 timestamp. Location is an IANA zone, default UTC. Durations
 be positive and at most the core's fire deadline (30 seconds by default).
 Supported targets are `resource_start`, `resource_deploy` and `pipeline_run`.
 Commands, agent boots and legacy services are not targets in this version.
-Environment references contain names only; execution with them refuses until
-the separate environment-delivery contract is implemented.
+Environment references contain names only. A trusted host can bind aliases and
+per-fire capture for shell-only pipelines as described below. Normal production
+construction supplies no executor, authorizer, resolver or notification binding.
 
 `owner_app` and `id` select a job; neither grants access. The serving host uses
 its existing kernel-verified socket peer, verified OAuth identity/scopes, or
@@ -148,10 +149,97 @@ resource later finished. `prepared`/`sent` after a crash and `unknown` after
 ambiguous delivery need explicit reconciliation; none licenses a retry.
 Timeouts and cancellation remain cooperative, not forced process termination.
 
-`logs` verifies the run belongs to the selected job, then explicitly returns
-`logs_available: false` and a reason. It does not synthesize output from job
-metadata or mistake history errors for process logs. Per-run log delivery,
-notifications and environment/secrets delivery belong to the separate follow-up.
+`logs` uses the same `read_sensitive` serving permission/audit path and verifies
+both fire ownership and job incarnation. A deleted/recreated job cannot read an
+old incarnation's streams. A pruned run returns `not_found`. Captured runs return
+`logs_available`, `logs.stdout`, `logs.stderr` and `logs.truncated`; unsupported,
+unbound or capture-failed runs return an explicit availability reason. No
+resource lifetime log or dispatch error is substituted for a captured stream.
+
+## Bound pipeline delivery
+
+A job can request `capture_logs: true` and `env_refs`, for example
+`[{"env":"RUN_VALUE","ref":"service-token"}]`. These fields store only names,
+never values, provider paths, caller identity or permits. The host constructs
+`NewBoundSecrets(reader, bindings)` with an immutable copy of alias mappings
+restricted to an exact target, env name and existing Cerberus secret service/key.
+The reader is the existing read-only secret contract; the normal app installs
+no such binding. Values rotate through that reader at run time without changing
+the permitted alias mapping. Job/app selectors cannot choose a provider.
+
+`ScheduledExecutor` extends the existing audited `RunPipeline` path. Its frozen
+pipeline must contain only shell actions when per-fire delivery is requested;
+mixed actions and resource start/deploy refuse before provider access or effects.
+A shell action accepts either its existing `command` string (requires `sh`) or
+portable `argv: [program, argument, ...]`, exclusively. Argv is cloned and included
+in the current plan. No job-supplied arbitrary command target is added.
+Caller JSON cannot carry argv at the request, job or target level: the shared
+HTTP and MCP decoders reject unknown fields before calling the service. Human
+and agent caller rejection fixtures cover these injection attempts. The source
+G204 annotation covers only the intentional frozen operator-config argv edge;
+it grants no execution authority and changes none of the runtime gates.
+
+After exact-fire authorization and current policy checks, secrets resolve and
+register in the same request redaction scope. Policy, plan, claim, current payload
+and permit expiry are checked again before the existing sent CAS. Unsafe env
+control variables, empty/reference-valued credentials, values below the scope's
+8-byte protection minimum and oversized values refuse. Values never enter
+command/args, history, receipts, results or notification payloads. The child-only
+environment is private and never serialized. Existing process environment is
+inherited; unrelated ambient values that Cerberus did not resolve are protected
+only by its existing heuristic rules.
+
+Shell stdout/stderr use separate sanitized writers before storage. Protected raw,
+URL-escaped and JSON-escaped forms can span writes; bounded in-memory carry keeps
+partial secrets out of persisted chunks. Streams retain rolling tails (64 KiB
+per stream by default), rotating oldest sanitized bytes. `truncated` reports
+rotation/global-cap drops; the default total retained body cap is 4 MiB, including
+inaccessible orphan bytes, with at most 2,048 stream rows. Smaller host limits
+are supported. Capture failure drains child pipes, marks logs unavailable and
+does not retry execution. Errors, all progress fields/tokens, results and pipeline
+slog messages use the same scope before emission. Build/deploy logs cannot
+receive these job values because those mixed actions are refused.
+
+A pipeline child exit failure is confirmed failure. Context cancellation,
+transport ambiguity and inherited-pipe drain timeout remain uncertain; they do
+not license retry or a confirmed failure notification. `WaitDelay` bounds waiting
+on inherited pipes; it does not guarantee descendants stopped. Stop/pause/delete
+retain existing cooperative lifetime guarantees.
+
+## Failure episodes and delivery limits
+
+Application completion facts commit with effect receipts and retain claim epoch
+and incarnation. Reconciliation serializes chronological facts into one failure
+alert per episode and one recovery notice after a confirmed successful dispatch.
+Repeated committed misfire observations (two consecutive observations) open the
+same episode; later failures are throttled until recovery. Unknown/prepared/sent
+outcomes never become confirmed failures or recovery. Resource dispatch success
+still means acceptance, not later process completion. Misfire callbacks are
+passive: the library has no exhaustive durable callback journal, so crash-complete
+misfire observation delivery is not promised.
+
+Notifications contain fixed safe facts/IDs, not raw errors or job payloads. A
+trusted host supplies `NotificationSink`; there is no mailbox/webhook
+binding in normal production construction. Missing bindings record `unavailable`
+outbox entries. Explicit engine/manual-run callbacks flush a bounded batch;
+construction, reads and pruning never send notifications. Durable outbox states
+are pending, reserved, delivered, unavailable and uncertain. A binding declaring
+receiver-side durable EventID idempotency can retry the same ID after ambiguity.
+Otherwise a reserved/uncertain event is never automatically resent: explicit
+operator reconciliation is required. These source protocols and injected private
+fixtures do not establish real notification-provider acceptance.
+
+## Retention
+
+`Core.Prune` reconciles durable completion facts, invokes the public library
+`Store.Prune` with its terminal/KeepLastN/high-water rules, then deletes orphan
+stream rows in a bounded transaction. There is a crash window between prune and
+cleanup; orphans are inaccessible on every read/append, count against the global
+cap, and are reclaimed on reopen or subsequent explicit maintenance. A late
+writer cannot recreate a pruned fire. This is not an atomic prune/log transaction.
+SQLite may retain freed pages/WAL bytes; logical retained-output limits do not
+promise an absolute physical database-file size. Receipts, safe completion facts,
+episode dedup and outbox obligations remain durable across prune/restart.
 
 Acceptance uses owned SQLite/audit roots, fake targets and loopback clients
 on macOS and Linux. Paths and output have no shell dependency. Native Windows
