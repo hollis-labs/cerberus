@@ -43,7 +43,10 @@ func TestScheduleCrossSurfaceContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := cerbapi.NewScheduleService(core, sink)
+	// DTO projection fixture only; real signed-token namespace acceptance lives
+	// in cerbapi.TestScheduleSignedNamespacesAndAdmin.
+	_ = sink
+	service := scheduling.NewService(core, func(context.Context, scheduling.Call) (func(error), error) { return func(error) {}, nil })
 	contextFor := func(ctx context.Context) context.Context {
 		return cerbapi.WithPrincipal(cerbapi.BeginRequest(ctx, cerbapi.SurfaceWeb), cerbapi.WebSessionPrincipal("fixture-session"))
 	}
@@ -147,6 +150,36 @@ func TestScheduleCrossSurfaceContract(t *testing.T) {
 			gotHTTP := httpCall(get)
 			if !reflect.DeepEqual(created.Job, gotCLI.Job) || !reflect.DeepEqual(created.Job, gotMCP.Job) || !reflect.DeepEqual(created.Job, gotHTTP.Job) {
 				t.Fatalf("surface drift: %+v %+v %+v %+v", created, gotCLI, gotMCP, gotHTTP)
+			}
+
+			job.ID = surface + "-registered"
+			entries := []scheduling.Registration{{Job: job, Absent: true}}
+			registration := scheduling.Call{Operation: "register", OwnerApp: job.OwnerApp, IdempotencyKey: job.ID, Registration: entries, Acknowledged: true}
+			var registered scheduling.Result
+			switch surface {
+			case "cli":
+				input, marshalErr := json.Marshal(entries)
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				registered = cliCall([]string{"register", "--app", job.OwnerApp, "--ack", "--idempotency-key", job.ID}, input)
+			case "mcp":
+				registered = mcpCall(registration)
+			case "http":
+				registered = httpCall(registration)
+			}
+			if len(registered.Jobs) != 1 {
+				t.Fatal(registered)
+			}
+			read := httpCall(scheduling.Call{Operation: "get", OwnerApp: job.OwnerApp, ID: job.ID})
+			if !reflect.DeepEqual(read.Job, &registered.Jobs[0]) {
+				t.Fatal("registration projection drift", read, registered)
+			}
+			viaCLI := cliCall([]string{"admin-view", "--ack", "--app", job.OwnerApp}, nil)
+			viaMCP := mcpCall(scheduling.Call{Operation: "admin_view", OwnerApp: job.OwnerApp, Acknowledged: true})
+			viaHTTP := httpCall(scheduling.Call{Operation: "admin_view", OwnerApp: job.OwnerApp, Acknowledged: true})
+			if !reflect.DeepEqual(viaCLI.Jobs, viaMCP.Jobs) || !reflect.DeepEqual(viaMCP.Jobs, viaHTTP.Jobs) {
+				t.Fatal("admin projection drift")
 			}
 		})
 	}

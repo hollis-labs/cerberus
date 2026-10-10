@@ -21,7 +21,12 @@ func ScheduleTools(service scheduling.Service) []Tool {
 		if err != nil {
 			panic(err)
 		}
+		registrationSchema, schemaErr := jsonschema.For[[]scheduling.Registration](nil)
+		if schemaErr != nil {
+			panic(schemaErr)
+		}
 		properties := map[string]interface{}{
+			"registration":    registrationSchema,
 			"owner_app":       map[string]any{"type": "string", "description": "App selector; confers no permission."},
 			"id":              map[string]any{"type": "string"},
 			"job":             jobSchema,

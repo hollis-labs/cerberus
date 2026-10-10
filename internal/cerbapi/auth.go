@@ -79,7 +79,9 @@ func verifyBearer(r *http.Request) (*http.Request, error) {
 	// The client is the token's, or none: never the caller's own claim,
 	// which it could vary per call (M13).
 	p.Client = clip(id.Client)
-	return r.WithContext(WithPrincipal(ctx, p)), nil
+	id.Scopes = append([]string(nil), id.Scopes...)
+	proof := &bearerProof{auth: a, raw: raw, identity: id}
+	return r.WithContext(context.WithValue(WithPrincipal(ctx, p), bearerProofKey{}, proof)), nil
 }
 
 // scopeRefusal refuses a verified caller's call its scopes do not cover.

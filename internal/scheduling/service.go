@@ -11,7 +11,7 @@ import (
 )
 
 // Operations is the common vocabulary used by CLI, MCP and HTTP.
-var Operations = []string{"create", "update", "delete", "get", "list", "run_now", "pause", "resume", "history", "logs", "dry_run"}
+var Operations = []string{"create", "update", "delete", "get", "list", "run_now", "pause", "resume", "history", "logs", "dry_run", "register", "admin_view"}
 
 func KnownOperation(operation string) bool {
 	for _, op := range Operations {
@@ -25,19 +25,20 @@ func KnownOperation(operation string) bool {
 // Call carries selectors and requested changes, never caller identity or permits.
 // Revision is required for edits; RequestID deduplicates manual runs.
 type Call struct {
-	Operation      string    `json:"operation"`
-	OwnerApp       string    `json:"owner_app,omitempty"`
-	ID             string    `json:"id,omitempty"`
-	Job            *Job      `json:"job,omitempty"`
-	Revision       string    `json:"revision,omitempty"`
-	IdempotencyKey string    `json:"idempotency_key,omitempty"`
-	RequestID      string    `json:"request_id,omitempty"`
-	State          string    `json:"state,omitempty"`
-	FireID         string    `json:"fire_id,omitempty"`
-	Limit          int       `json:"limit,omitempty"`
-	After          time.Time `json:"after,omitempty"`
-	Acknowledged   bool      `json:"acknowledged,omitempty"`
-	ApprovalID     string    `json:"approval_id,omitempty"`
+	Registration   []Registration `json:"registration,omitempty"`
+	Operation      string         `json:"operation"`
+	OwnerApp       string         `json:"owner_app,omitempty"`
+	ID             string         `json:"id,omitempty"`
+	Job            *Job           `json:"job,omitempty"`
+	Revision       string         `json:"revision,omitempty"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	RequestID      string         `json:"request_id,omitempty"`
+	State          string         `json:"state,omitempty"`
+	FireID         string         `json:"fire_id,omitempty"`
+	Limit          int            `json:"limit,omitempty"`
+	After          time.Time      `json:"after,omitempty"`
+	Acknowledged   bool           `json:"acknowledged,omitempty"`
+	ApprovalID     string         `json:"approval_id,omitempty"`
 }
 
 type JobView struct {
@@ -116,9 +117,26 @@ func (s *service) Schedule(ctx context.Context, req Call) (out Result, retErr er
 	if finish == nil {
 		return out, Refusal("forbidden", "scheduling access has no outcome recorder")
 	}
-	defer func() { finish(retErr) }()
+	defer func() {
+		if retErr == nil {
+			if err := recheckAccess(ctx); err != nil {
+				out = Result{}
+				retErr = err
+			}
+		}
+		if retErr != nil {
+			out = Result{}
+		}
+		finish(retErr)
+	}()
+	if err := recheckAccess(ctx); err != nil {
+		return out, err
+	}
 	c := s.core
 	switch req.Operation {
+	case "register":
+		out.Jobs, retErr = c.register(ctx, req)
+		return out, retErr
 	case "create":
 		v, err := c.createJob(ctx, *req.Job, req.IdempotencyKey)
 		out.Job = &v
@@ -135,7 +153,7 @@ func (s *service) Schedule(ctx context.Context, req Call) (out Result, retErr er
 		v, err := c.view(ctx, req.OwnerApp, req.ID)
 		out.Job = &v
 		return out, err
-	case "list":
+	case "list", "admin_view":
 		schedules, err := c.store.ListSchedules(ctx)
 		if err != nil {
 			return out, err
@@ -223,6 +241,21 @@ func (s *service) Schedule(ctx context.Context, req Call) (out Result, retErr er
 	}
 }
 func validateCall(r Call) error {
+	if r.Operation == "register" {
+		if !namePattern.MatchString(r.OwnerApp) || !namePattern.MatchString(r.IdempotencyKey) || len(r.Registration) < 1 || len(r.Registration) > MaxRegistrationJobs {
+			return Refusal("invalid", "registration requires app, idempotency key and 1..32 jobs")
+		}
+		seen := map[string]bool{}
+		for _, entry := range r.Registration {
+			if entry.Job.OwnerApp != r.OwnerApp || entry.Job.Generation != 0 || entry.Job.Incarnation != 0 || seen[entry.Job.ID] || entry.Absent == (entry.Revision != "") {
+				return Refusal("invalid", "registration requires unique jobs in one app and exactly one absent or revision precondition")
+			}
+			seen[entry.Job.ID] = true
+		}
+	} else if len(r.Registration) != 0 {
+		return Refusal("invalid", "registration is only accepted by register")
+	}
+
 	if !KnownOperation(r.Operation) {
 		return Refusal("invalid", "unknown scheduling operation")
 	}
@@ -233,10 +266,10 @@ func validateCall(r Call) error {
 	} else if r.Job != nil {
 		return Refusal("invalid", "job is not accepted for this operation")
 	}
-	if r.Operation != "create" && r.Operation != "dry_run" && r.Operation != "list" && (!namePattern.MatchString(r.OwnerApp) || !namePattern.MatchString(r.ID)) {
+	if r.Operation != "create" && r.Operation != "dry_run" && r.Operation != "list" && r.Operation != "admin_view" && r.Operation != "register" && (!namePattern.MatchString(r.OwnerApp) || !namePattern.MatchString(r.ID)) {
 		return Refusal("invalid", "owner_app and id must be valid names")
 	}
-	if r.Operation == "list" && (r.OwnerApp != "" && !namePattern.MatchString(r.OwnerApp) || r.State != "" && r.State != "enabled" && r.State != "paused" && r.State != "completed") {
+	if (r.Operation == "list" || r.Operation == "admin_view") && (r.OwnerApp != "" && !namePattern.MatchString(r.OwnerApp) || r.State != "" && r.State != "enabled" && r.State != "paused" && r.State != "completed") {
 		return Refusal("invalid", "invalid app or state filter")
 	}
 	if r.Operation == "update" && (r.Job.OwnerApp != r.OwnerApp || r.Job.ID != r.ID) {

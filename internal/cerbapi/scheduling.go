@@ -22,27 +22,33 @@ func ScheduleDefinition() contract.Definition {
 	for _, name := range scheduling.Operations {
 		effect := contract.EffectRead
 		switch name {
-		case "create", "update", "pause", "resume":
+		case "create", "update", "pause", "resume", "register":
 			effect = contract.EffectWrite
 		case "delete":
 			effect = contract.EffectDestructive
 		case "run_now":
 			effect = contract.EffectExec
+		case "admin_view":
+			effect = contract.EffectAdmin
 		case "history", "logs":
 			effect = contract.EffectReadSensitive
 		}
-		ops = append(ops, contract.Operation{Name: name, Description: "Scheduled job " + name + "; execution always needs separate exact-fire authority.", Effect: effect, RequiresAck: effect == contract.EffectWrite || effect == contract.EffectDestructive || effect == contract.EffectExec, Target: contract.TargetDescriptor{Kind: "cerberus.schedule", From: []string{"job_key"}}, Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone})
+		ops = append(ops, contract.Operation{Name: name, Description: "Scheduled job " + name + "; execution always needs separate exact-fire authority.", Effect: effect, RequiresAck: effect == contract.EffectWrite || effect == contract.EffectDestructive || effect == contract.EffectExec || effect == contract.EffectAdmin, Target: contract.TargetDescriptor{Kind: "cerberus.schedule", From: []string{"job_key"}}, Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone})
 	}
 	return contract.Finalize(contract.Definition{ID: "schedule", Version: "builtin", ResourceTypes: []string{"schedule"}, Operations: ops})
 }
 
 // NewScheduleService binds the inactive core to existing serving identity,
 // scope, audit, brakes and policy gates. Namespace strings confer no access.
-func NewScheduleService(core *scheduling.Core, sink audit.Sink) scheduling.Service {
-	return scheduling.NewService(core, func(ctx context.Context, r scheduling.Call) (func(error), error) {
+func NewScheduleService(core *scheduling.Core, sink audit.Sink, grants ...*ScheduleGrants) scheduling.Service {
+	var binding *ScheduleGrants
+	if len(grants) == 1 {
+		binding = grants[0]
+	}
+	service := scheduling.NewService(core, func(ctx context.Context, r scheduling.Call) (func(error), error) {
 		p, ok := PrincipalFrom(ctx)
 		surface := CallerSurfaceFrom(ctx)
-		bound := ok && (surface == SurfaceSocket && p.UIDVerified || surface == SurfaceWeb && p.Via == ViaWeb && p.Session != "" && !p.SelfReported || p.Verified() && (surface == SurfaceSocket || surface == SurfaceUnknown))
+		bound := ok && p.Verified() && (surface == SurfaceSocket || surface == SurfaceUnknown)
 		if !bound {
 			return nil, scheduling.Refusal("forbidden", "scheduling requires a serving host's verified caller binding; job and app names are selectors only")
 		}
@@ -86,6 +92,7 @@ func NewScheduleService(core *scheduling.Core, sink audit.Sink) scheduling.Servi
 		}
 		return call.finish, nil
 	})
+	return &namespaceService{service: service, grants: binding}
 }
 
 func WithScheduleService(service scheduling.Service) InProcessOption {
