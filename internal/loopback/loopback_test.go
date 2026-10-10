@@ -147,7 +147,11 @@ func TestNewGuardForAddrTakesPortFromListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close() //nolint:errcheck
+	defer func() {
+		if closeErr := ln.Close(); closeErr != nil {
+			t.Errorf("close guard listener: %v", closeErr)
+		}
+	}()
 	g, err := NewGuardForAddr("127.0.0.1:0", ln.Addr())
 	if err != nil {
 		t.Fatal(err)

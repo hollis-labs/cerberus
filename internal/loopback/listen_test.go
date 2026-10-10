@@ -35,7 +35,11 @@ func TestListenBothRefusesASquatter(t *testing.T) {
 	if err != nil {
 		t.Skip("no IPv6 loopback on this machine")
 	}
-	defer squatter.Close()
+	defer func() {
+		if closeErr := squatter.Close(); closeErr != nil {
+			t.Errorf("close squatter listener: %v", closeErr)
+		}
+	}()
 	_, port, _ := net.SplitHostPort(squatter.Addr().String())
 	lns, err := ListenBoth("127.0.0.1:" + port)
 	var squatted *SquattedError
