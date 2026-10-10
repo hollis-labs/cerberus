@@ -31,7 +31,11 @@ func TestAcquireDaemonLock_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireDaemonLockAt: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release: %v", releaseErr)
+		}
+	}()
 
 	path := filepath.Join(base, ".cerberus", "daemon.lock")
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
@@ -67,7 +71,11 @@ func TestAcquireDaemonLock_StaleHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireDaemonLockAt on stale: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release: %v", releaseErr)
+		}
+	}()
 
 	pid, _, err := DaemonLockHolderAt(base)
 	if err != nil {
@@ -105,11 +113,19 @@ func TestAcquireDaemonLock_RefusesLiveCerberusHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open aux: %v", err)
 	}
-	defer holder.Close()
+	defer func() {
+		if closeErr := holder.Close(); closeErr != nil {
+			t.Errorf("close aux: %v", closeErr)
+		}
+	}()
 	if flErr := flockEx(holder); flErr != nil {
 		t.Fatalf("flock aux: %v", flErr)
 	}
-	defer flockUn(holder) //nolint:errcheck // test cleanup
+	defer func() {
+		if unlockErr := flockUn(holder); unlockErr != nil {
+			t.Errorf("unlock aux: %v", unlockErr)
+		}
+	}()
 
 	// Write holder info with our own PID.
 	info := daemonLockInfo{PID: os.Getpid(), AcquiredAt: time.Now()}
@@ -147,7 +163,11 @@ func TestAcquireDaemonLock_LiveButNotCerberus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open aux: %v", err)
 	}
-	defer holder.Close()
+	defer func() {
+		if closeErr := holder.Close(); closeErr != nil {
+			t.Errorf("close aux: %v", closeErr)
+		}
+	}()
 	if flErr := flockEx(holder); flErr != nil {
 		t.Fatalf("flock aux: %v", flErr)
 	}
@@ -169,7 +189,11 @@ func TestAcquireDaemonLock_LiveButNotCerberus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireDaemonLockAt should take over: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release: %v", releaseErr)
+		}
+	}()
 }
 
 func TestAcquireDaemonLock_StampsManualOriginByDefault(t *testing.T) {
@@ -181,7 +205,11 @@ func TestAcquireDaemonLock_StampsManualOriginByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireDaemonLockAt: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release: %v", releaseErr)
+		}
+	}()
 
 	info, err := ReadDaemonLockInfoAt(base)
 	if err != nil {
@@ -201,7 +229,11 @@ func TestAcquireDaemonLock_StampsLaunchdOriginUnderLaunchd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireDaemonLockAt: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release: %v", releaseErr)
+		}
+	}()
 
 	info, err := ReadDaemonLockInfoAt(base)
 	if err != nil {

@@ -379,7 +379,11 @@ func TestRestartWithVerify_UsesLockHolderWhenPIDFileMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireDaemonLockAt: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release: %v", releaseErr)
+		}
+	}()
 
 	alive := newFakeAlive(holderPID)
 	sig := &fakeSignaler{alive: alive, onTerm: func(pid int) {
