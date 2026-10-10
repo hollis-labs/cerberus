@@ -33,6 +33,9 @@ const (
 	// crashed workload on its own. It is recorded as an automation
 	// principal and is never gated (Decision 14).
 	SurfaceMonitor CallerSurface = "monitor"
+	// SurfaceScheduler is unattended job dispatch, always gated. It is never
+	// the resource monitor's privileged supervision lane.
+	SurfaceScheduler CallerSurface = "scheduler"
 )
 
 type callerSurfaceKey struct{}

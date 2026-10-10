@@ -871,6 +871,9 @@ func (s *ResourceRuntimeService) deployResource(ctx context.Context, id string, 
 	if changed := sourceChanged(ctx, spec.Dir); changed != "" {
 		return &OpResult{Success: false, ServiceID: id, Error: changed}, nil
 	}
+	if err := admitLockedScheduledEffect(ctx); err != nil {
+		return nil, err
+	}
 	buildOutput := ""
 	buildLogPath := ""
 	installOutput := ""
@@ -1079,6 +1082,9 @@ func (s *ResourceRuntimeService) applyResource(ctx context.Context, id string, o
 	}
 	if guardErr := s.refuseSelfMutation(res, spec); guardErr != nil {
 		return &OpResult{Success: false, ServiceID: id, Error: guardErr.Error()}, nil
+	}
+	if err := admitLockedScheduledEffect(ctx); err != nil {
+		return nil, err
 	}
 	if spec.Mode == "" || spec.Mode == localconn.ProcessModeDevSession {
 		_ = pausectl.ResumeService(id)
