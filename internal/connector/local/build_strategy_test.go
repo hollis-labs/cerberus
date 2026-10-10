@@ -109,12 +109,20 @@ func readSingleTarGzEntry(t *testing.T, path string) tarEntry {
 	if err != nil {
 		t.Fatalf("open archive: %v", err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("close archive: %v", closeErr)
+		}
+	}()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		t.Fatalf("read gzip: %v", err)
 	}
-	defer gz.Close()
+	defer func() {
+		if closeErr := gz.Close(); closeErr != nil {
+			t.Errorf("close gzip: %v", closeErr)
+		}
+	}()
 	tr := tar.NewReader(gz)
 	header, err := tr.Next()
 	if err != nil {
