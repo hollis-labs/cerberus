@@ -38,7 +38,11 @@ func TestDoubleAcquireSameProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first AcquireLockAt failed: %v", err)
 	}
-	defer lock1.Release()
+	defer func() {
+		if releaseErr := lock1.Release(); releaseErr != nil {
+			t.Errorf("Release failed: %v", releaseErr)
+		}
+	}()
 
 	// Second acquire from same process should succeed because Flock
 	// allows the same process to re-lock.
@@ -46,7 +50,11 @@ func TestDoubleAcquireSameProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second AcquireLockAt failed: %v", err)
 	}
-	defer lock2.Release()
+	defer func() {
+		if releaseErr := lock2.Release(); releaseErr != nil {
+			t.Errorf("Release failed: %v", releaseErr)
+		}
+	}()
 }
 
 func TestLockHolder(t *testing.T) {
@@ -56,7 +64,11 @@ func TestLockHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireLockAt failed: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release failed: %v", releaseErr)
+		}
+	}()
 
 	pid, since, err := LockHolderAt(tmp, "test-svc")
 	if err != nil {
@@ -94,7 +106,11 @@ func TestStaleLockDetection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcquireLockAt with stale lock failed: %v", err)
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			t.Errorf("Release failed: %v", releaseErr)
+		}
+	}()
 
 	// Verify the new lock is held by us
 	pid, _, err := LockHolderAt(tmp, "stale-svc")
