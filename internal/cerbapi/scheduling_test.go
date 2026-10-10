@@ -3,9 +3,10 @@ package cerbapi
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -38,13 +39,57 @@ func scheduleFixture(t *testing.T) (*scheduling.Core, scheduling.Service) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return core, NewScheduleService(core, audit.NewMemory())
+	grants := scheduleSignedHost(t, []ScheduleGrant{{Subject: "client:fixture", App: "fixture", MaxJobs: 8}})
+	return core, NewScheduleService(core, audit.NewMemory(), grants)
 }
 func fixtureJob() scheduling.Job {
 	return scheduling.Job{ID: "job", Name: "Fixture", OwnerApp: "fixture", Timing: scheduling.Timing{Interval: time.Hour}, Target: scheduling.Target{Kind: scheduling.ResourceStart, ID: "fake"}, Timeout: time.Second, Enabled: true}
 }
-func scheduleWebContext() context.Context {
-	return WithPrincipal(BeginRequest(context.Background(), SurfaceWeb), WebSessionPrincipal("owned-fixture"))
+func scheduleSignedHost(t *testing.T, grants []ScheduleGrant) *ScheduleGrants {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := oauth.Config{Resource: "https://private.example/mcp", Builtin: true}
+	issuer := &oauth.Issuer{Config: cfg, Key: key, Store: oauth.TokenStore{Dir: t.TempDir()}}
+	keys := issuer.JWKS()
+	verifier, err := oauth.NewVerifier(cfg, oauth.VerifierOptions{Builtin: &keys, Revoked: issuer.Store.Revoked})
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetAuth(&Auth{Config: cfg, Issuer: issuer, Verifier: verifier})
+	t.Cleanup(func() { SetAuth(nil) })
+	for i := range grants {
+		grants[i].Issuer = cfg.BuiltinIssuer()
+	}
+	bindings, err := NewScheduleGrants(grants)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bindings
+}
+func scheduleToken(t *testing.T, client string, scopes []string) (string, string) {
+	t.Helper()
+	token, record, err := ProcessAuth().Issuer.Issue(client, scopes, time.Hour, audit.Principal{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token, record.ID
+}
+func scheduleTokenContext(t *testing.T, token string) context.Context {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/schedules/v1/call", nil).WithContext(BeginRequest(context.Background(), SurfaceSocket))
+	req.Header.Set(BearerHeader, token)
+	verified, err := verifyBearer(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return verified.Context()
+}
+func scheduleWebContext(t *testing.T) context.Context {
+	token, _ := scheduleToken(t, "fixture", []string{oauth.ScopeOperate})
+	return scheduleTokenContext(t, token)
 }
 func assertScheduleCode(ctx context.Context, t *testing.T, service scheduling.Service, req scheduling.Call, code string) {
 	t.Helper()
@@ -57,15 +102,15 @@ func TestScheduleCallerScopesLockdownAndPolicy(t *testing.T) {
 	core, service := scheduleFixture(t)
 	j := fixtureJob()
 	create := scheduling.Call{Operation: "create", Job: &j, IdempotencyKey: "create", Acknowledged: true}
-	ctx := scheduleWebContext()
+	ctx := scheduleWebContext(t)
 	assertScheduleCode(context.Background(), t, service, create, "forbidden")
 	unbound := WithPrincipal(context.Background(), Principal{Kind: PrincipalHuman, Via: ViaCLI, UIDVerified: true})
 	assertScheduleCode(unbound, t, service, scheduling.Call{Operation: "list", OwnerApp: "fixture"}, "forbidden")
 	withoutAck := create
 	withoutAck.Acknowledged = false
 	assertScheduleCode(ctx, t, service, withoutAck, "ack_required")
-	p := Principal{Kind: PrincipalAgent, Via: ViaMCPHTTP, AuthMethod: AuthOAuth, Subject: "fixture-client", Scopes: []string{"cerberus:read"}}
-	oauthCtx := WithPrincipal(BeginRequest(context.Background(), SurfaceSocket), p)
+	readToken, _ := scheduleToken(t, "fixture", []string{oauth.ScopeRead})
+	oauthCtx := scheduleTokenContext(t, readToken)
 	assertScheduleCode(oauthCtx, t, service, create, string(ExternalConnectorInsufficientScope))
 	if _, err := service.Schedule(oauthCtx, scheduling.Call{Operation: "list"}); err != nil {
 		t.Fatal(err)
@@ -82,7 +127,7 @@ func TestScheduleCallerScopesLockdownAndPolicy(t *testing.T) {
 		t.Fatal("refused create persisted", err)
 	}
 	SetBrakes(nil)
-	snapshotLane(t, policy.File{Version: policy.FileVersion, Enforcement: &policy.Enforcement{Enforce: []policy.EnforceEntry{{ID: "all", Principal: "human"}}}, Providers: map[string]policy.Provider{"schedule": {Rules: []policy.Rule{{ID: "deny", Ops: []string{"create"}, Decision: policy.Deny}}}}})
+	snapshotLane(t, policy.File{Version: policy.FileVersion, Enforcement: &policy.Enforcement{Enforce: []policy.EnforceEntry{{ID: "all", Principal: "agent"}}}, Providers: map[string]policy.Provider{"schedule": {Rules: []policy.Rule{{ID: "deny", Ops: []string{"create"}, Decision: policy.Deny}}}}})
 	assertScheduleCode(ctx, t, service, create, string(ExternalConnectorPolicyDenied))
 	SetEnforcement(nil)
 	assertScheduleCode(ctx, t, service, scheduling.Call{Operation: "run_now", OwnerApp: j.OwnerApp, ID: j.ID, RequestID: "run", Acknowledged: true}, "forbidden")
@@ -91,7 +136,8 @@ func TestScheduleSocketBindingReadbackAndErrors(t *testing.T) {
 	_, service := scheduleFixture(t)
 	client := NewInProcessClient(WithScheduleService(service))
 	path := startPeerSocket(t, client, nil)
-	socket := NewSocketClient(path, WithPrincipalClaim(func(context.Context) Principal { return Principal{Kind: PrincipalAgent, Via: ViaMCPStdio} }))
+	token, _ := scheduleToken(t, "fixture", []string{oauth.ScopeOperate})
+	socket := NewSocketClient(path, WithBearer(func(context.Context) string { return token }), WithPrincipalClaim(func(context.Context) Principal { return Principal{Kind: PrincipalAgent, Via: ViaMCPStdio} }))
 	j := fixtureJob()
 	req := scheduling.Call{Operation: "create", Job: &j, IdempotencyKey: "fixture", Acknowledged: true}
 	created, err := socket.Schedule(context.Background(), req)
@@ -108,32 +154,24 @@ func TestScheduleSocketBindingReadbackAndErrors(t *testing.T) {
 	assertScheduleCode(context.Background(), t, NewSocketClient(refusedPath), scheduling.Call{Operation: "list"}, string(ExternalConnectorPrincipalRefused))
 }
 
-type scheduleVerifier struct{ revoked bool }
-
-func (v *scheduleVerifier) Verify(context.Context, string) (oauth.Identity, error) {
-	if v.revoked {
-		return oauth.Identity{}, errors.New("fixture token revoked")
-	}
-	return oauth.Identity{Subject: "fixture", Issuer: "fixture", Scopes: []string{"cerberus:operate"}}, nil
-}
 func TestScheduleBearerRevocationCheckedEveryCall(t *testing.T) {
 	_, service := scheduleFixture(t)
 	path := startPeerSocket(t, NewInProcessClient(WithScheduleService(service)), nil)
-	v := &scheduleVerifier{}
-	SetAuth(&Auth{Verifier: v})
-	t.Cleanup(func() { SetAuth(nil) })
-	client := NewSocketClient(path, WithBearer(func(context.Context) string { return "fixture-only-token" }))
+	token, id := scheduleToken(t, "fixture", []string{oauth.ScopeOperate})
+	client := NewSocketClient(path, WithBearer(func(context.Context) string { return token }))
 	if _, err := client.Schedule(context.Background(), scheduling.Call{Operation: "list"}); err != nil {
 		t.Fatal(err)
 	}
-	v.revoked = true
+	if _, err := ProcessAuth().Issuer.Store.Revoke(id); err != nil {
+		t.Fatal(err)
+	}
 	assertScheduleCode(context.Background(), t, client, scheduling.Call{Operation: "list"}, "forbidden")
 }
 func TestScheduleHTTPUnknownFieldsFailClosed(t *testing.T) {
 	_, service := scheduleFixture(t)
 	handler := ScheduleHTTP(service, "/schedules/v1/")
 	for _, body := range []string{`{"operation":"list","authority":"operator"}`, `{"operation":"run_now"}`, `{"operation":"list"} {}`, `{"job":{"id":"j","permit":true}}`} {
-		req := httptest.NewRequest(http.MethodPost, "/schedules/v1/list", strings.NewReader(body)).WithContext(scheduleWebContext())
+		req := httptest.NewRequest(http.MethodPost, "/schedules/v1/list", strings.NewReader(body)).WithContext(scheduleWebContext(t))
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {

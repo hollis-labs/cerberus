@@ -10,8 +10,9 @@ configuration instead.
 
 Normal daemon construction opens an **inactive** scheduling service. It does
 not start an engine, attach an executor or grant per-fire authority. CRUD,
-readback, history and previews are available through existing authenticated
-surfaces. `run-now` currently refuses in production. Enabled jobs do not imply
+readback, history and previews require the existing authenticated bearer path
+plus explicitly provisioned host app grants. `run-now` currently refuses in
+production. Enabled jobs do not imply
 permission and will not begin executing just because they were created.
 
 ## Jobs and selectors
@@ -41,13 +42,14 @@ Environment references contain names only. A trusted host can bind aliases and
 per-fire capture for shell-only pipelines as described below. Normal production
 construction supplies no executor, authorizer, resolver or notification binding.
 
-`owner_app` and `id` select a job; neither grants access. The serving host uses
-its existing kernel-verified socket peer, verified OAuth identity/scopes, or
-signed-in console session, then shared audit, lockdown, suspension and policy
-gates. A missing serving caller binding refuses even a read. MCP client labels
-and CLI human/agent classifications keep their existing meanings; job JSON
-cannot supply them. All namespaces are managed by the serving operator's
-existing permission policy; this is not an app isolation/embedding grant.
+`owner_app` and `id` select a job; neither grants access. App operations require
+an authenticated bearer request proof and a current host-owned grant binding
+verified issuer/subject to one namespace. UID, client labels and console sessions
+alone are insufficient. Normal source construction supplies no app grants and
+therefore refuses; a trusted host must explicitly bind them. Shared scope,
+audit, lockdown, suspension and policy gates still apply. See
+[app namespaces, registration and embedding](scheduler-embedding.md) for host
+bindings, quotas, the separate audited admin view and migration examples.
 
 The service assigns `generation` and `incarnation`; omit both from submitted
 job files. Readback contains `job`, `revision`, `state` and `next_run`.
@@ -95,7 +97,8 @@ They are deliberately not garbage-collected by history pruning.
 ## MCP
 
 The tools are `cerberus_schedule_create`, `update`, `delete`, `get`, `list`,
-`run_now`, `pause`, `resume`, `history`, `logs` and `dry_run` (each prefixed
+`run_now`, `pause`, `resume`, `history`, `logs`, `dry_run`, `register`
+and `admin_view` (each prefixed
 `cerberus_schedule_`). They are included in the canonical built-in tool list,
 so stdio and MCP HTTP expose the same tools. Their input schema derives the
 job shape from the Go DTO. Supply `job`, `owner_app`, `id`, `revision`,

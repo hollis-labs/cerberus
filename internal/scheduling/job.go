@@ -69,6 +69,8 @@ type Job struct {
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 var envPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
+func ValidName(name string) bool { return namePattern.MatchString(name) }
+
 func (j Job) Key() string { return j.OwnerApp + "/" + j.ID }
 
 func (j Job) Revision() (string, error) {

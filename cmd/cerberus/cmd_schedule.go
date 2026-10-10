@@ -54,7 +54,7 @@ IANA location. Job/app names are selectors, never permission. See docs/schedulin
 				}
 				r.After = parsed
 			}
-			if op == "create" || op == "update" || op == "dry_run" {
+			if op == "create" || op == "update" || op == "dry_run" || op == "register" {
 				var reader io.Reader
 				var file *os.File
 				if input == "-" {
@@ -88,14 +88,20 @@ IANA location. Job/app names are selectors, never permission. See docs/schedulin
 				}
 				decoder := json.NewDecoder(bytes.NewReader(data))
 				decoder.DisallowUnknownFields()
-				if err := decoder.Decode(&j); err != nil {
+				var payload any = &j
+				if op == "register" {
+					payload = &r.Registration
+				}
+				if err := decoder.Decode(payload); err != nil {
 					return scheduling.Refusal("invalid", "job file does not match the scheduling job JSON schema")
 				}
 				var extra any
 				if decoder.Decode(&extra) != io.EOF {
 					return scheduling.Refusal("invalid", "job file must contain one JSON object")
 				}
-				r.Job = &j
+				if op != "register" {
+					r.Job = &j
+				}
 			}
 			service, err := resolve(child)
 			if err != nil {
@@ -114,11 +120,11 @@ IANA location. Job/app names are selectors, never permission. See docs/schedulin
 		child.Flags().StringVar(&r.OwnerApp, "app", "", "application namespace selector")
 		child.Flags().StringVar(&r.ID, "id", "", "job ID selector")
 		switch op {
-		case "create", "update", "dry_run":
+		case "create", "update", "dry_run", "register":
 			child.Flags().StringVar(&input, "file", "-", "JSON job file, or - for stdin")
 		}
 		switch op {
-		case "create":
+		case "create", "register":
 			child.Flags().StringVar(&r.IdempotencyKey, "idempotency-key", "", "required durable create idempotency key")
 		case "update", "delete", "pause", "resume":
 			child.Flags().StringVar(&r.Revision, "revision", "", "required revision from get; stale edits refuse")
@@ -129,13 +135,13 @@ IANA location. Job/app names are selectors, never permission. See docs/schedulin
 		case "dry_run":
 			child.Flags().IntVar(&r.Limit, "limit", 5, "next fire count, 1..100")
 			child.Flags().StringVar(&after, "after", "", "RFC3339 dry-run starting instant (default now)")
-		case "list":
+		case "list", "admin_view":
 			child.Flags().StringVar(&r.State, "state", "", "enabled, paused or completed filter")
 		case "logs":
 			child.Flags().StringVar(&r.FireID, "fire-id", "", "run ID; logs currently report unavailable")
 		}
 		switch op {
-		case "create", "update", "delete", "pause", "resume", "run_now":
+		case "create", "update", "delete", "pause", "resume", "run_now", "register", "admin_view":
 			child.Flags().BoolVar(&r.Acknowledged, "ack", false, "acknowledge this mutation; never execution authority")
 			child.Flags().StringVar(&r.ApprovalID, "approval-id", "", "existing shared policy approval ID")
 		}

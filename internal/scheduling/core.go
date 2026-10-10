@@ -106,6 +106,8 @@ func New(ctx context.Context, db *sql.DB, executor Executor, authority Authorize
 	for _, query := range []string{
 		`CREATE TABLE IF NOT EXISTS cerberus_schedule_generations(job_key TEXT PRIMARY KEY,generation INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS cerberus_schedule_creates(owner_app TEXT NOT NULL,idempotency_key TEXT NOT NULL,fingerprint TEXT NOT NULL,job_key TEXT NOT NULL,incarnation INTEGER NOT NULL,PRIMARY KEY(owner_app,idempotency_key))`,
+		`CREATE TABLE IF NOT EXISTS cerberus_schedule_registrations(owner_app TEXT NOT NULL,request_key TEXT NOT NULL,fingerprint TEXT NOT NULL,bindings BLOB NOT NULL,PRIMARY KEY(owner_app,request_key))`,
+		`CREATE TABLE IF NOT EXISTS cerberus_schedule_desired(job_key TEXT PRIMARY KEY,incarnation INTEGER NOT NULL,fingerprint TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS cerberus_schedule_manual(job_key TEXT NOT NULL,request_id TEXT NOT NULL,fire_id TEXT NOT NULL,PRIMARY KEY(job_key,request_id))`,
 	} {
 		if _, err := db.ExecContext(ctx, query); err != nil {
@@ -325,6 +327,9 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 		return ctx.Err()
 	}
 	defer func() { <-c.dispatchSlots }()
+	if err := recheckAccess(ctx); err != nil {
+		return err
+	}
 	j, err := c.current(ctx, fire)
 	if err != nil {
 		return err
@@ -369,6 +374,9 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 	defer cancel()
 	ctx = context.WithValue(ctx, dispatchKey{}, DispatchInfo{JobKey: j.Key(), FireID: fire.FireID, Revision: revision})
 	admit := func(effectCtx context.Context, planHash string, recheck func() error) error {
+		if accessErr := recheckAccess(effectCtx); accessErr != nil {
+			return accessErr
+		}
 		if contextErr := effectCtx.Err(); contextErr != nil {
 			return contextErr
 		}
@@ -383,6 +391,9 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 		}
 		req := Request{Job: j, Revision: revision, FireID: fire.FireID, PlanHash: planHash}
 		permit, authorizeErr := c.authority.Authorize(effectCtx, req)
+		if accessErr := recheckAccess(effectCtx); accessErr != nil {
+			return accessErr
+		}
 		if authorizeErr != nil {
 			return redact.Guidance("scheduled policy authorization refused; nothing was sent")
 		}
@@ -415,7 +426,15 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 		if !permit.ExpiresAt.After(c.now()) {
 			return redact.Guidance("scheduled permit expired during admission; nothing was sent")
 		}
-		sentResult, writeErr := c.db.ExecContext(effectCtx, `UPDATE cerberus_schedule_receipts SET state=?,plan_hash=? WHERE fire_id=? AND state=? AND EXISTS(SELECT 1 FROM gosched_schedules WHERE id=? AND payload=?) AND EXISTS(SELECT 1 FROM gosched_fires WHERE id=? AND status=? AND attempt=? AND fired_at=? AND claim_expires_at>?)`, Sent, planHash, fire.FireID, Prepared, fire.ScheduleID, fire.Payload, fire.FireID, scheduler.FireClaimed, fire.Attempt, stamp(fire.FiredAt), stamp(c.now()))
+		sendTx, finishSend, writeErr := c.writeAccessTx(effectCtx)
+		if writeErr != nil {
+			return writeErr
+		}
+		defer finishSend()
+		if !permit.ExpiresAt.After(c.now()) {
+			return redact.Guidance("scheduled permit expired waiting for send admission; nothing was sent")
+		}
+		sentResult, writeErr := sendTx.ExecContext(effectCtx, `UPDATE cerberus_schedule_receipts SET state=?,plan_hash=? WHERE fire_id=? AND state=? AND EXISTS(SELECT 1 FROM gosched_schedules WHERE id=? AND payload=?) AND EXISTS(SELECT 1 FROM gosched_fires WHERE id=? AND status=? AND attempt=? AND fired_at=? AND claim_expires_at>?)`, Sent, planHash, fire.FireID, Prepared, fire.ScheduleID, fire.Payload, fire.FireID, scheduler.FireClaimed, fire.Attempt, stamp(fire.FiredAt), stamp(c.now()))
 		if writeErr != nil {
 			return writeErr
 		}
@@ -426,12 +445,43 @@ func (c *Core) Enqueue(ctx context.Context, fire scheduler.Job) (retErr error) {
 		if affected != 1 {
 			return redact.Guidance("scheduled effect was already admitted; refusing another delivery")
 		}
+		if writeErr = commitAccess(effectCtx, sendTx); writeErr != nil {
+			return writeErr
+		}
+		finishSend()
+		// Read the claim before the last potentially waiting authorization check.
+		// Only local expiry/context checks follow that check before admission returns.
+		latest, found, readErr := c.store.GetFire(effectCtx, fire.FireID)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || latest.Status != scheduler.FireClaimed || latest.Attempt != fire.Attempt || !latest.FiredAt.Equal(fire.FiredAt) {
+			return redact.Guidance("scheduled fire has no current dispatch claim; nothing was sent")
+		}
+		if accessErr := recheckAccess(effectCtx); accessErr != nil {
+			return accessErr
+		}
+		if contextErr := effectCtx.Err(); contextErr != nil {
+			return contextErr
+		}
+		now := c.now()
+		if !latest.ClaimExpiresAt.After(now) {
+			return redact.Guidance("scheduled fire claim expired before delivery; nothing was sent")
+		}
+		if !permit.ExpiresAt.After(now) {
+			return redact.Guidance("scheduled permit expired before delivery; nothing was sent")
+		}
+
 		return nil
 	}
-	if delivery != nil {
-		err = c.executor.(DeliveryExecutor).ExecuteDelivery(ctx, j.Target, admit, delivery)
-	} else {
-		err = c.executor.Execute(ctx, j.Target, admit)
+	// A pre-send refusal keeps and finalizes the prepared receipt below.
+	err = recheckAccess(ctx)
+	if err == nil {
+		if delivery != nil {
+			err = c.executor.(DeliveryExecutor).ExecuteDelivery(ctx, j.Target, admit, delivery)
+		} else {
+			err = c.executor.Execute(ctx, j.Target, admit)
+		}
 	}
 	if delivery != nil {
 		delivery.close(context.WithoutCancel(ctx))

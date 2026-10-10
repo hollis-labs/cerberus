@@ -84,7 +84,7 @@ func (c *Core) createJob(ctx context.Context, j Job, key string) (JobView, error
 	if err != nil {
 		return JobView{}, err
 	}
-	tx, done, err := c.writeTx(ctx)
+	tx, done, err := c.writeAccessTx(ctx)
 	if err != nil {
 		return JobView{}, err
 	}
@@ -113,6 +113,9 @@ func (c *Core) createJob(ctx context.Context, j Job, key string) (JobView, error
 	if exists != 0 {
 		return JobView{}, Refusal("conflict", "job already exists")
 	}
+	if err = c.checkQuota(ctx, tx, j.OwnerApp, 1); err != nil {
+		return JobView{}, err
+	}
 	j.Generation, err = nextGeneration(ctx, tx, j.Key())
 	if err != nil {
 		return JobView{}, err
@@ -128,13 +131,13 @@ func (c *Core) createJob(ctx context.Context, j Job, key string) (JobView, error
 	if _, err = tx.ExecContext(ctx, `INSERT INTO cerberus_schedule_creates(owner_app,idempotency_key,fingerprint,job_key,incarnation) VALUES(?,?,?,?,?)`, j.OwnerApp, key, fingerprint, j.Key(), j.Incarnation); err != nil {
 		return JobView{}, err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = commitAccess(ctx, tx); err != nil {
 		return JobView{}, err
 	}
 	return viewOf(j, s)
 }
 func (c *Core) editJob(ctx context.Context, r Call) (JobView, error) {
-	tx, done, err := c.writeTx(ctx)
+	tx, done, err := c.writeAccessTx(ctx)
 	if err != nil {
 		return JobView{}, err
 	}
@@ -167,7 +170,7 @@ func (c *Core) editJob(ctx context.Context, r Call) (JobView, error) {
 		if _, err = tx.ExecContext(ctx, `DELETE FROM gosched_schedule_options WHERE schedule_id=?`, j.Key()); err != nil {
 			return JobView{}, err
 		}
-		return JobView{}, tx.Commit()
+		return JobView{}, commitAccess(ctx, tx)
 	}
 	if r.Operation == "update" {
 		incarnation := j.Incarnation
@@ -202,7 +205,7 @@ func (c *Core) editJob(ctx context.Context, r Call) (JobView, error) {
 	if _, err = tx.ExecContext(ctx, `INSERT INTO gosched_schedule_options(schedule_id,options_json) VALUES(?,?) ON CONFLICT(schedule_id) DO UPDATE SET options_json=excluded.options_json`, s.ID, string(options)); err != nil {
 		return JobView{}, err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = commitAccess(ctx, tx); err != nil {
 		return JobView{}, err
 	}
 	return viewOf(j, s)
@@ -212,7 +215,7 @@ func (c *Core) runNow(ctx context.Context, r Call) (RunView, error) {
 	if c.authority == nil || c.executor == nil {
 		return RunView{}, Refusal("forbidden", "run-now requires current per-fire authority and a bound executor; nothing was sent")
 	}
-	tx, done, err := c.writeTx(ctx)
+	tx, done, err := c.writeAccessTx(ctx)
 	if err != nil {
 		return RunView{}, err
 	}
@@ -301,7 +304,7 @@ func (c *Core) runNow(ctx context.Context, r Call) (RunView, error) {
 	if _, err = tx.ExecContext(ctx, `INSERT INTO cerberus_schedule_manual(job_key,request_id,fire_id) VALUES(?,?,?)`, key, r.RequestID, fireID); err != nil {
 		return RunView{}, err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = commitAccess(ctx, tx); err != nil {
 		return RunView{}, err
 	}
 	done()

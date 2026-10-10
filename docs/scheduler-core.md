@@ -119,4 +119,4 @@ Linux CI retains the complete build/vet/race gate. A focused Linux/macOS matrix
 runs durable scheduling and shared-runtime admission tests with private roots and
 fake targets. These are hosted source acceptance tests, not live-service acceptance.
 0116 owns caller surfaces; 0117 owns env/secrets, notifications and log expansion;
-0118 owns embedding; Windows connectors/install remain later work.
+0118 supplies namespace authorization, registration and the [embedding guide](scheduler-embedding.md); Windows connectors/install remain later work.

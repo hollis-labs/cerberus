@@ -153,12 +153,13 @@ func TestScheduledRealPipelineEnvironmentAndSeparateStreams(t *testing.T) {
 			t.Fatal("secret in audit")
 		}
 	}
-	service := NewScheduleService(core, sink)
+	grants := scheduleSignedHost(t, []ScheduleGrant{{Subject: "client:fixture", App: job.OwnerApp, MaxJobs: 8}})
+	service := NewScheduleService(core, sink, grants)
 	request := scheduling.Call{Operation: "logs", OwnerApp: job.OwnerApp, ID: job.ID, FireID: fire.ID}
 	if _, err = service.Schedule(context.Background(), request); scheduling.ErrorCode(err) != "forbidden" {
 		t.Fatal("unbound log read accepted", err)
 	}
-	ctx := WithPrincipal(BeginRequest(context.Background(), SurfaceSocket), Principal{Kind: PrincipalHuman, UIDVerified: true, Via: ViaCLI})
+	ctx := scheduleWebContext(t)
 	out, err := service.Schedule(ctx, request)
 	if err != nil || !out.LogsAvailable {
 		t.Fatal("authorized log read failed", err)
