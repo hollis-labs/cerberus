@@ -73,6 +73,9 @@ func (s *ResourceRuntimeService) runPipeline(ctx context.Context, id string, che
 	if err != nil {
 		return &PipelineRunResult{Success: false, Error: fmt.Sprintf("resolve pipeline: %s", err.Error())}, nil
 	}
+	if admissionErr := admitLockedScheduledEffect(ctx); admissionErr != nil {
+		return nil, admissionErr
+	}
 	env := &domain.PipelineEnv{Values: make(map[string]any)}
 	exec := pipeline.NewExecutor(nil)
 	// The run is the caller's; its stages are Cerberus acting for them.

@@ -168,6 +168,8 @@ func requestPrincipal(ctx context.Context, surface CallerSurface) Principal {
 		return Principal{Kind: PrincipalHuman, Via: ViaWeb, UID: -1, SelfReported: true}
 	case SurfaceMonitor:
 		return Principal{Kind: PrincipalAutomation, Via: ViaMonitor, UID: os.Getuid(), UIDVerified: true, Client: "resource-monitor"}
+	case SurfaceScheduler:
+		return Principal{Kind: PrincipalAutomation, ActingFor: PrincipalAgent, Via: "scheduler", UID: -1, Client: "scheduler"}
 	case SurfaceUnknown:
 	}
 	return Principal{Kind: PrincipalAgent, Via: ViaUnknown, UID: -1, SelfReported: true}

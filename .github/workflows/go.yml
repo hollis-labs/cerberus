@@ -26,3 +26,31 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/cerberus-home" "$RUNNER_TEMP/cerberus-config" "$RUNNER_TEMP/cerberus-data" "$RUNNER_TEMP/cerberus-cache" "$RUNNER_TEMP/cerberus-state"
           HOME="$RUNNER_TEMP/cerberus-home" XDG_CONFIG_HOME="$RUNNER_TEMP/cerberus-config" XDG_DATA_HOME="$RUNNER_TEMP/cerberus-data" XDG_CACHE_HOME="$RUNNER_TEMP/cerberus-cache" XDG_STATE_HOME="$RUNNER_TEMP/cerberus-state" go test -race -count=1 -timeout=10m ./...
+  scheduler-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GOWORK: "off"
+      GOMAXPROCS: "4"
+      GOFLAGS: "-p=2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.9"
+          cache: true
+      - name: Scheduler acceptance with fake targets and private application roots
+        run: |
+          export TMPDIR="$RUNNER_TEMP/cerberus-scheduler-tmp"
+          export HOME="$RUNNER_TEMP/cerberus-scheduler-home"
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/cerberus-scheduler-config"
+          export XDG_DATA_HOME="$RUNNER_TEMP/cerberus-scheduler-data"
+          export XDG_CACHE_HOME="$RUNNER_TEMP/cerberus-scheduler-cache"
+          export XDG_STATE_HOME="$RUNNER_TEMP/cerberus-scheduler-state"
+          mkdir -p "$TMPDIR" "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
+          go test -race -count=1 -timeout=5m ./internal/scheduling
+          go test -race -count=1 -timeout=5m ./internal/cerbapi -run '^TestScheduled'

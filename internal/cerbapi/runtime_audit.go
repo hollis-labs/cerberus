@@ -88,6 +88,23 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 		}
 		return &PipelineRunResult{Success: true, Plan: shown}, nil
 	}
+	ctx = withScheduledGate(ctx, spec, call, func() error {
+		if CallerSurfaceFrom(ctx) != SurfaceScheduler {
+			return nil
+		}
+		current, _ := s.lookupPipeline(id)
+		if current == nil || checked == nil || s.audit.Digest(current.def) != s.audit.Digest(checked.def) {
+			return scheduledTargetChanged(spec)
+		}
+		for _, stage := range checked.def.Stages {
+			for _, action := range stage.Actions {
+				if action.Resource != "" && s.audit.Digest(findResourceDef(&config.ConfigV2{Resources: current.resources}, action.Resource)) != s.audit.Digest(findResourceDef(&config.ConfigV2{Resources: checked.resources}, action.Resource)) {
+					return scheduledTargetChanged(spec)
+				}
+			}
+		}
+		return s.pipelineFrozen(checked)
+	})
 	// Where the gate hashed no plan, the definition is read once here, and
 	// the freeze check and the run both use that read (M10).
 	if checked == nil {
@@ -102,6 +119,9 @@ func (s *ResourceRuntimeService) RunPipeline(ctx context.Context, id string, opt
 	out, err := s.runPipeline(ctx, id, checked, options...)
 	if err == nil && out != nil && len(out.Raw) > 0 {
 		out, err = shapePipelineResult(call, out)
+	}
+	if CallerSurfaceFrom(ctx) == SurfaceScheduler {
+		err = scheduledPipelineResultError(out, err)
 	}
 	call.finish(resultError(err, out != nil && !out.Success))
 	return out, err
@@ -172,6 +192,21 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 		}
 		return &OpResult{Success: true, ServiceID: id, Message: "plan only; nothing ran", Plan: shown}, nil
 	}
+	ctx = withScheduledGate(ctx, spec, call, func() error {
+		if CallerSurfaceFrom(ctx) != SurfaceScheduler {
+			return nil
+		}
+		res := findResourceDef(snap, id)
+		if res == nil || s.audit.Digest(res) != s.audit.Digest(findResourceDef(s.snapshotConfig(), id)) {
+			return scheduledTargetChanged(spec)
+		}
+		if operation == localconn.OpDeploy {
+			if pspec, parseErr := localconn.SpecFromResourceConfig(res.Config); parseErr != nil || sourceChanged(ctx, pspec.Dir) != "" {
+				return scheduledTargetChanged(spec)
+			}
+		}
+		return nil
+	})
 	out, err := run(ctx, id, options...)
 	if err == nil && out != nil && out.Success && appliedVerbs[operation] {
 		if res := findResourceDef(snap, id); res != nil {
