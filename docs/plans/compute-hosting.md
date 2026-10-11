@@ -4,7 +4,9 @@ Where Cerberus's compute and hosting work is heading. It starts with an always-o
 that every machine coordinates through and ends with a compute broker that creates,
 registers, runs and destroys disposable workers across providers.
 
-Status: agreed direction, 2026-10-04. Nothing is executed yet.
+Status: agreed direction, 2026-10-04; amended 2026-10-11 (live and dev tiers, an
+API-only chat agent on the hub, the hub built first for Tether, Torque and Tesseract).
+Phase 0 is being executed.
 Workstream: Tether `compute-hosting`. Torque project: **Compute & Hosting**.
 Companion plan: `docs/plans/cerberus-plugins-roadmap.md` (Tether `cerberus-plugins`).
 
@@ -26,7 +28,13 @@ workers) reaches the hub over a **Tailscale tailnet** and nothing else. Each mac
 runs its **own Cerberus** to supervise its own services. The hub's state is backed up
 off-provider from day one through a **core backup contract**, and the hub can be
 **rebuilt from a descriptor plus a restore** on any supported provider. Disposable
-compute is requested from the hub, never run on it. A **compute broker** resolves a
+compute is requested from the hub, never run on it.
+
+**Live and dev are separate tiers (2026-10-11).** The hub runs the *live* instances
+that every machine and agent depends on. The operator's workstation host keeps the
+same apps as *dev* instances, with their own data, so changing an app never changes
+the copy everyone is using. Agents on any machine use the hub's Torque, Tesseract and
+Tether for their real work. Dev instances exist only to test changes to those apps. A **compute broker** resolves a
 workload's *requirements* to a provider, materializes a worker, registers it with
 Tether, and destroys it when the work is checkpointed.
 
@@ -36,7 +44,7 @@ A task that breaks one of these is wrong even if its tests pass.
 
 | # | Invariant | Why |
 |---|---|---|
-| H1 | **The hub is control plane only.** It never runs agents, builds or inference, and it never scales itself. | A durable core must stay boring. Capacity is requested elsewhere. |
+| H1 | **The hub is control plane only.** It never runs agents, builds or inference, and it never scales itself. **One exception:** an API-only chat agent (Nanite) that calls no tools, executes no code and reaches models only through the Tether LLM gateway. | A durable core must stay boring. Capacity is requested elsewhere. The chat agent is a request/response front end, not a worker. |
 | H2 | **No public inbound to anything, until the auth/security track lands.** Tailnet only; the provider firewall denies all inbound. | Most services are loopback-trust by design. The tailnet is the boundary until real auth exists. |
 | H3 | **Every network client authenticates.** A service reached from another machine requires a bearer token, even on the tailnet. | A tailnet admits devices, not callers. Tokens are what make per-machine revocation and audit possible. |
 | H4 | **Every machine runs its own Cerberus.** It supervises only that machine's services. Remote hosts are administered through the admin lane, never supervised. | Keeps the supervision lane local (AGENTS.md "Two lanes"). |
@@ -46,6 +54,7 @@ A task that breaks one of these is wrong even if its tests pass.
 | H8 | **Artifacts are built off the hub.** CI or a builder produces them, and the hub installs them. | H1, and changed source is not deployed source (AGENTS.md). |
 | H9 | **Canonical names are stable.** Clients use `<app>.<domain>`. Moving a service between hosts is a DNS change, not a client reconfiguration. | Cutover and rollback become a DNS flip. |
 | H10 | **Every provider write goes through the admin lane**: `Destructive`/`SupportsDry`/`--ack`, audited, DTOs (ADR 0003). The broker gets no side door. | `live-systems-security-target.md` I1. |
+| H11 | **Live and dev never share data or credentials.** A dev instance runs on its own database, restored from a live backup and resettable, under its own names and tokens. Nothing in dev can write to the live tier. | Tests of an app must not be able to damage the copy everyone uses. |
 
 ## Layers and ownership
 
@@ -94,8 +103,9 @@ Hosts are named after the machine; the role comes from the registry. Roles:
 
 | Role | Example | Notes |
 |---|---|---|
-| hub | `hub.<domain>` | A small VM (2 vCPU / 4 GB is plenty) with a block volume for service data, Ubuntu LTS. One per operator. |
+| hub | `hub.<domain>` | A VM with a block volume for service data, Ubuntu LTS. One per operator for now (multiple once costs and load are understood). **4 vCPU / 8 GB** to start: with the chat agent and the second-wave apps on it, 2 vCPU / 4 GB is too tight, and resizing up is cheaper than starting short. |
 | operator | a workstation or laptop | Runs its own Cerberus, coordinates through the hub, may also take work. |
+| dev | the operator's workstation host | An operator host that also runs *dev* instances of the fabric apps for testing app changes (see "Live and dev tiers"). |
 | worker | `w-<id>.<domain>` | Broker-created (P5+), never hand-named, destroyed after use. |
 
 GUI-only devices (a phone, for example) are tailnet clients, not Cerberus hosts. The
@@ -117,15 +127,38 @@ inventing a new one:
   canonical names flip to the hub, and the previous host keeps
   `*.<old-host>.<domain>` for rollback.
 
+## Live and dev tiers
+
+| | Live (the hub) | Dev (the operator's workstation host) |
+|---|---|---|
+| Purpose | what every machine and agent uses | testing changes to the apps themselves |
+| Names | canonical `<app>.<domain>` (H9) | `<app>.<host>.<domain>` on that host |
+| Data | the real databases, backed up off-provider (H5) | a copy restored from a live backup, resettable on demand (H11) |
+| How code gets there | a CI or builder artifact, deployed with `cerberus resource deploy` (H8) | the same artifact path, earlier, or a workspace build |
+| Who may change it | the promotion path only | anyone, including agents |
+
+The promotion path is the same one the hub needs for P2: build once, install an
+artifact, `artifact_stale` reports drift, never build on the hub. An agent testing a
+change deploys to dev, runs its checks there, and the change reaches the hub by release.
+Agents' own work-tracking, memory and messaging always go to the live hub apps. Dev
+instances are never a source of truth.
+
+**LLM inference.** Apps do not hold provider keys. They call the Tether LLM gateway on
+the hub, which owns the keys (resolved from the hub's secret backend, never written into
+an app's tree). Local models are an *extra* gateway route, not a replacement: llama
+servers on the workstation host are exposed as OpenAI-compatible endpoints, bound to the
+tailnet address with an API key, and registered as a best-effort route. The workstation
+host is not always on, so the gateway must fail over cleanly when that route is down.
+
 ## Service placement on the hub
 
 | Service | Port (loopback) | State today | Remote clients | Notes |
 |---|---|---|---|---|
-| Tether (tetherd + sysop) | tetherd TCP, sysop 8947 | SQLite `~/.tether/state/tether.db` | Streamable HTTP `/mcp`, bearer; `tether mcp --daemon-only` | `identity.mode: enforce` on the hub, one token per machine. Clients go **straight to the hub**, with no federation for now. |
+| Tether (tetherd + sysop) | tetherd TCP, sysop 8947 | SQLite `~/.tether/state/tether.db` | Streamable HTTP `/mcp`, bearer; `tether mcp --daemon-only` | `identity.mode: enforce` on the hub, one token per machine. Clients go **straight to the hub**. The remote layer exists as of 2026-10-11 (ADRs 0061 to 0064: hub and worker role profiles, `tether serve`, pairing and scoped device tokens, token-authenticated federation, SSH enrollment). Tether also holds the LLM provider keys and runs the **LLM gateway** the apps use for inference. |
 | Torque | 8990 | SQLite; Postgres partial | `torque mcp --remote=<url>` / `TORQUE_MCP_REMOTE`, `TORQUE_API_TOKEN` | Replace the Caddy loopback-Host trick with real token mode. Set `TORQUE_CORS_ORIGINS` for the GUI. |
 | Tesseract | 8089 | SQLite; pgvector index unwired | **none: `tesseract mcp` opens local SQLite** | P0 blocker: remote MCP mode or Streamable HTTP MCP. `--managed-auth` for REST. |
 | Tangent | 7842 | SQLite `~/.tangent/` | MCP `/mcp` (loopback Host) | Runs exactly as on its current host, behind the Caddy same-origin adapter. Long-term shape TBD. |
-| Nanite | 8090 | SQLite | HTTP API | Basic auth env exists; behind Caddy. |
+| Nanite | 8090 | SQLite | HTTP API | Basic auth env exists; behind Caddy. On the hub only as the **API-only chat agent** (H1 exception): no tools, no code, inference through the Tether gateway. |
 | Hadron | 8095 | SQLite `~/.hadron/state/` | MCP/HTTP, bearer on all paths | Behind the Caddy same-origin adapter, as on its current host. |
 | Station | e.g. 8080 | stateless | HTTP MCP, optional bearer | Needs a `*.cerberus.yaml` descriptor. |
 | Flux | static | none | browser | **A production static build served by Caddy**, never the vite dev server; `/api` proxies to Nanite. |
@@ -306,10 +339,12 @@ application-readiness problem, not an infrastructure one:
 1. **Tesseract:** add a remote MCP mode (`tesseract mcp --remote=<url>` proxying over
    REST with a bearer, or Streamable HTTP `/mcp` on `tesseract serve`). Today it always
    opens local SQLite.
-2. **Tether:** remote daemon addressing from env or a flag (today it comes only from the
-   catalog file); hub configuration in `identity.mode: enforce`; per-machine token
-   minting; each machine's `tether mcp --proxy` pointed at the hub's tetherd and the
-   hub's Torque and Tesseract.
+2. **Tether:** *largely done as of 2026-10-11* (worker environments, ADRs 0061 to 0064:
+   role profiles, remote listener, pairing and device tokens, federation, SSH
+   enrollment). What remains for the hub is confirming those cover the original asks
+   (remote daemon addressing, `identity.mode: enforce`, per-machine token minting, each
+   machine's `tether mcp --proxy` pointed at the hub's tetherd, Torque and Tesseract)
+   during the localhost rehearsal.
 3. **Torque:** run with `TORQUE_API_TOKEN` and drop the loopback-Host trick; check the
    GUI's behavior in token mode; set CORS origins.
 
@@ -353,6 +388,10 @@ automates, so write down every command:
 | P5–P6 | Runpod, Vast; an OpenTofu projection (later). |
 
 ## Open questions
+
+- **Dev data refresh.** How often is a dev instance's data restored from a live backup,
+  and who triggers it? It depends on a working restore (H5), so the backup pilot comes
+  first.
 
 - **Tether at scale.** Hub-only is decided for now. When workers multiply, should a
   per-host tetherd federate to the hub (`docs/messaging-federation.md`)? Revisit in P5.
