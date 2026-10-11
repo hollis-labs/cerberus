@@ -2,7 +2,6 @@ package hosts
 
 import (
 	"bufio"
-	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,11 +11,16 @@ import (
 // allow-list of keys and shapes: nothing a remote host prints reaches it
 // except a number, a bool or a short token that matches factRE.
 type Probed struct {
-	Source          string          `json:"source"` // "sysmon" or "posix"
+	Source          string          `json:"source"` // "posix"
 	OS              string          `json:"os,omitempty"`
+	OSVersion       string          `json:"os_version,omitempty"`
 	Arch            string          `json:"arch,omitempty"`
 	Kernel          string          `json:"kernel,omitempty"`
 	CPU             int             `json:"cpu,omitempty"`
+	CPUModel        string          `json:"cpu_model,omitempty"`
+	GPUCount        *int            `json:"gpu_count,omitempty"` // nil: not determined; 0: none
+	GPUModel        string          `json:"gpu_model,omitempty"`
+	DiskMount       string          `json:"disk_mount,omitempty"`
 	MemoryTotal     int64           `json:"memory_total,omitempty"`
 	MemoryAvailable int64           `json:"memory_available,omitempty"`
 	DiskTotal       int64           `json:"disk_total,omitempty"`
@@ -31,20 +35,52 @@ type Probed struct {
 // ProbedTools are the tools a probe reports the presence of.
 var ProbedTools = []string{"docker", "tmux", "tailscale", "caddy"}
 
-// PosixProbeCommand is the fallback fact-gathering command: plain POSIX
-// utilities, read-only, output as key=value lines. It sets its own PATH on
+// posixProbeScript is the primary fact-gathering script: plain POSIX
+// utilities, read-only, one key=value line per fact. It sets its own PATH on
 // the remote side; nothing about the controlling daemon's PATH is involved.
-const PosixProbeCommand = `PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH; export PATH; ` +
-	`echo "os=$(uname -s 2>/dev/null)"; echo "arch=$(uname -m 2>/dev/null)"; echo "kernel=$(uname -r 2>/dev/null)"; ` +
-	`echo "cpu=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null)"; ` +
-	`if [ -r /proc/meminfo ]; then ` +
-	`echo "mem_total_kb=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)"; echo "mem_available_kb=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)"; ` +
-	`else echo "mem_total_bytes=$(sysctl -n hw.memsize 2>/dev/null)"; fi; ` +
-	`if [ -r /proc/loadavg ]; then echo "load=$(awk '{print $1, $2, $3}' /proc/loadavg)"; ` +
-	`else echo "load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"; fi; ` +
-	`[ -r /proc/uptime ] && echo "uptime_seconds=$(awk '{print int($1)}' /proc/uptime)"; ` +
-	`echo "disk_kb=$(df -Pk / 2>/dev/null | awk 'NR==2{print $2, $4}')"; ` +
-	`for t in docker tmux tailscale caddy; do if command -v "$t" >/dev/null 2>&1; then echo "tool_$t=1"; else echo "tool_$t=0"; fi; done`
+// Linux is covered fully; macOS through uname, sw_vers, sysctl, vm_stat and df.
+// Any fact a host cannot supply is simply absent.
+const posixProbeScript = `PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH; export PATH
+kind=$(uname -s 2>/dev/null)
+echo "os=$kind"
+echo "arch=$(uname -m 2>/dev/null)"
+echo "kernel=$(uname -r 2>/dev/null)"
+mount=/
+for d in /data /System/Volumes/Data; do [ -d "$d" ] && { mount=$d; break; }; done
+echo "disk_mount=$mount"
+echo "disk_kb=$(df -Pk "$mount" 2>/dev/null | awk 'NR==2{print $2, $4}')"
+if [ "$kind" = Darwin ]; then
+  echo "os_version=$(sw_vers -productVersion 2>/dev/null)"
+  echo "cpu=$(sysctl -n hw.ncpu 2>/dev/null)"
+  echo "cpu_model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
+  echo "mem_total_bytes=$(sysctl -n hw.memsize 2>/dev/null)"
+  echo "mem_available_bytes=$(vm_stat 2>/dev/null | awk '/page size of/{ps=$8} /^Pages free/{f=$3} /^Pages inactive/{i=$3} /^Pages speculative/{s=$3} END{if (ps) printf "%d", (f+i+s)*ps}')"
+  echo "load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"
+  echo "uptime_seconds=$(sysctl -n kern.boottime 2>/dev/null | awk -v now="$(date +%s)" '{gsub(/[^0-9]/," "); if ($1) print now-$1}')"
+else
+  echo "os_version=$(awk -F= '/^VERSION_ID=/{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
+  echo "cpu=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null)"
+  echo "cpu_model=$(awk -F: '/^model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null)"
+  echo "mem_total_kb=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)"
+  echo "mem_available_kb=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)"
+  echo "load=$(awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null)"
+  echo "uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null)"
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    gpus=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)
+    echo "gpu_count=$(printf '%s\n' "$gpus" | grep -c .)"
+    echo "gpu_model=$(printf '%s\n' "$gpus" | head -n 1)"
+  else
+    echo "gpu_count=0"
+  fi
+fi
+for t in docker tmux tailscale caddy; do if command -v "$t" >/dev/null 2>&1; then echo "tool_$t=1"; else echo "tool_$t=0"; fi; done
+`
+
+// PosixProbeCommand is posixProbeScript as one ssh command. It runs under sh
+// whatever the remote login shell is.
+var PosixProbeCommand = "sh -c " + shellQuote(posixProbeScript)
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // factRE bounds the free-text facts (os, arch, kernel): a short token, so a
 // credential-shaped or multi-line value is dropped rather than carried.
@@ -52,7 +88,18 @@ var factRE = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,48}$`)
 
 // secretShapeRE drops a fact that looks like a credential even though it is
 // token-shaped (a long unbroken run, or a known vendor prefix).
-var secretShapeRE = regexp.MustCompile(`(?i)(^|[._+-])(sk|pk|ghp|gho|xox[a-z]|akia|eyj)[A-Za-z0-9_-]{8,}`)
+var secretShapeRE = regexp.MustCompile(`(?i)(^|[[:space:]._+-])(sk|pk|ghp|gho|xox[a-z]|akia|eyj)[A-Za-z0-9_-]{8,}`)
+
+// textRE bounds descriptive text (a CPU or GPU model): printable, short.
+var textRE = regexp.MustCompile(`^[A-Za-z0-9 ._+()@/,-]{1,64}$`)
+
+func cleanText(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if !textRE.MatchString(s) || secretShapeRE.MatchString(s) || longRun(s) {
+		return ""
+	}
+	return s
+}
 
 func cleanFact(s string) string {
 	s = strings.TrimSpace(s)
@@ -99,8 +146,24 @@ func ParsePosixProbe(out string) Probed {
 			p.Arch = cleanFact(val)
 		case "kernel":
 			p.Kernel = cleanFact(val)
+		case "os_version":
+			p.OSVersion = cleanFact(val)
 		case "cpu":
 			p.CPU = atoiBounded(val, 4096)
+		case "cpu_model":
+			p.CPUModel = cleanText(val)
+		case "gpu_count":
+			if n := atoiBounded(val, 64); val == "0" || n > 0 {
+				p.GPUCount = &n
+			}
+		case "gpu_model":
+			p.GPUModel = cleanText(val)
+		case "disk_mount":
+			if val == "/" || val == "/data" || val == "/System/Volumes/Data" {
+				p.DiskMount = val
+			}
+		case "mem_available_bytes":
+			p.MemoryAvailable = atoi64(val)
 		case "mem_total_kb":
 			p.MemoryTotal = atoi64(val) * 1024
 		case "mem_available_kb":
@@ -159,48 +222,4 @@ func atoiBounded(s string, limit int) int {
 // host as not answering usefully.
 func (p Probed) Empty() bool {
 	return p.OS == "" && p.Arch == "" && p.CPU == 0 && p.MemoryTotal == 0 && p.DiskTotal == 0 && p.Load1 == nil
-}
-
-// ProbedFromReport reduces a sysmon host_report (a JSON object) to the
-// allow-listed Probed. Only the named keys, with the right JSON type, are
-// read; anything else the report carries is dropped.
-func ProbedFromReport(raw []byte) Probed {
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return Probed{Source: "sysmon"}
-	}
-	p := Probed{Source: "sysmon"}
-	str := func(k string) string { s, _ := m[k].(string); return cleanFact(s) }
-	num := func(k string) (float64, bool) { f, ok := m[k].(float64); return f, ok && f >= 0 }
-	p.OS, p.Arch, p.Kernel = str("os"), str("arch"), str("kernel")
-	if f, ok := num("cpu"); ok && f <= 4096 {
-		p.CPU = int(f)
-	}
-	bytes := func(k string, dst *int64) {
-		if f, ok := num(k); ok {
-			*dst = int64(f)
-		}
-	}
-	bytes("memory_total", &p.MemoryTotal)
-	bytes("memory_available", &p.MemoryAvailable)
-	bytes("disk_total", &p.DiskTotal)
-	bytes("disk_free", &p.DiskFree)
-	bytes("uptime_seconds", &p.UptimeSeconds)
-	for k, dst := range map[string]**float64{"load1": &p.Load1, "load5": &p.Load5, "load15": &p.Load15} {
-		if f, ok := num(k); ok {
-			v := f
-			*dst = &v
-		}
-	}
-	if tools, ok := m["tools"].(map[string]any); ok {
-		for _, t := range ProbedTools {
-			if b, ok := tools[t].(bool); ok {
-				if p.Tools == nil {
-					p.Tools = map[string]bool{}
-				}
-				p.Tools[t] = b
-			}
-		}
-	}
-	return p
 }

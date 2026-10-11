@@ -138,9 +138,42 @@ func TestProbeFactsAreAllowListed(t *testing.T) {
 	if p.Arch != "" || p.Kernel != "" || p.CPU != 0 || p.Load1 != nil || p.OS != "Linux" {
 		t.Fatalf("probed = %+v", p)
 	}
-	r := ProbedFromReport([]byte(`{"os":"Linux","kernel":"ghp_abcdefghijklmnopqrstuv","cpu":4,"extra":"secret-token-value","tools":{"docker":true,"vault":true}}`))
-	if r.Kernel != "" || r.CPU != 4 || !r.Tools["docker"] || len(r.Tools) != 1 || r.Source != "sysmon" {
-		t.Fatalf("report = %+v", r)
+	g := ParsePosixProbe("cpu_model=Model X sk-abcdefghijklmnop1234\ngpu_model=ok card\ngpu_count=2\ndisk_mount=/etc\n")
+	if g.CPUModel != "" || g.GPUModel != "ok card" || g.GPUCount == nil || *g.GPUCount != 2 || g.DiskMount != "" {
+		t.Fatalf("text facts = %+v", g)
+	}
+}
+
+const linuxFixture = "os=Linux\narch=x86_64\nkernel=6.1.0-test\ndisk_mount=/data\ndisk_kb=200000000 150000000\nos_version=12\ncpu=16\n" +
+	"cpu_model=Example CPU 9000 @ 3.00GHz\nmem_total_kb=32000000\nmem_available_kb=24000000\nload=1.00 0.50 0.25\nuptime_seconds=86400\n" +
+	"gpu_count=1\ngpu_model=Example GPU 24GB\ntool_docker=1\ntool_tmux=1\ntool_tailscale=1\ntool_caddy=0\n"
+
+// A macOS report, as the script's Darwin branch prints it.
+const macFixture = "os=Darwin\narch=arm64\nkernel=24.0.0\ndisk_mount=/System/Volumes/Data\ndisk_kb=480000000 300000000\nos_version=15.1\ncpu=10\n" +
+	"cpu_model=Example Silicon M9\nmem_total_bytes=34359738368\nmem_available_bytes=425984000\nload=1.20 1.10 1.00 \nuptime_seconds=3600\n" +
+	"tool_docker=0\ntool_tmux=1\ntool_tailscale=1\ntool_caddy=0\n"
+
+func TestParsePosixProbeFixtures(t *testing.T) {
+	l := ParsePosixProbe(linuxFixture)
+	if l.OS != "Linux" || l.OSVersion != "12" || l.CPU != 16 || l.CPUModel != "Example CPU 9000 @ 3.00GHz" || l.MemoryTotal != 32_000_000*1024 ||
+		l.DiskMount != "/data" || l.DiskFree != 150_000_000*1024 || l.GPUCount == nil || *l.GPUCount != 1 || l.GPUModel != "Example GPU 24GB" || l.UptimeSeconds != 86400 {
+		t.Fatalf("linux = %+v", l)
+	}
+	m := ParsePosixProbe(macFixture)
+	if m.OS != "Darwin" || m.Arch != "arm64" || m.MemoryTotal != 34359738368 || m.MemoryAvailable != 425984000 || m.UptimeSeconds != 3600 ||
+		m.Load1 == nil || *m.Load1 != 1.2 || m.DiskMount != "/System/Volumes/Data" || m.GPUCount != nil || m.Tools["docker"] {
+		t.Fatalf("mac = %+v", m)
+	}
+}
+
+func TestPosixProbeCommandIsOneQuotedShCall(t *testing.T) {
+	if !strings.HasPrefix(PosixProbeCommand, "sh -c '") || !strings.HasSuffix(PosixProbeCommand, "'") {
+		t.Fatalf("command shape: %.40s", PosixProbeCommand)
+	}
+	for _, bad := range []string{"rm ", "mv ", " > ", "kill", "sudo", "systemctl", "tee "} {
+		if strings.Contains(posixProbeScript, bad) {
+			t.Fatalf("probe script contains %q: it must stay read-only", bad)
+		}
 	}
 }
 
