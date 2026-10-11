@@ -204,6 +204,15 @@ func effectName(spec auditSpec) string {
 // finish writes the outcome record. The effect has already happened or been
 // refused, so a failure here cannot undo anything: it is logged loudly, and
 // the missing outcome is visible as an intent with no pair.
+// note puts a short, Cerberus-composed summary (counts, never values) on the
+// outcome record. The intent has already been written, so only the outcome
+// carries it.
+func (c *auditCall) note(text string) {
+	if c != nil {
+		c.intent.Reason = text
+	}
+}
+
 func (c *auditCall) finish(err error) {
 	if c == nil {
 		return

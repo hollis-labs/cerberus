@@ -3,7 +3,6 @@ package cerbapi
 import (
 	"context"
 	"errors"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"io"
 	"log/slog"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
@@ -48,6 +49,9 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		"cerberus.health": contract.EffectRead, "cerberus.project_list": contract.EffectRead,
 		"cerberus.connector_list": contract.EffectRead, "cerberus.connector_describe": contract.EffectRead,
 		"cerberus.approval_wait": contract.EffectRead, "cerberus.lockdown": contract.EffectWrite,
+		// Hosts (ADR 0004): a probe measures and records, it changes no host.
+		"host.list": contract.EffectRead, "host.get": contract.EffectRead,
+		"host.probe": contract.EffectRead, "host.capacity": contract.EffectRead,
 	}
 	seen := 0
 	for _, def := range RuntimeDefinitions() {

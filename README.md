@@ -404,6 +404,25 @@ that writes to the local filesystem needs it whatever its effect, so
 path you name.
 `cerberus connectors describe <id>` shows each operation's effect.
 
+Hosts are machines Cerberus keeps a record of (`~/.cerberus/hosts.yaml`, see
+`docs/hosts.md`). The four host commands are reads, and Cerberus reports facts
+only: it does not rank hosts, reserve them or choose where work goes.
+
+```bash
+cerberus host list [--role worker] [--provider homelab] [--state online] [--label zone=a]
+cerberus host get <name>
+cerberus host probe <name>                 # measure over ssh and record the facts
+cerberus host capacity --min-memory 4GiB --min-cpu 2 --tool docker --explain
+```
+
+All four take `--json` (or `-o json`). `capacity` filters on recorded facts and
+lists a host it cannot judge (never probed, probed longer ago than `--max-age`,
+or a fact the probe did not report) as unknown with the reason, never as a
+match. Over MCP they are `cerberus_host_list`, `cerberus_host_get`,
+`cerberus_host_probe` and `cerberus_host_capacity`; on the daemon socket and
+the console API, `GET /hosts`, `GET /hosts/{name}`, `POST /hosts/{name}/probe`
+and `POST /hosts/capacity` (under `/api/hosts` in the console).
+
 A `container` or `server` resource is a named handle for connector operations,
 not a supervised workload: `resource status` reports it as `unsupervised` and
 names the commands that do operate it, and `resource list` shows the same in its

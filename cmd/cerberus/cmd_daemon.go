@@ -567,6 +567,7 @@ func runDaemonBody() error {
 	}
 	inProc := cerbapi.NewInProcessClient(
 		cerbapi.WithScheduleService(schedules),
+		cerbapi.WithHostService(app.NewHostService(a.Registry, a.Runtime.ResourceDef)),
 		cerbapi.WithConfigV2(a.Config),
 		cerbapi.WithConfigPath(cfgPath),
 		cerbapi.WithLocalConnector(a.Local),

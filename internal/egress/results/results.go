@@ -56,6 +56,12 @@ var builtins = map[string]Result{
 	"docker.list_containers":     {Type: of[[]dockerconn.Container]()},
 	"ssh.exec":                   {Type: of[sshconn.ExecResult]()},
 	"ssh.status":                 {Type: of[sshconn.HostStatus]()},
+
+	// The host list tool wraps its views in a budget envelope, so it has no
+	// entry; get, probe and capacity return their DTO as it is.
+	"host." + cerbapi.OpHostGet:      {Type: of[cerbapi.HostView]()},
+	"host." + cerbapi.OpHostProbe:    {Type: of[cerbapi.HostView]()},
+	"host." + cerbapi.OpHostCapacity: {Type: of[cerbapi.CapacityResult]()},
 }
 
 // For is what connector.operation returns, when it is a built-in whose
