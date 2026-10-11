@@ -305,9 +305,8 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 
 // NewHostService builds the host service (ADR 0004) over the operator's
 // hosts.yaml and the daemon's derived-state file. Resources resolves a host's
-// ssh reach; managed, when non-nil, lets a probe use the sysmon plugin. The
-// ssh connector is resolved on every probe, never cached at boot.
-func NewHostService(connectors *connector.Registry, resources cerbapi.ResourceLookup, managed *cerbapi.ManagedPluginConnectorService) *cerbapi.HostService {
+// ssh reach. The ssh connector is resolved on every probe, never cached at boot.
+func NewHostService(connectors *connector.Registry, resources cerbapi.ResourceLookup) *cerbapi.HostService {
 	opts := cerbapi.HostServiceOptions{
 		Resources: resources,
 		SSH: func(ctx context.Context) (cerbapi.HostSSH, error) {
@@ -321,9 +320,6 @@ func NewHostService(connectors *connector.Registry, resources cerbapi.ResourceLo
 			}
 			return execer, nil
 		},
-	}
-	if managed != nil {
-		opts.Sysmon = cerbapi.NewSysmonFactSource(managed)
 	}
 	return cerbapi.NewHostService(AuditSink(), opts)
 }

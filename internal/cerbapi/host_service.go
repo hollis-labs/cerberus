@@ -2,7 +2,6 @@ package cerbapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -35,7 +34,6 @@ type HostService struct {
 	store      *hosts.Store
 	resources  ResourceLookup
 	ssh        func(ctx context.Context) (HostSSH, error)
-	sysmon     HostFactSource
 	staleAfter time.Duration
 	now        func() time.Time
 	probeLimit time.Duration
@@ -46,11 +44,6 @@ type HostService struct {
 type HostSSH interface {
 	Exec(ctx context.Context, res *resource.Resource, command string) (*sshconn.ExecResult, error)
 }
-
-// HostFactSource gathers facts through the sysmon plugin's host_report. It
-// returns ok=false, with no error, when the plugin is not installed, so the
-// probe falls back to plain POSIX commands.
-type HostFactSource func(ctx context.Context, sshResourceID string) (probed *hosts.Probed, ok bool, err error)
 
 // HostServiceOptions configure NewHostService. Zero values take defaults.
 type HostServiceOptions struct {
@@ -63,8 +56,6 @@ type HostServiceOptions struct {
 	Resources ResourceLookup
 	// SSH returns the ssh connector, resolved per call.
 	SSH func(ctx context.Context) (HostSSH, error)
-	// Sysmon is optional; without it the probe uses POSIX commands.
-	Sysmon HostFactSource
 	// StaleAfter is the age past which derived data reports stale.
 	StaleAfter time.Duration
 	Now        func() time.Time
@@ -78,7 +69,7 @@ func NewHostService(sink audit.Sink, opts HostServiceOptions) *HostService {
 		panic("cerbapi: NewHostService requires an audit sink")
 	}
 	s := &HostService{audit: sink, logger: slog.Default(), resources: opts.Resources, ssh: opts.SSH,
-		sysmon: opts.Sysmon, staleAfter: opts.StaleAfter, now: opts.Now, hostsPath: opts.HostsPath, probeLimit: 45 * time.Second}
+		staleAfter: opts.StaleAfter, now: opts.Now, hostsPath: opts.HostsPath, probeLimit: 45 * time.Second}
 	if s.staleAfter <= 0 {
 		s.staleAfter = hosts.DefaultStaleAfter
 	}
@@ -300,19 +291,10 @@ func (s *HostService) reach(h hosts.Host) (*config.ResourceDef, error) {
 	return def, nil
 }
 
-// gather measures the host: sysmon's host_report when the plugin is
-// installed and answers, plain POSIX commands over ssh otherwise. An error
+// gather measures the host with plain POSIX commands over ssh. An error
 // means the host could not be reached; a host that answers badly yields an
 // empty Probed, not an error.
 func (s *HostService) gather(ctx context.Context, def *config.ResourceDef) (*hosts.Probed, error) {
-	if s.sysmon != nil {
-		p, ok, err := s.sysmon(ctx, def.ID)
-		if err == nil && ok && p != nil && !p.Empty() {
-			p.Source = "sysmon"
-			return p, nil
-		}
-		// An absent plugin, or one that failed: fall back, measuring the same.
-	}
 	sshc, err := s.ssh(ctx)
 	if err != nil {
 		return nil, err
@@ -339,27 +321,4 @@ func hostReason(scope *redact.Scope, lead string, cause error) string {
 		text = text[:200] + "..."
 	}
 	return lead + ": " + text
-}
-
-// NewSysmonFactSource adapts the sysmon plugin's host_report operation as a
-// HostFactSource. The plugin is optional: when it is not loaded the source
-// answers ok=false and the probe falls back to POSIX commands. The report is
-// reduced to the same allow-list DTO as the fallback; anything else the plugin
-// returns is dropped.
-func NewSysmonFactSource(managed *ManagedPluginConnectorService) HostFactSource {
-	return func(ctx context.Context, sshResourceID string) (*hosts.Probed, bool, error) {
-		if managed == nil || !managed.Loaded("sysmon") {
-			return nil, false, nil
-		}
-		res, err := managed.execute(ctx, "sysmon", PluginConnectorExecArgs{Operation: "host_report", Config: map[string]any{"id": sshResourceID}})
-		if err != nil {
-			return nil, true, err
-		}
-		raw, err := json.Marshal(res.Data)
-		if err != nil {
-			return nil, true, err
-		}
-		p := hosts.ProbedFromReport(raw)
-		return &p, true, nil
-	}
 }

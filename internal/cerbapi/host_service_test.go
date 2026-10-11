@@ -70,7 +70,7 @@ type hostFixture struct {
 	clock   *time.Time
 }
 
-func newHostFixture(t *testing.T, backend *probeBackend, sysmon HostFactSource) *hostFixture {
+func newHostFixture(t *testing.T, backend *probeBackend) *hostFixture {
 	t.Helper()
 	dir := t.TempDir()
 	hostsPath := filepath.Join(dir, "hosts.yaml")
@@ -91,14 +91,14 @@ func newHostFixture(t *testing.T, backend *probeBackend, sysmon HostFactSource) 
 	conn := sshconn.NewWithBackendFactory(nil, func() sshconn.Backend { return backend })
 	svc := NewHostService(sink, HostServiceOptions{
 		HostsPath: hostsPath, StatePath: filepath.Join(dir, "state", "hosts.json"), Resources: lookup,
-		SSH:    func(context.Context) (HostSSH, error) { return conn, nil },
-		Sysmon: sysmon, Now: func() time.Time { return clock },
+		SSH: func(context.Context) (HostSSH, error) { return conn, nil },
+		Now: func() time.Time { return clock },
 	})
 	return &hostFixture{svc: svc, backend: backend, sink: sink, clock: &clock}
 }
 
 func TestHostListAndGetReportDeclaredWithUnknownState(t *testing.T) {
-	f := newHostFixture(t, &probeBackend{}, nil)
+	f := newHostFixture(t, &probeBackend{})
 	views, err := f.svc.List(context.Background(), HostFilter{})
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestHostListAndGetReportDeclaredWithUnknownState(t *testing.T) {
 }
 
 func TestHostProbeRecordsFactsApartFromDeclaredAndGoesStale(t *testing.T) {
-	f := newHostFixture(t, &probeBackend{stdout: goodProbeOutput}, nil)
+	f := newHostFixture(t, &probeBackend{stdout: goodProbeOutput})
 	v, err := f.svc.Probe(context.Background(), "box-a")
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestHostProbeRecordsFactsApartFromDeclaredAndGoesStale(t *testing.T) {
 }
 
 func TestHostProbeUnreachableIsAStateNotAnError(t *testing.T) {
-	f := newHostFixture(t, &probeBackend{stdout: goodProbeOutput}, nil)
+	f := newHostFixture(t, &probeBackend{stdout: goodProbeOutput})
 	if _, err := f.svc.Probe(context.Background(), "box-a"); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestHostProbeUnreachableIsAStateNotAnError(t *testing.T) {
 }
 
 func TestHostProbeWithoutUsableReachIsAnError(t *testing.T) {
-	f := newHostFixture(t, &probeBackend{}, nil)
+	f := newHostFixture(t, &probeBackend{})
 	for _, name := range []string{"box-b", "box-c"} {
 		if _, err := f.svc.Probe(context.Background(), name); err == nil {
 			t.Fatalf("%s probed without a usable ssh reach", name)
@@ -189,33 +189,12 @@ func TestHostProbeWithoutUsableReachIsAnError(t *testing.T) {
 	}
 }
 
-func TestHostProbeUsesSysmonWhenInstalledAndFallsBackWhenNot(t *testing.T) {
-	report := &hosts.Probed{OS: "Linux", CPU: 2}
-	f := newHostFixture(t, &probeBackend{stdout: goodProbeOutput}, func(context.Context, string) (*hosts.Probed, bool, error) { return report, true, nil })
-	v, err := f.svc.Probe(context.Background(), "box-a")
-	if err != nil || v.Probed.Source != "sysmon" || v.Probed.CPU != 2 || f.backend.execs != 0 {
-		t.Fatalf("sysmon probe = %+v, %v (execs %d)", v.Probed, err, f.backend.execs)
-	}
-	for name, src := range map[string]HostFactSource{
-		"absent": func(context.Context, string) (*hosts.Probed, bool, error) { return nil, false, nil },
-		"failing": func(context.Context, string) (*hosts.Probed, bool, error) {
-			return nil, true, errors.New("plugin crashed")
-		},
-	} {
-		f := newHostFixture(t, &probeBackend{stdout: goodProbeOutput}, src)
-		v, err := f.svc.Probe(context.Background(), "box-a")
-		if err != nil || v.Probed == nil || v.Probed.Source != "posix" || f.backend.execs != 1 {
-			t.Fatalf("%s: fallback = %+v, %v", name, v.Probed, err)
-		}
-	}
-}
-
 // A credential-shaped value in a host's output or in a transport error does
 // not leave in the view.
 func TestHostProbeNeverReturnsACredentialShapedValue(t *testing.T) {
 	const secret = "sk-live-abcdef0123456789abcdef"
 	out := "os=Linux\narch=" + secret + "\nkernel=password=" + secret + "\ncpu=2\nnote=" + secret + "\n"
-	f := newHostFixture(t, &probeBackend{stdout: out, stderr: "token=" + secret}, nil)
+	f := newHostFixture(t, &probeBackend{stdout: out, stderr: "token=" + secret})
 	v, err := f.svc.Probe(context.Background(), "box-a")
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +206,7 @@ func TestHostProbeNeverReturnsACredentialShapedValue(t *testing.T) {
 	scope := redact.NewScope()
 	scope.Add("test", resolved)
 	ctx := redact.WithScope(context.Background(), scope)
-	f = newHostFixture(t, &probeBackend{connectErr: errors.New("handshake failed using " + resolved + " and token=" + secret)}, nil)
+	f = newHostFixture(t, &probeBackend{connectErr: errors.New("handshake failed using " + resolved + " and token=" + secret)})
 	v, err = f.svc.Probe(ctx, "box-a")
 	if err != nil || v.State != hosts.StateOffline {
 		t.Fatalf("view = %+v, %v", v, err)
@@ -254,7 +233,7 @@ func TestHostIsNotASupervisedResource(t *testing.T) {
 }
 
 func TestHostsYAMLErrorsSurfaceAsValidationErrors(t *testing.T) {
-	f := newHostFixture(t, &probeBackend{}, nil)
+	f := newHostFixture(t, &probeBackend{})
 	bad := "version: 1\nhosts:\n  - name: a\n    tailnet_ip: 198.51.100.1\n  - name: a\n"
 	if err := os.WriteFile(f.svc.hostsPath, []byte(bad), 0o600); err != nil {
 		t.Fatal(err)
