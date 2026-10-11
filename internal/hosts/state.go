@@ -26,8 +26,11 @@ type State struct {
 	State           string     `json:"state"`
 	OnboardingStage string     `json:"onboarding_stage,omitempty"`
 	LastSeen        *time.Time `json:"last_seen,omitempty"`
-	ProbedAt        *time.Time `json:"probed_at,omitempty"`
-	Probed          *Probed    `json:"probed,omitempty"`
+	// ProbedAt is when Probed was measured; CheckedAt is the last attempt,
+	// which may have found the host offline and left Probed as it was.
+	ProbedAt  *time.Time `json:"probed_at,omitempty"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	Probed    *Probed    `json:"probed,omitempty"`
 	// Reason says why the host is offline or unknown, in Cerberus's words.
 	Reason string `json:"reason,omitempty"`
 }

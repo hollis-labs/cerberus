@@ -2,6 +2,7 @@ package hosts
 
 import (
 	"bufio"
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -158,4 +159,48 @@ func atoiBounded(s string, limit int) int {
 // host as not answering usefully.
 func (p Probed) Empty() bool {
 	return p.OS == "" && p.Arch == "" && p.CPU == 0 && p.MemoryTotal == 0 && p.DiskTotal == 0 && p.Load1 == nil
+}
+
+// ProbedFromReport reduces a sysmon host_report (a JSON object) to the
+// allow-listed Probed. Only the named keys, with the right JSON type, are
+// read; anything else the report carries is dropped.
+func ProbedFromReport(raw []byte) Probed {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return Probed{Source: "sysmon"}
+	}
+	p := Probed{Source: "sysmon"}
+	str := func(k string) string { s, _ := m[k].(string); return cleanFact(s) }
+	num := func(k string) (float64, bool) { f, ok := m[k].(float64); return f, ok && f >= 0 }
+	p.OS, p.Arch, p.Kernel = str("os"), str("arch"), str("kernel")
+	if f, ok := num("cpu"); ok && f <= 4096 {
+		p.CPU = int(f)
+	}
+	bytes := func(k string, dst *int64) {
+		if f, ok := num(k); ok {
+			*dst = int64(f)
+		}
+	}
+	bytes("memory_total", &p.MemoryTotal)
+	bytes("memory_available", &p.MemoryAvailable)
+	bytes("disk_total", &p.DiskTotal)
+	bytes("disk_free", &p.DiskFree)
+	bytes("uptime_seconds", &p.UptimeSeconds)
+	for k, dst := range map[string]**float64{"load1": &p.Load1, "load5": &p.Load5, "load15": &p.Load15} {
+		if f, ok := num(k); ok {
+			v := f
+			*dst = &v
+		}
+	}
+	if tools, ok := m["tools"].(map[string]any); ok {
+		for _, t := range ProbedTools {
+			if b, ok := tools[t].(bool); ok {
+				if p.Tools == nil {
+					p.Tools = map[string]bool{}
+				}
+				p.Tools[t] = b
+			}
+		}
+	}
+	return p
 }
