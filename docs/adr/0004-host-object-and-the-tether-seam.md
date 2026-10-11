@@ -115,9 +115,10 @@ creates a Host, destroying it removes the Host, and the broker work in
 
 ### Probing
 
-A probe is a read-only, per-call admin-lane operation over ssh, using the
-`sysmon` plugin for the measurements and resolving every tool per call (the
-daemon's `PATH` is not the shell's). An unreachable host is a state, not an
+A probe is a read-only, per-call admin-lane operation over ssh, measured by a
+fixed POSIX script (the `sysmon` plugin reports on the machine it runs on and
+takes no ssh target, so it serves only a future on-host probe), resolving every
+tool per call (the daemon's `PATH` is not the shell's). An unreachable host is a state, not an
 error. Probe results are DTOs (ADR 0003) with an allow-list of fields.
 
 ### Surfaces

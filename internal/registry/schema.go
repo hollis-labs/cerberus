@@ -203,6 +203,10 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 		if resource.Connector == "" {
 			add(SeverityError, field+".connector", "missing")
 		}
+		if resource.Type == "host" || resource.Connector == "host" {
+			add(SeverityError, field+".type",
+				"a host is not a resource: it is administered, not supervised. Declare it in ~/.cerberus/hosts.yaml (docs/hosts.md) and, to reach it, point reach.ssh at a server/ssh resource")
+		}
 		if resource.Project != "" && resource.Project != pc.Project.ID {
 			add(SeverityWarning, field+".project",
 				fmt.Sprintf("references project %q, but this config declares project %q", resource.Project, pc.Project.ID))

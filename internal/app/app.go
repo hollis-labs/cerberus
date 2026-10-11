@@ -303,6 +303,27 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 	return managed, external, nil
 }
 
+// NewHostService builds the host service (ADR 0004) over the operator's
+// hosts.yaml and the daemon's derived-state file. Resources resolves a host's
+// ssh reach. The ssh connector is resolved on every probe, never cached at boot.
+func NewHostService(connectors *connector.Registry, resources cerbapi.ResourceLookup) *cerbapi.HostService {
+	opts := cerbapi.HostServiceOptions{
+		Resources: resources,
+		SSH: func(ctx context.Context) (cerbapi.HostSSH, error) {
+			c, err := connectors.Resolve(ctx, "ssh")
+			if err != nil {
+				return nil, err
+			}
+			execer, ok := c.(cerbapi.HostSSH)
+			if !ok {
+				return nil, fmt.Errorf("ssh connector has type %T, which cannot run a probe", c)
+			}
+			return execer, nil
+		},
+	}
+	return cerbapi.NewHostService(AuditSink(), opts)
+}
+
 // NewResourceRuntimeService builds the in-process supervision lane for the
 // CLI, over the config at configPath (the default when empty), writing to
 // this process's audit sink. cfg, when non-nil, is an already-resolved config.
