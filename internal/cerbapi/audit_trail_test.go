@@ -217,7 +217,7 @@ func TestPluginPathsAreRecordedOnce(t *testing.T) {
 // in internal/app, which is what opens the real sink. Anywhere else would be
 // a place a service could be built on a sink nobody reads.
 func TestServicesAreConstructedOnlyInApp(t *testing.T) {
-	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true, "NewResourceRuntimeService": true, "NewProcessSecretBackends": true}
+	constructors := map[string]bool{"NewExternalConnectorService": true, "NewManagedPluginConnectorService": true, "NewPluginConnectorService": true, "NewResourceRuntimeService": true, "NewProcessSecretBackends": true, "NewHostService": true}
 	// The constructions outside internal/app that are allowed, and why.
 	allowed := map[string]string{
 		filepath.Join("internal", "cerbapi", "inprocess.go") + ":NewResourceRuntimeService":                       "the in-process client's fallback runtime, which refuses every mutation unless a sink is injected",
@@ -284,6 +284,7 @@ func TestServicesAreConstructedOnlyInApp(t *testing.T) {
 		func() { _, _ = NewManagedPluginConnectorService(nil, "t", io.Discard, "") },
 		func() { NewPluginConnectorService(nil, "t", io.Discard) },
 		func() { NewResourceRuntimeService(nil) },
+		func() { NewHostService(nil, HostServiceOptions{}) },
 	} {
 		func() {
 			defer func() {
