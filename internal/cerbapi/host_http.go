@@ -63,7 +63,7 @@ func HostHTTP(client HostClient, prefix string) http.Handler {
 				return
 			}
 			if len(strings.TrimSpace(string(body))) > 0 {
-				if err := json.Unmarshal(body, &q); err != nil {
+				if err = json.Unmarshal(body, &q); err != nil {
 					var invalid *HostInvalidError
 					if errors.As(err, &invalid) {
 						fail(err)

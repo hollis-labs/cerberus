@@ -72,7 +72,7 @@ func TestHostsOverTheSocketMatchTheService(t *testing.T) {
 	}
 
 	// Refusals arrive as the service wrote them.
-	if _, err := client.GetHost(ctx, "nope"); err == nil || !strings.Contains(err.Error(), `host "nope" is not declared; see `+"`cerberus host list`") {
+	if _, err = client.GetHost(ctx, "nope"); err == nil || !strings.Contains(err.Error(), `host "nope" is not declared; see `+"`cerberus host list`") {
 		t.Fatalf("not found = %v", err)
 	} else if status, ok := DaemonHTTPStatus(err); !ok || status != http.StatusNotFound {
 		t.Fatalf("not found status = %d, %v", status, ok)
