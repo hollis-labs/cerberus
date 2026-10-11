@@ -211,11 +211,11 @@ func atoi64(s string) int64 {
 }
 
 func atoiBounded(s string, limit int) int {
-	n := atoi64(s)
-	if n > int64(limit) {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 || n > limit {
 		return 0
 	}
-	return int(n)
+	return n
 }
 
 // Empty reports a probe that learned nothing, so the caller can treat the
