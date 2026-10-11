@@ -17,9 +17,9 @@ type Probed struct {
 	Arch            string          `json:"arch,omitempty"`
 	Kernel          string          `json:"kernel,omitempty"`
 	CPU             int             `json:"cpu,omitempty"`
-	CPUModel        string          `json:"cpu_model,omitempty"`
+	CPUModel        string          `json:"cpu_model,omitempty" cerb:"untrusted"`
 	GPUCount        *int            `json:"gpu_count,omitempty"` // nil: not determined; 0: none
-	GPUModel        string          `json:"gpu_model,omitempty"`
+	GPUModel        string          `json:"gpu_model,omitempty" cerb:"untrusted"`
 	DiskMount       string          `json:"disk_mount,omitempty"`
 	MemoryTotal     int64           `json:"memory_total,omitempty"`
 	MemoryAvailable int64           `json:"memory_available,omitempty"`

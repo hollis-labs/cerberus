@@ -51,6 +51,20 @@ func ParseSize(s string) (Size, error) {
 	return Size(n * float64(mult)), nil
 }
 
+// UnmarshalJSON accepts a number of bytes or a size string.
+func (z *Size) UnmarshalJSON(data []byte) error {
+	text := strings.Trim(strings.TrimSpace(string(data)), `"`)
+	if text == "null" {
+		return nil
+	}
+	parsed, err := ParseSize(text)
+	if err != nil {
+		return err
+	}
+	*z = parsed
+	return nil
+}
+
 // UnmarshalYAML accepts a number of bytes or a size string.
 func (z *Size) UnmarshalYAML(node *yaml.Node) error {
 	parsed, err := ParseSize(node.Value)

@@ -324,6 +324,25 @@ func NewHostService(connectors *connector.Registry, resources cerbapi.ResourceLo
 	return cerbapi.NewHostService(AuditSink(), opts)
 }
 
+// NewLocalHostService is the host service for the CLI's in-process lane,
+// resolving a host's ssh reach against the config at configPath (the default
+// when empty). It reads the same hosts.yaml and derived-state file the daemon
+// does.
+func NewLocalHostService(configPath ...string) *cerbapi.HostService {
+	path := config.DefaultPath()
+	if len(configPath) > 0 && configPath[0] != "" {
+		path = configPath[0]
+	}
+	connectors, _ := newConnectorRegistry(path)
+	return NewHostService(connectors, func(id string) (*config.ResourceDef, bool) {
+		cfg, err := registry.ResolveConfig(path)
+		if err != nil {
+			return nil, false
+		}
+		return cerbapi.ConfigResourceLookup(cfg)(id)
+	})
+}
+
 // NewResourceRuntimeService builds the in-process supervision lane for the
 // CLI, over the config at configPath (the default when empty), writing to
 // this process's audit sink. cfg, when non-nil, is an already-resolved config.

@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/approval"
-	"github.com/hollis-labs/cerberus/internal/policy"
-	"github.com/hollis-labs/cerberus/internal/target"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/approval"
+	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/target"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/connector"
@@ -75,6 +76,14 @@ func TestConvertedRefusalsSurviveEveryLane(t *testing.T) {
 		"plugin missing secret": managedPluginExecuteError(args, &pluginhost.MissingSecretsError{Connector: "contextforge", Secrets: []string{"token"},
 			Err: errors.New("401 from the gateway")}),
 	}
+	// Hosts (ADR 0004): a probe without a usable reach, a malformed capacity
+	// query and a serving host with no host support.
+	hostSvc := newHostFixture(t, &probeBackend{}).svc
+	_, sites["host probe without reach"] = hostSvc.Probe(context.Background(), "box-b")
+	_, sites["host probe, reach is not ssh"] = hostSvc.Probe(context.Background(), "box-c")
+	_, sites["host capacity, unknown tool"] = hostSvc.Capacity(context.Background(), CapacityQuery{RequireTools: []string{"kubectl"}})
+	_, sites["host capacity, negative minimum"] = hostSvc.Capacity(context.Background(), CapacityQuery{MinCPU: -1})
+	_, sites["hosts unavailable"] = HostClientOf(nil).GetHost(context.Background(), "box-a")
 	pending := approval.Approval{ID: "apr_0123456789ab", Rule: "baseline.lifecycle.agent", Channel: approval.ChannelOutOfBand, ExpiresAt: time.Date(2026, 9, 26, 13, 0, 0, 0, time.UTC)}
 	sites["approval_pending"] = approvalPendingError(args, pending)
 	sites["approval_expired"] = approvalExpiredError(args, pending)

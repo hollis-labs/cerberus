@@ -3,9 +3,10 @@ package cerbapi
 import (
 	"context"
 	"errors"
+	"log/slog"
+
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/scheduling"
-	"log/slog"
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
@@ -26,6 +27,7 @@ type InProcessClient struct {
 	managedPlugins *ManagedPluginConnectorService
 	consoleSecrets secret.ReadWriter
 	schedules      scheduling.Service
+	hosts          *HostService
 
 	// Construction options forwarded to the shared runtime.
 	cfgPath string

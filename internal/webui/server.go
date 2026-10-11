@@ -151,6 +151,8 @@ func (s *Server) routeTable() []route {
 	return []route{
 		{"/api/session", s.handleSession},
 		{"/api/schedules/v1/", s.handleSchedules},
+		{"/api/hosts", s.handleHosts},
+		{"/api/hosts/", s.handleHosts},
 		{"/api/logout", s.handleLogout},
 		{"/api/approvals", s.handleApprovals},
 		{"/api/approvals/", s.handleApprovalByID},
@@ -906,4 +908,15 @@ func (s *Server) handleSchedules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cerbapi.ScheduleHTTP(cerbapi.ScheduleClient(s.client), "/api/schedules/v1/").ServeHTTP(w, r)
+}
+
+// Hosts (ADR 0004) are reads: list, get, capacity and probe. Probe and
+// capacity are POSTs, so they meet the same state-changing guard as every
+// other POST; the service behind them is the daemon's, and only measures.
+func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return
+	}
+	cerbapi.HostHTTP(cerbapi.HostClientOf(s.client), "/api/hosts").ServeHTTP(w, r)
 }

@@ -228,6 +228,10 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/schedules/v1/", ScheduleHTTP(ScheduleClient(s.client), "/schedules/v1/"))
 
+	// /hosts — the host registry (ADR 0004): reads only.
+	mux.Handle("/hosts", HostHTTP(HostClientOf(s.client), "/hosts"))
+	mux.Handle("/hosts/", HostHTTP(HostClientOf(s.client), "/hosts"))
+
 	// /health — daemon + v2 resource health.
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ping", s.handlePing)

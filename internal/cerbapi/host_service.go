@@ -98,7 +98,7 @@ type HostView struct {
 	// State is online, offline or unknown.
 	State           string `json:"state"`
 	OnboardingStage string `json:"onboarding_stage,omitempty"`
-	Reason          string `json:"reason,omitempty"`
+	Reason          string `json:"reason,omitempty" cerb:"untrusted"`
 	// LastSeen is the last time the host answered a probe.
 	LastSeen *time.Time `json:"last_seen,omitempty"`
 	// ProbedAt is when Probed was measured; CheckedAt the last attempt.
