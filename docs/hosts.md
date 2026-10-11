@@ -59,9 +59,27 @@ Measurements are derived data kept by the daemon (`~/.cerberus/state/hosts.json`
 rebuilt by probing and safe to delete. They sit beside the declared values and
 are never merged into them, so a disagreement between the two stays visible.
 
-A probe is a read over ssh. It uses the `sysmon` plugin's `host_report` when that
-plugin is loaded and falls back to plain POSIX commands otherwise. Every tool is
-resolved per call. Results are reduced to an allow-list of fields.
+A probe is a read over ssh. It runs one fixed, read-only `sh -c` script on the
+host (the command takes no caller input) and parses its key=value output. The
+script sets its own PATH on the remote side, and the ssh connector is resolved
+on every call, never from the daemon's boot PATH.
+
+It reports: os, os version, arch, kernel; CPU count and model; memory total and
+available; disk total and free for the data mount (`/data` if present, else
+`/System/Volumes/Data` on macOS, else `/`); load averages; uptime; GPU count and
+model (`nvidia-smi` on Linux when present, otherwise none; not determined on
+macOS); and whether `docker`, `tmux`, `tailscale` and `caddy` are installed.
+Linux is fully covered. macOS uses `sw_vers`, `sysctl`, `vm_stat` and `df`.
+A fact a host cannot supply is simply absent.
+
+Results are reduced to an allow-list: numbers, bools, and short tokens or model
+strings that match a strict pattern. Anything else a host prints, including
+anything shaped like a credential, is dropped. Errors go through the request's
+redaction scope.
+
+The `sysmon` plugin reports on the machine it runs on and takes no ssh target,
+so it is not used to probe remote hosts. It would only matter for a future
+on-host probe (ADR 0004, "The on-host agent").
 
 Every host view reports `state` (`online`, `offline` or `unknown`), `probed_at`
 (when the facts were measured), `checked_at` (the last attempt) and `stale`
