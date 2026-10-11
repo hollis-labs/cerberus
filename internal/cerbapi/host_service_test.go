@@ -146,14 +146,17 @@ func TestHostProbeRecordsFactsApartFromDeclaredAndGoesStale(t *testing.T) {
 	if err != nil || !again.Stale || again.State != hosts.StateOnline || again.Probed == nil {
 		t.Fatalf("after an hour = %+v, %v", again, err)
 	}
+	// The probe and the get after it each have an intent and an outcome.
 	got := pairs(t, f.sink.Records())
-	if len(got) != 1 {
-		t.Fatalf("audit = %+v", got)
-	}
+	ops := map[string]bool{}
 	for _, p := range got {
-		if p[0].Connector != "host" || p[0].Operation != "probe" || p[0].Effect != "read" {
+		if p[0].Connector != "host" || p[0].Effect != "read" {
 			t.Fatalf("audit intent = %+v", p[0])
 		}
+		ops[p[0].Operation] = true
+	}
+	if len(got) != 2 || !ops["probe"] || !ops["get"] {
+		t.Fatalf("audit = %+v", got)
 	}
 }
 

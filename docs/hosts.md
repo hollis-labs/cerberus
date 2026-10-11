@@ -145,6 +145,22 @@ reservation in the request or the result. Placement belongs to the consumer.
 Tether's provider adapter is the intended consumer (ADR 0004): it asks for the
 hosts that satisfy what a workload needs, and decides for itself which to use.
 
+### Audit
+
+Every host operation is recorded in the audit log under connector `host`,
+effect `read`, with an intent and an outcome record: `list`, `get`, `capacity`
+and `probe`. A record holds the caller, the operation, an HMAC digest of the
+filter or constraint shape (so equal queries are recognizable without being
+readable), the host name for `get` and `probe`, and on the outcome of `list`
+and `capacity` a count note such as `hosts=7 matched=3 unknown=3 excluded=1`.
+It never holds a host's facts, addresses, labels or probed text.
+
+These are reads, so the repo's convention for reads applies: if the audit log
+cannot be written, the read proceeds, the failure is logged, and the call is
+unrecorded. Only operations that change something are refused when their
+record cannot be written. A refusal by a gate (brakes, a token's scopes,
+enforced policy) is recorded as a refused outcome.
+
 ### MCP results
 
 The first content block is the result's JSON. It carries a `notes` array, so

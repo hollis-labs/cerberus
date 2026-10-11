@@ -3,6 +3,7 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -165,11 +166,19 @@ func (q CapacityQuery) measured() bool {
 // not probe: a consumer that needs fresh facts probes first. It does not rank,
 // reserve or choose a host, and it never guesses at a host it has no fresh
 // facts for: that host is reported as unknown, with the reason.
-func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (CapacityResult, error) {
-	if err := q.validate(); err != nil {
+func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (_ CapacityResult, retErr error) {
+	if s == nil {
+		return CapacityResult{}, errors.New("host service is not configured")
+	}
+	call, err := s.beginRead(ctx, OpHostCapacity, map[string]any{"query": q})
+	if err != nil {
 		return CapacityResult{}, err
 	}
-	views, err := s.List(ctx, HostFilter{})
+	defer func() { call.finish(retErr) }()
+	if err = q.validate(); err != nil {
+		return CapacityResult{}, err
+	}
+	views, err := s.list(HostFilter{})
 	if err != nil {
 		return CapacityResult{}, err
 	}
@@ -179,6 +188,7 @@ func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (CapacityRe
 	}
 	res := CapacityResult{Matched: []HostView{}, Unknown: []HostVerdict{}, MaxStaleAge: maxAge.String(), Total: len(views)}
 	now := s.now()
+	nExcluded := 0
 	for _, v := range views {
 		excluded, unknown := s.judge(v, q, maxAge, now)
 		verdict := func(reasons []string) HostVerdict {
@@ -191,6 +201,7 @@ func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (CapacityRe
 		}
 		switch {
 		case len(excluded) > 0:
+			nExcluded++
 			if q.Explain {
 				res.Excluded = append(res.Excluded, verdict(excluded))
 			}
@@ -202,6 +213,7 @@ func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (CapacityRe
 			res.Matched = append(res.Matched, v)
 		}
 	}
+	call.note(fmt.Sprintf("hosts=%d matched=%d unknown=%d excluded=%d", res.Total, len(res.Matched), len(res.Unknown), nExcluded))
 	return res, nil
 }
 

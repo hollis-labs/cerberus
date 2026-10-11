@@ -280,3 +280,107 @@ func TestCapacityQueryWireForm(t *testing.T) {
 		t.Fatalf("unknown field = %v", err)
 	}
 }
+
+// auditFixture is the capacity fixture with its audit sink in reach.
+func newAuditedCapacityFixture(t *testing.T) (*capacityFixture, *audit.Memory) {
+	t.Helper()
+	f := newCapacityFixture(t)
+	sink := audit.NewMemory()
+	f.svc.audit = sink
+	return f, sink
+}
+
+// Every fleet-fact read leaves an intent and an outcome under connector host,
+// effect read. The records hold the operation, an HMAC digest of the query,
+// the target name and counts: never a host's facts, addresses or probed text.
+func TestHostReadsAreAudited(t *testing.T) {
+	f, sink := newAuditedCapacityFixture(t)
+	ctx := context.Background()
+	if _, err := f.svc.List(ctx, HostFilter{Role: "worker"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Get(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Get(ctx, "nope"); err == nil {
+		t.Fatal("unknown host accepted")
+	}
+	if _, err := f.svc.Capacity(ctx, CapacityQuery{MinMemoryAvailable: hosts.Size(gib), Explain: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Capacity(ctx, CapacityQuery{RequireTools: []string{"kubectl"}}); err == nil {
+		t.Fatal("invalid query accepted")
+	}
+
+	type seen struct{ intent, outcome int }
+	byOp := map[string]*seen{}
+	var notes, codes []string
+	for _, r := range sink.Records() {
+		if r.Connector != "host" {
+			continue
+		}
+		if r.Effect != "read" {
+			t.Errorf("%s recorded as effect %q", r.Operation, r.Effect)
+		}
+		s := byOp[r.Operation]
+		if s == nil {
+			s = &seen{}
+			byOp[r.Operation] = s
+		}
+		switch r.Kind {
+		case audit.KindIntent:
+			s.intent++
+		case audit.KindOutcome:
+			s.outcome++
+			notes = append(notes, r.Reason)
+			codes = append(codes, r.OutcomeCode)
+		}
+	}
+	want := map[string]int{"list": 1, "get": 2, "capacity": 2}
+	for op, n := range want {
+		if s := byOp[op]; s == nil || s.intent != n || s.outcome != n {
+			t.Errorf("%s: records %+v, want %d intent and outcome", op, s, n)
+		}
+	}
+	// Two reads failed (an unknown host, a malformed query); the rest are ok.
+	failed := 0
+	for _, c := range codes {
+		if c != audit.OutcomeOK {
+			failed++
+		}
+	}
+	if failed != 2 {
+		t.Errorf("outcome codes = %v, want exactly two failures", codes)
+	}
+	joined := strings.Join(notes, "|")
+	for _, w := range []string{"hosts=6", "hosts=7 matched=3 unknown=3 excluded=1"} {
+		if !strings.Contains(joined, w) {
+			t.Errorf("outcome notes %q lack %q", joined, w)
+		}
+	}
+
+	// Nothing a host reported is in any record.
+	data, _ := json.Marshal(sink.Records())
+	for _, fact := range []string{"posix", "memory_available", "8589934592", "agents", "zone", "cpu_model", "tools"} {
+		if strings.Contains(string(data), fact) {
+			t.Errorf("an audit record holds %q: %s", fact, data)
+		}
+	}
+}
+
+// A read whose record cannot be written proceeds, as every read in the admin
+// lane does, and the failure is logged.
+func TestHostReadsProceedWhenTheAuditLogIsUnwritable(t *testing.T) {
+	f := newCapacityFixture(t)
+	f.svc.audit = audit.Unavailable{Err: errors.New("audit log unwritable")}
+	ctx := context.Background()
+	if v, err := f.svc.List(ctx, HostFilter{}); err != nil || len(v) != 7 {
+		t.Fatalf("list = %d, %v", len(v), err)
+	}
+	if _, err := f.svc.Get(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := f.svc.Capacity(ctx, CapacityQuery{}); err != nil || res.Total != 7 {
+		t.Fatalf("capacity = %+v, %v", res, err)
+	}
+}

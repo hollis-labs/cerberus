@@ -146,7 +146,23 @@ func (s *HostService) view(h hosts.Host) HostView {
 
 // List returns the declared hosts with their derived state, in name order.
 // A hosts.yaml that fails validation is an error naming every problem.
-func (s *HostService) List(_ context.Context, filter HostFilter) ([]HostView, error) {
+func (s *HostService) List(ctx context.Context, filter HostFilter) (_ []HostView, retErr error) {
+	if s == nil {
+		return nil, errors.New("host service is not configured")
+	}
+	call, err := s.beginRead(ctx, OpHostList, map[string]any{"filter": filter})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { call.finish(retErr) }()
+	views, err := s.list(filter)
+	call.note(fmt.Sprintf("hosts=%d", len(views)))
+	return views, err
+}
+
+// list is List without its audit record, for the operations that read the
+// host set as one step of their own.
+func (s *HostService) list(filter HostFilter) ([]HostView, error) {
 	f, err := s.load()
 	if err != nil {
 		return nil, err
@@ -185,7 +201,20 @@ func (f HostFilter) matches(v HostView) bool {
 }
 
 // Get returns one host.
-func (s *HostService) Get(ctx context.Context, name string) (HostView, error) {
+func (s *HostService) Get(ctx context.Context, name string) (_ HostView, retErr error) {
+	if s == nil {
+		return HostView{}, errors.New("host service is not configured")
+	}
+	call, err := s.beginRead(ctx, OpHostGet, map[string]any{"name": name})
+	if err != nil {
+		return HostView{}, err
+	}
+	defer func() { call.finish(retErr) }()
+	return s.get(name)
+}
+
+// get is Get without its audit record.
+func (s *HostService) get(name string) (HostView, error) {
 	f, err := s.load()
 	if err != nil {
 		return HostView{}, err
@@ -196,6 +225,19 @@ func (s *HostService) Get(ctx context.Context, name string) (HostView, error) {
 		}
 	}
 	return HostView{}, &HostNotFoundError{Name: name}
+}
+
+// beginRead opens the audit record of a host read: the same gate and the same
+// intent and outcome records as Probe. The record holds the operation, the
+// caller, an HMAC digest of config (the filter or constraint shape) and, on
+// the outcome, a count note; never a host's facts, addresses or probed text.
+// A read whose record cannot be written proceeds, logged and unrecorded, as
+// every read in the admin lane does; recordRequired is true only for effects
+// that change something.
+func (s *HostService) beginRead(ctx context.Context, op string, config map[string]any) (*auditCall, error) {
+	def, _ := HostDefinition().Operation(op)
+	spec := auditSpec{connector: "host", operation: op, op: def, known: true, config: config, resources: s.resources}
+	return beginGated(ctx, s.audit, s.logger, spec)
 }
 
 // hostProbeOperation is the contract the audit log records a probe under: a
@@ -214,7 +256,7 @@ func hostProbeOperation() contract.Operation {
 // probe could not be attempted (unknown host, no usable ssh reach, audit
 // unavailable).
 func (s *HostService) Probe(ctx context.Context, name string) (_ HostView, retErr error) {
-	declared, err := s.Get(ctx, name)
+	declared, err := s.get(name)
 	if err != nil {
 		return HostView{}, err
 	}
