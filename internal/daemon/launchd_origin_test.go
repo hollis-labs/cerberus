@@ -19,6 +19,7 @@ func TestLaunchdSpawnedSelf_TrueWhenXPCMatches(t *testing.T) {
 
 func TestLaunchdSpawnedSelf_FalseWhenXPCEmpty(t *testing.T) {
 	t.Setenv("XPC_SERVICE_NAME", "")
+	t.Setenv("INVOCATION_ID", "")
 	if LaunchdSpawnedSelf() {
 		t.Fatal("LaunchdSpawnedSelf = true; expected false when XPC_SERVICE_NAME is empty")
 	}
@@ -29,6 +30,7 @@ func TestLaunchdSpawnedSelf_FalseWhenXPCEmpty(t *testing.T) {
 
 func TestLaunchdSpawnedSelf_FalseForUnrelatedXPC(t *testing.T) {
 	t.Setenv("XPC_SERVICE_NAME", "com.apple.something.else")
+	t.Setenv("INVOCATION_ID", "")
 	if LaunchdSpawnedSelf() {
 		t.Fatal("LaunchdSpawnedSelf = true for unrelated XPC label; expected false")
 	}
@@ -102,6 +104,24 @@ func TestSystemdSpawnedSelfNeedsInvocationID(t *testing.T) {
 	}
 	if DaemonOrigin() != "manual" {
 		t.Fatalf("DaemonOrigin = %q, want manual", DaemonOrigin())
+	}
+}
+
+// SystemdSpawnedSelf reads /proc/self/cgroup with no seam, so the positive
+// branch can only run where the test process really sits under the user
+// manager; elsewhere it skips rather than assert against the host.
+func TestDaemonOriginIsSystemdUnderUserManager(t *testing.T) {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil || !underUserManager(string(data), os.Getuid()) {
+		t.Skip("test process is not under the systemd user manager")
+	}
+	t.Setenv("XPC_SERVICE_NAME", "")
+	t.Setenv("INVOCATION_ID", "test-invocation")
+	if !SystemdSpawnedSelf() {
+		t.Fatal("SystemdSpawnedSelf = false with INVOCATION_ID set under the user manager")
+	}
+	if got := DaemonOrigin(); got != "systemd" {
+		t.Fatalf("DaemonOrigin = %q, want systemd", got)
 	}
 }
 

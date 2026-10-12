@@ -198,6 +198,7 @@ func TestAcquireDaemonLock_LiveButNotCerberus(t *testing.T) {
 
 func TestAcquireDaemonLock_StampsManualOriginByDefault(t *testing.T) {
 	t.Setenv("XPC_SERVICE_NAME", "")
+	t.Setenv("INVOCATION_ID", "")
 	base := t.TempDir()
 	ident := stubIdent{daemonSet: map[int]bool{os.Getpid(): true}}
 
