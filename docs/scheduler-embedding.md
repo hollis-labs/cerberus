@@ -10,7 +10,7 @@ every app to use the Cerberus daemon.
 
 | Requirement | Owner | Reason |
 | --- | --- | --- |
-| Ingest, queue activation or other app-internal work tied to the app database | Embed `libs/util/scheduler` | The app retains job types, persistence, readiness and execution policy. |
+| Ingest, queue activation or other app-internal work tied to the app database | Embed `libs/core/util/scheduler` | The app retains job types, persistence, readiness and execution policy. |
 | Tight activation latency with app-local durable state | Embed | Choose the app's tick cadence and clock without an extra process boundary. |
 | Start or deploy a registered resource, or run a registered pipeline | Cerberus | Existing runtime plans, audit, approval, locks, brakes and secrets remain authoritative. |
 | Scheduling metadata must survive a consumer being offline | Cerberus, when the target is supported | The daemon can own durable scheduling independently; production activation still needs a separately approved host binding. |
