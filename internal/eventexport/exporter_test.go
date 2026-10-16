@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/scheduling"
 )
 
 type rig struct {
@@ -486,4 +488,148 @@ func TestATornAuditWriteIsReadThroughAndReportedAsAPair(t *testing.T) {
 	if err := audit.Verify(r.auditDir); err != nil {
 		t.Fatalf("test assumption: the chain verifies through the heal: %v", err)
 	}
+}
+
+func payloadMap(t *testing.T, en Entry) map[string]any {
+	t.Helper()
+	var p map[string]any
+	if err := json.Unmarshal(en.Envelope.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// coalescePair returns the coalesce keys of the raised and the cleared alerts of
+// rule, failing unless there is at least one of each.
+func coalescePair(t *testing.T, entries []Entry, rule string) (raised, cleared []string) {
+	t.Helper()
+	for _, en := range entries {
+		p := payloadMap(t, en)
+		if p["rule_id"] != rule {
+			continue
+		}
+		key, _ := p["coalesce_key"].(string)
+		switch en.Envelope.Kind {
+		case "alert.raised":
+			raised = append(raised, key)
+		case "alert.cleared":
+			cleared = append(cleared, key)
+		}
+	}
+	if len(raised) == 0 || len(cleared) == 0 {
+		t.Fatalf("rule %s: raised %v cleared %v", rule, raised, cleared)
+	}
+	return raised, cleared
+}
+
+// A cleared alert must coalesce with the raised alert it clears, or a dashboard
+// keeps the problem open.
+func TestRaisedAndClearedAlertsShareACoalesceKey(t *testing.T) {
+	// audit chain: tamper, stop, reanchor, resume
+	r := newRig(t)
+	e := r.must(r.exporter())
+	r.intent("op-1")
+	step(t, e)
+	files, _ := filepath.Glob(filepath.Join(r.auditDir, "*.jsonl"))
+	r.intent("op-2")
+	data, _ := os.ReadFile(files[0])                                                                                                                //nolint:gosec // the test's own file
+	if err := os.WriteFile(files[0], bytes.Replace(data, []byte(`"operation_id":"op-2"`), []byte(`"operation_id":"OP-2"`), 1), 0o600); err != nil { //nolint:gosec // the test's own file
+		t.Fatal(err)
+	}
+	step(t, e)
+	if _, err := audit.Reanchor(r.sink, r.auditDir, audit.Principal{Surface: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	r.now = r.now.Add(time.Minute)
+	step(t, e)
+	raised, cleared := coalescePair(t, mustAfter(t, e), RuleAuditChainBroken)
+	if raised[0] == "" || raised[0] != cleared[0] || len(raised) != 1 || len(cleared) != 1 {
+		t.Fatalf("audit_chain_broken: raised %v cleared %v", raised, cleared)
+	}
+
+	// approval store: break, stop, the daemon reopens (reanchored), resume
+	r2 := newRig(t)
+	e2 := r2.must(r2.exporter())
+	r2.request(true)
+	step(t, e2)
+	f, _ := os.OpenFile(filepath.Join(r2.approvalsDir, approval.FileName), os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // the test's own file
+	_, _ = f.WriteString(`{"v":1,"seq":99,"time":"2026-10-16T12:00:00Z","type":"expired","approval_id":"apr_x","prev_hash":"bad","hash":"bad"}` + "\n")
+	_ = f.Close()
+	step(t, e2)
+	if _, err := approval.Open(r2.approvalsDir); err != nil {
+		t.Fatal(err)
+	}
+	r2.now = r2.now.Add(time.Minute)
+	step(t, e2)
+	raised, cleared = coalescePair(t, mustAfter(t, e2), RuleApprovalChainBreak)
+	if raised[0] == "" || raised[0] != cleared[0] || len(raised) != 1 || len(cleared) != 1 {
+		t.Fatalf("approval_chain_break: raised %v cleared %v", raised, cleared)
+	}
+}
+
+// payload_schema is the full catalog id, for every kind the exporter emits.
+func TestPayloadSchemaIsTheFullCatalogIDForEveryEmittedKind(t *testing.T) {
+	data, err := os.ReadFile("testdata/catalog_payload_schemas.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want map[string]string
+	if err := json.Unmarshal(data, &want); err != nil {
+		t.Fatal(err)
+	}
+	delete(want, "_note")
+
+	r := newRig(t)
+	e := r.must(r.exporter())
+	r.intent("op-1")
+	a := r.request(true)
+	if _, err := r.store.Decide(a.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human", Client: "terminal"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.request(false) // no audit record: a gap alert after the grace
+	files, _ := filepath.Glob(filepath.Join(r.auditDir, "*.jsonl"))
+	f, _ := os.OpenFile(files[0], os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // the test's own file
+	_, _ = f.WriteString(`{"v":1,"seq":9,"id":"torn`)
+	_ = f.Close()
+	r.intent("op-2") // healed torn write: raised/cleared pair
+	step(t, e)
+	r.now = r.now.Add(2 * time.Minute)
+	step(t, e)
+
+	sink, err := OpenSchedulingSink(filepath.Join(r.root, "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []scheduling.Notification{{EventID: "e1", JobKey: "j", Kind: "failure"}, {EventID: "e2", JobKey: "j", Kind: "recovery"}} {
+		if err := sink.Send(t.Context(), n); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seen := map[string]bool{}
+	entries := append(mustAfter(t, e), mustAfterOutbox(t, sink.Outbox())...)
+	for _, en := range entries {
+		kind := en.Envelope.Kind
+		seen[kind] = true
+		if en.Envelope.Class == nil || en.Envelope.Class.PayloadSchema != want[kind] || want[kind] == "" {
+			t.Errorf("%s: payload_schema %q, want %q", kind, en.Envelope.Class.PayloadSchema, want[kind])
+		}
+		if !strings.HasPrefix(en.Envelope.Class.PayloadSchema, "urn:hollis-labs:events:") {
+			t.Errorf("%s: payload_schema %q is not a full catalog id", kind, en.Envelope.Class.PayloadSchema)
+		}
+	}
+	for kind := range want {
+		if !seen[kind] {
+			t.Errorf("the scenario never produced %s", kind)
+		}
+	}
+}
+
+func mustAfterOutbox(t *testing.T, o Outbox) []Entry {
+	t.Helper()
+	entries, err := o.After(0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entries
 }

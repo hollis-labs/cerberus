@@ -69,7 +69,7 @@ func TestIntentIsPendingNotSuccessAndCarriesTheOriginalChainDigest(t *testing.T)
 		t.Fatalf("payload = %v", p)
 	}
 	e := m.Envelope
-	if e.Kind != "audit.recorded" || e.Subject != "msg://operation/cerberus/op_1" || e.Source.Channel != "audit" || e.Class.Category != "audit" || e.Class.PayloadSchema != "audit.recorded@1" {
+	if e.Kind != "audit.recorded" || e.Subject != "msg://operation/cerberus/op_1" || e.Source.Channel != "audit" || e.Class.Category != "audit" || e.Class.PayloadSchema != "urn:hollis-labs:events:audit.recorded@1" {
 		t.Fatalf("envelope = %+v", e)
 	}
 	if e.Corr == nil || e.Corr.CorrelationID != "op_1" {
@@ -86,12 +86,13 @@ func TestActorIsTokenVerifiedOnlyForAVerifiedBearer(t *testing.T) {
 		p    audit.Principal
 		want *Actor
 	}{
-		"verified bearer":  {audit.Principal{Kind: "agent", Subject: "agent:a", AuthMethod: "bearer"}, &Actor{URN: "agent:a", Kind: "agent", Verified: "token"}},
-		"self reported":    {audit.Principal{Kind: "agent", Subject: "agent:a", AuthMethod: "bearer", SelfReported: true}, &Actor{URN: "agent:a", Kind: "agent", Verified: "claimed"}},
-		"client name only": {audit.Principal{Kind: "human", Client: "terminal"}, &Actor{URN: "terminal", Kind: "user", Verified: "claimed"}},
-		"automation":       {audit.Principal{Kind: audit.PrincipalAutomation, Client: "cerberus"}, &Actor{URN: "cerberus", Kind: "service", Verified: "claimed"}},
-		"uid only":         {audit.Principal{Kind: "human", Surface: "socket"}, nil},
-		"nothing recorded": {audit.Principal{}, nil},
+		"verified bearer, msg subject":     {audit.Principal{Kind: "agent", Subject: "msg://agent/agent-mux/agt_x", AuthMethod: "bearer"}, &Actor{URN: "msg://agent/agent-mux/agt_x", Kind: "agent", Verified: "token"}},
+		"verified bearer, non-URN subject": {audit.Principal{Kind: "agent", Subject: "agent:a", AuthMethod: "bearer"}, &Actor{URN: "agent:a", Kind: "agent", Verified: "claimed"}},
+		"self reported":                    {audit.Principal{Kind: "agent", Subject: "agent:a", AuthMethod: "bearer", SelfReported: true}, &Actor{URN: "agent:a", Kind: "agent", Verified: "claimed"}},
+		"client name only":                 {audit.Principal{Kind: "human", Client: "terminal"}, &Actor{URN: "terminal", Kind: "user", Verified: "claimed"}},
+		"automation":                       {audit.Principal{Kind: audit.PrincipalAutomation, Client: "cerberus"}, &Actor{URN: "cerberus", Kind: "service", Verified: "claimed"}},
+		"uid only":                         {audit.Principal{Kind: "human", Surface: "socket"}, nil},
+		"nothing recorded":                 {audit.Principal{}, nil},
 	}
 	for name, c := range cases {
 		got := actorOf(c.p)

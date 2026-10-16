@@ -10,6 +10,15 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 )
 
+// Payload schema ids: the full catalog ids (libs harness/core
+// adapters/runtimeevents/catalog), not the short names.
+const (
+	schemaAuditRecorded     = "urn:hollis-labs:events:audit.recorded@1"
+	schemaApprovalRequested = "urn:hollis-labs:events:approval.requested@1"
+	schemaApprovalResolved  = "urn:hollis-labs:events:approval.resolved@1"
+	schemaAlert             = "urn:hollis-labs:events:alert@1"
+)
+
 // Rule ids of the alerts Cerberus raises about its own export.
 const (
 	RuleAuditTornWrite     = "cerberus.audit_torn_write"
@@ -81,7 +90,7 @@ func MapAudit(rec audit.Record) []Mapped {
 		Source:  Source{Channel: ChannelAudit},
 		Corr:    corr(firstNonEmpty(rec.OperationID, rec.ApprovalID)),
 		Actor:   actorOf(rec.Principal),
-		Class:   &Class{Category: "audit", Severity: auditSeverity(rec), PayloadSchema: "audit.recorded@1"},
+		Class:   &Class{Category: "audit", Severity: auditSeverity(rec), PayloadSchema: schemaAuditRecorded},
 		Payload: mustJSON(payload),
 	}
 	return []Mapped{{key, env}}
@@ -149,7 +158,7 @@ func MapApproval(ev approval.Event) *Mapped {
 		if !a.ExpiresAt.IsZero() {
 			payload["expires_at"] = a.ExpiresAt.UTC().Format(time.RFC3339)
 		}
-		base.Kind, base.Actor, base.Class, base.Payload = "approval.requested", actorOf(a.Principal), class("approval.requested@1"), mustJSON(payload)
+		base.Kind, base.Actor, base.Class, base.Payload = "approval.requested", actorOf(a.Principal), class(schemaApprovalRequested), mustJSON(payload)
 	case approval.EventDecided:
 		if ev.Decision == nil {
 			return nil
@@ -158,18 +167,18 @@ func MapApproval(ev approval.Event) *Mapped {
 		if ev.Decision.Approve {
 			outcome = "approved"
 		}
-		base.Kind, base.Actor, base.Class = "approval.resolved", actorOf(ev.Decision.By), class("approval.resolved@1")
+		base.Kind, base.Actor, base.Class = "approval.resolved", actorOf(ev.Decision.By), class(schemaApprovalResolved)
 		base.Payload = mustJSON(resolved(ev.ApprovalID, urn, outcome, resolverOf(ev.Decision.By)))
 	case approval.EventExpired:
 		// An expiry sweep is the service resolving it, never a person.
-		base.Kind, base.Class = "approval.resolved", class("approval.resolved@1")
+		base.Kind, base.Class = "approval.resolved", class(schemaApprovalResolved)
 		base.Payload = mustJSON(resolved(ev.ApprovalID, urn, "expired", map[string]string{"kind": "service", "id": "cerberus"}))
 	case approval.EventRevoked:
 		var by audit.Principal
 		if ev.Decision != nil {
 			by = ev.Decision.By
 		}
-		base.Kind, base.Actor, base.Class = "approval.resolved", actorOf(by), class("approval.resolved@1")
+		base.Kind, base.Actor, base.Class = "approval.resolved", actorOf(by), class(schemaApprovalResolved)
 		base.Payload = mustJSON(resolved(ev.ApprovalID, urn, "withdrawn", resolverOf(by)))
 	default: // consumed, used, acked, reanchored
 		return nil
@@ -222,7 +231,10 @@ func actorOf(p audit.Principal) *Actor {
 		return nil
 	}
 	verified := "claimed"
-	if p.Subject != "" && p.AuthMethod != "" && !p.SelfReported {
+	// token only for a verified bearer whose subject is a msg:// URN: the hub
+	// projection drops verified=token on any other subject, so claiming it there
+	// would be a statement the stream does not keep.
+	if p.Subject != "" && p.AuthMethod != "" && !p.SelfReported && strings.HasPrefix(p.Subject, "msg://") {
 		verified = "token"
 	}
 	return &Actor{URN: id, Kind: actorKind(p), Verified: verified}
@@ -247,7 +259,7 @@ func alert(kind, rule, summary, severity string, at time.Time, subject string, l
 		Time:    at.UTC(),
 		Subject: subject,
 		Source:  Source{Channel: channel},
-		Class:   &Class{Category: "alert", Severity: severity, Visibility: VisibilityEnvironment, PayloadSchema: "alert@1", Labels: labels},
+		Class:   &Class{Category: "alert", Severity: severity, Visibility: VisibilityEnvironment, PayloadSchema: schemaAlert, Labels: labels},
 		Payload: mustJSON(payload),
 	}
 }
