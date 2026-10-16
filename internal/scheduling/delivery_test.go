@@ -623,3 +623,41 @@ func TestAFailedLogAppendNeverWritesRawText(t *testing.T) {
 		t.Fatalf("later output was not captured redacted: %q", all)
 	}
 }
+
+// pr-1's repro, parameterised over where the value ends relative to the cut (which is
+// the same as parameterising the carry): Write 4000 bytes of filler, then 150 bytes,
+// the value, and N more bytes. A complete value must never be stored, however far past
+// the cut it ends.
+func TestACompleteValueInASecondWriteIsNeverStoredWhereverItEndsRelativeToTheCut(t *testing.T) {
+	const scoped = "scope-only-private-value-0228"
+	clock := &testClock{at: time.Now().UTC()}
+	trailing := []int{0, 1, 28, 29, 30, 500, 1000, 1010, 1011, 1023, 1024, 1025, 1100, 2000}
+	for n := 1100; n < 4000; n += 223 {
+		trailing = append(trailing, n)
+	}
+	for _, n := range trailing {
+		t.Run(fmt.Sprintf("%d trailing bytes", n), func(t *testing.T) {
+			c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+			c.flushInterval = time.Hour
+			var stored []string
+			c.logSink = func(_, text string) error { stored = append(stored, text); return nil }
+			scope := &redact.Scope{}
+			scope.Add("test-token", scoped)
+			w := &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+			for _, chunk := range []string{strings.Repeat("z", 4000), strings.Repeat("a", 150) + scoped + strings.Repeat("b", n)} {
+				if _, err := w.Write([]byte(chunk)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w.flushOnTimer()
+			w.close(context.Background())
+			all := strings.Join(stored, "")
+			if strings.Contains(all, scoped) || strings.Contains(all, scoped[:10]) || strings.Contains(all, scoped[len(scoped)-10:]) {
+				t.Fatalf("value or a piece of it stored (%d trailing bytes)", n)
+			}
+			if !strings.Contains(all, redact.Marker) {
+				t.Fatal("nothing was redacted")
+			}
+		})
+	}
+}
