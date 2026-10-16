@@ -574,8 +574,8 @@ func TestPayloadSchemaIsTheFullCatalogIDForEveryEmittedKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	var want map[string]string
-	if err := json.Unmarshal(data, &want); err != nil {
-		t.Fatal(err)
+	if jsonErr := json.Unmarshal(data, &want); jsonErr != nil {
+		t.Fatal(jsonErr)
 	}
 	delete(want, "_note")
 
@@ -583,8 +583,8 @@ func TestPayloadSchemaIsTheFullCatalogIDForEveryEmittedKind(t *testing.T) {
 	e := r.must(r.exporter())
 	r.intent("op-1")
 	a := r.request(true)
-	if _, err := r.store.Decide(a.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human", Client: "terminal"}}, nil); err != nil {
-		t.Fatal(err)
+	if _, decideErr := r.store.Decide(a.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human", Client: "terminal"}}, nil); decideErr != nil {
+		t.Fatal(decideErr)
 	}
 	r.request(false) // no audit record: a gap alert after the grace
 	files, _ := filepath.Glob(filepath.Join(r.auditDir, "*.jsonl"))
