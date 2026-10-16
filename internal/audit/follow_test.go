@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -362,4 +363,27 @@ func TestReadFromFollowsAConcurrentWriter(t *testing.T) {
 
 func replaceOnce(data []byte, old, replacement string) []byte {
 	return bytes.Replace(data, []byte(old), []byte(replacement), 1)
+}
+
+// A corrupted file with a huge line (or one with no newline at all) must end the
+// read with a Stop, not make the reader allocate the whole thing.
+func TestReadFromStopsAtAnOverlongLine(t *testing.T) {
+	for name, tail := range map[string]string{
+		"with a newline":    strings.Repeat("x", MaxLineBytes+10) + "\n",
+		"without a newline": strings.Repeat("x", MaxLineBytes+10),
+	} {
+		sink, dir, _ := followSink(t, time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC))
+		writeOps(t, sink, 0, 2)
+		files, _ := monthFiles(dir)
+		f, err := os.OpenFile(files[0], os.O_APPEND|os.O_WRONLY, fileMode) //nolint:gosec // the test's own file
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = f.WriteString(tail)
+		_ = f.Close()
+		batch, err := ReadFrom(dir, Cursor{}, 0)
+		if err != nil || batch.Stop == nil || batch.Stop.Reason != StopDamaged || fmt.Sprint(seqs(batch.Records)) != "[1 2 3]" {
+			t.Errorf("%s: %+v, %v", name, batch, err)
+		}
+	}
 }
