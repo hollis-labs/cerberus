@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 type deliveryFixture struct {

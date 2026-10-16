@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	paths "github.com/hollis-labs/libs/util/apppaths"
+	paths "github.com/hollis-labs/libs/core/util/apppaths"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/brake"

@@ -6,7 +6,7 @@ import (
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
-	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
+	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/subprocess"
 )
 
 const (

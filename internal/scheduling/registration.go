@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 const MaxRegistrationJobs = 32

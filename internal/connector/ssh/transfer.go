@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	sftpsync "github.com/hollis-labs/libs/util/sftpsync"
+	sftpsync "github.com/hollis-labs/libs/core/util/sftpsync"
 	"github.com/pkg/sftp"
 )
 

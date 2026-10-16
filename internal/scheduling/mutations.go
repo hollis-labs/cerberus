@@ -7,10 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/libs/util/scheduler/sqlstore"
 	"time"
 
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler/sqlstore"
+
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 const sqlTime = "2006-01-02T15:04:05.000000000Z"

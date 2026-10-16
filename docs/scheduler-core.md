@@ -1,7 +1,7 @@
 # Programmatic scheduler core
 
 CW-20261008-0115 adds an inactive core in `internal/scheduling`, built on
-`github.com/hollis-labs/libs/util/scheduler` and its `sqlstore` at **util/v0.4.0**
+`github.com/hollis-labs/libs/core/util/scheduler` and its `sqlstore` at **util/v0.4.0**
 (`da18d11cb2df5206120c3c1524067bfd17153b72`). 0116 binds inactive CRUD/history surfaces; see `scheduling.md` for the current
 CLI/MCP/HTTP contract and 0117 supported pipeline delivery limits.
 

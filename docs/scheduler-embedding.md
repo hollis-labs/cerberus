@@ -133,7 +133,7 @@ CW-20260930-0056 identifies fragments-engine's pre-CAS v0.1.0 Store and the loss
 window between advancing `next_run` and completing ingest. Keep ingest activation
 embedded: its ingest state and execution policy belong to fragments-engine.
 The current published implementation used by Cerberus is
-`github.com/hollis-labs/libs/util/scheduler` and `scheduler/sqlstore` at util/v0.4.0.
+`github.com/hollis-labs/libs/core/util/scheduler` and `scheduler/sqlstore` at util/v0.4.0.
 A consumer adoption should verify its current tree and the selected published
 version rather than assume the historical task report still describes it.
 

@@ -17,7 +17,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/oauth"
 	"github.com/hollis-labs/cerberus/internal/scheduling"
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 func TestScheduleSignedNamespacesAndAdmin(t *testing.T) {

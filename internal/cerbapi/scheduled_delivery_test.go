@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,11 +13,13 @@ import (
 	"testing"
 	"time"
 
+	gmcp "github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/server"
+
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/scheduling"
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 func TestScheduledCallerArgvInjectionRejectedBeforeService(t *testing.T) {

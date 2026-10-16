@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 // Notification is fixed safe metadata, never an error, payload or credential.
