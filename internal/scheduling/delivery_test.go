@@ -365,3 +365,110 @@ func TestFailureEpisodeThroughExplicitEngineNotifiesOnce(t *testing.T) {
 		t.Fatal("unknown outcome notified as failure", sink.calls)
 	}
 }
+
+func storedStream(t *testing.T, c *Core, d *Delivery, stream string) string {
+	t.Helper()
+	var body string
+	if err := c.db.QueryRow(`SELECT body FROM cerberus_schedule_logs WHERE fire_id=? AND stream=?`, d.fire.FireID, stream).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+// Output reaches the database in batches (CW-20261016-0228, option A): small writes
+// are buffered and appended after logFlushInterval, a full batch is appended at once,
+// and what is left is appended when the stream closes.
+func TestLogCaptureIsCoalescedAndFlushedBySizeIntervalAndClose(t *testing.T) {
+	clock := &testClock{at: time.Now().UTC()}
+	var checked bool
+	executor := deliveryFixture{run: func(_ context.Context, d *Delivery) error {
+		out := d.Stdout()
+		if _, err := out.Write([]byte("one ")); err != nil {
+			return err
+		}
+		if got := storedStream(t, d.core, d, "stdout"); got != "" {
+			return fmt.Errorf("a small write reached the database at once: %q", got)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for storedStream(t, d.core, d, "stdout") != "one " {
+			if time.Now().After(deadline) {
+				return errors.New("buffered output was not flushed by the interval")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if _, err := out.Write([]byte(strings.Repeat("x", logFlushBytes))); err != nil {
+			return err
+		}
+		if got := storedStream(t, d.core, d, "stdout"); !strings.HasPrefix(got, "one x") || len(got) != len("one ")+logFlushBytes {
+			return fmt.Errorf("a full batch did not reach the database at once: %d bytes", len(got))
+		}
+		if _, err := out.Write([]byte("tail")); err != nil {
+			return err
+		}
+		if got := storedStream(t, d.core, d, "stdout"); strings.HasSuffix(got, "tail") {
+			return errors.New("the tail was written before the interval or close")
+		}
+		checked = true
+		return nil
+	}}
+	c, _ := testCore(t, executor, allowAt(clock), Options{Clock: clock, Delivery: DeliveryOptions{StreamBytes: 1 << 16, TotalBytes: 1 << 20}})
+	c.flushInterval = 50 * time.Millisecond
+	j := dueJob(clock, PipelineRun)
+	j.CaptureLogs = true
+	j.Timeout = 30 * time.Second
+	mustCreate(t, c, j)
+	tick(t, c)
+	f := fireFor(t, c, j, j.Timing.At)
+	if rc := receiptFor(t, c, f); rc.State != Completed || !checked {
+		t.Fatalf("delivery did not complete: receipt %s %q checked=%v", rc.State, rc.Error, checked)
+	}
+	logs := callOK(t, NewService(c, fixtureAccess), Call{Operation: "logs", OwnerApp: j.OwnerApp, ID: j.ID, FireID: f.ID}).Logs
+	if logs == nil || !logs.Available || !strings.HasSuffix(logs.Stdout, "tail") {
+		t.Fatalf("the tail was lost on close: %+v", logs)
+	}
+}
+
+// Redaction at flush over the whole batch is at least as strong as per write: a value
+// the scope knows but the hold-back does not (registered by the executor, not an
+// environment reference) is caught when it is split across Writes, and so is one
+// split across the batch boundary.
+func TestACoalescedBatchRedactsAValueSplitAcrossWrites(t *testing.T) {
+	const scoped = "scope-only-private-value-0228"
+	clock := &testClock{at: time.Now().UTC()}
+	executor := deliveryFixture{run: func(ctx context.Context, d *Delivery) error {
+		redact.ScopeFrom(ctx).Add("test-token", scoped)
+		out := d.Stdout()
+		for i := 1; i < len(scoped); i += 7 {
+			if _, err := out.Write([]byte("[" + scoped[:i])); err != nil {
+				return err
+			}
+			if _, err := out.Write([]byte(scoped[i:] + "]\n")); err != nil {
+				return err
+			}
+		}
+		// And a value straddling the size threshold.
+		if _, err := out.Write([]byte(strings.Repeat("y", logFlushBytes-5) + scoped[:10])); err != nil {
+			return err
+		}
+		_, err := out.Write([]byte(scoped[10:] + "\n"))
+		return err
+	}}
+	c, _ := testCore(t, executor, allowAt(clock), Options{Clock: clock, Delivery: DeliveryOptions{StreamBytes: 1 << 16, TotalBytes: 1 << 20}})
+	j := dueJob(clock, PipelineRun)
+	j.CaptureLogs = true
+	j.Timeout = 30 * time.Second
+	mustCreate(t, c, j)
+	tick(t, c)
+	f := fireFor(t, c, j, j.Timing.At)
+	if rc := receiptFor(t, c, f); rc.State != Completed {
+		t.Fatalf("delivery did not complete: %s %q", rc.State, rc.Error)
+	}
+	logs := callOK(t, NewService(c, fixtureAccess), Call{Operation: "logs", OwnerApp: j.OwnerApp, ID: j.ID, FireID: f.ID}).Logs
+	if logs == nil || !logs.Available || strings.Contains(logs.Stdout, scoped) || !strings.Contains(logs.Stdout, "[REDACTED]") {
+		t.Fatalf("unsafe capture: %+v", logs)
+	}
+	var leaked int
+	if err := c.db.QueryRow(`SELECT COUNT(*) FROM cerberus_schedule_logs WHERE instr(body,?)>0 OR instr(body,?)>0`, scoped, scoped[:10]).Scan(&leaked); err != nil || leaked != 0 {
+		t.Fatalf("stored secret or a prefix of it: %d %v", leaked, err)
+	}
+}

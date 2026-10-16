@@ -182,3 +182,23 @@ func TestScopeIsSafeForConcurrentUse(t *testing.T) {
 		}
 	}
 }
+
+func TestScopeMaxValueLenIsTheLongestRegisteredForm(t *testing.T) {
+	var s Scope
+	if got := s.MaxValueLen(); got != 0 {
+		t.Fatalf("empty scope = %d", got)
+	}
+	s.Add("a", "short-secret-value")
+	s.Add("b", "a-much-longer-secret-value-0228")
+	longest := 0
+	for _, form := range append(Forms("short-secret-value"), Forms("a-much-longer-secret-value-0228")...) {
+		longest = max(longest, len(form))
+	}
+	if got := s.MaxValueLen(); got != longest || got < len("a-much-longer-secret-value-0228") {
+		t.Fatalf("MaxValueLen = %d; want %d", got, longest)
+	}
+	var none *Scope
+	if none.MaxValueLen() != 0 {
+		t.Fatal("nil scope")
+	}
+}

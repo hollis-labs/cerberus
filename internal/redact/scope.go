@@ -158,6 +158,22 @@ func (s *Scope) Unprotected() []string {
 	return names
 }
 
+// MaxValueLen is the length in bytes of the longest value (in any of its forms) the
+// scope removes. A caller that batches text must keep that much, less one byte,
+// unflushed at a batch boundary so a value straddling the boundary is seen whole.
+func (s *Scope) MaxValueLen() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	longest := 0
+	for value := range s.values {
+		longest = max(longest, len(value))
+	}
+	return longest
+}
+
 // Redactor is a snapshot of the scope: the values registered so far, then
 // the regex net. A value registered after the snapshot is not in it, so
 // render through the Scope rather than holding one.

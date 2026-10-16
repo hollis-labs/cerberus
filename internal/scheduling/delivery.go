@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/pkg/secret"
@@ -163,12 +165,27 @@ func (d *Delivery) close(ctx context.Context) {
 	d.env = nil
 }
 
+// Captured output reaches the database in batches, not one transaction per Write:
+// already-redacted text is buffered and appended when it reaches logFlushBytes, when
+// logFlushInterval has passed since it was first buffered, and when the stream
+// closes. A process crash can therefore lose at most that much output per stream
+// (decision on CW-20261016-0228: 4KiB or 250ms of already-redacted job output; this
+// is job log capture, not the audit chain). The redaction hold-back is unchanged and
+// is applied before buffering, and the scope redacts the whole batch when it is
+// appended, so a value split across Writes is caught as well as one in a single Write.
+const (
+	logFlushBytes    = 4096
+	logFlushInterval = 250 * time.Millisecond
+)
+
 type logWriter struct {
 	mu       sync.Mutex
 	delivery *Delivery
 	stream   string
 	forms    []string
 	pending  []byte
+	out      []byte
+	timer    *time.Timer
 	closed   bool
 	failed   bool
 }
@@ -220,11 +237,72 @@ func (w *logWriter) flush(ctx context.Context, final bool) {
 			w.pending = w.pending[1:]
 		}
 	}
-	if safe.Len() > 0 {
-		if err := w.delivery.core.appendLog(ctx, w.delivery.job, w.delivery.fire, w.stream, w.delivery.scope.Text(safe.String())); err != nil {
-			w.failed = true
+	w.out = append(w.out, safe.String()...)
+	switch {
+	case len(w.out) == 0:
+	case final || len(w.out) >= logFlushBytes:
+		w.appendOut(ctx, final)
+	case w.timer == nil:
+		// The first buffered bytes start the clock: they reach the database within
+		// logFlushInterval even if the job then goes quiet.
+		interval := w.delivery.core.logFlushInterval()
+		w.timer = time.AfterFunc(interval, w.flushOnTimer)
+	}
+}
+
+// appendOut writes the buffered, already-redacted text in one append and stops the
+// timer. The scope redacts the whole batch here, after every value it knows has been
+// registered. Unless the stream is closing, the last (longest scope value - 1) bytes
+// stay buffered, so a value that straddles the batch boundary is seen whole by the
+// next append; that carry is bounded by the longest secret, as the hold-back is.
+// Callers hold w.mu.
+func (w *logWriter) appendOut(ctx context.Context, final bool) {
+	if w.timer != nil {
+		w.timer.Stop()
+		w.timer = nil
+	}
+	if len(w.out) == 0 {
+		return
+	}
+	cut := len(w.out)
+	if !final {
+		cut -= max(0, w.delivery.scope.MaxValueLen()-1)
+		for cut > 0 && cut < len(w.out) && !utf8.RuneStart(w.out[cut]) {
+			cut--
 		}
 	}
+	if cut <= 0 {
+		// Nothing can be released yet; look again when more output arrives or at close.
+		w.timer = time.AfterFunc(w.delivery.core.logFlushInterval(), w.flushOnTimer)
+		return
+	}
+	text := w.delivery.scope.Text(string(w.out[:cut]))
+	w.out = append([]byte(nil), w.out[cut:]...)
+	if err := w.delivery.core.appendLog(ctx, w.delivery.job, w.delivery.fire, w.stream, text); err != nil {
+		w.failed = true
+	}
+	if len(w.out) > 0 {
+		w.timer = time.AfterFunc(w.delivery.core.logFlushInterval(), w.flushOnTimer)
+	}
+}
+
+func (w *logWriter) flushOnTimer() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.timer = nil
+	if w.closed {
+		return
+	}
+	w.appendOut(context.Background(), false)
+}
+
+// logFlushInterval is the interval after which buffered output is appended; tests
+// shorten it.
+func (c *Core) logFlushInterval() time.Duration {
+	if c.flushInterval > 0 {
+		return c.flushInterval
+	}
+	return logFlushInterval
 }
 
 // Default limits bound retained sanitized bytes, including inaccessible orphans.
