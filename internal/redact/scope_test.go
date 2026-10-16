@@ -182,3 +182,46 @@ func TestScopeIsSafeForConcurrentUse(t *testing.T) {
 		}
 	}
 }
+
+func TestScopeMaxValueLenIsTheLongestRegisteredForm(t *testing.T) {
+	var s Scope
+	if got := s.MaxValueLen(); got != 0 {
+		t.Fatalf("empty scope = %d", got)
+	}
+	s.Add("a", "short-secret-value")
+	s.Add("b", "a-much-longer-secret-value-0228")
+	longest := 0
+	for _, form := range append(Forms("short-secret-value"), Forms("a-much-longer-secret-value-0228")...) {
+		longest = max(longest, len(form))
+	}
+	if got := s.MaxValueLen(); got != longest || got < len("a-much-longer-secret-value-0228") {
+		t.Fatalf("MaxValueLen = %d; want %d", got, longest)
+	}
+	var none *Scope
+	if none.MaxValueLen() != 0 {
+		t.Fatal("nil scope")
+	}
+}
+
+func TestHoldStraddlersMovesTheCutToTheStartOfACrossingValue(t *testing.T) {
+	var s Scope
+	s.Add("a", "SECRET123")
+	text := []byte("xxxxSECRET123yyyy")
+	for cut := 1; cut < len(text); cut++ {
+		got := s.HoldStraddlers(text, cut)
+		switch {
+		case cut > 4 && cut < 13:
+			if got != 4 {
+				t.Fatalf("cut %d inside the value moved to %d; want 4", cut, got)
+			}
+		default:
+			if got != cut {
+				t.Fatalf("cut %d outside the value moved to %d", cut, got)
+			}
+		}
+	}
+	var none *Scope
+	if none.HoldStraddlers(text, 6) != 6 {
+		t.Fatal("nil scope moved the cut")
+	}
+}

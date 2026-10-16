@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/pkg/secret"
@@ -163,12 +166,34 @@ func (d *Delivery) close(ctx context.Context) {
 	d.env = nil
 }
 
+// Captured output reaches the database in batches, not one transaction per Write:
+// already-redacted text is buffered and appended when it reaches logFlushBytes, when
+// logFlushInterval has passed since it was first buffered, and when the stream
+// closes. A process crash can therefore lose at most that much output per stream
+// (decision on CW-20261016-0228: 4KiB or 250ms of already-redacted job output; this
+// is job log capture, not the audit chain). The redaction hold-back is unchanged and
+// is applied before buffering, and the scope redacts the whole batch when it is
+// appended, so a value split across Writes is caught as well as one in a single Write.
+const (
+	logFlushBytes    = 4096
+	logFlushInterval = 250 * time.Millisecond
+	// logCarryBytes is the least that stays buffered at a size or timer flush, so a
+	// token the redaction net matches (a bearer token, a provider key, an assignment
+	// value) that straddles the boundary is seen whole by the next append. Only close
+	// flushes it all. logPEMHoldBytes bounds how long an open private-key block is held
+	// back for its END line.
+	logCarryBytes   = 1024
+	logPEMHoldBytes = 16 << 10
+)
+
 type logWriter struct {
 	mu       sync.Mutex
 	delivery *Delivery
 	stream   string
 	forms    []string
 	pending  []byte
+	out      []byte
+	timer    *time.Timer
 	closed   bool
 	failed   bool
 }
@@ -220,11 +245,135 @@ func (w *logWriter) flush(ctx context.Context, final bool) {
 			w.pending = w.pending[1:]
 		}
 	}
-	if safe.Len() > 0 {
-		if err := w.delivery.core.appendLog(ctx, w.delivery.job, w.delivery.fire, w.stream, w.delivery.scope.Text(safe.String())); err != nil {
-			w.failed = true
+	w.out = append(w.out, safe.String()...)
+	switch {
+	case len(w.out) == 0:
+	case final || len(w.out) >= logFlushBytes:
+		w.appendOut(ctx, final)
+	case w.timer == nil:
+		// The first buffered bytes start the clock: they reach the database within
+		// logFlushInterval even if the job then goes quiet.
+		interval := w.delivery.core.logFlushInterval()
+		w.timer = time.AfterFunc(interval, w.flushOnTimer)
+	}
+}
+
+// appendOut appends the buffer but a carry (see the cut below) after the scope has
+// removed every value in what it releases; on close (final) it appends everything.
+// Callers hold w.mu.
+func (w *logWriter) appendOut(ctx context.Context, final bool) {
+	if w.timer != nil {
+		w.timer.Stop()
+		w.timer = nil
+	}
+	if len(w.out) == 0 {
+		return
+	}
+	// Choose the cut on the raw buffer, then redact what is released. The cut leaves a
+	// carry, never falls inside a private-key block, and never falls inside a registered
+	// value (HoldStraddlers moves it back to the value's start), so everything released
+	// holds only whole values and the scope removes them all; a value that is only partly
+	// here stays in the buffer. The carry is kept UNREDACTED on purpose: the net matches a
+	// token by its start ("Bearer ...", "token=..."), so redacting a half-arrived token
+	// would leave its continuation unmatched. Redaction runs here, before any byte
+	// reaches the database, and there is no raw path: if the append fails the chunk is
+	// dropped and the stream is marked failed (capture_error), never retried unredacted.
+	cut := len(w.out)
+	if !final {
+		cut = len(w.out) - max(logCarryBytes, w.delivery.scope.MaxValueLen()-1)
+		cut, _ = settleCut(w.out, cut, w.delivery.scope)
+		for cut > 0 && cut < len(w.out) && !utf8.RuneStart(w.out[cut]) {
+			cut--
 		}
 	}
+	if cut <= 0 {
+		// Nothing can be released yet; look again when more output arrives or at close.
+		w.timer = time.AfterFunc(w.delivery.core.logFlushInterval(), w.flushOnTimer)
+		return
+	}
+	text := w.delivery.scope.Text(string(w.out[:cut]))
+	w.out = append([]byte(nil), w.out[cut:]...)
+	if err := w.delivery.core.captureLog(ctx, w.delivery.job, w.delivery.fire, w.stream, text); err != nil {
+		w.failed = true
+	}
+	if len(w.out) > 0 {
+		w.timer = time.AfterFunc(w.delivery.core.logFlushInterval(), w.flushOnTimer)
+	}
+}
+
+func (w *logWriter) flushOnTimer() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.timer = nil
+	if w.closed {
+		return
+	}
+	w.appendOut(context.Background(), false)
+}
+
+// settleCut moves cut back until neither a private-key block nor a registered value
+// crosses it. Each adjustment can expose the other (a value's start may fall inside a
+// block, a block's start inside another value), so it repeats until the cut stops moving.
+// The cut only ever decreases and is bounded below by zero, so this terminates; the second
+// result is the number of adjusting passes (tests use it).
+func settleCut(out []byte, cut int, scope *redact.Scope) (int, int) {
+	passes := 0
+	for {
+		before := cut
+		cut = holdPEM(out, cut)
+		cut = scope.HoldStraddlers(out, cut)
+		if cut == before {
+			return cut, passes
+		}
+		passes++
+	}
+}
+
+// holdPEM moves cut back so it never falls inside a private-key block: the net
+// matches a block only whole, with its END line, so the block is released together or
+// held. An open block (no END yet) is held while it is no longer than logPEMHoldBytes.
+func holdPEM(out []byte, cut int) int {
+	begin, end := []byte("-----BEGIN "), []byte("-----END ")
+	for from := 0; from < len(out); {
+		i := bytes.Index(out[from:], begin)
+		if i < 0 {
+			break
+		}
+		i += from
+		e := bytes.Index(out[i:], end)
+		if e < 0 {
+			if len(out)-i <= logPEMHoldBytes {
+				cut = min(cut, i)
+			}
+			break
+		}
+		blockEnd := len(out)
+		if tail := bytes.Index(out[i+e+len(end):], []byte("-----")); tail >= 0 {
+			blockEnd = i + e + len(end) + tail + len("-----")
+		}
+		if i < cut && cut < blockEnd {
+			cut = i
+		}
+		from = blockEnd
+	}
+	return cut
+}
+
+// captureLog appends redacted text to a stream; tests replace it with logSink.
+func (c *Core) captureLog(ctx context.Context, j Job, f scheduler.Job, stream, text string) error {
+	if c.logSink != nil {
+		return c.logSink(stream, text)
+	}
+	return c.appendLog(ctx, j, f, stream, text)
+}
+
+// logFlushInterval is the interval after which buffered output is appended; tests
+// shorten it.
+func (c *Core) logFlushInterval() time.Duration {
+	if c.flushInterval > 0 {
+		return c.flushInterval
+	}
+	return logFlushInterval
 }
 
 // Default limits bound retained sanitized bytes, including inaccessible orphans.
