@@ -661,3 +661,60 @@ func TestACompleteValueInASecondWriteIsNeverStoredWhereverItEndsRelativeToTheCut
 		})
 	}
 }
+
+// The settle loop runs until the cut stops moving: a value's start can fall inside a
+// private-key block, whose start can fall inside another value, and so on. This chain
+// needs five adjusting passes (a loop capped at four would release a straddling
+// value): V1's start is inside P1, P1's BEGIN inside V2, V2's start inside P2, ... up to
+// V5. Each Vj embeds the marker text that closes one block and opens the next.
+func TestSettleCutFollowsAChainOfAlternatingBlocksAndValues(t *testing.T) {
+	values := []string{
+		"p5-----BEGIN K-----q5xxxx",                    // opens P4
+		"p4-----END K-----m4-----BEGIN K-----q4xxxx",   // closes P4, opens P3
+		"p3-----END K-----m3-----BEGIN K-----q3xxxx",   // closes P3, opens P2
+		"p2-----END K-----m2-----BEGIN K-----q2xxxx",   // closes P2, opens P1
+		"p1-----END K-----" + strings.Repeat("q1", 30), // closes P1
+	}
+	scope := &redact.Scope{}
+	for i, v := range values {
+		scope.Add(fmt.Sprintf("v%d", i), v)
+	}
+	// The cut sits inside the last value, after the END marker it contains.
+	text := strings.Join(values, " ")
+	lastStart := strings.LastIndex(text, values[4])
+	cut := lastStart + len("p1-----END K-----") + 10
+	// Pad so that, with the carry, the writer's own cut lands exactly on cut.
+	text += strings.Repeat("t", cut+logCarryBytes-len(text))
+
+	settled, passes := settleCut([]byte(text), cut, scope)
+	if passes < 5 {
+		t.Fatalf("the chain took %d passes; the test needs at least 5", passes)
+	}
+	if settled != 0 {
+		t.Fatalf("settled cut = %d; want the start of the first value (0)", settled)
+	}
+	if again, more := settleCut([]byte(text), settled, scope); again != settled || more != 0 {
+		t.Fatalf("not a fixed point: %d (%d passes)", again, more)
+	}
+
+	// And through the writer: nothing of any value is stored, whatever the layout.
+	clock := &testClock{at: time.Now().UTC()}
+	c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+	c.flushInterval = time.Hour
+	var stored []string
+	c.logSink = func(_, s string) error { stored = append(stored, s); return nil }
+	w := &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+	if _, err := w.Write([]byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	w.flushOnTimer()
+	w.close(context.Background())
+	all := strings.Join(stored, "")
+	for _, v := range values {
+		for _, piece := range []string{v, v[:12], v[len(v)-12:]} {
+			if strings.Contains(all, piece) {
+				t.Fatalf("stored %q", piece)
+			}
+		}
+	}
+}

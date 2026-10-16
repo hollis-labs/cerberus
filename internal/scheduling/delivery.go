@@ -281,14 +281,7 @@ func (w *logWriter) appendOut(ctx context.Context, final bool) {
 	cut := len(w.out)
 	if !final {
 		cut = len(w.out) - max(logCarryBytes, w.delivery.scope.MaxValueLen()-1)
-		for range 4 { // each adjustment can expose the other; this settles in a pass or two
-			before := cut
-			cut = holdPEM(w.out, cut)
-			cut = w.delivery.scope.HoldStraddlers(w.out, cut)
-			if cut == before {
-				break
-			}
-		}
+		cut, _ = settleCut(w.out, cut, w.delivery.scope)
 		for cut > 0 && cut < len(w.out) && !utf8.RuneStart(w.out[cut]) {
 			cut--
 		}
@@ -316,6 +309,24 @@ func (w *logWriter) flushOnTimer() {
 		return
 	}
 	w.appendOut(context.Background(), false)
+}
+
+// settleCut moves cut back until neither a private-key block nor a registered value
+// crosses it. Each adjustment can expose the other (a value's start may fall inside a
+// block, a block's start inside another value), so it repeats until the cut stops moving.
+// The cut only ever decreases and is bounded below by zero, so this terminates; the second
+// result is the number of adjusting passes (tests use it).
+func settleCut(out []byte, cut int, scope *redact.Scope) (int, int) {
+	passes := 0
+	for {
+		before := cut
+		cut = holdPEM(out, cut)
+		cut = scope.HoldStraddlers(out, cut)
+		if cut == before {
+			return cut, passes
+		}
+		passes++
+	}
 }
 
 // holdPEM moves cut back so it never falls inside a private-key block: the net
