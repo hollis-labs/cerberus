@@ -155,9 +155,12 @@ func readFileFrom(file string, newest bool, out *Batch, limit int) (stop *Stop, 
 	damagedAt := int64(-1) // start of a run of unparseable lines awaiting a chain_break
 	r := bufio.NewReaderSize(f, 64*1024)
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, _, tooLong, readErr := ReadBoundedLine(r, MaxLineBytes)
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return nil, false, readErr
+		}
+		if tooLong {
+			return &Stop{StopDamaged, fmt.Sprintf("%s: the line at offset %d is over %d bytes", name, offset, MaxLineBytes)}, false, nil
 		}
 		if len(line) == 0 {
 			if damagedAt >= 0 {
@@ -284,6 +287,29 @@ func locate(dir string, seq uint64) (string, int64, error) {
 	return "", 0, fmt.Errorf("audit: seq %d is not in any month file", seq)
 }
 
+// ReadBoundedLine reads one line (including its newline, when it has one) of at
+// most limit bytes. n is the number of bytes consumed, which is the line's length
+// even when it is too long to keep: a longer line is consumed to its end without
+// being retained and reported as tooLong, so a corrupted file with no newline
+// cannot make a reader allocate without bound.
+func ReadBoundedLine(r *bufio.Reader, limit int) (line []byte, n int, tooLong bool, err error) {
+	for {
+		chunk, readErr := r.ReadSlice('\n')
+		n += len(chunk)
+		if !tooLong {
+			if len(line)+len(chunk) > limit+1 {
+				tooLong, line = true, nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			continue
+		}
+		return line, n, tooLong, readErr
+	}
+}
+
 // positionAfter is the offset just past the line of record seq in file, or 0
 // when the file does not hold it.
 func positionAfter(file string, seq uint64) (int64, error) {
@@ -295,15 +321,16 @@ func positionAfter(file string, seq uint64) (int64, error) {
 	r := bufio.NewReaderSize(f, 64*1024)
 	var offset int64
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, n, tooLong, readErr := ReadBoundedLine(r, MaxLineBytes)
+		if tooLong {
+			return 0, nil // a damaged line: the cursor cannot be placed past it
+		}
+		offset += int64(n)
 		if len(line) > 0 && line[len(line)-1] == '\n' {
-			offset += int64(len(line))
 			var rec Record
-			if len(line) <= MaxLineBytes && json.Unmarshal(bytes.TrimSpace(line), &rec) == nil && rec.Seq == seq {
+			if json.Unmarshal(bytes.TrimSpace(line), &rec) == nil && rec.Seq == seq {
 				return offset, nil
 			}
-		} else {
-			offset += int64(len(line))
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
@@ -312,4 +339,34 @@ func positionAfter(file string, seq uint64) (int64, error) {
 			return 0, readErr
 		}
 	}
+}
+
+// CursorValid reports whether cur still names a place in the log: its file
+// exists, holds at least cur.Offset bytes, and the record that ends there is
+// cur.Seq with cur.Hash. A log restored to an older copy, or rewritten, fails
+// it. The zero Cursor is always valid.
+func CursorValid(dir string, cur Cursor) (bool, error) {
+	if cur == (Cursor{}) {
+		return true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, filepath.Base(cur.File))) //nolint:gosec // the audit directory's own file
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return endsWithRecord(data, cur.Offset, cur.Seq, cur.Hash), nil
+}
+
+// endsWithRecord reports whether the line that ends at offset in data is the
+// record seq with hash.
+func endsWithRecord(data []byte, offset int64, seq uint64, hash string) bool {
+	if offset <= 0 || offset > int64(len(data)) || data[offset-1] != '\n' {
+		return false
+	}
+	prefix := bytes.TrimRight(data[:offset], "\n")
+	start := bytes.LastIndexByte(prefix, '\n') + 1
+	var rec Record
+	return json.Unmarshal(prefix[start:], &rec) == nil && rec.Seq == seq && rec.Hash == hash
 }

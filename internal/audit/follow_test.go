@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -362,4 +363,53 @@ func TestReadFromFollowsAConcurrentWriter(t *testing.T) {
 
 func replaceOnce(data []byte, old, replacement string) []byte {
 	return bytes.Replace(data, []byte(old), []byte(replacement), 1)
+}
+
+func TestCursorValidDetectsARestoredOrRewrittenLog(t *testing.T) {
+	sink, dir, _ := followSink(t, time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC))
+	writeOps(t, sink, 0, 3)
+	cur, err := TailCursor(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, verr := CursorValid(dir, cur); verr != nil || !ok {
+		t.Fatalf("a good cursor: ok=%v err=%v", ok, verr)
+	}
+	if ok, _ := CursorValid(dir, Cursor{}); !ok {
+		t.Fatal("the zero cursor is valid")
+	}
+	// A cursor from a longer history than this log has (a restore to an older copy).
+	if ok, _ := CursorValid(dir, Cursor{File: cur.File, Offset: cur.Offset + 500, Seq: cur.Seq + 5, Hash: "sha256:x"}); ok {
+		t.Fatal("a cursor beyond the log was accepted")
+	}
+	// Same place, different record.
+	if ok, _ := CursorValid(dir, Cursor{File: cur.File, Offset: cur.Offset, Seq: cur.Seq, Hash: "sha256:other"}); ok {
+		t.Fatal("a cursor with another hash was accepted")
+	}
+	if ok, _ := CursorValid(dir, Cursor{File: "2020-01.jsonl", Offset: 10, Seq: 1, Hash: "x"}); ok {
+		t.Fatal("a cursor into a missing file was accepted")
+	}
+}
+
+// A corrupted file with a huge line (or one with no newline at all) must end the
+// read with a Stop, not make the reader allocate the whole thing.
+func TestReadFromStopsAtAnOverlongLine(t *testing.T) {
+	for name, tail := range map[string]string{
+		"with a newline":    strings.Repeat("x", MaxLineBytes+10) + "\n",
+		"without a newline": strings.Repeat("x", MaxLineBytes+10),
+	} {
+		sink, dir, _ := followSink(t, time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC))
+		writeOps(t, sink, 0, 2)
+		files, _ := monthFiles(dir)
+		f, err := os.OpenFile(files[0], os.O_APPEND|os.O_WRONLY, fileMode) //nolint:gosec // the test's own file
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = f.WriteString(tail)
+		_ = f.Close()
+		batch, err := ReadFrom(dir, Cursor{}, 0)
+		if err != nil || batch.Stop == nil || batch.Stop.Reason != StopDamaged || fmt.Sprint(seqs(batch.Records)) != "[1 2 3]" {
+			t.Errorf("%s: %+v, %v", name, batch, err)
+		}
+	}
 }

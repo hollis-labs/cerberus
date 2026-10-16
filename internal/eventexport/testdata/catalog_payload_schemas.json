@@ -1,0 +1,8 @@
+{
+  "_note": "payload_schema ids of the kinds Cerberus exports, copied from libs harness/core adapters/runtimeevents/catalog/catalog.json. Refresh when the catalog changes; P-C replaces this with the catalog package itself.",
+  "audit.recorded": "urn:hollis-labs:events:audit.recorded@1",
+  "approval.requested": "urn:hollis-labs:events:approval.requested@1",
+  "approval.resolved": "urn:hollis-labs:events:approval.resolved@1",
+  "alert.raised": "urn:hollis-labs:events:alert@1",
+  "alert.cleared": "urn:hollis-labs:events:alert@1"
+}

@@ -92,9 +92,13 @@ func ReadFrom(dir string, cur Cursor, limit int) (Batch, error) {
 	offset := cur.Offset
 	var pendingDamage []int64
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, _, tooLong, readErr := audit.ReadBoundedLine(r, audit.MaxLineBytes)
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return out, readErr
+		}
+		if tooLong {
+			out.Stop = &Stop{StopBroken, fmt.Sprintf("the line at offset %d is over %d bytes", offset, audit.MaxLineBytes)}
+			return out, nil
 		}
 		if len(line) == 0 || line[len(line)-1] != '\n' {
 			return out, nil // end of file, or a write in progress
@@ -104,10 +108,6 @@ func ReadFrom(dir string, cur Cursor, limit int) (Batch, error) {
 		if len(body) == 0 {
 			offset = next
 			continue
-		}
-		if len(line) > audit.MaxLineBytes {
-			out.Stop = &Stop{StopBroken, fmt.Sprintf("the line at offset %d is over %d bytes", offset, audit.MaxLineBytes)}
-			return out, nil
 		}
 		var ev Event
 		if json.Unmarshal(body, &ev) != nil {
@@ -168,9 +168,16 @@ func ResumeAfterReanchor(dir string, cur Cursor) (next Cursor, ok bool, err erro
 	r := bufio.NewReaderSize(f, 64*1024)
 	offset, seq, last := cur.Offset, cur.Seq, cur.Hash
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, n, tooLong, readErr := audit.ReadBoundedLine(r, audit.MaxLineBytes)
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return Cursor{}, false, readErr
+		}
+		if tooLong {
+			offset += int64(n) // skipped without being kept
+			if readErr != nil {
+				return Cursor{}, false, nil
+			}
+			continue
 		}
 		if len(line) == 0 || line[len(line)-1] != '\n' {
 			return Cursor{}, false, nil
@@ -186,4 +193,28 @@ func ResumeAfterReanchor(dir string, cur Cursor) (next Cursor, ok bool, err erro
 		}
 		seq, last = ev.Seq, ev.Hash
 	}
+}
+
+// CursorValid reports whether cur still names a place in the store: the file
+// holds at least cur.Offset bytes and the event that ends there is cur.Seq with
+// cur.Hash. A store restored to an older copy, or rewritten, fails it. The zero
+// Cursor is always valid.
+func CursorValid(dir string, cur Cursor) (bool, error) {
+	if cur == (Cursor{}) {
+		return true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, FileName)) //nolint:gosec // the store's own file
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if cur.Offset <= 0 || cur.Offset > int64(len(data)) || data[cur.Offset-1] != '\n' {
+		return false, nil
+	}
+	prefix := bytes.TrimRight(data[:cur.Offset], "\n")
+	start := bytes.LastIndexByte(prefix, '\n') + 1
+	var ev Event
+	return json.Unmarshal(prefix[start:], &ev) == nil && ev.Seq == cur.Seq && ev.Hash == cur.Hash, nil
 }
