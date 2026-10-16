@@ -18,7 +18,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/secretref"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/server"
 )
 
 type ManagedPluginConnectorState struct {

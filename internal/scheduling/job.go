@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 const jobType = "cerberus.job.v1"

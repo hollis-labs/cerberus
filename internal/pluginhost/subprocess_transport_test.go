@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/capability"
+	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/capability"
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	sdksubprocess "github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
+	sdksubprocess "github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // sdkTestPlugin records the init config so a test can assert what actually

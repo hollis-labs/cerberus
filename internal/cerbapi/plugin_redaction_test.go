@@ -16,7 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/connector"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/server"
 )
 
 // Sentinels for the two ways a credential reaches plugin error text: one the

@@ -41,7 +41,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	secret "github.com/hollis-labs/cerberus/pkg/secret"
-	sdksubprocess "github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
+	sdksubprocess "github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // Value is the resolved credential: no provider prefix, no label, not

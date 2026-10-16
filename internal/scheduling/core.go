@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hollis-labs/cerberus/internal/redact"
-	"github.com/hollis-labs/libs/util/scheduler"
-	"github.com/hollis-labs/libs/util/scheduler/sqlstore"
+	"github.com/hollis-labs/libs/core/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler/sqlstore"
 )
 
 // Request is recomputed at effect admission, including the current runtime plan.

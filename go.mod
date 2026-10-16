@@ -7,10 +7,11 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
-	github.com/hollis-labs/libs/plugin-mcp v0.1.1
-	github.com/hollis-labs/libs/ui-go v0.1.0
-	github.com/hollis-labs/libs/util v0.4.0
+	github.com/hollis-labs/libs/core/util v0.4.0
+	github.com/hollis-labs/libs/mcp/plugin-mcp v0.3.0
+	github.com/hollis-labs/libs/ui/ui-go v0.1.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pkg/sftp v1.13.11
@@ -31,7 +32,6 @@ require (
 	github.com/go-webauthn/x v0.3.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/pprof v0.0.0-20260906184651-6331bc6350fe // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect

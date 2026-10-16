@@ -19,7 +19,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	gmcp "github.com/hollis-labs/libs/plugin-mcp/go-mcp/server"
+	gmcp "github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/server"
 )
 
 // shortSocketPath returns a short unix-socket path (macOS sun_path

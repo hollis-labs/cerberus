@@ -693,11 +693,11 @@ Service stdout/stderr goes to `$TMPDIR/cerberus-<service-id>.log`.
 
 ## Published Go dependencies
 
-Cerberus uses `github.com/hollis-labs/libs/util` v0.2.0,
-`github.com/hollis-labs/libs/ui-go` v0.1.0 and
-`github.com/hollis-labs/libs/plugin-mcp` v0.1.1. Building requires Go 1.26.8 or
+Cerberus uses `github.com/hollis-labs/libs/core/util` v0.2.0,
+`github.com/hollis-labs/libs/ui/ui-go` v0.1.0 and
+`github.com/hollis-labs/libs/mcp/plugin-mcp` v0.1.1. Building requires Go 1.26.8 or
 newer. Plugin authors import the SDK from
-`github.com/hollis-labs/libs/plugin-mcp/plugin-sdk`.
+`github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk`.
 
 The subprocess host now requires protocol 2 and capability contract 1; a
 protocol-1 plugin must migrate before it can load. Cerberus remains a

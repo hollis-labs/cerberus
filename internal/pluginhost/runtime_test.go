@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
-	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/capability"
+	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/capability"
 )
 
 func newTestManager(t *testing.T, installer Installer, launcher Launcher, version string, opts ...ManagerOption) *Manager {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hollis-labs/libs/util/scheduler"
+	"github.com/hollis-labs/libs/core/util/scheduler"
 )
 
 func fixtureAccess(context.Context, Call) (func(error), error) { return func(error) {}, nil }

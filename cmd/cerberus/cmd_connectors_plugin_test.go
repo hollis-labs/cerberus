@@ -20,7 +20,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	cerbplugin "github.com/hollis-labs/cerberus/pkg/plugin"
-	sdksubprocess "github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
+	sdksubprocess "github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/subprocess"
 	"gopkg.in/yaml.v3"
 )
 

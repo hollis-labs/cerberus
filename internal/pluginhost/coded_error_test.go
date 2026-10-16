@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/pkg/plugin"
-	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/subprocess"
+	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/subprocess"
 )
 
 // resultProcess answers every call with a fixed tool result.

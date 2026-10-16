@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
-	"github.com/hollis-labs/libs/plugin-mcp/plugin-sdk/capability"
+	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/capability"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secrets"
