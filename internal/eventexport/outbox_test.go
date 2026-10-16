@@ -163,3 +163,148 @@ func TestAFreshOutboxGetsANewGeneration(t *testing.T) {
 		t.Fatalf("two outboxes share generation %d", a.Generation())
 	}
 }
+
+// faultFS fails one step of an append, after letting the earlier steps through.
+type faultFS struct {
+	osFS
+	partialWrite bool // write half the line, then fail
+	failSync     bool
+	failClose    bool
+	failTruncate bool
+}
+
+type faultFile struct {
+	appendFile
+	fs *faultFS
+}
+
+func (f faultFile) Write(p []byte) (int, error) {
+	if f.fs.partialWrite {
+		n, _ := f.appendFile.Write(p[:len(p)/2])
+		return n, errors.New("injected short write")
+	}
+	return f.appendFile.Write(p)
+}
+func (f faultFile) Sync() error {
+	if f.fs.failSync {
+		return errors.New("injected sync failure")
+	}
+	return f.appendFile.Sync()
+}
+func (f faultFile) Close() error {
+	err := f.appendFile.Close()
+	if f.fs.failClose {
+		return errors.New("injected close failure")
+	}
+	return err
+}
+
+func (fs *faultFS) OpenAppend(path string) (appendFile, error) {
+	f, err := fs.osFS.OpenAppend(path)
+	return faultFile{f, fs}, err
+}
+
+func (fs *faultFS) Truncate(path string, size int64) error {
+	if fs.failTruncate {
+		return errors.New("injected truncate failure")
+	}
+	return fs.osFS.Truncate(path, size)
+}
+
+// A failed append must leave the outbox exactly as it was, so the retry appends
+// one line with the next sequence and the file never holds a second line with the
+// same sequence, a glued fragment, or anything that makes it refuse to open.
+func TestAFailedAppendIsRolledBackAndTheRetrySucceeds(t *testing.T) {
+	for name, fault := range map[string]*faultFS{
+		"short write":   {partialWrite: true},
+		"sync failure":  {failSync: true},
+		"close failure": {failClose: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "outbox")
+			o, err := OpenFileOutbox(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err = o.Append("a/1", SourceRef{Source: "audit"}, testEnvelope("audit.recorded")); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, outboxFile)
+			before, _ := os.ReadFile(path) //nolint:gosec // the test's own file
+
+			o.fs = fault
+			if _, _, err = o.Append("a/2", SourceRef{Source: "audit"}, testEnvelope("audit.recorded")); err == nil {
+				t.Fatal("the injected failure was not reported")
+			}
+			after, _ := os.ReadFile(path) //nolint:gosec // the test's own file
+			if string(after) != string(before) {
+				t.Fatalf("a failed append left bytes behind:\n%s", after)
+			}
+			if o.Has("a/2") {
+				t.Fatal("a failed append was remembered")
+			}
+
+			o.fs = osFS{}
+			entry, created, err := o.Append("a/2", SourceRef{Source: "audit"}, testEnvelope("audit.recorded"))
+			if err != nil || !created || entry.Seq != 2 {
+				t.Fatalf("retry = %+v created=%v err=%v", entry, created, err)
+			}
+			reopened, err := OpenFileOutbox(dir)
+			if err != nil {
+				t.Fatalf("the outbox no longer opens: %v", err)
+			}
+			entries, _ := reopened.After(0, 0)
+			if len(entries) != 2 || entries[0].Seq != 1 || entries[1].Seq != 2 {
+				t.Fatalf("entries = %+v", entries)
+			}
+		})
+	}
+}
+
+func TestAnAppendThatCannotBeRolledBackBreaksTheOutboxInsteadOfBuildingOnIt(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "outbox")
+	o, err := OpenFileOutbox(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = o.Append("a/1", SourceRef{Source: "audit"}, testEnvelope("audit.recorded")); err != nil {
+		t.Fatal(err)
+	}
+	o.fs = &faultFS{partialWrite: true, failTruncate: true}
+	if _, _, err = o.Append("a/2", SourceRef{Source: "audit"}, testEnvelope("audit.recorded")); !errors.Is(err, ErrRefused) {
+		t.Fatalf("err = %v", err)
+	}
+	o.fs = osFS{}
+	if _, _, err = o.Append("a/3", SourceRef{Source: "audit"}, testEnvelope("audit.recorded")); !errors.Is(err, ErrRefused) {
+		t.Fatalf("a later append built on an unknown file state: %v", err)
+	}
+	// Reopening repairs a torn tail (a short write leaves one) and carries on.
+	reopened, err := OpenFileOutbox(dir)
+	if err != nil {
+		t.Fatalf("reopen after the broken state: %v", err)
+	}
+	if e, _, err := reopened.Append("a/2", SourceRef{Source: "audit"}, testEnvelope("audit.recorded")); err != nil || e.Seq != 2 {
+		t.Fatalf("after reopen: %+v, %v", e, err)
+	}
+}
+
+func TestAnExistingOutboxFileIsRestrictedTo0600(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "outbox")
+	o, err := OpenFileOutbox(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = o.Append("a/1", SourceRef{Source: "audit"}, testEnvelope("audit.recorded")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, outboxFile)
+	if err = os.Chmod(path, 0o644); err != nil { //nolint:gosec // the test widens it on purpose
+		t.Fatal(err)
+	}
+	if _, err = OpenFileOutbox(dir); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", info.Mode().Perm())
+	}
+}

@@ -11,6 +11,12 @@
 // and a deduplication key naming the source record, so a replay after a crash
 // appends nothing twice.
 //
+// Known limits (planned, not done here): the outbox is never rotated and its keys
+// are held in memory, After and a duplicate lookup scan the file from the start,
+// and an approval store line that did not parse is reported once and never
+// cleared. All are fine at Cerberus's volume today; rotation arrives with the
+// relay, which is what decides when an entry may be dropped.
+//
 // Export is off by default (see Settings). The first time it runs it starts at
 // the verified tail of each source and does not back-fill.
 package eventexport

@@ -70,6 +70,9 @@ type FileOutbox struct {
 	dir        string
 	generation uint64
 
+	fs     outboxFS
+	broken error // set when a failed append could not be rolled back; every later Append fails
+
 	mu   sync.Mutex
 	head Entry
 	n    uint64
@@ -93,7 +96,7 @@ func OpenFileOutbox(dir string) (*FileOutbox, error) {
 	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // a directory: owner-only
 		return nil, fmt.Errorf("eventexport: restrict %s: %w", dir, err)
 	}
-	o := &FileOutbox{dir: dir, keys: map[string]uint64{}}
+	o := &FileOutbox{dir: dir, keys: map[string]uint64{}, fs: osFS{}}
 	path := filepath.Join(dir, outboxFile)
 	data, readErr := os.ReadFile(path) //nolint:gosec // the outbox's own file
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
@@ -116,6 +119,11 @@ func OpenFileOutbox(dir string) (*FileOutbox, error) {
 		return nil, fmt.Errorf("%w: %s holds entries but its generation file is missing", ErrRefused, dir)
 	default:
 		return nil, fmt.Errorf("%w: %w", ErrRefused, genErr)
+	}
+	if readErr == nil {
+		if err := os.Chmod(path, 0o600); err != nil { //nolint:gosec // owner-only
+			return nil, fmt.Errorf("eventexport: restrict %s: %w", path, err)
+		}
 	}
 	good, err := o.load(data)
 	if err != nil {
@@ -191,23 +199,90 @@ func (o *FileOutbox) Append(key string, src SourceRef, e Envelope) (Entry, bool,
 	if err != nil {
 		return Entry{}, false, err
 	}
-	f, err := os.OpenFile(filepath.Join(o.dir, outboxFile), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // the outbox's own file
-	if err != nil {
-		return Entry{}, false, fmt.Errorf("eventexport: open outbox: %w", err)
-	}
-	if _, err = f.Write(append(line, '\n')); err != nil {
-		_ = f.Close()
-		return Entry{}, false, fmt.Errorf("eventexport: append: %w", err)
-	}
-	if err = f.Sync(); err != nil {
-		_ = f.Close()
-		return Entry{}, false, fmt.Errorf("eventexport: sync: %w", err)
-	}
-	if err = f.Close(); err != nil {
+	if err := o.write(append(line, '\n')); err != nil {
 		return Entry{}, false, err
 	}
 	o.keys[key], o.head, o.n, o.sum = entry.Seq, entry, entry.Seq, lineSum(line)
 	return entry, true, nil
+}
+
+// write appends one complete line durably. On any failure it truncates the file
+// back to its size before the attempt, so a line that reached the file but was
+// not acknowledged (a short write, a failed sync or close) is not left behind to
+// be duplicated by the retry, to corrupt the line after it, or to make the
+// outbox refuse to open. If even the rollback fails the outbox is marked broken:
+// every later Append fails rather than build on a file in an unknown state.
+func (o *FileOutbox) write(line []byte) error {
+	if o.broken != nil {
+		return o.broken
+	}
+	path := filepath.Join(o.dir, outboxFile)
+	var size int64
+	created := false
+	if info, err := os.Stat(path); err == nil {
+		size = info.Size()
+	} else if errors.Is(err, os.ErrNotExist) {
+		created = true
+	} else {
+		return fmt.Errorf("eventexport: stat outbox: %w", err)
+	}
+	f, err := o.fs.OpenAppend(path)
+	if err != nil {
+		return fmt.Errorf("eventexport: open outbox: %w", err)
+	}
+	var werr error
+	if _, werr = f.Write(line); werr == nil {
+		werr = f.Sync()
+	}
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil && created {
+		werr = o.fs.SyncDir(o.dir)
+	}
+	if werr == nil {
+		return nil
+	}
+	if terr := o.fs.Truncate(path, size); terr != nil {
+		o.broken = fmt.Errorf("%w: an append failed (%w) and could not be rolled back (%w)", ErrRefused, werr, terr)
+		return o.broken
+	}
+	return fmt.Errorf("eventexport: append: %w", werr)
+}
+
+// outboxFS is the file system the outbox writes through; tests replace it to
+// inject failures.
+type outboxFS interface {
+	OpenAppend(path string) (appendFile, error)
+	Truncate(path string, size int64) error
+	SyncDir(dir string) error
+}
+
+type appendFile interface {
+	Write([]byte) (int, error)
+	Sync() error
+	Close() error
+}
+
+type osFS struct{}
+
+func (osFS) OpenAppend(path string) (appendFile, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec // the outbox's own file
+}
+func (osFS) Truncate(path string, size int64) error { return os.Truncate(path, size) }
+func (osFS) SyncDir(dir string) error               { return syncDir(dir) }
+
+// syncDir makes a creation or rename in dir durable.
+func syncDir(dir string) error {
+	d, err := os.Open(dir) //nolint:gosec // the outbox's own directory
+	if err != nil {
+		return err
+	}
+	syncErr := d.Sync()
+	if closeErr := d.Close(); syncErr == nil {
+		syncErr = closeErr
+	}
+	return syncErr
 }
 
 // entry reads one stored entry by sequence.
@@ -304,8 +379,21 @@ func readGeneration(dir string) (uint64, error) {
 
 func writeGeneration(dir string, g uint64) error {
 	tmp := filepath.Join(dir, generationFile+".tmp")
-	if err := os.WriteFile(tmp, []byte(fmt.Sprintf("%d\n", g)), 0o600); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // the outbox's own file
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, generationFile))
+	if _, err = fmt.Fprintf(f, "%d\n", g); err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(tmp, filepath.Join(dir, generationFile)); err != nil {
+		return err
+	}
+	return syncDir(dir)
 }

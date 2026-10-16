@@ -397,6 +397,12 @@ func TestStartRefusesWhenASourceDoesNotHoldTheCheckpoint(t *testing.T) {
 	if _, err := r.exporter(); !errors.Is(err, ErrRefused) {
 		t.Fatalf("a restored source was accepted: %v", err)
 	}
+	// The refusal is visible on disk, not only in the returned error, and a stale
+	// "running" file from the earlier run does not outlive it.
+	onDisk, err := os.ReadFile(filepath.Join(r.root, "events", ChannelAudit, StatusFile)) //nolint:gosec // the test's own file
+	if err != nil || !strings.Contains(string(onDisk), `"state": "refused"`) || !strings.Contains(string(onDisk), "checkpoint_mismatch") {
+		t.Fatalf("status file after a refusal = %s (%v)", onDisk, err)
+	}
 }
 
 func TestStartRefusesAnOutboxWithEntriesAndNoCheckpoint(t *testing.T) {
@@ -632,4 +638,64 @@ func mustAfterOutbox(t *testing.T, o Outbox) []Entry {
 		t.Fatal(err)
 	}
 	return entries
+}
+
+// Dedup keys carry the record's hash: a store restored or rewritten with reused
+// sequence numbers must not have its new records treated as already exported.
+func TestDedupKeysCarryTheRecordHash(t *testing.T) {
+	a := mapAudit1(t, audit.Record{Seq: 3, Kind: audit.KindIntent, Time: at, OperationID: "op", Hash: "sha256:" + strings.Repeat("a", 64)})
+	b := mapAudit1(t, audit.Record{Seq: 3, Kind: audit.KindIntent, Time: at, OperationID: "op", Hash: "sha256:" + strings.Repeat("b", 64)})
+	if a.Key == b.Key {
+		t.Fatalf("two different records share key %s", a.Key)
+	}
+	o, err := OpenFileOutbox(filepath.Join(t.TempDir(), "outbox"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := o.Append(a.Key, SourceRef{Source: "audit", Seq: 3}, a.Envelope); err != nil || !created {
+		t.Fatalf("first: created=%v err=%v", created, err)
+	}
+	if _, created, err := o.Append(b.Key, SourceRef{Source: "audit", Seq: 3}, b.Envelope); err != nil || !created {
+		t.Fatalf("a different record with the same sequence number was dropped as a duplicate: created=%v err=%v", created, err)
+	}
+	if _, created, _ := o.Append(a.Key, SourceRef{Source: "audit", Seq: 3}, a.Envelope); created {
+		t.Fatal("the same record was exported twice")
+	}
+}
+
+// A stop that no longer reproduces (the read raced the sink's own heal, so there
+// is nothing to reanchor) clears itself with a cleared alert.
+func TestAStopThatNoLongerReproducesClearsItself(t *testing.T) {
+	r := newRig(t)
+	e := r.must(r.exporter())
+	r.intent("op-1")
+	step(t, e)
+	files, _ := filepath.Glob(filepath.Join(r.auditDir, "*.jsonl"))
+	r.intent("op-2")
+	good, _ := os.ReadFile(files[0]) //nolint:gosec // the test's own file
+	bad := bytes.Replace(good, []byte(`"operation_id":"op-2"`), []byte(`"operation_id":"OP-2"`), 1)
+	if err := os.WriteFile(files[0], bad, 0o600); err != nil { //nolint:gosec // the test's own file
+		t.Fatal(err)
+	}
+	step(t, e)
+	if st := e.Status(); st.Audit.State != StateStopped {
+		t.Fatalf("status = %+v", st)
+	}
+	if err := os.WriteFile(files[0], good, 0o600); err != nil { //nolint:gosec // the test's own file
+		t.Fatal(err)
+	}
+	step(t, e)
+	if st := e.Status(); st.Audit.State != StateRunning {
+		t.Fatalf("the stop did not clear: %+v", st)
+	}
+	raised, cleared := coalescePair(t, mustAfter(t, e), RuleAuditChainBroken)
+	if len(raised) != 1 || len(cleared) != 1 || raised[0] != cleared[0] {
+		t.Fatalf("raised %v cleared %v", raised, cleared)
+	}
+	r.intent("op-3")
+	step(t, e)
+	last := mustAfter(t, e)
+	if last[len(last)-1].Envelope.Kind != "audit.recorded" {
+		t.Fatalf("export did not carry on: %s", last[len(last)-1].Envelope.Kind)
+	}
 }

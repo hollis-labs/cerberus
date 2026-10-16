@@ -34,6 +34,9 @@ type Config struct {
 const (
 	StateRunning = "running"
 	StateStopped = "stopped"
+	// StateRefused: the exporter would not start, because the outbox and a source
+	// disagree. Nothing is exported until an operator moves the outbox aside.
+	StateRefused = "refused"
 )
 
 // SourceStatus is the visible state of one source. A stopped source is not an
@@ -121,11 +124,28 @@ func New(cfg Config) (*Exporter, error) {
 			return nil, fmt.Errorf("eventexport: check the %s checkpoint: %w", name, err)
 		}
 		if !ok {
-			return nil, fmt.Errorf("%w: the %s store does not hold the place the checkpoint records (restored or rewritten?); move %s aside to start a new outbox with a new generation", ErrRefused, name, e.outboxDir())
+			refusal := fmt.Errorf("%w: the %s store does not hold the place the checkpoint records (restored or rewritten?); move %s aside to start a new outbox with a new generation", ErrRefused, name, e.outboxDir())
+			e.writeRefusedStatus(name, refusal)
+			return nil, refusal
 		}
 	}
 	e.seedGaps()
 	return e, nil
+}
+
+// writeRefusedStatus leaves status.json saying why the exporter would not start,
+// so a stale "running" file from an earlier run cannot outlive a refusal.
+func (e *Exporter) writeRefusedStatus(source string, cause error) {
+	s := e.status
+	refused := SourceStatus{State: StateRefused, Reason: "checkpoint_mismatch", Detail: cause.Error()}
+	if source == "approval" {
+		s.Approval = refused
+	} else {
+		s.Audit = refused
+	}
+	s.LastError = cause.Error()
+	e.status = s
+	e.writeStatus()
 }
 
 func (e *Exporter) outboxDir() string { return filepath.Join(e.cfg.OutboxDir, ChannelAudit) }
@@ -178,7 +198,10 @@ func (e *Exporter) saveCheckpoint() error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, checkpointFile))
+	if err := os.Rename(tmp, filepath.Join(dir, checkpointFile)); err != nil {
+		return err
+	}
+	return syncDir(dir)
 }
 
 // seedGaps loads the recent approval audit records, so a restart does not make a
@@ -276,8 +299,21 @@ func (e *Exporter) append(key string, src SourceRef, env Envelope, counter *uint
 
 func (e *Exporter) stepAudit(ctx context.Context, now time.Time) error {
 	st := &e.status.Audit
-	if st.State == StateStopped && !e.tryResumeAudit(now) {
-		return nil
+	if st.State == StateStopped {
+		// The stop may have been a read that raced the sink's own heal of a torn
+		// write: damage seen before the chain_break was written. Reanchor refuses
+		// then (nothing to reanchor), so look again from the same place and clear
+		// the stop if it no longer reproduces.
+		if probe, err := audit.ReadFrom(e.cfg.AuditDir, e.check.Audit, 1); err == nil && probe.Stop == nil {
+			env := alert("alert.cleared", RuleAuditChainBroken, "the audit chain read cleanly again; audit export resumed", "info", now,
+				"msg://audit/cerberus/chain", []string{"audit", "export_resumed"}, map[string]any{"audit_seq": e.check.Audit.Seq}, "audit-chain-broken", ChannelAudit)
+			if err := e.append(fmt.Sprintf("recovered/audit/%d/%s", e.check.Audit.Seq, hashTag(e.check.Audit.Hash)), SourceRef{Source: "audit"}, env, &st.Exported); err != nil {
+				return err
+			}
+			*st = SourceStatus{State: StateRunning, Exported: st.Exported}
+		} else if !e.tryResumeAudit(now) {
+			return nil
+		}
 	}
 	batch, err := audit.ReadFrom(e.cfg.AuditDir, e.check.Audit, e.cfg.Batch)
 	if err != nil {
@@ -308,7 +344,7 @@ func (e *Exporter) stepAudit(ctx context.Context, now time.Time) error {
 	env := alert("alert.raised", RuleAuditChainBroken, "audit export stopped at a problem in the audit chain: "+string(batch.Stop.Reason),
 		"critical", now, "msg://audit/cerberus/chain", []string{"audit", "export_stopped", string(batch.Stop.Reason)},
 		map[string]any{"after_audit_seq": batch.Next.Seq}, "audit-chain-broken", ChannelAudit)
-	return e.append(fmt.Sprintf("stop/audit/%s/%d", batch.Stop.Reason, batch.Next.Seq), SourceRef{Source: "audit"}, env, &st.Exported)
+	return e.append(fmt.Sprintf("stop/audit/%s/%d/%s", batch.Stop.Reason, batch.Next.Seq, hashTag(batch.Next.Hash)), SourceRef{Source: "audit"}, env, &st.Exported)
 }
 
 // tryResumeAudit looks, at most every ResumeCheck, for a reanchor that lets a
@@ -325,7 +361,7 @@ func (e *Exporter) tryResumeAudit(now time.Time) bool {
 	st := &e.status.Audit
 	env := alert("alert.cleared", RuleAuditChainBroken, "the audit chain was reanchored; audit export resumed", "info", now,
 		"msg://audit/cerberus/chain", []string{"audit", "export_resumed"}, map[string]any{"audit_seq": next.Seq}, "audit-chain-broken", ChannelAudit)
-	if err := e.append(fmt.Sprintf("a/%d", next.Seq), SourceRef{Source: "audit", Seq: next.Seq}, env, &st.Exported); err != nil {
+	if err := e.append(fmt.Sprintf("a/%d/%s", next.Seq, hashTag(next.Hash)), SourceRef{Source: "audit", Seq: next.Seq}, env, &st.Exported); err != nil {
 		return false
 	}
 	e.check.Audit = next
@@ -338,8 +374,17 @@ func (e *Exporter) tryResumeAudit(now time.Time) bool {
 
 func (e *Exporter) stepApproval(ctx context.Context, now time.Time) error {
 	st := &e.status.Approval
-	if st.State == StateStopped && !e.tryResumeApproval(now) {
-		return nil
+	if st.State == StateStopped {
+		if probe, err := approval.ReadFrom(e.cfg.ApprovalsDir, e.check.Approval, 1); err == nil && probe.Stop == nil {
+			env := alert("alert.cleared", RuleApprovalChainBreak, "the approval store read cleanly again; approval export resumed", "info", now,
+				"msg://approval/cerberus/store", []string{"approval", "export_resumed"}, map[string]any{"approval_seq": e.check.Approval.Seq}, "approval-chain-break", ChannelAudit)
+			if err := e.append(fmt.Sprintf("recovered/approval/%d/%s", e.check.Approval.Seq, hashTag(e.check.Approval.Hash)), SourceRef{Source: "approval"}, env, &st.Exported); err != nil {
+				return err
+			}
+			*st = SourceStatus{State: StateRunning, Exported: st.Exported}
+		} else if !e.tryResumeApproval(now) {
+			return nil
+		}
 	}
 	batch, err := approval.ReadFrom(e.cfg.ApprovalsDir, e.check.Approval, e.cfg.Batch)
 	if err != nil {
@@ -377,7 +422,7 @@ func (e *Exporter) stepApproval(ctx context.Context, now time.Time) error {
 	env := alert("alert.raised", RuleApprovalChainBreak, "approval export stopped at a break in the approval store's own chain: "+string(batch.Stop.Reason),
 		"critical", now, "msg://approval/cerberus/store", []string{"approval", "export_stopped", string(batch.Stop.Reason)},
 		map[string]any{"after_approval_seq": batch.Next.Seq}, "approval-chain-break", ChannelAudit)
-	return e.append(fmt.Sprintf("stop/approval/%s/%d", batch.Stop.Reason, batch.Next.Seq), SourceRef{Source: "approval"}, env, &st.Exported)
+	return e.append(fmt.Sprintf("stop/approval/%s/%d/%s", batch.Stop.Reason, batch.Next.Seq, hashTag(batch.Next.Hash)), SourceRef{Source: "approval"}, env, &st.Exported)
 }
 
 func (e *Exporter) tryResumeApproval(now time.Time) bool {
@@ -392,7 +437,7 @@ func (e *Exporter) tryResumeApproval(now time.Time) bool {
 	st := &e.status.Approval
 	env := alert("alert.cleared", RuleApprovalChainBreak, "the approval store was taken up again; approval export resumed", "info", now,
 		"msg://approval/cerberus/store", []string{"approval", "export_resumed"}, map[string]any{"approval_seq": next.Seq}, "approval-chain-break", ChannelAudit)
-	if err := e.append(fmt.Sprintf("resume/approval/%d", next.Seq), SourceRef{Source: "approval", Seq: next.Seq}, env, &st.Exported); err != nil {
+	if err := e.append(fmt.Sprintf("resume/approval/%d/%s", next.Seq, hashTag(next.Hash)), SourceRef{Source: "approval", Seq: next.Seq}, env, &st.Exported); err != nil {
 		return false
 	}
 	e.check.Approval = next

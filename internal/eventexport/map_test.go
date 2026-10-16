@@ -61,7 +61,7 @@ func TestApprovalStoreEventsThatMapToNoEvent(t *testing.T) {
 func TestIntentIsPendingNotSuccessAndCarriesTheOriginalChainDigest(t *testing.T) {
 	m := mapAudit1(t, audit.Record{Seq: 3, ID: "rec1", Kind: audit.KindIntent, Time: at, OperationID: "op_1", Hash: "sha256:deadbeef",
 		Principal: audit.Principal{Kind: "agent", Subject: "agent:builder", AuthMethod: "bearer", TokenID: "tok1"}})
-	if m == nil || m.Key != "a/3" {
+	if m == nil || m.Key != "a/3/deadbeef" {
 		t.Fatalf("mapped = %+v", m)
 	}
 	p := payloadOf(t, m)
@@ -162,7 +162,7 @@ func TestApprovalLifecycleMapping(t *testing.T) {
 		if (got == nil) != (c.resolver == nil) || (got != nil && (got["kind"] != c.resolver["kind"] || got["id"] != c.resolver["id"])) {
 			t.Errorf("seq %d resolver = %v, want %v", c.ev.Seq, got, c.resolver)
 		}
-		if m.Key != fmt.Sprintf("p/%d", c.ev.Seq) {
+		if m.Key != fmt.Sprintf("p/%d/", c.ev.Seq) {
 			t.Errorf("key = %s", m.Key)
 		}
 	}

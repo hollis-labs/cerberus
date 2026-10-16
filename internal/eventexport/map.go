@@ -55,7 +55,7 @@ type Mapped struct {
 // Payloads are built field by field. Arguments, plans, policy snapshots, notes,
 // reasons and credential names are never copied.
 func MapAudit(rec audit.Record) []Mapped {
-	key := fmt.Sprintf("a/%d", rec.Seq)
+	key := fmt.Sprintf("a/%d/%s", rec.Seq, hashTag(rec.Hash))
 	switch rec.Kind {
 	case audit.KindChainStart, audit.KindFileStart,
 		audit.KindApprovalRequested, audit.KindApprovalDecided, audit.KindApprovalExpired, audit.KindApprovalRevoked:
@@ -134,7 +134,7 @@ func auditSeverity(rec audit.Record) string {
 // map to no event: consumption and grant use are audit records (audit.recorded
 // from the chain), and a reanchor is store bookkeeping.
 func MapApproval(ev approval.Event) *Mapped {
-	key := fmt.Sprintf("p/%d", ev.Seq)
+	key := fmt.Sprintf("p/%d/%s", ev.Seq, hashTag(ev.Hash))
 	urn := "msg://approval/cerberus/" + ev.ApprovalID
 	base := Envelope{
 		Time:    ev.Time.UTC(),
@@ -184,6 +184,17 @@ func MapApproval(ev approval.Event) *Mapped {
 		return nil
 	}
 	return &Mapped{key, base}
+}
+
+// hashTag is the first 16 hex digits of a record's hash. It is part of every
+// deduplication key, so a store restored or rewritten with reused sequence
+// numbers does not have its new records mistaken for ones already exported.
+func hashTag(hash string) string {
+	hash = strings.TrimPrefix(hash, "sha256:")
+	if len(hash) > 16 {
+		hash = hash[:16]
+	}
+	return hash
 }
 
 func resolved(id, urn, outcome string, resolver map[string]string) map[string]any {
