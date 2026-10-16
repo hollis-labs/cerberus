@@ -155,9 +155,12 @@ func readFileFrom(file string, newest bool, out *Batch, limit int) (stop *Stop, 
 	damagedAt := int64(-1) // start of a run of unparseable lines awaiting a chain_break
 	r := bufio.NewReaderSize(f, 64*1024)
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, _, tooLong, readErr := ReadBoundedLine(r, MaxLineBytes)
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return nil, false, readErr
+		}
+		if tooLong {
+			return &Stop{StopDamaged, fmt.Sprintf("%s: the line at offset %d is over %d bytes", name, offset, MaxLineBytes)}, false, nil
 		}
 		if len(line) == 0 {
 			if damagedAt >= 0 {
@@ -284,6 +287,29 @@ func locate(dir string, seq uint64) (string, int64, error) {
 	return "", 0, fmt.Errorf("audit: seq %d is not in any month file", seq)
 }
 
+// ReadBoundedLine reads one line (including its newline, when it has one) of at
+// most limit bytes. n is the number of bytes consumed, which is the line's length
+// even when it is too long to keep: a longer line is consumed to its end without
+// being retained and reported as tooLong, so a corrupted file with no newline
+// cannot make a reader allocate without bound.
+func ReadBoundedLine(r *bufio.Reader, limit int) (line []byte, n int, tooLong bool, err error) {
+	for {
+		chunk, readErr := r.ReadSlice('\n')
+		n += len(chunk)
+		if !tooLong {
+			if len(line)+len(chunk) > limit+1 {
+				tooLong, line = true, nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			continue
+		}
+		return line, n, tooLong, readErr
+	}
+}
+
 // positionAfter is the offset just past the line of record seq in file, or 0
 // when the file does not hold it.
 func positionAfter(file string, seq uint64) (int64, error) {
@@ -295,15 +321,16 @@ func positionAfter(file string, seq uint64) (int64, error) {
 	r := bufio.NewReaderSize(f, 64*1024)
 	var offset int64
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, n, tooLong, readErr := ReadBoundedLine(r, MaxLineBytes)
+		if tooLong {
+			return 0, nil // a damaged line: the cursor cannot be placed past it
+		}
+		offset += int64(n)
 		if len(line) > 0 && line[len(line)-1] == '\n' {
-			offset += int64(len(line))
 			var rec Record
-			if len(line) <= MaxLineBytes && json.Unmarshal(bytes.TrimSpace(line), &rec) == nil && rec.Seq == seq {
+			if json.Unmarshal(bytes.TrimSpace(line), &rec) == nil && rec.Seq == seq {
 				return offset, nil
 			}
-		} else {
-			offset += int64(len(line))
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {

@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 )
 
 func eventSeqs(events []Event) []uint64 {
@@ -227,5 +230,22 @@ func TestCursorValidDetectsARestoredOrRewrittenStore(t *testing.T) {
 	}
 	if ok, _ := CursorValid(dir, Cursor{Offset: cur.Offset, Seq: cur.Seq, Hash: "sha256:other"}); ok {
 		t.Fatal("a cursor with another hash was accepted")
+	}
+}
+
+func TestReadFromStopsAtAnOverlongLine(t *testing.T) {
+	for name, tail := range map[string]string{
+		"with a newline":    strings.Repeat("x", audit.MaxLineBytes+10) + "\n",
+		"without a newline": strings.Repeat("x", audit.MaxLineBytes+10),
+	} {
+		s, _, dir := newStore(t)
+		request(t, s, ChannelTTYConfirm)
+		f, _ := os.OpenFile(filepath.Join(dir, FileName), os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // the test's own file
+		_, _ = f.WriteString(tail)
+		_ = f.Close()
+		batch, err := ReadFrom(dir, Cursor{}, 0)
+		if err != nil || batch.Stop == nil || batch.Stop.Reason != StopBroken || fmt.Sprint(eventSeqs(batch.Events)) != "[1]" {
+			t.Errorf("%s: %+v, %v", name, batch, err)
+		}
 	}
 }

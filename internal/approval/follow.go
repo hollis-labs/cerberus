@@ -92,9 +92,13 @@ func ReadFrom(dir string, cur Cursor, limit int) (Batch, error) {
 	offset := cur.Offset
 	var pendingDamage []int64
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, _, tooLong, readErr := audit.ReadBoundedLine(r, audit.MaxLineBytes)
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return out, readErr
+		}
+		if tooLong {
+			out.Stop = &Stop{StopBroken, fmt.Sprintf("the line at offset %d is over %d bytes", offset, audit.MaxLineBytes)}
+			return out, nil
 		}
 		if len(line) == 0 || line[len(line)-1] != '\n' {
 			return out, nil // end of file, or a write in progress
@@ -104,10 +108,6 @@ func ReadFrom(dir string, cur Cursor, limit int) (Batch, error) {
 		if len(body) == 0 {
 			offset = next
 			continue
-		}
-		if len(line) > audit.MaxLineBytes {
-			out.Stop = &Stop{StopBroken, fmt.Sprintf("the line at offset %d is over %d bytes", offset, audit.MaxLineBytes)}
-			return out, nil
 		}
 		var ev Event
 		if json.Unmarshal(body, &ev) != nil {
@@ -168,9 +168,16 @@ func ResumeAfterReanchor(dir string, cur Cursor) (next Cursor, ok bool, err erro
 	r := bufio.NewReaderSize(f, 64*1024)
 	offset, seq, last := cur.Offset, cur.Seq, cur.Hash
 	for {
-		line, readErr := r.ReadBytes('\n')
+		line, n, tooLong, readErr := audit.ReadBoundedLine(r, audit.MaxLineBytes)
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return Cursor{}, false, readErr
+		}
+		if tooLong {
+			offset += int64(n) // skipped without being kept
+			if readErr != nil {
+				return Cursor{}, false, nil
+			}
+			continue
 		}
 		if len(line) == 0 || line[len(line)-1] != '\n' {
 			return Cursor{}, false, nil
