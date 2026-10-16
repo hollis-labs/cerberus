@@ -66,11 +66,15 @@ func TestDeliverySecretsAcrossEverySplitAndPrune(t *testing.T) {
 	j := dueJob(clock, PipelineRun)
 	j.CaptureLogs = true
 	j.EnvRefs = []EnvReference{{Env: "RUN_VALUE", Ref: "value-alias"}}
+	// The fixture writes a few hundred small chunks and each one is a database
+	// append, which the race detector slows by an order of magnitude. This test is
+	// about secrets, not speed, so the job gets a deadline it cannot reasonably miss.
+	j.Timeout = 30 * time.Second
 	mustCreate(t, c, j)
 	tick(t, c)
 	f := fireFor(t, c, j, j.Timing.At)
-	if receiptFor(t, c, f).State != Completed {
-		t.Fatal("delivery did not complete")
+	if rc := receiptFor(t, c, f); rc.State != Completed {
+		t.Fatalf("delivery did not complete: receipt state %s error %q, fire %s %q", rc.State, rc.Error, f.Status, f.LastError)
 	}
 	s := NewService(c, fixtureAccess)
 	logs := callOK(t, s, Call{Operation: "logs", OwnerApp: j.OwnerApp, ID: j.ID, FireID: f.ID}).Logs
