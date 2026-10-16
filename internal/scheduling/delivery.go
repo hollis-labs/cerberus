@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -176,6 +177,13 @@ func (d *Delivery) close(ctx context.Context) {
 const (
 	logFlushBytes    = 4096
 	logFlushInterval = 250 * time.Millisecond
+	// logCarryBytes is the least that stays buffered at a size or timer flush, so a
+	// token the redaction net matches (a bearer token, a provider key, an assignment
+	// value) that straddles the boundary is seen whole by the next append. Only close
+	// flushes it all. logPEMHoldBytes bounds how long an open private-key block is held
+	// back for its END line.
+	logCarryBytes   = 1024
+	logPEMHoldBytes = 16 << 10
 )
 
 type logWriter struct {
@@ -266,7 +274,8 @@ func (w *logWriter) appendOut(ctx context.Context, final bool) {
 	}
 	cut := len(w.out)
 	if !final {
-		cut -= max(0, w.delivery.scope.MaxValueLen()-1)
+		cut = len(w.out) - max(logCarryBytes, w.delivery.scope.MaxValueLen()-1)
+		cut = holdPEM(w.out, cut)
 		for cut > 0 && cut < len(w.out) && !utf8.RuneStart(w.out[cut]) {
 			cut--
 		}
@@ -276,6 +285,9 @@ func (w *logWriter) appendOut(ctx context.Context, final bool) {
 		w.timer = time.AfterFunc(w.delivery.core.logFlushInterval(), w.flushOnTimer)
 		return
 	}
+	// Redaction runs on the buffer before any byte reaches the database, and there is
+	// no raw path: if the append fails the chunk is dropped and the stream is marked
+	// failed (capture_error), never retried unredacted.
 	text := w.delivery.scope.Text(string(w.out[:cut]))
 	w.out = append([]byte(nil), w.out[cut:]...)
 	if err := w.delivery.core.appendLog(ctx, w.delivery.job, w.delivery.fire, w.stream, text); err != nil {
@@ -294,6 +306,36 @@ func (w *logWriter) flushOnTimer() {
 		return
 	}
 	w.appendOut(context.Background(), false)
+}
+
+// holdPEM moves cut back so it never falls inside a private-key block: the net
+// matches a block only whole, with its END line, so the block is released together or
+// held. An open block (no END yet) is held while it is no longer than logPEMHoldBytes.
+func holdPEM(out []byte, cut int) int {
+	begin, end := []byte("-----BEGIN "), []byte("-----END ")
+	for from := 0; from < len(out); {
+		i := bytes.Index(out[from:], begin)
+		if i < 0 {
+			break
+		}
+		i += from
+		e := bytes.Index(out[i:], end)
+		if e < 0 {
+			if len(out)-i <= logPEMHoldBytes {
+				cut = min(cut, i)
+			}
+			break
+		}
+		blockEnd := len(out)
+		if tail := bytes.Index(out[i+e+len(end):], []byte("-----")); tail >= 0 {
+			blockEnd = i + e + len(end) + tail + len("-----")
+		}
+		if i < cut && cut < blockEnd {
+			cut = i
+		}
+		from = blockEnd
+	}
+	return cut
 }
 
 // logFlushInterval is the interval after which buffered output is appended; tests
