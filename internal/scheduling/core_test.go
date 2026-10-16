@@ -355,7 +355,13 @@ func TestTimeoutIsCooperativeAndErrorValuesAreRedacted(t *testing.T) {
 		return ctx.Err()
 	}), allowAt(clock), Options{Clock: clock})
 	j := dueJob(clock, PipelineRun)
-	j.Timeout = 10 * time.Millisecond
+	// The job timeout covers the whole dispatch: preparing the receipt, the
+	// admission transactions (several database writes, slow under -race) and then the
+	// executor. It must be long enough for admission to finish before it fires, or
+	// the effect is never admitted and the receipt is Failed, not Unknown; the
+	// executor then waits for the deadline itself. 10ms was shorter than admission
+	// under -race and made this test fail from the second iteration of -count=3.
+	j.Timeout = 400 * time.Millisecond
 	mustCreate(t, c, j)
 	tick(t, c)
 	f := fireFor(t, c, j, j.Timing.At)
