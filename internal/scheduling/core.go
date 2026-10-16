@@ -84,6 +84,8 @@ type Core struct {
 	notifications NotificationSink
 	// flushInterval overrides logFlushInterval (tests only).
 	flushInterval time.Duration
+	// logSink receives captured log text instead of the database (tests only).
+	logSink func(stream, text string) error
 }
 
 func New(ctx context.Context, db *sql.DB, executor Executor, authority Authorizer, options Options) (*Core, error) {

@@ -202,3 +202,26 @@ func TestScopeMaxValueLenIsTheLongestRegisteredForm(t *testing.T) {
 		t.Fatal("nil scope")
 	}
 }
+
+func TestHoldStraddlersMovesTheCutToTheStartOfACrossingValue(t *testing.T) {
+	var s Scope
+	s.Add("a", "SECRET123")
+	text := []byte("xxxxSECRET123yyyy")
+	for cut := 1; cut < len(text); cut++ {
+		got := s.HoldStraddlers(text, cut)
+		switch {
+		case cut > 4 && cut < 13:
+			if got != 4 {
+				t.Fatalf("cut %d inside the value moved to %d; want 4", cut, got)
+			}
+		default:
+			if got != cut {
+				t.Fatalf("cut %d outside the value moved to %d", cut, got)
+			}
+		}
+	}
+	var none *Scope
+	if none.HoldStraddlers(text, 6) != 6 {
+		t.Fatal("nil scope moved the cut")
+	}
+}

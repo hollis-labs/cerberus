@@ -518,3 +518,108 @@ func TestACoalescedBatchNeverStoresAValueSplitAcrossAFlush(t *testing.T) {
 		})
 	}
 }
+
+// The architect's table: a value of exactly MaxValueLen sits at EVERY offset across the
+// cut (value start 1..L-1 bytes before the cut), for the size trigger and the timer
+// trigger. Redaction runs on the whole buffer before the cut, so neither the value nor
+// any 2+ byte fragment of it is ever appended, whatever the offset.
+func TestACoalescedBatchRedactsAValueAtEveryOffsetAcrossTheCut(t *testing.T) {
+	const value = "Qq7Zp3Lm9XaT"
+	clock := &testClock{at: time.Now().UTC()}
+	newWriter := func(captured *[]string) *logWriter {
+		c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+		c.flushInterval = time.Hour // the timer never fires by itself
+		c.logSink = func(_, text string) error { *captured = append(*captured, text); return nil }
+		scope := &redact.Scope{}
+		if !scope.Add("test-token", value) {
+			t.Fatal("scope refused the value")
+		}
+		return &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+	}
+	if got := (func() int { s := &redact.Scope{}; s.Add("x", value); return s.MaxValueLen() })(); got < len(value) {
+		t.Fatalf("MaxValueLen = %d", got)
+	}
+	longest := func() int { s := &redact.Scope{}; s.Add("x", value); return s.MaxValueLen() }()
+	fragments := []string{}
+	for i := 0; i < len(value); i++ {
+		for j := i + 2; j <= len(value); j++ {
+			fragments = append(fragments, value[i:j])
+		}
+	}
+	for _, trigger := range []string{"size", "timer"} {
+		for k := 1; k < longest; k++ {
+			t.Run(fmt.Sprintf("%s/value starts %d before the cut", trigger, k), func(t *testing.T) {
+				var captured []string
+				w := newWriter(&captured)
+				// total is the buffer at the flush; the cut is total - logCarryBytes.
+				total := 3024
+				if trigger == "size" {
+					total = logFlushBytes
+				}
+				cut := total - logCarryBytes
+				buf := strings.Repeat("y", cut-k) + value + strings.Repeat("b", total-(cut-k)-len(value))
+				if len(buf) != total {
+					t.Fatalf("test arithmetic: %d != %d", len(buf), total)
+				}
+				if _, err := w.Write([]byte(buf)); err != nil {
+					t.Fatal(err)
+				}
+				if trigger == "timer" {
+					w.flushOnTimer()
+				}
+				if len(captured) == 0 {
+					t.Fatal("nothing was flushed; the table would pass vacuously")
+				}
+				w.close(context.Background())
+				all := strings.Join(captured, "")
+				if strings.Contains(all, value) || !strings.Contains(all, redact.Marker) {
+					t.Fatalf("value not redacted: %.80q ...", all[max(0, cut-k-20):min(len(all), cut-k+40)])
+				}
+				for _, fragment := range fragments {
+					if strings.Contains(all, fragment) {
+						t.Fatalf("fragment %q of the value was appended", fragment)
+					}
+				}
+			})
+		}
+	}
+}
+
+// A failed append drops the chunk and marks the stream failed: the text is never
+// written raw or retried, and later output is still captured redacted.
+func TestAFailedLogAppendNeverWritesRawText(t *testing.T) {
+	const value = "Qq7Zp3Lm9XaT"
+	clock := &testClock{at: time.Now().UTC()}
+	c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+	c.flushInterval = time.Hour
+	var seen []string
+	fail := true
+	c.logSink = func(_, text string) error {
+		if fail {
+			fail = false
+			return errors.New("injected storage failure")
+		}
+		seen = append(seen, text)
+		return nil
+	}
+	scope := &redact.Scope{}
+	scope.Add("test-token", value)
+	w := &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+	if _, err := w.Write([]byte(strings.Repeat("a", 2000) + value + strings.Repeat("b", 3000))); err != nil {
+		t.Fatal(err) // a storage failure never fails the job's write
+	}
+	if !w.failed {
+		t.Fatal("the failed append did not mark the stream")
+	}
+	if _, err := w.Write([]byte(value + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	w.close(context.Background())
+	all := strings.Join(seen, "")
+	if strings.Contains(all, value) || strings.Contains(all, "aaaaaaaa") {
+		t.Fatalf("dropped chunk was retried or raw text was written: %.80q", all)
+	}
+	if !strings.Contains(all, redact.Marker) {
+		t.Fatalf("later output was not captured redacted: %q", all)
+	}
+}

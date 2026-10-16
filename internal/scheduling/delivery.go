@@ -258,11 +258,8 @@ func (w *logWriter) flush(ctx context.Context, final bool) {
 	}
 }
 
-// appendOut writes the buffered, already-redacted text in one append and stops the
-// timer. The scope redacts the whole batch here, after every value it knows has been
-// registered. Unless the stream is closing, the last (longest scope value - 1) bytes
-// stay buffered, so a value that straddles the batch boundary is seen whole by the
-// next append; that carry is bounded by the longest secret, as the hold-back is.
+// appendOut appends the buffer but a carry (see the cut below) after the scope has
+// removed every value in what it releases; on close (final) it appends everything.
 // Callers hold w.mu.
 func (w *logWriter) appendOut(ctx context.Context, final bool) {
 	if w.timer != nil {
@@ -272,10 +269,26 @@ func (w *logWriter) appendOut(ctx context.Context, final bool) {
 	if len(w.out) == 0 {
 		return
 	}
+	// Choose the cut on the raw buffer, then redact what is released. The cut leaves a
+	// carry, never falls inside a private-key block, and never falls inside a registered
+	// value (HoldStraddlers moves it back to the value's start), so everything released
+	// holds only whole values and the scope removes them all; a value that is only partly
+	// here stays in the buffer. The carry is kept UNREDACTED on purpose: the net matches a
+	// token by its start ("Bearer ...", "token=..."), so redacting a half-arrived token
+	// would leave its continuation unmatched. Redaction runs here, before any byte
+	// reaches the database, and there is no raw path: if the append fails the chunk is
+	// dropped and the stream is marked failed (capture_error), never retried unredacted.
 	cut := len(w.out)
 	if !final {
 		cut = len(w.out) - max(logCarryBytes, w.delivery.scope.MaxValueLen()-1)
-		cut = holdPEM(w.out, cut)
+		for range 4 { // each adjustment can expose the other; this settles in a pass or two
+			before := cut
+			cut = holdPEM(w.out, cut)
+			cut = w.delivery.scope.HoldStraddlers(w.out, cut)
+			if cut == before {
+				break
+			}
+		}
 		for cut > 0 && cut < len(w.out) && !utf8.RuneStart(w.out[cut]) {
 			cut--
 		}
@@ -285,12 +298,9 @@ func (w *logWriter) appendOut(ctx context.Context, final bool) {
 		w.timer = time.AfterFunc(w.delivery.core.logFlushInterval(), w.flushOnTimer)
 		return
 	}
-	// Redaction runs on the buffer before any byte reaches the database, and there is
-	// no raw path: if the append fails the chunk is dropped and the stream is marked
-	// failed (capture_error), never retried unredacted.
 	text := w.delivery.scope.Text(string(w.out[:cut]))
 	w.out = append([]byte(nil), w.out[cut:]...)
-	if err := w.delivery.core.appendLog(ctx, w.delivery.job, w.delivery.fire, w.stream, text); err != nil {
+	if err := w.delivery.core.captureLog(ctx, w.delivery.job, w.delivery.fire, w.stream, text); err != nil {
 		w.failed = true
 	}
 	if len(w.out) > 0 {
@@ -336,6 +346,14 @@ func holdPEM(out []byte, cut int) int {
 		from = blockEnd
 	}
 	return cut
+}
+
+// captureLog appends redacted text to a stream; tests replace it with logSink.
+func (c *Core) captureLog(ctx context.Context, j Job, f scheduler.Job, stream, text string) error {
+	if c.logSink != nil {
+		return c.logSink(stream, text)
+	}
+	return c.appendLog(ctx, j, f, stream, text)
 }
 
 // logFlushInterval is the interval after which buffered output is appended; tests
