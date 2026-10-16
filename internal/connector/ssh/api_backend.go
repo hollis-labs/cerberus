@@ -3,6 +3,7 @@ package ssh
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // APIBackend implements Backend using the golang.org/x/crypto/ssh library.
@@ -49,6 +51,49 @@ func (a *APIBackend) Connect(ctx context.Context, host string, port int, user st
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
+	err = a.dial(ctx, addr, config)
+	// The server offers whichever host key type it prefers first, and
+	// known_hosts may hold a different one for the same host. That is a
+	// mismatch by key type, not a changed key. Retry once, asking only for the
+	// types known_hosts holds; the same callback still verifies the key, so a
+	// genuinely changed key fails again.
+	var keyErr *knownhosts.KeyError
+	if errors.As(err, &keyErr) && len(keyErr.Want) > 0 {
+		if algs := hostKeyAlgorithms(keyErr.Want); len(algs) > 0 {
+			retry := *config
+			retry.HostKeyAlgorithms = algs
+			err = a.dial(ctx, addr, &retry)
+		}
+	}
+	return err
+}
+
+// hostKeyAlgorithms lists the signature algorithms for the key types a
+// known_hosts file holds for a host, strongest first.
+func hostKeyAlgorithms(want []knownhosts.KnownKey) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(a string) {
+		if !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+	for _, k := range want {
+		switch t := k.Key.Type(); t {
+		case ssh.KeyAlgoRSA:
+			add(ssh.KeyAlgoRSASHA512)
+			add(ssh.KeyAlgoRSASHA256)
+			add(ssh.KeyAlgoRSA)
+		default:
+			add(t)
+		}
+	}
+	return out
+}
+
+// dial opens the connection and runs the handshake with config.
+func (a *APIBackend) dial(ctx context.Context, addr string, config *ssh.ClientConfig) error {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
