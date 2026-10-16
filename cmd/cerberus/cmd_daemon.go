@@ -613,6 +613,11 @@ func runDaemonBody() error {
 		}()
 	}
 
+	// Event export (CW-20261016-0142): off unless ~/.cerberus/events.yaml turns
+	// it on. It only reads the audit chain and the approval store and writes
+	// its own outbox; a source it cannot trust stops it visibly, never skips.
+	startEventExport(ctx, &wg, logger)
+
 	// Start the overview snapshot recorder. Samples control-plane
 	// counters (resources, projects, running/attention/stopped, registry
 	// health, etc.) on a 1-minute tick and persists them to

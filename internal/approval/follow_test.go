@@ -207,3 +207,25 @@ func TestReadFromFollowsTheDaemonWriting(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorValidDetectsARestoredOrRewrittenStore(t *testing.T) {
+	s, _, dir := newStore(t)
+	request(t, s, ChannelTTYConfirm)
+	request(t, s, ChannelTTYConfirm)
+	cur, err := TailCursor(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, verr := CursorValid(dir, cur); verr != nil || !ok {
+		t.Fatalf("a good cursor: ok=%v err=%v", ok, verr)
+	}
+	if ok, _ := CursorValid(dir, Cursor{}); !ok {
+		t.Fatal("the zero cursor is valid")
+	}
+	if ok, _ := CursorValid(dir, Cursor{Offset: cur.Offset + 300, Seq: cur.Seq + 4, Hash: "sha256:x"}); ok {
+		t.Fatal("a cursor beyond the store was accepted")
+	}
+	if ok, _ := CursorValid(dir, Cursor{Offset: cur.Offset, Seq: cur.Seq, Hash: "sha256:other"}); ok {
+		t.Fatal("a cursor with another hash was accepted")
+	}
+}

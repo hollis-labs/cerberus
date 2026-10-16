@@ -187,3 +187,27 @@ func ResumeAfterReanchor(dir string, cur Cursor) (next Cursor, ok bool, err erro
 		seq, last = ev.Seq, ev.Hash
 	}
 }
+
+// CursorValid reports whether cur still names a place in the store: the file
+// holds at least cur.Offset bytes and the event that ends there is cur.Seq with
+// cur.Hash. A store restored to an older copy, or rewritten, fails it. The zero
+// Cursor is always valid.
+func CursorValid(dir string, cur Cursor) (bool, error) {
+	if cur == (Cursor{}) {
+		return true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, FileName)) //nolint:gosec // the store's own file
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if cur.Offset <= 0 || cur.Offset > int64(len(data)) || data[cur.Offset-1] != '\n' {
+		return false, nil
+	}
+	prefix := bytes.TrimRight(data[:cur.Offset], "\n")
+	start := bytes.LastIndexByte(prefix, '\n') + 1
+	var ev Event
+	return json.Unmarshal(prefix[start:], &ev) == nil && ev.Seq == cur.Seq && ev.Hash == cur.Hash, nil
+}

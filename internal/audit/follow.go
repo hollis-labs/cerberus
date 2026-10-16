@@ -313,3 +313,33 @@ func positionAfter(file string, seq uint64) (int64, error) {
 		}
 	}
 }
+
+// CursorValid reports whether cur still names a place in the log: its file
+// exists, holds at least cur.Offset bytes, and the record that ends there is
+// cur.Seq with cur.Hash. A log restored to an older copy, or rewritten, fails
+// it. The zero Cursor is always valid.
+func CursorValid(dir string, cur Cursor) (bool, error) {
+	if cur == (Cursor{}) {
+		return true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, filepath.Base(cur.File))) //nolint:gosec // the audit directory's own file
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return endsWithRecord(data, cur.Offset, cur.Seq, cur.Hash), nil
+}
+
+// endsWithRecord reports whether the line that ends at offset in data is the
+// record seq with hash.
+func endsWithRecord(data []byte, offset int64, seq uint64, hash string) bool {
+	if offset <= 0 || offset > int64(len(data)) || data[offset-1] != '\n' {
+		return false
+	}
+	prefix := bytes.TrimRight(data[:offset], "\n")
+	start := bytes.LastIndexByte(prefix, '\n') + 1
+	var rec Record
+	return json.Unmarshal(prefix[start:], &rec) == nil && rec.Seq == seq && rec.Hash == hash
+}
