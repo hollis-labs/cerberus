@@ -16,6 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/outpost"
 	"github.com/hollis-labs/cerberus/pkg/resource"
 )
 
@@ -271,19 +272,12 @@ func (s *HostService) Probe(ctx context.Context, name string) (_ HostView, retEr
 	}
 	defer func() { call.finish(retErr) }()
 
-	def, err := s.reach(h)
+	pctx, cancel := context.WithTimeout(call.withTelemetry(ctx), s.probeLimit)
+	defer cancel()
+	gather, err := s.probeTransport(pctx, h)
 	if err != nil {
 		return HostView{}, err
 	}
-	if s.ssh == nil {
-		return HostView{}, redact.Guidance("host %q cannot be probed: the ssh connector is not available", name)
-	}
-
-	// The ssh credentials resolve for a read of the reach resource.
-	sshSpec := auditSpec{connector: "ssh", operation: "exec", op: hostProbeOperation(), known: true,
-		config: map[string]any{"id": def.ID}, resources: s.resources}
-	pctx, cancel := context.WithTimeout(withCredentialScope(call.withTelemetry(ctx), sshSpec), s.probeLimit)
-	defer cancel()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -293,11 +287,11 @@ func (s *HostService) Probe(ctx context.Context, name string) (_ HostView, retEr
 	next := prev
 	next.CheckedAt = &now
 
-	probed, perr := s.gather(pctx, def)
+	probed, perr := gather()
 	switch {
 	case perr != nil:
 		next.State = hosts.StateOffline
-		next.Reason = hostReason(scope, "the host did not answer over ssh", perr)
+		next.Reason = hostReason(scope, "the host did not answer over "+h.Reach.EffectiveTransport(), perr)
 	case probed.Empty():
 		next.State = hosts.StateUnknown
 		next.Reason = "the host answered but reported no usable facts"
@@ -312,6 +306,39 @@ func (s *HostService) Probe(ctx context.Context, name string) (_ HostView, retEr
 		s.logger.Warn("host.state_write_failed", "host", name, "error", scope.Text(err.Error()))
 	}
 	return s.view(h), nil
+}
+
+func (s *HostService) probeTransport(ctx context.Context, h hosts.Host) (func() (*hosts.Probed, error), error) {
+	switch h.Reach.EffectiveTransport() {
+	case "outpost":
+		if h.Reach.Outpost == nil {
+			return nil, redact.Guidance("host %q has no Outpost endpoint", h.Name)
+		}
+		client := outpost.Client{URL: h.Reach.Outpost.URL, TokenFile: h.Reach.Outpost.TokenFile, Credential: func(token string) { redact.ScopeFrom(ctx).Add("outpost/token", token) }}
+		return func() (*hosts.Probed, error) {
+			result, err := client.Execute(ctx, outpost.Request{Verb: "probe"})
+			if err != nil {
+				return nil, err
+			}
+			if result.ExitCode != 0 || result.Truncated {
+				return nil, fmt.Errorf("outpost probe did not complete")
+			}
+			p := hosts.ParsePosixProbe(result.Output)
+			return &p, nil
+		}, nil
+	case "ssh":
+		def, err := s.reach(h)
+		if err != nil {
+			return nil, err
+		}
+		if s.ssh == nil {
+			return nil, redact.Guidance("host %q cannot be probed: the ssh connector is not available", h.Name)
+		}
+		spec := auditSpec{connector: "ssh", operation: "exec", op: hostProbeOperation(), known: true, config: map[string]any{"id": def.ID}, resources: s.resources}
+		return func() (*hosts.Probed, error) { return s.gather(withCredentialScope(ctx, spec), def) }, nil
+	default:
+		return nil, redact.Guidance("host %q has no usable reach transport; configure reach.ssh or reach.outpost", h.Name)
+	}
 }
 
 // reach resolves a host's ssh resource. A host with no usable reach cannot be

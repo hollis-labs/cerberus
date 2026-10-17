@@ -187,7 +187,7 @@ func TestHostProbeUsesTheDaemonAndNeverRetriesInProcess(t *testing.T) {
 	}
 	// With no daemon the same command runs in process and reports its own refusal.
 	hostHome(t)
-	if _, err := runHost(t, "probe", "box-a"); err == nil || !strings.Contains(err.Error(), "declares no reach.ssh") {
+	if _, err := runHost(t, "probe", "box-a"); err == nil || !strings.Contains(err.Error(), "no usable reach transport") {
 		t.Fatalf("in-process probe = %v", err)
 	}
 }

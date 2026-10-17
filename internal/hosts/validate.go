@@ -3,11 +3,14 @@ package hosts
 import (
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/hollis-labs/cerberus/pkg/outpost"
 )
 
 // Problem is one validation finding, addressed to the field that caused it.
@@ -136,6 +139,27 @@ func Validate(f *File) error {
 		}
 		if strings.ContainsAny(h.Reach.SSH, " \t\r\n") {
 			add(name, "reach.ssh", "must be a resource id")
+		}
+		switch h.Reach.EffectiveTransport() {
+		case "ssh":
+			if h.Reach.SSH == "" {
+				add(name, "reach.ssh", "required for ssh transport")
+			}
+		case "outpost":
+			if h.Reach.Outpost == nil {
+				add(name, "reach.outpost", "required for outpost transport")
+			}
+		case "none":
+		default:
+			add(name, "reach.transport", "must be ssh, outpost or none")
+		}
+		if h.Reach.Outpost != nil {
+			if err := outpost.ValidateEndpoint(h.Reach.Outpost.URL); err != nil {
+				add(name, "reach.outpost.url", "%s", err)
+			}
+			if !filepath.IsAbs(h.Reach.Outpost.TokenFile) {
+				add(name, "reach.outpost.token_file", "must be an absolute private credential file path")
+			}
 		}
 		if h.TetherEnvironmentID != "" && len(h.TetherEnvironmentID) > 200 {
 			add(name, "tether_environment_id", "too long")

@@ -173,3 +173,30 @@ and `capacity` also carry the untrusted marker for the model strings and
 A refusal (an unknown host, a tool a probe does not report, a host with no
 `reach.ssh`) is Cerberus-composed guidance and reaches the caller as written on
 every surface.
+
+
+## Shared Outpost transport
+
+A host may select `reach.transport: outpost` and declare `reach.outpost.url`
+(an HTTPS origin, or a literal loopback/Tailscale HTTP address) and
+`reach.outpost.token_file` (an absolute path to a private controller token).
+Pair that token locally at Outpost with scope `outpost.cerberus`. Keep
+`reach.ssh` configured for independent recovery; failed or refused Outpost
+mutations are never retried over SSH.
+
+`cerberus host probe NAME` records the same facts through either transport.
+`cerberus host plan NAME restart UNIT` previews a unit operation without
+executing it. `cerberus host act NAME restart UNIT --ack` uses the shared
+policy, approval, audit, and output-redaction path; an approval request must
+be approved by the operator before retrying with `--approval-id`.
+The fixed verbs are `units`, `logs`, `start`, `stop`, and `restart`.
+`logs` accepts `--lines` up to 1000. These operate on the Outpost user's
+systemd services or launchd agents. Arbitrary shell commands are not exposed.
+The executor protects its own control-plane services; use SSH for upgrades.
+
+The HTTP routes are `POST /hosts/NAME/actions/VERB` and its `/plan` sibling,
+with a `request` object containing `unit` and optional `lines` plus the usual
+acknowledgment and approval fields. MCP exposes the same fixed operations.
+A plan uses a separate route so older controllers cannot mistake it for an
+execution. Existing Cerberus audit records cover these calls; the separate
+host-action history model and SSH unit actions remain their own work items.
