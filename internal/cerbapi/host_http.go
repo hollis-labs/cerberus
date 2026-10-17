@@ -32,6 +32,9 @@ func HostHTTP(client HostClient, prefix string) http.Handler {
 		if rest != "" {
 			parts = strings.Split(rest, "/")
 		}
+		if hostActionHTTP(w, r, client, parts) {
+			return
+		}
 		fail := func(err error) {
 			err = scopeError(redact.ScopeFrom(r.Context()), err)
 			writeServiceError(w, hostStatus(err), err)

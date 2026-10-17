@@ -19,7 +19,7 @@ var hostCmd = &cobra.Command{
 	Use:   "host",
 	Short: "Hosts: the machines Cerberus keeps a record of",
 	Long: `Hosts are named machines declared in ~/.cerberus/hosts.yaml, with facts
-Cerberus measured over ssh. See docs/hosts.md.
+Cerberus measured over SSH or a shared Outpost. See docs/hosts.md.
 
 Cerberus reports facts. It does not rank hosts, reserve them or choose where
 work goes; whatever consumes these facts decides that.
@@ -27,7 +27,9 @@ work goes; whatever consumes these facts decides that.
 Subcommands:
   list      declared hosts with state and probed facts
   get       one host
-  probe     measure a host over ssh and record the facts
+  probe     measure a host through its selected transport
+  plan      preview an Outpost unit operation
+  act       execute an Outpost unit operation through policy
   capacity  hosts that satisfy constraints, from recorded facts`,
 }
 

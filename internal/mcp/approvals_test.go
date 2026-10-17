@@ -24,6 +24,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/scheduling"
 	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	"github.com/hollis-labs/cerberus/pkg/outpost"
 )
 
 // approvePDP asks for approval on everything.
@@ -328,8 +329,17 @@ func TestPluginToolsTakeApprovalID(t *testing.T) {
 // recordingClient records the approval id each gated call carries.
 type recordingClient struct {
 	fakeSocketProgressClient
+	cerbapi.HostClient
 	seen   string
 	config map[string]any
+}
+
+func (r *recordingClient) PlanHostAction(context.Context, string, cerbapi.HostActionArgs) (*cerbapi.ConnectorPlan, error) {
+	return &cerbapi.ConnectorPlan{}, nil
+}
+func (r *recordingClient) ExecuteHostAction(_ context.Context, _ string, args cerbapi.HostActionArgs) (outpost.Result, error) {
+	r.seen = args.ApprovalID
+	return outpost.Result{}, nil
 }
 
 func (r *recordingClient) opts(o []cerbapi.MutationOption) (*cerbapi.OpResult, error) {
