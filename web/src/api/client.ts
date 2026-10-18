@@ -117,6 +117,7 @@ export interface PasskeyInfo {
 }
 
 export interface PasskeyStatus {
+  enrollment?: { method: string; available: boolean; next_step: string }
   state: 'not_set_up' | 'ok' | 'cooldown' | string
   keys: PasskeyInfo[]
   cooldown_until?: string

@@ -173,7 +173,7 @@ function PasskeysPanel({ token, enrollToken, label, remove }: { token: string; e
       )}
       {st && (st.keys ?? []).length === 0 && st.state !== 'cooldown' && (
         <Callout tone="warning" data-testid="not-set-up">
-          Out-of-band approval is not set up: run <code>cerberus approvals enroll</code> in a terminal.
+          Out-of-band approval is not set up: {st.enrollment?.next_step ?? 'run cerberus approvals enroll in a terminal on the daemon host.'}
         </Callout>
       )}
       {st && (st.keys ?? []).length > 0 && (

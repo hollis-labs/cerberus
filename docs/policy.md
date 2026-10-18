@@ -476,7 +476,8 @@ The claim alone would not stop a process running as you with a shell. The
 claim is self-reported: that process can send a person's claim to the
 socket, or run `cerberus approvals enroll` under a pseudo-terminal.
 
-So allowing an enrollment also needs the person at the Mac to allow it,
+So allowing an enrollment also needs fresh operator authentication. On macOS,
+this asks the person at the Mac to allow it,
 through a check the daemon raises itself. The daemon runs `cerberus-presence`,
 installed next to `cerberus`, which asks through LocalAuthentication: Touch
 ID, or your account password. `cerberus approvals enroll` shows the prompt on
@@ -485,13 +486,20 @@ your screen, and nothing is allowed until you answer it.
 Where the check can't be raised, enrollment is refused, never falling back to
 the claim. That covers:
 
-- a machine that isn't a Mac;
-- no login session at the Mac's screen, as over ssh;
-- a missing helper.
+- an unsupported operating system;
+- on macOS, no login session at the Mac's screen, as over ssh;
+- a missing macOS helper, or missing Linux polkit setup.
+
+On Linux, including SSH, the daemon checks the socket peer's PID, start time
+and UID through polkit. The CLI registers `pkttyagent` for its own process;
+polkit authenticates the Linux account in that terminal. An administrator
+installs the narrowly scoped enrollment action once, with `auth_self` for all
+sessions and no cached authorization. Cerberus rejects automatic or retained
+grants. Passwords never pass through Cerberus. See [Linux setup](install.md#linux-enrollment-over-ssh).
 
 The prompts are rationed, so nothing can wear you down with them:
 
-- only one is on screen at a time;
+- only one enrollment prompt is active at a time;
 - after you refuse or cancel one, none is raised for five minutes, and the
   refusal says until when;
 - each prompt raised is recorded in the audit log, with its answer.
@@ -505,10 +513,13 @@ the helper, which is noisier and is recorded. It is not a boundary against
 that process: neither binary is signed yet (see "What Cerberus bounds"
 below).
 
-Passkeys work on `localhost`, so the console's links use
-`http://localhost:<port>`. `--listen` names a console on another port.
+Passkeys work on `localhost` and on the configured public HTTPS console
+hostname. `--listen` names a console on another port. For a remote browser,
+configure the public URL as described in [installation](install.md); the
+browser's hostname determines the passkey relying party.
 
-Every enrollment is recorded in the audit log and raises a notification.
+Every enrollment is recorded in the audit log; macOS also raises a desktop
+notification.
 `cerberus status` shows it for a day, so you notice an enrollment you did not
 make. Until a key is enrolled, `status` and the console header say that
 out-of-band approval is not set up.

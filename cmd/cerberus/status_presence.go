@@ -11,7 +11,7 @@ import (
 // the daemon looks: next to the cerberus binary. Without it, enrolling a
 // passkey is refused, and so is every out-of-band approval that needs one.
 type statusPresence struct {
-	// Needed is false off macOS, where enrollment is refused anyway.
+	// Needed describes the macOS helper. Linux uses polkit instead.
 	Needed    bool   `json:"needed"`
 	Path      string `json:"path,omitempty"`
 	Installed bool   `json:"installed"`
@@ -32,8 +32,11 @@ var statusOfPresence = func() statusPresence {
 }
 
 func presenceAt(goos, exe string, exeErr error) statusPresence {
+	if goos == "linux" {
+		return statusPresence{Note: "cerberus-presence is not used on linux: enrollment uses polkit; see `cerberus approvals keys` for setup"}
+	}
 	if goos != "darwin" {
-		return statusPresence{Note: "not used on " + goos + ": passkey enrollment needs macOS"}
+		return statusPresence{Note: "passkey enrollment is not supported on " + goos}
 	}
 	if exeErr != nil {
 		return statusPresence{Needed: true, Note: "cannot find this binary: " + exeErr.Error()}

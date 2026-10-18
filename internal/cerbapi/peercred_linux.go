@@ -2,7 +2,10 @@
 
 package cerbapi
 
-import "golang.org/x/sys/unix"
+import (
+	"github.com/hollis-labs/cerberus/internal/userpresence"
+	"golang.org/x/sys/unix"
+)
 
 // readPeerCred uses SO_PEERCRED.
 func readPeerCred(fd int) peerCred {
@@ -10,5 +13,6 @@ func readPeerCred(fd int) peerCred {
 	if err != nil {
 		return peerCred{uid: -1, err: err}
 	}
-	return peerCred{uid: int(uc.Uid), pid: int(uc.Pid)}
+	start, _ := userpresence.ProcessStartTime(int(uc.Pid))
+	return peerCred{uid: int(uc.Uid), pid: int(uc.Pid), startTime: start}
 }

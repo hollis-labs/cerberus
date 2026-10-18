@@ -136,7 +136,7 @@ func breakGlassOnCall(ctx context.Context, call *auditCall, spec auditSpec, req 
 				name, a.ID, a.ApproveWith(), a.ID))
 		var coded *ExternalConnectorError
 		if errors.As(pending, &coded) {
-			coded.Approval = &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith(), Channel: a.Channel}
+			coded.Approval = approvalReference(a)
 		}
 		return pending
 	}
