@@ -21,7 +21,7 @@ separately; Outpost imports neither application.
 Requires Go 1.26.9 or later. Linux and macOS are the intended host platforms.
 
 ```sh
-go install github.com/hollis-labs/outpost/cmd/outpost@latest
+go install github.com/hollis-labs/tools/outpost/cmd/outpost@latest
 outpost version
 ```
 

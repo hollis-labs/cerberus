@@ -1,4 +1,4 @@
-module github.com/hollis-labs/outpost
+module github.com/hollis-labs/tools/outpost
 
 go 1.26.9
 

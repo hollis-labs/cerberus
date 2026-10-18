@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/hollis-labs/outpost/internal/service"
+	"github.com/hollis-labs/tools/outpost/internal/service"
 )
 
 var version = "dev"
