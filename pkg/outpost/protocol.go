@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/libs/security/secrets/tokenfile"
 )
 
 type Request struct {
@@ -82,17 +84,10 @@ func (c Client) Execute(ctx context.Context, request Request) (Result, error) {
 	if err := ValidateEndpoint(c.URL); err != nil {
 		return result, err
 	}
-	info, err := os.Stat(c.TokenFile)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-		return result, fmt.Errorf("outpost credential must be a readable private regular file")
-	}
-	b, err := os.ReadFile(c.TokenFile)
+	// Read on every call so atomic credential rotation takes effect immediately.
+	token, err := tokenfile.Read(c.TokenFile)
 	if err != nil {
-		return result, fmt.Errorf("read outpost credential")
-	}
-	token := strings.TrimSpace(string(b))
-	if token == "" {
-		return result, fmt.Errorf("empty outpost credential")
+		return result, redact.Guidance("outpost credential must be a nonempty regular file owned by the current user, with mode 0600, no symlink, and at most 4096 bytes")
 	}
 	if c.Credential != nil {
 		c.Credential(token)

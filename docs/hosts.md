@@ -184,6 +184,11 @@ Pair that token locally at Outpost with scope `outpost.cerberus`. Keep
 `reach.ssh` configured for independent recovery; failed or refused Outpost
 mutations are never retried over SSH.
 
+The controller token file must belong to the user running Cerberus, have mode
+`0600`, and contain a nonempty token in at most 4096 bytes. A symlink at the
+final path component is refused. Cerberus rereads the file for each request,
+so an atomic replacement takes effect on the next call without a restart.
+
 `cerberus host probe NAME` records the same facts through either transport.
 `cerberus host plan NAME restart UNIT` previews a unit operation without
 executing it. `cerberus host act NAME restart UNIT --ack` uses the shared

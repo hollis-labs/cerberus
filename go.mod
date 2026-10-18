@@ -11,6 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hollis-labs/libs/core/util v0.4.0
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.3.0
+	github.com/hollis-labs/libs/security/secrets v0.1.0
 	github.com/hollis-labs/libs/ui/ui-go v0.1.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0
