@@ -1,8 +1,9 @@
 # Outpost
 
 A small per-machine host for trusted subprocess plugins. Outpost starts the
-configured binaries, routes authenticated HTTP requests to them and exits when
-a plugin becomes unhealthy so the machine's supervisor can restart it.
+configured binaries and routes authenticated HTTP requests to them. Required
+plugin failures exit the host for supervisor recovery; explicitly optional
+plugin failures leave healthy siblings running.
 
 > **Pre-release.** Outpost is new and being built in the open. This documentation
 > describes what exists today; interfaces and behavior can change without notice,
@@ -64,6 +65,13 @@ configuration, data directory, and cache directory. The Tether plugin retains
 the existing enrollment, device token, mail registrations, provider commands,
 and shim state at `worker_root`.
 
+Plugins are required by default. Set `"optional": true` on a plugin only when
+the host should keep serving its siblings after that plugin fails admission or
+health checks. Failed optional plugins are stopped and stay unavailable until
+the operator repairs the configuration and restarts Outpost. This does not
+isolate the operating-system authority of a plugin. Failure to clean up a
+plugin remains fatal, even when it is optional.
+
 ## Pair and run
 
 Flags must come before the subcommand. The local operator pairs a controller
@@ -82,11 +90,16 @@ channel. Revocation takes effect on the next request. Credentials are not
 printed, placed in child environments, or forwarded to plugins.
 
 Authenticated requests use `/api/plugins/{id}/…` and require scope
-`outpost.{id}`. `/healthz` is an unauthenticated readiness endpoint. Plain HTTP
+`outpost.{id}`. `/healthz` is unauthenticated process liveness. `GET /api/readyz`
+returns 200 only while every configured plugin is healthy, or 503 with
+`status: degraded` otherwise. Its public response contains only aggregate
+`plugins`/`healthy` counts and the host `pid`, never plugin names or errors.
+Authorized requests to an unavailable plugin receive 503; authentication and
+per-plugin scopes are still enforced first. Plain HTTP
 binds only to literal loopback or Tailscale-range addresses. The host cannot
 verify interface ownership or encryption; configure Tailscale correctly or
-use an HTTPS proxy with a loopback backend. See [SECURITY.md](SECURITY.md). The plugin inventory starts completely before HTTP admission.
-A failed plugin makes the host exit so its native supervisor can restart it.
+use an HTTPS proxy with a loopback backend. See [SECURITY.md](SECURITY.md).
+Plugin startup and initial health checks finish before HTTP admission.
 
 The Tether worker binary supports `plugin` as well as its existing enrollment,
 mail, shim, and relay commands. Cerberus's `cerberus-outpost` binary implements
@@ -120,10 +133,18 @@ unit names on Linux, the launchd label on macOS.
 `scripts/activate-bundle.py --bundle <dir>` switches an already staged bundle
 in. It verifies the checksums, backs up `outpost.json`, repoints every plugin
 command, restarts the supervisor and requires the host to stay running for a
-settle period (`--settle`, default 15 seconds; optionally also `--health-command`
-exiting 0). If anything fails it restores the previous inventory and restarts
+settle period (`--settle`, default 15 seconds). It then requires `/api/readyz`
+to report every configured plugin healthy, including optional ones, with the
+same PID the supervisor observed. An optional `--health-command` must also exit
+0. If anything fails it restores the previous inventory and restarts
 the supervisor again, exiting non-zero. It restarts every plugin, so check the
 machine's live sessions first. Tests: `python3 -m unittest discover -s scripts/tests`.
+
+Activation updates plugin commands, not the host executable. Upgrade the host
+through the native supervisor first, preserving its previous binary and unit
+for rollback. The new activation script refuses hosts without `/api/readyz`;
+there is no liveness-only fallback. Do not preflight a second worker against
+live enrollment or mail-socket state.
 
 ## Current limits
 
@@ -132,7 +153,9 @@ machine's live sessions first. Tests: `python3 -m unittest discover -s scripts/t
 - HTTP request bodies are buffered and limited to 4 MiB. Streaming/SSE is not
   supported by this route adapter.
 - Plugin health is checked every five seconds with a three-second timeout per
-  plugin. A failed plugin restarts the whole inventory through the supervisor.
+  plugin, as well as before initial admission. Readiness reflects the latest
+  completed checks. A required failure restarts the inventory through the
+  supervisor; an optional failure disables only that plugin until restart.
 - Native supervision and deployment are operator-owned. On macOS, live-session
   survival across a host migration has not been established; migrate while idle.
 

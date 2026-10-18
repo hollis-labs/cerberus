@@ -29,8 +29,11 @@ activate services or enroll a real worker as part of the test suite.
   and are never forwarded to plugin processes.
 - Plugins execute with the host user's operating-system authority. This is not
   a sandbox or a tenant isolation mechanism.
-- Plugin startup must complete before HTTP admission. An unhealthy plugin must
-  make the host exit so the native supervisor can restart it.
+- Plugin startup and initial health checks must complete before HTTP admission.
+  Plugins are required by default. A required failure exits the host; an
+  explicitly optional failure disables that plugin and reports degraded
+  readiness. Failure to clean up a plugin remains fatal. Deployment acceptance
+  requires every configured plugin healthy, even optional plugins.
 - Shutdown must preserve independent session shims. Linux supervision uses
   process-only termination. SSH remains the deployment and recovery path.
 

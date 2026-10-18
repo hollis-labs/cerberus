@@ -24,7 +24,12 @@ not operations already admitted.
 
 Only Content-Type is forwarded as a request header to plugins. Avoid putting
 credentials in query strings or request bodies: those are forwarded as payload.
-The unauthenticated /healthz endpoint indicates host readiness.
+The unauthenticated /healthz endpoint indicates process liveness. The public
+/api/readyz endpoint reports aggregate plugin readiness and the host PID, without
+plugin identities, configuration, or failure details. Optional plugin failures
+do not relax authentication: their routes remain protected and return 503 only
+to a controller authorized for that plugin. Deployment acceptance requires all
+plugins to be healthy, even optional ones.
 
 Plain HTTP accepts literal loopback addresses and the Tailscale IPv4/IPv6
 ranges. An address-range check cannot verify that an interface is actually

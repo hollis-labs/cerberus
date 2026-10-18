@@ -3,13 +3,16 @@
 
 Backs up the inventory, repoints each plugin command at the new bundle,
 restarts the supervisor, then requires the supervised host to stay up for a
-settle period (and an optional health command to pass). On any failure the
+settle period, requires every configured plugin healthy through /api/readyz,
+and runs an optional health command. On any failure the
 previous inventory is restored and the supervisor restarted again.
 
 This restarts the host, which restarts every plugin. Run it only after checking
 the machine's live sessions (see the README).
 """
 import argparse
+import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -17,6 +20,7 @@ import platform
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 
 from outpost_units import normalize
 
@@ -93,22 +97,61 @@ def settled(supervisor, seconds, sleep=time.sleep, clock=time.monotonic, interva
             return False
         first = first or pid
         sleep(interval)
-    return bool(first)
+    return first
+
+
+def ready(config, pid):
+    """Require the supervised process to report every configured plugin healthy.
+
+    Use the inventory's literal bind address, without proxies or redirects.
+    Older hosts lacking this endpoint fail closed; upgrade the host first.
+    """
+    connection = None
+    try:
+        address = urlsplit("http://" + config.get("address", "127.0.0.1:8977"))
+        ip = ipaddress.ip_address(address.hostname)
+        # The host validates bind ranges. This operator-owned probe only needs
+        # a literal address, so DNS, proxies and redirects cannot retarget it.
+        if address.path or address.query or address.fragment or address.username:
+            raise ValueError("invalid bind address")
+        if not address.port:
+            raise ValueError("missing port")
+        connection = http.client.HTTPConnection(str(ip), address.port, timeout=5)
+        connection.request("GET", "/api/readyz")
+        response = connection.getresponse()
+        body = response.read(4097)
+        if response.status != 200 or len(body) > 4096:
+            raise ValueError("readiness refused")
+        state = json.loads(body)
+        total = len(config["plugins"])
+        return (state.get("status") == "ok" and total > 0
+                and type(state.get("pid")) is int and state["pid"] == pid
+                and type(state.get("plugins")) is int and state["plugins"] == total
+                and type(state.get("healthy")) is int and state["healthy"] == total)
+    except (OSError, ValueError, TypeError, AttributeError, http.client.HTTPException):
+        return False
+    finally:
+        if connection:
+            connection.close()
 
 
 def activate(config_path, bundle, supervisor, system, settle, health_command=None,
-             sleep=time.sleep, clock=time.monotonic):
+             sleep=time.sleep, clock=time.monotonic, readiness=ready):
     """Returns the backup path on success; raises RuntimeError after rolling back."""
     original = config_path.read_text()
     backup = config_path.with_name("%s.bak-%s-pre-%s" % (
         config_path.name, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), bundle.name))
     write_private(backup, original)
-    write_private(config_path, json.dumps(repoint(json.loads(original), bundle, system), indent=2) + "\n")
+    config = repoint(json.loads(original), bundle, system)
+    write_private(config_path, json.dumps(config, indent=2) + "\n")
     failure = None
     try:
         supervisor.restart()
-        if not settled(supervisor, settle, sleep, clock):
+        pid = settled(supervisor, settle, sleep, clock)
+        if not pid:
             failure = "host did not stay running for %ss" % settle
+        elif not readiness(config, pid) or supervisor.main_pid() != pid:
+            failure = "not all configured plugins are ready in the supervised host"
         elif health_command and subprocess.run(health_command, shell=True).returncode:
             failure = "health command failed"
     except RuntimeError as error:

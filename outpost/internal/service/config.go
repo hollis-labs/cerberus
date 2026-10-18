@@ -22,12 +22,13 @@ type Config struct {
 }
 
 type Plugin struct {
-	ID      string            `json:"id"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Dir     string            `json:"dir"`
-	Env     []string          `json:"env"`
-	Config  map[string]string `json:"config"`
+	Optional bool              `json:"optional,omitempty"`
+	ID       string            `json:"id"`
+	Command  string            `json:"command"`
+	Args     []string          `json:"args"`
+	Dir      string            `json:"dir"`
+	Env      []string          `json:"env"`
+	Config   map[string]string `json:"config"`
 }
 
 func ReadConfig(path string) (Config, error) {

@@ -10,12 +10,10 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/hollis-labs/libs/app/app-host/host"
-	"github.com/hollis-labs/libs/app/app-host/plugins"
 	pluginhost "github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-host"
 	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/capability"
 	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/subprocess"
@@ -43,29 +41,28 @@ func Run(ctx context.Context, cfg Config, version string) error {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
+	return runWithListener(ctx, cfg, version, ln)
+}
+
+func runWithListener(ctx context.Context, cfg Config, version string, ln net.Listener) error {
 	var nonce [16]byte
-	if _, err = rand.Read(nonce[:]); err != nil {
+	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
 	instance := "outpost-" + hex.EncodeToString(nonce[:])
-	specs := make([]pluginhost.Spec, 0, len(cfg.Plugins))
+	inv := &inventory{}
 	for _, p := range cfg.Plugins {
 		data := filepath.Join(cfg.StateDir, "plugins", p.ID, "data")
 		cache := filepath.Join(cfg.StateDir, "plugins", p.ID, "cache")
-		for _, path := range []string{data, cache} {
-			if err = os.MkdirAll(path, 0700); err != nil {
-				return err
-			}
-		}
-		specs = append(specs, pluginhost.Spec{ID: p.ID, Command: p.Command, Args: p.Args, Dir: p.Dir, Env: p.Env,
+		spec := pluginhost.Spec{ID: p.ID, Command: p.Command, Args: p.Args, Dir: p.Dir, Env: p.Env,
 			Init: subprocess.InitParams{PluginDir: p.Dir, DataDir: data, CacheDir: cache, Config: p.Config,
 				HostInfo:           subprocess.HostInfo{Version: version, Protocol: subprocess.ProtocolVersion},
 				CapabilityContract: capability.ContractVersion,
 				Incarnation:        capability.RuntimeIdentity{HostInstance: instance, OwnerID: p.ID, OwnerGeneration: 1},
-				Grants:             capability.GrantSet{}}})
+				Grants:             capability.GrantSet{}}}
+		inv.entries = append(inv.entries, &pluginEntry{id: p.ID, optional: p.Optional, runtime: newPluginRuntime(spec)})
 	}
-	inv := plugins.NewInventory(specs)
-	if err = inv.Start(ctx); err != nil {
+	if err := inv.Start(ctx); err != nil {
 		return err
 	}
 	gate, err := auth.New(auth.Config{Mode: auth.ModeEnforce, Verifier: FileVerifier{Path: cfg.CredentialsFile}})
@@ -73,18 +70,24 @@ func Run(ctx context.Context, cfg Config, version string) error {
 		_ = inv.Stop(context.Background())
 		return err
 	}
-	routes := gate.Middleware(AuthorizePlugins(inv.APIRoutes()))
-	h, err := host.New(host.Config{Name: "outpost", Routes: routes, Stop: inv.Stop})
+	life, cancel := context.WithCancel(ctx)
+	defer cancel()
+	routes := http.NewServeMux()
+	routes.HandleFunc("GET /api/readyz", inv.Readiness)
+	routes.Handle("/", gate.Middleware(AuthorizePlugins(inv.APIRoutes())))
+	monitorDone := make(chan struct{})
+	h, err := host.New(host.Config{Name: "outpost", Routes: routes, Stop: func(stopCtx context.Context) error {
+		cancel()
+		<-monitorDone
+		return inv.Stop(stopCtx)
+	}})
 	if err != nil {
 		_ = inv.Stop(context.Background())
 		return err
 	}
-	life, cancel := context.WithCancel(ctx)
-	defer cancel()
-	// A dead plugin must not leave a green but useless host. Exit and let the
-	// supervisor restart the inventory; session shims have separate lifetimes.
 	fault := make(chan error, 1)
 	go func() {
+		defer close(monitorDone)
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -93,22 +96,10 @@ func Run(ctx context.Context, cfg Config, version string) error {
 				return
 			case <-ticker.C:
 			}
-			for _, p := range cfg.Plugins {
-				client, ok := inv.Client(p.ID)
-				if !ok {
-					continue
-				}
-				check, stop := context.WithTimeout(life, 3*time.Second)
-				status, healthErr := client.Health(check)
-				stop()
-				if healthErr == nil && !status.OK {
-					healthErr = errors.New("plugin reported unhealthy")
-				}
-				if healthErr != nil && life.Err() == nil {
-					fault <- fmt.Errorf("plugin %s unhealthy: %w", p.ID, healthErr)
-					cancel()
-					return
-				}
+			if checkErr := inv.Check(life); checkErr != nil && life.Err() == nil {
+				fault <- checkErr
+				cancel()
+				return
 			}
 		}
 	}()

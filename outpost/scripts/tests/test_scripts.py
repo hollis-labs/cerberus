@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -57,6 +58,7 @@ class Activate(unittest.TestCase):
         self.clock = iter(range(0, 1000))
 
     def go(self, supervisor, **kw):
+        kw.setdefault("readiness", lambda config, pid: True)
         return activate_mod.activate(self.cfg, self.bundle, supervisor, "Linux", 3,
                                      sleep=lambda _: None, clock=lambda: next(self.clock), **kw)
 
@@ -79,6 +81,26 @@ class Activate(unittest.TestCase):
             self.go(FakeSupervisor([0]))
         self.assertEqual(self.cfg.read_text(), self.original)
 
+    def test_degraded_optional_plugin_rolls_back(self):
+        config = json.loads(self.original)
+        config["plugins"][1]["optional"] = True
+        self.original = json.dumps(config)
+        self.cfg.write_text(self.original)
+        supervisor = FakeSupervisor([42])
+        with self.assertRaisesRegex(RuntimeError, "not all configured plugins"):
+            self.go(supervisor, readiness=lambda config, pid: False)
+        self.assertEqual(self.cfg.read_text(), self.original)
+        self.assertEqual(supervisor.restarts, 2)
+
+    def test_restart_after_settle_rolls_back(self):
+        supervisor = FakeSupervisor([42])
+        def restart_during_probe(config, pid):
+            supervisor.pids = [43]
+            return True
+        with self.assertRaisesRegex(RuntimeError, "not all configured plugins"):
+            self.go(supervisor, readiness=restart_during_probe)
+        self.assertEqual(self.cfg.read_text(), self.original)
+
     def test_failed_health_command_rolls_back(self):
         with self.assertRaisesRegex(RuntimeError, "health command"):
             self.go(FakeSupervisor([42]), health_command="false")
@@ -89,6 +111,34 @@ class Activate(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "rollback restart also failed"):
             self.go(supervisor)
         self.assertEqual(self.cfg.read_text(), self.original)
+
+
+class Readiness(unittest.TestCase):
+    def test_requires_exact_healthy_inventory_and_pid(self):
+        config = {"plugins": [{"id": "one"}, {"id": "two", "optional": True}]}
+        good = {"status": "ok", "pid": 42, "plugins": 2, "healthy": 2}
+        cases = [(200, good, True), (200, {"status": "ok"}, False),
+                 (503, {**good, "status": "degraded", "healthy": 1}, False),
+                 (200, {**good, "pid": 43}, False), (200, {**good, "healthy": 1}, False),
+                 (200, {**good, "plugins": 1}, False), (404, {}, False), (302, good, False)]
+        for code, body, expected in cases:
+            with self.subTest(code=code, body=body), patch.object(activate_mod.http.client, "HTTPConnection") as conn:
+                response = conn.return_value.getresponse.return_value
+                response.status = code
+                response.read.return_value = json.dumps(body).encode()
+                self.assertEqual(activate_mod.ready(config, 42), expected)
+                conn.return_value.request.assert_called_once_with("GET", "/api/readyz")
+                conn.return_value.close.assert_called_once()
+
+    def test_invalid_response_and_connection_fail_closed(self):
+        for body in (b"not json", b"null", b"[]", b"x" * 4097):
+            with patch.object(activate_mod.http.client, "HTTPConnection") as conn:
+                response = conn.return_value.getresponse.return_value
+                response.status = 200
+                response.read.return_value = body
+                self.assertFalse(activate_mod.ready({"plugins": [{}]}, 42))
+        with patch.object(activate_mod.http.client, "HTTPConnection", side_effect=OSError):
+            self.assertFalse(activate_mod.ready({"plugins": [{}]}, 42))
 
 
 if __name__ == "__main__":

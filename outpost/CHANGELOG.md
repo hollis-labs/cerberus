@@ -7,6 +7,8 @@ or compatibility guarantees yet.
 
 ### Added
 
+- Explicit optional plugins with isolated admission/health failures, authenticated
+  unavailable responses, and aggregate readiness at `/api/readyz`.
 - Shared per-machine host for independent subprocess plugins, with scoped
   controller pairing, immediate revocation and plugin health supervision.
 - Public usage, security and contribution documentation under the MIT license.
@@ -17,6 +19,8 @@ or compatibility guarantees yet.
 
 ### Changed
 
+- Bundle activation now requires all configured plugins healthy in the supervised
+  host, even optional plugins. Hosts without the readiness endpoint are refused.
 - Move the independent Go module to `github.com/hollis-labs/tools/outpost`,
   preserving source history and adopting the shared repository license.
 - Clarify the operator's responsibility for encrypted transport and trusted
