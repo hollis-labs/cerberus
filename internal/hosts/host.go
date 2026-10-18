@@ -89,8 +89,27 @@ type Specs struct {
 // server/ssh resource. The credential, key and host-key trust stay on that
 // resource; a Host never carries one.
 type Reach struct {
+	Transport string `yaml:"transport,omitempty" json:"transport,omitempty"`
 	// SSH is the id of a configured server/ssh resource.
-	SSH string `yaml:"ssh,omitempty" json:"ssh,omitempty"`
+	SSH     string        `yaml:"ssh,omitempty" json:"ssh,omitempty"`
+	Outpost *OutpostReach `yaml:"outpost,omitempty" json:"outpost,omitempty"`
+}
+
+// OutpostReach holds a controller-side credential reference, never its value.
+// SSH remains independently configured as the recovery transport.
+type OutpostReach struct {
+	URL       string `yaml:"url" json:"url"`
+	TokenFile string `yaml:"token_file" json:"token_file"`
+}
+
+func (r Reach) EffectiveTransport() string {
+	if r.Transport != "" {
+		return r.Transport
+	}
+	if r.SSH != "" {
+		return "ssh"
+	}
+	return "none"
 }
 
 // Cost is a monthly estimate for a cloud host.

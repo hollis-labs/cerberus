@@ -48,6 +48,9 @@ type auditSpec struct {
 	pluginEntrypointSHA256 string
 	// resources resolves a target's registered resource, for its labels.
 	resources ResourceLookup
+	// resolvedTarget is supplied by lanes with an authoritative declaration
+	// outside the local resource namespace (for example a remote Host).
+	resolvedTarget *target.Target
 	// preview is plugin_claimed for a dry run a plugin serves itself.
 	preview string
 	// review is an install review's record.
@@ -310,6 +313,9 @@ func auditTarget(spec auditSpec) (audit.Target, target.Target) {
 // usual id and resource keys, or unknown. A call that carries a local-only
 // input names its target by connection settings, and is ad hoc.
 func resolveTarget(spec auditSpec, id string) target.Target {
+	if spec.resolvedTarget != nil {
+		return *spec.resolvedTarget
+	}
 	var res *target.ResourceLabels
 	if spec.resources != nil {
 		keys := append(append([]string(nil), spec.op.Target.From...), "id", "resource")

@@ -173,3 +173,66 @@ and `capacity` also carry the untrusted marker for the model strings and
 A refusal (an unknown host, a tool a probe does not report, a host with no
 `reach.ssh`) is Cerberus-composed guidance and reaches the caller as written on
 every surface.
+
+
+## Shared Outpost transport
+
+A host may select `reach.transport: outpost` and declare `reach.outpost.url`
+(an HTTPS origin, or a literal loopback/Tailscale HTTP address) and
+`reach.outpost.token_file` (an absolute path to a private controller token).
+Pair that token locally at Outpost with scope `outpost.cerberus`. Keep
+`reach.ssh` configured for independent recovery; failed or refused Outpost
+mutations are never retried over SSH.
+
+`cerberus host probe NAME` records the same facts through either transport.
+`cerberus host plan NAME restart UNIT` previews a unit operation without
+executing it. `cerberus host act NAME restart UNIT --ack` uses the shared
+policy, approval, audit, and output-redaction path; an approval request must
+be approved by the operator before retrying with `--approval-id`.
+The fixed verbs are `units`, `logs`, `start`, `stop`, and `restart`.
+`logs` accepts `--lines` up to 1000. These operate on the Outpost user's
+systemd services or launchd agents. Arbitrary shell commands are not exposed.
+The executor protects its own control-plane services; use SSH for upgrades.
+
+Unit policy labels come only from the host's explicit `reach.ssh` binding to
+a `server`/`ssh` resource. Without a valid binding they are unknown, which
+may deny a mutation under the applied policy. A remote unit name or host
+name never borrows labels from a same-named local process. Plans and audit
+records retain both the host and unit, and bind the host declaration and
+resolved labels to approval.
+
+Linux mutations accept explicit `.service` names or short names without dots.
+Targets, sockets, uninstantiated templates and other unit types are refused
+before native dispatch. The executor resolves systemd `Id`/`Names`, preserves
+case and instance identity, and checks possible dependency effects, including
+conflicts, stop propagation and manager-exit actions. Incomplete metadata,
+an unresolved serving unit or an inspection exceeding 128 effects refuses the
+mutation. Ordinary inactive shutdown-target conflicts remain usable.
+
+The plugin's comma-separated `protected_units` configuration adds serving
+identities; whitespace is trimmed and invalid entries fail initialization.
+Installed Outpost and controller identities are always protected. Linux also
+discovers containing service units from its cgroup; macOS matches the plugin
+or parent PID in `launchctl list`. Custom controller labels and launch layouts
+that cannot be discovered must be declared in `protected_units`. Linux resolves
+configured aliases too. Launchd bootstrap refuses a plist whose `Label` differs
+from the requested name. These checks rely on operator-trusted supervisor
+definitions: they do not sandbox a service's executable or make inspection and
+dispatch atomic against concurrent operator reconfiguration. The systemd
+[unit identity/dependency contract](https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html)
+and [supervisor properties](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html)
+define the inspected metadata.
+
+Every operation has a 30-second deadline, including launchd plist/log reads.
+Files are opened nonblocking and checked on the opened descriptor; FIFOs and
+other special files refuse. Plists are limited to 1 MiB and log tails to
+256 KiB. Cancellation returns promptly even if a filesystem syscall stalls;
+at most four filesystem workers can remain outstanding until that filesystem
+recovers. Native macOS acceptance remains a separate verification step.
+
+The HTTP routes are `POST /hosts/NAME/actions/VERB` and its `/plan` sibling,
+with a `request` object containing `unit` and optional `lines` plus the usual
+acknowledgment and approval fields. MCP exposes the same fixed operations.
+A plan uses a separate route so older controllers cannot mistake it for an
+execution. Existing Cerberus audit records cover these calls; the separate
+host-action history model and SSH unit actions remain their own work items.
