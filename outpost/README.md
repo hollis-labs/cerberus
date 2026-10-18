@@ -113,7 +113,17 @@ containing `outpost`, `tether-worker`, `cerberus-outpost` and `SHA256SUMS` in
 manifest through your authenticated deployment channel. Run `python3
 scripts/stage-machine.py --help` for options. It writes inventory and supervisor
 configuration but does not stop, start or enroll services. Existing files receive
-one `.before-outpost` backup; keep your own backups for later migrations.
+one `.before-outpost` backup; keep your own backups for later migrations. The
+Cerberus plugin's `protected_units` are written for the platform: the systemd
+unit names on Linux, the launchd label on macOS.
+
+`scripts/activate-bundle.py --bundle <dir>` switches an already staged bundle
+in. It verifies the checksums, backs up `outpost.json`, repoints every plugin
+command, restarts the supervisor and requires the host to stay running for a
+settle period (`--settle`, default 15 seconds; optionally also `--health-command`
+exiting 0). If anything fails it restores the previous inventory and restarts
+the supervisor again, exiting non-zero. It restarts every plugin, so check the
+machine's live sessions first. Tests: `python3 -m unittest discover -s scripts/tests`.
 
 ## Current limits
 

@@ -12,6 +12,9 @@ or compatibility guarantees yet.
 - Public usage, security and contribution documentation under the MIT license.
 - Linux and macOS CI with race tests, vet, lint and vulnerability scanning.
 
+- `scripts/activate-bundle.py`: switch a staged bundle in with a backup, a
+  settle check and automatic rollback of the inventory on failure.
+
 ### Changed
 
 - Move the independent Go module to `github.com/hollis-labs/tools/outpost`,
@@ -21,5 +24,8 @@ or compatibility guarantees yet.
 
 ### Fixed
 
+- `scripts/stage-machine.py` wrote the macOS launchd label into the Cerberus
+  plugin's protected units on every platform; the plugin rejects it on Linux
+  and the host then refused to start. Names are now platform-specific.
 - Reject trailing configuration data instead of silently ignoring it.
 - Refuse using the pairing store itself as the credential output file.

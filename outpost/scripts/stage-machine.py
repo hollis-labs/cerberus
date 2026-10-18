@@ -13,6 +13,8 @@ import platform
 import plistlib
 import shutil
 
+from outpost_units import protected_units
+
 
 def write_private(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,9 +71,7 @@ if platform.system() == "Linux":
 env = [key + "=" + value for key, value in environment.items()]
 state = home / ".local/share/outpost"
 config_path = home / ".config/outpost/outpost.json"
-protected = "outpost.service,dev.hollis-labs.outpost"
-if args.cerberus_service_name:
-    protected += "," + args.cerberus_service_name + ".service"
+protected = protected_units(platform.system(), args.cerberus_service_name)
 config = {
     "address": args.address,
     "state_dir": str(state),
