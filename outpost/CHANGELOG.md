@@ -14,7 +14,8 @@ or compatibility guarantees yet.
 
 ### Changed
 
-- Prepare the independent Go module for `hollis-labs/tools/outpost`.
+- Move the independent Go module to `github.com/hollis-labs/tools/outpost`,
+  preserving source history and adopting the shared repository license.
 - Clarify the operator's responsibility for encrypted transport and trusted
   plugins; the listener validates address ranges, not interface ownership.
 
