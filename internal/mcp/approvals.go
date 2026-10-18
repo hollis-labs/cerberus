@@ -8,6 +8,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
@@ -100,6 +101,9 @@ func nextStep(code cerbapi.ExternalConnectorErrorCode, ref *cerbapi.ApprovalRef)
 	case cerbapi.ExternalConnectorApprovalPending:
 		if ref == nil {
 			return redact.Guidance("the approval can only be held by the Cerberus daemon; ask your operator to start it (`cerberus daemon`), then retry this call")
+		}
+		if ref.SetupRequired != "" {
+			return redact.Guidance("ask your operator to complete passkey setup first: %s. You cannot authenticate or enroll for them. Then approve %s; if it expired during setup, request a new approval", ref.SetupRequired, ref.ID)
 		}
 		ask := redact.Guidance("ask your operator to run `%s` in their terminal, where they see the plan and confirm it", ref.ApproveWith)
 		if ref.Channel == approval.ChannelOutOfBand {
@@ -202,14 +206,14 @@ func waitForApproval(ctx context.Context, reader approvalReader, id string, time
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-deadline.C:
-			return waitResult(current, false, start), nil
+			return waitResultWithSetup(ctx, reader, current, false, start), nil
 		case <-tick.C:
 		}
 		if current, err = reader.GetApproval(ctx, id); err != nil {
 			return connectorFailure(ctx, err)
 		}
 	}
-	return waitResult(current, current.Status != first.Status, start), nil
+	return waitResultWithSetup(ctx, reader, current, current.Status != first.Status, start), nil
 }
 
 // waiting is whether a is still in a state worth waiting on: pending, for a
@@ -237,4 +241,25 @@ func waitNextStep(a approval.Approval) error {
 		return redact.Guidance("revoked by your operator before it was used: do not retry; ask them why")
 	}
 	return fmt.Errorf("approval %s is %s", a.ID, a.Status)
+}
+
+func waitResultWithSetup(ctx context.Context, reader approvalReader, a approval.Approval, changed bool, start time.Time) approvalWaitResult {
+	out := waitResult(a, changed, start)
+	if a.Status != approval.Pending || a.Channel != approval.ChannelOutOfBand {
+		return out
+	}
+	if r, ok := reader.(interface {
+		PasskeyStatus(context.Context) (presence.Status, error)
+	}); ok {
+		st, err := r.PasskeyStatus(ctx)
+		if err != nil {
+			out.NextStep = "passkey setup readiness could not be read; ask your operator to check `cerberus approvals keys` before trying to approve"
+			return out
+		}
+		if len(st.Keys) == 0 {
+			summary, _ := st.Summary(time.Now())
+			out.NextStep = redact.Guidance("ask your operator to complete passkey setup first: %s. You cannot authenticate or enroll for them. Request a new approval if this one expires during setup", summary).Error()
+		}
+	}
+	return out
 }

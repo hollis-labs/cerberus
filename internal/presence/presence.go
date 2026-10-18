@@ -102,13 +102,21 @@ type registryFile struct {
 	Keys    []Key  `json:"keys"`
 }
 
+// EnrollmentSetup reports prerequisites on the daemon host, without prompting.
+type EnrollmentSetup struct {
+	Method    string `json:"method"`
+	Available bool   `json:"available"`
+	NextStep  string `json:"next_step"`
+}
+
 // Status is the registry as status and the console show it.
 type Status struct {
-	State          string    `json:"state"`
-	Keys           []KeyInfo `json:"keys"`
-	CooldownUntil  time.Time `json:"cooldown_until,omitzero"`
-	LastEnrolledAt time.Time `json:"last_enrolled_at,omitzero"`
-	RegistryHash   string    `json:"registry_hash"`
+	Enrollment     *EnrollmentSetup `json:"enrollment,omitempty"`
+	State          string           `json:"state"`
+	Keys           []KeyInfo        `json:"keys"`
+	CooldownUntil  time.Time        `json:"cooldown_until,omitzero"`
+	LastEnrolledAt time.Time        `json:"last_enrolled_at,omitzero"`
+	RegistryHash   string           `json:"registry_hash"`
 }
 
 // KeyInfo is a key without its public key.
@@ -872,6 +880,9 @@ func (st Status) Summary(now time.Time) (string, bool) {
 	case st.State == StateCooldown:
 		return fmt.Sprintf("COOL-DOWN: the passkey registry changed outside `cerberus approvals enroll`; out-of-band approvals are refused until %s", st.CooldownUntil.Local().Format(time.RFC3339)), true
 	case len(st.Keys) == 0:
+		if st.Enrollment != nil {
+			return "out-of-band approval not set up: " + st.Enrollment.NextStep, true
+		}
 		return "out-of-band approval not set up: run `cerberus approvals enroll`", true
 	case !st.LastEnrolledAt.IsZero() && now.Sub(st.LastEnrolledAt) < Cooldown:
 		return fmt.Sprintf("key enrolled %s, %s (not you? see `cerberus approvals keys`)", st.LastEnrolledAt.Local().Format(time.RFC3339), keysCount(len(st.Keys))), true

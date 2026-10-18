@@ -25,6 +25,9 @@ func (f *fakePasskeys) PasskeyAllowEnrollment(_ context.Context, args cerbapi.En
 
 func passkeysFixture(t *testing.T, terminal bool) (*fakePasskeys, *[]string) {
 	t.Helper()
+	oldAgent := startEnrollmentAgent
+	startEnrollmentAgent = func(context.Context) (func(), error) { return func() {}, nil }
+	t.Cleanup(func() { startEnrollmentAgent = oldAgent })
 	f := &fakePasskeys{}
 	var pages []string
 	oldTerm, oldClient, oldURL, oldBrowser := approvalsIsTerminal, newPasskeysClient, consolePageURL, approvalsEnrollFlags.browser
@@ -91,5 +94,24 @@ func TestKeysListsTheRegistry(t *testing.T) {
 	summary, _ := presence.Status{}.Summary(f.st.LastEnrolledAt)
 	if redact.Text(summary) != summary {
 		t.Fatalf("the not-set-up guidance did not survive redaction: %q", redact.Text(summary))
+	}
+}
+
+func TestEnrollReportsUnavailableSetupBeforeStartingAnAgent(t *testing.T) {
+	f, pages := passkeysFixture(t, true)
+	f.st.Enrollment = &presence.EnrollmentSetup{Method: "polkit", NextStep: "install the Linux enrollment policy"}
+	startEnrollmentAgent = func(context.Context) (func(), error) { t.Fatal("agent started without prerequisites"); return nil, nil }
+	out, err := runApprovals(t, "", "enroll", "--browser=false")
+	if err == nil || !strings.Contains(err.Error(), "install the Linux enrollment policy") || len(f.digests) != 0 || len(*pages) != 0 {
+		t.Fatalf("err=%v out=%s", err, out)
+	}
+}
+
+func TestEnrollDoesNotAllowATokenWhenTerminalAgentFails(t *testing.T) {
+	f, pages := passkeysFixture(t, true)
+	startEnrollmentAgent = func(context.Context) (func(), error) { return nil, errors.New("no terminal authentication agent") }
+	_, err := runApprovals(t, "", "enroll", "--browser=false")
+	if err == nil || len(f.digests) != 0 || len(*pages) != 0 {
+		t.Fatalf("error=%v", err)
 	}
 }

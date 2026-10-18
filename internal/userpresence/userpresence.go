@@ -36,13 +36,16 @@ type Verifier interface {
 
 // ErrUnavailable is a check that could not be raised here: no helper, no
 // login session, another OS. Nothing is allowed on it.
-var ErrUnavailable = errors.New("the person at this Mac could not be asked")
+var ErrUnavailable = errors.New("the operator could not be asked")
 
 // ErrRefused is a check the person refused or canceled, or that failed.
-var ErrRefused = errors.New("the person at this Mac did not allow it")
+var ErrRefused = errors.New("the operator did not allow it")
 
-// Recovery is what to do when the check is unavailable.
-const Recovery = "run it from a terminal in this Mac's own login session, at its screen (not over ssh), with cerberus-presence installed next to cerberus"
+// MacRecovery describes the macOS LocalAuthentication prerequisites.
+const MacRecovery = "run it from a terminal in this Mac's own login session, at its screen (not over ssh), with cerberus-presence installed next to cerberus"
+
+// Recovery names the supported platform setup paths.
+const Recovery = "on macOS use the local login session with cerberus-presence installed; on Linux see `cerberus approvals enrollment-policy --help` for SSH enrollment setup"
 
 // Helper runs the cerberus-presence binary at Path.
 type Helper struct {
@@ -61,7 +64,7 @@ type Helper struct {
 func (h *Helper) Verify(ctx context.Context, reason string) error {
 	digest, err := fileDigest(h.Path)
 	if err != nil {
-		return fmt.Errorf("%w: cerberus-presence is not installed at %s (%w); %s", ErrUnavailable, h.Path, err, Recovery)
+		return fmt.Errorf("%w: cerberus-presence is not installed at %s (%w); %s", ErrUnavailable, h.Path, err, MacRecovery)
 	}
 	h.mu.Lock()
 	switch {
@@ -98,7 +101,7 @@ func (h *Helper) Verify(ctx context.Context, reason string) error {
 	case ctx.Err() != nil:
 		return fmt.Errorf("%w: nobody answered within %s", ErrRefused, timeout)
 	case errors.As(err, &exit) && exit.ExitCode() == 2:
-		return fmt.Errorf("%w: %s; %s", ErrUnavailable, orDefault(why, "LocalAuthentication is not available"), Recovery)
+		return fmt.Errorf("%w: %s; %s", ErrUnavailable, orDefault(why, "LocalAuthentication is not available"), MacRecovery)
 	default:
 		return fmt.Errorf("%w: %s", ErrRefused, orDefault(why, err.Error()))
 	}
@@ -137,4 +140,13 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+func (h *Helper) EnrollmentSetup() Setup {
+	_, err := os.Stat(h.Path)
+	return Setup{Method: "local-authentication", Available: err == nil, NextStep: "run `cerberus approvals enroll` locally on the Mac; " + MacRecovery}
+}
+
+func (r Refuse) EnrollmentSetup() Setup {
+	return Setup{Method: "unavailable", NextStep: r.Why + "; " + Recovery}
 }

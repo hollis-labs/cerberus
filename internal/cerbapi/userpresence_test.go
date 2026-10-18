@@ -109,7 +109,7 @@ func TestEnrollmentPromptsAreRationed(t *testing.T) {
 	done := make(chan error)
 	go func() { done <- enrollPresenceRefusal(person) }()
 	<-blocking.shown
-	if err := enrollPresenceRefusal(person); err == nil || !strings.Contains(err.Error(), "already on this Mac's screen") || blocking.asked.Load() != 1 {
+	if err := enrollPresenceRefusal(person); err == nil || !strings.Contains(err.Error(), "already on the operator's terminal or screen") || blocking.asked.Load() != 1 {
 		t.Fatalf("a second prompt while one is on screen: %v, asked %d", err, blocking.asked.Load())
 	}
 	blocking.release <- nil

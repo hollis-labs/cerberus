@@ -348,7 +348,7 @@ func liftProof(ctx context.Context, operation string, t audit.Target, id, approv
 			redact.Guidance("lifting %s is approved with your passkey: approve %s on the console (`%s` opens it), then lift again with --approval %s", id, a.ID, a.ApproveWith(), a.ID))
 		var coded *ExternalConnectorError
 		if errors.As(pending, &coded) {
-			coded.Approval = &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith(), Channel: a.Channel}
+			coded.Approval = approvalReference(a)
 		}
 		return "", pending
 	}

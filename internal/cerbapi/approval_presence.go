@@ -2,17 +2,20 @@ package cerbapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/audit"
-	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/presence"
@@ -165,9 +168,6 @@ func passkeyAdminRefusal(ctx context.Context, action string) error {
 	} else {
 		allowed = allowed && (p.Via == ViaCLI || p.Via == ViaWeb)
 	}
-	if allowed && action == "enroll-allow" {
-		return enrollPresenceRefusal(ctx)
-	}
 	if allowed {
 		return nil
 	}
@@ -200,7 +200,7 @@ func SetUserPresenceWith(v userpresence.Verifier, sink audit.Sink) {
 }
 
 // PromptCooldown is how long enrollment is refused, without asking, after
-// the person at the Mac refused or canceled a prompt.
+// the operator refused or canceled a prompt.
 var PromptCooldown = 5 * time.Minute
 
 // promptGate keeps a caller from wearing the person down with prompts: one
@@ -227,7 +227,7 @@ func (g *promptGate) acquire() string {
 	now := g.clock()
 	switch {
 	case g.busy:
-		return "a prompt is already on this Mac's screen; answer it, or wait for it to time out"
+		return "a prompt is already on the operator's terminal or screen; answer it, or wait for it to time out"
 	case now.Before(g.coolUntil):
 		return fmt.Sprintf("the last prompt was refused or canceled, so none is raised until %s (%s from now)", g.coolUntil.Local().Format("15:04:05"), g.coolUntil.Sub(now).Round(time.Second))
 	}
@@ -257,20 +257,23 @@ func enrollPresenceRefusal(ctx context.Context) error {
 	h := userPresencePoint.Load()
 	if h == nil {
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
-			redact.Guidance("this daemon cannot ask the person at this Mac to allow an enrollment, so none is allowed; %s", userpresence.Recovery))
+			redact.Guidance("this daemon cannot ask the person to allow an enrollment, so none is allowed; %s", userpresence.Recovery))
 	}
 	if why := h.gate.acquire(); why != "" {
 		return externalConnectorError(args, ExternalConnectorApprovalRequired, redact.Guidance("%s; nothing was allowed", why))
 	}
 	const reason = "allow a new passkey for Cerberus approvals"
 	rec := audit.Record{Kind: audit.KindIntent, OperationID: audit.NewID(), Principal: principalFor(ctx, auditSpec{}), Connector: "approvals", Operation: "presence_prompt",
-		Effect: string(contract.EffectAdmin), Target: audit.Target{Kind: "presence.prompt"}, Note: "asked the person at this Mac to " + reason, Posture: audit.PostureSecure}
+		Effect: string(contract.EffectAdmin), Target: audit.Target{Kind: "presence.prompt"}, Note: "asked the operator to " + reason, Posture: audit.PostureSecure}
 	if h.sink != nil {
 		if _, err := h.sink.Write(rec); err != nil {
 			h.gate.release(false)
 			return externalConnectorError(args, ExternalConnectorAuditUnavailable,
 				redact.Guidance("the prompt could not be recorded, so none was raised and nothing was allowed: %v", err))
 		}
+	}
+	if peer, ok := peerFrom(ctx); ok && peer.err == nil {
+		ctx = userpresence.WithPeerSubject(ctx, peer.pid, peer.uid, peer.startTime)
 	}
 	err := h.v.Verify(ctx, reason)
 	refused := errors.Is(err, userpresence.ErrRefused)
@@ -279,9 +282,11 @@ func enrollPresenceRefusal(ctx context.Context) error {
 		rec.Kind, rec.Decision, rec.OutcomeCode = audit.KindOutcome, audit.DecisionAllowed, audit.OutcomeOK
 		if err != nil {
 			rec.Decision, rec.OutcomeCode = audit.DecisionRefused, string(ExternalConnectorApprovalRequired)
-			rec.Note = "the person at this Mac did not allow it: " + err.Error()
+			rec.Note = "the operator did not allow it: " + err.Error()
 		}
-		_, _ = h.sink.Write(rec)
+		if _, auditErr := h.sink.Write(rec); auditErr != nil {
+			return externalConnectorError(args, ExternalConnectorAuditUnavailable, redact.Guidance("authentication could not be recorded, so enrollment was not allowed: %v", auditErr))
+		}
 	}
 	if err != nil {
 		next := ""
@@ -289,7 +294,7 @@ func enrollPresenceRefusal(ctx context.Context) error {
 			next = fmt.Sprintf("; no prompt is raised for %s", PromptCooldown)
 		}
 		return externalConnectorError(args, ExternalConnectorApprovalRequired,
-			redact.Guidance("an enrollment needs the person at this Mac to allow it, and %v; nothing was allowed%s", err, next))
+			redact.Guidance("an enrollment needs the operator to allow it, and %v; nothing was allowed%s", err, next))
 	}
 	return nil
 }
@@ -309,7 +314,7 @@ func (s *SocketServer) handleApprovalKeys(w http.ResponseWriter, r *http.Request
 			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		writeJSON(w, http.StatusOK, p.Status())
+		writeJSON(w, http.StatusOK, passkeyStatus(p))
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -329,7 +334,14 @@ func (s *SocketServer) handleApprovalKeys(w http.ResponseWriter, r *http.Request
 	case "enroll-allow":
 		var args EnrollAllowArgs
 		if err = decodeJSONBody(r, &args); err == nil {
-			err = p.AllowEnrollment(args.Digest)
+			if raw, decodeErr := hex.DecodeString(args.Digest); decodeErr != nil || len(raw) != sha256.Size {
+				err = presence.ErrEnrollToken
+			} else if refusal := enrollPresenceRefusal(r.Context()); refusal != nil {
+				writeServiceError(w, http.StatusForbidden, refusal)
+				return
+			} else if err = r.Context().Err(); err == nil {
+				err = p.AllowEnrollment(args.Digest)
+			}
 			out = map[string]bool{"allowed": err == nil}
 		}
 	case "register/begin":
@@ -390,6 +402,31 @@ func approvalChallenge(broker *Broker, id string, args ApprovalChallengeArgs) (P
 	if a.Channel != approval.ChannelOutOfBand {
 		return PasskeyCeremony{}, redact.Guidance("approval %s is confirmed by typing its target, not with a passkey", id)
 	}
+	st := passkeyStatus(p)
+	if len(st.Keys) == 0 && st.Enrollment != nil {
+		return PasskeyCeremony{}, redact.GuidanceFor(presence.ErrNotSetUp, "out-of-band approval is not set up: %s", st.Enrollment.NextStep)
+	}
 	cer, opts, err := p.BeginApproval(a, strings.TrimRight(args.Origin, "/"))
 	return PasskeyCeremony{Ceremony: cer, Options: webAuthnOptions(opts)}, err
+}
+
+// passkeyStatus adds daemon-side setup information; a browser's OS says
+// nothing about the host on which enrollment must be authorized.
+func passkeyStatus(p *presence.Service) presence.Status {
+	st := p.Status()
+	if h := userPresencePoint.Load(); h != nil {
+		if reporter, ok := h.v.(userpresence.SetupReporter); ok {
+			setup := reporter.EnrollmentSetup()
+			st.Enrollment = &presence.EnrollmentSetup{Method: setup.Method, Available: setup.Available, NextStep: setup.NextStep}
+		}
+	}
+	return st
+}
+
+func (c *InProcessClient) PasskeyStatus(context.Context) (presence.Status, error) {
+	p := ProcessPresence()
+	if p == nil {
+		return presence.Status{}, errNoPresenceService
+	}
+	return passkeyStatus(p), nil
 }

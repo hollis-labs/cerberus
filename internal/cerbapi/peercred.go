@@ -9,9 +9,10 @@ import (
 // peerCred is what the kernel says about the other end of a socket
 // connection.
 type peerCred struct {
-	uid int
-	pid int
-	err error
+	uid       int
+	startTime uint64
+	pid       int
+	err       error
 }
 
 type peerKey struct{}

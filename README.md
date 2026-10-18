@@ -113,7 +113,8 @@ export PATH="$HOME/.local/bin:$PATH"
 `cerberus-presence` must sit next to `cerberus`: the daemon asks the person at
 the Mac through it (Touch ID or the account password) before allowing a passkey
 enrollment, and refuses without it. `cerberus status` reports whether it is
-installed.
+installed. On Linux, SSH enrollment uses polkit and a one-time administrator
+installation of its action; see [Linux enrollment setup](docs/install.md#linux-enrollment-over-ssh).
 
 Released checksums sit next to each tarball as `<archive>.tar.gz.sha256`
 plus a combined `checksums.txt` for the whole release.

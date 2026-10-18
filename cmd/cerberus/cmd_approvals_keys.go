@@ -14,6 +14,8 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
 	"github.com/hollis-labs/cerberus/internal/presence"
+	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/userpresence"
 	"github.com/hollis-labs/cerberus/internal/webui"
 )
 
@@ -24,7 +26,9 @@ type passkeysClient interface {
 	PasskeyAllowEnrollment(ctx context.Context, args cerbapi.EnrollAllowArgs) error
 }
 
-var newPasskeysClient = func() (passkeysClient, error) { return newResourceSocketClient() }
+var newPasskeysClient = func() (passkeysClient, error) {
+	return newResourceSocketClient(cerbapi.WithClientTimeout(3 * time.Minute))
+}
 
 // consolePageURL is a one-time sign-in link to a page on the running
 // console. Tests swap it.
@@ -35,6 +39,8 @@ var consolePageURL = func(next string) (string, error) {
 	}
 	return webui.MintLoginURLTo(webui.LoginKeyPath(home, webListenAddr), next)
 }
+
+var startEnrollmentAgent = userpresence.StartTerminalAgent
 
 var approvalsEnrollFlags struct {
 	label   string
@@ -47,11 +53,16 @@ var approvalsEnrollCmd = &cobra.Command{
 	Long: `Enroll a passkey (Touch ID, or a security key) that approves out-of-band
 requests on the console.
 
+On Linux (including SSH), install the polkit action with the administrator
+first; ` + "`cerberus approvals enrollment-policy --help`" + ` shows how. Each
+enrollment asks for fresh account authentication in your terminal. On macOS,
+use the local login session with cerberus-presence installed.
+
 This prints, and opens, a one-time console link, valid for ten minutes, where
 the browser creates the passkey. The first key is trusted on first use; every
 key after it has to be authorized by one already enrolled. Each enrollment is
-recorded in the audit log, raises a notification, and shows in ` + "`cerberus status`" + `
-for a day, so an enrollment you did not make is seen.
+recorded in the audit log and shows in ` + "`cerberus status`" + ` for a day,
+so an enrollment you did not make is seen. macOS also raises a notification.
 
 The registry is checked against the audit log. If it is changed any other way,
 out-of-band approvals are refused for 24 hours and ` + "`cerberus status`" + ` says so.`,
@@ -64,10 +75,23 @@ out-of-band approvals are refused for 24 hours and ` + "`cerberus status`" + ` s
 		if err != nil {
 			return err
 		}
+		st, err := client.PasskeyStatus(inProcessContext(cmd.Context()))
+		if err != nil {
+			return err
+		}
+		if st.Enrollment != nil && !st.Enrollment.Available {
+			return redact.Guidance("enrollment unavailable: %s", st.Enrollment.NextStep)
+		}
+		stop, err := startEnrollmentAgent(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer stop()
 		token, digest := presence.NewEnrollToken()
 		if err = client.PasskeyAllowEnrollment(inProcessContext(cmd.Context()), cerbapi.EnrollAllowArgs{Digest: digest}); err != nil {
 			return err
 		}
+		stop()
 		next := "/approvals?enroll=" + url.QueryEscape(token)
 		if approvalsEnrollFlags.label != "" {
 			next += "&label=" + url.QueryEscape(approvalsEnrollFlags.label)
@@ -145,5 +169,25 @@ func init() {
 	}
 	approvalsCmd.PersistentFlags().StringVar(&webListenAddr, "listen", webListenAddr, "the listen address of the `cerberus web` console the approvals and passkey links point at")
 	approvalsKeysCmd.AddCommand(approvalsKeysRemoveCmd)
-	approvalsCmd.AddCommand(approvalsEnrollCmd, approvalsKeysCmd)
+	approvalsCmd.AddCommand(approvalsEnrollCmd, approvalsKeysCmd, approvalsEnrollmentPolicyCmd)
+}
+
+var approvalsEnrollmentPolicyCmd = &cobra.Command{
+	Use:   "enrollment-policy",
+	Short: "Print the Linux polkit action for administrator installation",
+	Long: `Print the Linux polkit action (no files are installed).
+
+Review and install it once with the system administrator:
+  cerberus_policy=$(mktemp)
+  cerberus approvals enrollment-policy > "$cerberus_policy"
+  sudo install -o root -g root -m 0644 "$cerberus_policy" /usr/share/polkit-1/actions/com.hollis-labs.cerberus.policy
+
+The host needs polkit, pkcheck and pkttyagent. The action requires auth_self
+for every session, including SSH. Do not configure automatic or cached grants.
+Then run cerberus approvals enroll --browser=false as the daemon's user.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		_, err := fmt.Fprint(cmd.OutOrStdout(), userpresence.PolkitPolicy)
+		return err
+	},
 }

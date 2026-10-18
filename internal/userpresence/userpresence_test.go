@@ -40,7 +40,7 @@ func TestTheHelperAnswers(t *testing.T) {
 		})
 	}
 	err := (&Helper{Path: helper(t, "echo 'No user interaction allowed.' >&2; exit 2")}).Verify(ctx, "x")
-	if !strings.Contains(err.Error(), "No user interaction allowed") || !strings.Contains(err.Error(), Recovery) {
+	if !strings.Contains(err.Error(), "No user interaction allowed") || !strings.Contains(err.Error(), MacRecovery) {
 		t.Fatalf("an unavailable check does not name why and the recovery: %v", err)
 	}
 }

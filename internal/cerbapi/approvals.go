@@ -594,9 +594,10 @@ func auditTargetLabels(t audit.Target) target.Target {
 // ApprovalRef is the machine-readable half of approval_pending: which
 // approval, until when, and the command that decides it.
 type ApprovalRef struct {
-	ID          string    `json:"id"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	ApproveWith string    `json:"approve_with"`
+	SetupRequired string    `json:"setup_required,omitempty"`
+	ID            string    `json:"id"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	ApproveWith   string    `json:"approve_with"`
 	// Channel is how the approval is met. tty_confirm tells a CLI on a
 	// terminal it can show the plan and confirm on the call (P3-3).
 	Channel string `json:"channel,omitempty"`
@@ -616,7 +617,7 @@ func approvalPendingError(args ExternalConnectorOperationArgs, a approval.Approv
 			args.Connector, args.Operation, a.Channel, a.Rule, a.ID, a.ExpiresAt.UTC().Format(time.RFC3339), grant, a.ApproveWith()))
 	var coded *ExternalConnectorError
 	if errors.As(err, &coded) {
-		coded.Approval = &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith(), Channel: a.Channel}
+		coded.Approval = approvalReference(a)
 	}
 	return err
 }
@@ -671,4 +672,17 @@ func (b *Broker) ExpireUpgraded(ctx context.Context) int {
 		notify("Cerberus: approvals need approving again", fmt.Sprintf("%d approved approval(s) or grant(s) carried the older passkey proof and were expired; ask again, and approve with your passkey", n))
 	}
 	return len(expired)
+}
+
+func approvalReference(a approval.Approval) *ApprovalRef {
+	ref := &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith(), Channel: a.Channel}
+	if a.Channel == approval.ChannelOutOfBand {
+		if p := ProcessPresence(); p != nil {
+			st := passkeyStatus(p)
+			if len(st.Keys) == 0 {
+				ref.SetupRequired, _ = st.Summary(time.Now())
+			}
+		}
+	}
+	return ref
 }

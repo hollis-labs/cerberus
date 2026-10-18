@@ -41,12 +41,15 @@ func newPresenceService(logger *slog.Logger, approvalsDir string) *presence.Serv
 }
 
 // newUserPresence is the check the daemon raises itself before it allows a
-// passkey enrollment (B1-b): cerberus-presence, next to this binary, which
-// asks the person at the Mac through LocalAuthentication. Elsewhere, and
-// without the helper, enrollment is refused with the recovery named.
+// passkey enrollment (B1-b): LocalAuthentication on macOS, or polkit
+// authentication for the kernel-verified CLI process on Linux. Missing
+// prerequisites fail closed and name the recovery.
 func newUserPresence(logger *slog.Logger) userpresence.Verifier {
+	if runtime.GOOS == "linux" {
+		return userpresence.NewPolkit()
+	}
 	if runtime.GOOS != "darwin" {
-		return userpresence.Refuse{Why: "the person at the machine is asked only on macOS"}
+		return userpresence.Refuse{Why: "enrollment authentication is supported on macOS and Linux"}
 	}
 	exe, err := os.Executable()
 	if err == nil {

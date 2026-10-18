@@ -20,9 +20,11 @@ import (
 	"github.com/hollis-labs/cerberus/internal/connector"
 	dockerconn "github.com/hollis-labs/cerberus/internal/connector/docker"
 	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/presence"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/scheduling"
 	"github.com/hollis-labs/cerberus/internal/target"
+	"github.com/hollis-labs/cerberus/internal/userpresence"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/hollis-labs/cerberus/pkg/outpost"
 )
@@ -438,4 +440,24 @@ func (r *recordingClient) ResourceLogs(_ context.Context, id string, _ int, stre
 func (r *recordingClient) Schedule(_ context.Context, req scheduling.Call) (scheduling.Result, error) {
 	r.seen = req.ApprovalID
 	return scheduling.Result{}, nil
+}
+
+func TestMCPNamesMissingEnrollmentSetupBeforeAskingForApproval(t *testing.T) {
+	cs, _, path := gatedDaemon(t)
+	cerbapi.SetPresence(presence.New(t.TempDir(), audit.NewMemory(), presence.Options{}))
+	cerbapi.SetUserPresence(userpresence.Refuse{Why: "install the Linux enrollment policy"})
+	t.Cleanup(func() { cerbapi.SetPresence(nil); cerbapi.SetUserPresence(nil) })
+	res, body := callTool(t, cs, "cerberus_docker_down", map[string]any{"resource_id": "prod-box", "acknowledged": true})
+	if !res.IsError || body.Approval == nil || !strings.Contains(body.NextStep, "enrollment-policy") || !strings.Contains(body.NextStep, "cannot authenticate") {
+		t.Fatalf("refusal: %+v", body)
+	}
+	client := cerbapi.NewSocketClient(path)
+	a, err := client.GetApproval(context.Background(), body.Approval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := waitResultWithSetup(context.Background(), client, a, false, time.Now())
+	if !strings.Contains(result.NextStep, "enrollment-policy") || !strings.Contains(result.NextStep, "cannot authenticate") {
+		t.Fatalf("wait next step: %s", result.NextStep)
+	}
 }

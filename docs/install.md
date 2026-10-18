@@ -140,9 +140,58 @@ looks for it next to its own `cerberus` binary. It is built with cgo on macOS:
 - `cerberus status` shows it on its `presence` line. It shows as installed, or
   MISSING with the path it looked at and how to put it there.
 
-Without the helper, or on another OS, passkey enrollment is refused, and says
-so. Everything else works as before. See docs/policy.md, "Out-of-band
-approval, with a passkey".
+Without the helper, macOS enrollment is refused. Linux uses the system polkit
+authority instead, including from an SSH terminal. Other operating systems
+remain unsupported. See docs/policy.md, "Out-of-band approval, with a passkey".
+
+### Linux enrollment over SSH
+
+Install your distribution's polkit packages, including `pkcheck` and
+`pkttyagent` under `/usr/bin`. An administrator must install the action once:
+
+```sh
+cerberus_policy=$(mktemp)
+cerberus approvals enrollment-policy > "$cerberus_policy"
+# Review the generated XML before installing it.
+sudo install -o root -g root -m 0644 "$cerberus_policy" \
+  /usr/share/polkit-1/actions/com.hollis-labs.cerberus.policy
+```
+
+Then, as the daemon's user in your SSH terminal:
+
+```sh
+cerberus approvals enroll --browser=false --label "My browser passkey"
+```
+
+Polkit asks for fresh authentication with your Linux account password; the
+account must support PAM authentication. SSH key authentication alone does
+not authorize enrollment. Open the printed one-time link in your browser to
+create the passkey. Use the console's configured public HTTPS hostname from
+your other machine; see the public URL section below. The link expires after
+ten minutes and should not be shared.
+
+The daemon gets the CLI's PID, start time and UID from its Unix socket and
+`/proc`, then independently asks polkit to authenticate that process. The CLI
+registers `pkttyagent` for itself and waits for registration before asking the
+daemon. Passwords never pass through Cerberus. The action grants only one
+enrollment allowance; later keys still require an existing passkey assertion.
+Prompt intent and outcome are audited before an allowance is issued.
+
+The action requires `auth_self` in all session types, with no retained grant.
+Do not add automatic or `*_keep` policy overrides: Cerberus refuses a grant
+that is already available without authentication or remains available after
+it. Missing tools, action, system bus or terminal agent fail closed.
+`cerberus approvals keys` and the console report setup prerequisites. The
+policy file and tools must be root-owned with protected ancestor directories.
+
+The daemon and CLI still run as the operator: this raises the authentication
+boundary against a caller forging human headers, not against root or an
+attacker replacing the operator's daemon binary. The administrator owns the
+polkit/PAM configuration. No policy installation happens automatically.
+
+The process binding and registration handshake follow the upstream
+[pkcheck](https://www.freedesktop.org/software/polkit/docs/latest/pkcheck.1.html)
+and [pkttyagent](https://www.freedesktop.org/software/polkit/docs/latest/pkttyagent.1.html) contracts.
 
 ## First-Time Setup
 
