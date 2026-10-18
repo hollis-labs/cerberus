@@ -1,6 +1,8 @@
 package outpostexecutor
 
 import (
+	"bytes"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -13,17 +15,16 @@ import (
 )
 
 // Log files come from the operator's launchd definition, never request paths.
-func launchdLogs(r outpost.Request) (outpost.Result, error) {
+func launchdLogs(ctx context.Context, r outpost.Request) (outpost.Result, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return outpost.Result{}, err
 	}
-	f, err := os.Open(filepath.Join(home, "Library", "LaunchAgents", r.Unit+".plist")) // #nosec G304 -- unit identifiers are validated before this call.
+	b, _, err := readRegular(ctx, filepath.Join(home, "Library", "LaunchAgents", r.Unit+".plist"), 1<<20, false)
 	if err != nil {
 		return outpost.Result{}, err
 	}
-	defer func() { _ = f.Close() }()
-	d := xml.NewDecoder(io.LimitReader(f, 1<<20))
+	d := xml.NewDecoder(contextReader{ctx, bytes.NewReader(b)})
 	paths := []string{}
 	key := ""
 	for {
@@ -65,7 +66,7 @@ func launchdLogs(r outpost.Request) (outpost.Result, error) {
 	}
 	out := &boundedOutput{}
 	for _, path := range paths {
-		b, truncated, err := tail(path, lines)
+		b, truncated, err := tail(ctx, path, lines)
 		if err != nil {
 			return outpost.Result{}, err
 		}
@@ -76,32 +77,13 @@ func launchdLogs(r outpost.Request) (outpost.Result, error) {
 	return outpost.Result{Output: out.String(), Truncated: out.truncated}, nil
 }
 
-func tail(path string, lines int) ([]byte, bool, error) {
-	f, err := os.Open(path) // #nosec G304 -- paths come from the operator-owned launchd definition.
-	if err != nil {
-		return nil, false, err
-	}
-	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, false, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, false, fmt.Errorf("unit log is not a regular file")
-	}
-	start := info.Size() - (256 << 10)
-	if start < 0 {
-		start = 0
-	}
-	if _, err = f.Seek(start, io.SeekStart); err != nil {
-		return nil, false, err
-	}
-	b, err := io.ReadAll(io.LimitReader(f, 256<<10))
+func tail(ctx context.Context, path string, lines int) ([]byte, bool, error) {
+	b, truncated, err := readRegular(ctx, path, 256<<10, true)
 	if err != nil {
 		return nil, false, err
 	}
 	rows := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
-	truncated := start > 0 || len(rows) > lines
+	truncated = truncated || len(rows) > lines
 	if len(rows) > lines {
 		rows = rows[len(rows)-lines:]
 	}

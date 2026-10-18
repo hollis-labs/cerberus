@@ -23,13 +23,20 @@ import (
 )
 
 type Plugin struct {
-	Version   string
-	Protected []string
-	Run       func(context.Context, string, []string) (outpost.Result, error)
+	Version      string
+	Protected    []string
+	Run          func(context.Context, string, []string) (outpost.Result, error)
+	servingUnits func() ([]string, error)
 }
 
 func (p *Plugin) Init(_ context.Context, params subprocess.InitParams) (subprocess.InitResult, error) {
-	p.Protected = strings.Split(params.Config["protected_units"], ",")
+	p.Protected = nil
+	if raw := params.Config["protected_units"]; raw != "" {
+		p.Protected = strings.Split(raw, ",")
+	}
+	if _, err := protectedNames(runtime.GOOS, p.Protected); err != nil {
+		return subprocess.InitResult{}, err
+	}
 	if p.Run == nil {
 		p.Run = run
 	}
@@ -65,22 +72,47 @@ func (p *Plugin) Execute(ctx context.Context, r outpost.Request) (outpost.Result
 	if err := r.Validate(); err != nil {
 		return outpost.Result{}, err
 	}
-	if r.Verb == "start" || r.Verb == "stop" || r.Verb == "restart" {
-		for _, unit := range append([]string{"outpost.service", "tether-outpost.service", "dev.hollis-labs.outpost", "com.hollis-labs.cerberus", "com.hollis-labs.cerberus.service"}, p.Protected...) {
-			if r.Unit == unit || (runtime.GOOS == "linux" && r.Unit+".service" == unit) {
-				return outpost.Result{}, fmt.Errorf("cannot mutate the request's control plane")
-			}
-		}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return outpost.Result{}, err
 	}
 	if runtime.GOOS == "darwin" && r.Verb == "logs" {
-		return launchdLogs(r)
+		return launchdLogs(ctx, r)
+	}
+	if r.Verb == "start" || r.Verb == "stop" || r.Verb == "restart" {
+		protected, err := protectedNames(runtime.GOOS, p.Protected)
+		if err != nil {
+			return outpost.Result{}, err
+		}
+		if runtime.GOOS == "linux" {
+			r.Unit, err = serviceName(r.Unit)
+			if err != nil {
+				return outpost.Result{}, err
+			}
+			if managerUnit(r.Unit) {
+				return outpost.Result{}, controlPlaneError()
+			}
+		}
+		for _, name := range protected {
+			if name == r.Unit {
+				return outpost.Result{}, controlPlaneError()
+			}
+		}
+		switch runtime.GOOS {
+		case "linux":
+			r.Unit, err = p.guardSystemd(ctx, r.Verb, r.Unit, protected)
+		case "darwin":
+			err = p.guardLaunchd(ctx, r)
+		}
+		if err != nil {
+			return outpost.Result{}, err
+		}
 	}
 	command, args, err := Command(runtime.GOOS, os.Getuid(), r)
 	if err != nil {
 		return outpost.Result{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 	return p.Run(ctx, command, args)
 }
 
@@ -102,7 +134,14 @@ func Command(platform string, uid int, r outpost.Request) (string, []string, err
 			}
 			return "journalctl", []string{"--user", "--no-pager", "-n", strconv.Itoa(lines), "--unit", r.Unit}, nil
 		default:
-			return "systemctl", []string{"--user", r.Verb, "--", r.Unit}, nil
+			unit, err := serviceName(r.Unit)
+			if err != nil {
+				return "", nil, err
+			}
+			if managerUnit(unit) {
+				return "", nil, controlPlaneError()
+			}
+			return "systemctl", []string{"--user", r.Verb, "--", unit}, nil
 		}
 	}
 	if platform == "darwin" {

@@ -8,6 +8,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	"github.com/hollis-labs/cerberus/pkg/outpost"
 )
@@ -50,8 +51,18 @@ func (s *HostService) actionSpec(name string, args HostActionArgs, planning bool
 	}
 	op := hostActionOperation(args.Request.Verb)
 	config := map[string]any{"name": name, "unit": args.Request.Unit, "lines": args.Request.Lines}
+	// Only the operator's explicit host-to-SSH-resource binding may supply
+	// labels. Neither a host name nor a remote unit names a local resource.
+	var labels *target.ResourceLabels
+	if h.Reach.SSH != "" && s.resources != nil {
+		if def, ok := s.resources(h.Reach.SSH); ok && def != nil && def.Type == "server" && def.Connector == "ssh" {
+			bound := def.TargetLabels()
+			labels = &bound
+		}
+	}
+	resolved := target.Resolve("host", op.Target.Kind, h.Name, labels, false)
 	spec := auditSpec{connector: "host", operation: args.Request.Verb, op: op, known: true, config: config,
-		acknowledged: args.Acknowledged, approvalID: args.ApprovalID, planOnly: planning, dryRun: planning, resources: s.resources}
+		acknowledged: args.Acknowledged, approvalID: args.ApprovalID, planOnly: planning, dryRun: planning, resolvedTarget: &resolved}
 	spec.plan = func(context.Context) (plan.Plan, error) {
 		tgt, _ := auditTarget(spec)
 		p := plan.Plan{Lane: plan.LaneAdmin, Connector: "host", Operation: args.Request.Verb, Effect: string(op.Effect), Target: tgt,
