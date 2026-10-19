@@ -533,6 +533,15 @@ func (r Redactor) walk(value any, hide, schema bool) any {
 				}
 			}
 		}
+		// PortfolioAuthorization metadata carries caller principal_kind, surface,
+		// scope, and filtered status (never an HTTP Authorization header value).
+		if _, pk := v["principal_kind"]; pk {
+			if _, surf := v["surface"]; surf {
+				if _, flt := v["filtered"]; flt && len(v) <= 4 {
+					hide = false
+				}
+			}
+		}
 		for key, item := range v {
 			v[key] = r.walkEntry(key, item, hide, schema)
 		}

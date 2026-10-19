@@ -11,7 +11,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
-	"github.com/hollis-labs/cerberus/internal/presence/presencetest"
+	"github.com/hollis-labs/libs/security/webauthn/presencetest"
 )
 
 const origin = "http://localhost:4783"

@@ -191,6 +191,7 @@ func (s *ResourceRuntimeService) ListResources(ctx context.Context, args Resourc
 			Type:       r.Type,
 			Project:    r.Project,
 			Connector:  r.Connector,
+			Host:       r.Host,
 			Mode:       resourceMode(r),
 			Supervisor: resourceSupervisor(r),
 			RunFrom:    resourceRunFrom(r),

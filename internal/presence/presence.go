@@ -40,6 +40,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	shared "github.com/hollis-labs/libs/security/webauthn"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -294,21 +295,13 @@ func (s *Service) record(by audit.Principal, change, fp, hash string, extra map[
 	}
 }
 
-// user is the one WebAuthn user: the operator of this Cerberus.
-type user struct {
-	id   []byte
-	keys []Key
-}
-
-func (u user) WebAuthnID() []byte          { return u.id }
-func (u user) WebAuthnName() string        { return "operator" }
-func (u user) WebAuthnDisplayName() string { return "Cerberus operator" }
-func (u user) WebAuthnCredentials() []webauthn.Credential {
-	out := make([]webauthn.Credential, 0, len(u.keys))
-	for _, k := range u.keys {
-		out = append(out, k.Credential)
+// webauthnUser adapts the local registry to the shared verification boundary.
+func webauthnUser(reg registryFile) shared.User {
+	u := shared.User{ID: reg.UserID, Name: "operator", DisplayName: "Cerberus operator"}
+	for _, k := range reg.Keys {
+		u.Credentials = append(u.Credentials, k.Credential)
 	}
-	return out
+	return u
 }
 
 // relyingPartyID keeps passkeys bound to the console host. Origins are checked
@@ -321,8 +314,8 @@ func relyingPartyID(origin string) string {
 	return u.Hostname()
 }
 
-func relyingParty(origin string) (*webauthn.WebAuthn, error) {
-	return webauthn.New(&webauthn.Config{RPID: relyingPartyID(origin), RPDisplayName: "Cerberus", RPOrigins: []string{origin}})
+func relyingParty(origin string) (*shared.Party, error) {
+	return shared.NewParty(relyingPartyID(origin), "Cerberus", []string{origin})
 }
 
 // allowedOrigin reports whether origin is a running console's: an
@@ -350,14 +343,7 @@ func randomBytes(n int) []byte {
 
 func newID() string { return base64.RawURLEncoding.EncodeToString(randomBytes(16)) }
 
-func challenge(parts ...[]byte) []byte {
-	h := sha256.New()
-	for _, p := range parts {
-		_, _ = fmt.Fprintf(h, "%d:", len(p))
-		h.Write(p)
-	}
-	return h.Sum(nil)
-}
+func challenge(parts ...[]byte) []byte { return shared.Challenge(parts...) }
 
 // approvalChallenge binds an assertion to what is approved: editing any of
 // these in the store makes the stored assertion stop verifying. v2 (H4)
@@ -383,36 +369,14 @@ func (s *Service) signedExpiry(a approval.Approval) time.Time {
 	return a.ExpiresAt
 }
 
-func descriptors(keys []Key) []protocol.CredentialDescriptor {
-	out := make([]protocol.CredentialDescriptor, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, k.Credential.Descriptor())
-	}
-	return out
-}
-
-// sessionFor is the WebAuthn login session a challenge verifies against.
-func sessionFor(reg registryFile, ch []byte, origin string) webauthn.SessionData {
-	ids := make([][]byte, 0, len(reg.Keys))
-	for _, k := range reg.Keys {
-		ids = append(ids, k.Credential.ID)
-	}
-	return webauthn.SessionData{Challenge: base64.RawURLEncoding.EncodeToString(ch), RelyingPartyID: relyingPartyID(origin), Origin: origin, UserID: reg.UserID,
-		AllowedCredentialIDs: ids, UserVerification: protocol.VerificationRequired}
-}
-
-// beginLogin is the assertion options for challenge ch at origin.
+// beginLogin delegates WebAuthn options to the shared library; Cerberus
+// continues to own origin policy and the exact v2 approval challenge.
 func beginLogin(reg registryFile, ch []byte, origin string) (json.RawMessage, error) {
 	rp, err := relyingParty(origin)
 	if err != nil {
 		return nil, err
 	}
-	opts, _, err := rp.BeginLogin(user{id: reg.UserID, keys: reg.Keys}, webauthn.WithChallenge(ch), webauthn.WithLoginOrigin(origin),
-		webauthn.WithUserVerification(protocol.VerificationRequired), webauthn.WithAllowedCredentials(descriptors(reg.Keys)))
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(opts)
+	return rp.BeginAssertion(webauthnUser(reg), ch, origin)
 }
 
 // verifyAssertion checks raw, a browser's PublicKeyCredential JSON, against
@@ -436,7 +400,7 @@ func verifyAssertion(reg registryFile, raw []byte, ch []byte, origin string) (Ke
 	if err != nil {
 		return Key{}, nil, ErrOrigin
 	}
-	cred, err := rp.ValidateLogin(user{id: reg.UserID, keys: reg.Keys}, sessionFor(reg, ch, origin), parsed)
+	cred, err := rp.VerifyAssertion(webauthnUser(reg), raw, ch, origin)
 	if err != nil {
 		return Key{}, nil, ErrAssertion
 	}
@@ -693,9 +657,7 @@ func (s *Service) BeginEnroll(token, origin, label string) (EnrollBegin, error) 
 	if err != nil {
 		return EnrollBegin{}, err
 	}
-	creation, session, err := rp.BeginRegistration(user{id: reg.UserID, keys: reg.Keys},
-		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{UserVerification: protocol.VerificationRequired, ResidentKey: protocol.ResidentKeyRequirementPreferred}),
-		webauthn.WithConveyancePreference(protocol.PreferNoAttestation), webauthn.WithExclusions(descriptors(reg.Keys)), webauthn.WithRegistrationOrigin(origin))
+	creation, session, err := rp.BeginRegistration(webauthnUser(reg), origin)
 	if err != nil {
 		return EnrollBegin{}, err
 	}
@@ -703,9 +665,7 @@ func (s *Service) BeginEnroll(token, origin, label string) (EnrollBegin, error) 
 	id := newID()
 	nonce := randomBytes(32)
 	out := EnrollBegin{Ceremony: id}
-	if out.Creation, err = json.Marshal(creation); err != nil {
-		return EnrollBegin{}, err
-	}
+	out.Creation = creation
 	if len(reg.Keys) > 0 {
 		if out.Authorize, err = beginLogin(reg, challenge([]byte("cerberus enroll v1"), []byte(id), nonce), origin); err != nil {
 			return EnrollBegin{}, err
@@ -740,15 +700,11 @@ func (s *Service) FinishEnroll(by audit.Principal, ceremonyID string, attestatio
 	if len(reg.UserID) == 0 {
 		reg.UserID = c.session.UserID
 	}
-	parsed, err := protocol.ParseCredentialCreationResponseBytes(attestation)
-	if err != nil {
-		return KeyInfo{}, ErrAssertion
-	}
 	rp, err := relyingParty(c.origin)
 	if err != nil {
 		return KeyInfo{}, ErrOrigin
 	}
-	cred, err := rp.CreateCredential(user{id: reg.UserID, keys: reg.Keys}, *c.session, parsed)
+	cred, err := rp.FinishRegistration(webauthnUser(reg), *c.session, attestation)
 	if err != nil {
 		return KeyInfo{}, fmt.Errorf("%w: %s", ErrAssertion, redact.Text(err.Error()))
 	}

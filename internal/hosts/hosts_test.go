@@ -206,3 +206,44 @@ func TestStoreRoundTripAndForget(t *testing.T) {
 		t.Fatal("memory store lost state")
 	}
 }
+
+func TestParseUnitStatesAndPosixUnits(t *testing.T) {
+	systemdOut := "" +
+		"agent-os-outpost.service loaded active running Outpost daemon\n" +
+		"broken-worker.service loaded failed failed Broken worker\n" +
+		"idle-job.service loaded inactive dead Idle job\n" +
+		"sk_live_abcdefgh12345678.service loaded active running Secret shaped\n"
+	got := ParseUnitStates(systemdOut)
+	if got["agent-os-outpost.service"] != "running" || got["agent-os-outpost"] != "running" {
+		t.Fatalf("expected agent-os-outpost running, got %+v", got)
+	}
+	if got["broken-worker.service"] != "failed" || got["broken-worker"] != "failed" {
+		t.Fatalf("expected broken-worker failed, got %+v", got)
+	}
+	if got["idle-job.service"] != "stopped" || got["idle-job"] != "stopped" {
+		t.Fatalf("expected idle-job stopped, got %+v", got)
+	}
+	for k := range got {
+		if strings.Contains(k, "sk_live") {
+			t.Fatalf("secret-shaped unit leaked: %q", k)
+		}
+	}
+
+	launchdOut := "" +
+		"PID\tStatus\tLabel\n" +
+		"412\t0\tio.tether.outpost\n" +
+		"-\t0\tcom.example.stopped\n" +
+		"-\t78\tcom.example.crashed\n"
+	lgot := ParseUnitStates(launchdOut)
+	if lgot["io.tether.outpost"] != "running" || lgot["com.example.stopped"] != "stopped" || lgot["com.example.crashed"] != "failed" {
+		t.Fatalf("unexpected launchd units: %+v", lgot)
+	}
+
+	probe := ParsePosixProbe(linuxFixture + "unit_agent-os-outpost.service=active\nunit_sk_live_abcdefgh12345678=active\n")
+	if probe.Units["agent-os-outpost.service"] != "running" || probe.Units["agent-os-outpost"] != "running" {
+		t.Fatalf("expected unit from posix probe, got %+v", probe.Units)
+	}
+	if len(probe.Units) != 2 {
+		t.Fatalf("expected only allow-listed unit entries, got %+v", probe.Units)
+	}
+}

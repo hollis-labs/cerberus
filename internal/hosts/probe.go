@@ -11,25 +11,26 @@ import (
 // allow-list of keys and shapes: nothing a remote host prints reaches it
 // except a number, a bool or a short token that matches factRE.
 type Probed struct {
-	Source          string          `json:"source"` // "posix"
-	OS              string          `json:"os,omitempty"`
-	OSVersion       string          `json:"os_version,omitempty"`
-	Arch            string          `json:"arch,omitempty"`
-	Kernel          string          `json:"kernel,omitempty"`
-	CPU             int             `json:"cpu,omitempty"`
-	CPUModel        string          `json:"cpu_model,omitempty" cerb:"untrusted"`
-	GPUCount        *int            `json:"gpu_count,omitempty"` // nil: not determined; 0: none
-	GPUModel        string          `json:"gpu_model,omitempty" cerb:"untrusted"`
-	DiskMount       string          `json:"disk_mount,omitempty"`
-	MemoryTotal     int64           `json:"memory_total,omitempty"`
-	MemoryAvailable int64           `json:"memory_available,omitempty"`
-	DiskTotal       int64           `json:"disk_total,omitempty"`
-	DiskFree        int64           `json:"disk_free,omitempty"`
-	Load1           *float64        `json:"load1,omitempty"`
-	Load5           *float64        `json:"load5,omitempty"`
-	Load15          *float64        `json:"load15,omitempty"`
-	UptimeSeconds   int64           `json:"uptime_seconds,omitempty"`
-	Tools           map[string]bool `json:"tools,omitempty"`
+	Source          string            `json:"source"` // "posix"
+	OS              string            `json:"os,omitempty"`
+	OSVersion       string            `json:"os_version,omitempty"`
+	Arch            string            `json:"arch,omitempty"`
+	Kernel          string            `json:"kernel,omitempty"`
+	CPU             int               `json:"cpu,omitempty"`
+	CPUModel        string            `json:"cpu_model,omitempty" cerb:"untrusted"`
+	GPUCount        *int              `json:"gpu_count,omitempty"` // nil: not determined; 0: none
+	GPUModel        string            `json:"gpu_model,omitempty" cerb:"untrusted"`
+	DiskMount       string            `json:"disk_mount,omitempty"`
+	MemoryTotal     int64             `json:"memory_total,omitempty"`
+	MemoryAvailable int64             `json:"memory_available,omitempty"`
+	DiskTotal       int64             `json:"disk_total,omitempty"`
+	DiskFree        int64             `json:"disk_free,omitempty"`
+	Load1           *float64          `json:"load1,omitempty"`
+	Load5           *float64          `json:"load5,omitempty"`
+	Load15          *float64          `json:"load15,omitempty"`
+	UptimeSeconds   int64             `json:"uptime_seconds,omitempty"`
+	Tools           map[string]bool   `json:"tools,omitempty"`
+	Units           map[string]string `json:"units,omitempty"`
 }
 
 // ProbedTools are the tools a probe reports the presence of.
@@ -88,10 +89,13 @@ var factRE = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,48}$`)
 
 // secretShapeRE drops a fact that looks like a credential even though it is
 // token-shaped (a long unbroken run, or a known vendor prefix).
-var secretShapeRE = regexp.MustCompile(`(?i)(^|[[:space:]._+-])(sk|pk|ghp|gho|xox[a-z]|akia|eyj)[A-Za-z0-9_-]{8,}`)
+var secretShapeRE = regexp.MustCompile(`(?i)(^|[[:space:]._+-])(sk|pk|ghp|gho|xox[a-z]|akia|eyj)[A-ZaZa-z0-9_-]{8,}`)
 
 // textRE bounds descriptive text (a CPU or GPU model): printable, short.
 var textRE = regexp.MustCompile(`^[A-Za-z0-9 ._+()@/,-]{1,64}$`)
+
+// unitFactRE bounds a service unit identifier.
+var unitFactRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,127}$`)
 
 func cleanText(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
@@ -107,6 +111,83 @@ func cleanFact(s string) string {
 		return ""
 	}
 	return s
+}
+
+func cleanUnitName(s string) string {
+	s = strings.TrimSpace(s)
+	if !unitFactRE.MatchString(s) || secretShapeRE.MatchString(s) || longRun(s) {
+		return ""
+	}
+	return s
+}
+
+func normalizeUnitState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "active", "running":
+		return "running"
+	case "failed", "error":
+		return "failed"
+	case "inactive", "dead", "stopped", "exited":
+		return "stopped"
+	case "activating", "deactivating", "reloading":
+		return "running"
+	default:
+		return ""
+	}
+}
+
+// ParseUnitStates parses systemd `list-units` or launchctl `list` output into
+// an allow-listed map of unit name -> normalized state ("running", "stopped", "failed").
+// Any unrecognized or credential-shaped token is dropped.
+func ParseUnitStates(out string) map[string]string {
+	units := map[string]string{}
+	sc := bufio.NewScanner(strings.NewReader(out))
+	sc.Buffer(make([]byte, 0, 4096), 1<<20)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		// systemd list-units: <unit>.service <load> <active> <sub> [description...]
+		if len(fields) >= 4 && strings.HasSuffix(fields[0], ".service") {
+			name := cleanUnitName(fields[0])
+			st := normalizeUnitState(fields[2])
+			if fields[3] == "failed" || fields[2] == "failed" {
+				st = "failed"
+			} else if fields[3] == "dead" || fields[3] == "exited" && fields[2] != "active" {
+				st = "stopped"
+			}
+			if name != "" && st != "" {
+				units[name] = st
+				units[strings.TrimSuffix(name, ".service")] = st
+			}
+			continue
+		}
+		// launchctl list: <pid|-> <exit_status> <label>
+		if len(fields) == 3 && fields[0] != "PID" {
+			label := cleanUnitName(fields[2])
+			if label == "" {
+				continue
+			}
+			pidField := fields[0]
+			exitCode, exitErr := strconv.Atoi(fields[1])
+			switch {
+			case pidField != "-":
+				if pid, err := strconv.Atoi(pidField); err == nil && pid > 0 {
+					units[label] = "running"
+				}
+			case exitErr == nil && exitCode != 0:
+				units[label] = "failed"
+			case exitErr == nil && exitCode == 0:
+				units[label] = "stopped"
+			}
+		}
+	}
+	if len(units) == 0 {
+		return nil
+	}
+	return units
 }
 
 // longRun reports an unbroken alphanumeric run of 24 or more: no OS, arch or
@@ -130,7 +211,7 @@ func longRun(s string) bool {
 // PosixProbeCommand. Unknown keys are ignored and malformed values dropped; it
 // never fails, so a half-working host still reports what it can.
 func ParsePosixProbe(out string) Probed {
-	p := Probed{Source: "posix", Tools: map[string]bool{}}
+	p := Probed{Source: "posix", Tools: map[string]bool{}, Units: map[string]string{}}
 	sc := bufio.NewScanner(strings.NewReader(out))
 	sc.Buffer(make([]byte, 0, 4096), 1<<20)
 	for sc.Scan() {
@@ -193,11 +274,23 @@ func ParsePosixProbe(out string) Probed {
 						p.Tools[name] = val == "1"
 					}
 				}
+			} else if unitName, found := strings.CutPrefix(key, "unit_"); found {
+				if clean := cleanUnitName(unitName); clean != "" {
+					if st := normalizeUnitState(val); st != "" {
+						p.Units[clean] = st
+						if strings.HasSuffix(clean, ".service") {
+							p.Units[strings.TrimSuffix(clean, ".service")] = st
+						}
+					}
+				}
 			}
 		}
 	}
 	if len(p.Tools) == 0 {
 		p.Tools = nil
+	}
+	if len(p.Units) == 0 {
+		p.Units = nil
 	}
 	return p
 }

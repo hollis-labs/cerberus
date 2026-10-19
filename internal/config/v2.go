@@ -102,10 +102,11 @@ type Link struct {
 type ResourceDef struct {
 	ID        string         `yaml:"id"`
 	Name      string         `yaml:"name"`
-	Type      string         `yaml:"type"`      // "process", "server", "container", etc.
-	Project   string         `yaml:"project"`   // project ID
-	Connector string         `yaml:"connector"` // "local", "digitalocean", "github", etc.
-	Config    map[string]any `yaml:"config"`    // connector-specific config
+	Type      string         `yaml:"type"`           // "process", "server", "container", etc.
+	Project   string         `yaml:"project"`        // project ID
+	Connector string         `yaml:"connector"`      // "local", "digitalocean", "github", etc.
+	Host      string         `yaml:"host,omitempty"` // optional target host name in hosts.yaml; defaults to local controller host
+	Config    map[string]any `yaml:"config"`         // connector-specific config
 	Tags      []string       `yaml:"tags,omitempty"`
 	DependsOn []string       `yaml:"depends_on,omitempty"`
 

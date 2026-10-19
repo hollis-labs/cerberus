@@ -113,7 +113,21 @@ func (p *Plugin) Execute(ctx context.Context, r outpost.Request) (outpost.Result
 	if err != nil {
 		return outpost.Result{}, err
 	}
-	return p.Run(ctx, command, args)
+	res, err := p.Run(ctx, command, args)
+	if runtime.GOOS == "linux" && r.Verb == "units" {
+		if sysRes, sysErr := p.Run(ctx, "systemctl", []string{"list-units", "--type=service", "--all", "--no-pager", "--plain"}); sysErr == nil && sysRes.ExitCode == 0 && sysRes.Output != "" {
+			if res.Output != "" && !strings.HasSuffix(res.Output, "\n") {
+				res.Output += "\n"
+			}
+			res.Output += sysRes.Output
+			res.Truncated = res.Truncated || sysRes.Truncated
+			if err != nil || res.ExitCode != 0 {
+				res.ExitCode = 0
+				err = nil
+			}
+		}
+	}
+	return res, err
 }
 
 func Command(platform string, uid int, r outpost.Request) (string, []string, error) {

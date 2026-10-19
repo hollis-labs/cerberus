@@ -320,6 +320,7 @@ type ResourceInfo struct {
 	Type                string   `json:"type"`
 	Project             string   `json:"project"`
 	Connector           string   `json:"connector"`
+	Host                string   `json:"host,omitempty"`
 	Mode                string   `json:"mode,omitempty"`
 	Supervisor          string   `json:"supervisor,omitempty"`
 	RunFrom             string   `json:"run_from,omitempty"`

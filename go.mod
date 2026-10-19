@@ -1,10 +1,9 @@
 module github.com/hollis-labs/cerberus
 
-go 1.26.8
+go 1.26.9
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/jsonschema-go v0.4.3
@@ -12,6 +11,7 @@ require (
 	github.com/hollis-labs/libs/core/util v0.4.0
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.3.0
 	github.com/hollis-labs/libs/security/secrets v0.1.0
+	github.com/hollis-labs/libs/security/webauthn v0.1.0
 	github.com/hollis-labs/libs/ui/ui-go v0.1.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -29,6 +29,7 @@ require (
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/x v0.3.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect

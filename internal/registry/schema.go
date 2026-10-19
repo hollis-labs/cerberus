@@ -211,6 +211,10 @@ func ValidateProjectConfig(pc *ProjectConfig) ValidationResult {
 			add(SeverityWarning, field+".project",
 				fmt.Sprintf("references project %q, but this config declares project %q", resource.Project, pc.Project.ID))
 		}
+		if resource.Host != "" && !identPattern.MatchString(resource.Host) {
+			add(SeverityError, field+".host",
+				fmt.Sprintf("invalid host name %q; must be lowercase kebab-case matching hosts.yaml", resource.Host))
+		}
 		if port, ok := resourcePort(resource); ok && port == 0 {
 			add(SeverityError, field+".config.port",
 				"port is 0; omit the port field entirely for resources that do not listen on a TCP port")

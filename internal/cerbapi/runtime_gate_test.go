@@ -47,7 +47,8 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		"local.doctor": contract.EffectRead, "local.logs": contract.EffectReadSensitive,
 		"pipeline.list":   contract.EffectRead,
 		"cerberus.health": contract.EffectRead, "cerberus.project_list": contract.EffectRead,
-		"cerberus.connector_list": contract.EffectRead, "cerberus.connector_describe": contract.EffectRead,
+		"cerberus.portfolio_health": contract.EffectRead,
+		"cerberus.connector_list":   contract.EffectRead, "cerberus.connector_describe": contract.EffectRead,
 		"cerberus.approval_wait": contract.EffectRead, "cerberus.lockdown": contract.EffectWrite,
 		// Hosts (ADR 0004): a probe measures and records, it changes no host.
 		"host.list": contract.EffectRead, "host.get": contract.EffectRead,

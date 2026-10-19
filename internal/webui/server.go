@@ -166,6 +166,7 @@ func (s *Server) routeTable() []route {
 		{"/api/settings", s.handleSettings},
 		{"/api/system", s.handleSystem},
 		{"/api/health", s.handleHealth},
+		{"/api/portfolio/health", s.handlePortfolioHealth},
 		{"/api/projects", s.handleProjects},
 		{"/api/pipelines", s.handlePipelines},
 		{"/api/pipelines/", s.handlePipelineByID},
@@ -919,4 +920,8 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cerbapi.HostHTTP(cerbapi.HostClientOf(s.client), "/api/hosts").ServeHTTP(w, r)
+}
+
+func (s *Server) handlePortfolioHealth(w http.ResponseWriter, r *http.Request) {
+	cerbapi.PortfolioHealthHTTP(cerbapi.PortfolioHealthClientOf(s.client)).ServeHTTP(w, r)
 }

@@ -7,6 +7,7 @@ type Container struct {
 	Image     string   `json:"image"`
 	Status    string   `json:"status"`
 	State     string   `json:"state"`
+	Health    string   `json:"health,omitempty"`
 	Ports     []string `json:"ports,omitempty"`
 	CreatedAt string   `json:"created_at"`
 }

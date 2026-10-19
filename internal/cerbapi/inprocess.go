@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/scheduling"
@@ -28,6 +29,9 @@ type InProcessClient struct {
 	consoleSecrets secret.ReadWriter
 	schedules      scheduling.Service
 	hosts          *HostService
+	portfolioMu    sync.Mutex
+	portfolio      *PortfolioHealthService
+	portfolioOpts  PortfolioHealthOptions
 
 	// Construction options forwarded to the shared runtime.
 	cfgPath string
