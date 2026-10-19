@@ -60,11 +60,12 @@ const (
 
 // PortfolioHealthQuery filters or tunes the portfolio health read projection.
 type PortfolioHealthQuery struct {
-	Mode         string `json:"mode,omitempty"`
-	Project      string `json:"project,omitempty"`
-	Host         string `json:"host,omitempty"`
-	Kind         string `json:"kind,omitempty"`
-	RollupStatus string `json:"rollup_status,omitempty"`
+	Mode                string `json:"mode,omitempty"`
+	Project             string `json:"project,omitempty"`
+	Host                string `json:"host,omitempty"`
+	Kind                string `json:"kind,omitempty"`
+	RollupStatus        string `json:"rollup_status,omitempty"`
+	IncludeUnsupervised *bool  `json:"include_unsupervised,omitempty"`
 }
 
 // PortfolioHealthProjection is the canonical cerberus.portfolio.health.v1
@@ -531,9 +532,13 @@ func (s *PortfolioHealthService) Project(ctx context.Context, q PortfolioHealthQ
 		}
 		hostRows = filteredHosts
 	}
-	if q.Project != "" || q.Host != "" || q.Kind != "" || q.RollupStatus != "" {
+	excludeUnsupervised := q.IncludeUnsupervised != nil && !*q.IncludeUnsupervised
+	if q.Project != "" || q.Host != "" || q.Kind != "" || q.RollupStatus != "" || excludeUnsupervised {
 		filteredDeps := make([]PortfolioDeploymentHealth, 0, len(deployments))
 		for _, d := range deployments {
+			if excludeUnsupervised && d.RollupStatus == RollupUnsupervised {
+				continue
+			}
 			if q.Project != "" && d.ProjectID != q.Project {
 				continue
 			}
@@ -1232,7 +1237,7 @@ func (s *PortfolioHealthService) populateLocalProcessDeployment(
 	switch {
 	case dep.OperatorStopped || desiredCfg == "stopped":
 		dep.DesiredState = "stopped"
-	case desiredCfg == "on_demand":
+	case desiredCfg == "on_demand" || configExplicitAutoStartFalse(r.Config):
 		dep.DesiredState = "on_demand"
 	case dep.Mode == string(localconn.ProcessModeDevSession) && specErr == nil && !spec.AutoStart:
 		dep.DesiredState = "on_demand"
@@ -1411,9 +1416,11 @@ func (s *PortfolioHealthService) populateRemoteProcessDeployment(
 	dep.ServiceName = scope.Text(serviceName)
 
 	desiredCfg := strings.ToLower(strings.TrimSpace(configString(r.Config, "desired_state")))
-	switch desiredCfg {
-	case "stopped", "on_demand":
-		dep.DesiredState = desiredCfg
+	switch {
+	case desiredCfg == "stopped":
+		dep.DesiredState = "stopped"
+	case desiredCfg == "on_demand" || configExplicitAutoStartFalse(r.Config):
+		dep.DesiredState = "on_demand"
 	default:
 		dep.DesiredState = "running"
 	}
@@ -2029,4 +2036,22 @@ func redactSlice(scope *redact.Scope, in []string) []string {
 		}
 	}
 	return out
+}
+
+func configExplicitAutoStartFalse(cfg map[string]any) bool {
+	if cfg == nil {
+		return false
+	}
+	v, ok := cfg["auto_start"]
+	if !ok {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return !val
+	case string:
+		return strings.EqualFold(strings.TrimSpace(val), "false")
+	default:
+		return false
+	}
 }

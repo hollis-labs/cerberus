@@ -19,6 +19,7 @@ import (
 // agent sees and the gate the call meets come from one declaration.
 var toolOperations = map[string]opRef{
 	"cerberus_health":             {cerbapi.ControlPlaneDefinition, cerbapi.OpHealth},
+	"cerberus_portfolio_health":   {cerbapi.ControlPlaneDefinition, cerbapi.OpPortfolioHealth},
 	"cerberus_project_list":       {cerbapi.ControlPlaneDefinition, cerbapi.OpProjectList},
 	"cerberus_connector_list":     {cerbapi.ControlPlaneDefinition, cerbapi.OpConnectorList},
 	"cerberus_connector_describe": {cerbapi.ControlPlaneDefinition, cerbapi.OpConnectorDescribe},

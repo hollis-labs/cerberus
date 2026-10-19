@@ -33,13 +33,24 @@ func PortfolioHealthHTTP(client PortfolioHealthClient) http.Handler {
 }
 
 func portfolioQueryFromURL(v url.Values) PortfolioHealthQuery {
-	return PortfolioHealthQuery{
+	q := PortfolioHealthQuery{
 		Mode:         v.Get("mode"),
 		Project:      v.Get("project"),
 		Host:         v.Get("host"),
 		Kind:         v.Get("kind"),
 		RollupStatus: v.Get("rollup_status"),
 	}
+	if raw := v.Get("include_unsupervised"); raw != "" {
+		switch raw {
+		case "true", "1":
+			b := true
+			q.IncludeUnsupervised = &b
+		case "false", "0":
+			b := false
+			q.IncludeUnsupervised = &b
+		}
+	}
+	return q
 }
 
 func portfolioStatus(err error) int {
@@ -112,6 +123,13 @@ func (c *SocketClient) PortfolioHealth(ctx context.Context, q PortfolioHealthQue
 	}
 	if q.RollupStatus != "" {
 		vals.Set("rollup_status", q.RollupStatus)
+	}
+	if q.IncludeUnsupervised != nil {
+		if *q.IncludeUnsupervised {
+			vals.Set("include_unsupervised", "true")
+		} else {
+			vals.Set("include_unsupervised", "false")
+		}
 	}
 	path := "/v1/portfolio/health"
 	if enc := vals.Encode(); enc != "" {
