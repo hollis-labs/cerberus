@@ -5,6 +5,7 @@ Cerberus keeps credentials out of the launchd plists it generates. A resource's
 
     keyring://<service>/<key>                   → the OS credential store, service "cerberus" (go-keyring)
     keychain://<service>/<key>                  → the same; keychain:// is the original, macOS-flavoured name
+    file:///absolute/private/path             → a private credential file through the shared secrets library
     helper://<helper>/<authority>/<path>        → `<helper> resolve keychain://<authority>/<path>`
     op://<vault>/<item>/<field>                 → 1Password, through the onepassword secret-backend plugin
     keeper://<record>/<selector>/<name>         → Keeper, through the keeper secret-backend plugin
@@ -20,7 +21,8 @@ cannot reach that user's Credential Manager. Any of these is
 `credential_missing` naming what makes the store available, never an empty
 value that looks like a missing entry. A credential in its
 `CERBERUS_<CONNECTOR>_<KEY>` environment variable still works without a store.
-The headless-Linux plan (systemd credentials, never plaintext) is CERB-GAP-904.
+The broader headless-Linux systemd-credentials plan is CERB-GAP-904.
+Host-issued credentials currently use private files as described below.
 
 **Size limits.** The store refuses a large value, and Cerberus refuses it first,
 naming the limit:
@@ -39,7 +41,7 @@ calling `secrets.MockStoreForTests()` from `TestMain` is refused.
 When any env value is a reference, `writePlist` fronts the service with
 `cerberus run-secrets -- <program> …`. That shim resolves the references in the
 service's own process and `execve`s the target, so launchd still supervises the
-real process. The plist carries references; the credentials never reach disk.
+real process. The plist carries references; resolved credentials are not copied into supervisor configuration.
 
 - `internal/secretref` — reference parsing and resolution
 - `internal/secrets` — the go-keyring `KeychainProvider` it resolves through
@@ -451,3 +453,43 @@ Values reach the plugin in the same Init config map as its secrets, as the
 strings the SDK's `ConfigReader` parses: booleans as `true`/`false`, integers
 as digits, and lists and mappings as JSON. The manifest refuses a field and a
 secret that share a name, so neither can shadow the other.
+
+## Host-issued application credentials
+
+An installed plugin can request named credentials for an operation with
+`issued_secrets` and the `credential_issuance_v1` capability (see
+[the plugin contract](plugins.md#host-issued-credentials)). Cerberus generates
+32 random bytes per slot, stores each as a 43-character base64url value, and
+verifies durable storage before starting the operation's plugin process.
+
+The current backend is the shared security/secrets private-file store: directories
+are private and credential files are mode 0600, owned by the daemon user. These
+are plaintext files protected by OS permissions, not an encrypted vault or a
+sandbox against other processes running as that user. The receipt exposes only
+metadata and absolute `file:///...` references. A managed resource can use the
+reference as its `DB_PASSWORD` environment value; `run-secrets` resolves it when
+starting the application. The resulting application environment contains the
+password. Do not print the resolved value in setup instructions or store it in
+a descriptor. References are local to that host and user; remote delivery is not
+implemented by this contract.
+
+State lives in `credential-issuance/` beside the managed-plugin state file. Each
+caller-supplied `issuance_id` (32 lowercase hexadecimal characters, generated
+once for the request) reserves an exclusive directory. An ID cannot be replayed
+or rebound, including across daemon restarts. Plans and dry runs never reserve
+an ID or generate a credential. Journal records are metadata only:
+
+- `preparing.json`: reserved, credential persistence may be incomplete.
+- `prepared.json`: all issued values persisted and read back; no dispatch yet.
+- `dispatching.json`: the operation process may have received the values.
+- `completed.json`: a successful, fully readable operation result was received.
+- `uncertain.json`: startup/call failed or its result was incomplete.
+
+Treat `dispatching` without a final record as uncertain. If a journal file is
+incomplete or unreadable, retain the reservation and credentials. Inspect the
+provider's actual state before making a new request; do not delete the old ID
+and retry it, or assume a timeout rolled the operation back. Credentials remain
+available for reconciliation even on failure. There is no automatic reconciliation,
+garbage collection, receipt listing command, rotation scheduler or vault migration
+in this slice. Provider plugins must implement their own inspect, provision,
+rotation and revocation semantics; the host broker itself enables no login.

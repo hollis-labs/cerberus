@@ -24,6 +24,7 @@ var ErrDeadlineExceeded = errors.New("the plugin did not answer within its deadl
 
 // DeadlineError is a missed deadline, and what the host did about it.
 type DeadlineError struct {
+	NoRestart bool
 	Connector string
 	// Phase is init, load, health, unload or call.
 	Phase     string
@@ -39,7 +40,9 @@ func (e *DeadlineError) Error() string {
 	}
 	msg := fmt.Sprintf("plugin %q did not answer %s within %s; Cerberus stopped it (its whole process group)", e.Connector, what, e.Timeout)
 	if e.Phase == "call" {
-		msg += " and is restarting it"
+		if !e.NoRestart {
+			msg += " and is restarting it"
+		}
 		if e.Effect != contract.EffectRead && e.Effect != contract.EffectReadSensitive {
 			msg += "; the operation may have partly run, so check the target's state before retrying"
 		}
@@ -65,11 +68,15 @@ func (e *OutputTooLargeError) Error() string {
 
 // StoppedError is a call to a plugin the host stopped while it ran.
 type StoppedError struct {
+	NoRestart bool
 	Connector string
 	Reason    string
 }
 
 func (e *StoppedError) Error() string {
+	if e.NoRestart {
+		return fmt.Sprintf("plugin %q issuance instance stopped while this call ran (%s); inspect the target before retrying", e.Connector, e.Reason)
+	}
 	return fmt.Sprintf("plugin %q was stopped while this call ran (%s); it is being restarted, so retry shortly", e.Connector, e.Reason)
 }
 
@@ -150,7 +157,7 @@ func (m *Manager) supervisedCall(ctx context.Context, id string, lp *loadedPlugi
 	case err == nil:
 		return nil
 	case errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil:
-		deadline := &DeadlineError{Connector: id, Phase: c.Phase, Operation: c.Name, Timeout: c.Timeout, Effect: c.Effect}
+		deadline := &DeadlineError{Connector: id, Phase: c.Phase, Operation: c.Name, Timeout: c.Timeout, Effect: c.Effect, NoRestart: lp.oneShot}
 		m.stop(id, lp, fmt.Sprintf("%s did not answer within %s", c.Name, c.Timeout))
 		return deadline
 	case errors.Is(err, ErrMessageTooLarge):
@@ -158,7 +165,7 @@ func (m *Manager) supervisedCall(ctx context.Context, id string, lp *loadedPlugi
 		return &OutputTooLargeError{Connector: id, Operation: c.Name, Bytes: MaxMessageBytes, Cap: MaxMessageBytes}
 	}
 	if reason := lp.stoppedReason(); reason != "" {
-		return &StoppedError{Connector: id, Reason: reason}
+		return &StoppedError{Connector: id, Reason: reason, NoRestart: lp.oneShot}
 	}
 	return err
 }
@@ -192,6 +199,12 @@ func kill(p Process) {
 // stop takes lp out of service for reason, kills its process group and
 // schedules a restart. A plugin already stopped is left alone.
 func (m *Manager) stop(id string, lp *loadedPlugin, reason string) {
+	if lp.oneShot {
+		if lp.markStopped(reason) {
+			kill(lp.process)
+		}
+		return
+	}
 	if lp.parent != nil {
 		// A write instance (I9) is not restarted: the next write starts one.
 		m.stopWriter(id, lp.parent, lp, reason, true)
@@ -377,9 +390,13 @@ func capOutput(out *OperationResult, raw []byte, capBytes int, effect contract.E
 // unreadableReply is the answer to a non-read whose reply was too large to
 // read at all: it may have run, and whether it succeeded is unknown, which
 // is said as a result rather than as an error an agent would retry.
-func unreadableReply(connector, operation string) OperationResult {
+func unreadableReply(connector, operation string, oneShot bool) OperationResult {
+	action := "Cerberus stopped the plugin and is restarting it"
+	if oneShot {
+		action = "Cerberus stopped the issuance instance; it will not be restarted"
+	}
 	return OperationResult{Connector: connector, Operation: operation,
-		Data:      map[string]any{"output_withheld": fmt.Sprintf("%s ran, but its reply was over %s and could not be read, so whether it succeeded is unknown; check the target's state before retrying. Cerberus stopped the plugin and is restarting it", operation, sizeOf(MaxMessageBytes))},
+		Data:      map[string]any{"output_withheld": fmt.Sprintf("%s ran, but its reply was over %s and could not be read, so whether it succeeded is unknown; check the target's state before retrying. %s", operation, sizeOf(MaxMessageBytes), action)},
 		OutputCap: &OutputCap{Action: "unreadable", Bytes: MaxMessageBytes, Cap: MaxMessageBytes}}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/credentialbroker"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/policy"
@@ -91,6 +92,7 @@ type ManagedPluginConnectorState struct {
 }
 
 type ManagedPluginConnectorService struct {
+	issuance *credentialbroker.Broker
 	// registerOnly: see managedPluginConfig.registerOnly.
 	registerOnly bool
 	manager      *pluginhost.Manager
@@ -198,6 +200,7 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 	}
 	service := &ManagedPluginConnectorService{
 		registerOnly: cfg.registerOnly,
+		issuance:     credentialbroker.New(filepath.Join(filepath.Dir(statePath), "credential-issuance")),
 		hostVersion:  hostVersion,
 		statePath:    statePath,
 		store:        pluginStoreFor(statePath),
@@ -461,6 +464,7 @@ func (s *ManagedPluginConnectorService) Health(ctx context.Context, id string) (
 // Execute runs a plugin operation on the direct plugin route, recording it
 // the way the admin lane records its operations.
 func (s *ManagedPluginConnectorService) Execute(ctx context.Context, id string, args PluginConnectorExecArgs) (ExternalConnectorOperationResult, error) {
+	ctx, _ = redact.EnsureScope(ctx)
 	spec := auditSpec{connector: id, operation: args.Operation, config: args.Config, acknowledged: args.Acknowledged, dryRun: args.DryRun,
 		approvalID: args.ApprovalID}
 	if args.DryRun {
@@ -496,13 +500,29 @@ func (s *ManagedPluginConnectorService) execute(ctx context.Context, id string, 
 	progressToken := fmt.Sprintf("managed-plugin-exec:%s:%s", id, args.Operation)
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Executing managed plugin operation %s on %s", args.Operation, id))
 	gmcp.NotifyProgress(ctx, progressToken, 0, 2, "Executing managed plugin operation")
+	issued, issueErr := s.prepareCredentialIssuance(ctx, id, args)
+	if issueErr != nil {
+		return ExternalConnectorOperationResult{}, managedPluginExecuteError(ExternalConnectorOperationArgs{Connector: id, Operation: args.Operation}, issueErr)
+	}
 	result, err := s.manager.ExecuteOperation(ctx, pluginhost.OperationArgs{
+		Issuance:     issued,
 		Connector:    id,
 		Operation:    args.Operation,
 		Config:       args.Config,
 		DryRun:       args.DryRun,
 		Acknowledged: args.Acknowledged,
 	})
+	var receipt *credentialbroker.Receipt
+	if issued != nil {
+		if issued.Receipt().State == "dispatching" {
+			success := err == nil && result.OutputCap == nil
+			if finishErr := issued.Finish(success); finishErr != nil {
+				err = redact.Guidance("credential operation outcome could not be persisted; inspect the target and issuance record before retrying")
+			}
+		}
+		r := issued.Receipt()
+		receipt = &r
+	}
 	if err != nil {
 		gmcp.NotifyMessage(ctx, "error", fmt.Sprintf("Managed plugin operation %s failed on %s: %s", args.Operation, id, redact.Text(err.Error())))
 		gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin operation failed")
@@ -513,9 +533,10 @@ func (s *ManagedPluginConnectorService) execute(ctx context.Context, id string, 
 	gmcp.NotifyMessage(ctx, "info", fmt.Sprintf("Managed plugin operation %s completed on %s", args.Operation, id))
 	gmcp.NotifyProgress(ctx, progressToken, 2, 2, "Managed plugin operation completed")
 	return ExternalConnectorOperationResult{
-		Connector: result.Connector,
-		Operation: result.Operation,
-		Data:      result.Data,
+		Connector:          result.Connector,
+		CredentialIssuance: receipt,
+		Operation:          result.Operation,
+		Data:               result.Data,
 	}, nil
 }
 

@@ -44,6 +44,8 @@ type ManifestOperation struct {
 	// property carries x-cerberus-label (OutputLabelKey). Without one the
 	// operation is unlabeled, and its whole result is marked untrusted.
 	OutputSchema map[string]any `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
+	// IssuedSecrets names credentials the host must persist before this operation.
+	IssuedSecrets []string `json:"issued_secrets,omitempty" yaml:"issued_secrets,omitempty"`
 
 	// Destructive, SupportsDry and RequiresAck are the pre-contract fields.
 	// With Effect declared, the host derives all three from the contract and
@@ -109,10 +111,11 @@ func ManifestFromDefinition(def Definition) Manifest {
 			LocalFS:     op.LocalFS,
 			// Labels travel with the operation: a plugin that sets them in
 			// its Go definition writes them into plugin.yaml.
-			OutputSchema: cloneSchema(op.OutputSchema),
-			Destructive:  op.RequiresAck,
-			SupportsDry:  op.SupportsDry,
-			RequiresAck:  op.RequiresAck,
+			OutputSchema:  cloneSchema(op.OutputSchema),
+			IssuedSecrets: append([]string(nil), op.IssuedSecrets...),
+			Destructive:   op.RequiresAck,
+			SupportsDry:   op.SupportsDry,
+			RequiresAck:   op.RequiresAck,
 		})
 	}
 	return Manifest{
@@ -161,7 +164,8 @@ func (op ManifestOperation) Operation() Operation {
 		Cost:        op.Cost,
 		LocalFS:     op.LocalFS,
 
-		OutputSchema: cloneSchema(op.OutputSchema),
+		OutputSchema:  cloneSchema(op.OutputSchema),
+		IssuedSecrets: append([]string(nil), op.IssuedSecrets...),
 
 		EffectUndeclared: op.Effect == "",
 	}.Finalize()
