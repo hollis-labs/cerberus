@@ -16,6 +16,9 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ### Changed
 
+- Use `libs/security/webauthn` v0.1.0 for passkey protocol verification and
+  synthetic authenticator tests. Cerberus retains its approval policy, v2 proof
+  format, registry, audit and enrollment controls. Building requires Go 1.26.9.
 - Adopt the published `libs/util`, `libs/ui-go` and `libs/plugin-mcp` modules; building now requires Go 1.26.8.
 - Require protocol-2 plugin Init with a fresh host-issued incarnation, explicit no-reverse-authority grant set and separate writable data/cache roots. Protocol-1 plugins must migrate; Cerberus does not offer reverse host RPC or hooks.
 

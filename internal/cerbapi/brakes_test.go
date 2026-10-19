@@ -16,9 +16,9 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/presence"
-	"github.com/hollis-labs/cerberus/internal/presence/presencetest"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/target"
+	"github.com/hollis-labs/libs/security/webauthn/presencetest"
 )
 
 func withBrakes(t *testing.T) brake.Store {

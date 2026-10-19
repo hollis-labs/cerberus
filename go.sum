@@ -39,6 +39,8 @@ github.com/hollis-labs/libs/mcp/plugin-mcp v0.3.0 h1:m9rCjLop6UCALCTF9Ssh/bZe/Y/
 github.com/hollis-labs/libs/mcp/plugin-mcp v0.3.0/go.mod h1:IdRr5l0H14XcxrduOCsPWXsCPmd/sgD5zlP/gEa+1NM=
 github.com/hollis-labs/libs/security/secrets v0.1.0 h1:/wrYAM5viUnYMpDhvbQmPlTMesqMIVfvfz+GiZ7jMAs=
 github.com/hollis-labs/libs/security/secrets v0.1.0/go.mod h1:Krd1kgmisOVmeN1G/ltaLMva58tIBki9xShsySqd86Y=
+github.com/hollis-labs/libs/security/webauthn v0.1.0 h1:m4YRsByFkFV88av/ouLjF3XLjZ1WCTM24lLFg5vAYyo=
+github.com/hollis-labs/libs/security/webauthn v0.1.0/go.mod h1:G/SZoKjS76GtZoR/S4p3E/el9FR/0Q3YKUm5qLm1VbM=
 github.com/hollis-labs/libs/ui/ui-go v0.1.0 h1:GFztthzyhlbrKemRItwyNlV+e83pZT+yFr5Y37iXlL4=
 github.com/hollis-labs/libs/ui/ui-go v0.1.0/go.mod h1:MBO41Mrbgo6YfRbm8MI50qQXjDfwhkvA/WxRdtOiL38=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=

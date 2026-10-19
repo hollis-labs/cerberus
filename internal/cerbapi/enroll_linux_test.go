@@ -12,8 +12,8 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/presence"
-	"github.com/hollis-labs/cerberus/internal/presence/presencetest"
 	"github.com/hollis-labs/cerberus/internal/userpresence"
+	"github.com/hollis-labs/libs/security/webauthn/presencetest"
 )
 
 type peerPresence struct {

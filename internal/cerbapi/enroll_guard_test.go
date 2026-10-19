@@ -11,9 +11,9 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/presence"
-	"github.com/hollis-labs/cerberus/internal/presence/presencetest"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/userpresence"
+	"github.com/hollis-labs/libs/security/webauthn/presencetest"
 )
 
 // Enrolling a passkey is a person's act, held by the daemon (B1): over the
