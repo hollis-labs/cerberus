@@ -405,9 +405,8 @@ func (c *SocketClient) ExecuteConnectorOperation(ctx context.Context, args Exter
 // provider-specific fields. Generic MCP/plugin callers keep their open payloads.
 func (c *SocketClient) ExecuteTypedConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
 	var out struct {
-		Connector string          `json:"connector"`
-		Operation string          `json:"operation"`
-		Data      json.RawMessage `json:"data"`
+		ExternalConnectorOperationResult
+		Data json.RawMessage `json:"data"`
 	}
 	if err := c.executeConnectorOperation(ctx, args, &out); err != nil {
 		return ExternalConnectorOperationResult{}, err
@@ -416,7 +415,10 @@ func (c *SocketClient) ExecuteTypedConnectorOperation(ctx context.Context, args 
 	if err != nil {
 		return ExternalConnectorOperationResult{}, fmt.Errorf("decode %s %s payload: %w", args.Connector, args.Operation, err)
 	}
-	return ExternalConnectorOperationResult{Connector: out.Connector, Operation: out.Operation, Data: data}, nil
+	// Decode only the provider payload; preserve host-owned result metadata,
+	// including credential references needed by provisioning consumers.
+	out.ExternalConnectorOperationResult.Data = data
+	return out.ExternalConnectorOperationResult, nil
 }
 
 func (c *SocketClient) executeConnectorOperation(ctx context.Context, args ExternalConnectorOperationArgs, out any) error {
