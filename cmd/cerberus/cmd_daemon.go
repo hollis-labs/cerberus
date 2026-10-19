@@ -561,6 +561,10 @@ func runDaemonBody() error {
 	if servicesErr != nil {
 		return servicesErr
 	}
+	dataService, dataErr := app.DataService(ctx, external, cfgPath)
+	if dataErr != nil {
+		return dataErr
+	}
 	schedules, scheduleErr := a.ScheduleService(ctx)
 	if scheduleErr != nil {
 		return fmt.Errorf("bind inactive scheduling: %w", scheduleErr)
@@ -654,7 +658,7 @@ func runDaemonBody() error {
 	if sockErr != nil {
 		logger.Warn("daemon.socket.path_resolve_failed", "error", sockErr.Error())
 	} else {
-		socketServer := cerbapi.NewSocketServer(inProc, sockPath, cerbapi.WithLogger(logger))
+		socketServer := cerbapi.NewSocketServer(inProc, sockPath, cerbapi.WithLogger(logger), cerbapi.WithDataHandler(cerbapi.DataHTTP(dataService)))
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

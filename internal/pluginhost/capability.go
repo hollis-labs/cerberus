@@ -42,6 +42,7 @@ const (
 // A variable appears here only because some capability unlocks it; a variable
 // every plugin may have belongs in the base launch environment instead.
 var capabilityEnv = map[string][]string{
+	pluginsdk.DataQueryCapability:          {}, // per-call private authorization; no ambient credential
 	pluginsdk.CredentialIssuanceCapability: {}, // per-operation private Init handoff; no ambient environment or store access
 	CapabilitySSHAgent:                     {"SSH_AUTH_SOCK"},
 	CapabilityDockerSocket:                 {"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG"},

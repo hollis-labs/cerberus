@@ -205,6 +205,9 @@ func (s *Server) routes() *http.ServeMux {
 	// Outside /api/ and so outside requireSession: this is where a session
 	// starts. It spends a one-time token, which is its own guard.
 	mux.HandleFunc("/login", s.handleLogin)
+	if client, ok := s.client.(*cerbapi.SocketClient); ok {
+		mux.Handle("/data/v1/", cerbapi.DataProxy(client))
+	}
 	mux.Handle("/", gowebui.Handler(gowebui.Config{FS: distFS, BasePath: "/"}))
 	return mux
 }
