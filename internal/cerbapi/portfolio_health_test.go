@@ -495,6 +495,9 @@ func TestPortfolioHealthPreAggregationAuthorizationAndSocket(t *testing.T) {
 	if !proj.Authorization.Filtered {
 		t.Fatalf("expected Authorization.Filtered=true, got %+v", proj.Authorization)
 	}
+	if proj.Authorization.Surface != "socket" || proj.Authorization.Scope != "portfolio:read" || proj.Authorization.PrincipalKind == "[REDACTED]" {
+		t.Fatalf("unexpected Authorization over socket (should not be [REDACTED]): %+v", proj.Authorization)
+	}
 	if len(proj.Deployments) != 1 || proj.Deployments[0].ID != "public-svc" {
 		t.Fatalf("expected only public-svc in deployments, got %+v", proj.Deployments)
 	}
