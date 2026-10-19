@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/dataaccess"
+
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/oauth"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -88,6 +90,12 @@ func verifyBearer(r *http.Request) (*http.Request, error) {
 // It runs before the brakes and policy, in every mode: a scope is what the
 // operator granted the token, not a decision to shadow.
 func scopeRefusal(ctx context.Context, spec auditSpec) error {
+	if proof, ok := dataaccess.FromContext(ctx); ok {
+		if spec.connector == proof.Connector && spec.operation == "query" && spec.known && spec.op.Effect == contract.EffectReadSensitive {
+			return nil
+		}
+		return redact.Guidance("a data session cannot invoke administrative operations")
+	}
 	p, ok := PrincipalFrom(ctx)
 	if !ok || !p.Verified() || spec.automation {
 		return nil

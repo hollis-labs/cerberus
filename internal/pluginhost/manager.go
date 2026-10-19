@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/dataaccess"
+
 	"github.com/google/uuid"
 	"github.com/hollis-labs/cerberus/internal/credentialbroker"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -402,6 +404,11 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 		initConfig[name] = value
 	}
 
+	delete(initConfig, pluginsdk.DataPermitConfigKey)
+	if proof, ok := dataaccess.FromContext(ctx); ok && slices.Contains(plugin.Granted, pluginsdk.DataQueryCapability) {
+		b, _ := json.Marshal(proof.Permit)
+		initConfig[pluginsdk.DataPermitConfigKey] = string(b)
+	}
 	params := SDKInitParams{
 		PluginDir:          plugin.Path,
 		DataDir:            dataDir,
@@ -697,7 +704,30 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// A split plugin's writes go to its write instance, which alone holds
 	// the write-bound credentials (I9).
 	var inst *loadedPlugin
-	if len(op.IssuedSecrets) > 0 && !args.DryRun {
+	if slices.Contains(lp.plugin.Granted, pluginsdk.DataQueryCapability) {
+		proof, ok := dataaccess.FromContext(ctx)
+		b, _ := json.Marshal(args.Config)
+		var query pluginsdk.DataQuery
+		if !ok || proof.Connector != args.Connector || args.Operation != "query" || args.DryRun || args.Issuance != nil || json.Unmarshal(b, &query) != nil || proof.Permit.Validate(query, time.Now()) != nil {
+			return OperationResult{}, redact.Guidance("data queries require the versioned session-authorized data route")
+		}
+		queryCtx, cancelQuery := context.WithCancel(ctx)
+		defer cancelQuery()
+		go func() {
+			select {
+			case <-lp.done:
+				cancelQuery()
+			case <-queryCtx.Done():
+			}
+		}()
+		ctx = queryCtx
+		inst, err = m.start(scoped(ctx, secrets.AccessRead), args.Connector, lp.plugin, lp.settings, secrets.AccessRead)
+		if inst != nil {
+			inst.oneShot = true
+			go m.watch(args.Connector, inst)
+			defer func() { inst.markStopped("data query instance closed"); kill(inst.process) }()
+		}
+	} else if len(op.IssuedSecrets) > 0 && !args.DryRun {
 		d := args.Issuance
 		if d == nil || d.Receipt().Operation != args.Operation || d.Receipt().Connector != args.Connector || d.Receipt().ID != args.Config["issuance_id"] || len(d.Values()) != len(op.IssuedSecrets) {
 			return OperationResult{}, redact.Guidance("host-owned credential issuance is required before this operation")
@@ -802,6 +832,11 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 			coded.MissingSecrets = append([]string(nil), lp.missingSecrets...)
 		}
 		return OperationResult{}, lp.currentRedactor().Error(err)
+	}
+	// Preserve exact numeric cells through the data route. Generic plugin DTOs
+	// decode into interface values and would round PostgreSQL int8 values.
+	if _, ok := dataaccess.FromContext(ctx); ok && json.Valid(result.Content) {
+		out.Data = append(json.RawMessage(nil), result.Content...)
 	}
 	if err := capOutput(&out, result.Content, lp.limits.MaxResultBytes, effect); err != nil {
 		return OperationResult{}, err

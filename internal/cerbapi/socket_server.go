@@ -32,9 +32,10 @@ import (
 // net.Listen("unix", ...). No framing, no gRPC, no hand-rolled
 // JSON-RPC (portfolio baseline forbids the latter).
 type SocketServer struct {
-	client Client
-	path   string
-	logger *slog.Logger
+	dataHandler http.Handler
+	client      Client
+	path        string
+	logger      *slog.Logger
 
 	// peerCreds reads a connection's peer credentials, and uid is the uid
 	// a peer must have. Tests replace the reader.
@@ -54,6 +55,10 @@ type SocketServer struct {
 
 // SocketServerOption tunes construction of a SocketServer.
 type SocketServerOption func(*SocketServer)
+
+func WithDataHandler(h http.Handler) SocketServerOption {
+	return func(s *SocketServer) { s.dataHandler = h }
+}
 
 // WithLogger attaches a slog logger. Defaults to slog.Default().
 func WithLogger(l *slog.Logger) SocketServerOption {
@@ -226,6 +231,9 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 
 func (s *SocketServer) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	if s.dataHandler != nil {
+		mux.Handle("/data/v1/", s.dataHandler)
+	}
 	mux.Handle("/schedules/v1/", ScheduleHTTP(ScheduleClient(s.client), "/schedules/v1/"))
 
 	// /hosts — the host registry (ADR 0004): reads only.
