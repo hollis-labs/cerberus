@@ -8,18 +8,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
-	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
-	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/capability"
-
+	"github.com/hollis-labs/cerberus/internal/credentialbroker"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
+	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
+	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/capability"
 )
 
 // Installer is the install side of the plugin host. The initial manager keeps
@@ -121,6 +122,7 @@ func (m *Manager) rss(pgid int) (int64, error) {
 }
 
 type loadedPlugin struct {
+	oneShot bool // issuance instances are never cached or restarted
 	plugin  InstalledPlugin
 	process Process
 	init    SDKInitResult
@@ -349,7 +351,7 @@ func (m *Manager) prepareLoad(id string) (InstalledPlugin, ResolvedSettings, err
 
 // start launches, initializes and loads a plugin, each call under its
 // deadline. A missed deadline kills the plugin's process group.
-func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, settings ResolvedSettings, access secrets.Access) (*loadedPlugin, error) {
+func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, settings ResolvedSettings, access secrets.Access, issued ...*credentialbroker.Dispatch) (*loadedPlugin, error) {
 	limits := settings.Limits
 	if limits.Init == 0 {
 		limits, _ = ClampLimits(nil)
@@ -372,6 +374,19 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 	// a subprocess inherits ambient env, so an env-carried credential would
 	// reach every plugin rather than the one that declared it.
 	resolved := resolvePluginSecrets(ctx, m.secretsFor(plugin), plugin)
+	if len(issued) > 0 && issued[0] != nil {
+		d := issued[0]
+		r := d.Receipt()
+		if r.Connector != id || r.State != "dispatching" {
+			return nil, fmt.Errorf("invalid private credential handoff")
+		}
+		for name, value := range d.Values() {
+			resolved.Config[pluginsdk.IssuedValuePrefix+name] = value
+		}
+		metadata, _ := json.Marshal(pluginsdk.Issuance{ID: r.ID, Operation: r.Operation, BindingDigest: r.Digest, References: r.References})
+		resolved.Config[pluginsdk.IssuanceConfigKey] = string(metadata)
+		resolved.NotCredentials[pluginsdk.IssuanceConfigKey] = true
+	}
 	m.reportSecretProblems(id, resolved)
 	redactor, unprotected := resolved.redactor()
 	m.reportUnprotectedSecrets(id, unprotected)
@@ -624,28 +639,28 @@ func (m *Manager) Health(ctx context.Context, id string) (Health, error) {
 	}, nil
 }
 
-func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (OperationResult, error) {
+func (m *Manager) operationPreflight(args OperationArgs) (*loadedPlugin, contract.ManifestOperation, error) {
 	m.mu.RLock()
 	lp, ok := m.running[args.Connector]
 	m.mu.RUnlock()
 	if !ok {
-		return OperationResult{}, redact.GuidanceFor(ErrNotLoaded, "plugin %q is not loaded", args.Connector)
+		return nil, contract.ManifestOperation{}, redact.GuidanceFor(ErrNotLoaded, "plugin %q is not loaded", args.Connector)
 	}
 
 	op, ok := OperationFromToolName(args.Connector, ToolNameForOperation(args.Connector, args.Operation), lp.plugin.Manifest)
 	if !ok {
-		return OperationResult{}, redact.GuidanceFor(ErrOperationUndeclared, "plugin %q does not declare operation %q", args.Connector, args.Operation)
+		return nil, contract.ManifestOperation{}, redact.GuidanceFor(ErrOperationUndeclared, "plugin %q does not declare operation %q", args.Connector, args.Operation)
 	}
 	// The key table runs first, so a bad argument is refused without
 	// calling the plugin, and before anything needs its credential.
 	if err := op.Operation().CheckInputs(args.Config, true); err != nil {
-		return OperationResult{}, redact.GuidanceWrap(err, "plugin %q operation %q", args.Connector, args.Operation)
+		return nil, contract.ManifestOperation{}, redact.GuidanceWrap(err, "plugin %q operation %q", args.Connector, args.Operation)
 	}
 	// A dry run whose preview the operator accepted at review stands in for
 	// acknowledgment. The plugin is still told the caller's own flag.
 	acknowledged := args.Acknowledged || (args.DryRun && PreviewAccepted(lp.plugin, op))
 	if err := OperationAllowed(lp.plugin.Origin, op, acknowledged); err != nil {
-		return OperationResult{}, err
+		return nil, contract.ManifestOperation{}, err
 	}
 	// A dry run reaches the plugin only for an operation whose manifest
 	// declares supports_dry, and the plugin is trusted to honor dry_run.
@@ -653,12 +668,76 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 	// docs/plans/live-systems-security-target.md); install review in P1 is
 	// what turns the claim into something an operator accepted.
 	if args.DryRun && op.EffectivePreview() == contract.PreviewNone {
-		return OperationResult{}, redact.GuidanceFor(ErrPreviewUnsupported, "plugin %q operation %q: %s", args.Connector, args.Operation, ErrPreviewUnsupported)
+		return nil, contract.ManifestOperation{}, redact.GuidanceFor(ErrPreviewUnsupported, "plugin %q operation %q: %s", args.Connector, args.Operation, ErrPreviewUnsupported)
+	}
+	if len(op.IssuedSecrets) > 0 && !slices.Contains(lp.plugin.Granted, pluginsdk.CredentialIssuanceCapability) {
+		return nil, contract.ManifestOperation{}, redact.Guidance("credential issuance capability was not granted")
+	}
+	if len(op.IssuedSecrets) > 0 && !args.DryRun {
+		if err := m.CheckBundle(lp.plugin); err != nil {
+			return nil, contract.ManifestOperation{}, err
+		}
+	}
+	return lp, op, nil
+}
+
+// CheckOperation validates dispatch requirements without resolving or issuing credentials.
+// ExecuteOperation repeats this check immediately before dispatch.
+func (m *Manager) CheckOperation(args OperationArgs) error {
+	_, _, err := m.operationPreflight(args)
+	return err
+}
+
+func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (OperationResult, error) {
+	lp, op, err := m.operationPreflight(args)
+	if err != nil {
+		return OperationResult{}, err
 	}
 	effect := op.Operation().Effect
 	// A split plugin's writes go to its write instance, which alone holds
 	// the write-bound credentials (I9).
-	inst, err := m.instanceFor(ctx, args.Connector, lp, effect, args.DryRun)
+	var inst *loadedPlugin
+	if len(op.IssuedSecrets) > 0 && !args.DryRun {
+		d := args.Issuance
+		if d == nil || d.Receipt().Operation != args.Operation || d.Receipt().Connector != args.Connector || d.Receipt().ID != args.Config["issuance_id"] || len(d.Values()) != len(op.IssuedSecrets) {
+			return OperationResult{}, redact.Guidance("host-owned credential issuance is required before this operation")
+		}
+		for _, name := range op.IssuedSecrets {
+			if d.Values()[name] == "" {
+				return OperationResult{}, redact.Guidance("declared issued credential is missing")
+			}
+		}
+		// Unloading/stopping the primary instance also cancels this private
+		// instance, including a pending Init; it must not outlive its plugin.
+		parentDone := lp.done
+		issuedCtx, cancelIssued := context.WithCancel(ctx)
+		defer cancelIssued()
+		go func() {
+			select {
+			case <-parentDone:
+				cancelIssued()
+			case <-issuedCtx.Done():
+			}
+		}()
+		ctx = issuedCtx
+		if err = d.Start(); err != nil {
+			return OperationResult{}, redact.Guidance("credential dispatch record could not be persisted; nothing was sent")
+		}
+		inst, err = m.start(scoped(ctx, secrets.AccessWrite), args.Connector, lp.plugin, lp.settings, secrets.AccessWrite, d)
+		if inst != nil {
+			inst.oneShot = true
+			go m.watch(args.Connector, inst)
+			defer func() {
+				inst.markStopped("issuance instance closed")
+				kill(inst.process)
+			}()
+		}
+	} else {
+		if args.Issuance != nil {
+			return OperationResult{}, redact.Guidance("unexpected credential issuance handoff")
+		}
+		inst, err = m.instanceFor(ctx, args.Connector, lp, effect, args.DryRun)
+	}
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -687,7 +766,7 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 		})
 	var tooLarge *OutputTooLargeError
 	if errors.As(err, &tooLarge) && effect != contract.EffectRead && effect != contract.EffectReadSensitive {
-		return unreadableReply(args.Connector, args.Operation), nil
+		return unreadableReply(args.Connector, args.Operation, lp.oneShot), nil
 	}
 	var deadline *DeadlineError
 	var stopped *StoppedError

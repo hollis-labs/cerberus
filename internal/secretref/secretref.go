@@ -8,8 +8,9 @@
 // files free of credential material: the plist carries the reference, and the
 // `cerberus run-secrets` shim resolves it in the moment the service execs.
 //
-// Two schemes are supported:
+// Core schemes include:
 //
+//	file:///absolute/private/path         → a private credential file
 //	keychain://<service>/<key>              → the Cerberus login-keychain entry
 //	helper://<helper>/<authority>/<path>    → `<helper> resolve keychain://<authority>/<path>`
 //
@@ -32,6 +33,7 @@ import (
 
 	plugin "github.com/hollis-labs/cerberus/pkg/plugin"
 	"github.com/hollis-labs/cerberus/pkg/secret"
+	sharedsecrets "github.com/hollis-labs/libs/security/secrets"
 )
 
 // Errors returned by Parse and Resolver.
@@ -69,7 +71,7 @@ var VaultSchemes = plugin.ClaimableSchemes
 // store is the macOS Keychain, the Windows Credential Manager or the Linux
 // Secret Service.
 func Schemes() []string {
-	return append([]string{"keychain", "keyring", "helper"}, VaultSchemes...)
+	return append([]string{"keychain", "keyring", "helper", "file"}, VaultSchemes...)
 }
 
 // SchemeRouter resolves references whose scheme a secret-backend plugin
@@ -122,6 +124,12 @@ func Parse(raw string) (Ref, error) {
 		return Ref{}, fmt.Errorf("%w: %q", ErrNotAReference, raw)
 	}
 	scheme, rest, _ := strings.Cut(raw, "://")
+	if scheme == "file" {
+		if !filepath.IsAbs(rest) {
+			return Ref{}, fmt.Errorf("file references require an absolute private credential path")
+		}
+		return Ref{Raw: raw, Scheme: scheme, Key: rest}, nil
+	}
 	if isVaultScheme(scheme) {
 		// A vault reference's shape is its backend's business; the host
 		// only needs it non-empty.
@@ -229,6 +237,19 @@ func (r *Resolver) Resolve(ctx context.Context, raw string) (string, error) {
 	}
 	var secret string
 	switch ref.Scheme {
+	case "file":
+		resolved, resolveErr := sharedsecrets.New().Resolve(ctx, ref.Raw)
+		if resolveErr != nil {
+			return "", fmt.Errorf("private credential file resolution failed: %w", resolveErr)
+		}
+		secret = resolved.Secret.Reveal()
+		if secret == "" {
+			return "", ErrEmptySecret
+		}
+		if IsRef(secret) {
+			return "", ErrResolvedToRef
+		}
+		return secret, nil
 	case "keychain", "keyring":
 		if r.provider == nil {
 			return "", fmt.Errorf("resolve %s: no keychain provider configured", ref.Raw)

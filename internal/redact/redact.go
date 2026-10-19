@@ -62,7 +62,7 @@ func looksLikeToken(value string) bool {
 // reference names a credential and is not one. It mirrors secretref.Schemes,
 // which cannot be imported here; TestRedactKnowsEveryReferenceScheme in
 // internal/secretref holds the two together.
-var referenceSchemes = []string{"keychain://", "keyring://", "helper://", "op://", "keeper://"}
+var referenceSchemes = []string{"keychain://", "keyring://", "helper://", "op://", "keeper://", "file://"}
 
 // IsReference reports whether value is a secret reference.
 func IsReference(value string) bool {
@@ -94,6 +94,11 @@ func SensitiveKey(key string) bool {
 // value. A field that *might* carry one belongs nowhere near this list.
 var namesOnlyKeys = map[string]bool{
 	"missing_secrets": true,
+	// Manifest/review declarations contain credential slot names only.
+	"issued_secrets": true,
+	// The host's issuance receipt contains identity, state, binding digest,
+	// timestamp and file references only; Dispatch never serializes values.
+	"credential_issuance": true,
 	// credential_sources maps a credential's name to where it came from
 	// ("mapping:op via onepassword@0.1.0"): names by construction.
 	"credential_sources": true,

@@ -48,6 +48,7 @@ type Review struct {
 // ReviewOperation is one operation as the host reads it: a missing effect is
 // exec, a missing preview none.
 type ReviewOperation struct {
+	IssuedSecrets  []string             `json:"issued_secrets,omitempty"`
 	Name           string               `json:"name"`
 	Effect         contract.Effect      `json:"effect"`
 	EffectDeclared bool                 `json:"effect_declared"`
@@ -98,6 +99,7 @@ func BuildReview(staged *Staged, source string, origin InstallOrigin) Review {
 			Output:         op.Output,
 			LocalFS:        op.LocalFS,
 			OutputLabels:   canonicalLabels(op.OutputSchema),
+			IssuedSecrets:  sortedCopy(op.IssuedSecrets),
 		})
 	}
 	sort.Slice(r.Operations, func(i, j int) bool { return r.Operations[i].Name < r.Operations[j].Name })
@@ -247,6 +249,11 @@ func (r Review) Render() string {
 		b.WriteString("  (* declares no effect, read as exec: every call needs acknowledgment)\n")
 	}
 
+	for _, op := range r.Operations {
+		if len(op.IssuedSecrets) > 0 {
+			fmt.Fprintf(&b, "Issued credentials for %s: %s (host persists before dispatch; one private operation instance)\n", op.Name, strings.Join(op.IssuedSecrets, ", "))
+		}
+	}
 	previews := map[contract.PreviewKind][]string{}
 	for _, op := range r.Operations {
 		if op.Preview != contract.PreviewNone && !op.Effect.ReadOnly() {
@@ -354,6 +361,9 @@ func Diff(accepted, current Review) []string {
 			}
 			if o.LocalFS != n.LocalFS {
 				change("~ operation %s local_fs %s -> %s", name, orNone(string(o.LocalFS)), orNone(string(n.LocalFS)))
+			}
+			if strings.Join(o.IssuedSecrets, ",") != strings.Join(n.IssuedSecrets, ",") {
+				change("~ operation %s issued credentials %v -> %v", name, o.IssuedSecrets, n.IssuedSecrets)
 			}
 			if o.OutputLabels != n.OutputLabels {
 				change("~ operation %s output labels %s -> %s", name, orUnlabeled(o.OutputLabels), orUnlabeled(n.OutputLabels))

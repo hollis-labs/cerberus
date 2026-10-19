@@ -227,6 +227,50 @@ cerberus:
 A declaration naming an operation the connector does not declare, or using a
 value outside the vocabulary, is refused at install.
 
+### Host-issued credentials
+
+A plugin that provisions a login can ask Cerberus to persist its password before
+any provider mutation. Declare top-level capability `credential_issuance_v1`
+and, on the operation, `issued_secrets: [runtime_password, migration_password]`.
+This is a versioned capability: older hosts refuse the unknown capability at
+install instead of silently executing a write without the persistence handoff.
+No ambient environment or store-reading capability is granted.
+
+An issuing operation must declare `effect: write` or `admin`, `preview: plugin`,
+`local_fs: writes`, closed inputs, and a required string `issuance_id` input.
+Slot names are unique lowercase identifiers (letters, digits and underscores,
+starting with a letter; at most 48 characters), with at most eight slots. The
+request ID is exactly 32 lowercase hexadecimal characters. It must be part of
+the reviewed request and approval plan. The host applies policy, approvals,
+acknowledgment and write-ahead audit before reserving an ID or storing secrets.
+Preview calls do not receive issued credentials and must never enable a login.
+
+Each real write starts a fresh plugin process. Its private Init config contains:
+
+- `cerberus.issuance.v1`: JSON metadata parsed by `plugin.IssuanceFromConfig`,
+  with ID, operation, binding digest and slot-to-reference mapping.
+- `cerberus.issued.<slot>`: the value for that operation's declared slot. Read
+  through the SDK's `ConfigReader.Secret` so its logger registers the value too.
+
+The `cerberus.` config prefix is host-reserved. Check the handoff ID and operation
+against the call, and refuse missing or mismatched handoffs before mutating the
+provider. A plugin must not generate a replacement password or enable a login
+without the supplied value. Values never go in operation arguments, preview
+output, telemetry or return data. Return only provider state and public connection
+metadata. The host adds a `credential_issuance` receipt alongside `data`.
+
+The fresh process also receives the plugin's normally declared write credentials;
+issued values never enter its persistent read or write instances. It is stopped
+on completion, timeout, cancellation or failure, and is never automatically
+restarted. Its normal deadlines, memory checks, output caps and redaction still
+apply. A failed or interrupted write may have applied: the host retains the
+credential and refuses reuse of the ID. See [storage and recovery](secrets.md#host-issued-application-credentials).
+
+This contract is for the managed-plugin execution routes. A raw development
+host without the broker refuses issuing writes. Provisioning, overlapping
+rotation, revocation, provider reconciliation and runtime attachment remain
+plugin/application responsibilities; the broker does not implement database SQL.
+
 ### Output labels
 
 An operation can describe its result with `output_schema`, a JSON Schema that
