@@ -174,6 +174,7 @@ func TestDomainReadEndpointsReachable(t *testing.T) {
 		"/api/settings",
 		"/api/health",
 		"/api/health?resource=app",
+		"/api/portfolio/health",
 		"/api/projects",
 		"/api/pipelines",
 		"/api/config/validate",
@@ -257,6 +258,13 @@ func (f *fakeClient) ResourceLogs(context.Context, string, int, string, ...cerba
 
 func (f *fakeClient) Health(context.Context, string) (*cerbapi.DaemonHealth, error) {
 	return &cerbapi.DaemonHealth{}, nil
+}
+
+func (f *fakeClient) PortfolioHealth(context.Context, cerbapi.PortfolioHealthQuery) (*cerbapi.PortfolioHealthProjection, error) {
+	return &cerbapi.PortfolioHealthProjection{
+		SchemaVersion: cerbapi.PortfolioHealthSchemaVersion,
+		Contract:      cerbapi.PortfolioHealthContract,
+	}, nil
 }
 
 func (f *fakeClient) ListProjects(context.Context) ([]cerbapi.ProjectInfo, error) {

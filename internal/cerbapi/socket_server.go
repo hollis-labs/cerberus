@@ -232,6 +232,10 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.Handle("/hosts", HostHTTP(HostClientOf(s.client), "/hosts"))
 	mux.Handle("/hosts/", HostHTTP(HostClientOf(s.client), "/hosts"))
 
+	// /portfolio/health — combined portfolio health read projection (cerberus.portfolio.health.v1).
+	mux.Handle("/portfolio/health", PortfolioHealthHTTP(PortfolioHealthClientOf(s.client)))
+	mux.Handle("/v1/portfolio/health", PortfolioHealthHTTP(PortfolioHealthClientOf(s.client)))
+
 	// /health — daemon + v2 resource health.
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ping", s.handlePing)

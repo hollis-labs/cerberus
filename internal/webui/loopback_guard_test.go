@@ -147,7 +147,7 @@ func isRetired(path string) bool {
 
 var readOnlyRoutes = map[string]bool{
 	"/api/session": true, "/api/resources": true, "/api/hosts": true, "/api/overview": true,
-	"/api/settings": true, "/api/system": true, "/api/health": true,
+	"/api/settings": true, "/api/system": true, "/api/health": true, "/api/portfolio/health": true,
 	"/api/projects": true, "/api/pipelines": true, "/api/registry": true,
 	"/api/registry/health": true, "/api/config/validate": true,
 	"/api/config/resolve": true, "/api/config/migrate/preview": true,

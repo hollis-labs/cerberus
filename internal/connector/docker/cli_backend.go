@@ -115,6 +115,9 @@ type dockerInspectJSON struct {
 	Created string `json:"Created"`
 	State   struct {
 		Status string `json:"Status"`
+		Health *struct {
+			Status string `json:"Status"`
+		} `json:"Health,omitempty"`
 	} `json:"State"`
 	Config struct {
 		Image string `json:"Image"`
@@ -164,12 +167,17 @@ func (c *CLIBackend) ContainerStatus(ctx context.Context, nameOrID string) (*Con
 
 	i := inspects[0]
 	name := strings.TrimPrefix(i.Name, "/")
+	health := ""
+	if i.State.Health != nil {
+		health = strings.ToLower(strings.TrimSpace(i.State.Health.Status))
+	}
 	return &Container{
 		ID:        i.ID,
 		Name:      name,
 		Image:     i.Config.Image,
 		Status:    i.State.Status,
 		State:     i.State.Status,
+		Health:    health,
 		CreatedAt: i.Created,
 	}, nil
 }
