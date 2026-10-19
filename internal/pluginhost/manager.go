@@ -394,7 +394,7 @@ func (m *Manager) start(ctx context.Context, id string, plugin InstalledPlugin, 
 
 	// Fields travel beside the secrets. The manifest refuses a field and a
 	// secret with the same name, so neither can shadow the other.
-	initConfig := make(map[string]string, len(resolved.Config)+len(settings.Config))
+	initConfig := make(map[string]string)
 	for name, value := range settings.Config {
 		initConfig[name] = value
 	}
