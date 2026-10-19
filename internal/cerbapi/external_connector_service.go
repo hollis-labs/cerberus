@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/credentialbroker"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/redact"
 
@@ -190,9 +191,10 @@ type ExternalConnectorOperationArgs struct {
 }
 
 type ExternalConnectorOperationResult struct {
-	Connector string `json:"connector"`
-	Operation string `json:"operation"`
-	Data      any    `json:"data"`
+	CredentialIssuance *credentialbroker.Receipt `json:"credential_issuance,omitempty"`
+	Connector          string                    `json:"connector"`
+	Operation          string                    `json:"operation"`
+	Data               any                       `json:"data"`
 }
 
 type ExternalConnectorDryRunPreview struct {

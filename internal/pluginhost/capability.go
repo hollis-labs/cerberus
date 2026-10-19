@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	pluginsdk "github.com/hollis-labs/cerberus/pkg/plugin"
 	"github.com/hollis-labs/libs/mcp/plugin-mcp/plugin-sdk/subprocess"
 )
 
@@ -41,8 +42,9 @@ const (
 // A variable appears here only because some capability unlocks it; a variable
 // every plugin may have belongs in the base launch environment instead.
 var capabilityEnv = map[string][]string{
-	CapabilitySSHAgent:     {"SSH_AUTH_SOCK"},
-	CapabilityDockerSocket: {"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG"},
+	pluginsdk.CredentialIssuanceCapability: {}, // per-operation private Init handoff; no ambient environment or store access
+	CapabilitySSHAgent:                     {"SSH_AUTH_SOCK"},
+	CapabilityDockerSocket:                 {"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG"},
 }
 
 // KnownCapabilities returns the capability names this host recognizes, sorted.

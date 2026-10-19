@@ -8,16 +8,48 @@ import (
 
 	docker "github.com/hollis-labs/cerberus/internal/connector/docker"
 	ssh "github.com/hollis-labs/cerberus/internal/connector/ssh"
+	"github.com/hollis-labs/cerberus/internal/credentialbroker"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
 type connectorPayloadClient struct {
 	Client
 	payload any
+	receipt *credentialbroker.Receipt
 }
 
 func (c connectorPayloadClient) ExecuteConnectorOperation(_ context.Context, args ExternalConnectorOperationArgs) (ExternalConnectorOperationResult, error) {
-	return ExternalConnectorOperationResult{Connector: args.Connector, Operation: args.Operation, Data: c.payload}, nil
+	return ExternalConnectorOperationResult{Connector: args.Connector, Operation: args.Operation, Data: c.payload, CredentialIssuance: c.receipt}, nil
+}
+
+func TestTypedConnectorTransportPreservesCredentialReceipt(t *testing.T) {
+	receipt := &credentialbroker.Receipt{
+		Binding:    credentialbroker.Binding{ID: "0123456789abcdef0123456789abcdef", Connector: "postgres", Operation: "provision_app", Digest: "hmac-sha256:fixture"},
+		State:      "completed",
+		References: map[string]string{"runtime_password": "file:///private/issued/runtime_password", "migration_password": "file:///private/issued/migration_password"},
+		At:         time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC),
+	}
+	payload := map[string]any{"database": "fixture", "runtime_login": "fixture_r1"}
+	client := startConnectorSocket(t, connectorPayloadClient{payload: payload, receipt: receipt})
+	result, err := client.ExecuteTypedConnectorOperation(context.Background(), ExternalConnectorOperationArgs{Connector: "postgres", Operation: "provision_app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.CredentialIssuance, receipt) {
+		t.Fatalf("credential receipt lost or altered: %#v", result.CredentialIssuance)
+	}
+	want := ExternalConnectorOperationResult{Connector: "postgres", Operation: "provision_app", Data: payload, CredentialIssuance: receipt}
+	before, err := redact.MarshalIndent(want, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := redact.MarshalIndent(result, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("CLI result changed: %s != %s", after, before)
+	}
 }
 
 func TestTypedConnectorTransportPreservesCLIValuesAndJSON(t *testing.T) {

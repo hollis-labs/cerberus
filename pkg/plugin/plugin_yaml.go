@@ -110,6 +110,7 @@ func (p PluginYAML) Validate(pluginDir string) error {
 		problems = append(problems, err.Error())
 	}
 	problems = append(problems, p.Cerberus.validateDeclarations()...)
+	problems = append(problems, p.validateIssuance()...)
 	if p.Cerberus.Connector.ID != "" && p.ID != "" && p.Cerberus.Connector.ID != p.ID {
 		problems = append(problems, "plugin id must match cerberus connector id")
 	}

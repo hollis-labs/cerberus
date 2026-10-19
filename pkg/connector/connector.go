@@ -125,6 +125,8 @@ type Operation struct {
 	// OutputSchema is a plugin operation's output schema, carrying its
 	// labels (OutputLabelKey). Nil is unlabeled.
 	OutputSchema map[string]any `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
+	// IssuedSecrets names credentials the host must persist before this operation.
+	IssuedSecrets []string `json:"issued_secrets,omitempty" yaml:"issued_secrets,omitempty"`
 	// EffectUndeclared marks an operation whose plugin manifest declares no
 	// effect, so Effect is the host's reading of the gap (exec). Policy
 	// reads it: under the permissive posture the gap is evaluated as write.

@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 
+	"github.com/hollis-labs/cerberus/internal/credentialbroker"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -53,11 +54,13 @@ type Health struct {
 }
 
 type OperationArgs struct {
-	Connector    string         `json:"connector"`
-	Operation    string         `json:"operation"`
-	Config       map[string]any `json:"config,omitempty"`
-	DryRun       bool           `json:"dry_run,omitempty"`
-	Acknowledged bool           `json:"acknowledged,omitempty"`
+	// Issuance is host-only, populated after policy/audit and durable persistence.
+	Issuance     *credentialbroker.Dispatch `json:"-"`
+	Connector    string                     `json:"connector"`
+	Operation    string                     `json:"operation"`
+	Config       map[string]any             `json:"config,omitempty"`
+	DryRun       bool                       `json:"dry_run,omitempty"`
+	Acknowledged bool                       `json:"acknowledged,omitempty"`
 }
 
 type OperationResult struct {
