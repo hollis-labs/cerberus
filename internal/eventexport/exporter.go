@@ -324,7 +324,7 @@ func (e *Exporter) stepAudit(ctx context.Context, now time.Time) error {
 			return ctx.Err()
 		}
 		e.gaps.ObserveAudit(rec)
-		for _, m := range MapAudit(rec) {
+		for _, m := range append(MapAudit(rec), MapLifecycle(rec)...) {
 			if err := e.append(m.Key, SourceRef{Source: "audit", Seq: rec.Seq}, m.Envelope, &st.Exported); err != nil {
 				return err
 			}
