@@ -3,6 +3,7 @@ package eventexport
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -96,7 +97,7 @@ func TestActorIsTokenVerifiedOnlyForAVerifiedBearer(t *testing.T) {
 	}
 	for name, c := range cases {
 		got := actorOf(c.p)
-		if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
+		if (got == nil) != (c.want == nil) || (got != nil && !reflect.DeepEqual(*got, *c.want)) {
 			t.Errorf("%s: actor = %+v, want %+v", name, got, c.want)
 		}
 	}

@@ -99,7 +99,7 @@ func kinds(t *testing.T, e *Exporter) []string {
 	}
 	out := make([]string, len(entries))
 	for i, en := range entries {
-		out[i] = en.Envelope.Kind
+		out[i] = string(en.Envelope.Kind)
 	}
 	return out
 }
@@ -475,7 +475,7 @@ func TestATornAuditWriteIsReadThroughAndReportedAsAPair(t *testing.T) {
 	}
 	var raised, cleared, audits int
 	for _, en := range mustAfter(t, e) {
-		switch en.Envelope.Kind {
+		switch string(en.Envelope.Kind) {
 		case "alert.raised":
 			if strings.Contains(string(en.Envelope.Payload), RuleAuditTornWrite) {
 				raised++
@@ -515,7 +515,7 @@ func coalescePair(t *testing.T, entries []Entry, rule string) (raised, cleared [
 			continue
 		}
 		key, _ := p["coalesce_key"].(string)
-		switch en.Envelope.Kind {
+		switch string(en.Envelope.Kind) {
 		case "alert.raised":
 			raised = append(raised, key)
 		case "alert.cleared":
@@ -615,7 +615,7 @@ func TestPayloadSchemaIsTheFullCatalogIDForEveryEmittedKind(t *testing.T) {
 	seen := map[string]bool{}
 	entries := append(mustAfter(t, e), mustAfterOutbox(t, sink.Outbox())...)
 	for _, en := range entries {
-		kind := en.Envelope.Kind
+		kind := string(en.Envelope.Kind)
 		seen[kind] = true
 		if en.Envelope.Class == nil || en.Envelope.Class.PayloadSchema != want[kind] || want[kind] == "" {
 			t.Errorf("%s: payload_schema %q, want %q", kind, en.Envelope.Class.PayloadSchema, want[kind])
