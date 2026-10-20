@@ -3,6 +3,9 @@
 // contract C1/C2, task CW-20261016-0142), and keeps them in a local, durable
 // outbox for a relay to publish later. Nothing here talks to a network.
 //
+// Lifecycle events (resource.state_changed, deploy.state_changed) are derived from
+// the same audit chain records; see MapLifecycle for what is and is not covered.
+//
 // The authoritative records are never touched. The exporter reads the audit
 // chain and the approval store with the strict readers in internal/audit and
 // internal/approval, maps each record to at most one envelope built field by
