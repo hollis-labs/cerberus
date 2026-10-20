@@ -10,6 +10,9 @@ resources:
     type: process
     project: infrastructure
     connector: local
+    env: dev
+    owner: self
+    admin: self
     config:
       command:
         - /opt/homebrew/opt/ollama/bin/ollama
@@ -33,6 +36,9 @@ resources:
     type: process
     project: infrastructure
     connector: local
+    env: dev
+    owner: self
+    admin: self
     config:
       command:
         - /opt/homebrew/opt/postgresql@16/bin/postgres
@@ -59,6 +65,9 @@ resources:
     type: process
     project: infrastructure
     connector: local
+    env: dev
+    owner: self
+    admin: self
     config:
       command:
         - ./jaeger
