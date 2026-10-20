@@ -40,13 +40,15 @@ const (
 //   - stop, ok: to stopped (reason operator_stop when a person or agent asked);
 //   - apply, ok: to running; reload, ok: to running, reason restart;
 //   - remove, ok: to removed;
-//   - deploy: deploy.state_changed started then succeeded or failed, and the
-//     resource deploying then running (reason deploy) or failed. All four come
+//   - deploy: deploy.state_changed started then succeeded or failed; on success
+//     the resource also goes deploying then running (reason deploy). All come
 //     from the one outcome record, so started is announced after the fact with
 //     its true time (the outcome's time minus its duration) and the operation id
 //     as correlation id;
-//   - apply or reload that ran and failed: to failed. A failed stop or remove
-//     leaves the state unknown and exports nothing.
+//   - a failed operation (apply, reload, deploy, stop, remove) says only that the
+//     operation failed, not what state the resource is in (a failed build leaves
+//     the previous process running), so no resource state is exported for it; a
+//     failed deploy still exports deploy.state_changed failed.
 //
 // What this does not see is anything that did not go through an audited
 // operation: a process that crashes, a health check that fails, a host that
@@ -88,14 +90,10 @@ func MapLifecycle(rec audit.Record) []Mapped {
 	case "apply":
 		if ok {
 			state(end, "", stateRunning, "")
-		} else {
-			state(end, "", stateFailed, "")
 		}
 	case "reload":
 		if ok {
 			state(end, "", stateRunning, "restart")
-		} else {
-			state(end, "", stateFailed, "")
 		}
 	case "remove":
 		if ok {
@@ -103,13 +101,14 @@ func MapLifecycle(rec audit.Record) []Mapped {
 		}
 	case "deploy":
 		add(deployState(start, id, rec, "", deployStarted, "", trigger))
-		state(start, "", stateDeploying, "deploy")
 		if ok {
+			state(start, "", stateDeploying, "deploy")
 			add(deployState(end, id, rec, deployStarted, deploySucceeded, "", trigger))
 			state(end, stateDeploying, stateRunning, "deploy")
 		} else {
+			// A failed deploy says nothing about the resource: a failed build
+			// leaves the previous process running, so no resource state is claimed.
 			add(deployState(end, id, rec, deployStarted, deployFailed, "", trigger))
-			state(end, stateDeploying, stateFailed, "deploy")
 		}
 	}
 	return out

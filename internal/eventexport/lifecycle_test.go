@@ -60,8 +60,10 @@ func TestMapLifecycleOperations(t *testing.T) {
 			[]lifeEvent{{"resource.state_changed", "running", "", "restart", "scheduler"}}},
 		{"remove", lifecycleOutcome("remove", "ok", human),
 			[]lifeEvent{{"resource.state_changed", "removed", "", "", "human"}}},
-		{"apply that failed", lifecycleOutcome("apply", "operation_failed", human),
-			[]lifeEvent{{"resource.state_changed", "failed", "", "", "human"}}},
+		// A failed operation does not establish the resource's state: a failed
+		// build leaves the previous process running.
+		{"apply that failed", lifecycleOutcome("apply", "operation_failed", human), nil},
+		{"reload that failed", lifecycleOutcome("reload", "operation_failed", human), nil},
 		{"deploy ok", lifecycleOutcome("deploy", "ok", human), []lifeEvent{
 			{"deploy.state_changed", "started", "", "", "human"},
 			{"resource.state_changed", "deploying", "", "deploy", "human"},
@@ -70,9 +72,7 @@ func TestMapLifecycleOperations(t *testing.T) {
 		}},
 		{"deploy failed", lifecycleOutcome("deploy", "operation_failed", human), []lifeEvent{
 			{"deploy.state_changed", "started", "", "", "human"},
-			{"resource.state_changed", "deploying", "", "deploy", "human"},
 			{"deploy.state_changed", "failed", "started", "", "human"},
-			{"resource.state_changed", "failed", "deploying", "deploy", "human"},
 		}},
 		// Nothing exported: a failed stop or remove leaves the state unknown, sync and
 		// reads change no lifecycle state.
