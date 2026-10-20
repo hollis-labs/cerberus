@@ -24,6 +24,15 @@ type ExportSettings struct {
 	GraceSeconds int `yaml:"grace_seconds"`
 	// IntervalSeconds is how often the exporter steps. Default 5.
 	IntervalSeconds int `yaml:"interval_seconds"`
+	// Hub turns on the relay that ships the outbox to the event hub. It does
+	// nothing unless Enabled is also set, and needs HOLLIS_EVENTS_URL (and the
+	// app's token file, see mesh/eventbus) in the daemon's environment.
+	Hub HubSettings `yaml:"hub"`
+}
+
+// HubSettings configures the relay to the event hub. Off by default.
+type HubSettings struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // DefaultSettingsPath is ~/.cerberus/events.yaml.
