@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/eventexport"
 	"github.com/hollis-labs/cerberus/internal/pausectl"
 	"github.com/hollis-labs/cerberus/internal/service"
 )
@@ -28,7 +29,8 @@ func TestDeployBuildsActivatesAndPreservesRunningProcessOnBuildFailure(t *testin
 		"dir": dir, "command": []string{"./app", "60"}, "log_file": filepath.Join(dir, "runtime.log"), "install_root": filepath.Join(dir, "install"),
 		"install_after_build": false, "build_strategy": map[string]any{"kind": "make_standard", "env_prefix": []string{"/usr/bin/env", "CERBERUS_PIN_TEST=22"}, "rules": map[string]any{"output": "./app"}},
 	}}}}
-	svc := NewResourceRuntimeService(audit.NewMemory(), WithResourceRuntimeConfigV2(cfg))
+	auditLog := audit.NewMemory()
+	svc := NewResourceRuntimeService(auditLog, WithResourceRuntimeConfigV2(cfg))
 	ctx := context.Background()
 	t.Cleanup(func() {
 		_, _ = svc.StopResource(ctx, id, WithAcknowledged(true))
@@ -61,6 +63,26 @@ func TestDeployBuildsActivatesAndPreservesRunningProcessOnBuildFailure(t *testin
 	still, err := service.ReadPIDFile(id)
 	if err != nil || still != after {
 		t.Fatal("failed build disrupted running process")
+	}
+	// The failed deploy's real audit outcome, exported: the deploy failed, but the
+	// previous process is still running, so no resource state may be claimed.
+	var failedOutcome audit.Record
+	for _, rec := range auditLog.Records() {
+		if rec.Kind == audit.KindOutcome && rec.Operation == "deploy" {
+			failedOutcome = rec
+		}
+	}
+	if failedOutcome.OperationID == "" || failedOutcome.OutcomeCode == audit.OutcomeOK {
+		t.Fatalf("no failed deploy outcome in the audit log: %+v", failedOutcome)
+	}
+	exported := eventexport.MapLifecycle(failedOutcome)
+	if len(exported) != 2 {
+		t.Fatalf("failed deploy exported %d events, want deploy started and failed only", len(exported))
+	}
+	for _, m := range exported {
+		if m.Envelope.Kind != "deploy.state_changed" {
+			t.Fatalf("failed deploy exported %s although the running process was preserved", m.Envelope.Kind)
+		}
 	}
 	if _, err = svc.StopResource(ctx, id, WithAcknowledged(true)); err != nil {
 		t.Fatal(err)
