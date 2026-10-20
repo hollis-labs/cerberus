@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/hollis-labs/libs/harness/core/adapters/runtimeevents"
 )
 
 // SourceRef says which source record an entry was derived from: the source
@@ -189,7 +191,10 @@ func (o *FileOutbox) Append(key string, src SourceRef, e Envelope) (Entry, bool,
 		existing, err := o.entry(seq)
 		return existing, false, err
 	}
-	e.SchemaVersion = "1"
+	e.SchemaVersion = runtimeevents.SchemaVersion
+	if e.App == "" {
+		e.App = AppName
+	}
 	if e.ID == "" {
 		e.ID = newEventID()
 	}

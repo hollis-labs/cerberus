@@ -8,6 +8,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/libs/harness/core/adapters/runtimeevents"
 )
 
 // Payload schema ids: the full catalog ids (libs harness/core
@@ -266,10 +267,10 @@ func alert(kind, rule, summary, severity string, at time.Time, subject string, l
 		payload["coalesce_key"] = coalesce
 	}
 	return Envelope{
-		Kind:    kind,
+		Kind:    runtimeevents.EventKind(kind),
 		Time:    at.UTC(),
 		Subject: subject,
-		Source:  Source{Channel: channel},
+		Source:  Source{Channel: runtimeevents.SourceChannel(channel)},
 		Class:   &Class{Category: "alert", Severity: severity, Visibility: VisibilityEnvironment, PayloadSchema: schemaAlert, Labels: labels},
 		Payload: mustJSON(payload),
 	}

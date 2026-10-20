@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hollis-labs/libs/harness/core/adapters/runtimeevents"
 )
 
 func testEnvelope(kind string) Envelope {
-	return Envelope{Kind: kind, Time: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC), Subject: "msg://x/cerberus/1", Source: Source{Channel: ChannelAudit}}
+	return Envelope{Kind: runtimeevents.EventKind(kind), Time: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC), Subject: "msg://x/cerberus/1", Source: Source{Channel: ChannelAudit}}
 }
 
 func TestOutboxAssignsSequenceGenerationAndIDsOnceAndIsIdempotentByKey(t *testing.T) {

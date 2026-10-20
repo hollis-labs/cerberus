@@ -9,6 +9,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
 	github.com/hollis-labs/libs/core/util v0.4.0
+	github.com/hollis-labs/libs/harness/core v0.14.1
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.3.0
 	github.com/hollis-labs/libs/security/auth v0.1.0
 	github.com/hollis-labs/libs/security/secrets v0.1.0
@@ -36,6 +37,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/pprof v0.0.0-20260906184651-6331bc6350fe // indirect
+	github.com/hollis-labs/libs/mesh/core v0.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

@@ -10,6 +10,7 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ### Added
 
+- **Exported events use the shared `runtimeevents` envelope.** `internal/eventexport` now aliases `harness/core` `runtimeevents.Event` (v1.1) instead of a private copy, and every outbox line carries `app: cerberus` and the schema version. Existing outbox lines stay valid (the hash chain covers raw line bytes). Export is still gated by `export.enabled` in `~/.cerberus/events.yaml` (default off); nothing is sent anywhere yet.
 - **`os_service` runs on Linux as a systemd user unit.** `supervisor: auto` (and `systemd_user`) now apply, reload, stop, remove, status, inspect and doctor through `systemctl --user`, with the launchd backend's guarantees: idempotent unit writes, restart only when something changed, and startup confirmed by a stable main PID. `resource doctor` warns when the user does not linger.
 - **`cerberus install` / `uninstall` on Linux** write and remove the systemd user unit `com.hollis-labs.cerberus.service`, retiring a hand-written `cerberus.service` first. `cerberus daemon status` reports `origin: systemd`, and `daemon start|stop|restart` go through `systemctl --user` for a systemd-managed daemon. `--override-supervisor` is the new name for `--override-launchd`, which still works.
 - **A relative `dir:` in a registered descriptor resolves against the descriptor's own directory**, so `dir: .` names the repo wherever it is checked out.
