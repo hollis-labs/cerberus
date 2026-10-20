@@ -16,6 +16,9 @@ resources:
     type: process
     project: cerberus
     connector: local
+    env: dev
+    owner: self
+    admin: self
     tags:
       - daemon
       - launchd
@@ -44,6 +47,9 @@ resources:
     type: process
     project: cerberus
     connector: local
+    env: dev
+    owner: self
+    admin: self
     tags:
       - gui
       - web
@@ -77,6 +83,9 @@ resources:
     type: process
     project: cerberus
     connector: local
+    env: dev
+    owner: self
+    admin: self
     tags:
       - release
       - artifact
