@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/hollis-labs/libs/harness/core/adapters/runtimeevents"
 	"github.com/hollis-labs/libs/mesh/eventbus"
 	"github.com/hollis-labs/libs/mesh/eventbus/relay"
 )
@@ -20,6 +21,14 @@ func HubItem(e Entry) (eventbus.Item, error) {
 	env.Actor = nil
 	env.RecordedAt = nil
 	env.Cursor = ""
+	// A line written before the envelope carried them (they were added with the
+	// shared envelope) gets the same values Append stamps today.
+	if env.App == "" {
+		env.App = AppName
+	}
+	if env.SchemaVersion == "" {
+		env.SchemaVersion = runtimeevents.SchemaVersion
+	}
 	body, err := json.Marshal(env)
 	if err != nil {
 		return eventbus.Item{}, fmt.Errorf("eventexport: outbox entry %d: %w", e.Seq, err)

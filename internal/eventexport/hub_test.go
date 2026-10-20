@@ -187,3 +187,21 @@ func TestRelayShipsTheOutboxAndResumesFromItsCursor(t *testing.T) {
 		t.Fatalf("after restart the hub saw %v, want exactly the three events once", hub.ids)
 	}
 }
+
+// An outbox line written before app and schema_version existed (#45) is sent with
+// both filled in, so the hub does not reject it on shape.
+func TestHubItemFillsAppAndSchemaVersionOnALegacyLine(t *testing.T) {
+	box, err := OpenFileOutbox(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := hubEvent(t, box, "legacy")
+	entry.Envelope.App, entry.Envelope.SchemaVersion = "", ""
+	item, err := HubItem(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rej := ingest.CheckItem("cerberus", item.Body, ingest.Options{}); rej != nil {
+		t.Fatalf("a legacy line is rejected: %v", rej)
+	}
+}
