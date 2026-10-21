@@ -8,6 +8,10 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ## [Unreleased]
 
+### Security
+
+- Go toolchain 1.26.10 (`go` directive and CI pin) for GO-2026-6809 (crypto/x509); no behavior change.
+
 ### Added
 
 - **A relay from the event outbox to the event hub, off by default.** With `export.hub.enabled: true` in `~/.cerberus/events.yaml` (and `export.enabled`), the daemon ships the outbox to the hub through `mesh/eventbus` v0.2.0: it needs `HOLLIS_EVENTS_URL` and the app's token file in its environment, and does nothing without a URL. The relay reads the durable outbox, moves its cursor only over events the hub settled or the client durably quarantined, and resumes after a restart; a down hub or a missing credential holds events back, it loses none. The actor, record time and cursor are not sent (the hub owns them). The cursor and the client's spool are under `~/.cerberus/events/hub`.
