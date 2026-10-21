@@ -365,3 +365,356 @@ func TestFailureEpisodeThroughExplicitEngineNotifiesOnce(t *testing.T) {
 		t.Fatal("unknown outcome notified as failure", sink.calls)
 	}
 }
+
+func storedStream(t *testing.T, c *Core, d *Delivery, stream string) string {
+	t.Helper()
+	var body string
+	if err := c.db.QueryRow(`SELECT body FROM cerberus_schedule_logs WHERE fire_id=? AND stream=?`, d.fire.FireID, stream).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+// Output reaches the database in batches (CW-20261016-0228, option A). A size or
+// timer flush appends everything but the carry (the last logCarryBytes), so a token
+// split across the boundary is seen whole later; only close flushes it all.
+func TestLogCaptureIsCoalescedAndFlushedBySizeIntervalAndClose(t *testing.T) {
+	clock := &testClock{at: time.Now().UTC()}
+	var checked bool
+	executor := deliveryFixture{run: func(_ context.Context, d *Delivery) error {
+		out := d.Stdout()
+		if _, err := out.Write([]byte(strings.Repeat("a", logCarryBytes+500))); err != nil {
+			return err
+		}
+		if got := storedStream(t, d.core, d, "stdout"); got != "" {
+			return fmt.Errorf("a small write reached the database at once: %d bytes", len(got))
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for len(storedStream(t, d.core, d, "stdout")) == 0 {
+			if time.Now().After(deadline) {
+				return errors.New("buffered output was not flushed by the interval")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if got := len(storedStream(t, d.core, d, "stdout")); got != 500 {
+			return fmt.Errorf("the interval flush stored %d bytes; want everything but the %d-byte carry (500)", got, logCarryBytes)
+		}
+		if _, err := out.Write([]byte(strings.Repeat("x", logFlushBytes))); err != nil {
+			return err
+		}
+		if got := len(storedStream(t, d.core, d, "stdout")); got != 500+logFlushBytes {
+			return fmt.Errorf("a full batch stored %d bytes; want %d", got, 500+logFlushBytes)
+		}
+		if _, err := out.Write([]byte("tail")); err != nil {
+			return err
+		}
+		if got := storedStream(t, d.core, d, "stdout"); strings.HasSuffix(got, "tail") {
+			return errors.New("the tail was written before the interval or close")
+		}
+		checked = true
+		return nil
+	}}
+	c, _ := testCore(t, executor, allowAt(clock), Options{Clock: clock, Delivery: DeliveryOptions{StreamBytes: 1 << 16, TotalBytes: 1 << 20}})
+	c.flushInterval = 50 * time.Millisecond
+	j := dueJob(clock, PipelineRun)
+	j.CaptureLogs = true
+	j.Timeout = 30 * time.Second
+	mustCreate(t, c, j)
+	tick(t, c)
+	f := fireFor(t, c, j, j.Timing.At)
+	if rc := receiptFor(t, c, f); rc.State != Completed || !checked {
+		t.Fatalf("delivery did not complete: receipt %s %q checked=%v", rc.State, rc.Error, checked)
+	}
+	logs := callOK(t, NewService(c, fixtureAccess), Call{Operation: "logs", OwnerApp: j.OwnerApp, ID: j.ID, FireID: f.ID}).Logs
+	if logs == nil || !logs.Available || !strings.HasSuffix(logs.Stdout, "tail") || len(logs.Stdout) != logCarryBytes+500+logFlushBytes+4 {
+		t.Fatalf("close did not flush everything: %+v", logs)
+	}
+}
+
+// Redaction at flush over the buffer is at least as strong as per write, and no byte
+// reaches the database before it has run. A secret is split across: write chunks, the
+// size boundary, a timer flush (the timer is driven by hand, so the clock is fake),
+// and close. Neither the secret nor a fragment of it, nor a net-matched token or
+// private-key body split the same way, is ever stored.
+func TestACoalescedBatchNeverStoresAValueSplitAcrossAFlush(t *testing.T) {
+	const scoped = "scope-only-private-value-0228"
+	token := strings.Repeat("Tok3n", 120) // 600 bytes of bearer token
+	pemBody := strings.Repeat("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC", 60)
+	filler := func(n int) []byte { return []byte(strings.Repeat("y", n)) }
+	for name, scenario := range map[string]struct {
+		write func(w func(string), flush func())
+		leak  []string
+	}{
+		"across write chunks": {func(w func(string), _ func()) {
+			for i := 1; i < len(scoped); i += 7 {
+				w("[" + scoped[:i])
+				w(scoped[i:] + "]\n")
+			}
+		}, []string{scoped, scoped[:10]}},
+		"across the size boundary": {func(w func(string), _ func()) {
+			w(string(filler(logFlushBytes-5)) + scoped[:10])
+			w(scoped[10:] + "\n")
+		}, []string{scoped, scoped[:10]}},
+		"across a timer flush": {func(w func(string), flush func()) {
+			w(string(filler(2000)) + scoped[:10])
+			flush()
+			w(scoped[10:] + "\n")
+			flush()
+		}, []string{scoped, scoped[:10]}},
+		"across close": {func(w func(string), flush func()) {
+			w(scoped[:10])
+			flush()
+			w(scoped[10:])
+		}, []string{scoped, scoped[:10]}},
+		"a bearer token across a timer flush": {func(w func(string), flush func()) {
+			w(string(filler(2000)) + "Authorization: Bearer " + token[:300])
+			flush()
+			w(token[300:] + "\n")
+			flush()
+		}, []string{token[:60], token[300:360]}},
+		"an open private-key block across a timer flush": {func(w func(string), flush func()) {
+			w(string(filler(3000)) + "-----BEGIN RSA PRIVATE KEY-----\n" + pemBody[:1500])
+			flush()
+			w(pemBody[1500:] + "\n-----END RSA PRIVATE KEY-----\n")
+			flush()
+		}, []string{pemBody[:60], pemBody[1500:1560]}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			clock := &testClock{at: time.Now().UTC()}
+			executor := deliveryFixture{run: func(ctx context.Context, d *Delivery) error {
+				redact.ScopeFrom(ctx).Add("test-token", scoped)
+				out, _ := d.Stdout().(*logWriter)
+				scenario.write(func(text string) {
+					if _, err := out.Write([]byte(text)); err != nil {
+						t.Error(err)
+					}
+				}, out.flushOnTimer)
+				return nil
+			}}
+			c, _ := testCore(t, executor, allowAt(clock), Options{Clock: clock, Delivery: DeliveryOptions{StreamBytes: 1 << 16, TotalBytes: 1 << 20}})
+			c.flushInterval = time.Hour // the timer never fires on its own; the scenario drives it
+			j := dueJob(clock, PipelineRun)
+			j.CaptureLogs = true
+			j.Timeout = 30 * time.Second
+			mustCreate(t, c, j)
+			tick(t, c)
+			f := fireFor(t, c, j, j.Timing.At)
+			if rc := receiptFor(t, c, f); rc.State != Completed {
+				t.Fatalf("delivery did not complete: %s %q", rc.State, rc.Error)
+			}
+			logs := callOK(t, NewService(c, fixtureAccess), Call{Operation: "logs", OwnerApp: j.OwnerApp, ID: j.ID, FireID: f.ID}).Logs
+			if logs == nil || !logs.Available {
+				t.Fatalf("capture unavailable: %+v", logs)
+			}
+			for _, fragment := range scenario.leak {
+				var leaked int
+				if err := c.db.QueryRow(`SELECT COUNT(*) FROM cerberus_schedule_logs WHERE instr(body,?)>0`, fragment).Scan(&leaked); err != nil || leaked != 0 {
+					t.Fatalf("stored %q: %d %v", fragment, leaked, err)
+				}
+			}
+			if !strings.Contains(logs.Stdout, "[REDACTED]") {
+				t.Fatalf("nothing was redacted: %.200q", logs.Stdout)
+			}
+		})
+	}
+}
+
+// The architect's table: a value of exactly MaxValueLen sits at EVERY offset across the
+// cut (value start 1..L-1 bytes before the cut), for the size trigger and the timer
+// trigger. Redaction runs on the whole buffer before the cut, so neither the value nor
+// any 2+ byte fragment of it is ever appended, whatever the offset.
+func TestACoalescedBatchRedactsAValueAtEveryOffsetAcrossTheCut(t *testing.T) {
+	const value = "Qq7Zp3Lm9XaT"
+	clock := &testClock{at: time.Now().UTC()}
+	newWriter := func(captured *[]string) *logWriter {
+		c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+		c.flushInterval = time.Hour // the timer never fires by itself
+		c.logSink = func(_, text string) error { *captured = append(*captured, text); return nil }
+		scope := &redact.Scope{}
+		if !scope.Add("test-token", value) {
+			t.Fatal("scope refused the value")
+		}
+		return &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+	}
+	if got := (func() int { s := &redact.Scope{}; s.Add("x", value); return s.MaxValueLen() })(); got < len(value) {
+		t.Fatalf("MaxValueLen = %d", got)
+	}
+	longest := func() int { s := &redact.Scope{}; s.Add("x", value); return s.MaxValueLen() }()
+	fragments := []string{}
+	for i := 0; i < len(value); i++ {
+		for j := i + 2; j <= len(value); j++ {
+			fragments = append(fragments, value[i:j])
+		}
+	}
+	for _, trigger := range []string{"size", "timer"} {
+		for k := 1; k < longest; k++ {
+			t.Run(fmt.Sprintf("%s/value starts %d before the cut", trigger, k), func(t *testing.T) {
+				var captured []string
+				w := newWriter(&captured)
+				// total is the buffer at the flush; the cut is total - logCarryBytes.
+				total := 3024
+				if trigger == "size" {
+					total = logFlushBytes
+				}
+				cut := total - logCarryBytes
+				buf := strings.Repeat("y", cut-k) + value + strings.Repeat("b", total-(cut-k)-len(value))
+				if len(buf) != total {
+					t.Fatalf("test arithmetic: %d != %d", len(buf), total)
+				}
+				if _, err := w.Write([]byte(buf)); err != nil {
+					t.Fatal(err)
+				}
+				if trigger == "timer" {
+					w.flushOnTimer()
+				}
+				if len(captured) == 0 {
+					t.Fatal("nothing was flushed; the table would pass vacuously")
+				}
+				w.close(context.Background())
+				all := strings.Join(captured, "")
+				if strings.Contains(all, value) || !strings.Contains(all, redact.Marker) {
+					t.Fatalf("value not redacted: %.80q ...", all[max(0, cut-k-20):min(len(all), cut-k+40)])
+				}
+				for _, fragment := range fragments {
+					if strings.Contains(all, fragment) {
+						t.Fatalf("fragment %q of the value was appended", fragment)
+					}
+				}
+			})
+		}
+	}
+}
+
+// A failed append drops the chunk and marks the stream failed: the text is never
+// written raw or retried, and later output is still captured redacted.
+func TestAFailedLogAppendNeverWritesRawText(t *testing.T) {
+	const value = "Qq7Zp3Lm9XaT"
+	clock := &testClock{at: time.Now().UTC()}
+	c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+	c.flushInterval = time.Hour
+	var seen []string
+	fail := true
+	c.logSink = func(_, text string) error {
+		if fail {
+			fail = false
+			return errors.New("injected storage failure")
+		}
+		seen = append(seen, text)
+		return nil
+	}
+	scope := &redact.Scope{}
+	scope.Add("test-token", value)
+	w := &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+	if _, err := w.Write([]byte(strings.Repeat("a", 2000) + value + strings.Repeat("b", 3000))); err != nil {
+		t.Fatal(err) // a storage failure never fails the job's write
+	}
+	if !w.failed {
+		t.Fatal("the failed append did not mark the stream")
+	}
+	if _, err := w.Write([]byte(value + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	w.close(context.Background())
+	all := strings.Join(seen, "")
+	if strings.Contains(all, value) || strings.Contains(all, "aaaaaaaa") {
+		t.Fatalf("dropped chunk was retried or raw text was written: %.80q", all)
+	}
+	if !strings.Contains(all, redact.Marker) {
+		t.Fatalf("later output was not captured redacted: %q", all)
+	}
+}
+
+// pr-1's repro, parameterised over where the value ends relative to the cut (which is
+// the same as parameterising the carry): Write 4000 bytes of filler, then 150 bytes,
+// the value, and N more bytes. A complete value must never be stored, however far past
+// the cut it ends.
+func TestACompleteValueInASecondWriteIsNeverStoredWhereverItEndsRelativeToTheCut(t *testing.T) {
+	const scoped = "scope-only-private-value-0228"
+	clock := &testClock{at: time.Now().UTC()}
+	trailing := []int{0, 1, 28, 29, 30, 500, 1000, 1010, 1011, 1023, 1024, 1025, 1100, 2000}
+	for n := 1100; n < 4000; n += 223 {
+		trailing = append(trailing, n)
+	}
+	for _, n := range trailing {
+		t.Run(fmt.Sprintf("%d trailing bytes", n), func(t *testing.T) {
+			c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+			c.flushInterval = time.Hour
+			var stored []string
+			c.logSink = func(_, text string) error { stored = append(stored, text); return nil }
+			scope := &redact.Scope{}
+			scope.Add("test-token", scoped)
+			w := &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+			for _, chunk := range []string{strings.Repeat("z", 4000), strings.Repeat("a", 150) + scoped + strings.Repeat("b", n)} {
+				if _, err := w.Write([]byte(chunk)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w.flushOnTimer()
+			w.close(context.Background())
+			all := strings.Join(stored, "")
+			if strings.Contains(all, scoped) || strings.Contains(all, scoped[:10]) || strings.Contains(all, scoped[len(scoped)-10:]) {
+				t.Fatalf("value or a piece of it stored (%d trailing bytes)", n)
+			}
+			if !strings.Contains(all, redact.Marker) {
+				t.Fatal("nothing was redacted")
+			}
+		})
+	}
+}
+
+// The settle loop runs until the cut stops moving: a value's start can fall inside a
+// private-key block, whose start can fall inside another value, and so on. This chain
+// needs five adjusting passes (a loop capped at four would release a straddling
+// value): V1's start is inside P1, P1's BEGIN inside V2, V2's start inside P2, ... up to
+// V5. Each Vj embeds the marker text that closes one block and opens the next.
+func TestSettleCutFollowsAChainOfAlternatingBlocksAndValues(t *testing.T) {
+	values := []string{
+		"p5-----BEGIN K-----q5xxxx",                    // opens P4
+		"p4-----END K-----m4-----BEGIN K-----q4xxxx",   // closes P4, opens P3
+		"p3-----END K-----m3-----BEGIN K-----q3xxxx",   // closes P3, opens P2
+		"p2-----END K-----m2-----BEGIN K-----q2xxxx",   // closes P2, opens P1
+		"p1-----END K-----" + strings.Repeat("q1", 30), // closes P1
+	}
+	scope := &redact.Scope{}
+	for i, v := range values {
+		scope.Add(fmt.Sprintf("v%d", i), v)
+	}
+	// The cut sits inside the last value, after the END marker it contains.
+	text := strings.Join(values, " ")
+	lastStart := strings.LastIndex(text, values[4])
+	cut := lastStart + len("p1-----END K-----") + 10
+	// Pad so that, with the carry, the writer's own cut lands exactly on cut.
+	text += strings.Repeat("t", cut+logCarryBytes-len(text))
+
+	settled, passes := settleCut([]byte(text), cut, scope)
+	if passes < 5 {
+		t.Fatalf("the chain took %d passes; the test needs at least 5", passes)
+	}
+	if settled != 0 {
+		t.Fatalf("settled cut = %d; want the start of the first value (0)", settled)
+	}
+	if again, more := settleCut([]byte(text), settled, scope); again != settled || more != 0 {
+		t.Fatalf("not a fixed point: %d (%d passes)", again, more)
+	}
+
+	// And through the writer: nothing of any value is stored, whatever the layout.
+	clock := &testClock{at: time.Now().UTC()}
+	c, _ := testCore(t, deliveryFixture{}, allowAt(clock), Options{Clock: clock})
+	c.flushInterval = time.Hour
+	var stored []string
+	c.logSink = func(_, s string) error { stored = append(stored, s); return nil }
+	w := &logWriter{delivery: &Delivery{core: c, scope: scope}, stream: "stdout"}
+	if _, err := w.Write([]byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	w.flushOnTimer()
+	w.close(context.Background())
+	all := strings.Join(stored, "")
+	for _, v := range values {
+		for _, piece := range []string{v, v[:12], v[len(v)-12:]} {
+			if strings.Contains(all, piece) {
+				t.Fatalf("stored %q", piece)
+			}
+		}
+	}
+}

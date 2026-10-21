@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -156,6 +157,59 @@ func (s *Scope) Unprotected() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// MaxValueLen is the length in bytes of the longest value (in any of its forms) the
+// scope removes. A caller that batches text must keep that much, less one byte,
+// unflushed at a batch boundary so a value straddling the boundary is seen whole.
+func (s *Scope) MaxValueLen() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	longest := 0
+	for value := range s.values {
+		longest = max(longest, len(value))
+	}
+	return longest
+}
+
+// HoldStraddlers moves cut back to the start of any registered value that is fully
+// present in text but crosses cut, repeating until none does. A caller that batches
+// text releases text[:cut] (so every value in it is whole and gets removed) and keeps the
+// rest unredacted, to be removed with whatever follows it. Without this a value that
+// lies across the cut would be released as two halves that neither match.
+func (s *Scope) HoldStraddlers(text []byte, cut int) int {
+	if s == nil || cut <= 0 || cut >= len(text) {
+		return cut
+	}
+	s.mu.Lock()
+	values := make([][]byte, 0, len(s.values))
+	for value := range s.values {
+		values = append(values, []byte(value))
+	}
+	s.mu.Unlock()
+	for moved := true; moved && cut > 0; {
+		moved = false
+		for _, value := range values {
+			from := max(0, cut-len(value)+1)
+			to := min(len(text), cut+len(value)-1)
+			for from < to {
+				i := bytes.Index(text[from:to], value)
+				if i < 0 {
+					break
+				}
+				start := from + i
+				if start < cut && start+len(value) > cut {
+					cut, moved = start, true
+					break
+				}
+				from = start + 1
+			}
+		}
+	}
+	return cut
 }
 
 // Redactor is a snapshot of the scope: the values registered so far, then
