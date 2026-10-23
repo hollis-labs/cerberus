@@ -31,7 +31,34 @@ type Probed struct {
 	UptimeSeconds   int64             `json:"uptime_seconds,omitempty"`
 	Tools           map[string]bool   `json:"tools,omitempty"`
 	Units           map[string]string `json:"units,omitempty"`
+	// Hardware identity a non-root user can read (DMI on Linux, hw.model on
+	// macOS). Serial numbers need root and are never probed; see Hardware.
+	HWVendor  string       `json:"hw_vendor,omitempty" cerb:"untrusted"`
+	HWModel   string       `json:"hw_model,omitempty" cerb:"untrusted"`
+	HWVersion string       `json:"hw_version,omitempty" cerb:"untrusted"`
+	Board     string       `json:"board,omitempty" cerb:"untrusted"`
+	BIOS      string       `json:"bios,omitempty" cerb:"untrusted"`
+	Disks     []ProbedDisk `json:"disks,omitempty"`
+	NICs      []ProbedNIC  `json:"nics,omitempty"`
 }
+
+// ProbedDisk is one whole physical disk as lsblk reports it.
+type ProbedDisk struct {
+	Name       string `json:"name"`
+	Size       int64  `json:"size,omitempty"`
+	Rotational *bool  `json:"rotational,omitempty"`
+	Transport  string `json:"transport,omitempty"`
+	Model      string `json:"model,omitempty" cerb:"untrusted"`
+}
+
+// ProbedNIC is one physical network interface.
+type ProbedNIC struct {
+	Name string `json:"name"`
+	MAC  string `json:"mac,omitempty"`
+}
+
+// maxProbedItems bounds the disks and NICs a probe keeps.
+const maxProbedItems = 32
 
 // ProbedTools are the tools a probe reports the presence of.
 var ProbedTools = []string{"docker", "tmux", "tailscale", "caddy"}
@@ -54,6 +81,8 @@ if [ "$kind" = Darwin ]; then
   echo "os_version=$(sw_vers -productVersion 2>/dev/null)"
   echo "cpu=$(sysctl -n hw.ncpu 2>/dev/null)"
   echo "cpu_model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
+  echo "hw_vendor=Apple"
+  echo "hw_model=$(sysctl -n hw.model 2>/dev/null)"
   echo "mem_total_bytes=$(sysctl -n hw.memsize 2>/dev/null)"
   echo "mem_available_bytes=$(vm_stat 2>/dev/null | awk '/page size of/{ps=$8} /^Pages free/{f=$3} /^Pages inactive/{i=$3} /^Pages speculative/{s=$3} END{if (ps) printf "%d", (f+i+s)*ps}')"
   echo "load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"
@@ -66,6 +95,14 @@ else
   echo "mem_available_kb=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)"
   echo "load=$(awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null)"
   echo "uptime_seconds=$(awk '{print int($1)}' /proc/uptime 2>/dev/null)"
+  dmi=/sys/class/dmi/id
+  echo "hw_vendor=$(cat $dmi/sys_vendor 2>/dev/null)"
+  echo "hw_model=$(cat $dmi/product_name 2>/dev/null)"
+  echo "hw_version=$(cat $dmi/product_version 2>/dev/null)"
+  echo "board=$(cat $dmi/board_vendor 2>/dev/null) $(cat $dmi/board_name 2>/dev/null)"
+  echo "bios=$(cat $dmi/bios_version 2>/dev/null) $(cat $dmi/bios_date 2>/dev/null)"
+  lsblk -dbnP -e 1,7,11 -o NAME,SIZE,ROTA,TRAN,MODEL 2>/dev/null | sed "s/^/disk=/"
+  for n in /sys/class/net/*; do [ -e "$n/device" ] && echo "nic=${n##*/} $(cat "$n/address" 2>/dev/null)"; done
   if command -v nvidia-smi >/dev/null 2>&1; then
     gpus=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)
     echo "gpu_count=$(printf '%s\n' "$gpus" | grep -c .)"
@@ -93,6 +130,57 @@ var secretShapeRE = regexp.MustCompile(`(?i)(^|[[:space:]._+-])(sk|pk|ghp|gho|xo
 
 // textRE bounds descriptive text (a CPU or GPU model): printable, short.
 var textRE = regexp.MustCompile(`^[A-Za-z0-9 ._+()@/,-]{1,64}$`)
+
+// devNameRE bounds a disk or interface name; macRE a MAC address.
+var (
+	devNameRE   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`)
+	probedMACRE = regexp.MustCompile(`^[0-9a-f]{2}(:[0-9a-f]{2}){5}$`)
+	lsblkPairRE = regexp.MustCompile(`([A-Z]+)="([^"]*)"`)
+)
+
+// dmiPlaceholders are what firmware writes when the vendor left a field empty.
+var dmiPlaceholders = []string{"to be filled by o.e.m.", "default string", "not specified", "not applicable", "none", "system product name", "system manufacturer", "o.e.m.", "0"}
+
+// cleanDMI is cleanText that also drops firmware placeholder strings.
+func cleanDMI(s string) string {
+	s = cleanText(s)
+	for _, ph := range dmiPlaceholders {
+		if strings.EqualFold(s, ph) {
+			return ""
+		}
+	}
+	return s
+}
+
+// parseDisk reads one `lsblk -P` line. A zero-size device (an empty card
+// reader) and zram are not disks.
+func parseDisk(val string) (ProbedDisk, bool) {
+	f := map[string]string{}
+	for _, m := range lsblkPairRE.FindAllStringSubmatch(val, -1) {
+		f[m[1]] = m[2]
+	}
+	d := ProbedDisk{Name: f["NAME"], Size: atoi64(f["SIZE"]), Model: cleanText(f["MODEL"])}
+	if !devNameRE.MatchString(d.Name) || d.Size == 0 || strings.HasPrefix(d.Name, "zram") {
+		return ProbedDisk{}, false
+	}
+	switch f["ROTA"] {
+	case "0", "1":
+		rot := f["ROTA"] == "1"
+		d.Rotational = &rot
+	}
+	d.Transport = cleanFact(f["TRAN"])
+	return d, true
+}
+
+// parseNIC reads "name mac". A NIC with no MAC, or an all-zero one, is dropped.
+func parseNIC(val string) (ProbedNIC, bool) {
+	name, mac, _ := strings.Cut(val, " ")
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	if !devNameRE.MatchString(name) || !probedMACRE.MatchString(mac) || mac == "00:00:00:00:00:00" {
+		return ProbedNIC{}, false
+	}
+	return ProbedNIC{Name: name, MAC: mac}, true
+}
 
 // unitFactRE bounds a service unit identifier.
 var unitFactRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,127}$`)
@@ -258,6 +346,24 @@ func ParsePosixProbe(out string) Probed {
 				if v, err := strconv.ParseFloat(f[i], 64); err == nil && v >= 0 {
 					*loads[i] = &v
 				}
+			}
+		case "hw_vendor":
+			p.HWVendor = cleanDMI(val)
+		case "hw_model":
+			p.HWModel = cleanDMI(val)
+		case "hw_version":
+			p.HWVersion = cleanDMI(val)
+		case "board":
+			p.Board = cleanDMI(val)
+		case "bios":
+			p.BIOS = cleanDMI(val)
+		case "disk":
+			if d, ok := parseDisk(val); ok && len(p.Disks) < maxProbedItems {
+				p.Disks = append(p.Disks, d)
+			}
+		case "nic":
+			if n, ok := parseNIC(val); ok && len(p.NICs) < maxProbedItems {
+				p.NICs = append(p.NICs, n)
 			}
 		case "uptime_seconds":
 			p.UptimeSeconds = atoi64(val)

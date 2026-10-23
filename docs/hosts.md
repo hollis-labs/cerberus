@@ -46,9 +46,33 @@ hosts:
     ttl: 72h                          # disposable hosts
     cost: {monthly: 12.5, currency: USD}
 
+    hardware:                         # the physical machine, as recorded (never probed over it)
+      vendor: LENOVO
+      model: 10M2S08Y00
+      version: ThinkCentre M715q
+      serial: PC1ABCDE                # needs root to read, so it is recorded, not probed
+      asset_tag: ""
+      board: LENOVO 30FD
+      bios: M11KT45A 08/09/2018
+      cpu_model: AMD PRO A6-8570E R5
+      cpu_socket: FT4
+      memory: {type: DDR4, total: 8GiB, max: 32GiB, slots: 2, slots_used: 1, modules: ["8GiB DDR4 2400 Samsung"]}
+      disks: [{name: sda, model: INTEL SSDSC2BB12, serial: BTWL0000, size: 120GB, type: ssd, bus: sata}]
+      nics: [{name: enp2s0f0, mac: "6c:4b:90:59:4e:78"}]
+      notes: spare 1 TB HDD bay free
+      recorded_at: 2026-10-23T22:00:00Z
+
     tether_environment_id: env-0000   # opaque pointer, set by a hand-off
     backup_refs: [backup-policy-a]
 ```
+
+`hardware` is the physical machine as the operator (or inventory tooling run
+by the operator) recorded it: make, model, serial, BIOS, CPU, memory layout,
+disks and network interfaces. Like `declared`, a probe never overwrites it.
+Serial numbers and the memory layout need root to read, which a probe never
+has, so they live only here. Strings in it that came off the machine are
+marked untrusted on every surface. Disk `type` is one of ssd, hdd, nvme,
+emmc, usb or other; a MAC is lowercase and colon-separated.
 
 `reach.ssh` names a `server`/`ssh` resource. The key, port, user and host-key
 trust stay on that resource; a host never carries a credential.
@@ -68,7 +92,12 @@ It reports: os, os version, arch, kernel; CPU count and model; memory total and
 available; disk total and free for the data mount (`/data` if present, else
 `/System/Volumes/Data` on macOS, else `/`); load averages; uptime; GPU count and
 model (`nvidia-smi` on Linux when present, otherwise none; not determined on
-macOS); and whether `docker`, `tmux`, `tailscale` and `caddy` are installed.
+macOS); whether `docker`, `tmux`, `tailscale` and `caddy` are installed; and the
+hardware identity a non-root user can read: vendor, model and version, board
+and BIOS (DMI on Linux; `hw.model` on macOS), each whole disk with its size,
+rotational flag, transport and model (`lsblk`, Linux), and each physical
+network interface with its MAC (Linux). Firmware placeholders such as
+"To Be Filled By O.E.M." are dropped. Serial numbers are never probed.
 Linux is fully covered. macOS uses `sw_vers`, `sysctl`, `vm_stat` and `df`.
 A fact a host cannot supply is simply absent.
 

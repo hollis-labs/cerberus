@@ -63,9 +63,9 @@ func TestUntrustedFieldsArePinned(t *testing.T) {
 		"ssh.exec":      "/stderr /stdout",
 		"ssh.status":    "/os",
 		"pipeline.run":  "/error /stages/*/error",
-		"host.get":      "/probed/cpu_model /probed/gpu_model /reason",
-		"host.probe":    "/probed/cpu_model /probed/gpu_model /reason",
-		"host.capacity": "/matched/*/probed/cpu_model /matched/*/probed/gpu_model /matched/*/reason",
+		"host.get":      "/host/hardware/asset_tag /host/hardware/bios /host/hardware/board /host/hardware/cpu_model /host/hardware/cpu_socket /host/hardware/disks/*/model /host/hardware/disks/*/serial /host/hardware/memory/modules/* /host/hardware/memory/type /host/hardware/model /host/hardware/serial /host/hardware/vendor /host/hardware/version /probed/bios /probed/board /probed/cpu_model /probed/disks/*/model /probed/gpu_model /probed/hw_model /probed/hw_vendor /probed/hw_version /reason",
+		"host.probe":    "/host/hardware/asset_tag /host/hardware/bios /host/hardware/board /host/hardware/cpu_model /host/hardware/cpu_socket /host/hardware/disks/*/model /host/hardware/disks/*/serial /host/hardware/memory/modules/* /host/hardware/memory/type /host/hardware/model /host/hardware/serial /host/hardware/vendor /host/hardware/version /probed/bios /probed/board /probed/cpu_model /probed/disks/*/model /probed/gpu_model /probed/hw_model /probed/hw_vendor /probed/hw_version /reason",
+		"host.capacity": "/matched/*/host/hardware/asset_tag /matched/*/host/hardware/bios /matched/*/host/hardware/board /matched/*/host/hardware/cpu_model /matched/*/host/hardware/cpu_socket /matched/*/host/hardware/disks/*/model /matched/*/host/hardware/disks/*/serial /matched/*/host/hardware/memory/modules/* /matched/*/host/hardware/memory/type /matched/*/host/hardware/model /matched/*/host/hardware/serial /matched/*/host/hardware/vendor /matched/*/host/hardware/version /matched/*/probed/bios /matched/*/probed/board /matched/*/probed/cpu_model /matched/*/probed/disks/*/model /matched/*/probed/gpu_model /matched/*/probed/hw_model /matched/*/probed/hw_vendor /matched/*/probed/hw_version /matched/*/reason",
 	}
 	for key, pointers := range want {
 		connector, op, _ := strings.Cut(key, ".")

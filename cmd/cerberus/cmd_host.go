@@ -315,7 +315,53 @@ func printHost(out io.Writer, v cerbapi.HostView, asJSON bool, now time.Time) er
 	}
 	d := h.Declared
 	row("declared", strings.TrimSpace(fmt.Sprintf("%s %s cpu=%d memory=%s disk=%s gpu=%s", d.OS, d.Arch, d.CPU, humanBytes(int64(d.Memory)), humanBytes(int64(d.Disk)), d.GPU)))
+	if hw := h.Hardware; hw != nil {
+		row("hardware", strings.Join(nonEmpty(hw.Vendor, hw.Model, hw.Version), " "))
+		row("serial", strings.TrimSpace(hw.Serial+" "+tagged("asset", hw.AssetTag)))
+		row("board", hw.Board)
+		row("bios", hw.BIOS)
+		row("cpu", strings.Join(nonEmpty(hw.CPUModel, tagged("socket", hw.CPUSocket)), " "))
+		if m := hw.Memory; m != nil {
+			mem := strings.Join(nonEmpty(sizeOrEmpty(int64(m.Total)), m.Type), " ")
+			if m.Slots > 0 {
+				mem += fmt.Sprintf(", %d of %d slots used", m.SlotsUsed, m.Slots)
+			}
+			if m.Max > 0 {
+				mem += ", max " + humanBytes(int64(m.Max))
+			}
+			row("memory", mem)
+		}
+		var disks []string
+		for _, d := range hw.Disks {
+			disks = append(disks, strings.Join(nonEmpty(d.Name, sizeOrEmpty(int64(d.Size)), d.Type, d.Bus, d.Model, tagged("sn", d.Serial)), " "))
+		}
+		row("disks", strings.Join(disks, "; "))
+		var nics []string
+		for _, n := range hw.NICs {
+			nics = append(nics, strings.TrimSpace(n.Name+" "+n.MAC))
+		}
+		row("nics", strings.Join(nics, "; "))
+		row("notes", hw.Notes)
+		if hw.RecordedAt != nil {
+			row("recorded", hw.RecordedAt.UTC().Format(time.RFC3339))
+		}
+	}
 	if p := v.Probed; p != nil {
+		row("probed hw", strings.Join(nonEmpty(p.HWVendor, p.HWModel, p.HWVersion, tagged("bios", p.BIOS)), " "))
+		var disks []string
+		for _, d := range p.Disks {
+			kind := ""
+			if d.Rotational != nil {
+				kind = map[bool]string{true: "rotational", false: "solid-state"}[*d.Rotational]
+			}
+			disks = append(disks, strings.Join(nonEmpty(d.Name, sizeOrEmpty(d.Size), kind, d.Transport, d.Model), " "))
+		}
+		row("probed disks", strings.Join(disks, "; "))
+		var nics []string
+		for _, n := range p.NICs {
+			nics = append(nics, n.Name+" "+n.MAC)
+		}
+		row("probed nics", strings.Join(nics, "; "))
 		row("probed", strings.TrimSpace(fmt.Sprintf("%s %s %s cpu=%d memory=%s/%s disk=%s/%s", p.OS, p.OSVersion, p.Arch, p.CPU,
 			humanBytes(p.MemoryAvailable), humanBytes(p.MemoryTotal), humanBytes(p.DiskFree), humanBytes(p.DiskTotal))))
 		if p.Load1 != nil {
@@ -362,3 +408,30 @@ func printCapacity(out io.Writer, res cerbapi.CapacityResult, asJSON bool, now t
 }
 
 func sortStrings(s []string) { sort.Strings(s) }
+
+// nonEmpty drops empty strings, for joining optional parts.
+func nonEmpty(parts ...string) []string {
+	out := parts[:0:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// tagged renders "key=value", or "" when value is empty.
+func tagged(key, value string) string {
+	if value == "" {
+		return ""
+	}
+	return key + "=" + value
+}
+
+// sizeOrEmpty is humanBytes, or "" for an unknown (zero) size.
+func sizeOrEmpty(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return humanBytes(n)
+}

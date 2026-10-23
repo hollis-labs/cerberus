@@ -85,6 +85,57 @@ type Specs struct {
 	GPU    string `yaml:"gpu,omitempty" json:"gpu,omitempty"`
 }
 
+// Hardware is what the operator recorded about the physical machine: make,
+// model, serial and parts. A serial number and the memory layout need root to
+// read, so they are recorded (by hand or by inventory tooling), never probed.
+// Strings that came off the machine are marked untrusted.
+type Hardware struct {
+	Vendor    string          `yaml:"vendor,omitempty" json:"vendor,omitempty" cerb:"untrusted"`
+	Model     string          `yaml:"model,omitempty" json:"model,omitempty" cerb:"untrusted"`
+	Version   string          `yaml:"version,omitempty" json:"version,omitempty" cerb:"untrusted"`
+	Serial    string          `yaml:"serial,omitempty" json:"serial,omitempty" cerb:"untrusted"`
+	AssetTag  string          `yaml:"asset_tag,omitempty" json:"asset_tag,omitempty" cerb:"untrusted"`
+	Board     string          `yaml:"board,omitempty" json:"board,omitempty" cerb:"untrusted"`
+	BIOS      string          `yaml:"bios,omitempty" json:"bios,omitempty" cerb:"untrusted"`
+	CPUModel  string          `yaml:"cpu_model,omitempty" json:"cpu_model,omitempty" cerb:"untrusted"`
+	CPUSocket string          `yaml:"cpu_socket,omitempty" json:"cpu_socket,omitempty" cerb:"untrusted"`
+	Memory    *HardwareMemory `yaml:"memory,omitempty" json:"memory,omitempty"`
+	Disks     []HardwareDisk  `yaml:"disks,omitempty" json:"disks,omitempty"`
+	NICs      []HardwareNIC   `yaml:"nics,omitempty" json:"nics,omitempty"`
+	Notes     string          `yaml:"notes,omitempty" json:"notes,omitempty"`
+	// RecordedAt is when these facts were last collected or checked.
+	RecordedAt *time.Time `yaml:"recorded_at,omitempty" json:"recorded_at,omitempty"`
+}
+
+// HardwareMemory is the installed memory and the room left for more.
+type HardwareMemory struct {
+	Type      string   `yaml:"type,omitempty" json:"type,omitempty" cerb:"untrusted"` // DDR3, DDR4, ...
+	Total     Size     `yaml:"total,omitempty" json:"total,omitempty"`
+	Max       Size     `yaml:"max,omitempty" json:"max,omitempty"`
+	Slots     int      `yaml:"slots,omitempty" json:"slots,omitempty"`
+	SlotsUsed int      `yaml:"slots_used,omitempty" json:"slots_used,omitempty"`
+	Modules   []string `yaml:"modules,omitempty" json:"modules,omitempty" cerb:"untrusted"` // one per filled slot, e.g. "8GiB DDR4 3200 Samsung"
+}
+
+// HardwareDisk is one physical drive.
+type HardwareDisk struct {
+	Name   string `yaml:"name,omitempty" json:"name,omitempty"`
+	Model  string `yaml:"model,omitempty" json:"model,omitempty" cerb:"untrusted"`
+	Serial string `yaml:"serial,omitempty" json:"serial,omitempty" cerb:"untrusted"`
+	Size   Size   `yaml:"size,omitempty" json:"size,omitempty"`
+	Type   string `yaml:"type,omitempty" json:"type,omitempty"` // one of HardwareDiskTypes
+	Bus    string `yaml:"bus,omitempty" json:"bus,omitempty"`   // sata, nvme, usb, ...
+}
+
+// HardwareDiskTypes are the recognized disk types.
+var HardwareDiskTypes = []string{"ssd", "hdd", "nvme", "emmc", "usb", "other"}
+
+// HardwareNIC is one physical network interface.
+type HardwareNIC struct {
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
+	MAC  string `yaml:"mac,omitempty" json:"mac,omitempty"`
+}
+
 // Reach is how Cerberus gets to the host: a reference to an existing
 // server/ssh resource. The credential, key and host-key trust stay on that
 // resource; a Host never carries one.
@@ -135,6 +186,9 @@ type Host struct {
 	// Declared is what the operator says the machine is. It is never
 	// overwritten by a probe.
 	Declared Specs `yaml:"declared,omitempty" json:"declared"`
+	// Hardware is the recorded make, model, serial and parts. Like Declared,
+	// it is never overwritten by a probe.
+	Hardware *Hardware `yaml:"hardware,omitempty" json:"hardware,omitempty"`
 
 	// Lifecycle.
 	CreatedAt *time.Time `yaml:"created_at,omitempty" json:"created_at,omitempty"`
