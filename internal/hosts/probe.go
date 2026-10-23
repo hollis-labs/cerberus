@@ -139,7 +139,7 @@ var (
 )
 
 // dmiPlaceholders are what firmware writes when the vendor left a field empty.
-var dmiPlaceholders = []string{"to be filled by o.e.m.", "default string", "not specified", "not applicable", "none", "system product name", "system manufacturer", "o.e.m.", "0"}
+var dmiPlaceholders = []string{"to be filled by o.e.m.", "default string", "not specified", "not applicable", "none", "system product name", "system manufacturer", "system version", "system serial number", "type1productconfigid", "o.e.m.", "0"}
 
 // cleanDMI is cleanText that also drops firmware placeholder strings.
 func cleanDMI(s string) string {

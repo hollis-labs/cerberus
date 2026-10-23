@@ -211,9 +211,9 @@ func TestParsePosixProbeHardware(t *testing.T) {
 	if len(p.NICs) != 2 || p.NICs[0] != (ProbedNIC{Name: "enp2s0f0", MAC: "6c:4b:90:59:4e:78"}) || p.NICs[1].MAC != "ac:2b:6e:bb:9f:1d" {
 		t.Fatalf("nics = %+v", p.NICs)
 	}
-	q := ParsePosixProbe("hw_vendor=To Be Filled By O.E.M.\nhw_model=Default string\nboard= \nbios=sk-abcdefghijklmnop1234\n" +
+	q := ParsePosixProbe("hw_vendor=To Be Filled By O.E.M.\nhw_model=Default string\nhw_version=System Version\nboard= \nbios=sk-abcdefghijklmnop1234\n" +
 		`disk=NAME="../etc" SIZE="10" ROTA="0" TRAN="sata" MODEL="x"` + "\n")
-	if q.HWVendor != "" || q.HWModel != "" || q.Board != "" || q.BIOS != "" || len(q.Disks) != 0 {
+	if q.HWVendor != "" || q.HWModel != "" || q.HWVersion != "" || q.Board != "" || q.BIOS != "" || len(q.Disks) != 0 {
 		t.Fatalf("placeholders and bad values kept: %+v", q)
 	}
 }
