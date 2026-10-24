@@ -120,7 +120,7 @@ hosts:
 		f.Hosts[0].Hardware.Disks[0].Size != 1_000_000_000_000 || f.Hosts[0].Hardware.RecordedAt == nil {
 		t.Fatalf("hardware parse = %+v, %v", f, err)
 	}
-	if _, err := Parse([]byte(good + "    hardware: {colour: beige}\n")); err == nil || !strings.Contains(err.Error(), "colour") {
+	if _, err := Parse([]byte(good + "    hardware: {paint_job: beige}\n")); err == nil || !strings.Contains(err.Error(), "paint_job") {
 		t.Fatalf("unknown hardware field error = %v", err)
 	}
 	if _, err := Parse([]byte("")); err == nil {
