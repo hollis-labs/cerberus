@@ -137,6 +137,9 @@ func Validate(f *File) error {
 		if h.Declared.CPU < 0 || h.Declared.Memory < 0 || h.Declared.Disk < 0 {
 			add(name, "declared", "cpu, memory and disk must not be negative")
 		}
+		if h.Hardware != nil {
+			validateHardware(h.Hardware, func(field, msg string) { add(name, field, "%s", msg) })
+		}
 		if strings.ContainsAny(h.Reach.SSH, " \t\r\n") {
 			add(name, "reach.ssh", "must be a resource id")
 		}
@@ -169,6 +172,88 @@ func Validate(f *File) error {
 		return nil
 	}
 	return &ValidationError{Problems: probs}
+}
+
+const (
+	maxHardwareText  = 128
+	maxHardwareItems = 64
+)
+
+var (
+	macRE   = regexp.MustCompile(`^[0-9a-f]{2}(:[0-9a-f]{2}){5}$`)
+	ifaceRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`)
+)
+
+func validateHardware(hw *Hardware, add func(field, msg string)) {
+	text := func(field, v string) {
+		if len(v) > maxHardwareText {
+			add(field, fmt.Sprintf("longer than %d characters", maxHardwareText))
+			return
+		}
+		for _, r := range v {
+			if r < 0x20 || r == 0x7f {
+				add(field, "must not contain control characters")
+				return
+			}
+		}
+	}
+	text("hardware.vendor", hw.Vendor)
+	text("hardware.model", hw.Model)
+	text("hardware.version", hw.Version)
+	text("hardware.serial", hw.Serial)
+	text("hardware.asset_tag", hw.AssetTag)
+	text("hardware.board", hw.Board)
+	text("hardware.bios", hw.BIOS)
+	text("hardware.cpu_model", hw.CPUModel)
+	text("hardware.cpu_socket", hw.CPUSocket)
+	if len(hw.Notes) > 1024 {
+		add("hardware.notes", "longer than 1024 characters")
+	}
+	if m := hw.Memory; m != nil {
+		text("hardware.memory.type", m.Type)
+		if m.Total < 0 || m.Max < 0 || m.Slots < 0 || m.SlotsUsed < 0 {
+			add("hardware.memory", "sizes and slot counts must not be negative")
+		}
+		if m.Slots > 0 && m.SlotsUsed > m.Slots {
+			add("hardware.memory.slots_used", fmt.Sprintf("%d is more than the %d slots", m.SlotsUsed, m.Slots))
+		}
+		if len(m.Modules) > maxHardwareItems {
+			add("hardware.memory.modules", fmt.Sprintf("at most %d", maxHardwareItems))
+		}
+		for i, mod := range m.Modules {
+			text(fmt.Sprintf("hardware.memory.modules[%d]", i), mod)
+		}
+	}
+	if len(hw.Disks) > maxHardwareItems {
+		add("hardware.disks", fmt.Sprintf("at most %d", maxHardwareItems))
+	}
+	for i, d := range hw.Disks {
+		at := fmt.Sprintf("hardware.disks[%d]", i)
+		if d.Name != "" && !ifaceRE.MatchString(d.Name) {
+			add(at+".name", fmt.Sprintf("%q is not a device name", d.Name))
+		}
+		text(at+".model", d.Model)
+		text(at+".serial", d.Serial)
+		text(at+".bus", d.Bus)
+		if d.Size < 0 {
+			add(at+".size", "must not be negative")
+		}
+		if d.Type != "" && !slices.Contains(HardwareDiskTypes, d.Type) {
+			add(at+".type", fmt.Sprintf("unknown type %q; known: %s", d.Type, strings.Join(HardwareDiskTypes, ", ")))
+		}
+	}
+	if len(hw.NICs) > maxHardwareItems {
+		add("hardware.nics", fmt.Sprintf("at most %d", maxHardwareItems))
+	}
+	for i, n := range hw.NICs {
+		at := fmt.Sprintf("hardware.nics[%d]", i)
+		if n.Name != "" && !ifaceRE.MatchString(n.Name) {
+			add(at+".name", fmt.Sprintf("%q is not an interface name", n.Name))
+		}
+		if n.MAC != "" && !macRE.MatchString(n.MAC) {
+			add(at+".mac", fmt.Sprintf("%q is not a lowercase MAC address such as 00:11:22:aa:bb:cc", n.MAC))
+		}
+	}
 }
 
 func validateLabels(labels map[string]string, add func(field, msg string)) {

@@ -44,6 +44,15 @@ func TestValidate(t *testing.T) {
 		{"bad ttl", fileWith(Host{Name: "a", TTL: "soon"}), "ttl"},
 		{"negative ttl", fileWith(Host{Name: "a", TTL: "-1h"}), "ttl"},
 		{"negative cost", fileWith(Host{Name: "a", Cost: &Cost{Monthly: -1}}), "cost.monthly"},
+		{"hardware", fileWith(Host{Name: "a", Hardware: &Hardware{Vendor: "LENOVO", Model: "ThinkCentre M715q", Serial: "PC0XXXXX",
+			Memory: &HardwareMemory{Type: "DDR4", Total: 8 << 30, Max: 32 << 30, Slots: 2, SlotsUsed: 1},
+			Disks:  []HardwareDisk{{Name: "sda", Size: 120 << 30, Type: "ssd", Bus: "sata"}},
+			NICs:   []HardwareNIC{{Name: "enp2s0f0", MAC: "6c:4b:90:59:4e:78"}}}}), ""},
+		{"hardware bad mac", fileWith(Host{Name: "a", Hardware: &Hardware{NICs: []HardwareNIC{{Name: "eth0", MAC: "6C-4B-90-59-4E-78"}}}}), "hardware.nics[0].mac"},
+		{"hardware bad disk type", fileWith(Host{Name: "a", Hardware: &Hardware{Disks: []HardwareDisk{{Name: "sda", Type: "floppy"}}}}), "hardware.disks[0].type"},
+		{"hardware slots", fileWith(Host{Name: "a", Hardware: &Hardware{Memory: &HardwareMemory{Slots: 2, SlotsUsed: 3}}}), "slots_used"},
+		{"hardware control char", fileWith(Host{Name: "a", Hardware: &Hardware{Serial: "a\nb"}}), "hardware.serial"},
+		{"hardware too long", fileWith(Host{Name: "a", Hardware: &Hardware{Model: strings.Repeat("x", 129)}}), "hardware.model"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,6 +106,22 @@ hosts:
 	}
 	if _, err := Parse([]byte("version: 1\nhosts:\n  - name: a\n    tailnet_ipp: 100.64.0.1\n")); err == nil || !strings.Contains(err.Error(), "tailnet_ipp") {
 		t.Fatalf("unknown field error = %v", err)
+	}
+	hw := good + `    hardware:
+      vendor: HP
+      model: 750-217c
+      serial: ABC123
+      memory: {type: DDR3, total: 12GiB, slots: 4, slots_used: 2, modules: ["8GiB DDR3 1600", "4GiB DDR3 1600"]}
+      disks: [{name: sda, model: WDC WD10EZEX-60W, size: 1TB, type: hdd, bus: sata}]
+      nics: [{name: enp2s0, mac: "c0:7c:d1:fb:63:78"}]
+      recorded_at: 2026-10-23T22:00:00Z
+`
+	if f, err := Parse([]byte(hw)); err != nil || f.Hosts[0].Hardware == nil || f.Hosts[0].Hardware.Memory.Total != 12<<30 ||
+		f.Hosts[0].Hardware.Disks[0].Size != 1_000_000_000_000 || f.Hosts[0].Hardware.RecordedAt == nil {
+		t.Fatalf("hardware parse = %+v, %v", f, err)
+	}
+	if _, err := Parse([]byte(good + "    hardware: {paint_job: beige}\n")); err == nil || !strings.Contains(err.Error(), "paint_job") {
+		t.Fatalf("unknown hardware field error = %v", err)
 	}
 	if _, err := Parse([]byte("")); err == nil {
 		t.Fatal("empty file accepted")
@@ -163,6 +188,33 @@ func TestParsePosixProbeFixtures(t *testing.T) {
 	if m.OS != "Darwin" || m.Arch != "arm64" || m.MemoryTotal != 34359738368 || m.MemoryAvailable != 425984000 || m.UptimeSeconds != 3600 ||
 		m.Load1 == nil || *m.Load1 != 1.2 || m.DiskMount != "/System/Volumes/Data" || m.GPUCount != nil || m.Tools["docker"] {
 		t.Fatalf("mac = %+v", m)
+	}
+}
+
+// Hardware lines as the Linux branch prints them (from a ThinkCentre and an HP).
+const hardwareFixture = "hw_vendor=LENOVO\nhw_model=10M2S08Y00\nhw_version=ThinkCentre M715q\nboard=LENOVO 30FD\nbios=M11KT45A 08/09/2018\n" +
+	`disk=NAME="sda" SIZE="120034123776" ROTA="0" TRAN="sata" MODEL="INTEL SSDSC2BB12"` + "\n" +
+	`disk=NAME="sdb" SIZE="0" ROTA="1" TRAN="usb" MODEL="SD/MMC/MS PRO"` + "\n" +
+	`disk=NAME="nvme0n1" SIZE="512110190592" ROTA="0" TRAN="nvme" MODEL="SAMSUNG MZVLB512HBJQ-000L7"` + "\n" +
+	`disk=NAME="zram0" SIZE="4294967296" ROTA="0" TRAN="" MODEL=""` + "\n" +
+	"nic=enp2s0f0 6c:4b:90:59:4e:78\nnic=wlp1s0 AC:2B:6E:BB:9F:1D\nnic=bad 00:00:00:00:00:00\nnic=nomac\n"
+
+func TestParsePosixProbeHardware(t *testing.T) {
+	p := ParsePosixProbe(hardwareFixture)
+	if p.HWVendor != "LENOVO" || p.HWModel != "10M2S08Y00" || p.HWVersion != "ThinkCentre M715q" || p.Board != "LENOVO 30FD" || p.BIOS != "M11KT45A 08/09/2018" {
+		t.Fatalf("identity = %+v", p)
+	}
+	if len(p.Disks) != 2 || p.Disks[0].Name != "sda" || p.Disks[0].Size != 120034123776 || p.Disks[0].Rotational == nil || *p.Disks[0].Rotational ||
+		p.Disks[0].Transport != "sata" || p.Disks[0].Model != "INTEL SSDSC2BB12" || p.Disks[1].Name != "nvme0n1" {
+		t.Fatalf("disks = %+v", p.Disks)
+	}
+	if len(p.NICs) != 2 || p.NICs[0] != (ProbedNIC{Name: "enp2s0f0", MAC: "6c:4b:90:59:4e:78"}) || p.NICs[1].MAC != "ac:2b:6e:bb:9f:1d" {
+		t.Fatalf("nics = %+v", p.NICs)
+	}
+	q := ParsePosixProbe("hw_vendor=To Be Filled By O.E.M.\nhw_model=Default string\nhw_version=System Version\nboard= \nbios=sk-abcdefghijklmnop1234\n" +
+		`disk=NAME="../etc" SIZE="10" ROTA="0" TRAN="sata" MODEL="x"` + "\n")
+	if q.HWVendor != "" || q.HWModel != "" || q.HWVersion != "" || q.Board != "" || q.BIOS != "" || len(q.Disks) != 0 {
+		t.Fatalf("placeholders and bad values kept: %+v", q)
 	}
 }
 
