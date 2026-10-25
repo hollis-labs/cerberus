@@ -687,12 +687,23 @@ func TestDeployViaGHFake(t *testing.T) {
 				return "", fmt.Errorf("artifact name: %s", line), true
 			}
 			for _, f := range []string{a.Tarball, a.Sums, a.BuildInfo} {
+				// Like the real gh: refuse to overwrite an existing file.
+				if _, err := os.Stat(filepath.Join(dir, filepath.Base(f))); err == nil {
+					return "", fmt.Errorf("error extracting zip archive: %s: file exists", filepath.Base(f)), true
+				}
 				b, _ := os.ReadFile(f)
 				os.WriteFile(filepath.Join(dir, filepath.Base(f)), b, 0o644)
 			}
 			return "", nil, true
 		}
 		return "", nil, false
+	}
+	// A dry run leaves the artifact in the cache; the real deploy that follows must still download.
+	if err := e.deploy(a, func(o *DeployOpts) {
+		o.Source = Source{Commit: sha, Repo: "hollis-labs/example"}
+		o.DryRun = true
+	}); err != nil {
+		t.Fatalf("dry run: %v\n%s", err, e.out.String())
 	}
 	err := e.deploy(a, func(o *DeployOpts) {
 		o.Source = Source{Commit: sha, Repo: "hollis-labs/example"}

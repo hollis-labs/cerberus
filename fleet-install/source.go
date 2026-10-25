@@ -78,6 +78,11 @@ func (d *Deps) Fetch(ctx context.Context, app string, s Source) (*Fetched, error
 		sha12 = run.HeadSHA[:12]
 		name := ExpandTemplate(s.Artifact, map[string]string{"sha12": sha12, "app": app})
 		dir = filepath.Join(s.CacheDir, app, fmt.Sprintf("run-%d", run.DatabaseID))
+		// Always download fresh: a dry run (or an earlier attempt) leaves the same run's files here
+		// and `gh run download` refuses to overwrite them.
+		if err := os.RemoveAll(dir); err != nil {
+			return nil, fail(ExitFail, "cache dir: %v", err)
+		}
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fail(ExitFail, "cache dir: %v", err)
 		}
