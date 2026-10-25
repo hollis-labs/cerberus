@@ -29,7 +29,7 @@ run:
   # Match go.mod — analysis against an older language version can misclassify
   # valid code or omit checks introduced by the active toolchain. Both are
   # rendered from the `go_version` input so they cannot drift apart.
-  go: "1.26.9"
+  go: "1.26.10"
 
 # ---------------------------------------------------------------------------
 # Linter selection

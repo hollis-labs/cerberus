@@ -1,10 +1,16 @@
 # Changelog
 
-Outpost is new software being built in the open. There are no tagged releases
-or compatibility guarantees yet.
+Outpost is new software being built in the open. Releases are tagged `0.x`; there are no compatibility guarantees before 1.0.
 
 ## Unreleased
 
+## v0.0.1 - 2026-10-25
+
+First tagged release. Pre-1.0: interfaces can change between 0.x versions.
+
+### Security
+
+- Require Go 1.26.10 for GO-2026-6809 (crypto/x509); no behavior change.
 ### Added
 
 - Explicit optional plugins with isolated admission/health failures, authenticated
