@@ -781,7 +781,7 @@ guessed to fit or fail (the rule the existing constraints follow).
 
 | Constraint | Meaning | Fact it needs |
 |---|---|---|
-| `min_memory_total` | installed memory at least this | probed `memory_total`, else `hardware.memory.total` |
+| `min_memory_total` | installed memory at least this | recorded `hardware.memory.total`, else the fresh probed total |
 | `min_memory_upgrade` | room to add at least this much memory | `ceilings.memory.max_total` minus installed total |
 | `free_memory_slots` | at least N empty memory slots | `hardware.memory.slots - slots_used` |
 | `free_storage_slots` | `[{kind: nvme_m2, min: 1}]`, free slots by kind | `storage_slots` (not recorded: unknown) |
