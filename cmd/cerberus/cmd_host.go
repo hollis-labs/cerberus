@@ -81,6 +81,12 @@ func (l localHostClient) GetHost(ctx context.Context, name string) (cerbapi.Host
 func (l localHostClient) ProbeHost(ctx context.Context, name string) (cerbapi.HostView, error) {
 	return l.svc.Probe(inProcessContext(ctx), name)
 }
+func (l localHostClient) ListComponents(ctx context.Context, f cerbapi.ComponentFilter) ([]hosts.Component, error) {
+	return l.svc.ListComponents(inProcessContext(ctx), f)
+}
+func (l localHostClient) GetComponent(ctx context.Context, id string) (hosts.Component, error) {
+	return l.svc.GetComponent(inProcessContext(ctx), id)
+}
 func (l localHostClient) HostCapacity(ctx context.Context, q cerbapi.CapacityQuery) (cerbapi.CapacityResult, error) {
 	return l.svc.Capacity(inProcessContext(ctx), q)
 }
@@ -346,6 +352,9 @@ func printHost(out io.Writer, v cerbapi.HostView, asJSON bool, now time.Time) er
 			row("recorded", hw.RecordedAt.UTC().Format(time.RFC3339))
 		}
 	}
+	if v.Host.Hardware != nil {
+		printParts(row, v)
+	}
 	if p := v.Probed; p != nil {
 		row("probed hw", strings.Join(nonEmpty(p.HWVendor, p.HWModel, p.HWVersion, tagged("bios", p.BIOS)), " "))
 		var disks []string
@@ -384,6 +393,61 @@ func printHost(out io.Writer, v cerbapi.HostView, asJSON bool, now time.Time) er
 		fmt.Fprintf(out, "  These facts are stale. Run `cerberus host probe %s` for current ones.\n", h.Name)
 	}
 	return nil
+}
+
+// printParts writes what the machine can take. A fact that was not recorded
+// reads "not recorded", never zero.
+func printParts(row func(k, val string), v cerbapi.HostView) {
+	if v.StorageSummary == nil {
+		row("storage slots", "not recorded (free bays unknown)")
+	} else {
+		var kinds []string
+		for k := range v.StorageSummary {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		var parts []string
+		for _, k := range kinds {
+			c := v.StorageSummary[k]
+			parts = append(parts, fmt.Sprintf("%s %d of %d used, %d free", k, c.Used, c.Total, c.Free))
+		}
+		if len(parts) == 0 {
+			parts = []string{"none"}
+		}
+		row("storage slots", strings.Join(parts, "; "))
+	}
+	if c := v.Ceilings; c == nil {
+		row("ceilings", "not recorded")
+	} else {
+		if m := c.Memory; m != nil {
+			var parts []string
+			if m.MaxTotal != nil {
+				parts = append(parts, "max "+humanBytes(int64(m.MaxTotal.Value))+" ("+m.MaxTotal.Source+")")
+			}
+			if m.MaxPerSlot != nil {
+				parts = append(parts, "per slot "+humanBytes(int64(m.MaxPerSlot.Value))+" ("+m.MaxPerSlot.Source+")")
+			}
+			row("mem ceiling", strings.Join(parts, ", "))
+		}
+		if m := c.CPU; m != nil && m.MaxSupported != nil {
+			row("cpu ceiling", fmt.Sprintf("%d cores %d threads %dW (%s)", m.MaxSupported.Cores, m.MaxSupported.Threads, m.MaxSupported.TDPW, m.MaxSupported.Source))
+		}
+		if len(c.PCIeSlots) > 0 {
+			free := 0
+			for _, p := range c.PCIeSlots {
+				if p.OccupantComponent == "" {
+					free++
+				}
+			}
+			row("pcie slots", fmt.Sprintf("%d, %d free", len(c.PCIeSlots), free))
+		}
+	}
+	for _, c := range v.Components {
+		row("component", strings.Join(nonEmpty(c.ID, c.Kind, sizeOrEmpty(int64(c.Size)), c.Type, "@"+c.Location.Slot), " "))
+	}
+	for _, w := range v.Warnings {
+		row("warning", w)
+	}
 }
 
 func printCapacity(out io.Writer, res cerbapi.CapacityResult, asJSON bool, now time.Time) error {

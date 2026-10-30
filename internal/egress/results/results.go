@@ -11,6 +11,7 @@ import (
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	sshconn "github.com/hollis-labs/cerberus/internal/connector/ssh"
 	"github.com/hollis-labs/cerberus/internal/egress"
+	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 )
 
@@ -62,6 +63,7 @@ var builtins = map[string]Result{
 	"host." + cerbapi.OpHostGet:      {Type: of[cerbapi.HostView]()},
 	"host." + cerbapi.OpHostProbe:    {Type: of[cerbapi.HostView]()},
 	"host." + cerbapi.OpHostCapacity: {Type: of[cerbapi.CapacityResult]()},
+	"host." + cerbapi.OpComponentGet: {Type: of[hosts.Component]()},
 }
 
 // For is what connector.operation returns, when it is a built-in whose

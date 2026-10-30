@@ -107,6 +107,17 @@ type HostView struct {
 	CheckedAt *time.Time    `json:"checked_at,omitempty"`
 	Stale     bool          `json:"stale"`
 	Probed    *hosts.Probed `json:"probed,omitempty"`
+
+	// Ceilings, StorageSlots and StorageSummary are what the machine can take
+	// (Hosts B). null means not recorded: unknown, never zero. An empty
+	// storage_slots list means "recorded: none".
+	Ceilings       *hosts.Ceilings            `json:"ceilings"`
+	StorageSlots   []hosts.StorageSlot        `json:"storage_slots"`
+	StorageSummary map[string]hosts.SlotCount `json:"storage_summary"`
+	// Components are the parts located on this host.
+	Components []hosts.Component `json:"components,omitempty"`
+	// Warnings are findings that do not make the record invalid.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // HostFilter selects hosts by facts the operator recorded. Matching is exact,
@@ -132,10 +143,21 @@ func (s *HostService) load() (*hosts.File, error) {
 	return hosts.Load(s.hostsPath)
 }
 
-func (s *HostService) view(h hosts.Host) HostView {
+func (s *HostService) view(h hosts.Host, comps []hosts.Component) HostView {
 	st := s.store.Get(h.Name)
 	v := HostView{Host: h, State: st.State, OnboardingStage: st.OnboardingStage, Reason: st.Reason,
 		LastSeen: st.LastSeen, ProbedAt: st.ProbedAt, CheckedAt: st.CheckedAt, Probed: st.Probed}
+	if h.Hardware != nil {
+		v.Ceilings = h.Hardware.Ceilings
+		v.StorageSlots = h.Hardware.StorageSlots
+		v.StorageSummary = hosts.StorageSummary(h.Hardware.StorageSlots)
+	}
+	v.Warnings = hosts.SlotWarnings(h)
+	for _, c := range comps {
+		if c.Location.Host == h.Name {
+			v.Components = append(v.Components, c)
+		}
+	}
 	if v.State == "" {
 		v.State = hosts.StateUnknown
 	}
@@ -157,7 +179,11 @@ func (s *HostService) List(ctx context.Context, filter HostFilter) (_ []HostView
 	}
 	defer func() { call.finish(retErr) }()
 	views, err := s.list(filter)
-	call.note(fmt.Sprintf("hosts=%d", len(views)))
+	comps := 0
+	for _, v := range views {
+		comps += len(v.Components)
+	}
+	call.note(fmt.Sprintf("hosts=%d components=%d", len(views), comps))
 	return views, err
 }
 
@@ -172,7 +198,7 @@ func (s *HostService) list(filter HostFilter) ([]HostView, error) {
 	out := make([]HostView, 0, len(f.Hosts))
 	for _, h := range f.Hosts {
 		keep[h.Name] = true
-		v := s.view(h)
+		v := s.view(h, f.Components)
 		if filter.matches(v) {
 			out = append(out, v)
 		}
@@ -222,7 +248,7 @@ func (s *HostService) get(name string) (HostView, error) {
 	}
 	for _, h := range f.Hosts {
 		if h.Name == name {
-			return s.view(h), nil
+			return s.view(h, f.Components), nil
 		}
 	}
 	return HostView{}, &HostNotFoundError{Name: name}
@@ -305,7 +331,7 @@ func (s *HostService) Probe(ctx context.Context, name string) (_ HostView, retEr
 	if err := s.store.Put(name, next); err != nil {
 		s.logger.Warn("host.state_write_failed", "host", name, "error", scope.Text(err.Error()))
 	}
-	return s.view(h), nil
+	return s.view(h, declared.Components), nil
 }
 
 func (s *HostService) probeTransport(ctx context.Context, h hosts.Host) (func() (*hosts.Probed, error), error) {
@@ -390,4 +416,74 @@ func hostReason(scope *redact.Scope, lead string, cause error) string {
 		text = text[:200] + "..."
 	}
 	return lead + ": " + text
+}
+
+// ComponentFilter selects components. Matching is exact and results are in id
+// order.
+type ComponentFilter struct {
+	Kind  string `json:"kind,omitempty"`
+	Host  string `json:"host,omitempty"`
+	Spare bool   `json:"spare,omitempty"`
+}
+
+// ComponentNotFoundError is returned for an unknown component id.
+type ComponentNotFoundError struct{ ID string }
+
+func (e *ComponentNotFoundError) Error() string {
+	return fmt.Sprintf("component %q is not declared; see `cerberus component list` (components are declared in hosts.yaml)", e.ID)
+}
+
+func (f ComponentFilter) matches(c hosts.Component) bool {
+	return (f.Kind == "" || c.Kind == f.Kind) && (f.Host == "" || c.Location.Host == f.Host) && (!f.Spare || c.Location.Spare)
+}
+
+// ListComponents returns the declared components in id order.
+func (s *HostService) ListComponents(ctx context.Context, filter ComponentFilter) (_ []hosts.Component, retErr error) {
+	if s == nil {
+		return nil, errors.New("host service is not configured")
+	}
+	call, err := s.beginRead(ctx, OpComponentList, map[string]any{"filter": filter})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { call.finish(retErr) }()
+	f, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]hosts.Component, 0, len(f.Components))
+	spare := 0
+	for _, c := range f.Components {
+		if filter.matches(c) {
+			out = append(out, c)
+			if c.Location.Spare {
+				spare++
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	call.note(fmt.Sprintf("components=%d spare=%d", len(out), spare))
+	return out, nil
+}
+
+// GetComponent returns one component.
+func (s *HostService) GetComponent(ctx context.Context, id string) (_ hosts.Component, retErr error) {
+	if s == nil {
+		return hosts.Component{}, errors.New("host service is not configured")
+	}
+	call, err := s.beginRead(ctx, OpComponentGet, map[string]any{"id": id})
+	if err != nil {
+		return hosts.Component{}, err
+	}
+	defer func() { call.finish(retErr) }()
+	f, err := s.load()
+	if err != nil {
+		return hosts.Component{}, err
+	}
+	for _, c := range f.Components {
+		if c.ID == id {
+			return c, nil
+		}
+	}
+	return hosts.Component{}, &ComponentNotFoundError{ID: id}
 }

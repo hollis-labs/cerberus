@@ -53,6 +53,7 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		// Hosts (ADR 0004): a probe measures and records, it changes no host.
 		"host.list": contract.EffectRead, "host.get": contract.EffectRead,
 		"host.probe": contract.EffectRead, "host.capacity": contract.EffectRead,
+		"host.component_list": contract.EffectRead, "host.component_get": contract.EffectRead,
 	}
 	seen := 0
 	for _, def := range RuntimeDefinitions() {
