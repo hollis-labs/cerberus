@@ -37,6 +37,31 @@ var keyringGate struct {
 	mu           sync.Mutex
 	pending      bool
 	blockedUntil time.Time
+	// stuck is set when a call timed out and cleared when it finally returns;
+	// stuckOp and stuckSince say which and since when.
+	stuck      bool
+	stuckOp    string
+	stuckSince time.Time
+}
+
+// KeyringHealth is whether the OS credential store is answering: degraded
+// while a call that timed out is still stuck, or during the fail-fast cooldown
+// after one. The daemon reports it in its status.
+type KeyringHealth struct {
+	Degraded bool
+	// Op is the call that timed out, Since when.
+	Op    string
+	Since time.Time
+}
+
+// Health reports the credential store's state as of the last calls.
+func Health() KeyringHealth {
+	keyringGate.mu.Lock()
+	defer keyringGate.mu.Unlock()
+	if keyringGate.stuck || time.Now().Before(keyringGate.blockedUntil) {
+		return KeyringHealth{Degraded: true, Op: keyringGate.stuckOp, Since: keyringGate.stuckSince}
+	}
+	return KeyringHealth{}
 }
 
 type keyringResult[T any] struct {
@@ -68,6 +93,7 @@ func KeyringCall[T any](op string, fn func() (T, error)) (T, error) {
 		v, err := fn()
 		keyringGate.mu.Lock()
 		keyringGate.pending = false
+		keyringGate.stuck = false // it came back: the store answers again
 		keyringGate.mu.Unlock()
 		done <- keyringResult[T]{v, err}
 	}()
@@ -80,6 +106,7 @@ func KeyringCall[T any](op string, fn func() (T, error)) (T, error) {
 	case <-timer.C:
 		keyringGate.mu.Lock()
 		keyringGate.blockedUntil = time.Now().Add(KeyringCooldown)
+		keyringGate.stuck, keyringGate.stuckOp, keyringGate.stuckSince = true, op, time.Now()
 		keyringGate.mu.Unlock()
 		slog.Default().Warn("secrets.keyring.unavailable", "op", op, "timeout", KeyringTimeout.String(), "cooldown", KeyringCooldown.String(),
 			"consequence", "credentials in the OS store are unreadable until it is unlocked; the daemon keeps running")
@@ -91,5 +118,6 @@ func KeyringCall[T any](op string, fn func() (T, error)) (T, error) {
 func ResetKeyringGate() {
 	keyringGate.mu.Lock()
 	keyringGate.blockedUntil = time.Time{}
+	keyringGate.stuck = false
 	keyringGate.mu.Unlock()
 }

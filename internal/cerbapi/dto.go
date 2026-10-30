@@ -246,6 +246,21 @@ type DaemonStatus struct {
 	DaemonRunning bool   `json:"daemon_running"`
 	SocketPath    string `json:"socket_path,omitempty"`
 	SocketReady   bool   `json:"socket_ready"`
+	// CredentialStore is set when the OS credential store stopped answering
+	// (a locked Secret Service nobody can unlock): the daemon runs, but
+	// anything that needs a stored credential reports it missing.
+	// The JSON key avoids the word credential: the response redaction masks the
+	// strings under a key that names one.
+	CredentialStore *CredentialStoreStatus `json:"keyring,omitempty"`
+}
+
+// CredentialStoreStatus says the OS credential store is degraded.
+type CredentialStoreStatus struct {
+	Degraded bool   `json:"degraded"`
+	Reason   string `json:"reason"`
+	// ForSeconds is how long it has been degraded. (A timestamp here is
+	// rewritten by the response redaction and then fails to decode.)
+	ForSeconds int64 `json:"for_seconds,omitempty"`
 }
 
 // LogLines is the DTO for tail-logs responses.

@@ -18,6 +18,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 	gmcp "github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/server"
@@ -296,7 +297,13 @@ func (s *SocketServer) handlePing(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, DaemonStatus{DaemonRunning: true, SocketReady: true})
+	st := DaemonStatus{DaemonRunning: true, SocketReady: true}
+	if h := secrets.Health(); h.Degraded {
+		st.CredentialStore = &CredentialStoreStatus{Degraded: true, ForSeconds: int64(time.Since(h.Since).Seconds()),
+			// Worded to survive the response redaction: no name-colon-value shapes.
+			Reason: "the OS credential store did not answer a " + firstWord(h.Op) + ", it is probably locked, so unlock it or supply credentials through their environment variables"}
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *SocketServer) handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -1095,4 +1102,13 @@ func (s *SocketServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
+}
+
+// firstWord is the first word of s: the verb of a credential store call, never
+// its entry name.
+func firstWord(s string) string {
+	if i := strings.IndexByte(s, ' '); i > 0 {
+		return s[:i]
+	}
+	return s
 }

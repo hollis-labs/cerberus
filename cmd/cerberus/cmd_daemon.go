@@ -363,7 +363,10 @@ type daemonStatusView struct {
 	SocketPresent  bool   `json:"socket_present"`
 	SocketReady    bool   `json:"socket_ready"`
 	LockHolderPID  int    `json:"lock_holder_pid,omitempty"`
-	Error          string `json:"error,omitempty"`
+	// Degraded says the daemon is up but something it needs is not: today, the
+	// OS credential store (locked and unanswering).
+	Degraded string `json:"degraded,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func currentDaemonStatus(ctx context.Context) (daemonStatusView, error) {
@@ -414,8 +417,11 @@ func currentDaemonStatus(ctx context.Context) (daemonStatusView, error) {
 	client := cerbapi.NewSocketClient(socketPath)
 	pingCtx, cancel := context.WithTimeout(ctx, cerbapi.DialTimeout)
 	defer cancel()
-	if err := client.Ping(pingCtx); err == nil {
+	if ds, err := client.PingStatus(pingCtx); err == nil {
 		out.SocketReady = true
+		if ds.CredentialStore != nil && ds.CredentialStore.Degraded {
+			out.Degraded = "credential store unavailable: " + ds.CredentialStore.Reason
+		}
 		if !out.Running {
 			out.Running = true
 		}
