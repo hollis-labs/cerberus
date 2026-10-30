@@ -35,16 +35,36 @@ func Listen(address string) (net.Listener, error) {
 	return net.Listen("tcp", address)
 }
 
+// AuthApp names the posture env var: HOLLIS_AUTH_OUTPOST.
+const AuthApp = "outpost"
+
+// ResolveMode is HOLLIS_AUTH_OUTPOST, then HOLLIS_AUTH, else enforce. A
+// non-enforce mode is only honoured when address is a loopback listener.
+func ResolveMode(address string) (auth.Mode, error) {
+	mode, err := auth.ModeFromEnv(AuthApp, auth.ModeEnforce)
+	if err != nil {
+		return "", err
+	}
+	if mode != auth.ModeEnforce && !isLoopbackAddr(address) {
+		return "", fmt.Errorf("outpost: auth mode %q is only honoured on a loopback listener; %q is not loopback (use enforce)", mode, address)
+	}
+	return mode, nil
+}
+
 func Run(ctx context.Context, cfg Config, version string) error {
+	mode, err := ResolveMode(cfg.Address)
+	if err != nil {
+		return err
+	}
 	ln, err := Listen(cfg.Address)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
-	return runWithListener(ctx, cfg, version, ln)
+	return runWithListener(ctx, cfg, version, ln, mode)
 }
 
-func runWithListener(ctx context.Context, cfg Config, version string, ln net.Listener) error {
+func runWithListener(ctx context.Context, cfg Config, version string, ln net.Listener, mode auth.Mode) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -65,7 +85,7 @@ func runWithListener(ctx context.Context, cfg Config, version string, ln net.Lis
 	if err := inv.Start(ctx); err != nil {
 		return err
 	}
-	gate, err := auth.New(auth.Config{Mode: auth.ModeEnforce, Verifier: FileVerifier{Path: cfg.CredentialsFile}})
+	gate, err := auth.New(auth.Config{Mode: mode, Verifier: FileVerifier{Path: cfg.CredentialsFile}})
 	if err != nil {
 		_ = inv.Stop(context.Background())
 		return err
@@ -74,7 +94,7 @@ func runWithListener(ctx context.Context, cfg Config, version string, ln net.Lis
 	defer cancel()
 	routes := http.NewServeMux()
 	routes.HandleFunc("GET /api/readyz", inv.Readiness)
-	routes.Handle("/", gate.Middleware(AuthorizePlugins(inv.APIRoutes())))
+	routes.Handle("/", gate.Middleware(AuthorizePluginsMode(mode, inv.APIRoutes())))
 	monitorDone := make(chan struct{})
 	h, err := host.New(host.Config{Name: "outpost", Routes: routes, Stop: func(stopCtx context.Context) error {
 		cancel()
@@ -115,6 +135,12 @@ func runWithListener(ctx context.Context, cfg Config, version string, ln net.Lis
 // AuthorizePlugins keeps per-plugin authority at the host boundary. The shared
 // app-host adapter forwards no bearer credentials to child processes.
 func AuthorizePlugins(next http.Handler) http.Handler {
+	return AuthorizePluginsMode(auth.ModeEnforce, next)
+}
+
+// AuthorizePluginsMode is AuthorizePlugins whose per-plugin scope check follows
+// the guard mode: off and permissive only validate the plugin id.
+func AuthorizePluginsMode(mode auth.Mode, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := pluginID(r.URL.Path)
 		if !identifier.MatchString(id) {
@@ -122,7 +148,7 @@ func AuthorizePlugins(next http.Handler) http.Handler {
 			return
 		}
 		principal, ok := auth.FromContext(r.Context())
-		if !ok || !principal.Verified || !principal.HasScope("outpost."+id) {
+		if mode == auth.ModeEnforce && (!ok || !principal.Verified || !principal.HasScope("outpost."+id)) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "plugin scope required"})
@@ -130,4 +156,13 @@ func AuthorizePlugins(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isLoopbackAddr(address string) bool {
+	h, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(h)
+	return err == nil && ip.IsLoopback()
 }

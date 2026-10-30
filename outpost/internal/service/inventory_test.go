@@ -227,7 +227,7 @@ func TestHTTPHostRemainsAvailableWithFailedOptionalPlugin(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runWithListener(ctx, cfg, "test", ln) }()
+	go func() { done <- runWithListener(ctx, cfg, "test", ln, auth.ModeEnforce) }()
 	defer func() {
 		cancel()
 		select {
