@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +41,49 @@ type CapacityQuery struct {
 	IncludeOffline bool
 	// Explain also lists the excluded hosts with the reason for each.
 	Explain bool
+
+	// Hardware constraints (Hosts F1). Each tests a recorded fact; a host
+	// whose fact is not recorded is unknown for it, never guessed.
+	// MinMemoryTotal is installed memory (probed when fresh, else recorded).
+	MinMemoryTotal hosts.Size
+	// MinMemoryUpgrade is the room to add memory: the recorded memory ceiling
+	// minus the installed total.
+	MinMemoryUpgrade hosts.Size
+	// FreeMemorySlots is the number of empty memory slots required.
+	FreeMemorySlots int
+	// FreeStorageSlots are free slots required by kind.
+	FreeStorageSlots []SlotNeed
+	// DiskTypes: at least one recorded disk must be of one of these types.
+	DiskTypes []string
+	// MinDiskSize: at least one recorded disk at least this large.
+	MinDiskSize hosts.Size
+	// StatusIn: the monitor's status must be one of these.
+	StatusIn []string
+	// Recent is headroom held over a window of samples.
+	Recent *RecentNeed
+}
+
+// SlotNeed asks for at least Min free storage slots of Kind.
+type SlotNeed struct {
+	Kind string `json:"kind"`
+	Min  int    `json:"min"`
+}
+
+// RecentNeed is headroom that held throughout a window: the host passes when
+// its worst sample in the window (highest load per core, lowest memory
+// available, lowest free disk) still meets every limit given.
+type RecentNeed struct {
+	Window             time.Duration
+	MaxLoadPerCore     float64
+	MinMemoryAvailable hosts.Size
+	MinDiskFree        hosts.Size
+}
+
+type recentWire struct {
+	Window             string     `json:"window,omitempty"`
+	MaxLoadPerCore     float64    `json:"max_load_per_core,omitempty"`
+	MinMemoryAvailable hosts.Size `json:"min_memory_available,omitempty"`
+	MinDiskFree        hosts.Size `json:"min_disk_free,omitempty"`
 }
 
 // capacityQueryWire is CapacityQuery on the wire: sizes read as bytes or
@@ -55,15 +99,29 @@ type capacityQueryWire struct {
 	MaxStaleAge        string            `json:"max_stale_age,omitempty"`
 	IncludeOffline     bool              `json:"include_offline,omitempty"`
 	Explain            bool              `json:"explain,omitempty"`
+
+	MinMemoryTotal   hosts.Size  `json:"min_memory_total,omitempty"`
+	MinMemoryUpgrade hosts.Size  `json:"min_memory_upgrade,omitempty"`
+	FreeMemorySlots  int         `json:"free_memory_slots,omitempty"`
+	FreeStorageSlots []SlotNeed  `json:"free_storage_slots,omitempty"`
+	DiskTypes        []string    `json:"disk_types,omitempty"`
+	MinDiskSize      hosts.Size  `json:"min_disk_size,omitempty"`
+	StatusIn         []string    `json:"status_in,omitempty"`
+	Recent           *recentWire `json:"recent,omitempty"`
 }
 
 // MarshalJSON writes the wire form.
 func (q CapacityQuery) MarshalJSON() ([]byte, error) {
 	w := capacityQueryWire{MinMemoryAvailable: q.MinMemoryAvailable, MinCPU: q.MinCPU, MinDiskFree: q.MinDiskFree,
 		Role: q.Role, Provider: q.Provider, Labels: q.Labels, RequireTools: q.RequireTools,
-		IncludeOffline: q.IncludeOffline, Explain: q.Explain}
+		IncludeOffline: q.IncludeOffline, Explain: q.Explain,
+		MinMemoryTotal: q.MinMemoryTotal, MinMemoryUpgrade: q.MinMemoryUpgrade, FreeMemorySlots: q.FreeMemorySlots,
+		FreeStorageSlots: q.FreeStorageSlots, DiskTypes: q.DiskTypes, MinDiskSize: q.MinDiskSize, StatusIn: q.StatusIn}
 	if q.MaxStaleAge > 0 {
 		w.MaxStaleAge = q.MaxStaleAge.String()
+	}
+	if r := q.Recent; r != nil {
+		w.Recent = &recentWire{Window: r.Window.String(), MaxLoadPerCore: r.MaxLoadPerCore, MinMemoryAvailable: r.MinMemoryAvailable, MinDiskFree: r.MinDiskFree}
 	}
 	return json.Marshal(w)
 }
@@ -76,11 +134,24 @@ func (q *CapacityQuery) UnmarshalJSON(data []byte) error {
 	dec := json.NewDecoder(strings.NewReader(string(data)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&w); err != nil {
-		return &HostInvalidError{Err: redact.Guidance("the capacity query must be a JSON object of its documented fields (min_memory_available, min_cpu, min_disk_free, role, provider, labels, require_tools, max_stale_age, include_offline, explain)")}
+		return &HostInvalidError{Err: redact.Guidance("the capacity query must be a JSON object of its documented fields (min_memory_available, min_cpu, min_disk_free, role, provider, labels, require_tools, max_stale_age, include_offline, explain, min_memory_total, min_memory_upgrade, free_memory_slots, free_storage_slots, disk_types, min_disk_size, status_in, recent)")}
 	}
 	out := CapacityQuery{MinMemoryAvailable: w.MinMemoryAvailable, MinCPU: w.MinCPU, MinDiskFree: w.MinDiskFree,
 		Role: w.Role, Provider: w.Provider, Labels: w.Labels, RequireTools: w.RequireTools,
-		IncludeOffline: w.IncludeOffline, Explain: w.Explain}
+		IncludeOffline: w.IncludeOffline, Explain: w.Explain,
+		MinMemoryTotal: w.MinMemoryTotal, MinMemoryUpgrade: w.MinMemoryUpgrade, FreeMemorySlots: w.FreeMemorySlots,
+		FreeStorageSlots: w.FreeStorageSlots, DiskTypes: w.DiskTypes, MinDiskSize: w.MinDiskSize, StatusIn: w.StatusIn}
+	if r := w.Recent; r != nil {
+		need := &RecentNeed{MaxLoadPerCore: r.MaxLoadPerCore, MinMemoryAvailable: r.MinMemoryAvailable, MinDiskFree: r.MinDiskFree, Window: defaultRecentWindow}
+		if r.Window != "" {
+			d, err := time.ParseDuration(r.Window)
+			if err != nil || d <= 0 {
+				return &HostInvalidError{Err: redact.Guidance("recent.window must be a positive duration such as 15m")}
+			}
+			need.Window = d
+		}
+		out.Recent = need
+	}
 	if w.MaxStaleAge != "" {
 		d, err := time.ParseDuration(w.MaxStaleAge)
 		if err != nil {
@@ -118,7 +189,23 @@ type CapacityResult struct {
 	MaxStaleAge string `json:"max_stale_age"`
 	// Total is how many hosts are declared.
 	Total int `json:"total_hosts"`
+	// Judged are the worst-case facts a matched host was judged on for a
+	// recent-headroom constraint, by host name, so a consumer can decide
+	// between matches itself. Facts only: nothing here orders the hosts.
+	Judged map[string]RecentFacts `json:"judged,omitempty"`
 }
+
+// RecentFacts are the worst values in a window and how many samples there were.
+type RecentFacts struct {
+	Window             string  `json:"window"`
+	Samples            int     `json:"samples"`
+	Expected           int     `json:"expected_samples"`
+	WorstLoadPerCore   float64 `json:"worst_load_per_core,omitempty"`
+	MinMemoryAvailable int64   `json:"min_memory_available,omitempty"`
+	MinDiskFree        int64   `json:"min_disk_free,omitempty"`
+}
+
+const defaultRecentWindow = 15 * time.Minute
 
 // HostInvalidError is a request the service refuses as malformed.
 type HostInvalidError struct{ Err error }
@@ -138,6 +225,38 @@ func (q CapacityQuery) validate() error {
 	}
 	if q.MaxStaleAge < 0 {
 		return invalid("max_stale_age must not be negative")
+	}
+	if q.MinMemoryTotal < 0 || q.MinMemoryUpgrade < 0 || q.MinDiskSize < 0 || q.FreeMemorySlots < 0 {
+		return invalid("capacity minimums must not be negative")
+	}
+	for _, n := range q.FreeStorageSlots {
+		if !slices.Contains(hosts.StorageSlotKinds, n.Kind) {
+			return invalid("unknown storage slot kind %q; known: %s", n.Kind, strings.Join(hosts.StorageSlotKinds, ", "))
+		}
+		if n.Min < 1 {
+			return invalid("free_storage_slots min for %s must be at least 1", n.Kind)
+		}
+	}
+	for _, t := range q.DiskTypes {
+		if !slices.Contains(hosts.HardwareDiskTypes, t) {
+			return invalid("unknown disk type %q; known: %s", t, strings.Join(hosts.HardwareDiskTypes, ", "))
+		}
+	}
+	for _, st := range q.StatusIn {
+		if !slices.Contains([]string{hosts.StatusOnline, hosts.StatusDegraded, hosts.StatusOffline, hosts.StatusUnknown}, st) {
+			return invalid("unknown status %q; known: online, degraded, offline, unknown", st)
+		}
+	}
+	if r := q.Recent; r != nil {
+		if r.Window <= 0 || r.MaxLoadPerCore < 0 || r.MinMemoryAvailable < 0 || r.MinDiskFree < 0 {
+			return invalid("recent needs a positive window and non-negative limits")
+		}
+		if r.Window > 7*24*time.Hour {
+			return invalid("recent.window is at most 7d: longer windows need the rollups, which a headroom check does not use yet")
+		}
+		if r.MaxLoadPerCore == 0 && r.MinMemoryAvailable == 0 && r.MinDiskFree == 0 {
+			return invalid("recent needs at least one limit: max_load_per_core, min_memory_available or min_disk_free")
+		}
 	}
 	for k := range q.Labels {
 		if strings.TrimSpace(k) == "" {
@@ -191,6 +310,8 @@ func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (_ Capacity
 	nExcluded := 0
 	for _, v := range views {
 		excluded, unknown := s.judge(v, q, maxAge, now)
+		x, u, facts := s.judgeParts(ctx, v, q, maxAge, now)
+		excluded, unknown = append(excluded, x...), append(unknown, u...)
 		verdict := func(reasons []string) HostVerdict {
 			h := HostVerdict{Name: v.Host.Name, State: v.State, ProbedAt: v.ProbedAt, Reasons: reasons}
 			if v.ProbedAt != nil {
@@ -211,6 +332,12 @@ func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (_ Capacity
 			res.Unknown = append(res.Unknown, u)
 		default:
 			res.Matched = append(res.Matched, v)
+			if facts != nil {
+				if res.Judged == nil {
+					res.Judged = map[string]RecentFacts{}
+				}
+				res.Judged[v.Host.Name] = *facts
+			}
 		}
 	}
 	call.note(fmt.Sprintf("hosts=%d matched=%d unknown=%d excluded=%d", res.Total, len(res.Matched), len(res.Unknown), nExcluded))
@@ -278,6 +405,147 @@ func (s *HostService) judge(v HostView, q CapacityQuery, maxAge time.Duration, n
 		}
 	}
 	return excluded, unknown
+}
+
+// judgeParts tests the Hosts F1 constraints: hardware, monitor status and
+// recent headroom. A fact that is not recorded makes the host unknown for that
+// constraint; a recorded fact that fails excludes it.
+func (s *HostService) judgeParts(ctx context.Context, v HostView, q CapacityQuery, maxAge time.Duration, now time.Time) (excluded, unknown []string, facts *RecentFacts) {
+	h := v.Host
+	hw := h.Hardware
+	fail := func(f string, a ...any) { excluded = append(excluded, fmt.Sprintf(f, a...)) }
+	miss := func(f string, a ...any) { unknown = append(unknown, fmt.Sprintf(f, a...)) }
+
+	if q.MinMemoryTotal > 0 {
+		var total int64
+		switch {
+		case v.Probed != nil && v.ProbedAt != nil && now.Sub(*v.ProbedAt) <= maxAge && v.Probed.MemoryTotal > 0:
+			total = v.Probed.MemoryTotal
+		case hw != nil && hw.Memory != nil && hw.Memory.Total > 0:
+			total = int64(hw.Memory.Total)
+		}
+		switch {
+		case total == 0:
+			miss("installed memory is neither probed (fresh) nor recorded")
+		case total < int64(q.MinMemoryTotal):
+			fail("installed memory is %d bytes, below the %d required", total, int64(q.MinMemoryTotal))
+		}
+	}
+	if q.MinMemoryUpgrade > 0 {
+		var installed, ceiling int64
+		if hw != nil && hw.Memory != nil {
+			installed = int64(hw.Memory.Total)
+		}
+		if hw != nil && hw.Ceilings != nil && hw.Ceilings.Memory != nil && hw.Ceilings.Memory.MaxTotal != nil {
+			ceiling = int64(hw.Ceilings.Memory.MaxTotal.Value)
+		}
+		switch {
+		case installed == 0 || ceiling == 0:
+			miss("the memory ceiling or the installed memory is not recorded, so the room to add memory is unknown")
+		case ceiling-installed < int64(q.MinMemoryUpgrade):
+			fail("room to add memory is %d bytes (ceiling %d, installed %d), below the %d required", ceiling-installed, ceiling, installed, int64(q.MinMemoryUpgrade))
+		}
+	}
+	if q.FreeMemorySlots > 0 {
+		switch {
+		case hw == nil || hw.Memory == nil || hw.Memory.Slots == 0:
+			miss("the number of memory slots is not recorded")
+		case hw.Memory.Slots-hw.Memory.SlotsUsed < q.FreeMemorySlots:
+			fail("%d of %d memory slots are free, %d required", hw.Memory.Slots-hw.Memory.SlotsUsed, hw.Memory.Slots, q.FreeMemorySlots)
+		}
+	}
+	for _, need := range q.FreeStorageSlots {
+		if v.StorageSummary == nil {
+			miss("storage slots are not recorded, so free %s slots are unknown", need.Kind)
+			continue
+		}
+		if free := v.StorageSummary[need.Kind].Free; free < need.Min {
+			fail("%d free %s slots, %d required", free, need.Kind, need.Min)
+		}
+	}
+	if len(q.DiskTypes) > 0 || q.MinDiskSize > 0 {
+		switch {
+		case hw == nil || len(hw.Disks) == 0:
+			miss("disks are not recorded")
+		default:
+			okType, okSize := len(q.DiskTypes) == 0, q.MinDiskSize == 0
+			for _, d := range hw.Disks {
+				typeOK := len(q.DiskTypes) == 0 || slices.Contains(q.DiskTypes, d.Type)
+				sizeOK := q.MinDiskSize == 0 || d.Size >= q.MinDiskSize
+				okType = okType || typeOK
+				okSize = okSize || sizeOK
+			}
+			if !okType {
+				fail("no disk of type %s", strings.Join(q.DiskTypes, " or "))
+			}
+			if !okSize {
+				fail("no disk of at least %d bytes", int64(q.MinDiskSize))
+			}
+		}
+	}
+	if len(q.StatusIn) > 0 {
+		switch {
+		case v.Status == nil:
+			miss("the host has no monitor status (monitoring is off or has not reached it)")
+		case !slices.Contains(q.StatusIn, v.Status.Status):
+			fail("status is %s, not %s", v.Status.Status, strings.Join(q.StatusIn, " or "))
+		}
+	}
+	if r := q.Recent; r != nil {
+		x, u, f := s.judgeRecent(ctx, v, *r, now)
+		excluded, unknown, facts = append(excluded, x...), append(unknown, u...), f
+	}
+	return excluded, unknown, facts
+}
+
+// judgeRecent tests headroom against the worst sample in the window.
+func (s *HostService) judgeRecent(ctx context.Context, v HostView, r RecentNeed, now time.Time) (excluded, unknown []string, facts *RecentFacts) {
+	if s.mon == nil {
+		return nil, []string{"no samples are kept: host monitoring is not available"}, nil
+	}
+	interval, monitored := s.mon.settings.IntervalFor(v.Host)
+	if !monitored {
+		return nil, []string{"the host is not monitored, so there are no samples"}, nil
+	}
+	samples, err := s.mon.store.Samples(ctx, v.Host.Name, now.Add(-r.Window), now, 20000)
+	if err != nil {
+		return nil, []string{"samples could not be read: " + redact.Text(err.Error())}, nil
+	}
+	expected := int(r.Window / interval)
+	if expected < 1 {
+		expected = 1
+	}
+	if len(samples) == 0 || len(samples)*2 < expected {
+		return nil, []string{fmt.Sprintf("%d of %d expected samples in the last %s", len(samples), expected, r.Window)}, nil
+	}
+	f := RecentFacts{Window: r.Window.String(), Samples: len(samples), Expected: expected}
+	for i, x := range samples {
+		if x.Load1 != nil && x.CPU > 0 {
+			if l := *x.Load1 / float64(x.CPU); l > f.WorstLoadPerCore {
+				f.WorstLoadPerCore = l
+			}
+		}
+		if x.MemoryAvailable > 0 && (i == 0 || f.MinMemoryAvailable == 0 || x.MemoryAvailable < f.MinMemoryAvailable) {
+			f.MinMemoryAvailable = x.MemoryAvailable
+		}
+		if x.DiskFree > 0 && (i == 0 || f.MinDiskFree == 0 || x.DiskFree < f.MinDiskFree) {
+			f.MinDiskFree = x.DiskFree
+		}
+	}
+	if r.MaxLoadPerCore > 0 {
+		if f.WorstLoadPerCore == 0 {
+			unknown = append(unknown, "the samples in the window reported no load")
+		} else if f.WorstLoadPerCore > r.MaxLoadPerCore {
+			excluded = append(excluded, fmt.Sprintf("load per core reached %.2f in the last %s, above the %.2f allowed", f.WorstLoadPerCore, r.Window, r.MaxLoadPerCore))
+		}
+	}
+	if r.MinMemoryAvailable > 0 && f.MinMemoryAvailable < int64(r.MinMemoryAvailable) {
+		excluded = append(excluded, fmt.Sprintf("memory available fell to %d bytes in the last %s, below the %d required", f.MinMemoryAvailable, r.Window, int64(r.MinMemoryAvailable)))
+	}
+	if r.MinDiskFree > 0 && f.MinDiskFree < int64(r.MinDiskFree) {
+		excluded = append(excluded, fmt.Sprintf("free disk fell to %d bytes in the last %s, below the %d required", f.MinDiskFree, r.Window, int64(r.MinDiskFree)))
+	}
+	return excluded, unknown, &f
 }
 
 func orNone(s string) string {
@@ -458,6 +726,14 @@ func HostDefinition() contract.Definition {
 			contract.Field("require_tools", map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Probed tools that must be installed."}),
 			contract.Field("max_stale_age", contract.StringSchema("Oldest probe a measured constraint is judged on, such as 10m.")),
 			contract.Field("include_offline", map[string]any{"type": "boolean", "description": "Judge offline hosts on their last measurement."}),
-			contract.Field("explain", map[string]any{"type": "boolean", "description": "Also list excluded hosts with reasons."})),
+			contract.Field("explain", map[string]any{"type": "boolean", "description": "Also list excluded hosts with reasons."}),
+			contract.Field("min_memory_total", size("Installed memory at least this.")),
+			contract.Field("min_memory_upgrade", size("Room to add at least this much memory.")),
+			contract.Field("free_memory_slots", contract.IntegerSchema("At least this many empty memory slots.")),
+			contract.Field("free_storage_slots", map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Free storage slots required by kind: [{kind, min}]."}),
+			contract.Field("disk_types", map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "At least one recorded disk of these types."}),
+			contract.Field("min_disk_size", size("At least one recorded disk at least this large.")),
+			contract.Field("status_in", map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Monitor status must be one of these."}),
+			contract.Field("recent", map[string]any{"type": "object", "description": "Headroom held over a window: window, max_load_per_core, min_memory_available, min_disk_free."})),
 	}})
 }

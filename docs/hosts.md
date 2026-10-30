@@ -812,3 +812,30 @@ Status events and the stream, as designed. Migration 008 adds `host_events`.
   never block probing; it reads the log by id when it next runs.
 - **Auth.** Same as the other console routes today (a signed-in session; the
   socket for local clients). Bearer access for services is Hosts F.
+
+### Hosts F1 as built
+
+Capacity gains the hardware, status and recent-headroom constraints of the Hosts F
+design. Capacity is still a filter: a host is matched, unknown or excluded, in name
+order, with no weight, score or count-to-pick.
+
+| Constraint | CLI flag | Needs |
+|---|---|---|
+| `min_memory_total` | `--min-memory-total 16GiB` | probed total (fresh), else `hardware.memory.total` |
+| `min_memory_upgrade` | `--min-memory-upgrade 32GiB` | `ceilings.memory.max_total` and the installed total |
+| `free_memory_slots` | `--free-memory-slots 2` | `hardware.memory.slots` / `slots_used` |
+| `free_storage_slots` | `--free-slot nvme_m2=1` | `storage_slots` recorded |
+| `disk_types` | `--disk-type nvme` | `hardware.disks` recorded |
+| `min_disk_size` | `--min-disk-size 500GB` | `hardware.disks` recorded |
+| `status_in` | `--status online --status degraded` | a running monitor |
+| `recent` | `--recent-max-load 1.0 --recent-min-memory 4GiB --recent-min-disk 50GB [--recent-window 30m]` | samples |
+
+A host whose fact is not recorded is listed under `unknown` with what is missing and
+a next step, never guessed to fit or to fail. `recent` passes a host only if its
+**worst** sample in the window (highest load per core, lowest memory available,
+lowest free disk) meets every limit given; fewer than half the expected samples
+(window divided by the host's probe interval) is `unknown` ("1 of 3 expected
+samples"). The window defaults to 15 m and is at most 7 d. The result's `judged`
+map gives, per matched host, the worst values and the sample count the host was
+judged on, so a consumer can choose between matches itself; it is keyed by host
+name and orders nothing.

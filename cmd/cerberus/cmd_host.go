@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -33,6 +34,22 @@ Subcommands:
   capacity  hosts that satisfy constraints, from recorded facts`,
 }
 
+// capacityOpts are the host capacity flags.
+type capacityOpts struct {
+	minMemory, minDisk, role, provider string
+	minCPU                             int
+	labels, tools                      []string
+	maxAge                             time.Duration
+	includeOffline, explain            bool
+
+	minMemoryTotal, minMemoryUpgrade, minDiskSize string
+	freeMemorySlots                               int
+	freeSlots, diskTypes, statusIn                []string
+	recentWindow                                  time.Duration
+	recentMaxLoad                                 float64
+	recentMinMemory, recentMinDisk                string
+}
+
 var (
 	hostJSONFlag   bool
 	hostOutput     string
@@ -40,13 +57,7 @@ var (
 		role, provider, state string
 		labels                []string
 	}
-	hostCapacityOpts struct {
-		minMemory, minDisk, role, provider string
-		minCPU                             int
-		labels, tools                      []string
-		maxAge                             time.Duration
-		includeOffline, explain            bool
-	}
+	hostCapacityOpts capacityOpts
 )
 
 // hostWantsJSON is true for --json and for -o json.
@@ -192,6 +203,9 @@ guessed to fit. Run 'cerberus host probe <name>' for fresh facts.
 		if q.Labels, err = parseLabels(o.labels); err != nil {
 			return err
 		}
+		if err = capacityHardwareFlags(&q, o); err != nil {
+			return err
+		}
 		client, err := newHostClient(cmd)
 		if err != nil {
 			return err
@@ -224,6 +238,17 @@ func init() {
 	c.StringArrayVar(&hostCapacityOpts.tools, "tool", nil, "probed tool that must be installed: docker|tmux|tailscale|caddy (repeatable)")
 	c.DurationVar(&hostCapacityOpts.maxAge, "max-age", 0, "oldest probe to judge on (default 5m)")
 	c.BoolVar(&hostCapacityOpts.includeOffline, "include-offline", false, "judge offline hosts on their last measurement")
+	c.StringVar(&hostCapacityOpts.minMemoryTotal, "min-memory-total", "", "installed memory at least this, such as 16GiB")
+	c.StringVar(&hostCapacityOpts.minMemoryUpgrade, "min-memory-upgrade", "", "room to add at least this much memory (ceiling minus installed)")
+	c.IntVar(&hostCapacityOpts.freeMemorySlots, "free-memory-slots", 0, "at least this many empty memory slots")
+	c.StringArrayVar(&hostCapacityOpts.freeSlots, "free-slot", nil, "free storage slots by kind, kind=N, such as nvme_m2=1 (repeatable)")
+	c.StringArrayVar(&hostCapacityOpts.diskTypes, "disk-type", nil, "a recorded disk of this type: ssd|hdd|nvme|emmc|usb|other (repeatable)")
+	c.StringVar(&hostCapacityOpts.minDiskSize, "min-disk-size", "", "a recorded disk at least this large, such as 500GB")
+	c.StringArrayVar(&hostCapacityOpts.statusIn, "status", nil, "monitor status must be one of: online|degraded|offline|unknown (repeatable)")
+	c.DurationVar(&hostCapacityOpts.recentWindow, "recent-window", 0, "judge headroom on the worst sample in this window (default 15m when a recent limit is given)")
+	c.Float64Var(&hostCapacityOpts.recentMaxLoad, "recent-max-load", 0, "load per core must stay at or below this over the window")
+	c.StringVar(&hostCapacityOpts.recentMinMemory, "recent-min-memory", "", "memory available must stay at or above this over the window")
+	c.StringVar(&hostCapacityOpts.recentMinDisk, "recent-min-disk", "", "free disk must stay at or above this over the window")
 	c.BoolVar(&hostCapacityOpts.explain, "explain", false, "also list excluded hosts with the reason for each")
 
 	hostCmd.AddCommand(hostListCmd, hostGetCmd, hostProbeCmd, hostCapacityCmd)
@@ -468,6 +493,19 @@ func printCapacity(out io.Writer, res cerbapi.CapacityResult, asJSON bool, now t
 	for _, x := range res.Excluded {
 		fmt.Fprintf(out, "\nexcluded %s: %s\n", x.Name, strings.Join(x.Reasons, "; "))
 	}
+	if len(res.Judged) > 0 {
+		names := make([]string, 0, len(res.Judged))
+		for n := range res.Judged {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		fmt.Fprintln(out, "\nheadroom each matched host was judged on (worst sample in the window; facts, not a ranking):")
+		for _, n := range names {
+			j := res.Judged[n]
+			fmt.Fprintf(out, "  %s: %d of %d samples in %s, worst load/core %.2f, memory available min %s, disk free min %s\n",
+				n, j.Samples, j.Expected, j.Window, j.WorstLoadPerCore, humanBytes(j.MinMemoryAvailable), humanBytes(j.MinDiskFree))
+		}
+	}
 	return nil
 }
 
@@ -498,4 +536,50 @@ func sizeOrEmpty(n int64) string {
 		return ""
 	}
 	return humanBytes(n)
+}
+
+// capacityHardwareFlags reads the Hosts F1 flags into q.
+func capacityHardwareFlags(q *cerbapi.CapacityQuery, o capacityOpts) error {
+	size := func(flag, v string, dst *hosts.Size) error {
+		if v == "" {
+			return nil
+		}
+		z, err := hosts.ParseSize(v)
+		if err != nil {
+			return fmt.Errorf("--%s: %w", flag, err)
+		}
+		*dst = z
+		return nil
+	}
+	for _, f := range []struct {
+		flag, v string
+		dst     *hosts.Size
+	}{{"min-memory-total", o.minMemoryTotal, &q.MinMemoryTotal}, {"min-memory-upgrade", o.minMemoryUpgrade, &q.MinMemoryUpgrade}, {"min-disk-size", o.minDiskSize, &q.MinDiskSize}} {
+		if err := size(f.flag, f.v, f.dst); err != nil {
+			return err
+		}
+	}
+	q.FreeMemorySlots, q.DiskTypes, q.StatusIn = o.freeMemorySlots, o.diskTypes, o.statusIn
+	for _, fs := range o.freeSlots {
+		kind, n, ok := strings.Cut(fs, "=")
+		count, err := strconv.Atoi(n)
+		if !ok || err != nil {
+			return fmt.Errorf("--free-slot %q must be kind=N, such as nvme_m2=1", fs)
+		}
+		q.FreeStorageSlots = append(q.FreeStorageSlots, cerbapi.SlotNeed{Kind: kind, Min: count})
+	}
+	if o.recentMaxLoad > 0 || o.recentMinMemory != "" || o.recentMinDisk != "" || o.recentWindow > 0 {
+		r := &cerbapi.RecentNeed{Window: o.recentWindow, MaxLoadPerCore: o.recentMaxLoad}
+		if r.Window == 0 {
+			r.Window = 15 * time.Minute
+		}
+		if err := size("recent-min-memory", o.recentMinMemory, &r.MinMemoryAvailable); err != nil {
+			return err
+		}
+		if err := size("recent-min-disk", o.recentMinDisk, &r.MinDiskFree); err != nil {
+			return err
+		}
+		q.Recent = r
+	}
+	return nil
 }

@@ -54,9 +54,7 @@ func hostHome(t *testing.T) {
 func resetHostFlags() {
 	hostJSONFlag, hostOutput = false, outputFormatText
 	hostFilterOpts.role, hostFilterOpts.provider, hostFilterOpts.state, hostFilterOpts.labels = "", "", "", nil
-	hostCapacityOpts.minMemory, hostCapacityOpts.minDisk, hostCapacityOpts.role, hostCapacityOpts.provider = "", "", "", ""
-	hostCapacityOpts.minCPU, hostCapacityOpts.labels, hostCapacityOpts.tools, hostCapacityOpts.maxAge = 0, nil, nil, 0
-	hostCapacityOpts.includeOffline, hostCapacityOpts.explain = false, false
+	hostCapacityOpts = capacityOpts{}
 }
 
 func runHost(t *testing.T, args ...string) (string, error) {
