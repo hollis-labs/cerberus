@@ -27,6 +27,7 @@ func TestHostMonitorSettingsOverridesAndRefusals(t *testing.T) {
 		"under floor":    {SSHInterval: "5s"},
 		"jitter too big": {JitterPercent: 90},
 		"bad size":       {Thresholds: &config.HostMonitorThresholds{DiskFreeBytes: "lots"}},
+		"retention shrinks": {SampleRetention: "720h", Rollup5mRetention: "24h"},
 	} {
 		if _, err := HostMonitorSettings(cfg); err == nil {
 			t.Fatalf("%s: accepted", name)

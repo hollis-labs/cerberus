@@ -50,10 +50,12 @@ type MonitorSettings struct {
 	Concurrency    int           `json:"concurrency"`
 	SSHConcurrency int           `json:"ssh_concurrency"`
 	ProbeTimeout   time.Duration `json:"probe_timeout"`
-	// SampleRetention is how long raw samples are kept (the janitor arrives
-	// with rollups).
-	SampleRetention time.Duration `json:"sample_retention"`
-	Thresholds      Thresholds    `json:"thresholds"`
+	// SampleRetention is how long raw samples are kept; Rollup5mRetention and
+	// Rollup1hRetention how long those rollups are. Daily rollups are kept.
+	SampleRetention   time.Duration `json:"sample_retention"`
+	Rollup5mRetention time.Duration `json:"rollup_5m_retention"`
+	Rollup1hRetention time.Duration `json:"rollup_1h_retention"`
+	Thresholds        Thresholds    `json:"thresholds"`
 }
 
 // DefaultMonitorSettings are the documented defaults. Monitoring is off until
@@ -62,7 +64,7 @@ func DefaultMonitorSettings() MonitorSettings {
 	return MonitorSettings{
 		OutpostInterval: 60 * time.Second, SSHInterval: 5 * time.Minute, MinInterval: 15 * time.Second,
 		Jitter: 0.10, MaxBackoff: 15 * time.Minute, Concurrency: 4, SSHConcurrency: 2, ProbeTimeout: 45 * time.Second,
-		SampleRetention: 7 * 24 * time.Hour,
+		SampleRetention: 7 * 24 * time.Hour, Rollup5mRetention: 30 * 24 * time.Hour, Rollup1hRetention: 400 * 24 * time.Hour,
 		Thresholds: Thresholds{
 			DiskFreePercent: 10, DiskFreeBytes: 5 << 30, MemoryAvailablePercent: 10,
 			LoadFactor: 2, LoadSamples: 3, SlowProbeFraction: 0.5, SlowProbeSamples: 3,
@@ -84,12 +86,19 @@ func (m MonitorSettings) Validate() error {
 		return fmt.Errorf("host_monitor concurrency must be at least 1")
 	case m.ProbeTimeout < time.Second:
 		return fmt.Errorf("host_monitor probe_timeout is under 1s")
+	case m.SampleRetention < time.Hour || m.Rollup5mRetention < m.SampleRetention || m.Rollup1hRetention < m.Rollup5mRetention:
+		return fmt.Errorf("host_monitor retention must be at least 1h for raw samples and not shrink from raw to 5m to 1h rollups")
 	case m.MaxBackoff < m.MinInterval:
 		return fmt.Errorf("host_monitor max_backoff is under min_interval")
 	case m.Thresholds.OfflineAfter < 1 || m.Thresholds.DegradeConfirm < 1 || m.Thresholds.StaleIntervals < 1 || m.Thresholds.LoadSamples < 1 || m.Thresholds.SlowProbeSamples < 1:
 		return fmt.Errorf("host_monitor thresholds that count samples or probes must be at least 1")
 	}
 	return nil
+}
+
+// Retention is the tiered retention the janitor applies.
+func (m MonitorSettings) Retention() Retention {
+	return Retention{Raw: m.SampleRetention, Rollup5m: m.Rollup5mRetention, Rollup1h: m.Rollup1hRetention}
 }
 
 // IntervalFor is how often h is probed, and whether it is monitored at all: a

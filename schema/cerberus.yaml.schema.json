@@ -49,6 +49,8 @@
         "ssh_concurrency": { "type": "integer", "minimum": 1, "default": 2 },
         "probe_timeout": { "type": "string", "default": "45s" },
         "sample_retention": { "type": "string", "default": "168h" },
+        "rollup_5m_retention": { "type": "string", "default": "720h" },
+        "rollup_1h_retention": { "type": "string", "default": "9600h" },
         "thresholds": {
           "type": "object",
           "properties": {

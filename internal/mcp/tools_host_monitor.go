@@ -34,12 +34,13 @@ func HostMonitorTools(client cerbapi.HostMonitorClient) []Tool {
 		}),
 		contractTool(Tool{
 			Name:        "cerberus_host_samples",
-			Description: "A host's retained measurements (load, memory, disk, uptime, probe time) in time order. since is an RFC 3339 time or a duration such as 6h; at most limit samples (default 500, the newest).",
+			Description: "A host's retained measurements (load, memory, disk, uptime, probe time) in time order, raw or as 5m, 1h or 1d rollups. since is an RFC 3339 time or a duration such as 6h; at most limit samples (default 500, the newest).",
 			InputSchema: objectSchema(map[string]interface{}{
 				"name":  map[string]interface{}{"type": "string", "description": "Host name."},
 				"since": map[string]interface{}{"type": "string", "description": "RFC 3339 time or a duration such as 6h."},
 				"until": map[string]interface{}{"type": "string", "description": "RFC 3339 time or a duration ago."},
 				"limit": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 5000},
+				"grain": map[string]interface{}{"type": "string", "enum": []string{"raw", "5m", "1h", "1d"}, "description": "raw (default) returns measurements; 5m, 1h and 1d return rollups: per bucket the sample count and min, mean and max of load, memory available, free disk and probe time."},
 			}, "name"),
 			Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 				now := time.Now()
@@ -55,7 +56,11 @@ func HostMonitorTools(client cerbapi.HostMonitorClient) []Tool {
 				if n, ok := args["limit"].(float64); ok {
 					limit = int(n)
 				}
-				return text(client.HostSamples(ctx, stringArg(args, "name"), cerbapi.SamplesQuery{Since: since, Until: until, Limit: limit}))
+				q := cerbapi.SamplesQuery{Since: since, Until: until, Limit: limit}
+				if g := stringArg(args, "grain"); g != "" && g != "raw" {
+					return text(client.HostRollups(ctx, stringArg(args, "name"), g, q))
+				}
+				return text(client.HostSamples(ctx, stringArg(args, "name"), q))
 			},
 		}),
 		contractTool(Tool{
