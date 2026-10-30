@@ -920,15 +920,20 @@ func (s *Server) handleSchedules(w http.ResponseWriter, r *http.Request) {
 // capacity are POSTs, so they meet the same state-changing guard as every
 // other POST; the service behind them is the daemon's, and only measures.
 func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost && !s.allowStateChangingRequest(r) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !s.allowStateChangingRequest(r) {
 		writeError(w, http.StatusForbidden, "state-changing request rejected")
 		return
 	}
 	cerbapi.HostHTTP(cerbapi.HostClientOf(s.client), "/api/hosts").ServeHTTP(w, r)
 }
 
-// Components (Hosts B) are reads, served beside hosts.
+// Components (Hosts B reads, Hosts C writes) are served beside hosts; every
+// write meets the same state-changing guard.
 func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !s.allowStateChangingRequest(r) {
+		writeError(w, http.StatusForbidden, "state-changing request rejected")
+		return
+	}
 	cerbapi.ComponentHTTP(cerbapi.ComponentClientOf(s.client), "/api/components").ServeHTTP(w, r)
 }
 

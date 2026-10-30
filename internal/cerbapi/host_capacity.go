@@ -358,6 +358,13 @@ const (
 	OpComponentGet  = "component_get"
 )
 
+func fromFields(from string) []string {
+	if from == "" {
+		return nil
+	}
+	return []string{from}
+}
+
 // HostDefinition is the contract of the host operations. All four are reads:
 // a probe measures, it never changes the host.
 func HostDefinition() contract.Definition {
@@ -368,6 +375,14 @@ func HostDefinition() contract.Definition {
 			Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSNone,
 			Inputs: inputs,
 		}
+	}
+	write := func(name, kind, from, desc string, inputs ...contract.Input) contract.Operation {
+		return contract.Operation{
+			Name: name, Description: desc, Effect: contract.EffectWrite, Reversible: true,
+			Target:  contract.TargetDescriptor{Kind: kind, From: fromFields(from)},
+			Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites,
+			Inputs: inputs,
+		}.Finalize()
 	}
 	labels := map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "Labels that must all match exactly."}
 	size := func(desc string) map[string]any {
@@ -387,6 +402,34 @@ func HostDefinition() contract.Definition {
 			contract.Field("host", contract.StringSchema("Only components located on this host.")),
 			contract.Field("spare", map[string]any{"type": "boolean", "description": "Only spare components."})),
 		read(OpComponentGet, "Show one component.", nil, contract.RequiredField("id", contract.StringSchema("Component id."))),
+		write(OpHostUpdate, "host", "name", "Change one host with a merge patch (labels, notes, role, hardware, ceilings, storage_slots, ...). Validated as a whole file; needs the revision you read.",
+			contract.RequiredField("name", contract.StringSchema("Host name.")),
+			contract.RequiredField("revision", contract.StringSchema("The hosts.yaml revision you read.")),
+			contract.Field("patch", map[string]any{"type": "object", "description": "JSON merge patch: objects merge, null deletes, lists replace."}),
+			contract.Field("create", map[string]any{"type": "boolean", "description": "Create the host when it does not exist."})),
+		write(OpHostRemove, "host", "name", "Remove a host no component refers to.",
+			contract.RequiredField("name", contract.StringSchema("Host name.")),
+			contract.RequiredField("revision", contract.StringSchema("The hosts.yaml revision you read."))),
+		write(OpComponentCreate, "component", "", "Add a spare or installed part.",
+			contract.RequiredField("revision", contract.StringSchema("The hosts.yaml revision you read.")),
+			contract.Field("component", map[string]any{"type": "object", "description": "id, kind, size, type, speed, serial, location, notes."})),
+		write(OpComponentUpdate, "component", "id", "Change a part's fields (not its location).",
+			contract.RequiredField("id", contract.StringSchema("Component id.")),
+			contract.RequiredField("revision", contract.StringSchema("The hosts.yaml revision you read.")),
+			contract.Field("patch", map[string]any{"type": "object", "description": "JSON merge patch."})),
+		write(OpComponentMove, "component", "id", "Move a part to a slot on a host, or to the spares.",
+			contract.RequiredField("id", contract.StringSchema("Component id.")),
+			contract.RequiredField("revision", contract.StringSchema("The hosts.yaml revision you read.")),
+			contract.Field("to", map[string]any{"type": "object", "description": "{host, slot} or {spare: true}."})),
+		write(OpComponentRemove, "component", "id", "Delete a part.",
+			contract.RequiredField("id", contract.StringSchema("Component id.")),
+			contract.RequiredField("revision", contract.StringSchema("The hosts.yaml revision you read."))),
+		read(OpHostHistory, "Changes that touched a host, newest first.", []string{"name"}, name,
+			contract.Field("limit", contract.IntegerSchema("Most entries to return."))),
+		read(OpComponentHistory, "Changes to one component, newest first.", []string{"id"},
+			contract.RequiredField("id", contract.StringSchema("Component id.")),
+			contract.Field("limit", contract.IntegerSchema("Most entries to return."))),
+		read(OpHostRevision, "The current revision of hosts.yaml: the token every write carries.", nil),
 		read(OpHostCapacity, "List the hosts that satisfy constraints, from recorded facts. Facts only: no ranking.", nil,
 			contract.Field("min_memory_available", size("Bytes or a size such as 4GiB.")),
 			contract.Field("min_disk_free", size("Bytes or a size such as 50GB.")),
