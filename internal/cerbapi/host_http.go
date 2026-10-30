@@ -33,6 +33,17 @@ func HostHTTP(client HostClient, prefix string) http.Handler {
 		if rest != "" {
 			parts = strings.Split(rest, "/")
 		}
+		if len(parts) == 1 && parts[0] == "_openapi" && r.Method == http.MethodGet {
+			doc, err := cachedHostsOpenAPI()
+			if err != nil {
+				writeServiceError(w, http.StatusInternalServerError, err)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(doc)
+			return
+		}
 		if hostActionHTTP(w, r, client, parts) || hostWriteHTTP(w, r, client, parts) || hostMonitorHTTP(w, r, client, parts) || hostEventsHTTP(w, r, client, parts) {
 			return
 		}
