@@ -62,3 +62,23 @@ func TestKeyringCallPassesResultsAndErrorsThrough(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// The store is degraded while a timed-out call is stuck and during the cooldown,
+// and healthy again once the stuck call returns and the cooldown has passed.
+func TestHealthReportsAStuckStore(t *testing.T) {
+	withShortGate(t)
+	if Health().Degraded {
+		t.Fatal("degraded before any call")
+	}
+	release := make(chan struct{})
+	_, _ = KeyringCall("read entry", func() (string, error) { <-release; return "", nil })
+	h := Health()
+	if !h.Degraded || h.Op != "read entry" || h.Since.IsZero() {
+		t.Fatalf("health after a timeout: %+v", h)
+	}
+	close(release)
+	time.Sleep(300 * time.Millisecond) // the call returned; the cooldown passed
+	if Health().Degraded {
+		t.Fatalf("health after recovery: %+v", Health())
+	}
+}

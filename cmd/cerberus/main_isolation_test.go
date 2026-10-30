@@ -12,6 +12,12 @@ import (
 // $HOME/.cerberus/audit, so without this a test that reaches it would write
 // records into the operator's real audit log.
 func TestMain(m *testing.M) {
+	// The daemon blocked-credential-store test re-executes this test binary as
+	// a daemon whose credential store never answers.
+	if os.Getenv(childDaemonEnv) == "1" {
+		runChildDaemon()
+		return
+	}
 	home, err := os.MkdirTemp("/tmp", "cerb-test-home-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

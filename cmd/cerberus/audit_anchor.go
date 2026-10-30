@@ -21,7 +21,7 @@ const auditAnchorService = "cerberus-audit-anchor"
 type keychainAnchor struct{ dir string }
 
 func (k keychainAnchor) Load() (audit.Head, bool, error) {
-	data, err := secrets.KeyringCall("audit anchor read", func() (string, error) { return keyring.Get(auditAnchorService, k.dir) })
+	data, err := secrets.KeyringGet(auditAnchorService, k.dir)
 	if errors.Is(err, keyring.ErrNotFound) {
 		return audit.Head{}, false, nil
 	}
@@ -40,10 +40,7 @@ func (k keychainAnchor) Store(h audit.Head) error {
 	if err != nil {
 		return err
 	}
-	_, err = secrets.KeyringCall("audit anchor write", func() (struct{}, error) {
-		return struct{}{}, keyring.Set(auditAnchorService, k.dir, string(data))
-	})
-	return err
+	return secrets.KeyringSet(auditAnchorService, k.dir, string(data))
 }
 
 // installAuditAnchor installs the keychain anchor for this process's audit

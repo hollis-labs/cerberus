@@ -150,9 +150,15 @@ func NewSocketClient(socketPath string, opts ...SocketClientOption) *SocketClien
 // to fail fast with a clear error rather than deferring the problem to
 // the first tool call.
 func (c *SocketClient) Ping(ctx context.Context) error {
+	_, err := c.PingStatus(ctx)
+	return err
+}
+
+// PingStatus is Ping with what the daemon says about itself.
+func (c *SocketClient) PingStatus(ctx context.Context) (DaemonStatus, error) {
 	var out DaemonStatus
 	err := c.doJSON(ctx, http.MethodGet, "/ping", nil, &out)
-	return err
+	return out, err
 }
 
 // DialPath returns the unix-socket path this client is bound to. Used
