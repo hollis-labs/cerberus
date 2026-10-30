@@ -926,3 +926,29 @@ Domain scopes and the bearer path, as designed. Nothing here issues a credential
   lesser claim.
 - **MCP.** The same tokens and scopes apply through mcp-http (and so through the Tether
   gateway); no extra work was needed beyond the scope check now knowing the host scopes.
+
+### Hosts F3 as built
+
+The host API is published as OpenAPI 3.1 in `schema/hosts.openapi.json`, and served
+by every daemon and console at `GET /hosts/_openapi` and `GET /api/hosts/_openapi`
+(under `/api/hosts`, so a bearer token reaches it).
+
+- **One source.** The routes are a table (`cerbapi.HostRoutes`: method, path, operation,
+  summary, request and response types, query parameters). The document is generated
+  from that table and, by reflection, from the Go types the routes send and return, so
+  the schemas are the real wire shapes: `HostView` has `ceilings`, `storage_slots` and
+  `storage_summary` as nullable (absent is not zero), `Event` carries codes only, a size
+  is an integer or a string such as `16GiB`.
+- **Scopes are the enforced ones.** Each operation's `x-cerberus-scope` comes from
+  `oauth.RequiredScopeOp`, the same function the daemon enforces with, so the
+  documented scope cannot differ from the real one.
+- **Untrusted text.** Strings that came from a host or an operator (`cerb:"untrusted"`
+  in the Go types) carry `x-cerberus-untrusted: true`; a consumer that shows them must
+  not treat them as instructions.
+- **No drift, no network.** The committed file is compared with a fresh in-process
+  generation in the normal test run (`UPDATE_OPENAPI=1 go test ./internal/cerbapi -run
+  TestOpenAPIMatchesTheCommittedFile` rewrites it). Other tests check that every
+  documented route reaches a real handler, that every host operation is documented or
+  deliberately not (the Outpost unit actions and the monitor audit record are not
+  published), that the request bodies match what the handlers accept, that every `$ref`
+  resolves, and that the output is deterministic.
