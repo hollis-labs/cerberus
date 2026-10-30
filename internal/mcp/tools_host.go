@@ -96,6 +96,22 @@ func HostTools(client cerbapi.HostClient) []Tool {
 				"max_stale_age":        map[string]interface{}{"type": "string", "description": "Oldest probe a measured constraint is judged on, such as 10m. Default 5m."},
 				"include_offline":      map[string]interface{}{"type": "boolean", "description": "Judge offline hosts on their last measurement (shown with its age) instead of excluding them."},
 				"explain":              map[string]interface{}{"type": "boolean", "description": "Also list excluded hosts with the reason for each."},
+
+				"min_memory_total":   map[string]interface{}{"type": []string{"string", "integer"}, "description": "Installed memory at least this (probed when fresh, else recorded), such as 16GiB."},
+				"min_memory_upgrade": map[string]interface{}{"type": []string{"string", "integer"}, "description": "Room to add at least this much memory: the recorded memory ceiling minus installed memory."},
+				"free_memory_slots":  map[string]interface{}{"type": "integer", "description": "At least this many empty memory slots (recorded)."},
+				"free_storage_slots": map[string]interface{}{"type": "array", "description": "Free storage slots required by kind, e.g. [{kind: nvme_m2, min: 1}]. A host whose slots are not recorded is unknown.",
+					"items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"kind": map[string]interface{}{"type": "string", "enum": []string{"nvme_m2", "sata_25", "sata_35", "m2_sata", "msata", "ide", "pcie"}}, "min": map[string]interface{}{"type": "integer", "minimum": 1}}, "required": []string{"kind", "min"}}},
+				"disk_types":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "enum": []string{"ssd", "hdd", "nvme", "emmc", "usb", "other"}}, "description": "At least one recorded disk of one of these types."},
+				"min_disk_size": map[string]interface{}{"type": []string{"string", "integer"}, "description": "At least one recorded disk at least this large."},
+				"status_in":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "enum": []string{"online", "degraded", "offline", "unknown"}}, "description": "The monitor's status must be one of these."},
+				"recent": map[string]interface{}{"type": "object", "description": "Headroom held throughout a window: the host passes when its WORST sample in the window still meets every limit. Fewer than half the expected samples makes the host unknown. window is a duration up to 7d (default 15m).",
+					"properties": map[string]interface{}{
+						"window":               map[string]interface{}{"type": "string"},
+						"max_load_per_core":    map[string]interface{}{"type": "number"},
+						"min_memory_available": map[string]interface{}{"type": []string{"string", "integer"}},
+						"min_disk_free":        map[string]interface{}{"type": []string{"string", "integer"}},
+					}},
 			}),
 			Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
 				data, err := json.Marshal(args)
