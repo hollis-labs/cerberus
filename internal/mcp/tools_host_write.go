@@ -78,6 +78,21 @@ func HostWriteTools(client cerbapi.HostWriteClient) []Tool {
 			},
 		}),
 		contractTool(Tool{
+			Name: "cerberus_host_inventory",
+			Description: "Collect a host's physical facts (make, model, serials, BIOS, CPU, memory layout, disks, NICs) over its ssh reach and record them. Runs a fixed read-only script, with sudo -n for root-only facts where the host allows it. " +
+				"Notes, storage_slots, vendor- or operator-sourced ceilings and components are kept. dry_run shows the change without writing. revision is optional here.",
+			InputSchema: objectSchema(map[string]interface{}{"name": str("Host name."), "dry_run": map[string]interface{}{"type": "boolean", "description": "Collect and show what would change; write nothing."},
+				"revision": str("Optional: the hosts.yaml revision you read."), "acknowledged": ack}, "name"),
+			Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
+				res, err := client.InventoryHost(ctx, cerbapi.InventoryArgs{WriteArgs: wargs(args), Name: stringArg(args, "name"), DryRun: boolArg(args, "dry_run")})
+				if err != nil {
+					return "", err
+				}
+				data, merr := redact.MarshalIndent(res, "", "  ")
+				return string(data), merr
+			},
+		}),
+		contractTool(Tool{
 			Name:        "cerberus_host_remove",
 			Description: "Remove a host from hosts.yaml. Refused while a component is located on it: move or remove those first.",
 			InputSchema: objectSchema(map[string]interface{}{"name": str("Host name."), "revision": rev, "acknowledged": ack}, "name", "revision"),
@@ -142,7 +157,7 @@ func HostWriteTools(client cerbapi.HostWriteClient) []Tool {
 }
 
 func init() {
-	for _, op := range []string{cerbapi.OpHostRevision, cerbapi.OpHostUpdate, cerbapi.OpHostRemove, cerbapi.OpHostHistory,
+	for _, op := range []string{cerbapi.OpHostRevision, cerbapi.OpHostUpdate, cerbapi.OpHostRemove, cerbapi.OpHostInventory, cerbapi.OpHostHistory,
 		cerbapi.OpComponentCreate, cerbapi.OpComponentUpdate, cerbapi.OpComponentMove, cerbapi.OpComponentRemove, cerbapi.OpComponentHistory} {
 		toolOperations["cerberus_"+op] = opRef{cerbapi.HostDefinition, op}
 	}

@@ -26,6 +26,7 @@ type HostWriteClient interface {
 	RemoveComponent(ctx context.Context, a ComponentRemoveArgs) (WriteResult, error)
 	HostHistory(ctx context.Context, name string, limit int) ([]hosts.Change, error)
 	ComponentHistory(ctx context.Context, id string, limit int) ([]hosts.Change, error)
+	InventoryHost(ctx context.Context, a InventoryArgs) (InventoryResult, error)
 }
 
 // HostWriteClientOf returns client as a HostWriteClient, or one that refuses
@@ -58,6 +59,9 @@ func (unavailableHostClient) MoveComponent(context.Context, ComponentMoveArgs) (
 func (unavailableHostClient) RemoveComponent(context.Context, ComponentRemoveArgs) (WriteResult, error) {
 	return WriteResult{}, errHostsUnavailable
 }
+func (unavailableHostClient) InventoryHost(context.Context, InventoryArgs) (InventoryResult, error) {
+	return InventoryResult{}, errHostsUnavailable
+}
 func (unavailableHostClient) HostHistory(context.Context, string, int) ([]hosts.Change, error) {
 	return nil, errHostsUnavailable
 }
@@ -73,6 +77,7 @@ type writeBody struct {
 	ApprovalID   string                  `json:"approval_id"`
 	Patch        map[string]any          `json:"patch"`
 	Create       bool                    `json:"create"`
+	DryRun       bool                    `json:"dry_run"`
 	Component    map[string]any          `json:"component"`
 	To           hosts.ComponentLocation `json:"to"`
 }
@@ -136,6 +141,18 @@ func hostWriteHTTP(w http.ResponseWriter, r *http.Request, client HostClient, pa
 			return true
 		}
 		writeJSON(w, http.StatusOK, out)
+	case len(parts) == 2 && parts[1] == "inventory" && r.Method == http.MethodPost:
+		b, err := readWriteBody(w, r)
+		if err != nil {
+			fail(err)
+			return true
+		}
+		res, err := wc.InventoryHost(r.Context(), InventoryArgs{WriteArgs: b.args(r), Name: unescape(parts[0]), DryRun: b.DryRun})
+		if err != nil {
+			fail(err)
+			return true
+		}
+		writeJSON(w, http.StatusOK, res)
 	case len(parts) == 1 && (r.Method == http.MethodPatch || r.Method == http.MethodDelete):
 		b, err := readWriteBody(w, r)
 		if err != nil {
@@ -268,6 +285,13 @@ func (c *InProcessClient) RemoveComponent(ctx context.Context, a ComponentRemove
 	}
 	return s.RemoveComponent(ctx, a)
 }
+func (c *InProcessClient) InventoryHost(ctx context.Context, a InventoryArgs) (InventoryResult, error) {
+	s, err := c.hostService()
+	if err != nil {
+		return InventoryResult{}, err
+	}
+	return s.Inventory(ctx, a)
+}
 func (c *InProcessClient) HostHistory(ctx context.Context, name string, limit int) ([]hosts.Change, error) {
 	s, err := c.hostService()
 	if err != nil {
@@ -320,6 +344,13 @@ func (c *SocketClient) MoveComponent(ctx context.Context, a ComponentMoveArgs) (
 }
 func (c *SocketClient) RemoveComponent(ctx context.Context, a ComponentRemoveArgs) (WriteResult, error) {
 	return c.writeCall(ctx, http.MethodDelete, "/components/"+url.PathEscape(a.ID), writeBody{Revision: a.Revision, Acknowledged: a.Acknowledged, ApprovalID: a.ApprovalID})
+}
+func (c *SocketClient) InventoryHost(ctx context.Context, a InventoryArgs) (InventoryResult, error) {
+	var out InventoryResult
+	if err := c.doJSON(ctx, http.MethodPost, "/hosts/"+url.PathEscape(a.Name)+"/inventory", writeBody{Revision: a.Revision, Acknowledged: a.Acknowledged, ApprovalID: a.ApprovalID, DryRun: a.DryRun}, &out); err != nil {
+		return InventoryResult{}, hostRouteError(err)
+	}
+	return out, nil
 }
 func (c *SocketClient) HostHistory(ctx context.Context, name string, limit int) ([]hosts.Change, error) {
 	var out []hosts.Change

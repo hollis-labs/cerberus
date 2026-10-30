@@ -88,6 +88,39 @@ func (e *Editor) Revision() (string, error) {
 	return Revision(data), nil
 }
 
+// Preview shows what Apply would do, writing nothing and taking no lock: the
+// file as it is, the mutation, the validation and the encoding, with the
+// revision the result would have.
+func (e *Editor) Preview(mutate func(*File) error) (*Applied, error) {
+	data, err := readFile(e.Path)
+	if err != nil {
+		return nil, fmt.Errorf("read hosts config: %w", err)
+	}
+	before, err := parseOrEmpty(data)
+	if err != nil {
+		return nil, err
+	}
+	after, err := parseOrEmpty(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := mutate(after); err != nil {
+		return nil, err
+	}
+	if err := Validate(after); err != nil {
+		return nil, err
+	}
+	out, err := encode(after, isJSONStyle(data))
+	if err != nil {
+		return nil, fmt.Errorf("encode hosts config: %w", err)
+	}
+	res := &Applied{Before: before, After: after, RevisionBefore: Revision(data), RevisionAfter: Revision(out)}
+	if bytes.Equal(out, data) {
+		res.Unchanged, res.RevisionAfter = true, res.RevisionBefore
+	}
+	return res, nil
+}
+
 // Apply runs mutate on the file as it is now, validates the complete result
 // with the same validator every read uses, and writes it. expect is the
 // revision the caller read; it is required. Any failure leaves the file

@@ -100,7 +100,7 @@ var guardedRoutes = map[string][]string{
 		"/api/resources/app/apply", "/api/resources/app/deploy", "/api/resources/app/reload",
 		"/api/resources/app/stop", "/api/resources/app/sync", "/api/resources/app/remove",
 	},
-	"/api/hosts/":                         {"/api/hosts/capacity", "/api/hosts/h/probe", "/api/hosts/h"},
+	"/api/hosts/":                         {"/api/hosts/capacity", "/api/hosts/h/probe", "/api/hosts/h", "/api/hosts/h/inventory"},
 	"/api/components/":                    {"/api/components/c/move", "/api/components/c"},
 	"/api/logout":                         {"/api/logout"},
 	"/api/approvals/":                     {"/api/approvals/a/decide", "/api/approvals/a/revoke"},

@@ -467,6 +467,10 @@ func (r *recordingClient) UpdateHost(_ context.Context, a cerbapi.HostUpdateArgs
 	r.seen = a.ApprovalID
 	return cerbapi.WriteResult{}, nil
 }
+func (r *recordingClient) InventoryHost(_ context.Context, a cerbapi.InventoryArgs) (cerbapi.InventoryResult, error) {
+	r.seen = a.ApprovalID
+	return cerbapi.InventoryResult{}, nil
+}
 func (r *recordingClient) RemoveHost(_ context.Context, a cerbapi.HostRemoveArgs) (cerbapi.WriteResult, error) {
 	r.seen = a.ApprovalID
 	return cerbapi.WriteResult{}, nil
