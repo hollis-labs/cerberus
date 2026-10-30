@@ -170,6 +170,8 @@ type HostMonitorConfig struct {
 	// rollups; daily rollups are kept.
 	Rollup5mRetention string `yaml:"rollup_5m_retention,omitempty"`
 	Rollup1hRetention string `yaml:"rollup_1h_retention,omitempty"`
+	// EventRetention keeps status events (default 90 days).
+	EventRetention string `yaml:"event_retention,omitempty"`
 
 	Thresholds *HostMonitorThresholds `yaml:"thresholds,omitempty"`
 }

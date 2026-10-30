@@ -40,6 +40,7 @@ type HostMonitor struct {
 
 	global chan struct{}
 	ssh    chan struct{}
+	hub    *eventHub
 
 	mu       sync.Mutex
 	running  bool
@@ -64,7 +65,7 @@ func NewHostMonitor(svc *HostService, store *hosts.SampleStore, settings hosts.M
 	}
 	return &HostMonitor{svc: svc, store: store, settings: settings, logger: logger, now: time.Now, rnd: rand.Float64,
 		global: make(chan struct{}, settings.Concurrency), ssh: make(chan struct{}, settings.SSHConcurrency),
-		due: map[string]time.Time{}, inFlight: map[string]bool{}, lastSeen: map[string]time.Time{}}
+		hub: newEventHub(), due: map[string]time.Time{}, inFlight: map[string]bool{}, lastSeen: map[string]time.Time{}}
 }
 
 // Settings returns the effective settings.
@@ -241,6 +242,18 @@ func (m *HostMonitor) probeOne(ctx context.Context, h hosts.Host) {
 	}
 	m.mu.Unlock()
 
+	if changed {
+		ev := hosts.Event{At: finished, Host: h.Name, Kind: hosts.EventStatusChanged, From: orUnknown(prev.Status), To: next.Status,
+			Expected: h.Labels["intermittent"] == "true"}
+		for _, r := range next.Reasons {
+			ev.Reasons = append(ev.Reasons, r.Code)
+		}
+		if _, err := m.store.AppendEvent(ctx, ev); err != nil {
+			m.logger.Warn("daemon.host_monitor.event_write_failed", "host", h.Name, "error", redact.Text(err.Error()))
+		} else {
+			m.hub.notify()
+		}
+	}
 	switch {
 	case changed:
 		m.logger.Info("daemon.host_monitor.status_changed", "host", h.Name, "from", prev.Status, "to", next.Status)

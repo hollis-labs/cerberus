@@ -79,3 +79,37 @@ func init() {
 		toolOperations["cerberus_"+op] = opRef{cerbapi.HostDefinition, op}
 	}
 }
+
+// HostEventTools is the poll side of the status event stream: MCP has no
+// streaming, so an agent resumes by id.
+func HostEventTools(client cerbapi.HostEventsClient) []Tool {
+	return []Tool{contractTool(Tool{
+		Name: "cerberus_host_events",
+		Description: "Host status-change events (status_changed: from, to, reason codes) after an event id, oldest first. Resume from last_id of the previous call; a gap means older events were pruned. " +
+			"Events carry status and reason codes only. Use cerberus_host_status for the details.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"after_id": map[string]interface{}{"type": "integer", "minimum": 0, "description": "Return events after this id (0 for the oldest kept)."},
+			"host":     map[string]interface{}{"type": "string", "description": "Only this host."},
+			"limit":    map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000},
+		}),
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
+			q := cerbapi.EventsQuery{Host: stringArg(args, "host")}
+			if n, ok := args["after_id"].(float64); ok {
+				q.AfterID = int64(n)
+			}
+			if n, ok := args["limit"].(float64); ok {
+				q.Limit = int(n)
+			}
+			res, err := client.HostEvents(ctx, q)
+			if err != nil {
+				return "", err
+			}
+			data, merr := redact.MarshalIndent(res, "", "  ")
+			return string(data), merr
+		},
+	})}
+}
+
+func init() {
+	toolOperations["cerberus_"+cerbapi.OpHostEvents] = opRef{cerbapi.HostDefinition, cerbapi.OpHostEvents}
+}

@@ -6,12 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
 // SampleStore keeps samples and derived status in the daemon's SQLite
 // database (tables host_samples and host_status, migration 006).
-type SampleStore struct{ db *sql.DB }
+type SampleStore struct {
+	db *sql.DB
+	// wmu serializes this store's writes: monitor goroutines for different
+	// hosts write at once, and SQLite allows one writer.
+	wmu sync.Mutex
+}
 
 // NewSampleStore wraps an open database that has the migration applied.
 func NewSampleStore(db *sql.DB) *SampleStore { return &SampleStore{db: db} }
@@ -35,6 +41,8 @@ func unixPtr(t *time.Time) any {
 // AppendSample records a measurement. A second sample in the same second for a
 // host replaces the first.
 func (s *SampleStore) AppendSample(ctx context.Context, x Sample) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
 	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO host_samples
 		(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -116,6 +124,8 @@ func (s *SampleStore) Samples(ctx context.Context, host string, since, until tim
 
 // PutStatus stores a host's status.
 func (s *SampleStore) PutStatus(ctx context.Context, st HostStatus) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
 	reasons, err := json.Marshal(st.Reasons)
 	if err != nil {
 		return err
@@ -185,6 +195,8 @@ func (s *SampleStore) AllStatus(ctx context.Context) (map[string]HostStatus, err
 // ForgetStatus drops the status of hosts not in keep. Samples are history and
 // stay.
 func (s *SampleStore) ForgetStatus(ctx context.Context, keep map[string]bool) error {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
 	all, err := s.AllStatus(ctx)
 	if err != nil {
 		return err

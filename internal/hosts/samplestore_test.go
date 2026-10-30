@@ -85,3 +85,45 @@ func TestStatusStore(t *testing.T) {
 		t.Fatalf("forget: %+v", all)
 	}
 }
+
+func TestEventStore(t *testing.T) {
+	st, ctx := newStore(t), context.Background()
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	for i, to := range []string{"online", "degraded", "offline"} {
+		id, err := st.AppendEvent(ctx, hosts.Event{At: now.Add(time.Duration(i) * time.Hour), Host: "a", Kind: hosts.EventStatusChanged, From: "unknown", To: to,
+			Reasons: []string{"disk_low"}, Expected: i == 2})
+		if err != nil || id != int64(i+1) {
+			t.Fatalf("id %d %v", id, err)
+		}
+	}
+	if _, err := st.AppendEvent(ctx, hosts.Event{At: now, Host: "b", Kind: hosts.EventStatusChanged, From: "unknown", To: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	all, err := st.Events(ctx, hosts.EventQuery{})
+	if err != nil || len(all) != 4 || all[0].ID != 1 || all[3].Host != "b" || all[3].Reasons != nil && len(all[3].Reasons) != 0 {
+		t.Fatalf("%+v %v", all, err)
+	}
+	after, _ := st.Events(ctx, hosts.EventQuery{AfterID: 2, Host: "a"})
+	if len(after) != 1 || after[0].To != "offline" || !after[0].Expected || after[0].Reasons[0] != "disk_low" {
+		t.Fatalf("%+v", after)
+	}
+	if lim, _ := st.Events(ctx, hosts.EventQuery{Limit: 2}); len(lim) != 2 {
+		t.Fatalf("limit: %d", len(lim))
+	}
+	lo, hi, err := st.EventBounds(ctx)
+	if err != nil || lo != 1 || hi != 4 {
+		t.Fatalf("bounds %d %d %v", lo, hi, err)
+	}
+	// Retention: the 90 day rule removes only what is older than it.
+	rep, err := st.Compact(ctx, now.Add(2*time.Hour+time.Minute), hosts.Retention{Events: 90 * time.Minute})
+	if err != nil || rep.EventsDeleted != 2 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	if lo, _, _ := st.EventBounds(ctx); lo != 2 {
+		t.Fatalf("oldest = %d", lo)
+	}
+	// An id is never reused after a prune.
+	if id, _ := st.AppendEvent(ctx, hosts.Event{At: now, Host: "a", Kind: hosts.EventStatusChanged, From: "x", To: "y"}); id != 5 {
+		t.Fatalf("reused id %d", id)
+	}
+}
