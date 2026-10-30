@@ -52,7 +52,7 @@ func HostsOpenAPI() ([]byte, error) {
 		}
 		content := map[string]any{"application/json": map[string]any{"schema": respSchema}}
 		if r.Stream {
-			content["text/event-stream"] = map[string]any{"schema": map[string]any{"type": "string"}, "description": "One event per message; id: is the event id."}
+			content["text/event-stream"] = map[string]any{"schema": g.schemaOf(reflect.TypeOf(hosts.Event{})), "description": "One event per message; id: is the event id."}
 		}
 		op["responses"] = map[string]any{
 			"200": map[string]any{"description": "OK", "content": content},

@@ -283,3 +283,36 @@ func TestWebPublicURLComesFromGlobalConfigOnly(t *testing.T) {
 		t.Fatalf("web: %+v", resolved.Config.Web)
 	}
 }
+
+// host_monitor in the global config.yaml must survive resolution when projects
+// are registered; it was silently dropped, which kept the monitor off on a host
+// with registered projects.
+func TestHostMonitorComesFromTheGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, DefaultIndexFilename)
+	reg := New(indexPath)
+	project := writeProjectConfig(t, t.TempDir(), "demo")
+	if _, regErr := reg.Register(project); regErr != nil {
+		t.Fatal(regErr)
+	}
+	resolved, err := Resolve(ResolveOptions{IndexPath: indexPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Config.HostMonitor != nil {
+		t.Fatalf("no global config: host_monitor = %+v", resolved.Config.HostMonitor)
+	}
+
+	global := filepath.Join(dir, "config.yaml")
+	if writeErr := os.WriteFile(global, []byte("version: 2\nhost_monitor:\n  enabled: true\n  outpost_interval: 90s\n"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	resolved, err = Resolve(ResolveOptions{IndexPath: indexPath, GlobalPath: global})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hm := resolved.Config.HostMonitor
+	if hm == nil || !hm.Enabled || hm.OutpostInterval != "90s" {
+		t.Fatalf("host_monitor = %+v, want enabled with a 90s outpost interval", hm)
+	}
+}

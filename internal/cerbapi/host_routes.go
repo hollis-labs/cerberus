@@ -87,7 +87,13 @@ type revisionResponse struct {
 
 // HostRoutes is the host API.
 func HostRoutes() []RouteSpec {
-	return hostRoutes()
+	routes := hostRoutes()
+	for i := range routes {
+		if routes[i].Operation == OpHostSamples && routes[i].Path == "/hosts/{name}/samples" {
+			routes[i].Alt = []hosts.Rollup{}
+		}
+	}
+	return routes
 }
 
 func hostRoutes() []RouteSpec {
@@ -103,8 +109,9 @@ func hostRoutes() []RouteSpec {
 		{http.MethodGet, "/hosts/{name}/history", OpHostHistory, "Changes that touched a host, newest first.", nil, []hosts.Change{}, []string{"limit"}, false, false, nil},
 		{http.MethodGet, "/hosts/_status", OpHostStatus, "Health of every host.", nil, []HostStatusView{}, nil, false, false, nil},
 		{http.MethodGet, "/hosts/{name}/status", OpHostStatus, "Health of one host: online, degraded, offline or unknown, with reasons.", nil, HostStatusView{}, nil, false, false, nil},
-		{http.MethodGet, "/hosts/{name}/samples", OpHostSamples, "A host's raw measurements in time order.", nil, []hosts.Sample{}, []string{"since", "until", "limit"}, false, false, nil},
+		{http.MethodGet, "/hosts/{name}/samples", OpHostSamples, "A host's measurements in time order: raw samples, or 5m, 1h and 1d rollups with grain.", nil, []hosts.Sample{}, []string{"since", "until", "limit", "grain"}, false, false, nil},
 		{http.MethodGet, "/hosts/_monitor", OpHostMonitor, "What the host monitor is doing: settings and each host's next probe.", nil, MonitorSnapshot{}, nil, false, false, nil},
+		{http.MethodGet, "/hosts/_events", OpHostEvents, "Status-change events after an id (JSON), or a Server-Sent Events stream with Accept: text/event-stream; resume with Last-Event-ID.", nil, EventsResult{}, []string{"after_id", "host", "kind", "limit"}, true, false, nil},
 		{http.MethodGet, "/hosts/_openapi", "", "This document.", nil, map[string]any{}, nil, false, true, nil},
 		{http.MethodGet, "/components", OpComponentList, "List spare and installed parts.", nil, []hosts.Component{}, []string{"kind", "host", "spare"}, false, false, nil},
 		{http.MethodGet, "/components/{id}", OpComponentGet, "One component.", nil, hosts.Component{}, nil, false, false, nil},

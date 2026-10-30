@@ -44,7 +44,7 @@ func HostHTTP(client HostClient, prefix string) http.Handler {
 			_, _ = w.Write(doc)
 			return
 		}
-		if hostActionHTTP(w, r, client, parts) || hostWriteHTTP(w, r, client, parts) || hostMonitorHTTP(w, r, client, parts) {
+		if hostActionHTTP(w, r, client, parts) || hostWriteHTTP(w, r, client, parts) || hostMonitorHTTP(w, r, client, parts) || hostEventsHTTP(w, r, client, parts) {
 			return
 		}
 		fail := func(err error) {

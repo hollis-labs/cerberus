@@ -1,6 +1,21 @@
 {
   "components": {
     "schemas": {
+      "AvgMax": {
+        "properties": {
+          "avg": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "avg",
+          "max"
+        ],
+        "type": "object"
+      },
       "CPUCeiling": {
         "properties": {
           "installed": {
@@ -37,8 +52,23 @@
       },
       "CapacityQuery": {
         "properties": {
+          "disk_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "explain": {
             "type": "boolean"
+          },
+          "free_memory_slots": {
+            "type": "integer"
+          },
+          "free_storage_slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotNeed"
+            },
+            "type": "array"
           },
           "include_offline": {
             "type": "boolean"
@@ -67,7 +97,43 @@
               }
             ]
           },
+          "min_disk_size": {
+            "description": "bytes as an integer, or a size string such as 16GiB",
+            "oneOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
           "min_memory_available": {
+            "description": "bytes as an integer, or a size string such as 16GiB",
+            "oneOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "min_memory_total": {
+            "description": "bytes as an integer, or a size string such as 16GiB",
+            "oneOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "min_memory_upgrade": {
             "description": "bytes as an integer, or a size string such as 16GiB",
             "oneOf": [
               {
@@ -82,6 +148,9 @@
           "provider": {
             "type": "string"
           },
+          "recent": {
+            "$ref": "#/components/schemas/Recent"
+          },
           "require_tools": {
             "items": {
               "type": "string"
@@ -90,6 +159,12 @@
           },
           "role": {
             "type": "string"
+          },
+          "status_in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -101,6 +176,12 @@
               "$ref": "#/components/schemas/HostVerdict"
             },
             "type": "array"
+          },
+          "judged": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RecentFacts"
+            },
+            "type": "object"
           },
           "matched": {
             "anyOf": [
@@ -117,6 +198,12 @@
           },
           "max_stale_age": {
             "type": "string"
+          },
+          "status_facts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StatusFacts"
+            },
+            "type": "object"
           },
           "total_hosts": {
             "type": "integer"
@@ -374,6 +461,90 @@
         "required": [
           "error",
           "success"
+        ],
+        "type": "object"
+      },
+      "Event": {
+        "properties": {
+          "expected": {
+            "type": "boolean"
+          },
+          "from": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "to": {
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "host",
+          "id",
+          "kind",
+          "to",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "EventGap": {
+        "properties": {
+          "after_id": {
+            "type": "integer"
+          },
+          "oldest_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "after_id",
+          "oldest_id"
+        ],
+        "type": "object"
+      },
+      "EventsResult": {
+        "properties": {
+          "events": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Event"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gap": {
+            "$ref": "#/components/schemas/EventGap"
+          },
+          "last_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "last_id"
         ],
         "type": "object"
       },
@@ -994,6 +1165,10 @@
           "enabled": {
             "type": "boolean"
           },
+          "event_retention": {
+            "description": "nanoseconds",
+            "type": "integer"
+          },
           "jitter": {
             "type": "number"
           },
@@ -1010,6 +1185,14 @@
             "type": "integer"
           },
           "probe_timeout": {
+            "description": "nanoseconds",
+            "type": "integer"
+          },
+          "rollup_1h_retention": {
+            "description": "nanoseconds",
+            "type": "integer"
+          },
+          "rollup_5m_retention": {
             "description": "nanoseconds",
             "type": "integer"
           },
@@ -1031,11 +1214,14 @@
         "required": [
           "concurrency",
           "enabled",
+          "event_retention",
           "jitter",
           "max_backoff",
           "min_interval",
           "outpost_interval",
           "probe_timeout",
+          "rollup_1h_retention",
+          "rollup_5m_retention",
           "sample_retention",
           "ssh_concurrency",
           "ssh_interval",
@@ -1296,6 +1482,73 @@
         ],
         "type": "object"
       },
+      "Recent": {
+        "properties": {
+          "max_load_per_core": {
+            "type": "number"
+          },
+          "min_disk_free": {
+            "description": "bytes as an integer, or a size string such as 16GiB",
+            "oneOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "min_memory_available": {
+            "description": "bytes as an integer, or a size string such as 16GiB",
+            "oneOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "window": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RecentFacts": {
+        "properties": {
+          "expected_samples": {
+            "type": "integer"
+          },
+          "min_disk_free": {
+            "type": "integer"
+          },
+          "min_memory_available": {
+            "type": "integer"
+          },
+          "probe_interval": {
+            "type": "string"
+          },
+          "samples": {
+            "type": "integer"
+          },
+          "window": {
+            "type": "string"
+          },
+          "worst_load_per_core": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "expected_samples",
+          "probe_interval",
+          "samples",
+          "window"
+        ],
+        "type": "object"
+      },
       "RevisionResponse": {
         "properties": {
           "revision": {
@@ -1304,6 +1557,54 @@
         },
         "required": [
           "revision"
+        ],
+        "type": "object"
+      },
+      "Rollup": {
+        "properties": {
+          "cpu": {
+            "type": "integer"
+          },
+          "disk_free": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "disk_total": {
+            "type": "integer"
+          },
+          "grain": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "load1": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "memory_available": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "memory_total": {
+            "type": "integer"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "probe_ms": {
+            "$ref": "#/components/schemas/AvgMax"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "uptime_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "grain",
+          "host",
+          "n",
+          "ts"
         ],
         "type": "object"
       },
@@ -1369,6 +1670,21 @@
           "free",
           "total",
           "used"
+        ],
+        "type": "object"
+      },
+      "SlotNeed": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "min": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "min"
         ],
         "type": "object"
       },
@@ -1532,6 +1848,48 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "Stat": {
+        "properties": {
+          "avg": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "min": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "avg",
+          "max",
+          "min"
+        ],
+        "type": "object"
+      },
+      "StatusFacts": {
+        "properties": {
+          "last_ok": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "probe_interval": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "status"
+        ],
         "type": "object"
       },
       "StorageSlot": {
@@ -2141,6 +2499,82 @@
         "x-cerberus-scope": "cerberus:hosts.read (or cerberus:read)"
       }
     },
+    "/api/hosts/_events": {
+      "get": {
+        "operationId": "host_events_get_hosts__events",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsResult"
+                }
+              },
+              "text/event-stream": {
+                "description": "One event per message; id: is the event id.",
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Refused: the body is {error, success:false}. 401 bad or missing credential, 403 scope or gate, 404 unknown host/component, 409 stale revision, 428 revision required."
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "cerberus:hosts.read"
+            ]
+          }
+        ],
+        "summary": "Status-change events after an id (JSON), or a Server-Sent Events stream with Accept: text/event-stream; resume with Last-Event-ID.",
+        "x-cerberus-scope": "cerberus:hosts.read (or cerberus:read)"
+      }
+    },
     "/api/hosts/_monitor": {
       "get": {
         "operationId": "host_monitor_get_hosts__monitor",
@@ -2674,6 +3108,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "grain",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2681,10 +3123,20 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Sample"
-                  },
-                  "type": "array"
+                  "oneOf": [
+                    {
+                      "items": {
+                        "$ref": "#/components/schemas/Sample"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "items": {
+                        "$ref": "#/components/schemas/Rollup"
+                      },
+                      "type": "array"
+                    }
+                  ]
                 }
               }
             },
@@ -2708,7 +3160,7 @@
             ]
           }
         ],
-        "summary": "A host's raw measurements in time order.",
+        "summary": "A host's measurements in time order: raw samples, or 5m, 1h and 1d rollups with grain.",
         "x-cerberus-scope": "cerberus:hosts.read (or cerberus:read)"
       }
     },

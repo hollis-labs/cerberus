@@ -19,6 +19,10 @@ type SampleStore struct {
 	wmu sync.Mutex
 }
 
+// ErrLateSample is returned for a sample older than the host's rolled-up
+// watermark.
+var ErrLateSample = errors.New("late sample")
+
 // NewSampleStore wraps an open database that has the migration applied.
 func NewSampleStore(db *sql.DB) *SampleStore { return &SampleStore{db: db} }
 
@@ -43,7 +47,19 @@ func unixPtr(t *time.Time) any {
 func (s *SampleStore) AppendSample(ctx context.Context, x Sample) error {
 	s.wmu.Lock()
 	defer s.wmu.Unlock()
-	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO host_samples
+	// A sample behind the host's 5-minute watermark belongs to a bucket that has
+	// already been rolled up (a host clock that stepped backwards, say). It
+	// would be left in the raw table uncounted and then deleted by retention,
+	// so it is refused rather than stored.
+	var w int64
+	err := s.db.QueryRowContext(ctx, `SELECT watermark FROM host_rollup_state WHERE host = ? AND grain = ?`, x.Host, Grain5m).Scan(&w)
+	if err == nil && unix(x.At) < w {
+		return fmt.Errorf("%w: sample at %s is before the rolled-up watermark %s", ErrLateSample, x.At.UTC().Format(time.RFC3339), time.Unix(w, 0).UTC().Format(time.RFC3339))
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO host_samples
 		(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		x.Host, unix(x.At), nullF(x.Load1), nullF(x.Load5), nullF(x.Load15), x.CPU, x.MemoryTotal, x.MemoryAvailable,
