@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/app"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
 
 	"github.com/hollis-labs/cerberus/internal/loopback"
 	"github.com/hollis-labs/cerberus/internal/registry"
@@ -54,7 +55,7 @@ console after changing it. Run ` + "`cerberus web open`" + ` for another link.`,
 			publicURL = cfg.Web.PublicURL
 			base = publicURL
 		}
-		client, err := newResourceSocketClient()
+		client, err := newResourceSocketClient(cerbapi.WithBearer(webui.BearerFromContext))
 		if err != nil {
 			return err
 		}

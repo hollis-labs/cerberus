@@ -445,3 +445,68 @@ func credentialFixtures() []contract.Definition {
 		{ID: "docker", Version: "builtin"},
 	}
 }
+
+// bearerClient records the bearer token each host call arrives with, as the
+// console's daemon client would forward it.
+type bearerClient struct {
+	fakeClient
+	cerbapi.HostClient      // the routes need the full interface; only ListHosts is exercised
+	cerbapi.HostWriteClient // likewise; only UpdateHost
+	seen                    []string
+}
+
+func (b *bearerClient) ListHosts(ctx context.Context, _ cerbapi.HostFilter) ([]cerbapi.HostView, error) {
+	b.seen = append(b.seen, BearerFromContext(ctx))
+	return []cerbapi.HostView{}, nil
+}
+
+func (b *bearerClient) UpdateHost(ctx context.Context, a cerbapi.HostUpdateArgs) (cerbapi.WriteResult, error) {
+	b.seen = append(b.seen, BearerFromContext(ctx))
+	return cerbapi.WriteResult{Op: "host_update", Name: a.Name}, nil
+}
+
+func TestBearerReachesOnlyTheHostRoutesWithoutASession(t *testing.T) {
+	client := &bearerClient{}
+	h := mustNew(t, client).Handler(testGuard()) // no sign-in: there is no cookie
+	do := func(method, path, ct, bearer string, body string) *httptest.ResponseRecorder {
+		req := newTestRequest(method, path, strings.NewReader(body))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	// The host routes accept a bearer, and hand the token to the daemon client.
+	if rec := do(http.MethodGet, "/api/hosts", "", "tok-1", ""); rec.Code != http.StatusOK {
+		t.Fatalf("bearer on /api/hosts = %d: %s", rec.Code, rec.Body)
+	}
+	if len(client.seen) != 1 || client.seen[0] != "tok-1" {
+		t.Fatalf("the daemon client must see the token: %v", client.seen)
+	}
+	// No bearer and no cookie is still refused, and so is a bearer anywhere else.
+	if rec := do(http.MethodGet, "/api/hosts", "", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no credential = %d", rec.Code)
+	}
+	for _, p := range []string{"/api/resources", "/api/approvals", "/api/brakes", "/api/overview", "/api/hostsx"} {
+		if rec := do(http.MethodGet, p, "", "tok-1", ""); rec.Code != http.StatusUnauthorized {
+			t.Errorf("a bearer must not open %s: %d", p, rec.Code)
+		}
+	}
+	// A write with a bearer needs no console session token (a bearer is not
+	// ambient), but still needs a JSON body; the daemon decides the rest.
+	if rec := do(http.MethodPatch, "/api/hosts/box-a", "application/json", "tok-2", `{"revision":"r","acknowledged":true,"patch":{}}`); rec.Code != http.StatusOK {
+		t.Fatalf("bearer write = %d: %s", rec.Code, rec.Body)
+	}
+	if rec := do(http.MethodPatch, "/api/hosts/box-a", "text/plain", "tok-2", `{}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("a bearer write without a JSON body = %d", rec.Code)
+	}
+	// The token is never echoed back.
+	rec := do(http.MethodGet, "/api/hosts", "", "tok-secret-9", "")
+	if strings.Contains(rec.Body.String(), "tok-secret-9") || strings.Contains(rec.Header().Get("Set-Cookie"), "tok-secret-9") {
+		t.Fatal("the token was echoed")
+	}
+}

@@ -246,6 +246,15 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// A service (Tachyon) reaches the host routes with a bearer token and no
+		// cookie. Only those routes: every other console route needs a session.
+		// The token is not checked here: it is forwarded to the daemon, which
+		// verifies it and applies its scopes to every call.
+		if tok := bearerToken(r); tok != "" && bearerRoute(r.URL.Path) {
+			cerbapi.ScopeAddBearer(r.Context(), tok)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), bearerKey{}, tok)))
+			return
+		}
 		cookie, _ := r.Cookie(s.cookieName())
 		var value string
 		if cookie != nil {
@@ -559,4 +568,32 @@ func ConsoleOrigins(home string) []string {
 		origins = append(origins, u.Scheme+"://"+u.Host)
 	}
 	return origins
+}
+
+type bearerKey struct{}
+
+// BearerFromContext is the bearer token a host-route request arrived with, or
+// "". The console's daemon client forwards it, so the daemon verifies it.
+func BearerFromContext(ctx context.Context) string {
+	tok, _ := ctx.Value(bearerKey{}).(string)
+	return tok
+}
+
+func bearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if len(h) > 7 && strings.EqualFold(h[:7], "Bearer ") {
+		return strings.TrimSpace(h[7:])
+	}
+	return ""
+}
+
+// bearerRoute reports the routes a bearer token may reach without a session:
+// the host registry and its components.
+func bearerRoute(path string) bool {
+	for _, p := range []string{"/api/hosts", "/api/components"} {
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
 }

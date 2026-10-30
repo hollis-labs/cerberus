@@ -369,6 +369,13 @@ func (s *Server) allowStateChangingRequest(r *http.Request) bool {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return false
 	}
+	// A bearer token is not an ambient credential: a page cannot make a
+	// browser send one, so the browser checks below (session token, Host,
+	// Origin) do not apply. The daemon still verifies the token and its scopes
+	// on every call.
+	if BearerFromContext(r.Context()) != "" {
+		return true
+	}
 	// The session cookie says who; the session's own token, which only a
 	// page that read /api/session as that session can send, says the
 	// request came from the console and not from another page the browser

@@ -201,7 +201,7 @@ func parseTTL(s string) (time.Duration, error) {
 
 func init() {
 	mcpHTTPTokenIssueCmd.Flags().StringVar(&mcpHTTPTokenFlags.client, "client", "", "the client the token is for (its name in the audit log)")
-	mcpHTTPTokenIssueCmd.Flags().StringSliceVar(&mcpHTTPTokenFlags.scopes, "scope", nil, "scopes: cerberus:read, cerberus:read_sensitive, cerberus:operate")
+	mcpHTTPTokenIssueCmd.Flags().StringSliceVar(&mcpHTTPTokenFlags.scopes, "scope", nil, "scopes: cerberus:read, cerberus:read_sensitive, cerberus:operate, cerberus:hosts.read, cerberus:hosts.write")
 	mcpHTTPTokenIssueCmd.Flags().StringVar(&mcpHTTPTokenFlags.ttl, "ttl", "7d", "lifetime, like 7d or 12h (at most 90d)")
 	mcpHTTPTokenCmd.AddCommand(mcpHTTPTokenIssueCmd, mcpHTTPTokenListCmd, mcpHTTPTokenRevokeCmd)
 	mcpHTTPCmd.AddCommand(mcpHTTPTokenCmd)
