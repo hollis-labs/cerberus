@@ -140,6 +140,11 @@ func Validate(f *File) error {
 		if h.Hardware != nil {
 			validateHardware(h.Hardware, func(field, msg string) { add(name, field, "%s", msg) })
 		}
+		if h.Monitor != nil && h.Monitor.Interval != "" {
+			if d, err := time.ParseDuration(h.Monitor.Interval); err != nil || d <= 0 {
+				add(name, "monitor.interval", "%q is not a positive duration such as 30s or 5m", h.Monitor.Interval)
+			}
+		}
 		if strings.ContainsAny(h.Reach.SSH, " \t\r\n") {
 			add(name, "reach.ssh", "must be a resource id")
 		}

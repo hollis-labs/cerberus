@@ -38,7 +38,8 @@ type HostService struct {
 	staleAfter time.Duration
 	now        func() time.Time
 	probeLimit time.Duration
-	mu         sync.Mutex // serializes probes
+	mu         sync.Mutex // serializes the read-modify-write of stored state
+	mon        *HostMonitor
 }
 
 // HostSSH is the part of the ssh connector a probe uses.
@@ -118,6 +119,9 @@ type HostView struct {
 	Components []hosts.Component `json:"components,omitempty"`
 	// Warnings are findings that do not make the record invalid.
 	Warnings []string `json:"warnings,omitempty"`
+	// Status is the monitor's view of the host's health (Hosts E): present when
+	// the daemon runs a monitor. Absent means nothing is known, not "healthy".
+	Status *hosts.HostStatus `json:"status,omitempty"`
 }
 
 // HostFilter selects hosts by facts the operator recorded. Matching is exact,
@@ -153,6 +157,14 @@ func (s *HostService) view(h hosts.Host, comps []hosts.Component) HostView {
 		v.StorageSummary = hosts.StorageSummary(h.Hardware.StorageSlots)
 	}
 	v.Warnings = hosts.SlotWarnings(h)
+	if s.mon != nil {
+		if st, ok, err := s.mon.store.Status(context.Background(), h.Name); err == nil && ok {
+			if interval, monitored := s.mon.settings.IntervalFor(h); monitored {
+				st, _ = s.mon.settings.Thresholds.Effective(st, interval, s.now())
+			}
+			v.Status = &st
+		}
+	}
 	for _, c := range comps {
 		if c.Location.Host == h.Name {
 			v.Components = append(v.Components, c)
@@ -283,13 +295,9 @@ func hostProbeOperation() contract.Operation {
 // probe could not be attempted (unknown host, no usable ssh reach, audit
 // unavailable).
 func (s *HostService) Probe(ctx context.Context, name string) (_ HostView, retErr error) {
-	declared, err := s.get(name)
-	if err != nil {
+	if _, err := s.get(name); err != nil {
 		return HostView{}, err
 	}
-	h := declared.Host
-	ctx, scope := redact.EnsureScope(ctx)
-
 	spec := auditSpec{connector: "host", operation: "probe", op: hostProbeOperation(), known: true,
 		config: map[string]any{"name": name}, resources: s.resources}
 	call, err := beginGated(ctx, s.audit, s.logger, spec)
@@ -297,23 +305,46 @@ func (s *HostService) Probe(ctx context.Context, name string) (_ HostView, retEr
 		return HostView{}, err
 	}
 	defer func() { call.finish(retErr) }()
+	return s.probe(ctx, name, call)
+}
 
-	pctx, cancel := context.WithTimeout(call.withTelemetry(ctx), s.probeLimit)
+// ProbeQuiet is Probe for the host monitor: the same fixed probe and the same
+// recorded state, but no audit record of its own. The monitor records state
+// changes, failure streaks and an hourly summary instead of one record per
+// routine probe.
+func (s *HostService) ProbeQuiet(ctx context.Context, name string) (HostView, error) {
+	return s.probe(ctx, name, nil)
+}
+
+func (s *HostService) probe(ctx context.Context, name string, call *auditCall) (HostView, error) {
+	declared, err := s.get(name)
+	if err != nil {
+		return HostView{}, err
+	}
+	h := declared.Host
+	ctx, scope := redact.EnsureScope(ctx)
+	pctx := ctx
+	if call != nil {
+		pctx = call.withTelemetry(ctx)
+	}
+	pctx, cancel := context.WithTimeout(pctx, s.probeLimit)
 	defer cancel()
 	gather, err := s.probeTransport(pctx, h)
 	if err != nil {
 		return HostView{}, err
 	}
 
+	// The measurement runs unlocked, so probes of different hosts overlap
+	// (the monitor bounds them); only the read-modify-write of the stored
+	// state is serialized.
+	probed, perr := gather()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	now := s.now().UTC()
 	prev := s.store.Get(name)
 	next := prev
 	next.CheckedAt = &now
-
-	probed, perr := gather()
 	switch {
 	case perr != nil:
 		next.State = hosts.StateOffline

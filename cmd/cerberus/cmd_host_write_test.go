@@ -95,3 +95,12 @@ func TestHostInventoryNeedsAnSSHReach(t *testing.T) {
 		t.Fatalf("without --ack: %v", err)
 	}
 }
+
+func TestHostStatusWithoutADaemonSaysSo(t *testing.T) {
+	writeHome(t)
+	for _, args := range [][]string{{"host", "status"}, {"host", "monitor"}, {"host", "samples", "box-a"}} {
+		if _, err := runWrite(t, args...); err == nil || !strings.Contains(err.Error(), "monitoring is not available") {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+}

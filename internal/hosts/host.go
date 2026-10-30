@@ -201,6 +201,9 @@ type Host struct {
 	TTL       string     `yaml:"ttl,omitempty" json:"ttl,omitempty"` // a Go duration, e.g. 72h
 	Cost      *Cost      `yaml:"cost,omitempty" json:"cost,omitempty"`
 
+	// Monitor overrides the daemon's monitoring defaults for this host.
+	Monitor *Monitor `yaml:"monitor,omitempty" json:"monitor,omitempty"`
+
 	// Pointers. Both are opaque to Cerberus.
 	TetherEnvironmentID string   `yaml:"tether_environment_id,omitempty" json:"tether_environment_id,omitempty"`
 	BackupRefs          []string `yaml:"backup_refs,omitempty" json:"backup_refs,omitempty"`

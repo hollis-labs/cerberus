@@ -731,3 +731,35 @@ no-ranking rule (status and samples contain no score or order beyond name/time).
 4. Audit policy for monitor probes (state changes, failure streaks and an hourly
    summary only): confirm, or ask for every probe.
 5. Retention numbers and status thresholds above are defaults to confirm.
+
+### Hosts E1 as built
+
+E1 implements section 1 to 3 of the design above except rollups (E2), events and
+SSE (E3). Decisions from the review: the monitor lives in the daemon, is off by
+default, monitor probes are audited as designed, thresholds are daemon settings
+whose effective values `host status` shows, and the external metrics endpoint
+(E4) is not built (Tachyon joins Tether session counts itself).
+
+- **Enable it** in the daemon config (`~/.cerberus/config.yaml`):
+  `host_monitor: {enabled: true}`, then restart the daemon. Every other setting is
+  optional (`outpost_interval`, `ssh_interval`, `min_interval`, `jitter_percent`,
+  `max_backoff`, `concurrency`, `ssh_concurrency`, `probe_timeout`, `thresholds:`);
+  see `schema/cerberus.yaml.schema.json`. A host can override with
+  `monitor: {enabled: false}` or `monitor: {interval: 30s}` in `hosts.yaml`.
+- **Reads**: `cerberus host status [NAME]`, `host samples NAME [--since 6h]`,
+  `host monitor`; `GET /hosts/_status`, `/hosts/{name}/status`,
+  `/hosts/{name}/samples`, `/hosts/_monitor` (socket and `/api/hosts/...`);
+  `cerberus_host_status`, `cerberus_host_samples`, `cerberus_host_monitor`. The
+  host view gains `status` (absent when no monitor runs: nothing known, not
+  healthy). Only raw samples exist until E2; a rollup grain is refused.
+- **Storage**: migration 006 adds `host_samples` and `host_status` to the
+  application SQLite. Raw samples are not pruned until the E2 janitor can roll
+  them up first.
+- **Probing**: monitor probes use the host service directly, never the daemon's
+  own socket, so probing the host the daemon runs on (over Outpost or ssh) cannot
+  recurse. They do not touch the OS keyring, and the monitor is built after the
+  socket-independent startup work: a monitor or database that fails to come up is
+  a logged warning, not a reason the daemon fails.
+- **Probe concurrency**: the host service no longer holds its mutex across the
+  remote measurement (it did, which serialized every probe); only the stored-state
+  update is serialized.
