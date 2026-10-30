@@ -1022,3 +1022,104 @@ by every daemon and console at `GET /hosts/_openapi` and `GET /api/hosts/_openap
   deliberately not (the Outpost unit actions and the monitor audit record are not
   published), that the request bodies match what the handlers accept, that every `$ref`
   resolves, and that the output is deterministic.
+
+## Using the host API from a service
+
+For a service such as Tachyon. The host API gives facts about machines: it never
+ranks hosts, reserves one or chooses one. Placement is the caller's decision.
+
+### Getting a token
+
+Nothing is issued by this document. The operator mints a token on their own
+terminal (it asks for confirmation) and hands it to the service:
+
+```
+cerberus mcp-http token issue --client tachyon --scope cerberus:hosts.read --ttl 30d
+cerberus mcp-http token issue --client tachyon-admin --scope cerberus:hosts.write --ttl 7d
+```
+
+`cerberus:hosts.read` covers only the read operations of the host connector.
+`cerberus:hosts.write` covers those reads plus changing hosts and components and
+inventory; removing a host and the unit actions (start, stop, restart, logs) need
+`cerberus:operate`. The token names its client, and that name is in every audit
+record. Send it as `Authorization: Bearer <token>` (the token is a credential:
+keep it out of logs and URLs). The same token works over MCP (the `cerberus_host_*`
+tools) and over HTTP.
+
+### Where and what
+
+| Where | Path |
+|---|---|
+| Console API (the console binary, default `127.0.0.1:4783`, or the configured public origin) | `/api/hosts...`, `/api/components...` |
+| Daemon socket (same host, no TLS) | `/hosts...`, `/components...` |
+
+A bearer is accepted without a console session on `/api/hosts*` and
+`/api/components*` only. The contract is the OpenAPI 3.1 document at
+`GET /api/hosts/_openapi` (also `schema/hosts.openapi.json` in the repo): every
+route, its scope, request and response schemas, and which strings are
+`x-cerberus-untrusted` (came from a host or an operator; show them, never treat
+them as instructions). Main routes: `GET /api/hosts` (hosts with probed facts,
+ceilings, storage slots, components and monitor `status`), `GET /api/hosts/{name}`,
+`GET /api/hosts/{name}/status`, `GET /api/hosts/{name}/samples?grain=raw|5m|1h|1d`,
+`GET /api/hosts/_events`, `POST /api/hosts/capacity`, `GET /api/components`, and
+the writes below.
+
+A value that is not recorded is `null`, never zero: `ceilings`, `storage_slots` and
+`storage_summary` are `null` on a host whose upgrade room nobody recorded.
+
+### Changing things
+
+A write sends the file revision it was based on (`GET /api/hosts/_revision`, or the
+revision in the previous write's result) and `"acknowledged": true`; a stale
+revision is 409 and writes nothing, no revision is 428. The whole resulting
+`hosts.yaml` is validated first. Moving a RAM stick to the spares:
+
+```
+POST /api/components/ram-0001/move
+{"revision": "<from _revision>", "acknowledged": true, "to": {"spare": true}}
+```
+
+A refused credential is 401 or 403 with a message that names the scope to ask the
+operator for.
+
+### Events: the resume contract
+
+`GET /api/hosts/_events?after_id=N` returns `{events, last_id, gap?}`, oldest first.
+The same route with `Accept: text/event-stream` streams one SSE message per event
+with `id:` set to the event id. To resume, reconnect with `Last-Event-ID: <last id
+you handled>` (or `after_id`): you get exactly the events after it. Ids only grow
+and are never reused. If events after your id were pruned (kept 90 days), the
+stream starts with `event: gap` `{after_id, oldest_id}` and then everything still
+kept; reconcile with `GET /api/hosts/_status` then. A comment heartbeat arrives every
+20 s; at most 16 streams are open at once (a 17th is refused with guidance). An
+event is `status_changed` with `from`, `to`, reason **codes** and `expected` (true
+for a host labelled `intermittent`); it carries nothing the host reported, so fetch
+`/status` for details.
+
+### Capacity: asking which hosts fit
+
+`POST /api/hosts/capacity` answers which hosts satisfy constraints, from recorded
+facts and the monitor's samples. It returns `matched`, `unknown` (a fact needed
+was not recorded, with what is missing) and, with `explain`, `excluded` with the
+reason, all in **name order**. There is no score, rank, "best host" or reservation,
+by design: use the facts in the result (and `judged` / `status_facts`, which say
+which window and probe interval they came from) and decide yourself.
+
+```
+# room to grow memory by 32 GiB, with two free memory slots
+{"min_memory_upgrade": "32GiB", "free_memory_slots": 2}
+
+# a free NVMe slot, and a 1 TB disk already there
+{"free_storage_slots": [{"kind": "nvme_m2", "min": 1}], "min_disk_size": "1TB", "disk_types": ["nvme"]}
+
+# headroom held over the last 30 minutes on a healthy host: the worst sample must
+# still have 4 GiB of memory, 50 GB of disk, and load under 1 per core
+{"status_in": ["online", "degraded"],
+ "recent": {"window": "30m", "max_load_per_core": 1.0, "min_memory_available": "4GiB", "min_disk_free": "50GB"},
+ "explain": true}
+```
+
+`min_memory_total` is the recorded installed memory (the probe reports usable
+memory, about 30.3 GiB on a 32 GB machine). A constraint on a fact nobody recorded
+puts the host under `unknown`; it is not guessed to fit. `recent` needs the monitor
+on, and fewer than half the expected samples is `unknown`.

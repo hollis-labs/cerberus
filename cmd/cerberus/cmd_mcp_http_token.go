@@ -51,6 +51,10 @@ expires. Give it to that client as an Authorization: Bearer header.
 
 Scopes: cerberus:read (plain reads), cerberus:read_sensitive (adds logs and
 command output), cerberus:operate (any effect, each still decided by policy).
+Two narrower scopes cover the host registry only: cerberus:hosts.read (reads of
+hosts, components, status, samples, events, capacity) and cerberus:hosts.write
+(those reads plus host and component changes and inventory; not removing a host
+or unit actions, which need operate).
 A token's caller is an agent whatever its scopes, and cannot approve anything.`,
 }
 
