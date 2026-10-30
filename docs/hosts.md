@@ -945,7 +945,7 @@ order, with no weight, score or count-to-pick.
 
 | Constraint | CLI flag | Needs |
 |---|---|---|
-| `min_memory_total` | `--min-memory-total 16GiB` | probed total (fresh), else `hardware.memory.total` |
+| `min_memory_total` | `--min-memory-total 16GiB` | `hardware.memory.total`, else the fresh probed total (the probe reports usable memory, about 30.3 GiB on a 32 GB machine) |
 | `min_memory_upgrade` | `--min-memory-upgrade 32GiB` | `ceilings.memory.max_total` and the installed total |
 | `free_memory_slots` | `--free-memory-slots 2` | `hardware.memory.slots` / `slots_used` |
 | `free_storage_slots` | `--free-slot nvme_m2=1` | `storage_slots` recorded |

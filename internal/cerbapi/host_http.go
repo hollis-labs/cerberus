@@ -154,6 +154,11 @@ func hostStatus(err error) int {
 	case errors.As(err, &invalid):
 		return http.StatusBadRequest
 	}
+	// The daemon refused the caller's credential: that is the caller's to fix,
+	// not a server fault, so it keeps its 401 or 403 through a console.
+	if status, ok := DaemonHTTPStatus(err); ok && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
+		return status
+	}
 	return ExternalConnectorHTTPStatus(err, http.StatusInternalServerError)
 }
 

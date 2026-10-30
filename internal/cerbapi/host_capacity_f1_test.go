@@ -3,6 +3,8 @@ package cerbapi
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -226,5 +228,56 @@ func TestCapacityF1ValidationAndWire(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{"min_gpu":1}`), &out); err == nil {
 		t.Fatal("an unknown constraint must still be refused")
+	}
+}
+
+// A 32 GB machine reports about 30.3 GiB of usable memory to the probe; asking
+// for 32GiB installed must still match it, because installed memory is the
+// recorded hardware figure.
+func TestInstalledMemoryIsTheRecordedFigureNotTheProbed(t *testing.T) {
+	r := newMonitorRig(t, `version: 1
+hosts:
+  - name: recorded
+    role: worker
+    reach: {ssh: box-a-ssh}
+    hardware:
+      memory: {type: DDR4, total: 32GiB, slots: 2, slots_used: 2}
+  - name: unrecorded
+    role: worker
+    reach: {ssh: box-a-ssh}
+`, nil)
+	r.stdout = strings.Replace(r.stdout, "mem_total_kb=8000000", "mem_total_kb=31770000", 1) // 30.3 GiB usable
+	r.tick(t)
+	r.clock.Advance(3 * time.Minute)
+	r.tick(t)
+	ctx := context.Background()
+	for _, name := range []string{"recorded", "unrecorded"} {
+		v, err := r.svc.Get(ctx, name)
+		if err != nil || v.Probed == nil || v.Probed.MemoryTotal > 31<<30 || v.Probed.MemoryTotal < 30<<30 {
+			t.Fatalf("%s probed memory: %+v %v", name, v.Probed, err)
+		}
+	}
+	res := f1(t, r, CapacityQuery{MinMemoryTotal: 32 << 30})
+	m, u, x := capNames(res)
+	if joined(m) != "recorded" || joined(x) != "unrecorded" || len(u) != 0 {
+		t.Fatalf("a 32GiB-installed host reporting 30.3GiB must match; one with nothing recorded falls back to the probe and does not: matched=%v unknown=%v excluded=%v", m, u, x)
+	}
+	// The available-memory constraint still reads the probe.
+	if m, _, _ := capNames(f1(t, r, CapacityQuery{MinMemoryAvailable: 1 << 30})); len(m) != 2 {
+		t.Fatalf("min_memory_available is a probed fact: %v", m)
+	}
+}
+
+// A credential the daemon refuses keeps its 401 through the console route; it
+// is not a server error.
+func TestRefusedBearerIsNotAServerError(t *testing.T) {
+	f := newWriteFixture(t, nil)
+	srv := serveOnSocketWithBearer(t, NewInProcessClient(WithHostService(f.svc))) // the daemon has no mcp-http auth configured
+	srv.holder.set("garbage-token")
+	h := HostHTTP(HostClientOf(srv.SocketClient), "/api/hosts")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/hosts", nil))
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "no mcp-http auth configured") {
+		t.Fatalf("garbage bearer = %d %s", rec.Code, rec.Body)
 	}
 }
