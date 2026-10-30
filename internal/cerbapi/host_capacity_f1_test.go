@@ -109,9 +109,13 @@ func TestCapacityOnMonitorStatus(t *testing.T) {
 	r.tick(t)
 	r.clock.Advance(3 * time.Minute)
 	r.tick(t)
-	m, u, x := capNames(f1(t, r, q))
+	res := f1(t, r, q)
+	m, u, x := capNames(res)
 	if joined(m) != "asmall,mbare,nohw,zbig" || len(u) != 0 || len(x) != 0 {
 		t.Fatalf("%v %v %v", m, u, x)
+	}
+	if sf := res.StatusFacts["zbig"]; sf.Status != hosts.StatusOnline || sf.ProbeInterval != "5m0s" || sf.LastOK == nil || sf.Since.IsZero() {
+		t.Fatalf("the result must say what status and probe interval the match was judged on: %+v", sf)
 	}
 	r.down.Store(true)
 	for i := 0; i < 3; i++ {
@@ -152,7 +156,7 @@ func TestCapacityOnRecentHeadroomUsesTheWorstSample(t *testing.T) {
 		t.Fatalf("matched=%v unknown=%v excluded=%v", m, u, x)
 	}
 	j := res.Judged["zbig"]
-	if j.Samples != 4 || j.Expected != 3 || j.WorstLoadPerCore != 0.25 || j.MinMemoryAvailable != 8<<30 {
+	if j.Interval != "5m0s" || j.Window != "15m0s" || j.Samples != 4 || j.Expected != 3 || j.WorstLoadPerCore != 0.25 || j.MinMemoryAvailable != 8<<30 {
 		t.Fatalf("judged: %+v", j)
 	}
 	if !strings.Contains(strings.Join(res.Excluded[0].Reasons, ";"), "load per core reached 3.00") {

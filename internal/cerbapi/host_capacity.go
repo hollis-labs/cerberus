@@ -193,11 +193,27 @@ type CapacityResult struct {
 	// recent-headroom constraint, by host name, so a consumer can decide
 	// between matches itself. Facts only: nothing here orders the hosts.
 	Judged map[string]RecentFacts `json:"judged,omitempty"`
+	// StatusFacts says what monitor status each host was judged on by a
+	// status_in constraint, and how fresh it is.
+	StatusFacts map[string]StatusFacts `json:"status_facts,omitempty"`
+}
+
+// StatusFacts is the monitor status a status_in constraint judged a host on.
+type StatusFacts struct {
+	Status string `json:"status"`
+	// Since is when the status last changed; LastOK the last good measurement.
+	Since  time.Time  `json:"since"`
+	LastOK *time.Time `json:"last_ok,omitempty"`
+	// ProbeInterval is how often the monitor probes the host, so a consumer
+	// can show how fresh the status is.
+	ProbeInterval string `json:"probe_interval,omitempty"`
 }
 
 // RecentFacts are the worst values in a window and how many samples there were.
 type RecentFacts struct {
-	Window             string  `json:"window"`
+	Window string `json:"window"`
+	// Interval is the probe interval the expected sample count came from.
+	Interval           string  `json:"probe_interval"`
 	Samples            int     `json:"samples"`
 	Expected           int     `json:"expected_samples"`
 	WorstLoadPerCore   float64 `json:"worst_load_per_core,omitempty"`
@@ -312,6 +328,15 @@ func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (_ Capacity
 		excluded, unknown := s.judge(v, q, maxAge, now)
 		x, u, facts := s.judgeParts(ctx, v, q, maxAge, now)
 		excluded, unknown = append(excluded, x...), append(unknown, u...)
+		var sf *StatusFacts
+		if len(q.StatusIn) > 0 && v.Status != nil {
+			sf = &StatusFacts{Status: v.Status.Status, Since: v.Status.Since, LastOK: v.Status.LastOK}
+			if s.mon != nil {
+				if iv, ok := s.mon.settings.IntervalFor(v.Host); ok {
+					sf.ProbeInterval = iv.String()
+				}
+			}
+		}
 		verdict := func(reasons []string) HostVerdict {
 			h := HostVerdict{Name: v.Host.Name, State: v.State, ProbedAt: v.ProbedAt, Reasons: reasons}
 			if v.ProbedAt != nil {
@@ -332,6 +357,12 @@ func (s *HostService) Capacity(ctx context.Context, q CapacityQuery) (_ Capacity
 			res.Unknown = append(res.Unknown, u)
 		default:
 			res.Matched = append(res.Matched, v)
+			if sf != nil {
+				if res.StatusFacts == nil {
+					res.StatusFacts = map[string]StatusFacts{}
+				}
+				res.StatusFacts[v.Host.Name] = *sf
+			}
 			if facts != nil {
 				if res.Judged == nil {
 					res.Judged = map[string]RecentFacts{}
@@ -518,7 +549,7 @@ func (s *HostService) judgeRecent(ctx context.Context, v HostView, r RecentNeed,
 	if len(samples) == 0 || len(samples)*2 < expected {
 		return nil, []string{fmt.Sprintf("%d of %d expected samples in the last %s", len(samples), expected, r.Window)}, nil
 	}
-	f := RecentFacts{Window: r.Window.String(), Samples: len(samples), Expected: expected}
+	f := RecentFacts{Window: r.Window.String(), Interval: interval.String(), Samples: len(samples), Expected: expected}
 	for i, x := range samples {
 		if x.Load1 != nil && x.CPU > 0 {
 			if l := *x.Load1 / float64(x.CPU); l > f.WorstLoadPerCore {

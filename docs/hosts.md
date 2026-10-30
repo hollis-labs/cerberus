@@ -838,4 +838,6 @@ lowest free disk) meets every limit given; fewer than half the expected samples
 samples"). The window defaults to 15 m and is at most 7 d. The result's `judged`
 map gives, per matched host, the worst values and the sample count the host was
 judged on, so a consumer can choose between matches itself; it is keyed by host
-name and orders nothing.
+name and orders nothing. It also says where the facts came from: `probe_interval`
+and `window` for `recent`, and `status_facts` (status, since, last good
+measurement, probe interval) for `status_in`, so a consumer can show freshness.
