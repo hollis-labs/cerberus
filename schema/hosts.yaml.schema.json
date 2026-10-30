@@ -271,6 +271,7 @@
             "sata_25",
             "sata_35",
             "m2_sata",
+            "msata",
             "ide",
             "pcie"
           ]

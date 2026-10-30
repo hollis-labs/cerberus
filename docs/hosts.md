@@ -339,7 +339,7 @@ One entry per physical place a drive can go.
 hardware:
   storage_slots:
     - id: m2-0                  # unique within the host
-      kind: nvme_m2             # nvme_m2|sata_25|sata_35|m2_sata|ide|pcie
+      kind: nvme_m2             # nvme_m2|sata_25|sata_35|m2_sata|msata|ide|pcie
       form_factor: "2280"       # free text, short (2242, 2280, 2.5in, 3.5in, hhhl, ...)
       interface: pcie           # pcie|sata|ide|usb, with gen below
       gen: 3                    # interface generation (PCIe 3, SATA 3); 0 = unknown
@@ -348,8 +348,8 @@ hardware:
       notes: ""
 ```
 
-- `kind` is a closed list: `nvme_m2`, `sata_25`, `sata_35`, `m2_sata`, `ide`,
-  `pcie`. A new kind is a code change, so a typo cannot create a bucket.
+- `kind` is a closed list: `nvme_m2`, `sata_25`, `sata_35`, `m2_sata` (M.2 slot that takes SATA drives),
+  `msata` (the older mSATA connector), `ide`, `pcie`. A new kind is a code change, so a typo cannot create a bucket.
 - A slot is free, or has exactly one of `occupant_disk` (a
   `hardware.disks[].name`) or `occupant_component` (a component `id`, see
   section 3); both set is an error. The two namespaces can collide, so they are

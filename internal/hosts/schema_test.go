@@ -79,3 +79,28 @@ func TestSchemaMatchesGoTypes(t *testing.T) {
 	}
 	walk("hosts.yaml", root, reflect.TypeOf(File{}))
 }
+
+// The slot kinds in the schema are exactly the ones the validator accepts.
+func TestSchemaSlotKindsMatchTheValidator(t *testing.T) {
+	data, err := os.ReadFile("../../schema/hosts.yaml.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root struct {
+		Defs map[string]struct {
+			Properties map[string]struct {
+				Enum []string `json:"enum"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	got := root.Defs["storage_slot"].Properties["kind"].Enum
+	want := append([]string(nil), StorageSlotKinds...)
+	sort.Strings(got)
+	sort.Strings(want)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("schema kinds %v, validator kinds %v", got, want)
+	}
+}

@@ -90,7 +90,7 @@ type GPUCeiling struct {
 }
 
 // Slot kinds.
-var StorageSlotKinds = []string{"nvme_m2", "sata_25", "sata_35", "m2_sata", "ide", "pcie"}
+var StorageSlotKinds = []string{"nvme_m2", "sata_25", "sata_35", "m2_sata", "msata", "ide", "pcie"}
 
 // SlotInterfaces are the recognized slot interfaces.
 var SlotInterfaces = []string{"pcie", "sata", "ide", "usb"}
