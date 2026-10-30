@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/hollis-labs/libs/core/store"
 )
 
 // Rollup grains, finest first. Each is built from the one before: 5m from raw
@@ -86,9 +88,9 @@ func (r CompactReport) String() string {
 
 func (r CompactReport) Empty() bool { return r == CompactReport{} }
 
-func (s *SampleStore) watermark(ctx context.Context, tx *sql.Tx, host, grain string) (int64, bool, error) {
+func (s *SampleStore) watermark(ctx context.Context, q store.Querier, host, grain string) (int64, bool, error) {
 	var w int64
-	err := tx.QueryRowContext(ctx, `SELECT watermark FROM host_rollup_state WHERE host = ? AND grain = ?`, host, grain).Scan(&w)
+	err := q.QueryRowContext(ctx, `SELECT watermark FROM host_rollup_state WHERE host = ? AND grain = ?`, host, grain).Scan(&w)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -117,90 +119,91 @@ func prevGrain(grain string) string {
 // rolled up, from the finer tier, in one transaction that also advances the
 // watermark. A bucket is complete when the finer tier has been rolled up past
 // its end (raw samples: when the bucket has ended). It returns the rows
-// written.
+// written. The transaction may be restarted on contention, so it recomputes
+// everything from the table each time.
 func (s *SampleStore) buildGrain(ctx context.Context, host, grain string, now time.Time) (int, error) {
 	size := grainSeconds(grain)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	// The end, exclusive, of what the source tier is complete for.
-	var limit int64
-	if finer := prevGrain(grain); finer == "" {
-		limit = unix(now) / size * size
-	} else {
-		w, ok, err := s.watermark(ctx, tx, host, finer)
+	written := 0
+	err := s.core.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		written = 0
+		// The end, exclusive, of what the source tier is complete for.
+		var limit int64
+		if finer := prevGrain(grain); finer == "" {
+			limit = unix(now) / size * size
+		} else {
+			w, ok, err := s.watermark(ctx, tx, host, finer)
+			if err != nil || !ok {
+				return err
+			}
+			limit = w / size * size
+		}
+		from, ok, err := s.watermark(ctx, tx, host, grain)
 		if err != nil {
-			return 0, err
+			return err
 		}
+		table, tsCol := sourceFor(grain)
 		if !ok {
-			return 0, nil
+			var first sql.NullInt64
+			q := fmt.Sprintf(`SELECT MIN(%s) FROM %s WHERE host = ?`, tsCol, table)
+			if grain != Grain5m {
+				q += fmt.Sprintf(` AND grain = '%s'`, prevGrain(grain))
+			}
+			if err := tx.QueryRowContext(ctx, q, host).Scan(&first); err != nil {
+				return err
+			}
+			if !first.Valid {
+				return nil
+			}
+			from = first.Int64 / size * size
 		}
-		limit = w / size * size
-	}
-	from, ok, err := s.watermark(ctx, tx, host, grain)
-	if err != nil {
-		return 0, err
-	}
-	table, tsCol := sourceFor(grain)
-	if !ok {
-		var first sql.NullInt64
-		q := fmt.Sprintf(`SELECT MIN(%s) FROM %s WHERE host = ?`, tsCol, table)
-		if grain != Grain5m {
-			q += fmt.Sprintf(` AND grain = '%s'`, prevGrain(grain))
+		if limit <= from {
+			return nil
 		}
-		if err := tx.QueryRowContext(ctx, q, host).Scan(&first); err != nil {
-			return 0, err
-		}
-		if !first.Valid {
-			return 0, nil
-		}
-		from = first.Int64 / size * size
-	}
-	if limit <= from {
-		return 0, nil
-	}
 
-	var res sql.Result
-	if grain == Grain5m {
-		res, err = tx.ExecContext(ctx, `INSERT OR REPLACE INTO host_sample_rollups
-			(host, grain, bucket_ts, n, load1_n, load1_sum, load1_min, load1_max, mem_avail_sum, mem_avail_min, mem_avail_max,
-			 disk_free_sum, disk_free_min, disk_free_max, probe_ms_sum, probe_ms_max, uptime_max, cpu_max, mem_total_max, disk_total_max)
-			SELECT host, ?, (ts / ?) * ?, COUNT(*), COUNT(load1), SUM(load1), MIN(load1), MAX(load1),
-			       SUM(mem_available), MIN(mem_available), MAX(mem_available),
-			       SUM(disk_free), MIN(disk_free), MAX(disk_free), SUM(probe_ms), MAX(probe_ms),
-			       MAX(uptime_s), MAX(cpu), MAX(mem_total), MAX(disk_total)
-			FROM host_samples WHERE host = ? AND ts >= ? AND ts < ? GROUP BY (ts / ?) * ?`,
-			grain, size, size, host, from, limit, size, size)
-	} else {
-		res, err = tx.ExecContext(ctx, `INSERT OR REPLACE INTO host_sample_rollups
-			(host, grain, bucket_ts, n, load1_n, load1_sum, load1_min, load1_max, mem_avail_sum, mem_avail_min, mem_avail_max,
-			 disk_free_sum, disk_free_min, disk_free_max, probe_ms_sum, probe_ms_max, uptime_max, cpu_max, mem_total_max, disk_total_max)
-			SELECT host, ?, (bucket_ts / ?) * ?, SUM(n), SUM(load1_n), SUM(load1_sum), MIN(load1_min), MAX(load1_max),
-			       SUM(mem_avail_sum), MIN(mem_avail_min), MAX(mem_avail_max),
-			       SUM(disk_free_sum), MIN(disk_free_min), MAX(disk_free_max), SUM(probe_ms_sum), MAX(probe_ms_max),
-			       MAX(uptime_max), MAX(cpu_max), MAX(mem_total_max), MAX(disk_total_max)
-			FROM host_sample_rollups WHERE host = ? AND grain = ? AND bucket_ts >= ? AND bucket_ts < ? GROUP BY (bucket_ts / ?) * ?`,
-			grain, size, size, host, prevGrain(grain), from, limit, size, size)
-	}
+		const upsert = ` ON CONFLICT(host, grain, bucket_ts) DO UPDATE SET
+			n = excluded.n, load1_n = excluded.load1_n, load1_sum = excluded.load1_sum, load1_min = excluded.load1_min, load1_max = excluded.load1_max,
+			mem_avail_sum = excluded.mem_avail_sum, mem_avail_min = excluded.mem_avail_min, mem_avail_max = excluded.mem_avail_max,
+			disk_free_sum = excluded.disk_free_sum, disk_free_min = excluded.disk_free_min, disk_free_max = excluded.disk_free_max,
+			probe_ms_sum = excluded.probe_ms_sum, probe_ms_max = excluded.probe_ms_max, uptime_max = excluded.uptime_max,
+			cpu_max = excluded.cpu_max, mem_total_max = excluded.mem_total_max, disk_total_max = excluded.disk_total_max`
+		const cols = `(host, grain, bucket_ts, n, load1_n, load1_sum, load1_min, load1_max, mem_avail_sum, mem_avail_min, mem_avail_max,
+			 disk_free_sum, disk_free_min, disk_free_max, probe_ms_sum, probe_ms_max, uptime_max, cpu_max, mem_total_max, disk_total_max)`
+		var res sql.Result
+		if grain == Grain5m {
+			res, err = tx.ExecContext(ctx, `INSERT INTO host_sample_rollups `+cols+`
+				SELECT host, ?, (ts / ?) * ?, COUNT(*), COUNT(load1), SUM(load1), MIN(load1), MAX(load1),
+				       SUM(mem_available), MIN(mem_available), MAX(mem_available),
+				       SUM(disk_free), MIN(disk_free), MAX(disk_free), SUM(probe_ms), MAX(probe_ms),
+				       MAX(uptime_s), MAX(cpu), MAX(mem_total), MAX(disk_total)
+				FROM host_samples WHERE host = ? AND ts >= ? AND ts < ? GROUP BY host, (ts / ?) * ?`+upsert,
+				grain, size, size, host, from, limit, size, size)
+		} else {
+			res, err = tx.ExecContext(ctx, `INSERT INTO host_sample_rollups `+cols+`
+				SELECT host, ?, (bucket_ts / ?) * ?, SUM(n), SUM(load1_n), SUM(load1_sum), MIN(load1_min), MAX(load1_max),
+				       SUM(mem_avail_sum), MIN(mem_avail_min), MAX(mem_avail_max),
+				       SUM(disk_free_sum), MIN(disk_free_min), MAX(disk_free_max), SUM(probe_ms_sum), MAX(probe_ms_max),
+				       MAX(uptime_max), MAX(cpu_max), MAX(mem_total_max), MAX(disk_total_max)
+				FROM host_sample_rollups WHERE host = ? AND grain = ? AND bucket_ts >= ? AND bucket_ts < ? GROUP BY host, (bucket_ts / ?) * ?`+upsert,
+				grain, size, size, host, prevGrain(grain), from, limit, size, size)
+		}
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		written = int(n)
+		_, err = tx.ExecContext(ctx, `INSERT INTO host_rollup_state (host, grain, watermark) VALUES (?,?,?)
+			ON CONFLICT(host, grain) DO UPDATE SET watermark = excluded.watermark`, host, grain, limit)
+		return err
+	})
 	if err != nil {
 		return 0, err
 	}
-	written, _ := res.RowsAffected()
-	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO host_rollup_state (host, grain, watermark) VALUES (?,?,?)`, host, grain, limit); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return int(written), nil
+	return written, nil
 }
 
 // hostsWithSamples lists every host that has samples or rollups.
 func (s *SampleStore) hostsWithSamples(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT host FROM host_samples UNION SELECT host FROM host_sample_rollups`)
+	rows, err := s.core.QueryContext(ctx, `SELECT host FROM host_samples UNION SELECT host FROM host_sample_rollups`)
 	if err != nil {
 		return nil, err
 	}
@@ -220,34 +223,32 @@ func (s *SampleStore) hostsWithSamples(ctx context.Context) ([]string, error) {
 // next tier has committed: nothing is removed that a committed rollup does not
 // count. It returns the rows removed.
 func (s *SampleStore) deleteBelow(ctx context.Context, host, table, tsCol, grainFilter, nextGrain string, cutoff time.Time) (int, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck
-	w, ok, err := s.watermark(ctx, tx, host, nextGrain)
-	if err != nil || !ok {
-		return 0, err
-	}
-	limit := unix(cutoff)
-	if w < limit {
-		limit = w
-	}
-	q := fmt.Sprintf(`DELETE FROM %s WHERE host = ? AND %s < ?`, table, tsCol)
-	args := []any{host, limit}
-	if grainFilter != "" {
-		q += ` AND grain = ?`
-		args = append(args, grainFilter)
-	}
-	res, err := tx.ExecContext(ctx, q, args...)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return int(n), nil
+	removed := 0
+	err := s.core.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		removed = 0
+		w, ok, err := s.watermark(ctx, tx, host, nextGrain)
+		if err != nil || !ok {
+			return err
+		}
+		limit := unix(cutoff)
+		if w < limit {
+			limit = w
+		}
+		q := fmt.Sprintf(`DELETE FROM %s WHERE host = ? AND %s < ?`, table, tsCol)
+		args := []any{host, limit}
+		if grainFilter != "" {
+			q += ` AND grain = ?`
+			args = append(args, grainFilter)
+		}
+		res, err := tx.ExecContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		removed = int(n)
+		return nil
+	})
+	return removed, err
 }
 
 // Compact builds every complete rollup bucket that is missing and then
@@ -256,8 +257,6 @@ func (s *SampleStore) deleteBelow(ctx context.Context, host, table, tsCol, grain
 // the watermark of the tier that now counts it. It is idempotent, and a failure
 // leaves earlier tiers' data in place. Daily rollups are kept.
 func (s *SampleStore) Compact(ctx context.Context, now time.Time, ret Retention) (CompactReport, error) {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
 	var rep CompactReport
 	hs, err := s.hostsWithSamples(ctx)
 	if err != nil {
@@ -319,7 +318,7 @@ func (s *SampleStore) Rollups(ctx context.Context, host, grain string, since, un
 	if !until.IsZero() {
 		hi = unix(until)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+rollupCols+` FROM (
+	rows, err := s.core.QueryContext(ctx, `SELECT `+rollupCols+` FROM (
 		SELECT `+rollupCols+` FROM host_sample_rollups WHERE host = ? AND grain = ? AND bucket_ts >= ? AND bucket_ts <= ?
 		ORDER BY bucket_ts DESC LIMIT ?) ORDER BY bucket_ts ASC`, host, grain, lo, hi, limit)
 	if err != nil {

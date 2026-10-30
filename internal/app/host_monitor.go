@@ -104,7 +104,7 @@ func (a *App) AttachHostMonitor(svc *cerbapi.HostService, logger *slog.Logger) (
 	if !ok {
 		return nil, fmt.Errorf("host monitoring needs the application SQLite store")
 	}
-	m := cerbapi.NewHostMonitor(svc, hosts.NewSampleStore(store.DB()), settings, logger)
+	m := cerbapi.NewHostMonitor(svc, hosts.NewSampleStore(store.Core()), settings, logger)
 	svc.AttachMonitor(m)
 	return m, nil
 }

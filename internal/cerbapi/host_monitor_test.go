@@ -105,7 +105,7 @@ func newMonitorRig(t *testing.T, hostsYAML string, mutate func(*hosts.MonitorSet
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	r.store = hosts.NewSampleStore(db.DB())
+	r.store = hosts.NewSampleStore(db.Core())
 	set := hosts.DefaultMonitorSettings()
 	set.Enabled = true
 	if mutate != nil {

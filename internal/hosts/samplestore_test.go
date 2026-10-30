@@ -17,7 +17,7 @@ func newStore(t *testing.T) *hosts.SampleStore {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	return hosts.NewSampleStore(s.DB())
+	return hosts.NewSampleStore(s.Core())
 }
 
 func TestSampleStoreRoundTrip(t *testing.T) {
