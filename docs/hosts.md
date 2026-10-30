@@ -731,3 +731,127 @@ no-ranking rule (status and samples contain no score or order beyond name/time).
 4. Audit policy for monitor probes (state changes, failure streaks and an hourly
    summary only): confirm, or ask for every probe.
 5. Retention numbers and status thresholds above are defaults to confirm.
+
+## Design: capacity on hardware and load, service credential, published schema (Hosts F, proposed)
+
+Status: proposal for review (CW-20261030-0189). No code yet. F depends on C
+(writes, history) and E (samples, status, events). Capacity stays a filter (ADR
+0004): none of this ranks, scores, reserves or picks a host. Placement belongs to
+the consumer; the main consumer is Tachyon.
+
+### 1. Capacity constraints on hardware and recent load
+
+`POST /hosts/capacity` (socket), `POST /api/hosts/capacity` and
+`cerberus_host_capacity` / `cerberus host capacity` gain constraints. Every one
+is a yes/no test on a recorded or measured fact; a constraint whose fact is
+missing puts the host under `unknown` with the reason and a next step, never
+guessed to fit or fail (the rule the existing constraints follow).
+
+| Constraint | Meaning | Fact it needs |
+|---|---|---|
+| `min_memory_total` | installed memory at least this | probed `memory_total`, else `hardware.memory.total` |
+| `min_memory_upgrade` | room to add at least this much memory | `ceilings.memory.max_total` minus installed total |
+| `free_memory_slots` | at least N empty memory slots | `hardware.memory.slots - slots_used` |
+| `free_storage_slots` | `[{kind: nvme_m2, min: 1}]`, free slots by kind | `storage_slots` (not recorded: unknown) |
+| `disk_types` | at least one disk of these types (`nvme`, `ssd`, `hdd`) | `hardware.disks[].type` |
+| `min_disk_size` | a disk at least this large | `hardware.disks[].size` |
+| `status_in` | monitor status is one of `online`, `degraded` | host status (E) |
+| `recent` | headroom held over a window, below | samples (E) |
+
+`recent` is `{window: 15m, max_load_per_core: 1.0, min_memory_available: 2GiB,
+min_disk_free: 20GiB}`: the host passes when its **worst** sample in the window
+(highest load per core, lowest memory available, lowest free disk) still meets
+every limit given, so "has headroom for this workload" means it had it throughout,
+not on average. A window with fewer samples than half of what its interval would
+give (or none) puts the host under `unknown` with `"3 of 15 expected samples"`.
+Windows up to the raw retention (7 d) work from E1; longer ones need the E2
+rollups and are refused until then. Defaults: `window` 15 m.
+
+The result keeps its three lists (`matched`, `unknown`, `excluded`) in name order.
+Each matched host carries the facts it was judged on (the worst-case values in the
+window and their sample count), so the consumer can decide between matches
+itself. A test asserts the order stays by name whatever the facts are, and that the
+request and result carry no weight, score, preference or count-to-pick.
+
+### 2. Service credential and narrower scopes for Tachyon
+
+Today a token's scopes follow the operation's effect (`cerberus:read`,
+`cerberus:read_sensitive`, `cerberus:operate`) and the console API answers only a
+signed-in browser session, so a service such as Tachyon has no non-interactive
+way into `/api/hosts`. The Tether gateway already reaches the host tools over MCP
+with its own principal; this adds the HTTP path.
+
+- **Reuse the existing token system.** No new credential store. The tokens issued
+  and verified for mcp-http (`cerberus mcp-http token issue --client NAME --scope
+  ...`) are accepted as `Authorization: Bearer` on `/api/hosts*`, `/api/components*`
+  and the schema route only; every other console route stays session-only. A bearer
+  call has no ambient credential, so it is exempt from the browser CSRF guard but
+  not from anything else: the token's scopes, brakes, policy, audit (the token id
+  and subject are in every record) and acknowledgment still apply.
+- **Domain scopes.** Two new scopes, narrower than the effect scopes:
+  `cerberus:hosts.read` covers the read operations of connector `host` (hosts,
+  components, status, samples, events, capacity, history, schema) and nothing
+  else; `cerberus:hosts.write` adds `host_update`, `component_create`,
+  `component_update`, `component_move`, `component_remove` and `host_inventory`.
+  `host_remove` and unit actions (start/stop/restart over Outpost) stay under
+  `cerberus:operate`. `cerberus:operate` still covers everything. A token with only
+  `hosts.write` therefore cannot touch a resource, a pipeline or a secret.
+- **How the check works.** `oauth.Allows` today maps an effect to a rank. It gains
+  an operation-aware form, `AllowsOp(scopes, connector, operation, effect)`: true
+  if the effect scope allows it, or the connector is `host` and the operation is in
+  the set the domain scope names. The refusal text names the scope to ask for, as
+  it does today.
+- **Issuing.** Issuing a credential is the operator's decision. This change adds
+  the scopes and the bearer acceptance; it issues nothing. The note in the PR gives
+  the command for the operator to run for Tachyon.
+
+### 3. Published schema
+
+A machine-readable description of the host API so Tachyon (and any other client)
+binds to a contract, not to Go struct names.
+
+- **OpenAPI 3.1** at `schema/hosts.openapi.json`, served at
+  `GET /api/hosts/_openapi` and `GET /hosts/_openapi`, with component schemas for
+  `Host`, `HostView`, `Component`, `StorageSlot`, `Ceilings`, `WriteResult`,
+  `Change`, `HostStatus`, `Sample`, `MonitorSnapshot`, `CapacityQuery`,
+  `CapacityResult` and the event objects, and each route's method, path, scope,
+  request and response. `schema/hosts.yaml.schema.json` stays the schema of the file.
+- **One table, not two descriptions.** The routes become a table (method, path,
+  summary, required scope, request type, response type) that the document is
+  generated from and that a test walks against the real handlers, so a route cannot
+  exist undocumented or be documented and missing. The component schemas are
+  generated from the Go DTOs by reflection (as the drift test already reads
+  `hosts.yaml.schema.json`), and the committed file is checked against a fresh
+  generation in CI.
+- **Untrusted text** fields carry `x-cerberus-untrusted: true`, so a consumer that
+  shows model- or host-supplied strings knows which ones.
+- **Naming.** `hosts` is canonical (decided); no `machines` alias.
+
+### 4. Event stream for Tachyon
+
+The SSE endpoint is E3. F adds to it the bearer path of section 2 (a token with
+`cerberus:hosts.read` may subscribe, resuming with `Last-Event-ID`) and puts the
+stream and its event objects in the OpenAPI document. A subscriber's token is
+checked when it connects and again at each heartbeat, so revoking it ends the
+stream within one heartbeat.
+
+### 5. Hosts F in pieces
+
+1. **F1** capacity constraints (section 1), docs, MCP/CLI/API, tests. Needs E1.
+2. **F2** domain scopes and bearer acceptance on the host routes (section 2).
+3. **F3** the route table, OpenAPI generation, `_openapi` routes and the CI drift
+   check (section 3).
+4. **F4** bearer on SSE and the event objects in the document. Needs E3.
+
+### Open questions for review
+
+1. Scope names and split: `cerberus:hosts.read` / `cerberus:hosts.write`, with
+   `host_remove` and unit actions staying under operate. Confirm or change.
+2. Does Tachyon want the HTTP console API (bearer) or is the MCP route through the
+   Tether gateway enough for it? This decides whether F2 and F4 are needed now.
+   Needs the Tachyon Architect's answer; the lead coordinates.
+3. `recent` judged on the worst sample in the window (recommended) versus average
+   or a percentile.
+4. Insufficient samples as `unknown` (recommended) rather than excluded.
+5. Whether `status_in` should default to excluding `offline` hosts when set at all,
+   or stay an explicit filter (recommended: explicit).
