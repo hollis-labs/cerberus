@@ -1,0 +1,18 @@
+name: build
+on:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+  workflow_dispatch:
+    inputs: { ref: { description: "ref to build", required: false } }
+permissions: { contents: read }
+jobs:
+  build:
+    uses: hollis-labs/tools/.github/workflows/go-app-build.yml@145fb50d827a1af7e38236eda5751cee22970ba5   # tools main (extra_files, pre_test_cmd)
+    with:
+      app: cerberus
+      main_pkg: ./cmd/cerberus
+      targets: '["linux/amd64","darwin/arm64"]'
+      # go.yml already runs the race tests and the scheduler-platform matrix; this job builds the artifact.
+      test_cmd: "go build ./... && go vet ./cmd/... ./internal/... ./pkg/..."
+      ldflags_var: main.version
+      ldflags_extra: "-X main.commit=$GITHUB_SHA"
