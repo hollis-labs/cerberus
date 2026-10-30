@@ -247,3 +247,62 @@ func TestComponentToolsAreReadOnly(t *testing.T) {
 		t.Fatalf("unavailable = %v %s", res.IsError, textBlocks(res))
 	}
 }
+
+// The write tools carry a revision, change hosts.yaml only when the whole
+// result validates, and are read-write in their annotations.
+func TestHostWriteToolsOverTheSocket(t *testing.T) {
+	dir := t.TempDir()
+	hostsPath := filepath.Join(dir, "hosts.yaml")
+	body := "version: 1\nhosts:\n  - {name: box-a, role: worker}\n"
+	if err := os.WriteFile(hostsPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc := cerbapi.NewHostService(audit.NewMemory(), cerbapi.HostServiceOptions{HostsPath: hostsPath, StatePath: "-"})
+	sockPath := shortSocketPath(t)
+	srv := cerbapi.NewSocketServer(cerbapi.NewInProcessClient(cerbapi.WithHostService(svc), cerbapi.WithInProcessAudit(audit.NewMemory())), sockPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = srv.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if conn, err := net.Dial("unix", sockPath); err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket never appeared")
+		}
+	}
+	tools := HostWriteTools(cerbapi.NewSocketClient(sockPath))
+	for _, tool := range tools {
+		op, ok := ToolOperation(tool.Name)
+		if !ok {
+			t.Errorf("%s has no contract binding", tool.Name)
+		}
+		if strings.HasSuffix(tool.Name, "revision") || strings.HasSuffix(tool.Name, "history") {
+			continue
+		}
+		if op.Effect.ReadOnly() {
+			t.Errorf("%s is bound to a read", tool.Name)
+		}
+	}
+	var rev struct{ Revision string }
+	if err := json.Unmarshal([]byte(textBlocks(callHostTool(t, tools, "cerberus_host_revision", nil))), &rev); err != nil || rev.Revision == "" {
+		t.Fatalf("revision: %v", err)
+	}
+	res := callHostTool(t, tools, "cerberus_host_update", map[string]any{"name": "box-a", "revision": rev.Revision, "acknowledged": true,
+		"patch": map[string]any{"labels": map[string]any{"zone": "a"}}})
+	if res.IsError || !strings.Contains(textBlocks(res), `"labels.zone"`) {
+		t.Fatalf("update: %v %s", res.IsError, textBlocks(res))
+	}
+	// The same, now-stale revision is refused in words an agent can act on.
+	res = callHostTool(t, tools, "cerberus_host_update", map[string]any{"name": "box-a", "revision": rev.Revision, "acknowledged": true,
+		"patch": map[string]any{"role": "service"}})
+	if !res.IsError || !strings.Contains(textBlocks(res), "changed since you read it") {
+		t.Fatalf("stale: %v %s", res.IsError, textBlocks(res))
+	}
+	res = callHostTool(t, tools, "cerberus_host_history", map[string]any{"name": "box-a"})
+	if res.IsError || !strings.Contains(textBlocks(res), "host_update") {
+		t.Fatalf("history: %s", textBlocks(res))
+	}
+}

@@ -100,7 +100,8 @@ var guardedRoutes = map[string][]string{
 		"/api/resources/app/apply", "/api/resources/app/deploy", "/api/resources/app/reload",
 		"/api/resources/app/stop", "/api/resources/app/sync", "/api/resources/app/remove",
 	},
-	"/api/hosts/":                         {"/api/hosts/capacity", "/api/hosts/h/probe"},
+	"/api/hosts/":                         {"/api/hosts/capacity", "/api/hosts/h/probe", "/api/hosts/h"},
+	"/api/components/":                    {"/api/components/c/move", "/api/components/c"},
 	"/api/logout":                         {"/api/logout"},
 	"/api/approvals/":                     {"/api/approvals/a/decide", "/api/approvals/a/revoke"},
 	"/api/brakes/":                        {"/api/brakes/lockdown", "/api/brakes/lockdown/lift", "/api/brakes/freeze/f/lift", "/api/brakes/suspensions/s/reset"},
@@ -146,7 +147,7 @@ func isRetired(path string) bool {
 }
 
 var readOnlyRoutes = map[string]bool{
-	"/api/session": true, "/api/resources": true, "/api/hosts": true, "/api/components": true, "/api/components/": true, "/api/overview": true,
+	"/api/session": true, "/api/resources": true, "/api/hosts": true, "/api/components": true, "/api/overview": true,
 	"/api/settings": true, "/api/system": true, "/api/health": true, "/api/portfolio/health": true,
 	"/api/projects": true, "/api/pipelines": true, "/api/registry": true,
 	"/api/registry/health": true, "/api/config/validate": true,

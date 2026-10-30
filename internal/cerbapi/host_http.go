@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/redact"
 )
 
@@ -32,7 +33,7 @@ func HostHTTP(client HostClient, prefix string) http.Handler {
 		if rest != "" {
 			parts = strings.Split(rest, "/")
 		}
-		if hostActionHTTP(w, r, client, parts) {
+		if hostActionHTTP(w, r, client, parts) || hostWriteHTTP(w, r, client, parts) {
 			return
 		}
 		fail := func(err error) {
@@ -129,10 +130,16 @@ func hostFilterFromQuery(q url.Values) (HostFilter, error) {
 // else 500.
 func hostStatus(err error) int {
 	var notFound *HostNotFoundError
+	var noComponent *ComponentNotFoundError
+	var conflict *hosts.RevisionConflictError
 	var invalid *HostInvalidError
 	switch {
-	case errors.As(err, &notFound):
+	case errors.As(err, &notFound), errors.As(err, &noComponent):
 		return http.StatusNotFound
+	case errors.As(err, &conflict):
+		return http.StatusConflict
+	case errors.As(err, new(hosts.RevisionRequiredError)):
+		return http.StatusPreconditionRequired
 	case errors.As(err, &invalid):
 		return http.StatusBadRequest
 	}

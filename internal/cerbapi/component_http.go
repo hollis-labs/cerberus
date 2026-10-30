@@ -2,7 +2,6 @@ package cerbapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,6 +25,9 @@ func ComponentHTTP(client ComponentClient, prefix string) http.Handler {
 		fail := func(err error) {
 			err = scopeError(redact.ScopeFrom(r.Context()), err)
 			writeServiceError(w, componentStatus(err), err)
+		}
+		if componentWriteHTTP(w, r, client, rest) {
+			return
 		}
 		switch {
 		case r.Method != http.MethodGet:
@@ -55,13 +57,7 @@ func ComponentHTTP(client ComponentClient, prefix string) http.Handler {
 	})
 }
 
-func componentStatus(err error) int {
-	var nf *ComponentNotFoundError
-	if errors.As(err, &nf) {
-		return http.StatusNotFound
-	}
-	return hostStatus(err)
-}
+func componentStatus(err error) int { return hostStatus(err) }
 
 // ListComponents lists declared components.
 func (c *InProcessClient) ListComponents(ctx context.Context, f ComponentFilter) ([]hosts.Component, error) {

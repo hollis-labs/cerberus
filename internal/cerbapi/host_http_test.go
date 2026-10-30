@@ -124,7 +124,8 @@ func TestHostsAgainstADaemonWithoutHostRoutes(t *testing.T) {
 	}
 }
 
-// Every host route is read-only: only GET and POST on the documented paths.
+// Only the documented verbs on the documented paths. DELETE and PATCH are the
+// writes (Hosts C), which refuse a request with no revision before anything runs.
 func TestHostRoutesAcceptOnlyTheirVerbs(t *testing.T) {
 	f := newCapacityFixture(t)
 	h := HostHTTP(HostClientOf(NewInProcessClient(WithHostService(f.svc))), "/hosts")
@@ -133,7 +134,7 @@ func TestHostRoutesAcceptOnlyTheirVerbs(t *testing.T) {
 		want         int
 	}{
 		{"GET", "/hosts", 200}, {"GET", "/hosts/alpha", 200}, {"POST", "/hosts/capacity", 200},
-		{"DELETE", "/hosts/alpha", 404}, {"PUT", "/hosts/alpha", 404}, {"POST", "/hosts", 404},
+		{"DELETE", "/hosts/alpha", 428}, {"PUT", "/hosts/alpha", 404}, {"POST", "/hosts", 404},
 		{"GET", "/hosts/alpha/probe", 404}, {"POST", "/hosts/alpha", 404}, {"GET", "/hosts/a/b/c", 404},
 		{"GET", "/hosts/nope", 404},
 	} {

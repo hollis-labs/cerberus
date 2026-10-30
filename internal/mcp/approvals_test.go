@@ -330,6 +330,7 @@ func TestPluginToolsTakeApprovalID(t *testing.T) {
 
 // recordingClient records the approval id each gated call carries.
 type recordingClient struct {
+	cerbapi.HostWriteClient // reads are never called here; the six writes are overridden below
 	fakeSocketProgressClient
 	cerbapi.HostClient
 	seen   string
@@ -460,4 +461,29 @@ func TestMCPNamesMissingEnrollmentSetupBeforeAskingForApproval(t *testing.T) {
 	if !strings.Contains(result.NextStep, "enrollment-policy") || !strings.Contains(result.NextStep, "cannot authenticate") {
 		t.Fatalf("wait next step: %s", result.NextStep)
 	}
+}
+
+func (r *recordingClient) UpdateHost(_ context.Context, a cerbapi.HostUpdateArgs) (cerbapi.WriteResult, error) {
+	r.seen = a.ApprovalID
+	return cerbapi.WriteResult{}, nil
+}
+func (r *recordingClient) RemoveHost(_ context.Context, a cerbapi.HostRemoveArgs) (cerbapi.WriteResult, error) {
+	r.seen = a.ApprovalID
+	return cerbapi.WriteResult{}, nil
+}
+func (r *recordingClient) CreateComponent(_ context.Context, a cerbapi.ComponentCreateArgs) (cerbapi.WriteResult, error) {
+	r.seen = a.ApprovalID
+	return cerbapi.WriteResult{}, nil
+}
+func (r *recordingClient) UpdateComponent(_ context.Context, a cerbapi.ComponentUpdateArgs) (cerbapi.WriteResult, error) {
+	r.seen = a.ApprovalID
+	return cerbapi.WriteResult{}, nil
+}
+func (r *recordingClient) MoveComponent(_ context.Context, a cerbapi.ComponentMoveArgs) (cerbapi.WriteResult, error) {
+	r.seen = a.ApprovalID
+	return cerbapi.WriteResult{}, nil
+}
+func (r *recordingClient) RemoveComponent(_ context.Context, a cerbapi.ComponentRemoveArgs) (cerbapi.WriteResult, error) {
+	r.seen = a.ApprovalID
+	return cerbapi.WriteResult{}, nil
 }

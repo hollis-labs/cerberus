@@ -476,3 +476,87 @@ Writing any of this (C, 0185), collecting it (D, 0186), probing on a schedule
 Settled in review (Cerberus lead, 2026-10-30): components stay in
 `hosts.yaml` (one file, one validation pass); `cpu.max_supported` is a single
 record; no `removable` flag until needed.
+
+## Writes and history (Hosts C)
+
+`hosts.yaml` stays the stored source. Hosts C adds validated writes to it, over
+every surface, and an append-only history of what changed.
+
+| Operation | CLI | Daemon socket / console API | MCP |
+|---|---|---|---|
+| change a host (merge patch; `create` adds it) | `host set NAME` | `PATCH /hosts/{name}` · `/api/hosts/{name}` | `cerberus_host_update` |
+| remove a host | `host remove NAME` | `DELETE /hosts/{name}` | `cerberus_host_remove` |
+| add a part | `component create` | `POST /components` | `cerberus_component_create` |
+| change a part | `component update ID` | `PATCH /components/{id}` | `cerberus_component_update` |
+| move a part (slot, host or spare) | `component move ID` | `POST /components/{id}/move` | `cerberus_component_move` |
+| remove a part | `component remove ID` | `DELETE /components/{id}` | `cerberus_component_remove` |
+| revision (the write token) | printed by `--revision` default | `GET /hosts/_revision` | `cerberus_host_revision` |
+| history | `host history NAME`, `component history ID` | `GET /hosts/{name}/history`, `GET /components/{id}/history` | `cerberus_host_history`, `cerberus_component_history` |
+
+A host change is a JSON merge patch (RFC 7386) on the host record: objects
+merge, `null` deletes a field, a list replaces. `name` and a component `id`
+never change; a component's location changes only with a move. Example, the
+8 GiB to 16 GiB upgrade on worker-1, as one change that records both sides:
+
+```
+cerberus host set worker-1 --ack --patch \
+  '{"hardware":{"memory":{"total":"16GiB","slots_used":2,"modules":["8GiB DDR4 2400 Samsung","8GiB DDR4 2400 Crucial"]}}}'
+```
+
+### Safety
+
+A bad `hosts.yaml` makes every host call fail, so a write is built to never
+leave one:
+
+1. **Whole-file validation.** The change is applied to the file as it is under
+   the lock, the complete result goes through the same validator every read
+   uses, and the bytes that would be written are parsed again. Any failure
+   returns the error and writes nothing: the file is byte-identical, with no
+   backup, temp file or history entry left behind.
+2. **Atomic write.** Temp file in the same directory, `fsync`, `rename`, `fsync`
+   of the directory; mode is kept (new files are `0600`).
+3. **Backup.** The previous bytes are kept as `hosts.yaml.bak-<UTC timestamp>`;
+   the newest 20 are kept.
+4. **One writer at a time.** An exclusive lock (`hosts.yaml.lock`) serializes
+   writers.
+5. **Revision token.** Every write carries the revision (a digest of the file)
+   the caller read: `revision` in the body, `If-Match`, or `--revision` (the CLI
+   defaults to the current one, read just before). A stale revision is refused
+   with 409 and writes nothing. The patch itself applies to the file as it is
+   under the lock, so a write never overwrites fields it did not name.
+6. **Referential checks.** A host with components located on it cannot be
+   removed; a move fills the target slot and frees the old one, and a taken
+   slot is refused. No resource refers to a host by name, so components are
+   the only references.
+7. **Format is kept.** A file written as JSON (the fleet inventory script reads
+   and writes it with a JSON library) stays JSON; a YAML file stays YAML.
+   Comments in a YAML file are not preserved; the backup has them.
+8. **No credentials.** A patch or component containing a string the redaction
+   rules would mask is refused. Unknown keys are refused by the same strict
+   decoder as a read.
+
+### Audit and gates
+
+Every write is an `effect: write` operation under connector `host`
+(`host_update`, `host_remove`, `component_create`, `component_update`,
+`component_move`, `component_remove`) with an intent and an outcome record. As
+for every write, if the intent record cannot be written the operation is
+refused and nothing runs (reads still proceed unrecorded). A write goes through
+the same gates as any other write: a verified token needs the write scope (token
+scopes follow the operation's effect, so there is no separate `host.write`
+scope), brakes, policy, and an approval where policy asks for one. A write needs
+the caller's acknowledgment (`--ack`, `acknowledged`) like every non-read.
+
+### History
+
+`hosts.history.jsonl` sits beside `hosts.yaml` (`0600`, append-only). Each entry
+records the time, the caller (surface, client, subject), the operation, the
+record, the hosts it touches, the audit operation id, the file's revision before
+and after, and only the fields that changed, before and after, redacted. A
+component move lists both the host it left and the host it joined, so a host's
+history shows parts moved on and off. At 1 MiB the file rotates to
+`hosts.history.jsonl.1`, `.2`, `.3`; older entries are dropped. If the history
+cannot be appended after the file was written, the write stands and the result
+carries a warning. Reads: `GET /hosts/{name}/history`, `GET
+/components/{id}/history` (`?limit=`), `host history`, `component history`,
+`cerberus_host_history`, `cerberus_component_history`.

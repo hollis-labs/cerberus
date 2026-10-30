@@ -136,8 +136,11 @@ func TestComponentRoutes(t *testing.T) {
 	if rec := get(http.MethodGet, "/components/nope"); rec.Code != 404 {
 		t.Fatalf("missing: %d", rec.Code)
 	}
-	if rec := get(http.MethodPost, "/components"); rec.Code != 404 {
-		t.Fatalf("a component route accepts only GET: %d", rec.Code)
+	if rec := get(http.MethodPut, "/components"); rec.Code != 404 {
+		t.Fatalf("a component route accepts no PUT: %d", rec.Code)
+	}
+	if rec := get(http.MethodPost, "/components"); rec.Code != http.StatusPreconditionRequired {
+		t.Fatalf("a write without a revision: %d", rec.Code)
 	}
 }
 
