@@ -126,8 +126,19 @@ func TestLoginLinksAreOneTimeShortLivedAndLocal(t *testing.T) {
 	if rec := serve(h, newTestRequest(http.MethodGet, loginPath(t, other), nil)); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("another console's link = %d, want 401", rec.Code)
 	}
-	tampered := loginPath(t, srv)
-	tampered = tampered[:len(tampered)-2] + "AA"
+	// Change a character in the middle of the token, to a different one. The
+	// last characters of an encoded token can carry unused trailing bits, so
+	// changing only those can leave the decoded bytes (and the link) intact.
+	original := loginPath(t, srv)
+	mid := len(original) - len(original)/3
+	flip := byte('A')
+	if original[mid] == flip {
+		flip = 'B'
+	}
+	tampered := original[:mid] + string(flip) + original[mid+1:]
+	if tampered == original {
+		t.Fatal("the tampered link equals the original; the test would prove nothing")
+	}
 	if rec := serve(h, newTestRequest(http.MethodGet, tampered, nil)); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("tampered link = %d, want 401", rec.Code)
 	}
