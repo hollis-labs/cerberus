@@ -55,6 +55,7 @@ type MonitorSettings struct {
 	SampleRetention   time.Duration `json:"sample_retention"`
 	Rollup5mRetention time.Duration `json:"rollup_5m_retention"`
 	Rollup1hRetention time.Duration `json:"rollup_1h_retention"`
+	EventRetention    time.Duration `json:"event_retention"`
 	Thresholds        Thresholds    `json:"thresholds"`
 }
 
@@ -64,7 +65,7 @@ func DefaultMonitorSettings() MonitorSettings {
 	return MonitorSettings{
 		OutpostInterval: 60 * time.Second, SSHInterval: 5 * time.Minute, MinInterval: 15 * time.Second,
 		Jitter: 0.10, MaxBackoff: 15 * time.Minute, Concurrency: 4, SSHConcurrency: 2, ProbeTimeout: 45 * time.Second,
-		SampleRetention: 7 * 24 * time.Hour, Rollup5mRetention: 30 * 24 * time.Hour, Rollup1hRetention: 400 * 24 * time.Hour,
+		SampleRetention: 7 * 24 * time.Hour, Rollup5mRetention: 30 * 24 * time.Hour, Rollup1hRetention: 400 * 24 * time.Hour, EventRetention: 90 * 24 * time.Hour,
 		Thresholds: Thresholds{
 			DiskFreePercent: 10, DiskFreeBytes: 5 << 30, MemoryAvailablePercent: 10,
 			LoadFactor: 2, LoadSamples: 3, SlowProbeFraction: 0.5, SlowProbeSamples: 3,
@@ -98,7 +99,7 @@ func (m MonitorSettings) Validate() error {
 
 // Retention is the tiered retention the janitor applies.
 func (m MonitorSettings) Retention() Retention {
-	return Retention{Raw: m.SampleRetention, Rollup5m: m.Rollup5mRetention, Rollup1h: m.Rollup1hRetention}
+	return Retention{Raw: m.SampleRetention, Rollup5m: m.Rollup5mRetention, Rollup1h: m.Rollup1hRetention, Events: m.EventRetention}
 }
 
 // IntervalFor is how often h is probed, and whether it is monitored at all: a

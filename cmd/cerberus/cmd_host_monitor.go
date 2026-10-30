@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -27,6 +28,68 @@ func (l localHostClient) HostRollups(ctx context.Context, name, grain string, q 
 }
 func (l localHostClient) MonitorState(ctx context.Context) (cerbapi.MonitorSnapshot, error) {
 	return l.svc.MonitorState(inProcessContext(ctx))
+}
+
+func (l localHostClient) HostEvents(ctx context.Context, q cerbapi.EventsQuery) (cerbapi.EventsResult, error) {
+	return l.svc.HostEvents(inProcessContext(ctx), q)
+}
+func (l localHostClient) SubscribeHostEvents(ctx context.Context) (<-chan struct{}, func(), error) {
+	return nil, nil, fmt.Errorf("host monitoring is not available from this serving host: events come from the daemon")
+}
+
+var eventsOpts struct {
+	afterID int64
+	host    string
+	limit   int
+	follow  bool
+}
+
+var hostEventsCmd = &cobra.Command{
+	Use:   "events",
+	Short: "Host status-change events after an id (--follow keeps polling)",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newHostClient(cmd)
+		if err != nil {
+			return err
+		}
+		ec := cerbapi.HostEventsClientOf(client)
+		out := cmd.OutOrStdout()
+		last := eventsOpts.afterID
+		for {
+			res, err := ec.HostEvents(cmd.Context(), cerbapi.EventsQuery{AfterID: last, Host: eventsOpts.host, Limit: eventsOpts.limit})
+			if err != nil {
+				return err
+			}
+			if res.Gap != nil {
+				fmt.Fprintf(out, "gap: events up to id %d were pruned (the log now starts at %d)\n", res.Gap.AfterID, res.Gap.OldestID)
+			}
+			if hostWantsJSON() {
+				for _, e := range res.Events {
+					if err := writeJSON(out, e); err != nil {
+						return err
+					}
+				}
+			} else {
+				for _, e := range res.Events {
+					exp := ""
+					if e.Expected {
+						exp = " (expected)"
+					}
+					fmt.Fprintf(out, "%d  %s  %s  %s -> %s  %s%s\n", e.ID, e.At.Format("2006-01-02T15:04:05Z"), e.Host, e.From, e.To, strings.Join(e.Reasons, ","), exp)
+				}
+			}
+			last = res.LastID
+			if !eventsOpts.follow {
+				return nil
+			}
+			select {
+			case <-cmd.Context().Done():
+				return nil
+			case <-time.After(2 * time.Second):
+			}
+		}
+	},
 }
 
 func monitorClient(cmd *cobra.Command) (cerbapi.HostMonitorClient, error) {
@@ -247,5 +310,9 @@ func init() {
 	hostSamplesCmd.Flags().StringVar(&samplesOpts.until, "until", "", "RFC 3339 time or a duration ago")
 	hostSamplesCmd.Flags().StringVar(&samplesOpts.grain, "grain", "", "raw (default), 5m, 1h or 1d rollups")
 	hostSamplesCmd.Flags().IntVar(&samplesOpts.limit, "limit", 0, "most samples (default 500, the newest)")
-	hostCmd.AddCommand(hostStatusCmd, hostSamplesCmd, hostMonitorCmd)
+	hostEventsCmd.Flags().Int64Var(&eventsOpts.afterID, "after-id", 0, "events after this id")
+	hostEventsCmd.Flags().StringVar(&eventsOpts.host, "host", "", "only this host")
+	hostEventsCmd.Flags().IntVar(&eventsOpts.limit, "limit", 0, "most events per batch (default 200)")
+	hostEventsCmd.Flags().BoolVar(&eventsOpts.follow, "follow", false, "keep polling for new events")
+	hostCmd.AddCommand(hostStatusCmd, hostSamplesCmd, hostMonitorCmd, hostEventsCmd)
 }

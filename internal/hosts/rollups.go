@@ -36,6 +36,8 @@ type Retention struct {
 	Raw      time.Duration
 	Rollup5m time.Duration
 	Rollup1h time.Duration
+	// Events is how long status events are kept (they are not rolled up).
+	Events time.Duration
 }
 
 // Stat is the extremes and mean of a measure over one bucket.
@@ -75,10 +77,11 @@ type CompactReport struct {
 	RawDeleted      int `json:"raw_deleted"`
 	Rollup5mDeleted int `json:"rollup_5m_deleted"`
 	Rollup1hDeleted int `json:"rollup_1h_deleted"`
+	EventsDeleted   int `json:"events_deleted"`
 }
 
 func (r CompactReport) String() string {
-	return fmt.Sprintf("rollups_written=%d raw_deleted=%d rollup_5m_deleted=%d rollup_1h_deleted=%d", r.RollupsWritten, r.RawDeleted, r.Rollup5mDeleted, r.Rollup1hDeleted)
+	return fmt.Sprintf("rollups_written=%d raw_deleted=%d rollup_5m_deleted=%d rollup_1h_deleted=%d events_deleted=%d", r.RollupsWritten, r.RawDeleted, r.Rollup5mDeleted, r.Rollup1hDeleted, r.EventsDeleted)
 }
 
 func (r CompactReport) Empty() bool { return r == CompactReport{} }
@@ -286,6 +289,13 @@ func (s *SampleStore) Compact(ctx context.Context, now time.Time, ret Retention)
 			}
 			*d.count += n
 		}
+	}
+	if ret.Events > 0 {
+		n, err := s.pruneEvents(ctx, now.Add(-ret.Events))
+		if err != nil {
+			return rep, fmt.Errorf("retention events: %w", err)
+		}
+		rep.EventsDeleted = n
 	}
 	return rep, nil
 }

@@ -912,3 +912,27 @@ Rollups and retention, as designed. Migration 007 adds `host_sample_rollups` and
   `cerberus host samples NAME --grain 1h`, `cerberus_host_samples` with `grain`.
   Raw (the default) returns samples; a rollup grain returns buckets with `n` and
   `min/avg/max`.
+
+### Hosts E3 as built
+
+Status events and the stream, as designed. Migration 008 adds `host_events`.
+
+- **Events.** Every change of a host's status appends a `status_changed` event
+  (`id`, `ts`, `host`, `from`, `to`, reason `codes`). Events carry codes only: no
+  serials, addresses or probed text, so they are safe to hand to any subscriber. A
+  change on a host labelled `intermittent: "true"` carries `expected: true`, so a
+  subscriber can mute a laptop's flaps. Ids only grow and are never reused. Events
+  are kept `event_retention` (default 90 d) and removed by the hourly janitor.
+- **Poll.** `GET /hosts/_events?after_id=N&host=&limit=` (and `/api/hosts/_events`)
+  returns `{events, last_id, gap?}` oldest first; `cerberus host events [--after-id N]
+  [--follow]`; MCP `cerberus_host_events`. Resume from `last_id`.
+- **Stream (SSE).** The same route with `Accept: text/event-stream` (or
+  `?stream=1`) streams one event per `host_events` row with `id:` set to the row id.
+  Resume with `Last-Event-ID`. If events after that id were pruned, a `gap` event
+  `{after_id, oldest_id}` comes first and then everything still kept. A comment
+  heartbeat every 20 s. The stream audits once when it opens, not per batch. At
+  most 16 streams are open at once (a 17th is refused with guidance). The monitor
+  only signals a one-slot channel per subscriber, so a slow or stuck subscriber can
+  never block probing; it reads the log by id when it next runs.
+- **Auth.** Same as the other console routes today (a signed-in session; the
+  socket for local clients). Bearer access for services is Hosts F.
