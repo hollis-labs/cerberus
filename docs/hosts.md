@@ -887,3 +887,28 @@ stream within one heartbeat.
 4. Insufficient samples as `unknown` (recommended) rather than excluded.
 5. Whether `status_in` should default to excluding `offline` hosts when set at all,
    or stay an explicit filter (recommended: explicit).
+
+### Hosts E2 as built
+
+Rollups and retention, as designed. Migration 007 adds `host_sample_rollups` and
+`host_rollup_state`.
+
+- **Rollups.** Each bucket of 5 minutes, 1 hour and 1 day holds the sample count
+  and the sum, minimum and maximum of load1, memory available, free disk and probe
+  time (plus the maximum of uptime, cores and totals), so a coarser grain combines
+  the finer one exactly: the counts and sums of every grain add up to the raw
+  samples they cover. A measure a host never reported (no load) is absent, not
+  zero. 1 h is built from 5 m and 1 d from 1 h, only from buckets that are
+  complete; the end of the last committed bucket is the grain's watermark.
+- **Retention.** Hourly, starting a minute after the daemon starts and whether or
+  not probing is on: build the missing rollups, then delete raw samples older than
+  `sample_retention` (default 7 d), 5-minute rollups older than
+  `rollup_5m_retention` (30 d) and hourly rollups older than `rollup_1h_retention`
+  (400 d), each only **below the watermark of the tier that counts it**, in its
+  own transaction. Daily rollups are kept. A failure leaves the finer data in
+  place; a second run changes nothing. Each run that did something is logged
+  with its counts and recorded as a `monitor_event` ("compacted").
+- **Reads.** `GET /hosts/{name}/samples?grain=5m|1h|1d` (and `/api/hosts/...`),
+  `cerberus host samples NAME --grain 1h`, `cerberus_host_samples` with `grain`.
+  Raw (the default) returns samples; a rollup grain returns buckets with `n` and
+  `min/avg/max`.

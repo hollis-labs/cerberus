@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -212,7 +213,11 @@ func (m *HostMonitor) probeOne(ctx context.Context, h hosts.Host) {
 	th := m.settings.Thresholds
 	if obs.OK {
 		if err := m.store.AppendSample(ctx, *obs.Sample); err != nil {
-			m.logger.Warn("daemon.host_monitor.sample_write_failed", "host", h.Name, "error", redact.Text(err.Error()))
+			event := "daemon.host_monitor.sample_write_failed"
+			if errors.Is(err, hosts.ErrLateSample) {
+				event = "daemon.host_monitor.sample_late" // the clock stepped back: not stored, never lost uncounted
+			}
+			m.logger.Warn(event, "host", h.Name, "error", redact.Text(err.Error()))
 		}
 	}
 	prev, _, err := m.store.Status(ctx, h.Name)
@@ -287,6 +292,41 @@ func (m *HostMonitor) record(ctx context.Context, what, note string) {
 	}
 	call.note(what + ": " + note)
 	call.finish(nil)
+}
+
+// RunJanitor compacts samples hourly (first run a minute after start): it
+// builds the rollups that are missing and removes what retention allows, only
+// below the rollups that count the rows (see hosts.SampleStore.Compact). It
+// runs whether or not probing is enabled, so retention never depends on the
+// monitor being on.
+func (m *HostMonitor) RunJanitor(ctx context.Context) {
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			m.compactOnce(ctx)
+			timer.Reset(time.Hour)
+		}
+	}
+}
+
+// compactOnce runs one compaction, logs what it did (every removal is
+// counted), and records it when it did anything.
+func (m *HostMonitor) compactOnce(ctx context.Context) {
+	rep, err := m.store.Compact(ctx, m.now(), m.settings.Retention())
+	if err != nil {
+		m.logger.Warn("daemon.host_monitor.compact_failed", "error", redact.Text(err.Error()))
+		return
+	}
+	if rep.Empty() {
+		return
+	}
+	m.logger.Info("daemon.host_monitor.compacted", "rollups_written", rep.RollupsWritten, "raw_deleted", rep.RawDeleted,
+		"rollup_5m_deleted", rep.Rollup5mDeleted, "rollup_1h_deleted", rep.Rollup1hDeleted)
+	m.record(ctx, "compacted", rep.String())
 }
 
 // MonitorHostState is one host's place in the schedule.
@@ -446,7 +486,7 @@ func (s *HostService) HostSamples(ctx context.Context, name string, q SamplesQue
 		return nil, errMonitoringUnavailable
 	}
 	if q.Grain != "" && q.Grain != "raw" {
-		return nil, &HostInvalidError{Err: redact.Guidance("grain %q is not available yet: only raw samples are kept until rollups land", q.Grain)}
+		return nil, &HostInvalidError{Err: redact.Guidance("grain %q returns rollups, not samples: use HostRollups (the API returns them from the same route)", q.Grain)}
 	}
 	call, err := s.beginRead(ctx, OpHostSamples, map[string]any{"name": name, "query": q})
 	if err != nil {
@@ -459,6 +499,27 @@ func (s *HostService) HostSamples(ctx context.Context, name string, q SamplesQue
 	out, err := s.mon.store.Samples(ctx, name, q.Since, q.Until, q.Limit)
 	call.note(fmt.Sprintf("samples=%d", len(out)))
 	return out, err
+}
+
+// HostRollups returns a host's rollups of grain (5m, 1h or 1d) in time order.
+func (s *HostService) HostRollups(ctx context.Context, name, grain string, q SamplesQuery) (_ []hosts.Rollup, retErr error) {
+	if s == nil || s.mon == nil {
+		return nil, errMonitoringUnavailable
+	}
+	call, err := s.beginRead(ctx, OpHostSamples, map[string]any{"name": name, "grain": grain, "query": q})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { call.finish(retErr) }()
+	if _, err := s.get(name); err != nil {
+		return nil, err
+	}
+	out, err := s.mon.store.Rollups(ctx, name, grain, q.Since, q.Until, q.Limit)
+	if err != nil {
+		return nil, &HostInvalidError{Err: redact.Guidance("%s", err.Error())}
+	}
+	call.note(fmt.Sprintf("rollups=%d grain=%s", len(out), grain))
+	return out, nil
 }
 
 // MonitorState reports the monitor's schedule.
