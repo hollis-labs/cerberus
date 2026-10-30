@@ -339,7 +339,7 @@ func TestStatusReadsAndStaleness(t *testing.T) {
 		t.Fatalf("samples: %+v %v", ss, err)
 	}
 	if _, err := r.svc.HostSamples(ctx, "box-a", SamplesQuery{Grain: "1h"}); err == nil {
-		t.Fatal("a rollup grain must be refused until rollups exist")
+		t.Fatal("HostSamples is raw only; a rollup grain goes through HostRollups")
 	}
 	if _, err := r.svc.HostSamples(ctx, "ghost", SamplesQuery{}); err == nil {
 		t.Fatal("unknown host")
@@ -389,5 +389,49 @@ func TestMonitorOverTheSocketAndNoRanking(t *testing.T) {
 				t.Fatalf("%q in %s", banned, b)
 			}
 		}
+	}
+}
+
+func TestJanitorCompactsAndServesRollups(t *testing.T) {
+	r := newMonitorRig(t, oneSSHHost, func(s *hosts.MonitorSettings) {
+		s.SampleRetention, s.Rollup5mRetention, s.Rollup1hRetention = time.Hour, 48*time.Hour, 96*time.Hour
+	})
+	ctx := context.Background()
+	base := r.clock.Now()
+	for i := 0; i < 12; i++ {
+		l := float64(i)
+		if err := r.store.AppendSample(ctx, hosts.Sample{Host: "box-a", At: base.Add(time.Duration(i) * time.Minute), Load1: &l, CPU: 4, MemoryAvailable: 1 << 30, DiskFree: 10 << 30}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.clock.Advance(3 * time.Hour)
+	r.mon.compactOnce(ctx)
+	rs, err := r.svc.HostRollups(ctx, "box-a", "5m", SamplesQuery{})
+	if err != nil || len(rs) != 3 || rs[0].N != 5 || rs[2].N != 2 {
+		t.Fatalf("5m rollups: %+v %v", rs, err)
+	}
+	if raw, _ := r.svc.HostSamples(ctx, "box-a", SamplesQuery{}); len(raw) != 0 {
+		t.Fatalf("raw samples past retention and covered by rollups should be gone: %d", len(raw))
+	}
+	if _, err := r.svc.HostRollups(ctx, "box-a", "2h", SamplesQuery{}); err == nil {
+		t.Fatal("an unknown grain was accepted")
+	}
+	if _, err := r.svc.HostSamples(ctx, "box-a", SamplesQuery{Grain: "1h"}); err == nil {
+		t.Fatal("HostSamples must not return rollups")
+	}
+	found := false
+	for _, rec := range r.sink.Records() {
+		if rec.Operation == OpMonitorEvent && strings.HasPrefix(rec.Reason, "compacted") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a compaction that did something must be recorded")
+	}
+	r.mon.compactOnce(ctx) // nothing new: nothing recorded again
+	client := serveOnSocket(t, NewInProcessClient(WithHostService(r.svc)))
+	got, err := client.HostRollups(ctx, "box-a", "5m", SamplesQuery{Limit: 2})
+	if err != nil || len(got) != 2 || got[1].N != 2 {
+		t.Fatalf("over the socket: %+v %v", got, err)
 	}
 }

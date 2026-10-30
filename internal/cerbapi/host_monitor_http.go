@@ -17,6 +17,7 @@ type HostMonitorClient interface {
 	HostStatus(ctx context.Context, name string) (HostStatusView, error)
 	AllHostStatus(ctx context.Context) ([]HostStatusView, error)
 	HostSamples(ctx context.Context, name string, q SamplesQuery) ([]hosts.Sample, error)
+	HostRollups(ctx context.Context, name, grain string, q SamplesQuery) ([]hosts.Rollup, error)
 	MonitorState(ctx context.Context) (MonitorSnapshot, error)
 }
 
@@ -36,6 +37,9 @@ func (unavailableHostClient) AllHostStatus(context.Context) ([]HostStatusView, e
 	return nil, errHostsUnavailable
 }
 func (unavailableHostClient) HostSamples(context.Context, string, SamplesQuery) ([]hosts.Sample, error) {
+	return nil, errHostsUnavailable
+}
+func (unavailableHostClient) HostRollups(context.Context, string, string, SamplesQuery) ([]hosts.Rollup, error) {
 	return nil, errHostsUnavailable
 }
 func (unavailableHostClient) MonitorState(context.Context) (MonitorSnapshot, error) {
@@ -106,6 +110,18 @@ func hostMonitorHTTP(w http.ResponseWriter, r *http.Request, client HostClient, 
 			return true
 		}
 		q.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
+		if q.Grain != "" && q.Grain != "raw" {
+			rs, err := mc.HostRollups(r.Context(), unescape(parts[0]), q.Grain, q)
+			if err != nil {
+				fail(err)
+				return true
+			}
+			if rs == nil {
+				rs = []hosts.Rollup{}
+			}
+			writeJSON(w, http.StatusOK, rs)
+			return true
+		}
 		v, err := mc.HostSamples(r.Context(), unescape(parts[0]), q)
 		if err != nil {
 			fail(err)
@@ -143,6 +159,13 @@ func (c *InProcessClient) HostSamples(ctx context.Context, name string, q Sample
 		return nil, err
 	}
 	return s.HostSamples(ctx, name, q)
+}
+func (c *InProcessClient) HostRollups(ctx context.Context, name, grain string, q SamplesQuery) ([]hosts.Rollup, error) {
+	s, err := c.hostService()
+	if err != nil {
+		return nil, err
+	}
+	return s.HostRollups(ctx, name, grain, q)
 }
 func (c *InProcessClient) MonitorState(ctx context.Context) (MonitorSnapshot, error) {
 	s, err := c.hostService()
@@ -188,6 +211,23 @@ func (c *SocketClient) HostSamples(ctx context.Context, name string, q SamplesQu
 	}
 	var out []hosts.Sample
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, hostRouteError(err)
+	}
+	return out, nil
+}
+func (c *SocketClient) HostRollups(ctx context.Context, name, grain string, q SamplesQuery) ([]hosts.Rollup, error) {
+	v := url.Values{"grain": {grain}}
+	if !q.Since.IsZero() {
+		v.Set("since", q.Since.UTC().Format(time.RFC3339))
+	}
+	if !q.Until.IsZero() {
+		v.Set("until", q.Until.UTC().Format(time.RFC3339))
+	}
+	if q.Limit > 0 {
+		v.Set("limit", strconv.Itoa(q.Limit))
+	}
+	var out []hosts.Rollup
+	if err := c.doJSON(ctx, http.MethodGet, "/hosts/"+url.PathEscape(name)+"/samples?"+v.Encode(), nil, &out); err != nil {
 		return nil, hostRouteError(err)
 	}
 	return out, nil

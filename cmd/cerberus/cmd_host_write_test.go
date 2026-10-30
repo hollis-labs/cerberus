@@ -98,9 +98,39 @@ func TestHostInventoryNeedsAnSSHReach(t *testing.T) {
 
 func TestHostStatusWithoutADaemonSaysSo(t *testing.T) {
 	writeHome(t)
-	for _, args := range [][]string{{"host", "status"}, {"host", "monitor"}, {"host", "samples", "box-a"}} {
+	for _, args := range [][]string{{"host", "status"}, {"host", "monitor"}, {"host", "samples", "box-a"}, {"host", "events"}} {
 		if _, err := runWrite(t, args...); err == nil || !strings.Contains(err.Error(), "monitoring is not available") {
 			t.Fatalf("%v: %v", args, err)
 		}
+	}
+}
+
+func TestHostCapacityHardwareFlags(t *testing.T) {
+	writeHome(t)
+	hostsPath := filepath.Join(os.Getenv("HOME"), ".cerberus", "hosts.yaml")
+	if err := os.WriteFile(hostsPath, []byte(`version: 1
+hosts:
+  - name: big
+    role: worker
+    hardware:
+      memory: {type: DDR4, total: 32GiB, slots: 4, slots_used: 2}
+      disks: [{name: nvme0n1, size: 1TB, type: nvme}]
+  - name: small
+    role: worker
+    hardware:
+      memory: {type: DDR4, total: 8GiB, slots: 2, slots_used: 2}
+      disks: [{name: sda, size: 500GB, type: hdd}]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runWrite(t, "host", "capacity", "--min-memory-total", "16GiB", "--free-memory-slots", "2", "--disk-type", "nvme", "--explain")
+	if err != nil || !strings.Contains(out, "1 matched, 0 unknown") || !strings.Contains(out, "excluded small") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, err = runWrite(t, "host", "capacity", "--free-slot", "nvme_m2"); err == nil || !strings.Contains(err.Error(), "kind=N") {
+		t.Fatalf("a malformed --free-slot: %v", err)
+	}
+	if _, err = runWrite(t, "host", "capacity", "--free-slot", "floppy=1"); err == nil || !strings.Contains(err.Error(), "unknown storage slot kind") {
+		t.Fatalf("an unknown kind: %v", err)
 	}
 }

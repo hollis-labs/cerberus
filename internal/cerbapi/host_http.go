@@ -33,7 +33,7 @@ func HostHTTP(client HostClient, prefix string) http.Handler {
 		if rest != "" {
 			parts = strings.Split(rest, "/")
 		}
-		if hostActionHTTP(w, r, client, parts) || hostWriteHTTP(w, r, client, parts) || hostMonitorHTTP(w, r, client, parts) {
+		if hostActionHTTP(w, r, client, parts) || hostWriteHTTP(w, r, client, parts) || hostMonitorHTTP(w, r, client, parts) || hostEventsHTTP(w, r, client, parts) {
 			return
 		}
 		fail := func(err error) {

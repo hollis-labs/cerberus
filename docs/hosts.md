@@ -888,6 +888,72 @@ stream within one heartbeat.
 5. Whether `status_in` should default to excluding `offline` hosts when set at all,
    or stay an explicit filter (recommended: explicit).
 
+### Hosts E2 as built
+
+Rollups and retention, as designed. Migration 007 adds `host_sample_rollups` and
+`host_rollup_state`.
+
+- **Rollups.** Each bucket of 5 minutes, 1 hour and 1 day holds the sample count
+  and the sum, minimum and maximum of load1, memory available, free disk and probe
+  time (plus the maximum of uptime, cores and totals), so a coarser grain combines
+  the finer one exactly: the counts and sums of every grain add up to the raw
+  samples they cover. A measure a host never reported (no load) is absent, not
+  zero. 1 h is built from 5 m and 1 d from 1 h, only from buckets that are
+  complete; the end of the last committed bucket is the grain's watermark.
+- **Retention.** Hourly, starting a minute after the daemon starts and whether or
+  not probing is on: build the missing rollups, then delete raw samples older than
+  `sample_retention` (default 7 d), 5-minute rollups older than
+  `rollup_5m_retention` (30 d) and hourly rollups older than `rollup_1h_retention`
+  (400 d), each only **below the watermark of the tier that counts it**, in its
+  own transaction. Daily rollups are kept. A failure leaves the finer data in
+  place; a second run changes nothing. Each run that did something is logged
+  with its counts and recorded as a `monitor_event` ("compacted").
+- **Reads.** `GET /hosts/{name}/samples?grain=5m|1h|1d` (and `/api/hosts/...`),
+  `cerberus host samples NAME --grain 1h`, `cerberus_host_samples` with `grain`.
+  Raw (the default) returns samples; a rollup grain returns buckets with `n` and
+  `min/avg/max`.
+
+### Hosts E3 as built
+
+Status events and the stream, as designed. Migration 008 adds `host_events`.
+
+- **Events.** Every change of a host's status appends a `status_changed` event
+  (`id`, `ts`, `host`, `from`, `to`, reason `codes`). Events carry codes only: no
+  serials, addresses or probed text, so they are safe to hand to any subscriber. A
+  change on a host labelled `intermittent: "true"` carries `expected: true`, so a
+  subscriber can mute a laptop's flaps. Ids only grow and are never reused. Events
+  are kept `event_retention` (default 90 d) and removed by the hourly janitor.
+- **Poll.** `GET /hosts/_events?after_id=N&host=&limit=` (and `/api/hosts/_events`)
+  returns `{events, last_id, gap?}` oldest first; `cerberus host events [--after-id N]
+  [--follow]`; MCP `cerberus_host_events`. Resume from `last_id`.
+- **Stream (SSE).** The same route with `Accept: text/event-stream` (or
+  `?stream=1`) streams one event per `host_events` row with `id:` set to the row id.
+  Resume with `Last-Event-ID`. If events after that id were pruned, a `gap` event
+  `{after_id, oldest_id}` comes first and then everything still kept. A comment
+  heartbeat every 20 s. The stream audits once when it opens, not per batch. At
+  most 16 streams are open at once (a 17th is refused with guidance). The monitor
+  only signals a one-slot channel per subscriber, so a slow or stuck subscriber can
+  never block probing; it reads the log by id when it next runs.
+- **Auth.** Same as the other console routes today (a signed-in session; the
+  socket for local clients). Bearer access for services is Hosts F.
+
+### Hosts F1 as built
+
+Capacity gains the hardware, status and recent-headroom constraints of the Hosts F
+design. Capacity is still a filter: a host is matched, unknown or excluded, in name
+order, with no weight, score or count-to-pick.
+
+| Constraint | CLI flag | Needs |
+|---|---|---|
+| `min_memory_total` | `--min-memory-total 16GiB` | probed total (fresh), else `hardware.memory.total` |
+| `min_memory_upgrade` | `--min-memory-upgrade 32GiB` | `ceilings.memory.max_total` and the installed total |
+| `free_memory_slots` | `--free-memory-slots 2` | `hardware.memory.slots` / `slots_used` |
+| `free_storage_slots` | `--free-slot nvme_m2=1` | `storage_slots` recorded |
+| `disk_types` | `--disk-type nvme` | `hardware.disks` recorded |
+| `min_disk_size` | `--min-disk-size 500GB` | `hardware.disks` recorded |
+| `status_in` | `--status online --status degraded` | a running monitor |
+| `recent` | `--recent-max-load 1.0 --recent-min-memory 4GiB --recent-min-disk 50GB [--recent-window 30m]` | samples |
+
 A host whose fact is not recorded is listed under `unknown` with what is missing and
 a next step, never guessed to fit or to fail. `recent` passes a host only if its
 **worst** sample in the window (highest load per core, lowest memory available,
@@ -896,6 +962,10 @@ lowest free disk) meets every limit given; fewer than half the expected samples
 samples"). The window defaults to 15 m and is at most 7 d. The result's `judged`
 map gives, per matched host, the worst values and the sample count the host was
 judged on, so a consumer can choose between matches itself; it is keyed by host
+name and orders nothing. It also says where the facts came from: `probe_interval`
+and `window` for `recent`, and `status_facts` (status, since, last good
+measurement, probe interval) for `status_in`, so a consumer can show freshness.
+
 name and orders nothing.
 
 ### Hosts F2 as built

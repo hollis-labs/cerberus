@@ -58,7 +58,7 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		"host.host_update": contract.EffectWrite, "host.host_remove": contract.EffectWrite,
 		"host.component_create": contract.EffectWrite, "host.component_update": contract.EffectWrite,
 		"host.component_move": contract.EffectWrite, "host.component_remove": contract.EffectWrite,
-		"host.host_inventory": contract.EffectWrite, "host.host_status": contract.EffectRead, "host.host_samples": contract.EffectRead, "host.host_monitor": contract.EffectRead, "host.monitor_event": contract.EffectRead, "host.host_history": contract.EffectRead, "host.component_history": contract.EffectRead, "host.host_revision": contract.EffectRead,
+		"host.host_inventory": contract.EffectWrite, "host.host_status": contract.EffectRead, "host.host_samples": contract.EffectRead, "host.host_monitor": contract.EffectRead, "host.host_events": contract.EffectRead, "host.monitor_event": contract.EffectRead, "host.host_history": contract.EffectRead, "host.component_history": contract.EffectRead, "host.host_revision": contract.EffectRead,
 	}
 	seen := 0
 	for _, def := range RuntimeDefinitions() {

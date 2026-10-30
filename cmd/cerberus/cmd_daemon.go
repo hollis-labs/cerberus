@@ -573,18 +573,28 @@ func runDaemonBody() error {
 	// Host monitoring (Hosts E): attached whether or not it is switched on,
 	// so status and samples stay readable. A monitor that cannot be built is
 	// logged and skipped; it never keeps the socket from coming up.
-	if hostMonitor, monErr := a.AttachHostMonitor(hostService, logger); monErr != nil {
+	hostMonitor, monErr := a.AttachHostMonitor(hostService, logger)
+	switch {
+	case monErr != nil:
 		logger.Warn("daemon.host_monitor.unavailable", "error", monErr.Error(), "consequence", "hosts are not probed on a schedule; the daemon keeps running")
-	} else if hostMonitor.Settings().Enabled {
+	default:
+		// Retention runs whether or not probing is on.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := hostMonitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				logger.Warn("daemon.host_monitor.stopped", "error", err.Error())
-			}
+			hostMonitor.RunJanitor(ctx)
 		}()
-	} else {
-		logger.Info("daemon.host_monitor.off", "hint", "set host_monitor.enabled: true in config.yaml to probe hosts on a schedule")
+		if hostMonitor.Settings().Enabled {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := hostMonitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Warn("daemon.host_monitor.stopped", "error", err.Error())
+				}
+			}()
+		} else {
+			logger.Info("daemon.host_monitor.off", "hint", "set host_monitor.enabled: true in config.yaml to probe hosts on a schedule")
+		}
 	}
 	inProc := cerbapi.NewInProcessClient(
 		cerbapi.WithScheduleService(schedules),

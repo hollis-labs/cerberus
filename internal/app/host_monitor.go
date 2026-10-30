@@ -38,6 +38,7 @@ func HostMonitorSettings(cfg *config.HostMonitorConfig) (hosts.MonitorSettings, 
 		{"outpost_interval", cfg.OutpostInterval, &s.OutpostInterval}, {"ssh_interval", cfg.SSHInterval, &s.SSHInterval},
 		{"min_interval", cfg.MinInterval, &s.MinInterval}, {"max_backoff", cfg.MaxBackoff, &s.MaxBackoff},
 		{"probe_timeout", cfg.ProbeTimeout, &s.ProbeTimeout}, {"sample_retention", cfg.SampleRetention, &s.SampleRetention},
+		{"event_retention", cfg.EventRetention, &s.EventRetention}, {"rollup_5m_retention", cfg.Rollup5mRetention, &s.Rollup5mRetention}, {"rollup_1h_retention", cfg.Rollup1hRetention, &s.Rollup1hRetention},
 	} {
 		if err := dur(d.name, d.v, d.dst); err != nil {
 			return s, err
