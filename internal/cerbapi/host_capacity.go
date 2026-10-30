@@ -44,7 +44,7 @@ type CapacityQuery struct {
 
 	// Hardware constraints (Hosts F1). Each tests a recorded fact; a host
 	// whose fact is not recorded is unknown for it, never guessed.
-	// MinMemoryTotal is installed memory (probed when fresh, else recorded).
+	// MinMemoryTotal is installed memory: the recorded hardware figure, else the fresh probe.
 	MinMemoryTotal hosts.Size
 	// MinMemoryUpgrade is the room to add memory: the recorded memory ceiling
 	// minus the installed total.
@@ -448,12 +448,16 @@ func (s *HostService) judgeParts(ctx context.Context, v HostView, q CapacityQuer
 	miss := func(f string, a ...any) { unknown = append(unknown, fmt.Sprintf(f, a...)) }
 
 	if q.MinMemoryTotal > 0 {
+		// Installed memory is the recorded hardware figure: the probe reports the
+		// kernel's usable memory (about 30.3 GiB on a 32 GB machine), which is not
+		// what is installed. The probe is the fallback for a host with nothing
+		// recorded.
 		var total int64
 		switch {
-		case v.Probed != nil && v.ProbedAt != nil && now.Sub(*v.ProbedAt) <= maxAge && v.Probed.MemoryTotal > 0:
-			total = v.Probed.MemoryTotal
 		case hw != nil && hw.Memory != nil && hw.Memory.Total > 0:
 			total = int64(hw.Memory.Total)
+		case v.Probed != nil && v.ProbedAt != nil && now.Sub(*v.ProbedAt) <= maxAge && v.Probed.MemoryTotal > 0:
+			total = v.Probed.MemoryTotal
 		}
 		switch {
 		case total == 0:
