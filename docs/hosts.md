@@ -270,3 +270,206 @@ acknowledgment and approval fields. MCP exposes the same fixed operations.
 A plan uses a separate route so older controllers cannot mistake it for an
 execution. Existing Cerberus audit records cover these calls; the separate
 host-action history model and SSH unit actions remain their own work items.
+
+## Design: ceilings, storage slots and components (Hosts B, proposed)
+
+Status: proposal for review (CW-20261030-0184). No code yet. This section
+describes what Hosts B adds; the sections above stay true. Everything here
+follows ADR 0004: facts only, no ranking, no reservation, and `hosts.yaml`
+stays the stored source (no new database).
+
+### Goal
+
+Answer "what can this machine take?" as well as "what does it have?": CPU
+socket and upgrade limit, memory slots and ceiling, storage bays by kind with
+which are free, PCIe room, and the spare and installed parts that fill them.
+Operators, Tachyon and agents read it to plan upgrades and to place spare
+parts. Capacity matching is unchanged for now.
+
+### 1. `hardware.ceilings`
+
+Optional, recorded like the rest of `hardware` (a probe never writes it).
+Every value that states a limit carries a `source`, because DMI understates
+(a board reporting 32GiB may take 64GiB).
+
+```yaml
+hardware:
+  ceilings:
+    cpu:
+      socket: {value: FT4, source: dmi}
+      installed: {cores: 4, threads: 4, tdp_w: 35, source: dmi}
+      max_supported: {cores: 4, threads: 4, tdp_w: 35, source: vendor_spec}
+    memory:
+      slots: {value: 2, source: dmi}
+      max_total: {value: 32GiB, source: vendor_spec}      # DMI said 16GiB
+      max_per_slot: {value: 16GiB, source: vendor_spec}
+      types: {value: [DDR4], source: dmi}                 # DDR3|DDR4|DDR5|LPDDR4|LPDDR5|other
+      ecc: {value: false, source: vendor_spec}
+      slot_ids: {value: [dimm0, dimm1], source: dmi}      # optional; default dimm0..N-1
+    pcie_slots:                                           # any card: GPU, HBA, NIC, capture
+      - {id: pcie0, gen: 3, lanes: 16, form: full_height, max_power_w: 75, occupant_component: "", source: vendor_spec}
+    gpu:                                                  # gpu-specific limits only; omit until needed
+      power_budget_w: {value: 75, source: vendor_spec}
+```
+
+- `source` is one of `dmi`, `vendor_spec`, `operator`. A value without a
+  source is invalid. `operator` means someone measured or tested it and
+  outranks the other two only in the operator's eyes; Cerberus does not pick
+  between them, it shows the source next to the value.
+- Existing `hardware.cpu_socket` and `hardware.memory.{max,slots,slots_used}`
+  stay as they are (they are what 12 hosts carry today). `ceilings` does not
+  replace them; where both are present they must agree on slots, or validation
+  reports the disagreement. They are not merged on the view.
+- `ceilings.memory.slot_ids` lists the memory slot names a component's
+  `location.slot` may use. Default `dimm0..dimmN-1`, where N is
+  `ceilings.memory.slots`, or `hardware.memory.slots` when there is no
+  `ceilings` block. Boards whose DMI locators are named (for example
+  `ChannelA-DIMM0`) list them here.
+- `pcie_slots` is for any card. `occupant_component` follows the same rules as
+  on storage slots (section 2); a card is a component of kind `other`.
+- Sizes use the existing `Size` type. Counts must not be negative; installed
+  cores/threads/TDP cannot exceed `max_supported` when both are present.
+
+### 2. `hardware.storage_slots[]`
+
+One entry per physical place a drive can go.
+
+```yaml
+hardware:
+  storage_slots:
+    - id: m2-0                  # unique within the host
+      kind: nvme_m2             # nvme_m2|sata_25|sata_35|m2_sata|ide|pcie
+      form_factor: "2280"       # free text, short (2242, 2280, 2.5in, 3.5in, hhhl, ...)
+      interface: pcie           # pcie|sata|ide|usb, with gen below
+      gen: 3                    # interface generation (PCIe 3, SATA 3); 0 = unknown
+      max_size: {value: 2TB, source: operator}
+      occupant_disk: nvme0n1    # a hardware.disks[].name; or occupant_component: <component id>; neither = free
+      notes: ""
+```
+
+- `kind` is a closed list: `nvme_m2`, `sata_25`, `sata_35`, `m2_sata`, `ide`,
+  `pcie`. A new kind is a code change, so a typo cannot create a bucket.
+- A slot is free, or has exactly one of `occupant_disk` (a
+  `hardware.disks[].name`) or `occupant_component` (a component `id`, see
+  section 3); both set is an error. The two namespaces can collide, so they are
+  separate fields. Two slots cannot share an occupant. An occupant that
+  resolves to nothing is a validation error that names which field failed
+  (`hardware.storage_slots[1].occupant_disk: "sdz" is not in hardware.disks`).
+- `max_size` carries a `source`; a disk larger than its slot's `max_size`
+  is a validation warning, not an error, because the ceiling may be wrong
+  (this is the DMI problem again).
+- A component occupant must itself be located in this host and slot
+  (`location.host` and `location.slot` match); the two sides must agree.
+- Derived, never stored: `storage_summary` on the view, per kind,
+  `{total, used, free}` counted from `storage_slots`. A host with no
+  `storage_slots` has no summary (unknown is not zero).
+
+### 3. Components (`components`)
+
+A component is a part, installed or spare. It is its own object so a spare
+part can exist without a host, and moves between locations.
+
+Stored in `~/.cerberus/hosts.yaml` under a new top-level `components:` list
+(same file, same validation pass, no database):
+
+```yaml
+components:
+  - id: ram-0007                    # unique; same name rules as host names
+    kind: ram                       # ram|disk|cpu|other
+    description: "16GiB DDR4 3200 SODIMM"
+    size: 16GiB                     # ram and disk
+    type: DDR4                      # ram: DDR3/DDR4/..., disk: ssd|hdd|nvme|emmc|usb|other
+    speed: "3200"                   # free text short (MT/s, rpm, or PCIe gen)
+    serial: 9876543
+    location:
+      host: box-a                   # an existing host name, or omit for spare
+      slot: dimm1                   # a hardware slot id on that host (m2-0, ...)
+      spare: false                  # true means in the spare drawer; then host/slot are absent
+    notes: ""
+```
+
+- `location` is either `{spare: true}` or `{host, slot}`. A `host` must exist.
+  A `slot` must match a `storage_slots[].id` for `kind: disk`, one of the
+  memory slot ids (`ceilings.memory.slot_ids`, else `dimm0..N-1` with N from
+  `ceilings.memory.slots`, else `hardware.memory.slots`) for `ram`, or `socket`
+  for `cpu`; `other` may name a `pcie_slots[].id` or any free-text slot. Two components
+  cannot occupy the same host slot.
+- `serial` is untrusted text like the rest; it is shown on every surface,
+  because these are physical assets the operator labels.
+- A component installed in a slot and the host's recorded `hardware.disks`
+  can both describe the same disk. We keep both; `occupant` on the slot links
+  them. The inventory collector (task D) is the writer that reconciles them.
+
+### Hardware recorded, nothing else (unknown, never zero)
+
+Twelve hosts today have `hardware` and nothing from this section. They stay
+valid unchanged, and the view says unknown rather than inventing zeros:
+
+```yaml
+hardware:
+  vendor: LENOVO
+  memory: {type: DDR4, total: 8GiB, max: 32GiB, slots: 2, slots_used: 1}
+  disks: [{name: sda, size: 120GB, type: ssd, bus: sata}]
+```
+
+```json
+{"hardware": {"memory": {"slots": 2, "slots_used": 1}, "disks": [{"name": "sda"}]},
+ "ceilings": null, "storage_slots": null, "storage_summary": null,
+ "notes": ["storage slots not recorded: free bays unknown"]}
+```
+
+`ceilings`, `storage_slots` and `storage_summary` are absent (`null`), never
+`0` or `[]`; a list with zero entries means "recorded: none". Memory slot ids
+for components fall back to `hardware.memory.slots` here.
+
+### 4. Surfaces
+
+Same one-service rule as today. Hosts B adds read data to existing calls and
+two component reads; it adds no writes (writes are task C, 0185).
+
+| Surface | host list/get | component list | component get |
+|---|---|---|---|
+| CLI | `host list/get` (gains `ceilings`, `storage_slots`, `storage_summary`) | `cerberus component list` | `component get <id>` |
+| Daemon socket | `GET /hosts`, `GET /hosts/{name}` | `GET /components` | `GET /components/{id}` |
+| Console API | `GET /api/hosts[...]` | `GET /api/components` | `GET /api/components/{id}` |
+| MCP | `cerberus_host_list`, `cerberus_host_get` | `cerberus_component_list` | `cerberus_component_get` |
+
+- `host list` stays a summary: it carries `storage_summary` and the memory
+  headroom but not the slot detail; `get` carries everything.
+- `component list` takes `--kind`, `--host`, `--spare` filters (CLI) and the
+  same fields as query/arguments elsewhere.
+- Audit: reads under connector `host`, effect `read`, ops `component_list`
+  and `component_get`, same intent+outcome pairs and count notes. The `list`
+  note for hosts gains `components=N` (components located on the listed hosts);
+  `component_list` carries `components=N spare=M`.
+- No ranking, no "best fit", no suggestion of which part goes where.
+
+### 5. Validation
+
+In `internal/hosts/validate.go`, in the same pass as `validateHardware`, with
+the same text rules (length 128, no control characters) and the same
+item cap (64 per list, 256 components in total). Unknown keys remain an
+error. Problems report the field path (`hardware.storage_slots[1].kind`).
+Cross-checks: slot ids unique per host, occupant resolves, component ids
+unique, component location resolves, one component per slot, memory and CPU
+ceilings consistent with the existing fields, `source` always present.
+
+### 6. Schema
+
+`schema/` today holds only `cerberus.yaml.schema.json`; `hosts.yaml` has no
+JSON schema. Hosts B adds `schema/hosts.yaml.schema.json` covering the whole
+file (existing fields plus the above), generated by hand and checked against
+the Go types in a drift test. The schema file and the drift test land in the
+implementation PR, not in this docs-only PR.
+
+### 7. Not in Hosts B
+
+Writing any of this (C, 0185), collecting it (D, 0186), probing on a schedule
+(E, 0187), capacity matching and Tachyon access (F, 0189), and backfilling the
+14 hosts (Cerberus lead). Existing `hardware` data stays valid unchanged.
+
+### Open questions for review
+
+Settled in review (Cerberus lead, 2026-10-30): components stay in
+`hosts.yaml` (one file, one validation pass); `cpu.max_supported` is a single
+record; no `removable` flag until needed.
