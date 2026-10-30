@@ -15,4 +15,6 @@ jobs:
       # go.yml already runs the race tests and the scheduler-platform matrix; this job builds the artifact.
       test_cmd: "go build ./... && go vet ./cmd/... ./internal/... ./pkg/..."
       ldflags_var: main.version
-      ldflags_extra: "-X main.commit=$GITHUB_SHA"
+      ldflags_extra: "-X main.commit=${{ github.sha }}"
+      node_version: "22"
+      ui_cmd: "cd web && npm ci && npm run build"
