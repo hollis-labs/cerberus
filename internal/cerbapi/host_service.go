@@ -390,9 +390,20 @@ func (s *HostService) reach(h hosts.Host) (*config.ResourceDef, error) {
 // means the host could not be reached; a host that answers badly yields an
 // empty Probed, not an error.
 func (s *HostService) gather(ctx context.Context, def *config.ResourceDef) (*hosts.Probed, error) {
-	sshc, err := s.ssh(ctx)
+	out, err := s.execFixed(ctx, def, hosts.PosixProbeCommand)
 	if err != nil {
 		return nil, err
+	}
+	p := hosts.ParsePosixProbe(out)
+	return &p, nil
+}
+
+// execFixed runs one Cerberus-composed command (it takes no caller input) on
+// the ssh resource and returns its stdout.
+func (s *HostService) execFixed(ctx context.Context, def *config.ResourceDef, command string) (string, error) {
+	sshc, err := s.ssh(ctx)
+	if err != nil {
+		return "", err
 	}
 	cfg := make(map[string]any, len(def.Config)+2)
 	for k, v := range def.Config {
@@ -400,12 +411,11 @@ func (s *HostService) gather(ctx context.Context, def *config.ResourceDef) (*hos
 	}
 	cfg["id"], cfg["name"] = def.ID, def.Name
 	res := resource.Resource{ID: def.ID, Name: def.Name, Type: resource.Server, Connector: "ssh", Config: cfg}
-	out, err := sshc.Exec(ctx, &res, hosts.PosixProbeCommand)
+	out, err := sshc.Exec(ctx, &res, command)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	p := hosts.ParsePosixProbe(out.Stdout)
-	return &p, nil
+	return out.Stdout, nil
 }
 
 // hostReason is the reason text stored with an offline host: Cerberus's

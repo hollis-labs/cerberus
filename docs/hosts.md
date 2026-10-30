@@ -560,3 +560,32 @@ cannot be appended after the file was written, the write stands and the result
 carries a warning. Reads: `GET /hosts/{name}/history`, `GET
 /components/{id}/history` (`?limit=`), `host history`, `component history`,
 `cerberus_host_history`, `cerberus_component_history`.
+
+## Inventory (Hosts D)
+
+`cerberus host inventory NAME [--dry-run] --ack` (`POST /hosts/{name}/inventory`,
+`cerberus_host_inventory`) collects a host's physical facts and records them
+through the Hosts C write path, replacing `sysadmin/fleet/fleet-inventory.py`.
+
+- **Collection.** One fixed, read-only `sh` script over the host's `reach.ssh`
+  (it takes no input): DMI identity (vendor, model, version, serial, board, BIOS,
+  asset tag), CPU model and socket, memory layout (`dmidecode -t 16,17`), whole
+  disks with serials (`lsblk`) and NICs. Root-only facts run under `sudo -n`;
+  without passwordless sudo they are skipped, the host is reported as partial,
+  and the recorded serials, socket and memory layout are kept. The remote run is
+  audited as `ssh exec` (read-sensitive). Outpost has no privileged inventory
+  operation yet, so a host with only an Outpost reach is refused with guidance.
+- **Merge.** Collected facts replace the collected fields of `hardware`.
+  Operator data is never touched: `notes`, `storage_slots`, ceilings whose
+  source is `vendor_spec` or `operator`, and every component. Ceilings whose
+  source is `dmi` (memory slots, maximum, types, ECC; CPU socket and installed
+  cores) are filled or refreshed from the collection.
+- **Change event.** `recorded_at` moves, and a `host_inventory` history entry
+  with the changed fields is written, only when a fact differs; an identical run
+  writes nothing. A collection that would break the file (for example a disk
+  renamed under a slot's `occupant_disk`) is refused by validation with the
+  slot named; nothing is silently cleared.
+- **Write path.** Same as Hosts C: whole-file validation, backup, audit, gates,
+  acknowledgment. `revision` is optional here (the run gathers its own data): the
+  current one is used and the write retried if another writer got in first.
+  `--dry-run` shows the change and writes nothing.

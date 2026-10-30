@@ -13,6 +13,7 @@ func resetWriteFlags() {
 	hostSetOpts.writeFlags, hostSetOpts.role, hostSetOpts.owner, hostSetOpts.patch, hostSetOpts.patchFile = writeFlags{}, "", "", "", ""
 	hostSetOpts.labels, hostSetOpts.unlabels, hostSetOpts.create = nil, nil, false
 	hostRemoveOpts = writeFlags{}
+	hostInventoryOpts.writeFlags, hostInventoryOpts.dryRun = writeFlags{}, false
 	compOpts = componentOpts{}
 	historyLimit = 0
 }
@@ -81,5 +82,16 @@ func TestComponentCommandsEndToEnd(t *testing.T) {
 	}
 	if _, err = runWrite(t, "component", "remove", "ram-1", "--ack"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHostInventoryNeedsAnSSHReach(t *testing.T) {
+	writeHome(t)
+	_, err := runWrite(t, "host", "inventory", "box-a", "--ack", "--dry-run")
+	if err == nil || !strings.Contains(err.Error(), "reach.ssh") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err = runWrite(t, "host", "inventory", "box-a", "--dry-run"); err == nil || !strings.Contains(err.Error(), "acknowledg") {
+		t.Fatalf("without --ack: %v", err)
 	}
 }
