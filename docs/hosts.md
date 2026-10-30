@@ -305,9 +305,11 @@ hardware:
       max_per_slot: {value: 16GiB, source: vendor_spec}
       types: {value: [DDR4], source: dmi}                 # DDR3|DDR4|DDR5|LPDDR4|LPDDR5|other
       ecc: {value: false, source: vendor_spec}
-    gpu:
-      pcie_slots:
-        - {id: pcie0, gen: 3, lanes: 16, form: full_height, max_power_w: 75, occupant: "", source: vendor_spec}
+      slot_ids: {value: [dimm0, dimm1], source: dmi}      # optional; default dimm0..N-1
+    pcie_slots:                                           # any card: GPU, HBA, NIC, capture
+      - {id: pcie0, gen: 3, lanes: 16, form: full_height, max_power_w: 75, occupant_component: "", source: vendor_spec}
+    gpu:                                                  # gpu-specific limits only; omit until needed
+      power_budget_w: {value: 75, source: vendor_spec}
 ```
 
 - `source` is one of `dmi`, `vendor_spec`, `operator`. A value without a
@@ -318,6 +320,13 @@ hardware:
   stay as they are (they are what 12 hosts carry today). `ceilings` does not
   replace them; where both are present they must agree on slots, or validation
   reports the disagreement. They are not merged on the view.
+- `ceilings.memory.slot_ids` lists the memory slot names a component's
+  `location.slot` may use. Default `dimm0..dimmN-1`, where N is
+  `ceilings.memory.slots`, or `hardware.memory.slots` when there is no
+  `ceilings` block. Boards whose DMI locators are named (for example
+  `ChannelA-DIMM0`) list them here.
+- `pcie_slots` is for any card. `occupant_component` follows the same rules as
+  on storage slots (section 2); a card is a component of kind `other`.
 - Sizes use the existing `Size` type. Counts must not be negative; installed
   cores/threads/TDP cannot exceed `max_supported` when both are present.
 
@@ -334,19 +343,23 @@ hardware:
       interface: pcie           # pcie|sata|ide|usb, with gen below
       gen: 3                    # interface generation (PCIe 3, SATA 3); 0 = unknown
       max_size: {value: 2TB, source: operator}
-      occupant: nvme0n1         # a hardware.disks[].name, or empty = free
+      occupant_disk: nvme0n1    # a hardware.disks[].name; or occupant_component: <component id>; neither = free
       notes: ""
 ```
 
 - `kind` is a closed list: `nvme_m2`, `sata_25`, `sata_35`, `m2_sata`, `ide`,
   `pcie`. A new kind is a code change, so a typo cannot create a bucket.
-- `occupant` is empty (free) or names an entry in `hardware.disks` (by
-  `name`) or a `component` installed in this slot (by `id`, see section 3).
-  Two slots cannot share an occupant; an occupant that matches nothing is a
-  validation error.
+- A slot is free, or has exactly one of `occupant_disk` (a
+  `hardware.disks[].name`) or `occupant_component` (a component `id`, see
+  section 3); both set is an error. The two namespaces can collide, so they are
+  separate fields. Two slots cannot share an occupant. An occupant that
+  resolves to nothing is a validation error that names which field failed
+  (`hardware.storage_slots[1].occupant_disk: "sdz" is not in hardware.disks`).
 - `max_size` carries a `source`; a disk larger than its slot's `max_size`
   is a validation warning, not an error, because the ceiling may be wrong
   (this is the DMI problem again).
+- A component occupant must itself be located in this host and slot
+  (`location.host` and `location.slot` match); the two sides must agree.
 - Derived, never stored: `storage_summary` on the view, per kind,
   `{total, used, free}` counted from `storage_slots`. A host with no
   `storage_slots` has no summary (unknown is not zero).
@@ -376,15 +389,38 @@ components:
 ```
 
 - `location` is either `{spare: true}` or `{host, slot}`. A `host` must exist.
-  A `slot` must match a `storage_slots[].id` for `kind: disk`, a memory slot
-  position (`dimm0..dimmN-1`, N from `ceilings.memory.slots`) for `ram`, or
-  `socket` for `cpu`; `other` may name any free-text slot. Two components
+  A `slot` must match a `storage_slots[].id` for `kind: disk`, one of the
+  memory slot ids (`ceilings.memory.slot_ids`, else `dimm0..N-1` with N from
+  `ceilings.memory.slots`, else `hardware.memory.slots`) for `ram`, or `socket`
+  for `cpu`; `other` may name a `pcie_slots[].id` or any free-text slot. Two components
   cannot occupy the same host slot.
 - `serial` is untrusted text like the rest; it is shown on every surface,
   because these are physical assets the operator labels.
 - A component installed in a slot and the host's recorded `hardware.disks`
   can both describe the same disk. We keep both; `occupant` on the slot links
   them. The inventory collector (task D) is the writer that reconciles them.
+
+### Hardware recorded, nothing else (unknown, never zero)
+
+Twelve hosts today have `hardware` and nothing from this section. They stay
+valid unchanged, and the view says unknown rather than inventing zeros:
+
+```yaml
+hardware:
+  vendor: LENOVO
+  memory: {type: DDR4, total: 8GiB, max: 32GiB, slots: 2, slots_used: 1}
+  disks: [{name: sda, size: 120GB, type: ssd, bus: sata}]
+```
+
+```json
+{"hardware": {"memory": {"slots": 2, "slots_used": 1}, "disks": [{"name": "sda"}]},
+ "ceilings": null, "storage_slots": null, "storage_summary": null,
+ "notes": ["storage slots not recorded: free bays unknown"]}
+```
+
+`ceilings`, `storage_slots` and `storage_summary` are absent (`null`), never
+`0` or `[]`; a list with zero entries means "recorded: none". Memory slot ids
+for components fall back to `hardware.memory.slots` here.
 
 ### 4. Surfaces
 
@@ -403,7 +439,9 @@ two component reads; it adds no writes (writes are task C, 0185).
 - `component list` takes `--kind`, `--host`, `--spare` filters (CLI) and the
   same fields as query/arguments elsewhere.
 - Audit: reads under connector `host`, effect `read`, ops `component_list`
-  and `component_get`, same intent+outcome pairs and count notes.
+  and `component_get`, same intent+outcome pairs and count notes. The `list`
+  note for hosts gains `components=N` (components located on the listed hosts);
+  `component_list` carries `components=N spare=M`.
 - No ranking, no "best fit", no suggestion of which part goes where.
 
 ### 5. Validation
@@ -421,7 +459,8 @@ ceilings consistent with the existing fields, `source` always present.
 `schema/` today holds only `cerberus.yaml.schema.json`; `hosts.yaml` has no
 JSON schema. Hosts B adds `schema/hosts.yaml.schema.json` covering the whole
 file (existing fields plus the above), generated by hand and checked against
-the Go types in a test so the two cannot drift.
+the Go types in a drift test. The schema file and the drift test land in the
+implementation PR, not in this docs-only PR.
 
 ### 7. Not in Hosts B
 
@@ -431,9 +470,6 @@ Writing any of this (C, 0185), collecting it (D, 0186), probing on a schedule
 
 ### Open questions for review
 
-1. Components in `hosts.yaml` (above) versus their own `components.yaml`
-   beside it. One file keeps one validation pass and one backup; two files keep
-   a spare-parts edit from touching host records. Recommendation: one file.
-2. `ceilings.cpu.max_supported` as a single record, or a list of supported
-   CPU models. Recommendation: single record now; a list when someone needs it.
-3. Do `storage_slots` need `removable` (hot-swap bays)? Left out until used.
+Settled in review (Cerberus lead, 2026-10-30): components stay in
+`hosts.yaml` (one file, one validation pass); `cpu.max_supported` is a single
+record; no `removable` flag until needed.
