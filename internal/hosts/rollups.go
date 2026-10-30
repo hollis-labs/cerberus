@@ -253,6 +253,8 @@ func (s *SampleStore) deleteBelow(ctx context.Context, host, table, tsCol, grain
 // the watermark of the tier that now counts it. It is idempotent, and a failure
 // leaves earlier tiers' data in place. Daily rollups are kept.
 func (s *SampleStore) Compact(ctx context.Context, now time.Time, ret Retention) (CompactReport, error) {
+	s.wmu.Lock()
+	defer s.wmu.Unlock()
 	var rep CompactReport
 	hs, err := s.hostsWithSamples(ctx)
 	if err != nil {
