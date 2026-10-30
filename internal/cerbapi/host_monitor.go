@@ -2,6 +2,7 @@ package cerbapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -213,7 +214,11 @@ func (m *HostMonitor) probeOne(ctx context.Context, h hosts.Host) {
 	th := m.settings.Thresholds
 	if obs.OK {
 		if err := m.store.AppendSample(ctx, *obs.Sample); err != nil {
-			m.logger.Warn("daemon.host_monitor.sample_write_failed", "host", h.Name, "error", redact.Text(err.Error()))
+			event := "daemon.host_monitor.sample_write_failed"
+			if errors.Is(err, hosts.ErrLateSample) {
+				event = "daemon.host_monitor.sample_late" // the clock stepped back: not stored, never lost uncounted
+			}
+			m.logger.Warn(event, "host", h.Name, "error", redact.Text(err.Error()))
 		}
 	}
 	prev, _, err := m.store.Status(ctx, h.Name)
