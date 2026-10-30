@@ -560,3 +560,145 @@ cannot be appended after the file was written, the write stands and the result
 carries a warning. Reads: `GET /hosts/{name}/history`, `GET
 /components/{id}/history` (`?limit=`), `host history`, `component history`,
 `cerberus_host_history`, `cerberus_component_history`.
+
+## Design: monitoring (Hosts E, proposed)
+
+Status: proposal for review (CW-20261030-0187). No code yet. Goal: every host
+has a recent, trustworthy status instead of a point-in-time probe, with retained
+samples for trends and events for subscribers. Capacity stays a filter (ADR
+0004): nothing here ranks, scores or picks a host.
+
+### 1. Scheduling: a host monitor in the daemon
+
+A `HostMonitor` in the daemon, started and stopped like `ResourceMonitor`. It is
+**not** a schedule-service job. The scheduler core ships inactive (no engine, no
+executor, no per-fire authority), has no host-probe target, caps a fire at 30 s
+and models user jobs with app grants; making it probe hosts would mean enabling
+the engine and a new target kind, which is a larger and separately gated
+change. The monitor calls the same `probe` the CLI does, so there is one probe
+implementation.
+
+- **Intervals.** Default 60 s for hosts whose transport is `outpost`, 5 min for
+  `ssh`, `none` is never probed. Daemon settings give the defaults and a floor
+  (15 s); a host may override with an optional validated `monitor:` block in
+  `hosts.yaml` (`enabled`, `interval`), changed through the Hosts C write path.
+- **No hammering.** Each host has its own timer with ±10 % jitter and a staggered
+  start (the first probe of host *i* is delayed by a random slice of its interval,
+  so a daemon restart does not probe all hosts at once). A global concurrency cap
+  (default 4) and a per-transport cap (default 2 for ssh). A host whose previous
+  probe is still running is skipped. After a failure the host backs off:
+  interval × 2^n, capped at 15 min, reset on the first success. A probe that
+  takes longer than its timeout counts as a failure.
+- **Rollout.** Off by default (`host_monitor.enabled: false`); the operator turns
+  it on after the deploy. `cerberus host monitor` shows what is scheduled, when
+  each host was last attempted and when it is next due.
+- **Audit volume.** 14 hosts at 60 s would be ~20 000 intent/outcome pairs a day.
+  Monitor probes run as the automation principal and are recorded as one record
+  per **state change**, one per failed probe run of a streak (not per retry), and
+  an hourly summary (counts per host); routine successful samples are not audited
+  one by one. Operator-initiated probes are audited as today.
+
+### 2. Storage: Cerberus's SQLite
+
+The daemon's application database (already opened for scheduling, WAL,
+`modernc.org/sqlite`) gets a migration with four tables. No new file and no new
+database; `hosts.yaml` stays the declared source and `state/hosts.json` stays the
+last-probe cache for `list/get/capacity`.
+
+| Table | Content |
+|---|---|
+| `host_samples` | one row per successful probe: `host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms`; primary key `(host, ts)`, `WITHOUT ROWID` |
+| `host_sample_rollups` | `host, grain (5m/1h/1d), bucket_ts, n`, and per measure min/avg/max; primary key `(host, grain, bucket_ts)` |
+| `host_status` | one row per host: `status, reasons (JSON), since, last_ok, last_attempt, consecutive_failures, next_due` |
+| `host_events` | append-only: `id (autoincrement), ts, host, kind, from_status, to_status, reasons (JSON)` |
+
+- **Retention classes** (daemon settings; defaults): raw samples 7 d; 5-minute
+  rollups 30 d; hourly rollups 400 d; daily rollups kept. Events 90 d. At 60 s a
+  host writes ~10 000 raw rows a week, 14 hosts ~140 000: small.
+- **Rollups and janitor.** An hourly janitor builds rollups from a per-grain
+  watermark (idempotent), then deletes raw rows only after the rollup that
+  counts them is committed, in one transaction per batch; every removal is
+  counted in the janitor's log line. Same rule as the data-paths direction (D7):
+  no row is removed unless it is counted into a committed rollup.
+- **Why not the reporting Postgres.** Cerberus already owns this SQLite and the
+  planned reporting database is not built. `host_events` is cursor-readable (by
+  `id`), so a later sink can copy events and rollups to reporting without
+  changing the monitor.
+- **Tether session counts.** Cerberus has no dependency on Tether and holds no
+  Tether credential. Proposed: a generic `host_metrics (host, ts, name, value)`
+  table plus a write endpoint (`POST /hosts/{name}/metrics`, scope write, one
+  value per call or a small batch) that Tether calls on its own cadence with the
+  count of sessions per worker. The status/samples reads include any external
+  metric under its name. v1 ships the table and endpoint; Tether pushing is its
+  own change. See the open question below.
+
+### 3. Status and health
+
+`status` is derived by the monitor after each attempt, stored in `host_status`,
+and attached to `HostView` (additive field). Values:
+
+- `online`: the last probe succeeded and is newer than 3 intervals.
+- `degraded`: online, and at least one of the documented thresholds is crossed
+  (below), or the last probe was a partial result.
+- `offline`: 3 consecutive failed probes, or no success within 3 intervals.
+- `unknown`: never probed, or the host is not monitored.
+
+Every value carries `reasons` (code and plain-words detail), `since`, and the age
+of the last good measurement; stale reasons are listed as `stale` with the age,
+never silently hidden. Thresholds are facts the operator can read and change, not
+scores: `disk_low` (free < 10 % or < 5 GiB), `memory_low` (available < 10 %),
+`load_high` (load1 > 2 × cpu for 3 samples), `probe_slow` (probe_ms > half the
+timeout for 3 samples). **Flap damping:** a change to or from `degraded` needs 2
+consecutive consistent results; `offline` needs the 3 failures above; recovery to
+`online` needs 1 success. A host labelled `intermittent` (a laptop) is still
+reported as it is, with `expected: true` on its offline events so a subscriber can
+mute it.
+
+Reads, on all four surfaces: `GET /hosts/{name}/status`,
+`GET /hosts/{name}/samples?since=&until=&grain=raw|5m|1h|1d&limit=`,
+`cerberus host status [NAME]`, `cerberus host samples NAME`,
+`cerberus_host_status`, `cerberus_host_samples`. Samples return the grain asked
+for, in time order, with `n` per bucket for rollups.
+
+### 4. Events
+
+A change of `status` appends a `host_events` row (`status_changed` with from, to
+and reasons) and wakes subscribers. Events carry status and reasons only: no
+serials, addresses or probed text.
+
+- **SSE.** `GET /api/hosts/events` on the console API (and `GET /hosts/events` on
+  the daemon socket): `text/event-stream`, one event per `host_events` row with
+  `id:` set to the row id; the client resumes with `Last-Event-ID` (events older
+  than retention are reported as a `gap` event); heartbeat comment every 20 s;
+  filters `?host=` and `?kind=`. A subscriber that cannot keep up is disconnected
+  and resumes by id; the monitor never blocks on a subscriber.
+- **MCP** has no streaming, so `cerberus_host_events(since_id, limit)` polls the
+  same rows.
+- **Auth.** Same as the other console routes today (session). The service
+  credential and narrower scope for Tachyon belong to Hosts F.
+
+### 5. Hosts E in pieces
+
+1. **E1** migration, monitor (timers, jitter, backoff, caps), samples, status on
+   `HostView`, `host monitor/status/samples`, MCP and API reads, config + schema.
+2. **E2** rollups and the retention janitor.
+3. **E3** events, SSE, `cerberus_host_events`.
+4. **E4** external metrics table and endpoint.
+
+Each is one PR with tests: timer/jitter/backoff with a fake clock, concurrency cap
+with a blocking fake probe, no probe pile-up after a restart, status transitions
+including flap damping, janitor idempotence and "never delete before the rollup
+commits", SSE resume and gap, migration up on an existing database, and the
+no-ranking rule (status and samples contain no score or order beyond name/time).
+
+### Open questions for review
+
+1. Monitor in the daemon (above) versus a schedule-service job with a new
+   `host_probe` target: recommendation, the monitor.
+2. Default off until the operator enables it: recommendation, yes.
+3. Source of Tether session counts: Tether pushes via the metrics endpoint
+   (recommended) versus Cerberus pulling from Tether's API with a credential
+   Cerberus would have to hold.
+4. Audit policy for monitor probes (state changes, failure streaks and an hourly
+   summary only): confirm, or ask for every probe.
+5. Retention numbers and status thresholds above are defaults to confirm.
