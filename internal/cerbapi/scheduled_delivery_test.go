@@ -134,6 +134,7 @@ func TestScheduledRealPipelineEnvironmentAndSeparateStreams(t *testing.T) {
 		t.Fatal("secret escaped stored output")
 	}
 	var raw string
+	// gostore:allow sqlite-only
 	for _, query := range []string{`SELECT group_concat(payload) FROM gosched_schedules`, `SELECT group_concat(error) FROM cerberus_schedule_receipts`, `SELECT group_concat(last_error) FROM gosched_fires`, `SELECT group_concat(body) FROM cerberus_schedule_logs`} {
 		if err = db.QueryRow(query).Scan(&raw); err != nil {
 			t.Fatal(err)

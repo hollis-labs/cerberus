@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/hollis-labs/libs/core/store"
 )
 
 // EventStatusChanged is the kind of event a status change appends.
@@ -38,8 +40,6 @@ type EventQuery struct {
 
 // AppendEvent adds an event and returns its id.
 func (s *SampleStore) AppendEvent(ctx context.Context, e Event) (int64, error) {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
 	reasons, err := json.Marshal(e.Reasons)
 	if err != nil {
 		return 0, err
@@ -51,12 +51,13 @@ func (s *SampleStore) AppendEvent(ctx context.Context, e Event) (int64, error) {
 	if e.Expected {
 		exp = 1
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO host_events (ts, host, kind, from_status, to_status, reasons, expected) VALUES (?,?,?,?,?,?,?)`,
-		unix(e.At), e.Host, e.Kind, e.From, e.To, string(reasons), exp)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	var id int64
+	err = s.core.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		return tx.QueryRowContext(ctx, `INSERT INTO host_events (ts, host, kind, from_status, to_status, reasons, expected)
+			VALUES (?,?,?,?,?,?,?) RETURNING id`,
+			unix(e.At), e.Host, e.Kind, e.From, e.To, string(reasons), exp).Scan(&id)
+	})
+	return id, err
 }
 
 // Events returns events with id greater than q.AfterID, oldest first, at most
@@ -77,7 +78,7 @@ func (s *SampleStore) Events(ctx context.Context, q EventQuery) ([]Event, error)
 	}
 	query += ` ORDER BY id ASC LIMIT ?`
 	args = append(args, q.Limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.core.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +104,7 @@ func (s *SampleStore) Events(ctx context.Context, q EventQuery) ([]Event, error)
 // the log is empty.
 func (s *SampleStore) EventBounds(ctx context.Context) (oldest, newest int64, err error) {
 	var lo, hi sql.NullInt64
-	if err = s.db.QueryRowContext(ctx, `SELECT MIN(id), MAX(id) FROM host_events`).Scan(&lo, &hi); err != nil {
+	if err = s.core.QueryRowContext(ctx, `SELECT MIN(id), MAX(id) FROM host_events`).Scan(&lo, &hi); err != nil {
 		return 0, 0, fmt.Errorf("read event bounds: %w", err)
 	}
 	return lo.Int64, hi.Int64, nil
@@ -111,13 +112,11 @@ func (s *SampleStore) EventBounds(ctx context.Context) (oldest, newest int64, er
 
 // PruneEvents removes events older than before and returns how many.
 func (s *SampleStore) PruneEvents(ctx context.Context, before time.Time) (int, error) {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
 	return s.pruneEvents(ctx, before)
 }
 
 func (s *SampleStore) pruneEvents(ctx context.Context, before time.Time) (int, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM host_events WHERE ts < ?`, unix(before))
+	res, err := s.core.ExecContext(ctx, `DELETE FROM host_events WHERE ts < ?`, unix(before))
 	if err != nil {
 		return 0, err
 	}

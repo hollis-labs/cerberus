@@ -1,4 +1,4 @@
-.PHONY: all build homebrew-install go-install uninstall test lint lint-go typecheck smoke-confirm ui-build ui-dev package-release release-beta clean
+.PHONY: lint-sql all build homebrew-install go-install uninstall test lint lint-go typecheck smoke-confirm ui-build ui-dev package-release release-beta clean
 
 GO_PACKAGES := ./cmd/cerberus ./internal/... ./pkg/...
 GO_LINT_CACHE_DIR := /tmp/cerberus-go-build
@@ -48,7 +48,10 @@ uninstall:
 test:
 	go test $(GO_PACKAGES)
 
-lint: lint-go
+lint: lint-go lint-sql
+
+lint-sql:
+	go run github.com/hollis-labs/libs/core/store/cmd/gostore-lint ./...
 
 lint-go:
 	mkdir -p $(GO_LINT_CACHE_DIR)

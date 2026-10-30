@@ -47,7 +47,7 @@ func (c *Core) checkQuota(ctx context.Context, tx *sql.Tx, app string, added int
 		return nil
 	}
 	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM gosched_schedules WHERE substr(id,1,length(?)+1)=?||'/'`, app, app).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM gosched_schedules WHERE substr(id,1,length(?)+1)= ? || '/'`, app, app).Scan(&count); err != nil {
 		return err
 	}
 	if limit < 1 || count+added > limit {

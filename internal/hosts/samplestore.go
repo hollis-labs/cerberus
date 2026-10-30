@@ -6,25 +6,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
+
+	"github.com/hollis-labs/libs/core/store"
 )
 
 // SampleStore keeps samples and derived status in the daemon's SQLite
 // database (tables host_samples and host_status, migration 006).
+//
+// It goes through libs core/store: reads use the read pool, and every write is
+// a WriteTx on the single writer, which waits for the lock and restarts on
+// contention, so monitor goroutines for different hosts never lose a write.
 type SampleStore struct {
-	db *sql.DB
-	// wmu serializes this store's writes: monitor goroutines for different
-	// hosts write at once, and SQLite allows one writer.
-	wmu sync.Mutex
+	core *store.Store
 }
 
 // ErrLateSample is returned for a sample older than the host's rolled-up
 // watermark.
 var ErrLateSample = errors.New("late sample")
 
-// NewSampleStore wraps an open database that has the migration applied.
-func NewSampleStore(db *sql.DB) *SampleStore { return &SampleStore{db: db} }
+// NewSampleStore wraps an open core/store handle whose database has the
+// migrations applied.
+func NewSampleStore(core *store.Store) *SampleStore { return &SampleStore{core: core} }
 
 func nullF(p *float64) any {
 	if p == nil {
@@ -45,26 +48,29 @@ func unixPtr(t *time.Time) any {
 // AppendSample records a measurement. A second sample in the same second for a
 // host replaces the first.
 func (s *SampleStore) AppendSample(ctx context.Context, x Sample) error {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
-	// A sample behind the host's 5-minute watermark belongs to a bucket that has
-	// already been rolled up (a host clock that stepped backwards, say). It
-	// would be left in the raw table uncounted and then deleted by retention,
-	// so it is refused rather than stored.
-	var w int64
-	err := s.db.QueryRowContext(ctx, `SELECT watermark FROM host_rollup_state WHERE host = ? AND grain = ?`, x.Host, Grain5m).Scan(&w)
-	if err == nil && unix(x.At) < w {
-		return fmt.Errorf("%w: sample at %s is before the rolled-up watermark %s", ErrLateSample, x.At.UTC().Format(time.RFC3339), time.Unix(w, 0).UTC().Format(time.RFC3339))
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	return s.core.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		// A sample behind the host's 5-minute watermark belongs to a bucket that
+		// has already been rolled up (a host clock that stepped backwards, say).
+		// It would be left in the raw table uncounted and then deleted by
+		// retention, so it is refused rather than stored. The check and the
+		// insert are one transaction.
+		w, ok, err := s.watermark(ctx, tx, x.Host, Grain5m)
+		if err != nil {
+			return err
+		}
+		if ok && unix(x.At) < w {
+			return fmt.Errorf("%w: sample at %s is before the rolled-up watermark %s", ErrLateSample, x.At.UTC().Format(time.RFC3339), time.Unix(w, 0).UTC().Format(time.RFC3339))
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO host_samples
+			(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(host, ts) DO UPDATE SET load1 = excluded.load1, load5 = excluded.load5, load15 = excluded.load15,
+			  cpu = excluded.cpu, mem_total = excluded.mem_total, mem_available = excluded.mem_available,
+			  disk_total = excluded.disk_total, disk_free = excluded.disk_free, uptime_s = excluded.uptime_s, probe_ms = excluded.probe_ms`,
+			x.Host, unix(x.At), nullF(x.Load1), nullF(x.Load5), nullF(x.Load15), x.CPU, x.MemoryTotal, x.MemoryAvailable,
+			x.DiskTotal, x.DiskFree, x.UptimeSeconds, x.ProbeMS)
 		return err
-	}
-	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO host_samples
-		(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		x.Host, unix(x.At), nullF(x.Load1), nullF(x.Load5), nullF(x.Load15), x.CPU, x.MemoryTotal, x.MemoryAvailable,
-		x.DiskTotal, x.DiskFree, x.UptimeSeconds, x.ProbeMS)
-	return err
+	})
 }
 
 func scanSample(rows *sql.Rows) (Sample, error) {
@@ -91,7 +97,7 @@ const sampleCols = `host, ts, load1, load5, load15, cpu, mem_total, mem_availabl
 
 // Recent returns a host's latest n samples, newest first.
 func (s *SampleStore) Recent(ctx context.Context, host string, n int) ([]Sample, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+sampleCols+` FROM host_samples WHERE host = ? ORDER BY ts DESC LIMIT ?`, host, n)
+	rows, err := s.core.QueryContext(ctx, `SELECT `+sampleCols+` FROM host_samples WHERE host = ? ORDER BY ts DESC LIMIT ?`, host, n)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +127,7 @@ func (s *SampleStore) Samples(ctx context.Context, host string, since, until tim
 	if !until.IsZero() {
 		hi = unix(until)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+sampleCols+` FROM (
+	rows, err := s.core.QueryContext(ctx, `SELECT `+sampleCols+` FROM (
 		SELECT `+sampleCols+` FROM host_samples WHERE host = ? AND ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT ?) ORDER BY ts ASC`, host, lo, hi, limit)
 	if err != nil {
 		return nil, err
@@ -140,8 +146,6 @@ func (s *SampleStore) Samples(ctx context.Context, host string, since, until tim
 
 // PutStatus stores a host's status.
 func (s *SampleStore) PutStatus(ctx context.Context, st HostStatus) error {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
 	reasons, err := json.Marshal(st.Reasons)
 	if err != nil {
 		return err
@@ -149,12 +153,17 @@ func (s *SampleStore) PutStatus(ctx context.Context, st HostStatus) error {
 	if st.Reasons == nil {
 		reasons = []byte("[]")
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO host_status
-		(host, status, reasons, since, last_ok, last_attempt, next_due, consecutive_failures, candidate, candidate_count)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		st.Host, st.Status, string(reasons), unix(st.Since), unixPtr(st.LastOK), unixPtr(st.LastAttempt), unixPtr(st.NextDue),
-		st.ConsecutiveFailures, st.Candidate, st.CandidateCount)
-	return err
+	return s.core.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO host_status
+			(host, status, reasons, since, last_ok, last_attempt, next_due, consecutive_failures, candidate, candidate_count)
+			VALUES (?,?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(host) DO UPDATE SET status = excluded.status, reasons = excluded.reasons, since = excluded.since,
+			  last_ok = excluded.last_ok, last_attempt = excluded.last_attempt, next_due = excluded.next_due,
+			  consecutive_failures = excluded.consecutive_failures, candidate = excluded.candidate, candidate_count = excluded.candidate_count`,
+			st.Host, st.Status, string(reasons), unix(st.Since), unixPtr(st.LastOK), unixPtr(st.LastAttempt), unixPtr(st.NextDue),
+			st.ConsecutiveFailures, st.Candidate, st.CandidateCount)
+		return err
+	})
 }
 
 func scanStatus(sc interface{ Scan(...any) error }) (HostStatus, error) {
@@ -180,7 +189,7 @@ const statusCols = `host, status, reasons, since, last_ok, last_attempt, next_du
 
 // Status returns a host's status; ok is false when none was recorded.
 func (s *SampleStore) Status(ctx context.Context, host string) (HostStatus, bool, error) {
-	st, err := scanStatus(s.db.QueryRowContext(ctx, `SELECT `+statusCols+` FROM host_status WHERE host = ?`, host))
+	st, err := scanStatus(s.core.QueryRowContext(ctx, `SELECT `+statusCols+` FROM host_status WHERE host = ?`, host))
 	if errors.Is(err, sql.ErrNoRows) {
 		return HostStatus{}, false, nil
 	}
@@ -192,7 +201,7 @@ func (s *SampleStore) Status(ctx context.Context, host string) (HostStatus, bool
 
 // AllStatus returns every host's status, by host name.
 func (s *SampleStore) AllStatus(ctx context.Context) (map[string]HostStatus, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+statusCols+` FROM host_status`)
+	rows, err := s.core.QueryContext(ctx, `SELECT `+statusCols+` FROM host_status`)
 	if err != nil {
 		return nil, err
 	}
@@ -211,18 +220,18 @@ func (s *SampleStore) AllStatus(ctx context.Context) (map[string]HostStatus, err
 // ForgetStatus drops the status of hosts not in keep. Samples are history and
 // stay.
 func (s *SampleStore) ForgetStatus(ctx context.Context, keep map[string]bool) error {
-	s.wmu.Lock()
-	defer s.wmu.Unlock()
 	all, err := s.AllStatus(ctx)
 	if err != nil {
 		return err
 	}
-	for host := range all {
-		if !keep[host] {
-			if _, err := s.db.ExecContext(ctx, `DELETE FROM host_status WHERE host = ?`, host); err != nil {
-				return err
+	return s.core.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		for host := range all {
+			if !keep[host] {
+				if _, err := tx.ExecContext(ctx, `DELETE FROM host_status WHERE host = ?`, host); err != nil {
+					return err
+				}
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }

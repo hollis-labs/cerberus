@@ -5,56 +5,52 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
-	_ "modernc.org/sqlite" // SQLite driver registration
+	corestore "github.com/hollis-labs/libs/core/store"
 )
 
-// Store implements domain.Store backed by SQLite.
+// Store implements domain.Store backed by SQLite, opened through libs
+// core/store: WAL, a busy timeout, foreign keys, and a single write connection
+// (the application database has several writers: scheduling, host monitoring).
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	core *corestore.Store
 }
 
-// Open creates a new SQLite store at the given path, enables WAL mode and
-// foreign keys, and runs any pending migrations.
+// busyTimeout is how long a connection waits for another process's lock.
+const busyTimeout = 5 * time.Second
+
+// Open opens the database at path through core/store and runs any pending
+// numbered migrations. The directory is created when it is missing.
 func Open(path string) (*Store, error) {
-	// busy_timeout on every pooled connection: the daemon has several writers
-	// (scheduling, host monitoring), and a second writer should wait for the
-	// first instead of failing with SQLITE_BUSY.
-	dsn := path
-	if !strings.Contains(path, "?") {
-		dsn += "?_pragma=busy_timeout(5000)"
-	}
-	db, err := sql.Open("sqlite", dsn)
+	cs, err := corestore.Open(context.Background(), corestore.Config{
+		Driver: corestore.DriverSQLite,
+		SQLite: corestore.SQLiteConfig{Path: path, Journal: "wal", BusyTimeout: busyTimeout, CreateParentDir: true},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite db: %w", err)
 	}
-
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close() //nolint:errcheck
-		return nil, fmt.Errorf("enable WAL mode: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close() //nolint:errcheck
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
-	}
-
-	if err := migrate(db); err != nil {
-		db.Close() //nolint:errcheck
+	if err := migrate(cs.DB()); err != nil {
+		cs.Close() //nolint:errcheck
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
-
-	return &Store{db: db}, nil
+	return &Store{db: cs.DB(), core: cs}, nil
 }
 
-// DB borrows the application-owned connection for inactive scheduling.
+// DB borrows the application-owned write connection, which the scheduling
+// library uses with its own transactions. Nothing running inside a Core().WriteTx
+// callback may use it: the write connection is the one the transaction holds.
 func (s *Store) DB() *sql.DB { return s.db }
 
-// Close closes the underlying database connection.
+// Core is the core/store handle: WriteTx and ReadTx for code that does its own
+// transactions (the host samples, status, rollups and events).
+func (s *Store) Core() *corestore.Store { return s.core }
+
+// Close closes the underlying database connections.
 func (s *Store) Close() error {
-	return s.db.Close()
+	return s.core.Close()
 }
 
 // --- Projects ---
@@ -67,8 +63,10 @@ func (s *Store) SaveProject(ctx context.Context, p *domain.Project) error {
 	p.UpdatedAt = time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO projects (id, name, description, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (id, name, description, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
+		   created_at = excluded.created_at, updated_at = excluded.updated_at`,
 		p.ID, p.Name, p.Description,
 		p.CreatedAt.UTC().Format(time.RFC3339), now,
 	)
@@ -156,9 +154,12 @@ func (s *Store) SaveResource(ctx context.Context, res *domain.Resource) error {
 	}
 
 	_, err = s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO resources
+		`INSERT INTO resources
 		 (id, name, type, project_id, connector, config, tags, depends_on, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET name = excluded.name, type = excluded.type, project_id = excluded.project_id,
+		   connector = excluded.connector, config = excluded.config, tags = excluded.tags,
+		   depends_on = excluded.depends_on, created_at = excluded.created_at, updated_at = excluded.updated_at`,
 		res.ID, res.Name, string(res.Type), res.ProjectID, res.Connector,
 		string(configJSON), string(tagsJSON), string(depsJSON),
 		res.CreatedAt.UTC().Format(time.RFC3339), now,
