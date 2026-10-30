@@ -174,3 +174,12 @@ func TestOversizedDiskIsAWarningNotAnError(t *testing.T) {
 		t.Fatalf("warnings: %v", w)
 	}
 }
+
+func TestMSATASlotKind(t *testing.T) {
+	f := parseOK(t, partsBase+`      storage_slots:
+        - {id: msata-0, kind: msata, interface: sata, gen: 3, occupant_disk: sda}
+`)
+	if got := StorageSummary(f.Hosts[0].Hardware.StorageSlots)["msata"]; got.Total != 1 || got.Used != 1 {
+		t.Fatalf("summary: %+v", got)
+	}
+}
