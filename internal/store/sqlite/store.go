@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/domain"
@@ -19,7 +20,14 @@ type Store struct {
 // Open creates a new SQLite store at the given path, enables WAL mode and
 // foreign keys, and runs any pending migrations.
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	// busy_timeout on every pooled connection: the daemon has several writers
+	// (scheduling, host monitoring), and a second writer should wait for the
+	// first instead of failing with SQLITE_BUSY.
+	dsn := path
+	if !strings.Contains(path, "?") {
+		dsn += "?_pragma=busy_timeout(5000)"
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite db: %w", err)
 	}
