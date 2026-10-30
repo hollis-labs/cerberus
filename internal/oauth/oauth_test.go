@@ -243,3 +243,47 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(data)
 }
+
+func TestHostScopesAreNarrowerThanOperate(t *testing.T) {
+	read, write, op := []string{ScopeHostsRead}, []string{ScopeHostsWrite}, []string{ScopeOperate}
+	cases := []struct {
+		name      string
+		scopes    []string
+		connector string
+		operation string
+		effect    contract.Effect
+		want      bool
+	}{
+		{"hosts.read reads hosts", read, "host", "host_status", contract.EffectRead, true},
+		{"hosts.read cannot write hosts", read, "host", "host_update", contract.EffectWrite, false},
+		{"hosts.read cannot read a resource", read, "local", "list", contract.EffectRead, false},
+		{"hosts.read cannot read sensitive host text", read, "host", "logs", contract.EffectReadSensitive, false},
+		{"hosts.write reads hosts too", write, "host", "host_samples", contract.EffectRead, true},
+		{"hosts.write updates a host", write, "host", "host_update", contract.EffectWrite, true},
+		{"hosts.write moves a component", write, "host", "component_move", contract.EffectWrite, true},
+		{"hosts.write inventories a host", write, "host", "host_inventory", contract.EffectWrite, true},
+		{"hosts.write cannot remove a host", write, "host", "host_remove", contract.EffectWrite, false},
+		{"hosts.write cannot restart a unit", write, "host", "restart", contract.EffectLifecycle, false},
+		{"hosts.write cannot touch a resource", write, "local", "deploy", contract.EffectLifecycle, false},
+		{"hosts.write cannot run a pipeline", write, "pipeline", "run", contract.EffectExec, false},
+		{"operate removes a host", op, "host", "host_remove", contract.EffectWrite, true},
+		{"read still reads a host", []string{ScopeRead}, "host", "host_status", contract.EffectRead, true},
+		{"no scopes, nothing", nil, "host", "host_status", contract.EffectRead, false},
+	}
+	for _, c := range cases {
+		if got := AllowsOp(c.scopes, c.connector, c.operation, c.effect); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	for _, s := range []string{ScopeHostsRead, ScopeHostsWrite} {
+		if got, unknown := ParseScopes([]string{s}); len(got) != 1 || len(unknown) != 0 {
+			t.Errorf("%s is not an issuable scope: %v %v", s, got, unknown)
+		}
+	}
+	if need := RequiredScopeOp("host", "host_update", contract.EffectWrite); need != ScopeHostsWrite+" (or "+ScopeOperate+")" {
+		t.Errorf("the refusal should name the narrow scope: %q", need)
+	}
+	if need := RequiredScopeOp("local", "deploy", contract.EffectLifecycle); need != ScopeOperate {
+		t.Errorf("%q", need)
+	}
+}

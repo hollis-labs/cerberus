@@ -18,8 +18,29 @@ const (
 	ScopeOperate = "cerberus:operate"
 )
 
+// The host scopes are narrower than the effect scopes: they cover the host
+// registry (connector "host") and nothing else, so a service such as Tachyon
+// can read or change hosts without being able to touch a resource, a pipeline
+// or a secret.
+const (
+	// ScopeHostsRead is the read operations of the host connector: hosts,
+	// components, status, samples, events, capacity, history.
+	ScopeHostsRead = "cerberus:hosts.read"
+	// ScopeHostsWrite adds the host registry writes in HostWriteOperations. It
+	// does not cover removing a host or unit actions (start, stop, restart,
+	// logs), which stay under operate.
+	ScopeHostsWrite = "cerberus:hosts.write"
+)
+
+// HostWriteOperations are the host connector's operations cerberus:hosts.write
+// covers. host_remove and the unit actions are deliberately not in it.
+var HostWriteOperations = map[string]bool{
+	"host_update": true, "host_inventory": true,
+	"component_create": true, "component_update": true, "component_move": true, "component_remove": true,
+}
+
 // Supported are the scopes this resource understands.
-var Supported = []string{ScopeRead, ScopeReadSensitive, ScopeOperate}
+var Supported = []string{ScopeRead, ScopeReadSensitive, ScopeOperate, ScopeHostsRead, ScopeHostsWrite}
 
 // RequiredScope is the least scope an effect needs.
 func RequiredScope(effect contract.Effect) string {
@@ -46,6 +67,44 @@ func Allows(scopes []string, effect contract.Effect) bool {
 		}
 	}
 	return best >= rank[RequiredScope(effect)]
+}
+
+// AllowsOp is Allows with the operation known: the effect scopes decide as
+// they always did, and the host scopes additionally cover the host connector's
+// reads (hosts.read, hosts.write) and its HostWriteOperations (hosts.write).
+func AllowsOp(scopes []string, connector, operation string, effect contract.Effect) bool {
+	if Allows(scopes, effect) {
+		return true
+	}
+	if connector != "host" {
+		return false
+	}
+	var read, write bool
+	for _, s := range scopes {
+		read = read || s == ScopeHostsRead || s == ScopeHostsWrite
+		write = write || s == ScopeHostsWrite
+	}
+	switch {
+	case effect == contract.EffectRead:
+		return read
+	case HostWriteOperations[operation]:
+		return write
+	}
+	return false
+}
+
+// RequiredScopeOp names what an operation needs, for a refusal: for the host
+// connector the narrow host scope, with the effect scope as the alternative.
+func RequiredScopeOp(connector, operation string, effect contract.Effect) string {
+	if connector == "host" {
+		switch {
+		case effect == contract.EffectRead:
+			return ScopeHostsRead + " (or " + RequiredScope(effect) + ")"
+		case HostWriteOperations[operation]:
+			return ScopeHostsWrite + " (or " + ScopeOperate + ")"
+		}
+	}
+	return RequiredScope(effect)
 }
 
 // ParseScopes normalizes a scope list: known scopes only, deduplicated.

@@ -105,7 +105,7 @@ func scopeRefusal(ctx context.Context, spec auditSpec) error {
 	if !spec.known || effect == "" {
 		effect = contract.EffectExec
 	}
-	if oauth.Allows(p.Scopes, effect) {
+	if oauth.AllowsOp(p.Scopes, spec.connector, spec.operation, effect) {
 		return nil
 	}
 	return insufficientScope(spec.connector, spec.operation, effect, p.Scopes, p.Client)
@@ -115,13 +115,17 @@ func scopeRefusal(ctx context.Context, spec auditSpec) error {
 // token lacks and what to ask for, because a client may show the model
 // only the text of a result.
 func insufficientScope(connector, operation string, effect contract.Effect, scopes []string, client string) error {
-	need := oauth.RequiredScope(effect)
+	need := oauth.RequiredScopeOp(connector, operation, effect)
 	if client == "" {
 		client = "<client>"
 	}
+	issue := need
+	if i := strings.Index(need, " "); i > 0 {
+		issue = need[:i] // the narrow scope to ask for, without the alternative
+	}
 	return externalConnectorError(ExternalConnectorOperationArgs{Connector: connector, Operation: operation}, ExternalConnectorInsufficientScope,
 		redact.Guidance("this token's scopes (%s) do not cover %s %s, a %s operation, which needs %s. You cannot widen them yourself: ask your operator for a token with %s (`cerberus mcp-http token issue --client %s --scope %s` on their terminal)",
-			strings.Join(scopes, " "), connector, operation, effect, need, need, client, need))
+			strings.Join(scopes, " "), connector, operation, effect, need, issue, client, issue))
 }
 
 // AuthCapabilities is what the daemon says about its mcp-http auth, so
@@ -348,3 +352,9 @@ func describeToken(t oauth.TokenRecord) string {
 
 // DescribeToken is describeToken for the CLI.
 func DescribeToken(t oauth.TokenRecord) string { return describeToken(t) }
+
+// ScopeAddBearer adds a bearer token to the request's redaction scope, so
+// nothing can render it. For a front end that forwards the token to the daemon.
+func ScopeAddBearer(ctx context.Context, token string) {
+	redact.ScopeFrom(ctx).Add("bearer token", token)
+}

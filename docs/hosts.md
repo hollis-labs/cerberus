@@ -965,3 +965,34 @@ judged on, so a consumer can choose between matches itself; it is keyed by host
 name and orders nothing. It also says where the facts came from: `probe_interval`
 and `window` for `recent`, and `status_facts` (status, since, last good
 measurement, probe interval) for `status_in`, so a consumer can show freshness.
+
+name and orders nothing.
+
+### Hosts F2 as built
+
+Domain scopes and the bearer path, as designed. Nothing here issues a credential.
+
+- **Scopes.** `cerberus:hosts.read` covers the read operations of the host
+  connector (hosts, components, status, samples, events, capacity, history, revision)
+  and nothing else. `cerberus:hosts.write` covers those reads plus `host_update`,
+  `host_inventory`, `component_create`, `component_update`, `component_move` and
+  `component_remove`. `host_remove` and the unit actions (`units`, `logs`, `start`,
+  `stop`, `restart`) stay under `cerberus:operate`; a host-scoped token cannot touch a
+  resource, a pipeline or a secret. The effect scopes behave exactly as before.
+  Issue with `cerberus mcp-http token issue --client NAME --scope cerberus:hosts.read`
+  (the operator's decision; the same tokens work over MCP and over the console API).
+  A refusal names the narrow scope to ask for. The set of write operations the scope
+  covers is in `oauth.HostWriteOperations`; a test fails if a host write operation is
+  added without deciding which side of it falls on.
+- **Bearer on the console API.** `Authorization: Bearer <token>` is accepted, without
+  a console session, on `/api/hosts*` and `/api/components*` only; every other
+  console route still needs a signed-in session. The console does not check the token:
+  it forwards it to the daemon, which verifies it and applies its scopes to every call,
+  and the daemon's audit records carry the token's client and subject. A bearer call is
+  exempt from the browser's CSRF checks (a page cannot make a browser send one) but
+  must still send `Content-Type: application/json` on a write, and it needs the same
+  revision and acknowledgment as any other write. The token joins the request's redaction
+  scope so nothing can echo it. A token that does not verify is refused, never read as a
+  lesser claim.
+- **MCP.** The same tokens and scopes apply through mcp-http (and so through the Tether
+  gateway); no extra work was needed beyond the scope check now knowing the host scopes.
