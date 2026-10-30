@@ -168,6 +168,7 @@ func Validate(f *File) error {
 			add(name, "tether_environment_id", "too long")
 		}
 	}
+	validateParts(f, add)
 	if len(probs) == 0 {
 		return nil
 	}

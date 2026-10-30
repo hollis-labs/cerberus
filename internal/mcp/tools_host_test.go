@@ -214,3 +214,36 @@ func TestHostToolsAreReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// The component tools are served, read-only and bound to read contracts.
+func TestComponentToolsAreReadOnly(t *testing.T) {
+	tools := ComponentTools(cerbapi.ComponentClientOf(nil))
+	if len(tools) != 2 {
+		t.Fatalf("%d component tools", len(tools))
+	}
+	cs := connectTools(t, tools...)
+	list, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, tool := range list.Tools {
+		seen[tool.Name] = true
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			t.Errorf("%s is not annotated read-only", tool.Name)
+		}
+		if op, ok := ToolOperation(tool.Name); !ok || !op.Effect.ReadOnly() {
+			t.Errorf("%s is bound to %+v", tool.Name, op)
+		}
+	}
+	for _, name := range []string{"cerberus_component_list", "cerberus_component_get"} {
+		if !seen[name] {
+			t.Errorf("%s not served", name)
+		}
+	}
+	// Without host support the tool says so rather than returning nothing.
+	res := callHostTool(t, tools, "cerberus_component_get", map[string]any{"id": "x"})
+	if !res.IsError || !strings.Contains(textBlocks(res), "host support is not available") {
+		t.Fatalf("unavailable = %v %s", res.IsError, textBlocks(res))
+	}
+}

@@ -297,6 +297,29 @@ type HostClient interface {
 	HostCapacity(ctx context.Context, q CapacityQuery) (CapacityResult, error)
 }
 
+// ComponentClient is the component reads (Hosts B). It is separate from
+// HostClient so older fakes keep compiling.
+type ComponentClient interface {
+	ListComponents(ctx context.Context, filter ComponentFilter) ([]hosts.Component, error)
+	GetComponent(ctx context.Context, id string) (hosts.Component, error)
+}
+
+// ComponentClientOf returns client as a ComponentClient, or one that refuses
+// every call with the reason.
+func ComponentClientOf(client any) ComponentClient {
+	if c, ok := client.(ComponentClient); ok {
+		return c
+	}
+	return unavailableHostClient{}
+}
+
+func (unavailableHostClient) ListComponents(context.Context, ComponentFilter) ([]hosts.Component, error) {
+	return nil, errHostsUnavailable
+}
+func (unavailableHostClient) GetComponent(context.Context, string) (hosts.Component, error) {
+	return hosts.Component{}, errHostsUnavailable
+}
+
 // HostClientOf returns client as a HostClient, or one that refuses every call
 // with the reason, so a tool built over a client without host support still
 // lists and explains itself.
@@ -330,6 +353,9 @@ const (
 	OpHostGet      = "get"
 	OpHostProbe    = "probe"
 	OpHostCapacity = "capacity"
+
+	OpComponentList = "component_list"
+	OpComponentGet  = "component_get"
 )
 
 // HostDefinition is the contract of the host operations. All four are reads:
@@ -356,6 +382,11 @@ func HostDefinition() contract.Definition {
 			contract.Field("labels", labels)),
 		read(OpHostGet, "Show one host.", []string{"name"}, name),
 		read(OpHostProbe, "Measure one host over ssh and record the facts. A read: the commands are fixed.", []string{"name"}, name),
+		read(OpComponentList, "List spare and installed parts (components) recorded in hosts.yaml.", nil,
+			contract.Field("kind", contract.StringSchema("ram, disk, cpu or other.")),
+			contract.Field("host", contract.StringSchema("Only components located on this host.")),
+			contract.Field("spare", map[string]any{"type": "boolean", "description": "Only spare components."})),
+		read(OpComponentGet, "Show one component.", nil, contract.RequiredField("id", contract.StringSchema("Component id."))),
 		read(OpHostCapacity, "List the hosts that satisfy constraints, from recorded facts. Facts only: no ranking.", nil,
 			contract.Field("min_memory_available", size("Bytes or a size such as 4GiB.")),
 			contract.Field("min_disk_free", size("Bytes or a size such as 50GB.")),

@@ -103,6 +103,11 @@ type Hardware struct {
 	Disks     []HardwareDisk  `yaml:"disks,omitempty" json:"disks,omitempty"`
 	NICs      []HardwareNIC   `yaml:"nics,omitempty" json:"nics,omitempty"`
 	Notes     string          `yaml:"notes,omitempty" json:"notes,omitempty"`
+	// Ceilings and StorageSlots are what the machine can take (Hosts B). They
+	// are exposed on HostView, where an absent value reads as unknown, never as
+	// zero, so they are hidden from this struct's JSON.
+	Ceilings     *Ceilings     `yaml:"ceilings,omitempty" json:"-"`
+	StorageSlots []StorageSlot `yaml:"storage_slots,omitempty" json:"-"`
 	// RecordedAt is when these facts were last collected or checked.
 	RecordedAt *time.Time `yaml:"recorded_at,omitempty" json:"recorded_at,omitempty"`
 }
@@ -209,6 +214,8 @@ type File struct {
 	ExtraRoles     []string `yaml:"extra_roles,omitempty"`
 	ExtraProviders []string `yaml:"extra_providers,omitempty"`
 	Hosts          []Host   `yaml:"hosts"`
+	// Components are spare and installed parts (Hosts B).
+	Components []Component `yaml:"components,omitempty"`
 }
 
 // FileVersion is the hosts.yaml schema version this build reads.

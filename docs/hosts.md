@@ -273,7 +273,8 @@ host-action history model and SSH unit actions remain their own work items.
 
 ## Design: ceilings, storage slots and components (Hosts B, proposed)
 
-Status: proposal for review (CW-20261030-0184). No code yet. This section
+Status: approved design (CW-20261030-0184), implemented in the
+implementation PR. This section
 describes what Hosts B adds; the sections above stay true. Everything here
 follows ADR 0004: facts only, no ranking, no reservation, and `hosts.yaml`
 stays the stored source (no new database).
@@ -434,8 +435,10 @@ two component reads; it adds no writes (writes are task C, 0185).
 | Console API | `GET /api/hosts[...]` | `GET /api/components` | `GET /api/components/{id}` |
 | MCP | `cerberus_host_list`, `cerberus_host_get` | `cerberus_component_list` | `cerberus_component_get` |
 
-- `host list` stays a summary: it carries `storage_summary` and the memory
-  headroom but not the slot detail; `get` carries everything.
+- As built, `host list` and `host get` return the same view (list already
+  returned full `hardware`): `ceilings`, `storage_slots`, `storage_summary` and
+  the host's `components`, with `null` for anything not recorded. The MCP list
+  tool wraps the views in the usual budgeted envelope.
 - `component list` takes `--kind`, `--host`, `--spare` filters (CLI) and the
   same fields as query/arguments elsewhere.
 - Audit: reads under connector `host`, effect `read`, ops `component_list`

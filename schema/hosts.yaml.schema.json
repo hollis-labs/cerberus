@@ -1,0 +1,624 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hollis-labs/cerberus/schema/hosts.yaml.schema.json",
+  "title": "Cerberus hosts.yaml",
+  "description": "The host registry (docs/hosts.md). Unknown keys are an error. Kept in step with internal/hosts by TestSchemaMatchesGoTypes.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "extra_roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extra_providers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/host"
+      }
+    },
+    "components": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/component"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "hosts"
+  ],
+  "$defs": {
+    "source": {
+      "enum": [
+        "dmi",
+        "vendor_spec",
+        "operator"
+      ]
+    },
+    "size": {
+      "description": "bytes, or a size such as 16GiB",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "sourced_string": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_int": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_bool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_size": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/size"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "sourced_strings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "source"
+      ],
+      "properties": {
+        "value": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "cpu_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "threads": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tdp_w": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "source"
+      ]
+    },
+    "ceilings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "socket": {
+              "$ref": "#/$defs/sourced_string"
+            },
+            "installed": {
+              "$ref": "#/$defs/cpu_spec"
+            },
+            "max_supported": {
+              "$ref": "#/$defs/cpu_spec"
+            }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "slots": {
+              "$ref": "#/$defs/sourced_int"
+            },
+            "max_total": {
+              "$ref": "#/$defs/sourced_size"
+            },
+            "max_per_slot": {
+              "$ref": "#/$defs/sourced_size"
+            },
+            "types": {
+              "$ref": "#/$defs/sourced_strings"
+            },
+            "ecc": {
+              "$ref": "#/$defs/sourced_bool"
+            },
+            "slot_ids": {
+              "$ref": "#/$defs/sourced_strings"
+            }
+          }
+        },
+        "pcie_slots": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "gen": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "lanes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "form": {
+                "type": "string"
+              },
+              "max_power_w": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "occupant_component": {
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/$defs/source"
+              }
+            },
+            "required": [
+              "id",
+              "source"
+            ]
+          }
+        },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "power_budget_w": {
+              "$ref": "#/$defs/sourced_int"
+            }
+          }
+        }
+      }
+    },
+    "storage_slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "nvme_m2",
+            "sata_25",
+            "sata_35",
+            "m2_sata",
+            "ide",
+            "pcie"
+          ]
+        },
+        "form_factor": {
+          "type": "string"
+        },
+        "interface": {
+          "enum": [
+            "pcie",
+            "sata",
+            "ide",
+            "usb"
+          ]
+        },
+        "gen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_size": {
+          "$ref": "#/$defs/sourced_size"
+        },
+        "occupant_disk": {
+          "type": "string"
+        },
+        "occupant_component": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ]
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vendor": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "serial": {
+          "type": "string"
+        },
+        "asset_tag": {
+          "type": "string"
+        },
+        "board": {
+          "type": "string"
+        },
+        "bios": {
+          "type": "string"
+        },
+        "cpu_model": {
+          "type": "string"
+        },
+        "cpu_socket": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "total": {
+              "$ref": "#/$defs/size"
+            },
+            "max": {
+              "$ref": "#/$defs/size"
+            },
+            "slots": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "slots_used": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "disks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "serial": {
+                "type": "string"
+              },
+              "size": {
+                "$ref": "#/$defs/size"
+              },
+              "type": {
+                "enum": [
+                  "ssd",
+                  "hdd",
+                  "nvme",
+                  "emmc",
+                  "usb",
+                  "other"
+                ]
+              },
+              "bus": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "nics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "mac": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"
+              }
+            }
+          }
+        },
+        "notes": {
+          "type": "string"
+        },
+        "ceilings": {
+          "$ref": "#/$defs/ceilings"
+        },
+        "storage_slots": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/storage_slot"
+          }
+        },
+        "recorded_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "tailnet_name": {
+          "type": "string"
+        },
+        "tailnet_ip": {
+          "type": "string"
+        },
+        "lan_ip": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "reach": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "transport": {
+              "enum": [
+                "ssh",
+                "outpost",
+                "none"
+              ]
+            },
+            "ssh": {
+              "type": "string"
+            },
+            "outpost": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "token_file": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "token_file"
+              ]
+            }
+          }
+        },
+        "declared": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "os": {
+              "type": "string"
+            },
+            "arch": {
+              "type": "string"
+            },
+            "cpu": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "memory": {
+              "$ref": "#/$defs/size"
+            },
+            "disk": {
+              "$ref": "#/$defs/size"
+            },
+            "gpu": {
+              "type": "string"
+            }
+          }
+        },
+        "hardware": {
+          "$ref": "#/$defs/hardware"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "ttl": {
+          "type": "string"
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "monthly": {
+              "type": "number",
+              "minimum": 0
+            },
+            "currency": {
+              "type": "string"
+            }
+          }
+        },
+        "tether_environment_id": {
+          "type": "string"
+        },
+        "backup_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "ram",
+            "disk",
+            "cpu",
+            "other"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/size"
+        },
+        "type": {
+          "type": "string"
+        },
+        "speed": {
+          "type": "string"
+        },
+        "serial": {
+          "type": "string"
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "slot": {
+              "type": "string"
+            },
+            "spare": {
+              "type": "boolean"
+            }
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "location"
+      ]
+    }
+  }
+}

@@ -153,6 +153,8 @@ func (s *Server) routeTable() []route {
 		{"/api/schedules/v1/", s.handleSchedules},
 		{"/api/hosts", s.handleHosts},
 		{"/api/hosts/", s.handleHosts},
+		{"/api/components", s.handleComponents},
+		{"/api/components/", s.handleComponents},
 		{"/api/logout", s.handleLogout},
 		{"/api/approvals", s.handleApprovals},
 		{"/api/approvals/", s.handleApprovalByID},
@@ -923,6 +925,11 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cerbapi.HostHTTP(cerbapi.HostClientOf(s.client), "/api/hosts").ServeHTTP(w, r)
+}
+
+// Components (Hosts B) are reads, served beside hosts.
+func (s *Server) handleComponents(w http.ResponseWriter, r *http.Request) {
+	cerbapi.ComponentHTTP(cerbapi.ComponentClientOf(s.client), "/api/components").ServeHTTP(w, r)
 }
 
 func (s *Server) handlePortfolioHealth(w http.ResponseWriter, r *http.Request) {

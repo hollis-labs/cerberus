@@ -239,6 +239,8 @@ func (s *SocketServer) routes() *http.ServeMux {
 	// /hosts — the host registry (ADR 0004): reads only.
 	mux.Handle("/hosts", HostHTTP(HostClientOf(s.client), "/hosts"))
 	mux.Handle("/hosts/", HostHTTP(HostClientOf(s.client), "/hosts"))
+	mux.Handle("/components", ComponentHTTP(ComponentClientOf(s.client), "/components"))
+	mux.Handle("/components/", ComponentHTTP(ComponentClientOf(s.client), "/components"))
 
 	// /portfolio/health — combined portfolio health read projection (cerberus.portfolio.health.v1).
 	mux.Handle("/portfolio/health", PortfolioHealthHTTP(PortfolioHealthClientOf(s.client)))
