@@ -46,7 +46,7 @@ func (k *KeychainProvider) Get(_ context.Context, service, key string) (string, 
 
 	// Check OS keychain.
 	user := service + "/" + key
-	secret, err := keyring.Get(k.serviceName, user)
+	secret, err := KeyringCall("read "+user, func() (string, error) { return keyring.Get(k.serviceName, user) })
 	if err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return "", nil
@@ -66,7 +66,7 @@ func (k *KeychainProvider) Set(_ context.Context, service, key, value string) er
 	if err := realStoreGuard(); err != nil {
 		return err
 	}
-	if err := keyring.Set(k.serviceName, user, value); err != nil {
+	if _, err := KeyringCall("write "+user, func() (struct{}, error) { return struct{}{}, keyring.Set(k.serviceName, user, value) }); err != nil {
 		if errors.Is(err, keyring.ErrSetDataTooBig) {
 			return &StoreLimitError{Name: user, Bytes: len(value), Platform: runtime.GOOS}
 		}
@@ -81,7 +81,7 @@ func (k *KeychainProvider) Delete(_ context.Context, service, key string) error 
 		return err
 	}
 	user := service + "/" + key
-	if err := keyring.Delete(k.serviceName, user); err != nil {
+	if _, err := KeyringCall("delete "+user, func() (struct{}, error) { return struct{}{}, keyring.Delete(k.serviceName, user) }); err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return nil
 		}

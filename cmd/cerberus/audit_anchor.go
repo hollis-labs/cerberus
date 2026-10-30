@@ -8,6 +8,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 )
 
 // auditAnchorService is the keychain service the audit chain's head is
@@ -20,7 +21,7 @@ const auditAnchorService = "cerberus-audit-anchor"
 type keychainAnchor struct{ dir string }
 
 func (k keychainAnchor) Load() (audit.Head, bool, error) {
-	data, err := keyring.Get(auditAnchorService, k.dir)
+	data, err := secrets.KeyringCall("audit anchor read", func() (string, error) { return keyring.Get(auditAnchorService, k.dir) })
 	if errors.Is(err, keyring.ErrNotFound) {
 		return audit.Head{}, false, nil
 	}
@@ -39,7 +40,10 @@ func (k keychainAnchor) Store(h audit.Head) error {
 	if err != nil {
 		return err
 	}
-	return keyring.Set(auditAnchorService, k.dir, string(data))
+	_, err = secrets.KeyringCall("audit anchor write", func() (struct{}, error) {
+		return struct{}{}, keyring.Set(auditAnchorService, k.dir, string(data))
+	})
+	return err
 }
 
 // installAuditAnchor installs the keychain anchor for this process's audit
