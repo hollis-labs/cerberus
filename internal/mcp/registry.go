@@ -52,6 +52,7 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusDockerDestroyTool(client),
 	}
 	tools = append(tools, HostTools(cerbapi.HostClientOf(client))...)
+	tools = append(tools, HostMonitorTools(cerbapi.HostMonitorClientOf(client))...)
 	tools = append(tools, HostWriteTools(cerbapi.HostWriteClientOf(client))...)
 	tools = append(tools, ComponentTools(cerbapi.ComponentClientOf(client))...)
 	tools = append(tools, HostActionTools(cerbapi.HostClientOf(client))...)

@@ -10,9 +10,12 @@ type ConfigV2 struct {
 	Web       *WebConfig       `yaml:"web,omitempty"`
 	Build     *BuildConfig     `yaml:"build,omitempty"`
 	Transfers *TransfersConfig `yaml:"transfers,omitempty"`
-	Projects  []ProjectDef     `yaml:"projects,omitempty"`
-	Resources []ResourceDef    `yaml:"resources,omitempty"`
-	Pipelines []PipelineDef    `yaml:"pipelines,omitempty"`
+	// HostMonitor sets how the daemon probes hosts on a schedule (Hosts E). Off
+	// unless enabled.
+	HostMonitor *HostMonitorConfig `yaml:"host_monitor,omitempty"`
+	Projects    []ProjectDef       `yaml:"projects,omitempty"`
+	Resources   []ResourceDef      `yaml:"resources,omitempty"`
+	Pipelines   []PipelineDef      `yaml:"pipelines,omitempty"`
 }
 
 // BuildConfig carries global defaults for build-time behavior. Fields use
@@ -148,4 +151,35 @@ type ActionDef struct {
 	Command  string   `yaml:"command,omitempty"`  // shell command (for shell type)
 	Dir      string   `yaml:"dir,omitempty"`      // working directory (for shell type)
 	Timeout  string   `yaml:"timeout,omitempty"`  // duration string (for health_wait)
+}
+
+// HostMonitorConfig is the daemon's host monitoring settings. Every field is
+// optional; an absent one takes the default. Durations are Go durations ("60s").
+type HostMonitorConfig struct {
+	Enabled         bool    `yaml:"enabled,omitempty"`
+	OutpostInterval string  `yaml:"outpost_interval,omitempty"`
+	SSHInterval     string  `yaml:"ssh_interval,omitempty"`
+	MinInterval     string  `yaml:"min_interval,omitempty"`
+	JitterPercent   float64 `yaml:"jitter_percent,omitempty"`
+	MaxBackoff      string  `yaml:"max_backoff,omitempty"`
+	Concurrency     int     `yaml:"concurrency,omitempty"`
+	SSHConcurrency  int     `yaml:"ssh_concurrency,omitempty"`
+	ProbeTimeout    string  `yaml:"probe_timeout,omitempty"`
+	SampleRetention string  `yaml:"sample_retention,omitempty"`
+
+	Thresholds *HostMonitorThresholds `yaml:"thresholds,omitempty"`
+}
+
+// HostMonitorThresholds are the readable limits a host's status is derived from.
+type HostMonitorThresholds struct {
+	DiskFreePercent        float64 `yaml:"disk_free_percent,omitempty"`
+	DiskFreeBytes          string  `yaml:"disk_free_bytes,omitempty"`
+	MemoryAvailablePercent float64 `yaml:"memory_available_percent,omitempty"`
+	LoadFactor             float64 `yaml:"load_factor,omitempty"`
+	LoadSamples            int     `yaml:"load_samples,omitempty"`
+	SlowProbeFraction      float64 `yaml:"slow_probe_fraction,omitempty"`
+	SlowProbeSamples       int     `yaml:"slow_probe_samples,omitempty"`
+	OfflineAfter           int     `yaml:"offline_after,omitempty"`
+	DegradeConfirm         int     `yaml:"degrade_confirm,omitempty"`
+	StaleIntervals         int     `yaml:"stale_intervals,omitempty"`
 }

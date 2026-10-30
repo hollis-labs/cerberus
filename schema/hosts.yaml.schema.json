@@ -560,6 +560,18 @@
           "items": {
             "type": "string"
           }
+        },
+        "monitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "interval": {
+              "type": "string"
+            }
+          }
         }
       },
       "required": [

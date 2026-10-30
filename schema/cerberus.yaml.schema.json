@@ -27,11 +27,47 @@
       "type": "array",
       "description": "Multi-step orchestration workflows.",
       "items": { "$ref": "#/$defs/PipelineDef" }
+    },
+    "host_monitor": {
+      "$ref": "#/$defs/HostMonitorConfig"
     }
   },
   "required": ["version"],
   "additionalProperties": false,
   "$defs": {
+    "HostMonitorConfig": {
+      "type": "object",
+      "description": "How the daemon probes hosts on a schedule (Hosts E). Off unless enabled. Every field is optional; durations are Go durations such as 60s or 5m.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "outpost_interval": { "type": "string", "default": "60s" },
+        "ssh_interval": { "type": "string", "default": "5m" },
+        "min_interval": { "type": "string", "default": "15s" },
+        "jitter_percent": { "type": "number", "minimum": 0, "maximum": 50, "default": 10 },
+        "max_backoff": { "type": "string", "default": "15m" },
+        "concurrency": { "type": "integer", "minimum": 1, "default": 4 },
+        "ssh_concurrency": { "type": "integer", "minimum": 1, "default": 2 },
+        "probe_timeout": { "type": "string", "default": "45s" },
+        "sample_retention": { "type": "string", "default": "168h" },
+        "thresholds": {
+          "type": "object",
+          "properties": {
+            "disk_free_percent": { "type": "number", "default": 10 },
+            "disk_free_bytes": { "type": "string", "default": "5GiB" },
+            "memory_available_percent": { "type": "number", "default": 10 },
+            "load_factor": { "type": "number", "default": 2 },
+            "load_samples": { "type": "integer", "default": 3 },
+            "slow_probe_fraction": { "type": "number", "default": 0.5 },
+            "slow_probe_samples": { "type": "integer", "default": 3 },
+            "offline_after": { "type": "integer", "default": 3 },
+            "degrade_confirm": { "type": "integer", "default": 2 },
+            "stale_intervals": { "type": "integer", "default": 3 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "BuildConfig": {
       "type": "object",
       "description": "Global defaults for build-time behavior. Per-resource and CLI-level overrides take precedence over these defaults.",
