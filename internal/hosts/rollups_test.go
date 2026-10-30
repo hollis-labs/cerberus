@@ -2,6 +2,7 @@ package hosts_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -158,5 +159,28 @@ func TestAHostWithNoLoadHasNoLoadStat(t *testing.T) {
 	rs, _ := st.Rollups(ctx, "a", hosts.Grain5m, time.Time{}, time.Time{}, 0)
 	if len(rs) != 1 || rs[0].Load1 != nil {
 		t.Fatalf("an absent load must stay absent, not become 0: %+v", rs)
+	}
+}
+
+func TestASampleBehindTheWatermarkIsRefusedNotStoredToBeDeletedUncounted(t *testing.T) {
+	st, ctx := newStore(t), context.Background()
+	put(t, st, "a", day0.Add(time.Second), f(1), 1, 1, 1)
+	if _, err := st.Compact(ctx, day0.Add(10*time.Minute), hosts.Retention{}); err != nil {
+		t.Fatal(err)
+	}
+	err := st.AppendSample(ctx, hosts.Sample{Host: "a", At: day0.Add(2 * time.Minute), CPU: 1}) // a clock stepped back
+	if !errors.Is(err, hosts.ErrLateSample) {
+		t.Fatalf("a sample inside a rolled-up bucket must be refused: %v", err)
+	}
+	if rows, _ := st.Samples(ctx, "a", time.Time{}, time.Time{}, 0); len(rows) != 1 {
+		t.Fatalf("the late sample was stored: %d rows", len(rows))
+	}
+	// A sample in an open bucket is fine.
+	if err := st.AppendSample(ctx, hosts.Sample{Host: "a", At: day0.Add(11 * time.Minute), CPU: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// Another host has its own watermark.
+	if err := st.AppendSample(ctx, hosts.Sample{Host: "b", At: day0, CPU: 1}); err != nil {
+		t.Fatal(err)
 	}
 }
