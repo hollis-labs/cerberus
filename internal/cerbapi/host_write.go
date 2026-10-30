@@ -130,6 +130,13 @@ type writePlan struct {
 	// input is every caller-supplied value, scanned for credential material.
 	input  any
 	mutate func(*hosts.File) error
+	// prepare runs after the gates and before the file is touched (a remote
+	// collection, for inventory). autoRevision lets a write with no revision
+	// use the current one and retry on a conflict, for operations that gather
+	// their own data; dryRun previews instead of writing.
+	prepare      func(ctx context.Context, call *auditCall) error
+	autoRevision bool
+	dryRun       bool
 	// entity returns the record before and after, for the change history.
 	entity func(*hosts.File) any
 	hosts  func(before, after *hosts.File) []string
@@ -139,7 +146,7 @@ func (s *HostService) write(ctx context.Context, p writePlan) (_ WriteResult, re
 	if s == nil {
 		return WriteResult{}, errors.New("host service is not configured")
 	}
-	if p.args.Revision == "" {
+	if p.args.Revision == "" && !p.autoRevision {
 		return WriteResult{}, invalid(hosts.RevisionRequiredError{})
 	}
 	if where := hosts.FindSecret("", p.input); where != "" {
@@ -157,7 +164,31 @@ func (s *HostService) write(ctx context.Context, p writePlan) (_ WriteResult, re
 		return WriteResult{}, err
 	}
 
-	applied, err := s.editor().Apply(p.args.Revision, p.mutate)
+	if p.prepare != nil {
+		if err = p.prepare(ctx, call); err != nil {
+			return WriteResult{}, invalid(err)
+		}
+	}
+	var applied *hosts.Applied
+	if p.dryRun {
+		applied, err = s.editor().Preview(p.mutate)
+	} else {
+		rev := p.args.Revision
+		for attempt := 0; ; attempt++ {
+			if rev == "" {
+				if rev, err = s.editor().Revision(); err != nil {
+					return WriteResult{}, err
+				}
+			}
+			applied, err = s.editor().Apply(rev, p.mutate)
+			var conflict *hosts.RevisionConflictError
+			if errors.As(err, &conflict) && p.autoRevision && p.args.Revision == "" && attempt < 3 {
+				rev = ""
+				continue
+			}
+			break
+		}
+	}
 	if err != nil {
 		return WriteResult{}, invalid(err)
 	}
@@ -167,6 +198,11 @@ func (s *HostService) write(ctx context.Context, p writePlan) (_ WriteResult, re
 		return res, err
 	}
 	res.Before, res.After = before, after
+	if p.dryRun {
+		res.Changed = !applied.Unchanged
+		call.note("dry run")
+		return res, nil
+	}
 	if !res.Changed {
 		call.note("unchanged")
 		return res, nil

@@ -37,6 +37,9 @@ func (l localHostClient) MoveComponent(ctx context.Context, a cerbapi.ComponentM
 func (l localHostClient) RemoveComponent(ctx context.Context, a cerbapi.ComponentRemoveArgs) (cerbapi.WriteResult, error) {
 	return l.svc.RemoveComponent(inProcessContext(ctx), a)
 }
+func (l localHostClient) InventoryHost(ctx context.Context, a cerbapi.InventoryArgs) (cerbapi.InventoryResult, error) {
+	return l.svc.Inventory(inProcessContext(ctx), a)
+}
 func (l localHostClient) HostHistory(ctx context.Context, name string, limit int) ([]hosts.Change, error) {
 	return l.svc.HostHistory(inProcessContext(ctx), name, limit)
 }
@@ -277,6 +280,39 @@ var hostRemoveCmd = &cobra.Command{
 	},
 }
 
+var hostInventoryOpts struct {
+	writeFlags
+	dryRun bool
+}
+
+var hostInventoryCmd = &cobra.Command{
+	Use:   "inventory <name>",
+	Short: "Collect a host's hardware over ssh and record it (keeps notes, storage_slots, vendor ceilings, components)",
+	Long: `Runs a fixed read-only collection script on the host over its reach.ssh
+(dmidecode and lsblk under ` + "`sudo -n`" + `; without passwordless sudo only the
+non-root facts are collected and the recorded serials and memory layout are
+kept) and records the result through the same validated, backed-up, audited
+and recorded write as ` + "`host set`" + `. --dry-run collects and shows the change
+without writing. Replaces sysadmin/fleet/fleet-inventory.py.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		o := &hostInventoryOpts
+		wc, err := writeClient(cmd)
+		if err != nil {
+			return err
+		}
+		res, err := wc.InventoryHost(cmd.Context(), cerbapi.InventoryArgs{
+			WriteArgs: cerbapi.WriteArgs{Revision: o.revision, Acknowledged: o.ack, ApprovalID: o.approval}, Name: args[0], DryRun: o.dryRun})
+		if err != nil {
+			return err
+		}
+		if o.dryRun && !hostWantsJSON() {
+			fmt.Fprintln(cmd.OutOrStdout(), "dry run: nothing was written")
+		}
+		return printWrite(cmd.OutOrStdout(), res.WriteResult)
+	},
+}
+
 var historyLimit int
 
 var hostHistoryCmd = &cobra.Command{
@@ -467,6 +503,9 @@ func init() {
 	f.StringVar(&o.patch, "patch", "", "JSON merge patch of the host record")
 	f.StringVar(&o.patchFile, "patch-file", "", "file with the JSON merge patch (- for stdin)")
 	f.BoolVar(&o.create, "create", false, "create the host when it does not exist")
+	hostInventoryOpts.add(hostInventoryCmd)
+	hostInventoryCmd.Flags().BoolVar(&hostInventoryOpts.dryRun, "dry-run", false, "collect and show the change; write nothing")
+	hostCmd.AddCommand(hostInventoryCmd)
 	hostRemoveOpts.add(hostRemoveCmd)
 	hostHistoryCmd.Flags().IntVar(&historyLimit, "limit", 0, "most entries (default 100)")
 	hostCmd.AddCommand(hostSetCmd, hostRemoveCmd, hostHistoryCmd)
