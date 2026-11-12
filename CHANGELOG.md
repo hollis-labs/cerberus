@@ -8,9 +8,13 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ## [Unreleased]
 
+## [0.5.0-beta.2] - 2026-11-11
+
+The first release since `0.5.0-beta.1` that carries plugin protocol 2: plugins import their SDK from `libs/mcp/plugin-mcp` and no longer from the retired `plugin-sdk` module, so a plugin can pin this version in its `go.mod` without a `replace`.
+
 ### Security
 
-- Go toolchain 1.26.10 (`go` directive and CI pin) for GO-2026-6809 (crypto/x509); no behavior change.
+- Go toolchain 1.26.11 (`go` directive and CI pin) for GO-2026-6859 (net/http), after 1.26.10 for GO-2026-6809 (crypto/x509); no behavior change.
 
 ### Added
 
