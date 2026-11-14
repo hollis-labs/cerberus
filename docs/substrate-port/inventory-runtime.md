@@ -47,8 +47,8 @@ What follows from the code:
 | Kind | Written by | Unit | Notes |
 |---|---|---|---|
 | Daemon | `cerberus install` | `com.hollis-labs.cerberus.service`, `ExecStart=<binary> daemon --foreground` | section 3.1 |
-| Web console | by hand (no code writes it, see 3.2) | runs `cerberus web --listen 127.0.0.1:4783 --open=false` from a copy of the binary named `cerberus-web` | tracked as a `native-unit` resource |
-| `os_service` resource units | Cerberus (`systemd.go:442` header) | `service_name` or `com.hollis-labs.cerberus.<project>.<id>` | `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`, `WantedBy=default.target`, enabled (`systemd.go:447,453-454,473-474`). Some run from `~/.cerberus/apps/.../bin/` (`run_from: artifact`). Hand drop-ins (installer `20-fleet-exec.conf`, `10-neutral-cwd.conf`, auth posture) survive an apply |
+| Web console | by hand (no code writes a console unit, see 3.2) | runs `cerberus web` (code default `--listen 127.0.0.1:4783`) | how the operator host runs it is in `01M7DX7XJQ79KHY8XP9F8HQY4Q` |
+| `os_service` resource units | Cerberus (`systemd.go:442` header) | `service_name` or `com.hollis-labs.cerberus.<project>.<id>` | `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`, `WantedBy=default.target`, enabled (`systemd.go:447,453-454,473-474`). Some run from `~/.cerberus/apps/.../bin/` (`run_from: artifact`). Hand-written drop-ins (`<unit>.d/*.conf`, added by installers or the operator) survive an apply; which exist is in `01M7DX7XJQ79KHY8XP9F8HQY4Q` |
 | `native-unit` resources | by hand | `supervisor: systemd_user` with a `service_name` naming an existing unit | no Cerberus header, so a grep on the header or description misses them. `cerberus resource stop/reload` still act on them, so the port carries these definitions |
 | Leftover units | Cerberus, for a resource since removed | `com.hollis-labs.cerberus.*` | loaded, disabled; not in the catalog |
 
@@ -70,7 +70,7 @@ Not supervised by Cerberus, but the cutover must not break them. The units are l
 
 | Kind | What it touches |
 |---|---|
-| A backup job | archives `main.db`, `~/.cerberus/{config.yaml,registry.yaml,plugin-connectors.json,audit/}` and the user unit directory. Its path list must follow the new layout |
+| Backup tooling | reads Cerberus state files directly. Its path list must follow the new layout; the job and its list are in `01M7DX7XJQ79KHY8XP9F8HQY4Q` |
 | The events credential renewal | renews the token under `~/.cerberus/events-tokens/` that the daemon unit's drop-in names |
 | `cerberus mcp` stdio processes | started by agent harnesses. They are clients of `~/.cerberus/cerberus.sock` and re-dial on each call (`AGENTS.md`, "Do not reintroduce `selfexec.WatchAndExit`") |
 
@@ -114,21 +114,20 @@ Dead code with no production caller: `internal/daemon/monitor.go` (v1 monitor), 
   `install` also retires a hand-written `cerberus.service` that runs `cerberus … daemon` (`:115-150`).
 - The unit's cgroup holds the daemon, its plugin processes and any running dev-session trees (live state in
   `01M7DX7XJQ79KHY8XP9F8HQY4Q`).
-- The daemon listens only on `~/.cerberus/cerberus.sock` (no TCP port). The web console is a separate process
-  (`cerberus-web.service`) on `127.0.0.1:4783` and `[::1]:4783`, reached from outside through a reverse proxy at
-  `web.public_url`.
+- The daemon listens only on `~/.cerberus/cerberus.sock` (no TCP port). The web console is a separate process,
+  `cerberus web`, on `127.0.0.1:4783` and `[::1]:4783` by default (`cmd/cerberus/cmd_web.go:26,181`), optionally behind
+  an HTTPS reverse proxy named by `web.public_url`.
 - Bare `cerberus daemon` or `--foreground` from a shell refuses to start, or goes through systemctl, when the unit
   exists (`cmd_daemon.go:57-59,188-212,236-257`; override `--override-supervisor`). `cerberus daemon
   start|stop|restart` call `systemctl --user` when the unit exists (`cmd_daemon.go:53-68,113-119`).
 
 ### 3.2 Binaries on disk
 
-The web unit runs a copy of the `cerberus` binary named `cerberus-web`, so that replacing `cerberus` does not change the
-web console's binary, and the `cerberus-web` basename does not match the daemon process pattern
-(`internal/daemon/procident.go:41`). Previous builds are kept beside them as `cerberus.prev-<date>-<sha>` and
-`cerberus-web.prev-<date>-<sha>`. That naming is the rollback convention in use, and it is manual: no code produces it.
-`cerberus-presence` is a separate binary. No code in this repository writes `cerberus-web.service` or installs
-`cerberus-web`. What is on disk now (builds, copies) is in `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
+The daemon process pattern is `(cerberus|cerberus-daemon-service) daemon` (`internal/daemon/procident.go:41`), so a
+console process run from a binary with another basename is never mistaken for the daemon. No code in this repository
+installs a console binary or writes a console unit, and no code keeps previous builds: any rollback copies kept beside
+the binary are made by hand. How the operator host does this today (binary copies, their names, the console unit) is
+in `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
 
 ### 3.3 `internal/selfexec`
 
@@ -170,20 +169,20 @@ No script does this: it is done by hand.
 
 1. Build from a clean checkout at the release commit: `make all` (web bundle, then `bin/cerberus`; `Makefile:12,20-23`).
    `make build` alone embeds whatever bundle is already in `internal/webui/dist`.
-2. Keep the running binaries for rollback: copy `~/.local/bin/cerberus` to `~/.local/bin/cerberus.prev-<date>-<sha>`, and
-   the same for `cerberus-web`.
+2. Keep the running binaries for rollback: copy `~/.local/bin/cerberus` (and any copy the console runs from) aside
+   under a dated name.
 3. Copy the new binary to a temporary path next to the target, then `mv` it over `~/.local/bin/cerberus` (same filesystem,
-   so the rename is atomic and the running process keeps its old inode). Do the same for `~/.local/bin/cerberus-web`.
+   so the rename is atomic and the running process keeps its old inode). Do the same for the console's binary.
 4. Restart from outside the daemon: `systemctl --user restart com.hollis-labs.cerberus.service`. Never use
    `cerberus resource deploy` or `apply` against the daemon over its own socket (refused by the self-guard; `AGENTS.md`).
    This kills the dev sessions and plugins in its cgroup; `os_service` units keep running.
-5. Restart the console: `systemctl --user restart cerberus-web.service`. It does not follow the daemon automatically:
+5. Restart the console's unit. It does not follow the daemon automatically:
    `Wants=`/`After=` do not propagate a restart, and the web process only re-dials the socket.
 6. Re-run `cerberus install` only when the unit template or the binary path changes. It rewrites the unit,
    runs `daemon-reload`, `enable` and `restart` (`cmd_install_systemd.go:152-181`).
 7. Verify: `cerberus status`, `cerberus daemon status` (`origin: systemd`), `cerberus resource list`; dev sessions with
    `auto_restart` should be back within 30 s.
-8. Rollback: `mv` the `.prev-*` copies back and repeat steps 4 and 5. The state in `~/.cerberus` and `main.db` is shared
+8. Rollback: `mv` the kept copies back and repeat steps 4 and 5. The state in `~/.cerberus` and `main.db` is shared
    by both builds. There is no separate migration step: the SQLite store migrates when it opens
    (`internal/store/sqlite/store.go:35`), so a rollback across a schema change would need a database restore.
 
