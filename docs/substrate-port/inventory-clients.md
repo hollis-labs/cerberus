@@ -7,7 +7,7 @@ Repo paths are relative to the hollis-labs checkout root unless stated.
 This public document keeps what is derived from code and what the port needs as a
 contract. Observations of the live operator host (which units, configs and scripts
 exist there, their paths, line numbers and counts) are in the Tesseract workspace item
-`01M7DS5N6RRQ0WV2GCMWNTZF5C` (`project/cerberus/workspace/substrate-port`, key `inventory-clients-full`).
+`01M7DX6GV85KF9CNS37D0CRF2Z` (`project/substrate-migration/workspace/cerberus`, key `inventory-clients-full`).
 
 This is the client list the cutover plan needs (docs/adopting-substrate.md §11,
 "Clients"). Every row says where the call happens and which of the five things a
@@ -41,7 +41,7 @@ port could move would break it:
 ## 2. Client classes on the operator host
 
 Callers on the operator host, by class. The individual configs, units and scripts, with
-their paths, are in workspace item `01M7DS5N6RRQ0WV2GCMWNTZF5C`.
+their paths, are in workspace item `01M7DX6GV85KF9CNS37D0CRF2Z`.
 
 | Class | Interface | What it binds to | Breaks on | Change at cutover |
 |---|---|---|---|---|
@@ -84,7 +84,7 @@ their paths, are in workspace item `01M7DS5N6RRQ0WV2GCMWNTZF5C`.
 
 Scripts in other repos that call Cerberus (deploy and backup helpers, plugin live checks,
 Outpost staging, a plugin load check, a cutover script) are rows R20 to R26 of workspace
-item `01M7DS5N6RRQ0WV2GCMWNTZF5C`. They bind to the same surfaces: the binary on `PATH` or at
+item `01M7DX6GV85KF9CNS37D0CRF2Z`. They bind to the same surfaces: the binary on `PATH` or at
 `~/.local/bin/cerberus`, `~/.cerberus/` files, the `cerberus-outpost` binary and plugin id,
 unit names, and the MCP server id.
 
@@ -167,5 +167,5 @@ grep -rIn --exclude-dir={node_modules,vendor,.git} \
 find ~/dev <user config dir> -name '*.cerberus.yaml' -not -path '*/node_modules/*'
 ```
 
-Per-caller rows with paths and counts are in workspace item `01M7DS5N6RRQ0WV2GCMWNTZF5C`.
+Per-caller rows with paths and counts are in workspace item `01M7DX6GV85KF9CNS37D0CRF2Z`.
 Docs-only and comment-only mentions are excluded.
