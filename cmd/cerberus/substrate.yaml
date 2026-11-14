@@ -1,0 +1,23 @@
+# Cerberus on Substrate. The manifest is the shell: modules and config.
+# Slice 1 (CW-20261114-0108) is the skeleton: config, logging, health, the HTTP host, the
+# database and the CLI root. Identity, auth and MCP arrive with their slices
+# (docs/substrate-port-plan.md, section 11).
+app: cerberus
+variant: app-host
+profiles: [minimal]
+modules:
+  add: [database, cli]
+config:
+  logging: { level: info, format: text }
+  # Loopback only. 4785 is the old build's mcp-http default and 4783 its console; the new
+  # build takes 4786 so both can run side by side during the transition.
+  httphost: { addr: "127.0.0.1:4786" }
+  # Relative paths are defaults under the data directory. The binary resolves the data
+  # directory (CERBERUS_DATA_DIR, or ~/.local/share/cerberus-substrate) and replaces them
+  # with absolute paths before the modules start. An absolute path in the override stays.
+  database:
+    sqlite: { path: cerberus.db }
+  # The app's own block (internal/settings). Override any key in the YAML file named by
+  # SUBSTRATE_CONFIG; docs/architecture.md lists every key.
+  cerberus:
+    install_root: "~/.cerberus/apps"
