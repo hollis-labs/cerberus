@@ -137,7 +137,7 @@ web/, ui/app.json        the console on app-shell
   - `secrets/` and `credential-issuance/secrets/issued/`;
   - `transfers/`.
 
-  New never reads `~/.cerberus/paused*`, `standby*`, `pids/`, `locks/`, `daemon.lock` or the socket (a test asserts
+  New never reads `~/.cerberus/paused*`, `standby`, `standby.d/`, `pids/`, `locks/`, `daemon.lock` or the socket (a test asserts
   this).
 
 Config: the operator override is `~/.config/cerberus/substrate.yaml` (`SUBSTRATE_CONFIG`).
@@ -240,7 +240,7 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 | keyring `cerberus` service: connector and plugin credentials, `cerberus-oauth/issuer-ed25519` | **in place**: same service and account names (a contract) | one credentialed health op succeeds |
 | the adopted root (section 3) | **in place**. Exactly one daemon runs plugins at any time. | plugins load with the same digests |
 | `pids/<id>.{pid,meta}` | not copied. The dev sessions old was running are listed by standby (7.1) and started under new at D7. | session status after D7 |
-| `standby/` (old's standby chain and session list, 7.1) | **not copied at D**. It is old's own record of the window. At F it is archived beside the old tree, and new imports it read-only as a sidecar log. | chain verify at F |
+| `standby.d/` (old's standby chain and session list, 7.1) | **not copied at D**. It is old's own record of the window. At F it is archived beside the old tree, and new imports it read-only as a sidecar log. | chain verify at F |
 | `brakes/`, `oauth/tokens.jsonl`, `events/`, `alerts/` | absent live; the window re-checks. **copy** if present. | listed in the report |
 | `web/login-*.key` | not migrated: replaced by identity sessions | — |
 | `cerberus.log`, `logs/`, `backups/`, `*.bak*`, `<XDG_DATA_HOME>/cerberus/{changes,postgres-adoption,review-evidence}`, the 0-byte `cerberus.db` | **archive**: left where they are and never deleted; the owner decides | listed in the report |
@@ -333,7 +333,7 @@ On entry:
 - **stops the loops**: host monitor and janitor, approval-expiry sweeper, snapshot recorder, resource monitor, event
   export;
 - **stops every running `dev_session`** without writing `paused.<id>`. It records their ids in
-  `~/.cerberus/standby/sessions.json`, outside the pause set. The file is written once, at the first entry; a later
+  `~/.cerberus/standby.d/sessions.json`, outside the pause set. The file is written once, at the first entry; a later
   entry while it exists leaves it unchanged, so a restart of old in standby cannot shrink the list.
 
 While in standby:
@@ -341,7 +341,7 @@ While in standby:
   in the flag file. The refusal is guidance naming the new CLI. Reads carry `standby: true`.
 - **The allowed verbs on the flagged resource** do not write `paused.<id>` or `runtime/applied.json`. They need no
   approval: policy is asserted to gate nothing on that resource, with a test.
-- **Audit records for those verbs** go to a **separate chain**, `~/.cerberus/standby/audit-<date>.jsonl`, with its
+- **Audit records for those verbs** go to a **separate chain**, `~/.cerberus/standby.d/audit-<date>.jsonl`, with its
   own genesis and its own digest key, not the main chain. Nothing else under `~/.cerberus` or in `main.db` is
   written: the main audit chain, its anchor and `approvals/events.jsonl` stay byte-identical.
 
@@ -405,7 +405,7 @@ Soak for at least 24 h. Checks:
    reports standby, plugins stopped and the sessions listed.
 3. **Snapshot.**
    - `sqlite3 main.db ".backup <dir>/main.db"`, then `integrity_check`.
-   - `cp -a ~/.cerberus <dir>/cerberus-home`, excluding the adopted root's directories and `standby/`.
+   - `cp -a ~/.cerberus <dir>/cerberus-home`, excluding the adopted root's directories and `standby.d/`.
    - Write the D3 manifest (section 5).
    - All of it goes into a private 0700 directory.
 4. `$LEGACY resource stop cerberus-substrate` (recorded in the standby chain only). Move new's observe-mode data dir
@@ -419,7 +419,7 @@ Soak for at least 24 h. Checks:
    - Set `mode: supervise` in the override file, then `$LEGACY resource start cerberus-substrate` and
      `$LEGACY resource status cerberus-substrate`.
    - New loads the plugins and starts the host monitor.
-   - `$NEW resource start <id>` for exactly the ids in `~/.cerberus/standby/sessions.json`.
+   - `$NEW resource start <id>` for exactly the ids in `~/.cerberus/standby.d/sessions.json`.
 8. Point the CLI on `PATH` at `$NEW` (atomic rename). Old is unaffected: it runs from `$LEGACY`.
 9. Apply the tachyon and tether sysop changes, the proxy entry (if any) and the backup job's path list. Restart the
    Tether gateway's cerberus entries. Run the section 9 checks. Then lift the freeze.
@@ -437,7 +437,7 @@ writes go to the standby chain.
 
 **F. Retire old and re-home new (director).**
 1. Stop and disable old's daemon and console units (unit files and `$LEGACY` kept).
-2. Archive `~/.cerberus/standby/` beside the old tree; new imports its chain read-only as a sidecar log.
+2. Archive `~/.cerberus/standby.d/` beside the old tree; new imports its chain read-only as a sidecar log.
 3. Re-home new on the canonical unit `com.hollis-labs.cerberus.service`: a `fleet-install` drop-in with `ExecStart` on
    `$NEW`, `cerberus.self_resource_id` set to the daemon. Remove the transitional `cerberus-substrate` unit and its
    descriptor.
