@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/secrets"
 	"os"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/secrets"
 )
 
 // TestMain points HOME at a scratch directory for the whole package, before
@@ -16,6 +17,11 @@ func TestMain(m *testing.M) {
 	// a daemon whose credential store never answers.
 	if os.Getenv(childDaemonEnv) == "1" {
 		runChildDaemon()
+		return
+	}
+	// The standby end-to-end test re-executes it as a daemon under a scratch HOME.
+	if os.Getenv(childStandbyEnv) == "1" {
+		runChildStandbyDaemon()
 		return
 	}
 	home, err := os.MkdirTemp("/tmp", "cerb-test-home-")
