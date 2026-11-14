@@ -29,8 +29,13 @@ with each slice and states only what the branch does now.
 | `internal/datadir` | Resolves the data directory and refuses the old build's state (`RefuseLegacy`). |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
-(plan section 4.2). The old `cmd/cerberus` entry and its CLI are removed from this branch; they stay readable on
-`main`.
+(plan section 4.2). Removed from this branch, readable on `main`, and ported from there by their slices:
+
+- the old `cmd/cerberus` entry and its CLI;
+- the packages that depend on `libs/security/webauthn`, which the BOM does not pin until the owner decides
+  whether passkey approvals stay: `internal/presence`, and through it `internal/cerbapi`, `internal/app`,
+  `internal/mcp`, `internal/webui`, `internal/egress/results`, `internal/conformance` (tests only),
+  `internal/smoke/confirmdialog` and `internal/testfixture/sentinel`.
 
 ## Data directory
 

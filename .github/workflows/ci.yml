@@ -29,8 +29,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # The console is built first: internal/webui embeds web/'s output and the Go tests
-      # need those assets.
+      # The old console (web/) is still built so the branch keeps it compiling; the new
+      # console arrives with slice 11 and its embed with it.
       - name: Build the console
         working-directory: web
         run: |
@@ -90,5 +90,3 @@ jobs:
           export TMPDIR="$r/tmp" HOME="$r/home" XDG_CONFIG_HOME="$r/config" XDG_DATA_HOME="$r/data" XDG_CACHE_HOME="$r/cache" XDG_STATE_HOME="$r/state"
           mkdir -p "$TMPDIR" "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
           go test -race -count=1 -timeout=5m ./internal/scheduling ./internal/pipeline ./internal/pipeline/actions
-          go test -race -count=1 -timeout=5m ./internal/cerbapi -run '^TestSchedule'
-          go test -race -count=1 -timeout=5m ./internal/mcp ./internal/webui

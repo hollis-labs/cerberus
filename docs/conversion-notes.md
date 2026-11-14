@@ -7,7 +7,8 @@ adds its rows. The plan is `docs/substrate-port-plan.md`.
 
 | Gap | Status |
 |---|---|
-| BOM does not pin `libs/mesh/eventbus` (event export) and `libs/security/webauthn` (passkey approvals); `substrate pins check` fails on those two lines. | Requested from @substrate-manager through the cell lead (add both to `app_libs`). |
+| BOM does not pin `libs/mesh/eventbus` (event export); `substrate pins check` fails on that line. | Coming in @substrate-manager's BOM raise (CW-20261114-0093). |
+| BOM does not pin `libs/security/webauthn` (passkey approvals). | Not pinned until the owner decides whether passkey approvals stay. Every package that depends on it is out of this branch (`docs/architecture.md`). |
 | `substrate scan-public --ref HEAD` reports findings carried from `main` (test fixtures with fake keys, example paths and addresses in docs; tree and history). None come from the port's own files. | Needs triage: fix or allowlist with a reason, owner sign-off for history. |
 | Code carried from `main` has lint findings that `main` never gated in full. | CI lints new issues only; each slice cleans what it ports. |
 
