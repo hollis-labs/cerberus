@@ -10,14 +10,14 @@ the two commits between them touch none of the files cited here, so the referenc
 
 Paths are written with `~` for the operator's home. This repository is public: this document keeps what follows from
 the code. What was observed on the live host (the unit list with commands and drop-ins, catalog counts, loop state,
-binaries on disk, uptimes) is in Tesseract workspace item `01M7DWDKPRM7XY2TQDBX4AYCSM`
-(`project/cerberus/workspace/substrate-port`, key `inventory-runtime-live`).
+binaries on disk, uptimes) is in Tesseract workspace item `01M7DX7XJQ79KHY8XP9F8HQY4Q`
+(`project/substrate-migration/workspace/cerberus`, key `inventory-runtime-live`).
 
 ## Summary
 
 | Question | Answer |
 |---|---|
-| Cerberus-related units on the host | Four kinds: the daemon unit (`cerberus install`), a hand-written web console unit, the resource units Cerberus writes, and hand-written units it tracks as `native-unit` resources. The list and counts are in `01M7DWDKPRM7XY2TQDBX4AYCSM`. |
+| Cerberus-related units on the host | Four kinds: the daemon unit (`cerberus install`), a hand-written web console unit, the resource units Cerberus writes, and hand-written units it tracks as `native-unit` resources. The list and counts are in `01M7DX7XJQ79KHY8XP9F8HQY4Q`. |
 | Does a supervised resource survive a daemon restart? | **Yes for `os_service` resources** (every unit in table 1a). **No for `dev_session` resources** while the daemon runs under systemd: they are children in the daemon unit's cgroup and the default `KillMode=control-group` kills them. Details in section 3.4. |
 | Can two daemons run side by side? | **Not safely today.** Socket, pid file, lock, state directory, unit names, approval chain and plugin processes all collide; nothing but `$HOME` relocates `~/.cerberus`. Section 4. |
 | Does Cerberus run anything on a schedule? | No systemd timers. The scheduling core is wired but never started (0 rows in every schedule table). The daemon runs in-process loops: section 2. |
@@ -33,7 +33,7 @@ are written by hand, never by Cerberus; `cerberus resource apply` rewrites only 
 (`systemd.go:367-390`), so the drop-ins survive an apply.
 
 Unit name: `service_name` if the resource sets one, otherwise `com.hollis-labs.cerberus.<project>.<id>`
-(`install_layout.go:40-43,79-83`). That is why some units carry plain names (`basalisk.service`, `tachyon.service`).
+(`install_layout.go:40-43,79-83`). That is why some units carry plain names (`<app>.service`).
 
 "Cerberus paths" column: what the unit file and its drop-ins reference. Every Cerberus-written resource unit points
 its stdout/stderr at `~/.cerberus/apps/<project>/<id>/logs/` (`systemd.go:439,455-456`), and some also run their
@@ -41,7 +41,7 @@ binary from `~/.cerberus/apps/.../bin/` (`run_from: artifact`). No resource unit
 
 ### 1a. Kinds of unit and resource
 
-The per-unit table (resource id, unit, `ExecStart`, drop-ins) is live-host data: it is in workspace item `01M7DWDKPRM7XY2TQDBX4AYCSM`.
+The per-unit table (resource id, unit, `ExecStart`, drop-ins) is live-host data: it is in workspace item `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
 What follows from the code:
 
 | Kind | Written by | Unit | Notes |
@@ -66,7 +66,7 @@ daemon is not a resource there.
 
 ### 1c. Outside Cerberus: readers of Cerberus state
 
-Not supervised by Cerberus, but the cutover must not break them. The units are listed in `01M7DWDKPRM7XY2TQDBX4AYCSM`.
+Not supervised by Cerberus, but the cutover must not break them. The units are listed in `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
 
 | Kind | What it touches |
 |---|---|
@@ -113,7 +113,7 @@ Dead code with no production caller: `internal/daemon/monitor.go` (v1 monitor), 
   `RestartSec=5`, no `KillMode=` (so the default `control-group` applies), logs to `~/.cerberus/logs/systemd-*.log`.
   `install` also retires a hand-written `cerberus.service` that runs `cerberus … daemon` (`:115-150`).
 - The unit's cgroup holds the daemon, its plugin processes and any running dev-session trees (live state in
-  `01M7DWDKPRM7XY2TQDBX4AYCSM`).
+  `01M7DX7XJQ79KHY8XP9F8HQY4Q`).
 - The daemon listens only on `~/.cerberus/cerberus.sock` (no TCP port). The web console is a separate process
   (`cerberus-web.service`) on `127.0.0.1:4783` and `[::1]:4783`, reached from outside through a reverse proxy at
   `web.public_url`.
@@ -128,7 +128,7 @@ web console's binary, and the `cerberus-web` basename does not match the daemon 
 (`internal/daemon/procident.go:41`). Previous builds are kept beside them as `cerberus.prev-<date>-<sha>` and
 `cerberus-web.prev-<date>-<sha>`. That naming is the rollback convention in use, and it is manual: no code produces it.
 `cerberus-presence` is a separate binary. No code in this repository writes `cerberus-web.service` or installs
-`cerberus-web`. What is on disk now (builds, copies) is in `01M7DWDKPRM7XY2TQDBX4AYCSM`.
+`cerberus-web`. What is on disk now (builds, copies) is in `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
 
 ### 3.3 `internal/selfexec`
 
@@ -144,7 +144,7 @@ binary and every `cerberus mcp` child exited (`cmd/cerberus/cmd_mcp.go:68-77`; `
   stops its own monitor and returns (`cmd_daemon.go:509,733-739`). It never stops a resource. On startup it does not
   reconcile, restart or adopt `os_service` units: the monitor ignores them (`resource_monitor.go:175-184`), and `auto_start`
   is read only by the dead legacy registry (`internal/service/registry.go:212-218`). The live host agrees: a resource
-  unit has outlived the last daemon restart (uptimes in `01M7DWDKPRM7XY2TQDBX4AYCSM`).
+  unit has outlived the last daemon restart (uptimes in `01M7DX7XJQ79KHY8XP9F8HQY4Q`).
 - **`dev_session`: no**, while the daemon runs under its systemd unit. The session is `exec.Command` with
   `Setpgid: true` (`internal/connector/local/dev_session.go:82-85`). A new process group does not leave the cgroup, and the
   daemon unit has no `KillMode=` (`cmd_install_systemd.go:24-41`), so `systemctl --user restart|stop` kills it. A session
