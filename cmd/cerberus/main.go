@@ -15,6 +15,9 @@ import (
 
 	"github.com/hollis-labs/substrate/boot"
 	"github.com/hollis-labs/substrate/modules/cli"
+	"github.com/hollis-labs/substrate/modules/database"
+
+	"github.com/hollis-labs/cerberus/internal/storage"
 )
 
 func main() {
@@ -28,6 +31,8 @@ func main() {
 }
 
 func run(ctx context.Context, getenv func(string) string) error {
+	// The database module applies the embedded schema when it opens the file.
+	database.UseMigrationFS(storage.Migrations())
 	started, err := boot.StartWith(ctx, substrateApp, substrateModules, substrateConfigJSON, bootOptions(getenv))
 	if err != nil {
 		return err

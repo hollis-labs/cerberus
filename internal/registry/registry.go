@@ -25,6 +25,8 @@ const (
 type Registry struct {
 	indexPath  string
 	globalPath string
+	// retired, when set, replaces the home-based retired-directory check (ForRoot).
+	retired []string
 }
 
 // New constructs a Registry backed by the given index file path.
@@ -32,7 +34,24 @@ func New(indexPath string) *Registry {
 	return &Registry{indexPath: indexPath}
 }
 
-// Default constructs a Registry backed by ~/.cerberus/registry.yaml.
+// ForRoot is the registry the Substrate build uses: its index is <adoptRoot>/registry.yaml,
+// read and written in place in the old format (tether sysop reads the same file), and the only
+// retired directory it refuses is <adoptRoot>/projects. It reads no home directory and no
+// global config.yaml.
+func ForRoot(adoptRoot string) *Registry {
+	return &Registry{
+		indexPath: filepath.Join(adoptRoot, DefaultIndexFilename),
+		retired:   []string{RetiredRootIn(adoptRoot)},
+	}
+}
+
+// options are the resolver options for this registry.
+func (r *Registry) options() ResolveOptions {
+	return ResolveOptions{IndexPath: r.indexPath, GlobalPath: r.globalPath, RetiredRoots: r.retired}
+}
+
+// Default constructs a Registry backed by ~/.cerberus/registry.yaml. Carried for the old
+// build's callers; the Substrate build uses ForRoot.
 func Default() (*Registry, error) { return ForConfig(config.DefaultPath()) }
 
 // IndexPathFor returns the registry index path paired with a global
@@ -92,7 +111,7 @@ func (r *Registry) Register(path string) ([]IndexEntry, error) {
 	for _, entry := range entries {
 		idx.upsert(entry)
 	}
-	preview, err := resolveIndex(ResolveOptions{IndexPath: r.indexPath, GlobalPath: r.globalPath}, idx)
+	preview, err := resolveIndex(r.options(), idx)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +134,7 @@ func (r *Registry) Register(path string) ([]IndexEntry, error) {
 // anything. via carries the manifest path when recursing through a
 // bundle. seenManifest guards against manifest reference cycles.
 func (r *Registry) collect(path, via string, seenManifest map[string]bool) ([]IndexEntry, error) {
-	if err := ValidateConfigLocation(path, r.indexPath); err != nil {
+	if err := r.options().checkLocation(path); err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(path)
@@ -246,9 +265,9 @@ func (r *Registry) Health() ([]HealthReport, error) {
 	}
 	reports := make([]HealthReport, 0, len(entries))
 	for _, entry := range entries {
-		reports = append(reports, checkEntry(entry, r.indexPath))
+		reports = append(reports, checkEntry(entry, r.options()))
 	}
-	resolved, err := Resolve(ResolveOptions{IndexPath: r.indexPath, GlobalPath: r.globalPath})
+	resolved, err := Resolve(r.options())
 	if err != nil {
 		return nil, err
 	}
@@ -271,9 +290,9 @@ func (r *Registry) Health() ([]HealthReport, error) {
 	return reports, nil
 }
 
-func checkEntry(entry IndexEntry, indexPath string) HealthReport {
+func checkEntry(entry IndexEntry, opts ResolveOptions) HealthReport {
 	report := HealthReport{Owner: entry.Owner, Path: entry.Path}
-	if err := ValidateConfigLocation(entry.Path, indexPath); err != nil {
+	if err := opts.checkLocation(entry.Path); err != nil {
 		report.Status = HealthInvalid
 		report.Detail = err.Error()
 		return report
