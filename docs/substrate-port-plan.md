@@ -264,6 +264,40 @@ The standby chain and session list are excluded from the manifest.
   `main.db` and the old files;
 - leaves the new data dir intact.
 
+### 5.1 Database dialects and table classes (Postgres direction, 2026-11-14)
+
+The port is **dialect-ready, and the cutover stays on SQLite.** The Postgres switch for any table class is a
+separate, reversible step taken after new is accepted (end of E). It is not part of phases B to F.
+
+**Dialect-ready means:**
+- every store access goes through `database.From(app)`;
+- one goose migration set per dialect (`migrations/sqlite`, `migrations/postgres`), with SQL through
+  `Dialect().Rebind`;
+- CI runs the store tests on SQLite and on Postgres (`SUBSTRATE_TEST_POSTGRES_DSN`, the cell's scratch database
+  when it exists). Slice 2 carries this, and every later slice that adds a table keeps both green.
+
+**Table classes.**
+
+| Class | Tables / stores | Where | Why |
+|---|---|---|---|
+| **A**: local SQLite, always boots | pause state; applied digests; credential-issuance receipts; identity (owner, keys, sessions); standby state. Files: config, policy, `registry.yaml` and descriptors, `hosts.yaml` | SQLite in the data dir, always | Supervision needs these to run, and Cerberus supervises the shared Postgres itself (a docker resource). Cerberus must boot and act when Postgres is down. |
+| **B**: events, logs, telemetry (Postgres first) | `host_samples`, `host_sample_rollups`, `host_rollup_state`, `host_events`, `host_status`; the scheduler's run logs (`cerberus_schedule_logs`, `_outcomes`, `_episodes`, `_observations`, `_outbox`; empty) | SQLite at cutover; Postgres after acceptance | Telemetry and history; losing them for a while does not stop supervision. `host_rollup_state` moves with the rollups so watermarks stay consistent. |
+| **C**: domain data (Postgres later) | schedule definitions and runs (`cerberus_schedule_desired`, `_registrations`, `_creates`, `_generations`, `_manual`, `_receipts`, `gosched_*`; empty, scheduler off) | SQLite until the scheduler is turned on and a later step moves it | Domain state with no data today. |
+| (files) | audit and approvals chains, host history, overview snapshots | JSONL files in the data dir, as today | Hash-chained formats are a contract (section 4.2). Moving them to a database is a separate decision. |
+
+**When Postgres is down**, with B or C on Postgres:
+- new still boots on its A store;
+- `/healthz` reports `database unavailable` for the affected class;
+- the console shows a banner;
+- B and C endpoints answer 503, and their writes are refused, so new probe samples are dropped and the gap is visible.
+
+There is **no durable write spool**. **A writes are never refused**: supervision, pause, start, stop and approvals keep
+working, because Cerberus is what restarts Postgres.
+
+**Open with the framework.** Holding A on SQLite and B on Postgres at once needs two stores in one app.
+`database.From(app)` is one store today. Until Substrate answers, the plan assumes one store at cutover (all SQLite)
+and treats the B move as blocked on that answer. It goes to the Postgres coordinator and @substrate-manager.
+
 ## 6. Clients
 
 From `inventory-clients.md` (by role). What changes for each:
@@ -495,7 +529,7 @@ delete them.
 | 0 | `main` | Standby mode in old (section 7.1), with tests. |
 | — | `main` | scan-public tree triage (allowlist and real fixes), so the port's CI gate is green. |
 | 1 | `substrate-port` | Skeleton: manifest, wiring, entry point, settings, data dir, startup guard, CI. |
-| 2 | `substrate-port` | Store schema (goose) and registry (v1 descriptors, `registry.yaml` index). |
+| 2 | `substrate-port` | Store schema (goose, one set per dialect, CI on SQLite and Postgres) and registry (v1 descriptors, `registry.yaml` index). |
 | 3 | `substrate-port` | Supervision in observe mode: local connector, renderer with byte-parity fixtures (from an env path), status, self identity. |
 | 4 | `substrate-port` | Identity, scopes, read API, the legacy-route set, CLI over HTTP with a key file; scope-coverage test. |
 | 5 | `substrate-port` | Supervise mode: apply, deploy, start, stop, reload, artifacts, pause state, dev sessions, self-guard. |
