@@ -57,12 +57,14 @@ jobs:
           mkdir -p "$r/home" "$r/config" "$r/data" "$r/cache" "$r/state" "$r/tmp"
           HOME="$r/home" XDG_CONFIG_HOME="$r/config" XDG_DATA_HOME="$r/data" XDG_CACHE_HOME="$r/cache" XDG_STATE_HOME="$r/state" TMPDIR="$r/tmp" \
             go test -race -count=1 -timeout=15m ./...
-      # Code carried over from main is ported slice by slice; lint gates what each PR adds.
+      # Code carried over from main is ported slice by slice; lint gates what each change adds,
+      # against the merge base with substrate-port (from git, not the PR diff API, which refuses
+      # diffs over 20,000 lines).
       - uses: golangci/golangci-lint-action@v7
         if: ${{ !cancelled() }}
         with:
           version: v2.11.4
-          only-new-issues: true
+          args: --new-from-merge-base=${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
       - name: Public hygiene (tree and history)
         if: ${{ !cancelled() }}
         run: go run github.com/hollis-labs/substrate/cmd/substrate scan-public --ref HEAD
