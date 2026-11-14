@@ -143,7 +143,7 @@ Treatments (the store inventory, CW-20261114-0086, completes and corrects this t
 | `audit/*.jsonl` (hash-chained, ~14k lines) | Copied verbatim into the data dir, read-only. The new log starts with a genesis record carrying the old chain's final hash. | old chain verifies end to end; new genesis links to it; line counts equal |
 | `approvals/events.jsonl`, `approvals/passkeys/` | Imported into SQLite (events, passkey credentials). Originals also kept verbatim. | counts equal; each passkey can sign a test challenge in rehearsal |
 | `hosts.yaml`, `hosts.history.jsonl`, `state/hosts.json`, `state/overview_snapshots.json` | Operator-authored YAML stays YAML in the new config dir; history and snapshots imported. | YAML byte-identical; counts equal |
-| `registry.yaml`, `config.yaml`, `connector-config.yaml`, `events.yaml`, `policy/`, `outpost-recovery.cerberus.yaml` | Config: copied to the new config dir, keys mapped (table in conversion-notes); unknown keys are an error, not ignored. | `cerberus config` shows the effective values; diff reviewed |
+| `config.yaml` (the live registry: which descriptors are registered), `registry.yaml`, `connector-config.yaml`, `events.yaml`, `policy/`, `outpost-recovery.cerberus.yaml` | Config: copied to the new config dir, keys mapped (table in conversion-notes); unknown keys are an error, not ignored. | `cerberus config` shows the effective values; diff reviewed |
 | `connector-secrets.yaml`, `secrets/`, `credential-issuance/`, `outpost-tokens/`, `events-tokens/` | Copied file by file at 0600 through the `secrets` resolver's file backend; **values never printed**, verified by sha256 only. | sha256 per file equal |
 | `runtime/applied.json` (per-resource applied digests), `plugin-connectors.json`, `plugin-data/` | Imported into SQLite (applied digests drive the "unchanged, no restart" decision, so they must be exact). | per-resource digest equal; a dry apply of every resource reports "unchanged" |
 | `paused`, `paused.<id>` flags | Imported as pause state. **Carried exactly**: four resource pauses exist today. | set equal |
@@ -210,7 +210,7 @@ it is a different resource id and a different executable. New starts with an **e
   clear error naming observe mode;
 - it writes only its own data dir.
 
-Soak at least 24 h. Check: new's resource list and states equal old's (`cerberus resource status <id>` for every id, from each, diffed);
+Soak at least 24 h. Check: new's resource list and states equal old's (`cerberus resource list` and `cerberus resource status <id>` for every id, from each, diffed);
 renderer parity against the live units; no writes under `~/.cerberus` by new (inotify or mtime check).
 
 **D. Handoff window (director with owner; a write pause of minutes).**
