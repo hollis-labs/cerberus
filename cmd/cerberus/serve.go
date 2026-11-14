@@ -8,13 +8,17 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hollis-labs/substrate/module"
+	"github.com/hollis-labs/substrate/modules/auth"
 	"github.com/hollis-labs/substrate/modules/database"
 	"github.com/hollis-labs/substrate/modules/httphost"
+	"github.com/hollis-labs/substrate/modules/identity"
 
+	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/settings"
@@ -26,9 +30,36 @@ import (
 type cerberus struct {
 	app   *module.App
 	ready func(net.Addr)
-	// lane is the supervision lane, in observe mode until slice 5. Its routes arrive with
-	// slice 4.
+	// lane is the supervision lane, in observe mode until slice 5. The API does not read it
+	// yet; its runtime state reaches the routes with the adapter follow-up to slice 4.
 	lane *supervise.Service
+	// home is the user's home directory (HOME from the environment the app was given).
+	home string
+}
+
+// newAPI builds the API over the registry and the hosts files in the adopted root, read in
+// place and never written. Runtime state comes from the supervision lane once the adapter
+// follow-up wires it; until then every state is unknown.
+func newAPI(app *module.App, home string) (*api.API, error) {
+	st, err := settings.Parse(app.Config[settings.Key], home)
+	if err != nil {
+		return nil, err
+	}
+	reg := registry.ForRoot(st.AdoptRoot)
+	return api.New(api.Options{
+		Resources: func() ([]config.ResourceDef, error) {
+			resolved, err := reg.Resolve()
+			if err != nil {
+				return nil, err
+			}
+			return resolved.Config.Resources, nil
+		},
+		Hosts: api.FileHosts{
+			HostsPath: filepath.Join(st.AdoptRoot, "hosts.yaml"),
+			StatePath: filepath.Join(st.AdoptRoot, "state", "hosts.json"),
+		},
+		Home: home,
+	})
 }
 
 func (c *cerberus) serveCmd(ctx context.Context) *cobra.Command {
@@ -58,10 +89,24 @@ func (c *cerberus) serve(ctx context.Context) error {
 		return err
 	}
 	c.lane = lane
-	handler, err := httphost.Handler(app, httphost.Options{})
+	id := identity.From(app)
+	if id == nil {
+		return errors.New("the identity module must be started")
+	}
+	a, err := newAPI(app, c.home)
 	if err != nil {
 		return err
 	}
+	a.RegisterScopes(auth.ScopeTable(app))
+	handler, err := httphost.Handler(app, httphost.Options{Routes: a.Mux()})
+	if err != nil {
+		return err
+	}
+	// Outermost first: the key guard (no machine credential may be minted with approve), then
+	// the identity middleware (the session cookie becomes the bearer the guard verifies, and
+	// cookie writes need X-Requested-With and a same-origin Origin), then the host (guard,
+	// routes).
+	handler = api.KeyGuard(id.Middleware(handler))
 	return httphost.Serve(ctx, app, handler, httphost.ServeOptions{
 		Ready: func(addr net.Addr) {
 			slog.Info("cerberus listening", "addr", addr.String())

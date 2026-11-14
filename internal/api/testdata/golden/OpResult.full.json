@@ -1,0 +1,1 @@
+{"warnings":["warnings"],"build_performed":true,"activation":{"path":"path","sha256":"sha256","modified_at":"2026-01-02T03:04:05Z"},"success":true,"service_id":"serviceid","message":"message","build_output":"buildoutput","build_log_path":"buildlogpath","install_output":"installoutput","install_skipped":true,"error":"error"}
