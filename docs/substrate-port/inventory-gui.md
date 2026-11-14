@@ -2,7 +2,10 @@
 
 Task: CW-20261114-0091 (mission CW-20261112-0099). Read from `main` at 493a9f0,
 2026-11-14. No UI was changed and no console was restarted. This feeds the GUI part
-of the port plan. File references are repo-relative.
+of the port plan. File references are repo-relative. Observations of the live operator
+host (the unit file, the public host name, which state files exist) are in Tesseract
+workspace item `01M7DS5YJAYSMYP8GXN87WPMNQ` (`project/cerberus/workspace/substrate-port`,
+key `inventory-gui-full`).
 
 ## 1. How the console is built and served
 
@@ -13,7 +16,7 @@ of the port plan. File references are repo-relative.
 | Build output | `vite.config.ts` builds to `internal/webui/dist` and restores `dist/.gitkeep` |
 | Embed | `internal/webui/server.go:30` `//go:embed all:dist`, served through `fs.Sub` (`:41`) |
 | Process | `cerberus web --listen 127.0.0.1:4783 --open=false`, a subcommand of the main binary (`cmd/cerberus/cmd_web.go:26`). It is a separate process from the daemon and reaches the daemon over `~/.cerberus/cerberus.sock` |
-| Unit (agent-os) | user unit `cerberus-web.service`: `ExecStart=%h/.local/bin/cerberus-web web --listen 127.0.0.1:4783 --open=false`, `Restart=on-failure`, `RestartSec=3`, `After=`/`Wants=com.hollis-labs.cerberus.service`, `WantedBy=default.target`. `cerberus-web` is a copy of the `cerberus` binary. The same resource is described in the operator's Cerberus self-descriptor (resource `cerberus-web`) |
+| Supervision | on the operator host a user unit runs `cerberus web --listen 127.0.0.1:4783 --open=false` after the daemon unit, and Cerberus describes it as its own resource `cerberus-web`. The unit file, its options and the public host are in Tesseract workspace item `01M7DS5YJAYSMYP8GXN87WPMNQ` |
 | Public access | optional HTTPS reverse proxy; config key `web.public_url` (`internal/config/web.go:15`, `internal/webui/public_url.go`). With it set, cookies are `Secure` |
 | Dev proxy | Vite proxies `/api` to `127.0.0.1:4783` and rewrites `Origin` |
 | Tests | No frontend or browser tests. Go tests in `internal/webui/*_test.go` cover routes, guards, sessions, scoped sessions, passkeys and redaction |
