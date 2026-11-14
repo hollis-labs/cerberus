@@ -1,6 +1,60 @@
-@import 'tailwindcss';
-@import '@hollis-labs/sysop-ui/theme.css';
+@import "tailwindcss";
+@import "@hollis-labs/kit-dashboard/theme.css";
+@import "@hollis-labs/design-app-runtime/shell-reset.css";
+@import "@hollis-labs/design-components/source.css";
+@import "@hollis-labs/kit-account/source.css";
+@import "@hollis-labs/kit-identity/source.css";
+/* app-shell ships TypeScript source with Tailwind classes and no source.css of its own. */
+@source "../node_modules/@hollis-labs/app-shell/src";
 
-@source '../node_modules/@hollis-labs/sysop-ui/dist';
-
-/* The shared theme owns the shell lock, palette, and admin-surface tokens. */
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.page-content {
+  padding: clamp(0.5rem, 3vw, 2.5rem);
+  max-width: 76rem;
+  width: 100%;
+  margin: 0 auto;
+}
+.panel {
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-bg-elevated);
+  min-width: 0;
+}
+.form-width {
+  max-width: 36rem;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 64rem) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.body-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}

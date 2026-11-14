@@ -1,0 +1,778 @@
+{
+  "manifest_version": 0,
+  "app": "cerberus",
+  "variant": "app-host",
+  "profiles": [
+    "minimal"
+  ],
+  "modules": [
+    "config",
+    "logging",
+    "health",
+    "secrets",
+    "auth",
+    "database",
+    "httphost",
+    "identity",
+    "mcp",
+    "cli"
+  ],
+  "contributions": [
+    {
+      "schema_version": 0,
+      "module": "auth",
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/me",
+          "scope": "authenticated"
+        }
+      ]
+    },
+    {
+      "schema_version": 0,
+      "module": "identity",
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/setup",
+          "scope": "public"
+        },
+        {
+          "method": "POST",
+          "path": "/api/setup",
+          "scope": "public"
+        },
+        {
+          "method": "POST",
+          "path": "/api/login",
+          "scope": "public"
+        },
+        {
+          "method": "GET",
+          "path": "/api/identity/jwks",
+          "scope": "public"
+        },
+        {
+          "method": "POST",
+          "path": "/api/pair",
+          "scope": "public"
+        },
+        {
+          "method": "POST",
+          "path": "/api/logout",
+          "scope": "authenticated"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/password",
+          "scope": "authenticated"
+        },
+        {
+          "method": "GET",
+          "path": "/api/identity/profile",
+          "scope": "authenticated"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/identity/profile",
+          "scope": "authenticated"
+        },
+        {
+          "method": "POST",
+          "path": "/api/token",
+          "scope": "authenticated"
+        },
+        {
+          "method": "GET",
+          "path": "/api/identity/sessions",
+          "scope": "authenticated"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/identity/sessions/",
+          "scope": "authenticated"
+        },
+        {
+          "method": "GET",
+          "path": "/api/identity/users",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "POST",
+          "path": "/api/identity/users",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/identity/users/",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "GET",
+          "path": "/api/identity/keys",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "POST",
+          "path": "/api/identity/keys",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/identity/keys/",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "POST",
+          "path": "/api/identity/pairing-codes",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "POST",
+          "path": "/api/identity/signing-key/rotate",
+          "scope": "{app}.admin"
+        },
+        {
+          "method": "GET",
+          "path": "/api/identity/signing-key",
+          "scope": "{app}.admin"
+        }
+      ]
+    },
+    {
+      "schema_version": 0,
+      "module": "cerberus",
+      "contributions": [
+        {
+          "kind": "nav.item",
+          "key": "overview",
+          "label": "Overview",
+          "icon": "layout-dashboard",
+          "priority": 1,
+          "route": "/"
+        },
+        {
+          "kind": "surface",
+          "key": "overview",
+          "label": "Overview",
+          "route": "/",
+          "layout": "list",
+          "title": "Overview"
+        },
+        {
+          "kind": "nav.item",
+          "key": "resources",
+          "label": "Resources",
+          "icon": "server",
+          "priority": 2,
+          "route": "/resources"
+        },
+        {
+          "kind": "surface",
+          "key": "resources",
+          "label": "Resources",
+          "route": "/resources",
+          "layout": "list",
+          "title": "Resources"
+        },
+        {
+          "kind": "nav.item",
+          "key": "projects",
+          "label": "Projects",
+          "icon": "folder-tree",
+          "priority": 3,
+          "route": "/projects"
+        },
+        {
+          "kind": "surface",
+          "key": "projects",
+          "label": "Projects",
+          "route": "/projects",
+          "layout": "list",
+          "title": "Projects"
+        },
+        {
+          "kind": "nav.item",
+          "key": "pipelines",
+          "label": "Pipelines",
+          "icon": "workflow",
+          "priority": 4,
+          "route": "/pipelines"
+        },
+        {
+          "kind": "surface",
+          "key": "pipelines",
+          "label": "Pipelines",
+          "route": "/pipelines",
+          "layout": "list",
+          "title": "Pipelines"
+        },
+        {
+          "kind": "nav.item",
+          "key": "approvals",
+          "label": "Approvals",
+          "icon": "shield-check",
+          "priority": 5,
+          "route": "/approvals"
+        },
+        {
+          "kind": "surface",
+          "key": "approvals",
+          "label": "Approvals",
+          "route": "/approvals",
+          "layout": "list",
+          "title": "Approvals"
+        },
+        {
+          "kind": "nav.item",
+          "key": "registry",
+          "label": "Registry",
+          "icon": "book-open",
+          "priority": 6,
+          "route": "/registry"
+        },
+        {
+          "kind": "surface",
+          "key": "registry",
+          "label": "Registry",
+          "route": "/registry",
+          "layout": "list",
+          "title": "Registry"
+        },
+        {
+          "kind": "nav.item",
+          "key": "credentials",
+          "label": "Credentials",
+          "icon": "key-square",
+          "priority": 7,
+          "route": "/credentials"
+        },
+        {
+          "kind": "surface",
+          "key": "credentials",
+          "label": "Credentials",
+          "route": "/credentials",
+          "layout": "form",
+          "title": "Credentials"
+        },
+        {
+          "kind": "nav.item",
+          "key": "connectors",
+          "label": "Connectors",
+          "icon": "plug",
+          "priority": 8,
+          "route": "/connectors"
+        },
+        {
+          "kind": "surface",
+          "key": "connectors",
+          "label": "Connectors",
+          "route": "/connectors",
+          "layout": "list",
+          "title": "Connectors"
+        },
+        {
+          "kind": "nav.item",
+          "key": "plugins",
+          "label": "Plugins",
+          "icon": "puzzle",
+          "priority": 9,
+          "route": "/plugins"
+        },
+        {
+          "kind": "surface",
+          "key": "plugins",
+          "label": "Plugins",
+          "route": "/plugins",
+          "layout": "list",
+          "title": "Plugins"
+        },
+        {
+          "kind": "nav.item",
+          "key": "settings",
+          "label": "Settings",
+          "icon": "settings",
+          "region": "nav.footer",
+          "route": "/settings"
+        },
+        {
+          "kind": "surface",
+          "key": "settings",
+          "label": "Settings",
+          "route": "/settings",
+          "layout": "form",
+          "title": "Settings"
+        },
+        {
+          "kind": "nav.item",
+          "key": "identity-account",
+          "label": "Account security",
+          "icon": "shield",
+          "region": "nav.footer",
+          "route": "/identity/account"
+        },
+        {
+          "kind": "surface",
+          "key": "identity-account",
+          "label": "Account security",
+          "route": "/identity/account",
+          "layout": "form",
+          "title": "Account security"
+        },
+        {
+          "kind": "nav.item",
+          "key": "identity-keys",
+          "label": "Access keys",
+          "icon": "key-round",
+          "region": "nav.footer",
+          "route": "/identity/keys"
+        },
+        {
+          "kind": "surface",
+          "key": "identity-keys",
+          "label": "Access keys",
+          "route": "/identity/keys",
+          "layout": "list",
+          "title": "Access keys"
+        },
+        {
+          "kind": "nav.item",
+          "key": "identity-sessions",
+          "label": "Active sessions",
+          "icon": "monitor",
+          "region": "nav.footer",
+          "route": "/identity/sessions"
+        },
+        {
+          "kind": "surface",
+          "key": "identity-sessions",
+          "label": "Active sessions",
+          "route": "/identity/sessions",
+          "layout": "list",
+          "title": "Active sessions"
+        },
+        {
+          "kind": "nav.item",
+          "key": "identity-sign-out",
+          "label": "Sign out",
+          "icon": "log-out",
+          "region": "nav.footer",
+          "route": "/identity/sign-out"
+        },
+        {
+          "kind": "surface",
+          "key": "identity-sign-out",
+          "label": "Sign out",
+          "route": "/identity/sign-out",
+          "layout": "form",
+          "title": "Sign out"
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "kind": "nav.item",
+      "key": "overview",
+      "label": "Overview",
+      "icon": "layout-dashboard",
+      "priority": 1,
+      "route": "/",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "resources",
+      "label": "Resources",
+      "icon": "server",
+      "priority": 2,
+      "route": "/resources",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "projects",
+      "label": "Projects",
+      "icon": "folder-tree",
+      "priority": 3,
+      "route": "/projects",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "pipelines",
+      "label": "Pipelines",
+      "icon": "workflow",
+      "priority": 4,
+      "route": "/pipelines",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "approvals",
+      "label": "Approvals",
+      "icon": "shield-check",
+      "priority": 5,
+      "route": "/approvals",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "registry",
+      "label": "Registry",
+      "icon": "book-open",
+      "priority": 6,
+      "route": "/registry",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "credentials",
+      "label": "Credentials",
+      "icon": "key-square",
+      "priority": 7,
+      "route": "/credentials",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "connectors",
+      "label": "Connectors",
+      "icon": "plug",
+      "priority": 8,
+      "route": "/connectors",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "plugins",
+      "label": "Plugins",
+      "icon": "puzzle",
+      "priority": 9,
+      "route": "/plugins",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "approvals",
+      "label": "Approvals",
+      "route": "/approvals",
+      "layout": "list",
+      "title": "Approvals",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "connectors",
+      "label": "Connectors",
+      "route": "/connectors",
+      "layout": "list",
+      "title": "Connectors",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "credentials",
+      "label": "Credentials",
+      "route": "/credentials",
+      "layout": "form",
+      "title": "Credentials",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-account",
+      "label": "Account security",
+      "icon": "shield",
+      "region": "nav.footer",
+      "route": "/identity/account",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-account",
+      "label": "Account security",
+      "route": "/identity/account",
+      "layout": "form",
+      "title": "Account security",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-keys",
+      "label": "Access keys",
+      "icon": "key-round",
+      "region": "nav.footer",
+      "route": "/identity/keys",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-keys",
+      "label": "Access keys",
+      "route": "/identity/keys",
+      "layout": "list",
+      "title": "Access keys",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-sessions",
+      "label": "Active sessions",
+      "icon": "monitor",
+      "region": "nav.footer",
+      "route": "/identity/sessions",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-sessions",
+      "label": "Active sessions",
+      "route": "/identity/sessions",
+      "layout": "list",
+      "title": "Active sessions",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-sign-out",
+      "label": "Sign out",
+      "icon": "log-out",
+      "region": "nav.footer",
+      "route": "/identity/sign-out",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-sign-out",
+      "label": "Sign out",
+      "route": "/identity/sign-out",
+      "layout": "form",
+      "title": "Sign out",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "overview",
+      "label": "Overview",
+      "route": "/",
+      "layout": "list",
+      "title": "Overview",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "pipelines",
+      "label": "Pipelines",
+      "route": "/pipelines",
+      "layout": "list",
+      "title": "Pipelines",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "plugins",
+      "label": "Plugins",
+      "route": "/plugins",
+      "layout": "list",
+      "title": "Plugins",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "projects",
+      "label": "Projects",
+      "route": "/projects",
+      "layout": "list",
+      "title": "Projects",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "registry",
+      "label": "Registry",
+      "route": "/registry",
+      "layout": "list",
+      "title": "Registry",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "resources",
+      "label": "Resources",
+      "route": "/resources",
+      "layout": "list",
+      "title": "Resources",
+      "module": "cerberus"
+    },
+    {
+      "kind": "nav.item",
+      "key": "settings",
+      "label": "Settings",
+      "icon": "settings",
+      "region": "nav.footer",
+      "route": "/settings",
+      "module": "cerberus"
+    },
+    {
+      "kind": "surface",
+      "key": "settings",
+      "label": "Settings",
+      "route": "/settings",
+      "layout": "form",
+      "title": "Settings",
+      "module": "cerberus"
+    }
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/me",
+      "scope": "authenticated",
+      "module": "auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup",
+      "scope": "public",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/setup",
+      "scope": "public",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/login",
+      "scope": "public",
+      "module": "identity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/identity/jwks",
+      "scope": "public",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/pair",
+      "scope": "public",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/logout",
+      "scope": "authenticated",
+      "module": "identity"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/password",
+      "scope": "authenticated",
+      "module": "identity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/identity/profile",
+      "scope": "authenticated",
+      "module": "identity"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/identity/profile",
+      "scope": "authenticated",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/token",
+      "scope": "authenticated",
+      "module": "identity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/identity/sessions",
+      "scope": "authenticated",
+      "module": "identity"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/identity/sessions/",
+      "scope": "authenticated",
+      "module": "identity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/identity/users",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/identity/users",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/identity/users/",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/identity/keys",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/identity/keys",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/identity/keys/",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/identity/pairing-codes",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/identity/signing-key/rotate",
+      "scope": "{app}.admin",
+      "module": "identity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/identity/signing-key",
+      "scope": "{app}.admin",
+      "module": "identity"
+    }
+  ],
+  "regions": [],
+  "kits": [
+    {
+      "name": "@hollis-labs/design-app-runtime",
+      "version": "0.6.0"
+    },
+    {
+      "name": "@hollis-labs/design-components",
+      "version": "0.5.1"
+    },
+    {
+      "name": "@hollis-labs/design-tokens",
+      "version": "0.5.0"
+    }
+  ],
+  "bindings": []
+}
