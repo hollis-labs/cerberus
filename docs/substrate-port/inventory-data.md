@@ -140,8 +140,8 @@ The **Who** column says who authors each file: **op** means the operator writes 
 | Store | Who writes it | Treatment |
 |---|---|---|
 | 🔒 `~/.cerberus/outpost-tokens/<host>.token` | Operator or outpost enrolment, outside this repo. Named by absolute path in `hosts.yaml` `reach.outpost.token_file` (`internal/hosts/host.go:158`). | **in place**, or **copy** with a `hosts.yaml` path rewrite in the same step. |
-| 🔒 `~/.cerberus/events-tokens/cerberus-events/{device.token,config.json,hub-mcp.json}` | `events-credential-renew` (a timer outside this repo); named by the daemon unit's `events.conf` drop-in | **in place**: the renew timer writes this path. |
-| 🔒 `~/.cerberus/secrets/digitalocean-api-token` | Hand-placed `file://` target for a connector credential | **in place** (the reference in `connector-secrets.yaml` names it) |
+| 🔒 `~/.cerberus/events-tokens/<name>/` (device token and its config) | a credential-renewal job outside this repo; a drop-in on the daemon unit names the token file (details in `01M7DX799TQJ1FH6JXAD48GYP9`) | **in place**: the renewal job writes this path. |
+| 🔒 `~/.cerberus/secrets/<name>` | Hand-placed `file://` targets for connector credentials | **in place** (the reference in `connector-secrets.yaml` names it) |
 
 ## 4. OS keyring (gnome-keyring through Secret Service, `zalando/go-keyring`, `internal/secrets/keyring_ops.go:24-26`)
 
@@ -158,13 +158,10 @@ These entries were not enumerated, because listing them would mean querying the 
 | Store | Writer | Secrets | Treatment |
 |---|---|---|---|
 | `~/.local/share/cerberus/cerberus.db` | unknown; no code here or in apppaths creates it | No | **drop** (move aside). It is not the database. |
-| `~/.local/share/cerberus/changes/` | change records from runbooks, outside this repo | maybe | **archive** |
-| `~/.local/share/cerberus/postgres-adoption/` | PostgreSQL adoption runbooks, outside this repo | maybe (encrypted dumps; their passphrases are below) | **archive**, never deleted. Owned by whoever owns the shared PostgreSQL. |
-| `~/.local/share/cerberus/review-evidence/` | runbooks | No | **archive** |
-| 🔒 `~/.local/state/cerberus/backup-keys/*.passphrase` | runbooks, outside this repo | **yes** | **in place**. Losing them makes the `postgres-adoption` backups unreadable. Flag for the owner. |
-| 🔒 `~/.local/state/cerberus/postgres/shared/{provisioner,catalog}-password` | postgres plugin or runbooks, outside this repo | **yes** | **in place** |
+| Runbook evidence and backup directories under `~/.local/share/cerberus/` (names and sizes in `01M7DX799TQJ1FH6JXAD48GYP9`) | runbooks outside this repo; no code here writes them | maybe (some hold encrypted backups) | **archive**, never deleted; moved aside with the old data dir. The owner decides when to delete. |
+| 🔒 Runbook secret files under `~/.local/state/cerberus/` (backup passphrases, service passwords; names in `01M7DX799TQJ1FH6JXAD48GYP9`) | runbooks or plugins outside this repo | **yes** | **in place**. Losing the passphrases makes the archived backups unreadable. Flag for the owner. |
 | `~/.local/state/cerberus`, `~/.cache/cerberus`, `~/.config/cerberus` (roots) | apppaths `materialize()` (`libs/core/util@v0.6.0/apppaths/layout.go:84-99`) | — | **regenerate** |
-| `~/.config/cerberus/<host>.cerberus.yaml`, `postgres/` | by hand; listed in `registry.yaml` | No | **in place**: app-owned descriptors, not Cerberus state |
+| `~/.config/cerberus/<host>.cerberus.yaml` and operator resource files beside it | by hand; listed in `registry.yaml` | No | **in place**: app-owned descriptors, not Cerberus state |
 | `~/.config/systemd/user/com.hollis-labs.cerberus*.service` and the custom-named resource units | `internal/connector/local/systemd.go:367-390`; `cmd/cerberus/cmd_install_systemd.go:80-168` | maybe (literal `Environment=`) | **in place**. Hand-over is a cutover step, not a data copy. |
 | `<repo>/.cerberus-build.lock`, `<repo>/<dist>/…`, `checksums.txt` | `internal/buildlock/buildlock.go:15-50`; `internal/connector/local/build_strategy.go:155,232,538` | No | not Cerberus state; **regenerate** |
 
