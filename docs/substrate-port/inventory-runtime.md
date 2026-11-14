@@ -1,0 +1,235 @@
+# Runtime inventory: what Cerberus supervises, schedules, and how it deploys itself
+
+Prep for the Substrate port (mission CW-20261112-0099, task CW-20261114-0088). Input to the cutover plan's
+self-deploy sequencing. Taken on 2026-11-14 from the operator host, read-only:
+`systemctl --user list-units/show/cat/list-timers`, `ss -ltnpx`, `ps`, `cerberus path`, `cerberus resource list`,
+`cerberus resource status`, `sqlite3 -readonly`. Nothing was started, stopped, reloaded or written.
+
+Code references are to `main` at `493a9f0`. The live daemon binary is `ce767e6` (2026-10-30, `vcs.modified=false`);
+the two commits between them touch none of the files cited here, so the references describe the running code.
+
+Paths are written with `~` for the operator's home. This repository is public: this document keeps what follows from
+the code. What was observed on the live host (the unit list with commands and drop-ins, catalog counts, loop state,
+binaries on disk, uptimes) is in Tesseract workspace item `01M7DX7XJQ79KHY8XP9F8HQY4Q`
+(`project/substrate-migration/workspace/cerberus`, key `inventory-runtime-live`).
+
+## Summary
+
+| Question | Answer |
+|---|---|
+| Cerberus-related units on the host | Four kinds: the daemon unit (`cerberus install`), a hand-written web console unit, the resource units Cerberus writes, and hand-written units it tracks as `native-unit` resources. The list and counts are in `01M7DX7XJQ79KHY8XP9F8HQY4Q`. |
+| Does a supervised resource survive a daemon restart? | **Yes for `os_service` resources** (every unit in table 1a). **No for `dev_session` resources** while the daemon runs under systemd: they are children in the daemon unit's cgroup and the default `KillMode=control-group` kills them. Details in section 3.4. |
+| Can two daemons run side by side? | **Not safely today.** Socket, pid file, lock, state directory, unit names, approval chain and plugin processes all collide; nothing but `$HOME` relocates `~/.cerberus`. Section 4. |
+| Does Cerberus run anything on a schedule? | No systemd timers. The scheduling core is wired but never started (0 rows in every schedule table). The daemon runs in-process loops: section 2. |
+
+## 1. Units and resources
+
+How to read the "who generated it" column: Cerberus writes a resource unit with the header
+`# Written by Cerberus for resource <id>; \`cerberus resource apply\` overwrites edits.`
+(`internal/connector/local/systemd.go:442`); `cerberus install` writes the daemon unit with
+`# Written by \`cerberus install\`` (`cmd/cerberus/cmd_install_systemd.go:24`). All unit files live in
+`~/.config/systemd/user/` (hardcoded: `internal/connector/local/install_layout.go:117-119`). Drop-ins (`<unit>.d/*.conf`)
+are written by hand, never by Cerberus; `cerberus resource apply` rewrites only the main file
+(`systemd.go:367-390`), so the drop-ins survive an apply.
+
+Unit name: `service_name` if the resource sets one, otherwise `com.hollis-labs.cerberus.<project>.<id>`
+(`install_layout.go:40-43,79-83`). That is why some units carry plain names (`<app>.service`).
+
+"Cerberus paths" column: what the unit file and its drop-ins reference. Every Cerberus-written resource unit points
+its stdout/stderr at `~/.cerberus/apps/<project>/<id>/logs/` (`systemd.go:439,455-456`), and some also run their
+binary from `~/.cerberus/apps/.../bin/` (`run_from: artifact`). No resource unit references the Cerberus binary or socket.
+
+### 1a. Kinds of unit and resource
+
+The per-unit table (resource id, unit, `ExecStart`, drop-ins) is live-host data: it is in workspace item `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
+What follows from the code:
+
+| Kind | Written by | Unit | Notes |
+|---|---|---|---|
+| Daemon | `cerberus install` | `com.hollis-labs.cerberus.service`, `ExecStart=<binary> daemon --foreground` | section 3.1 |
+| Web console | by hand (no code writes a console unit, see 3.2) | runs `cerberus web` (code default `--listen 127.0.0.1:4783`) | how the operator host runs it is in `01M7DX7XJQ79KHY8XP9F8HQY4Q` |
+| `os_service` resource units | Cerberus (`systemd.go:442` header) | `service_name` or `com.hollis-labs.cerberus.<project>.<id>` | `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`, `WantedBy=default.target`, enabled (`systemd.go:447,453-454,473-474`). Some run from `~/.cerberus/apps/.../bin/` (`run_from: artifact`). Hand-written drop-ins (`<unit>.d/*.conf`, added by installers or the operator) survive an apply; which exist is in `01M7DX7XJQ79KHY8XP9F8HQY4Q` |
+| `native-unit` resources | by hand | `supervisor: systemd_user` with a `service_name` naming an existing unit | no Cerberus header, so a grep on the header or description misses them. `cerberus resource stop/reload` still act on them, so the port carries these definitions |
+| Leftover units | Cerberus, for a resource since removed | `com.hollis-labs.cerberus.*` | loaded, disabled; not in the catalog |
+
+### 1b. The rest of the catalog
+
+- **`dev_session` resources**: children of the daemon process, no unit (section 3.4).
+- **Unsupervised handles**: `type: server`/`connector: ssh` resources (one per fleet host) and `type: container`/
+  `connector: docker`. They are named targets for admin-lane verbs; Cerberus runs nothing for them.
+- **Plugin processes**, also children in the daemon's cgroup, each from `~/.cerberus/plugins/<id>/<sha256>/bin/`.
+
+Resource definitions come only from `~/.cerberus/registry.yaml` (a list of descriptor files) plus `~/.cerberus/config.yaml`.
+No directory is scanned (`internal/registry/resolve.go:82-86,205-211`). The Cerberus project's own descriptor on the operator
+host is `<host>.cerberus.yaml`. It declares the console and release resources, and **not** `cerberus-daemon-service`: the
+daemon is not a resource there.
+
+### 1c. Outside Cerberus: readers of Cerberus state
+
+Not supervised by Cerberus, but the cutover must not break them. The units are listed in `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
+
+| Kind | What it touches |
+|---|---|
+| Backup tooling | reads Cerberus state files directly. Its path list must follow the new layout; the job and its list are in `01M7DX7XJQ79KHY8XP9F8HQY4Q` |
+| The events credential renewal | renews the token under `~/.cerberus/events-tokens/` that the daemon unit's drop-in names |
+| `cerberus mcp` stdio processes | started by agent harnesses. They are clients of `~/.cerberus/cerberus.sock` and re-dial on each call (`AGENTS.md`, "Do not reintroduce `selfexec.WatchAndExit`") |
+
+## 2. Schedules, timers and loops
+
+**No systemd `.timer` units** are written by Cerberus: it writes only `.service` files (`install_layout.go:96-97`,
+`cmd_install_systemd.go:24-41`). The user timers on the host belong to other tooling (section 1c).
+
+**Scheduling core: inactive.** The daemon binds it with a nil executor and a nil authorizer
+(`internal/app/app.go:611`; `cmd/cerberus/cmd_daemon.go:574-577`), `Core.Start()` (`internal/scheduling/core.go:187`) has
+no caller, and a nil authorizer refuses everything (`core.go:48-49`). The schedule tables were empty at inventory time
+(counts in the data inventory's workspace item).
+
+**In-process loops in `cerberus daemon`** (`runDaemonBody`, `cmd/cerberus/cmd_daemon.go:459-740`). All stop on context
+cancel and are joined (`:733-739`).
+
+| Loop | Start | Interval | Effect |
+|---|---|---|---|
+| Resource monitor (auto_restart) | `cmd_daemon.go:519,529-535` | 30 s; 3 attempts; cooldown (`internal/cerbapi/resource_monitor.go:22-28,216-237`) | Only `dev_session` with `auto_restart: true` (`:175-184`); calls `Apply`. **Never touches `os_service` units.** Writes audit and `~/.cerberus/runtime/applied.json`. |
+| Artifact drift cache | `cmd_daemon.go:524-543` | 60 s (`internal/cerbapi/drift_cache.go:15`) | git drift probe per local resource, memory only |
+| Host monitor janitor | `cmd_daemon.go:588-592` | 1 min, then hourly (`internal/cerbapi/host_monitor.go:316-324`) | Rollups and retention in `main.db` |
+| Host monitor probes | `cmd_daemon.go:593-600` | 1 s tick; outpost 60 s, ssh 5 m (`internal/hosts/monitor.go:66-67`) | Probes fleet hosts, writes `host_samples`/`host_events`/`host_status` |
+| Approval expiry sweeper | `cmd_daemon.go:645-650` | 1 min | Appends to `~/.cerberus/approvals/events.jsonl` and audit |
+| Event export plus hub relay | `cmd_daemon.go:656` → `cmd/cerberus/events_export.go:21-67` | 5 s default | Outbox `~/.cerberus/events/` |
+| Overview snapshot recorder | `cmd_daemon.go:664-682` | 1 min, 7-day retention (`internal/cerbapi/snapshot_recorder.go:57-61`) | `~/.cerberus/state/overview_snapshots.json` |
+| Plugin supervision | `internal/cerbapi/plugin_connector_state.go:236-256` | restart backoff 1/5/30 s, give up after 3 in 10 min (`internal/pluginhost/supervise.go:112-116`) | Child plugin processes |
+| MCP plugin tool sync | `internal/mcp/plugin_tools.go:35,184-187` | 15 s | memory |
+| Data-access revocation poll | `internal/app/data_access.go:66-67` | 5 s | memory; only if `data-access.json` exists |
+
+Dead code with no production caller: `internal/daemon/monitor.go` (v1 monitor), `internal/service/autorestart.go`,
+`internal/service/healthcheck.go`, `internal/config/watcher.go`, `internal/selfexec` (section 3.3). Health and restart of
+`os_service` resources are systemd's (`Restart=always`), not Cerberus's.
+
+## 3. Self-deploy path today
+
+### 3.1 How the daemon runs
+
+- Unit `com.hollis-labs.cerberus.service`, written by `cerberus install` (`cmd/cerberus/cmd_install.go:131-220` →
+  `cmd_install_systemd.go:24-41,152-181`). `ExecStart=<os.Executable()> daemon --foreground`, `Restart=always`,
+  `RestartSec=5`, no `KillMode=` (so the default `control-group` applies), logs to `~/.cerberus/logs/systemd-*.log`.
+  `install` also retires a hand-written `cerberus.service` that runs `cerberus … daemon` (`:115-150`).
+- The unit's cgroup holds the daemon, its plugin processes and any running dev-session trees (live state in
+  `01M7DX7XJQ79KHY8XP9F8HQY4Q`).
+- The daemon listens only on `~/.cerberus/cerberus.sock` (no TCP port). The web console is a separate process,
+  `cerberus web`, on `127.0.0.1:4783` and `[::1]:4783` by default (`cmd/cerberus/cmd_web.go:26,181`), optionally behind
+  an HTTPS reverse proxy named by `web.public_url`.
+- Bare `cerberus daemon` or `--foreground` from a shell refuses to start, or goes through systemctl, when the unit
+  exists (`cmd_daemon.go:57-59,188-212,236-257`; override `--override-supervisor`). `cerberus daemon
+  start|stop|restart` call `systemctl --user` when the unit exists (`cmd_daemon.go:53-68,113-119`).
+
+### 3.2 Binaries on disk
+
+The daemon process pattern is `(cerberus|cerberus-daemon-service) daemon` (`internal/daemon/procident.go:41`), so a
+console process run from a binary with another basename is never mistaken for the daemon. No code in this repository
+installs a console binary or writes a console unit, and no code keeps previous builds: any rollback copies kept beside
+the binary are made by hand. How the operator host does this today (binary copies, their names, the console unit) is
+in `01M7DX7XJQ79KHY8XP9F8HQY4Q`.
+
+### 3.3 `internal/selfexec`
+
+It watches the running binary's inode and mtime and exits 0 when the file is replaced (`internal/selfexec/selfexec.go:156-203`).
+**Nothing calls it in production.** Its call site in `cerberus mcp` was removed because a daemon deploy replaced the
+binary and every `cerberus mcp` child exited (`cmd/cerberus/cmd_mcp.go:68-77`; `AGENTS.md` "Do not reintroduce
+`selfexec.WatchAndExit`"). No self-update or upgrade command exists.
+
+### 3.4 Do the resources survive a daemon restart?
+
+- **`os_service` (all 27 resource units, and the native units): yes.** Each is its own enabled user unit with
+  `Restart=always` (`systemd.go:132-196,447`), not a child of the daemon. On shutdown the daemon cancels its context,
+  stops its own monitor and returns (`cmd_daemon.go:509,733-739`). It never stops a resource. On startup it does not
+  reconcile, restart or adopt `os_service` units: the monitor ignores them (`resource_monitor.go:175-184`), and `auto_start`
+  is read only by the dead legacy registry (`internal/service/registry.go:212-218`). The live host agrees: a resource
+  unit has outlived the last daemon restart (uptimes in `01M7DX7XJQ79KHY8XP9F8HQY4Q`).
+- **`dev_session`: no**, while the daemon runs under its systemd unit. The session is `exec.Command` with
+  `Setpgid: true` (`internal/connector/local/dev_session.go:82-85`). A new process group does not leave the cgroup, and the
+  daemon unit has no `KillMode=` (`cmd_install_systemd.go:24-41`), so `systemctl --user restart|stop` kills it. A session
+  with `auto_restart: true` is started again by the new daemon's monitor within 30 s (`resource_monitor.go:24,86,281`).
+  A daemon forked by hand leaves sessions orphaned, and the next daemon re-adopts them from `~/.cerberus/pids/<id>.pid`
+  when the start identity matches (`dev_session.go:219-254,269-289`).
+- **Plugins: no.** They are child processes and restart with the daemon (`plugin_connector_state.go:236-256`).
+- Self-protection: the serving daemon refuses deploy, apply, reload, stop or remove on its own resource. It matches by id,
+  by `service_name` (`com.hollis-labs.cerberus`) or by the same executable file (`internal/cerbapi/daemon_self_guard.go:16-54`).
+
+### 3.5 Lock, pid and socket
+
+| File | Code | Behaviour |
+|---|---|---|
+| `~/.cerberus/daemon.lock` | `internal/daemon/daemon_lock.go:40-47,77-187` | Non-blocking `flock`; body `{pid, acquired_at, origin}` (`origin` is `systemd`, `launchd` or `manual`). If held, it reads the holder pid: when the holder is alive **and** its command line matches `(cerberus\|cerberus-daemon-service) daemon` (`procident.go:41`), the start is refused (`DaemonLockHeldError`). Otherwise the file is deleted and a new inode is locked (`:101-144`). Released and removed on exit. |
+| `~/.cerberus/cerberus.pid` | `internal/daemon/pidguard.go:36-43,85-117,158-184` | Written atomically after the lock (`cmd_daemon.go:492`), removed on exit (`:495`). A stale one is removed by `CheckDaemonRunning`. |
+| `~/.cerberus/cerberus.sock` | `internal/cerbapi/client.go:109-119`, `socket_server.go:168-197` | Unlinked unconditionally before listening (the lock is the guard), mode `0600`. |
+
+### 3.6 The procedure today (Linux, the operator host)
+
+Taken from the code, `AGENTS.md` ("Never deploy the daemon through its own socket") and the binaries on disk.
+No script does this: it is done by hand.
+
+1. Build from a clean checkout at the release commit: `make all` (web bundle, then `bin/cerberus`; `Makefile:12,20-23`).
+   `make build` alone embeds whatever bundle is already in `internal/webui/dist`.
+2. Keep the running binaries for rollback: copy `~/.local/bin/cerberus` (and any copy the console runs from) aside
+   under a dated name.
+3. Copy the new binary to a temporary path next to the target, then `mv` it over `~/.local/bin/cerberus` (same filesystem,
+   so the rename is atomic and the running process keeps its old inode). Do the same for the console's binary.
+4. Restart from outside the daemon: `systemctl --user restart com.hollis-labs.cerberus.service`. Never use
+   `cerberus resource deploy` or `apply` against the daemon over its own socket (refused by the self-guard; `AGENTS.md`).
+   This kills the dev sessions and plugins in its cgroup; `os_service` units keep running.
+5. Restart the console's unit. It does not follow the daemon automatically:
+   `Wants=`/`After=` do not propagate a restart, and the web process only re-dials the socket.
+6. Re-run `cerberus install` only when the unit template or the binary path changes. It rewrites the unit,
+   runs `daemon-reload`, `enable` and `restart` (`cmd_install_systemd.go:152-181`).
+7. Verify: `cerberus status`, `cerberus daemon status` (`origin: systemd`), `cerberus resource list`; dev sessions with
+   `auto_restart` should be back within 30 s.
+8. Rollback: `mv` the kept copies back and repeat steps 4 and 5. The state in `~/.cerberus` and `main.db` is shared
+   by both builds. There is no separate migration step: the SQLite store migrates when it opens
+   (`internal/store/sqlite/store.go:35`), so a rollback across a schema change would need a database restore.
+
+`cerberus.cerberus.yaml` in this repo also defines `cerberus-daemon-service` (`service_name: com.hollis-labs.cerberus`,
+`run_from: artifact`) and a `cerberus-daemon-deploy` pipeline (`docs/release/self-release-via-pipeline.md`). That
+descriptor is **not registered on the operator host**. If it were, `resource apply` would rewrite the `cerberus install` unit with
+the resource template; that collision is why the self-guard exists.
+
+## 4. Two daemons side by side
+
+Short answer: **no, not without code changes.** Every `~/.cerberus` path is built from `os.UserHomeDir()`. There is no
+`CERBERUS_HOME` variable; the only overrides are `CERBERUS_DB_PATH`, `CERBERUS_WORKSPACE`, `XDG_*` and `--db` (database
+only) and `--config` (config, registry index, data-access, policy reference). Changing `$HOME` moves everything, but
+in-process mutations refuse when `HOME` is not the account's home (`cmd/cerberus/state_home.go:53-63`), and it does not
+move the keyring or the `systemctl --user` instance.
+
+| # | Collision point | Code | Configurable? | Effect if two run |
+|---|---|---|---|---|
+| 1 | State dir `~/.cerberus` | `internal/daemon/pidguard.go:14-25` | `$HOME` only | Everything below is shared |
+| 2 | Socket `~/.cerberus/cerberus.sock` | `internal/cerbapi/client.go:109-119`; `socket_server.go:168-197` | no | The second daemon unlinks and takes over the socket; every client then talks to it |
+| 3 | `daemon.lock` | `internal/daemon/daemon_lock.go:41-47,101-144` | no | Refused only if the holder's command line matches `procident.go:41`. **A build whose binary has another name (for example `cerberus-next daemon`) is treated as stale: the lock file is deleted and the second daemon starts.** |
+| 4 | Pid file `~/.cerberus/cerberus.pid` | `pidguard.go:36-43` | no | Overwritten; `daemon stop` targets the last writer |
+| 5 | Stray sweep on restart | `internal/daemon/restart.go:193-226` (`KillStrayDaemons`), pattern `procident.go:41` | no | `cerberus daemon restart` SIGTERMs or SIGKILLs every process of the account that matches `cerberus daemon`, which would kill the other build if it is named `cerberus` |
+| 6 | Supervisor guard | `cmd_daemon.go:57-59,188-212,236-257` | `--override-supervisor` | A bare `daemon` routes to the existing unit instead of starting a second daemon |
+| 7 | Fork drops flags | `cmd_daemon.go:444-454`; `restart.go:382-400` | use `--foreground` or env | A background start loses `--config`/`--db` |
+| 8 | Daemon unit name `com.hollis-labs.cerberus.service` (and legacy `cerberus.service`) | `internal/daemon/systemd_origin.go:19,24`; launchd `launchd_origin.go:14,20` | no | A second `cerberus install` overwrites the first unit; `install` also removes any `cerberus.service` that runs `cerberus … daemon` (`cmd_install_systemd.go:117-138`) |
+| 9 | Resource unit prefix `com.hollis-labs.cerberus.` | `internal/connector/local/install_layout.go:40-43,79-83` | per resource `service_name` | Both daemons resolve the same unit for the same resource, and either one's `apply` rewrites it |
+| 10 | Unit dir `~/.config/systemd/user` | `install_layout.go:117-119`; `systemd_origin.go:28-30` | no (ignores `XDG_CONFIG_HOME`) | Shared |
+| 11 | Install root `~/.cerberus/apps/<project>/<id>` | `install_layout.go:62-76` | per resource `install_root` | A deploy from either side replaces the running artifact |
+| 12 | Per-resource pid, lock, pause `~/.cerberus/{pids,locks}/<id>.*`, `~/.cerberus/paused*` | `internal/service/pidfile.go:36`; `lockfile.go:31`; `internal/pausectl/pausectl.go:12-39` | no | The flock prevents a double start, but each monitor keeps its own counters: restart attempts and audit records double |
+| 13 | Resource monitor | `resource_monitor.go:24,175-184` | no | Both restart the same `dev_session` resources |
+| 14 | Main DB `~/.local/share/cerberus/workspaces/default/main.db` | `internal/config/layout.go:9-19`; `cmd/cerberus/main.go:136` | `--db`, `CERBERUS_DB_PATH`, `CERBERUS_WORKSPACE`, `XDG_DATA_HOME` | Separable today. If shared: double host probes and double rollup writes |
+| 15 | Config and registry index `~/.cerberus/config.yaml`, `registry.yaml` | `main.go:135`; `internal/registry/registry.go:44-49` | `--config` | Separable, but the descriptors it lists, and so the units, are the same |
+| 16 | Audit `~/.cerberus/audit/YYYY-MM.jsonl` | `internal/app/app.go:267-272`; `internal/audit/sink.go:213-227`; anchor `cmd/cerberus/audit_anchor.go:16-55` (keyring, keyed by directory) | no | Cross-process flock keeps it consistent; both write into one chain |
+| 17 | Approvals and passkeys `~/.cerberus/approvals/` | `internal/approval/store.go:258-285`; `app.go:249-254` | no | **In-process mutex only; each append chains from that process's in-memory tail, so two daemons fork the hash chain** |
+| 18 | Brakes, policy, oauth `~/.cerberus/{brakes,policy,oauth}`; keyring service `cerberus-oauth` | `app.go:222-263`; `internal/oauth/issuer.go:39` | no | Shared state, last writer wins |
+| 19 | Plugins `~/.cerberus/plugin-connectors.json`, `plugins/`, `plugin-data/`, `plugin-cache/` | `internal/cerbapi/plugin_connector_state.go:59-78` | no | Each daemon spawns its own copy of every plugin, including the outpost executor |
+| 20 | Hosts `~/.cerberus/hosts.yaml`, `state/hosts.json` | `internal/hosts/load.go:16-30`; `host.go:158` | no | Both probe the fleet |
+| 21 | Snapshot file `~/.cerberus/state/overview_snapshots.json` (fixed `.tmp` name) | `internal/cerbapi/snapshot_recorder.go:212-216,383-387` | no | Racing renames |
+| 22 | Event outbox `~/.cerberus/events/`, `events.yaml` | `cmd/cerberus/events_export.go:43,82`; `internal/eventexport/settings.go:39-44` | no | Off today |
+| 23 | Web console `127.0.0.1:4783`; login key `~/.cerberus/web/login-<addr>.key` | `cmd/cerberus/cmd_web.go:26,181`; `internal/webui/session.go:374-377` | `--listen` | Separable by port; the key file is keyed by address |
+| 24 | MCP HTTP `127.0.0.1:4785/mcp`; `~/.cerberus/mcp-http.yaml` | `cmd/cerberus/cmd_mcp_http.go:30-31,325-328`; `app.go:240-245` | `--listen`, `--path` | Separable by port, but the config file is shared |
+| 25 | Logs `~/.cerberus/cerberus.log`, `logs/systemd-*.log`, `$TMPDIR/cerberus-<id>.log` | `lifecycle_log.go:33-36`; `cmd_install_systemd.go:87-89`; `dev_session.go:321-326` | per resource `log_file` | Interleaved |
+
+What this means for the cutover plan (input, not a decision): a new Substrate Cerberus running beside the old one
+needs its own state root, socket, lock, unit name and unit prefix as config. It must not adopt or rewrite the old unit
+files until the hand-over step. The old daemon's lock and stray-sweep logic must not be triggered by the new binary's
+name. Because `os_service` units survive a daemon restart and the old daemon never reconciles them, units can be handed
+from old to new without stopping the workloads. `dev_session` resources and plugins restart with whichever daemon owns
+them.
