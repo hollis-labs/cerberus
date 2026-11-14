@@ -623,6 +623,10 @@ func TestPortfolioHealthReadinessVsLivenessAndRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortfolioHealth failed: %v", err)
 	}
+	// No ControllerID was given: the projection names this host (short name), never a fixed machine name.
+	if proj.ControllerID == "" || proj.ControllerID != DefaultControllerID() || strings.Contains(proj.ControllerID, ".") {
+		t.Fatalf("controller_id = %q, want this host's short name %q", proj.ControllerID, DefaultControllerID())
+	}
 
 	byID := map[string]PortfolioDeploymentHealth{}
 	for _, d := range proj.Deployments {
