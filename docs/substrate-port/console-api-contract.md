@@ -16,7 +16,7 @@ Inputs:
 | Authentication | Substrate `identity`: an `HttpOnly`, `SameSite=Strict` session cookie set by `POST /api/login`. API keys (`Authorization: Bearer key_…`) for machine callers |
 | Writes | Every non-GET carries `Content-Type: application/json` and `X-Requested-With: XMLHttpRequest`, and a cookie-authenticated write must have a same-origin `Origin` (`identity.Middleware`). **Removed:** `X-Cerberus-Web-Token`, `X-Cerberus-Session-Key`, the `#cerberus-key` fragment |
 | Errors | The flat body `{"code": "…", "message": "…", "details": {…}?}` on every non-2xx. `401 unauthorized` when signed out. `403` when the scope is missing. `403 user_required` on person-only routes called with a key |
-| Gated-write refusal | Same flat body. `code` is `approval_required`, `approval_pending` or `plan_stale`, and `details.approval` is `{id, expires_at?, approve_with?, channel}`. `channel: "tty_confirm"` means the console can confirm in place (plan then confirm); `"out_of_band"` means a passkey approval |
+| Gated-write refusal | Same flat body. `code` is `approval_required`, `approval_pending` or `plan_stale`, and `details.approval` is `{id, expires_at?, approve_with?, channel}`. `channel: "tty_confirm"` means the console can confirm in place (plan then confirm); `"out_of_band"` means an approval the owner decides on the approvals page from the signed-in console session (no passkey, decision 0.1) |
 | Success bodies | Unchanged from today: the shapes in `web/src/api/types.ts` (carried from the old client). In-band `error` fields that some reads use for partial results stay. A request failure is never reported in a 200 |
 | Path ids | URL-encoded single segments |
 
@@ -29,10 +29,10 @@ A write that policy may gate has four forms on one base path. The base path is t
 | `POST <path>` | the write's body (`acknowledged` where the action has one) | the result, or a refusal naming an approval |
 | `POST <path>/plan` | the same body | `ConnectorPlan` `{plan_hash, computed_by, plan}` |
 | `POST <path>/confirm` | the body plus `{approval_id, confirmed_plan_hash}` | the result, or `409 plan_stale` |
-| `POST <path>` (retry) | the body plus `{approval_id}` after an out-of-band approval | the result |
+| `POST <path>` (retry) | the body plus `{approval_id}` after the owner approved it | the result |
 
 All four forms need the write's own scope. Confirming in place needs nothing more. An out-of-band
-approval is decided by someone holding `cerberus.approve` (section 3.4).
+approval is decided by the owner holding `cerberus.approve` in a console session (section 3.4).
 
 ## 2. Scopes
 
@@ -43,7 +43,7 @@ From the plan (section 4.3):
 | `cerberus.read` | every GET below | people, API keys, MCP stdio (local trust) |
 | `cerberus.operate` | resource actions except remove, pipeline runs, brakes | people, API keys, MCP stdio |
 | `cerberus.admin` | connector operations, credentials, plugins, registry writes, config restore, resource remove | people, API keys, MCP stdio |
-| `cerberus.approve` | deciding approvals, revoking grants, passkey enrolment and removal | **a person's console session only**. The server refuses it on any API key, any token minted from a key, and every local-trust principal (route returns `403 user_required` for non-persons; the plan's scope test asserts it) |
+| `cerberus.approve` | approving or denying a gated plan, revoking a grant | **the owner's console identity session only** (plan revision 4, decision 0.1). The server refuses it on any API key, any token minted from a key, and every local-trust principal (route returns `403 user_required` for non-persons; the plan's scope test asserts it) |
 | `authenticated` | `GET /api/identity/profile`, the identity self-service routes | any signed-in caller |
 | `public` | `/healthz`, `GET /api/setup`, `POST /api/login` | anyone |
 
@@ -69,7 +69,7 @@ The owner holds `*`. The access-keys page offers only read, operate and admin.
 
 | Method | Path | Scope | Response | Notes |
 |---|---|---|---|---|
-| GET | `/api/console/status` | `cerberus.read` | `ConsoleStatus` `{posture?, passkeys?, break_glass?, enforcement?, brakes?}` | **New.** The header badges and brakes banner, which today come once from `GET /api/session`. Polled every 15 s. `/api/session` is removed |
+| GET | `/api/console/status` | `cerberus.read` | `ConsoleStatus` `{posture?, break_glass?, enforcement?, brakes?}` | **New.** The header badges and brakes banner, which today come once from `GET /api/session`. Polled every 15 s. `/api/session` is removed |
 
 ### 3.3 Pages
 
@@ -103,48 +103,35 @@ The owner holds `*`. The access-keys page offers only read, operate and admin.
 | settings | POST **W** gated | `/api/config/backups/restore` | admin | `{backup_path}` | `ConfigRestoreResponse` |
 | approvals | GET | `/api/approvals` | read | | `ApprovalListResponse` |
 | approvals | GET | `/api/approvals/{id}` | read | | `ApprovalInfo` (an approval link's target) |
-| approvals | GET | `/api/approvals/keys` | read | | `PasskeyStatus` |
 | every page (header) | POST **W** | `/api/brakes/lockdown` | operate | `{reason}` | `{state: BrakeState}`. Never gated: engaging the brake is always one click |
-| header, approvals | POST **W** | `/api/brakes/lockdown/lift` | operate | `{approval_id}` | `{state: BrakeState}`. Refused until an out-of-band approval exists, then retried with it |
+| header, approvals | POST **W** | `/api/brakes/lockdown/lift` | operate | `{approval_id}` | `{state: BrakeState}`. Refused until the owner approves it, then retried with the approval id |
 | header, approvals | POST **W** | `/api/brakes/freeze/{id}/lift` | operate | `{approval_id}` | `{state: BrakeState}`, same as lockdown lift |
 | header | POST **W** | `/api/brakes/suspensions/{id}/reset` | operate | `{typed: "reset <id>"}` | `{state: BrakeState}` |
 
-### 3.4 Approve (passkey ceremonies, slice 11c)
+### 3.4 Approve (owner session)
 
-All of these are `cerberus.approve`, person-only (`403 user_required` otherwise), and need an
-`Origin` the passkey service allows (section 4).
+Decision 0.1 (Chrispian, 2026-11-14): passkey approvals are dropped for the port. Approval stays human and bound
+to the plan: the owner approves a gated plan from a signed-in identity session in the console, with no ceremony.
+Both routes are `cerberus.approve`, person-only (`403 user_required` for a key, a token minted from one, or a
+local-trust principal).
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| POST **W** | `/api/approvals/{id}/challenge` | `{}` | `PasskeyCeremony` `{ceremony, options}` |
-| POST **W** | `/api/approvals/{id}/decide` | `{approve, typed, reason, assertion?: {ceremony, credential}}`. An out-of-band approve must carry the assertion; approve needs the typed target | `ApprovalInfo` |
+| POST **W** | `/api/approvals/{id}/decide` | `{approve, typed, reason}`. Approve needs the typed target, which must match the plan's | `ApprovalInfo` |
 | POST **W** | `/api/approvals/{id}/revoke` | `{reason}` | `ApprovalInfo` |
-| POST **W** | `/api/approvals/keys/register/begin` | `{token, label}`. `token` is the enrolment token from the host-side `cerberus approvals enroll` (polkit or Touch ID) | `EnrollBegin` `{ceremony, creation, authorize?}` |
-| POST **W** | `/api/approvals/keys/register/finish` | `{ceremony, credential, authorize?}` | `{fingerprint}` |
-| POST **W** | `/api/approvals/keys/remove/begin` | `{fingerprint}` | `PasskeyCeremony` |
-| POST **W** | `/api/approvals/keys/remove/finish` | `{ceremony, credential}` | `PasskeyStatus` |
 
-## 4. Passkeys and approval links
+Not carried: `/api/approvals/{id}/challenge` and `/api/approvals/keys[/register|remove/begin|finish]`. The passkey
+registry under `~/.cerberus/approvals/passkeys/` is kept in place, not migrated, and unused (plan section 5).
 
-- **The RP ID is the console's host name** (`internal/presence/presence.go:307-319`): `localhost` for the
-  local console, the public host for a console reached through `web.public_url`. A passkey works only on
-  the RP ID it was enrolled under, and the live console is used through `web.public_url`, so enrolled keys
-  may be bound to the public host rather than `localhost`.
-- **Allowed origins are an explicit list** (key `cerberus.passkeys.allowed_origins`), no longer derived
-  from `~/.cerberus/web/login-*.key`. The migration seeds it from the old `web.public_url` value plus
-  `http://localhost:4786`, and the RP ID of each ceremony is taken
-  from the origin it arrives on, as today.
-- **Rehearsal step:** on the copy, read each key's enrolment origin and RP ID from `keys.json`. In the
-  stored go-webauthn credential, `attestation.clientDataJSON` names the origin and
-  `attestation.authenticatorData` starts with the RP ID hash. Confirm every key matches an origin in the list. A key bound to a host the new console
-  will not serve is named before cutover and re-enrolled, never discovered after it.
-- `keys.json` and `key-counters.json` move byte for byte with the audit chain (plan section 5),
-  otherwise the 24-hour cooldown starts.
+## 4. Approval links and the console host
+
 - **Approval links:** today an approval link signs a browser into a session limited to one approval
   (no nav, no brakes). Substrate identity has no scoped session. The new link is the deep link
   `/approvals?id=<approval>`. It shows the identity sign-in if needed, then the approvals page with
-  that approval in front. Deciding still needs `cerberus.approve` and the passkey, so the safety
-  property (a human with the passkey) holds. What is lost is the link working without a full sign-in.
+  that approval in front. Deciding needs `cerberus.approve`, which only the owner's console session holds.
+  What is lost is the link working without a full sign-in.
+- **Public host name:** kept. The reverse proxy points at `127.0.0.1:4786`, and the override lists the public
+  name in the allowed hosts with `identity.trusted_proxy: true` (plan section 1). Cookies are `Secure` behind it.
 
 ## 5. Changes from today's console API
 
@@ -155,6 +142,7 @@ All of these are `cerberus.approve`, person-only (`403 user_required` otherwise)
 | `GET /api/session` (token, scope, badges) | `GET /api/console/status` (badges only). Who-am-I is `GET /api/identity/profile` | token and scoped sessions gone |
 | `{success:false, error, message, code?, approval?}` | `{code, message, details?}`, with `details.approval` | flat errors |
 | Scoped approval session (`scopedRouteAllowed`) | deep link plus full sign-in | identity has no scoped sessions |
+| Out-of-band approval with a WebAuthn passkey (challenge, assertion), passkey enrolment and removal | the owner approves from the console session; passkey routes removed | decision 0.1 |
 | Plugin load and unload were plain posts | gated like every other admin write | consistency. The server may never gate them, and then only the base form is used |
 | `GET /login?token=` | removed. `cerberus web open` is retired; the owner signs in with a password | Substrate identity |
 | Unused by the console and left to their own slices: `/api/brakes` GET, `/api/resources/{id}/{inspect,doctor}`, `/api/health`, `/api/portfolio/health`, `/api/plugins/connectors/{id}/operations/{op}`, `/api/schedules/v1/*`, `/api/hosts*`, `/api/components*` | not part of this contract | service and bearer clients (plan slices 7 to 9) |
@@ -163,13 +151,10 @@ All of these are `cerberus.approve`, person-only (`403 user_required` otherwise)
 ## 6. Decisions and open points
 
 Ratified (cell lead, 2026-11-14): sign-in through kit-identity; approval links as a deep link plus full
-sign-in; `GET /api/console/status` replacing `/api/session`; plugin load and unload as gated writes; the
-config key `cerberus.passkeys.allowed_origins`.
+sign-in; `GET /api/console/status` replacing `/api/session`; plugin load and unload as gated writes.
 
-**Open: whether passkey approvals stay at all.** This is a decision for the owner (through the program
-director). Until it is made, the approvals page stays a shell and the ceremony routes in section 3.4 are
-not built on the console side (slice 11c waits). If approvals are dropped, section 3.4 and the
-`cerberus.approve` scope go with them, and section 4 reduces to approval links.
+Decided by the owner (decision 0.1, 2026-11-14): passkey approvals are dropped; the owner approves from the
+console session. There is no slice 11c. A per-app passkey or Substrate strict-mode path is a later follow-up.
 
 Notes:
 

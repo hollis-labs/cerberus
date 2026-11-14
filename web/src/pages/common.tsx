@@ -52,7 +52,6 @@ export function ConsoleHeader() {
             {status.posture.summary}
           </Pill>
         ) : null}
-        {status.passkeys?.alert ? <Pill tone="warning">{status.passkeys.summary}</Pill> : null}
         {status.break_glass?.open ? <Pill tone="danger">{status.break_glass.summary}</Pill> : null}
         {status.enforcement && !status.enforcement.enforced ? (
           <Pill tone="warning">{status.enforcement.summary}</Pill>

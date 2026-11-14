@@ -6,7 +6,6 @@
 // replaces the badge fields of the old GET /api/session, which also carried the action token.
 export interface ConsoleStatus {
   posture?: PostureInfo
-  passkeys?: PasskeysAlert | null
   break_glass?: BreakGlassAlert | null
   enforcement?: EnforcementAlert | null
   brakes?: BrakeState | null
@@ -48,41 +47,6 @@ export interface BreakGlassAlert {
   recent: number
   open: number
   summary: string
-}
-
-export interface PasskeysAlert {
-  summary: string
-  alert: boolean
-  state: string
-  keys: number
-}
-
-export interface PasskeyInfo {
-  fingerprint: string
-  label?: string
-  enrolled_at: string
-}
-
-export interface PasskeyStatus {
-  enrollment?: { method: string; available: boolean; next_step: string }
-  state: "not_set_up" | "ok" | "cooldown" | string
-  keys: PasskeyInfo[]
-  cooldown_until?: string
-  last_enrolled_at?: string
-  registry_hash: string
-}
-
-// PasskeyCeremony is one ceremony's id and the options the browser needs,
-// as base64url of their JSON (see webauthn.ts for why they travel opaque).
-export interface PasskeyCeremony {
-  ceremony: string
-  options: string
-}
-
-export interface EnrollBegin {
-  ceremony: string
-  creation: string
-  authorize?: string
 }
 
 // PostureInfo is the applied posture (section 13): shown in the header so a

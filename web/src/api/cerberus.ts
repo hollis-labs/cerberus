@@ -15,13 +15,10 @@ import type {
   ConsoleStatus,
   CredentialSaveResult,
   CredentialsResponse,
-  EnrollBegin,
   LogLines,
   ManagedPluginState,
   OpResult,
   OverviewInfo,
-  PasskeyCeremony,
-  PasskeyStatus,
   PipelineInfo,
   PipelineRunResult,
   PluginHealth,
@@ -36,8 +33,7 @@ import type {
 } from "./types"
 
 // Typed stubs for every route in docs/substrate-port/console-api-contract.md. The comment on each
-// group is the scope the route requires. Pages wire these in slice 11b; the passkey ceremonies
-// (approve, enroll, remove) in slice 11c.
+// group is the scope the route requires. Pages wire these in slice 11b.
 
 const id = encodeURIComponent
 
@@ -81,7 +77,6 @@ export const cerberus = {
   pluginHealth: (pid: string) => request<PluginHealth>(`plugins/connectors/${id(pid)}/health`),
   listApprovals: () => request<ApprovalListResponse>("approvals"),
   getApproval: (aid: string) => request<ApprovalInfo>(`approvals/${id(aid)}`),
-  passkeys: () => request<PasskeyStatus>("approvals/keys"),
 
   // cerberus.operate (resource remove: cerberus.admin)
   resourceAction: (rid: string, action: ResourceAction, acknowledged: boolean) =>
@@ -120,22 +115,10 @@ export const cerberus = {
   restoreConfigBackup: (backupPath: string) =>
     gated<ConfigRestoreResponse>("config/backups/restore", { backup_path: backupPath }),
 
-  // cerberus.approve (a console session only; never an API key or a local-trust caller)
-  approvalChallenge: (aid: string) =>
-    request<PasskeyCeremony>(`approvals/${id(aid)}/challenge`, "POST", {}),
-  decideApproval: (
-    aid: string,
-    body: { approve: boolean; typed: string; reason: string; assertion?: unknown },
-  ) => request<ApprovalInfo>(`approvals/${id(aid)}/decide`, "POST", body),
+  // cerberus.approve: the owner's console session only (decision 0.1: no passkey). Never an API
+  // key or a local-trust caller.
+  decideApproval: (aid: string, body: { approve: boolean; typed: string; reason: string }) =>
+    request<ApprovalInfo>(`approvals/${id(aid)}/decide`, "POST", body),
   revokeApproval: (aid: string, reason: string) =>
     request<ApprovalInfo>(`approvals/${id(aid)}/revoke`, "POST", { reason }),
-  // The enroll token comes from the host-side `cerberus approvals enroll` (host authentication).
-  enrollBegin: (enrollToken: string, label: string) =>
-    request<EnrollBegin>("approvals/keys/register/begin", "POST", { token: enrollToken, label }),
-  enrollFinish: (body: { ceremony: string; credential: unknown; authorize?: unknown }) =>
-    request<{ fingerprint: string }>("approvals/keys/register/finish", "POST", body),
-  removeKeyBegin: (fingerprint: string) =>
-    request<PasskeyCeremony>("approvals/keys/remove/begin", "POST", { fingerprint }),
-  removeKeyFinish: (body: { ceremony: string; credential: unknown }) =>
-    request<PasskeyStatus>("approvals/keys/remove/finish", "POST", body),
 }
