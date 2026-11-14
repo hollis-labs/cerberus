@@ -16,7 +16,7 @@ with each slice and states only what the branch does now.
 | UI | app-shell plus BOM-pinned kits; app nav and surfaces in `ui/app.json` (slice 11). |
 | Database | **SQLite only.** A `database.driver` other than `sqlite` is refused at start. |
 
-## Layout (slice 1)
+## Layout (slices 1 and 2)
 
 | Path | What |
 |---|---|
@@ -27,6 +27,8 @@ with each slice and states only what the branch does now.
 | `cmd/cerberus/serve.go` | `serve`: loopback check, `httphost.Handler`, `httphost.Serve`; drains on signal. |
 | `internal/settings` | Decodes the `cerberus:` block; refuses unknown keys and bad values, naming the key. |
 | `internal/datadir` | Resolves the data directory and refuses the old build's state (`RefuseLegacy`). |
+| `internal/storage` | The schema: one embedded goose migration (`migrations/sqlite/00001_schema.sql`), registered with `database.UseMigrationFS` in `main.go`, plus typed functions for pause state, applied digests and credential-issuance receipts. |
+| `internal/registry` | Descriptor discovery and validation, carried; `ForRoot(adopt_root)` is the Substrate build's entry point (see Registry). |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
 (plan section 4.2). The old `cmd/cerberus` entry and its CLI are removed from this branch; they stay readable on
@@ -64,6 +66,37 @@ then `RefuseOldSchema`. An existing file is opened `mode=ro&immutable=1`: no loc
 no `-wal` or `-shm` created or removed. It is refused if it has a `schema_migrations` table (the old store's; goose
 never creates one), or if it cannot be read that way.
 
+## Database
+
+SQLite only, opened by the `database` module (`database.From(app)`, libs `core/store`). The schema is one goose
+migration until the first release; after that, changes go in new numbered files. The module migrates under its open
+lock, so a start on an empty data directory creates the schema and a second start is a no-op (tested in
+`internal/storage` and with the real binary in `cmd/cerberus`).
+
+| Table | From the old build | Notes |
+|---|---|---|
+| `host_samples`, `host_status`, `host_sample_rollups`, `host_rollup_state`, `host_events` | `main.db`, same columns (migrations 006 to 008) | A test compares every column with the old migrations (frozen in `internal/storage/testdata/old`). The old `internal/hosts` store runs on them unchanged. |
+| `pause_state` | the files `paused` and `paused.<id>` | `target` is a resource id or `*`; a row means paused. |
+| `applied_definitions` | `runtime/applied.json` | Digests only, never definitions. |
+| `credential_issuance_receipts` | `credential-issuance/<id>/<state>.json` | One row per issuance and state, written once; `refs` holds `file://` references, never values; `at` keeps RFC 3339 nanoseconds. |
+
+Not carried: the old `projects` and `resources` tables (empty; definitions live in the descriptors) and
+`schema_migrations`. The scheduling tables arrive with the scheduling slice. Reads go through `Reader()`, writes
+through `WriteTx`, and nothing writes while a cursor is open (guide section 4).
+
+## Registry
+
+`registry.ForRoot(adopt_root)`: the index is `<adopt_root>/registry.yaml`, read and written in place in the old
+format (`version: 1`, pointer entries), because tether sysop reads that file directly. Descriptors stay in their
+owning repos and keep the `cerberus-project/v1` schema unchanged; validation messages are the old ones (`port is 0;
+omit the port field ...`). The only retired directory refused is `<adopt_root>/projects`; `ForRoot` reads no home
+directory and no global `config.yaml`. The home-based constructors (`Default`, `ForConfig`, `IndexPathFor`) stay for
+the carried callers until their slices port them.
+
+While the old and new builds both run, both may write the same index. Each write is an atomic rename, but two
+registers at the same moment can lose one of them (read, modify, write). Register from one build at a time during
+the transition.
+
 ## Configuration
 
 Defaults are in the manifest. The operator overrides any key in the YAML file named by `SUBSTRATE_CONFIG`
@@ -75,6 +108,7 @@ Defaults are in the manifest. The operator overrides any key in the YAML file na
 | `database.sqlite.path` | `cerberus.db` (under the data directory) | The database. |
 | `logging.level`, `logging.format` | `info`, `text` | Logging module. |
 | `cerberus.install_root` | `~/.cerberus/apps` | Artifact installs and resource logs, adopted in place (plan section 3). Absolute or `~/`-prefixed. |
+| `cerberus.adopt_root` | `~/.cerberus` | Files kept in place in the old format because other programs read them: the registry index `registry.yaml` (tether sysop reads it). Absolute or `~/`-prefixed. |
 
 ## Shutdown
 

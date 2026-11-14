@@ -13,7 +13,7 @@ import (
 
 const (
 	substrateApp        = "cerberus"
-	substrateConfigJSON = "{\"cerberus\":{\"install_root\":\"~/.cerberus/apps\"},\"database\":{\"sqlite\":{\"path\":\"cerberus.db\"}},\"httphost\":{\"addr\":\"127.0.0.1:4786\"},\"logging\":{\"format\":\"text\",\"level\":\"info\"}}"
+	substrateConfigJSON = "{\"cerberus\":{\"adopt_root\":\"~/.cerberus\",\"install_root\":\"~/.cerberus/apps\"},\"database\":{\"sqlite\":{\"path\":\"cerberus.db\"}},\"httphost\":{\"addr\":\"127.0.0.1:4786\"},\"logging\":{\"format\":\"text\",\"level\":\"info\"}}"
 )
 
 // substrateModules is the start order.

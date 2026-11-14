@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 // binary is the real cerberus binary, built once for the tests that run it as a process.
@@ -275,5 +278,60 @@ func TestServeRefusesBadConfig(t *testing.T) {
 				t.Fatalf("exit %d, want 1 naming %q:\n%s", code, c.want, out)
 			}
 		})
+	}
+}
+
+// stopServe sends SIGTERM and waits for a clean exit.
+func stopServe(t *testing.T, cmd *exec.Cmd, log fmt.Stringer) {
+	t.Helper()
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("exit after SIGTERM: %v\n%s", err, log)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatalf("cerberus did not exit within 20s of SIGTERM:\n%s", log)
+	}
+}
+
+// schemaOf lists the database's tables and the goose rows, read-only.
+func schemaOf(t *testing.T, path string) (tables string, versions int) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.QueryRow(`SELECT group_concat(name, ',') FROM (SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name)`).Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM goose_db_version`).Scan(&versions); err != nil {
+		t.Fatal(err)
+	}
+	return tables, versions
+}
+
+func TestServeMigratesTheSchemaOnceAcrossRestarts(t *testing.T) {
+	s := newSandbox(t, "")
+	dbPath := filepath.Join(s.data, "cerberus.db")
+
+	cmd, _, log := start(t, s)
+	stopServe(t, cmd, log)
+	tables, versions := schemaOf(t, dbPath)
+	for _, want := range []string{"host_samples", "host_events", "pause_state", "applied_definitions", "credential_issuance_receipts"} {
+		if !strings.Contains(","+tables+",", ","+want+",") {
+			t.Fatalf("after the first start the database lacks %s: %s", want, tables)
+		}
+	}
+
+	cmd, _, log = start(t, s)
+	stopServe(t, cmd, log)
+	if t2, v2 := schemaOf(t, dbPath); t2 != tables || v2 != versions {
+		t.Fatalf("second start changed the schema: %s (%d goose rows), was %s (%d)", t2, v2, tables, versions)
 	}
 }

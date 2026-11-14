@@ -13,10 +13,6 @@ import (
 // Both the registered path and its symlink target are checked: a pointer in
 // Cerberus state is not repo-owned merely because its content lives elsewhere.
 func ValidateConfigLocation(path, indexPath string) error {
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -28,6 +24,19 @@ func ValidateConfigLocation(path, indexPath string) error {
 			return err
 		}
 		roots = append(roots, filepath.Join(stateDir, "projects"))
+	}
+	return validateLocation(path, roots)
+}
+
+// RetiredRootIn is the retired central project-config directory under an adopt root: the
+// one root a registry built with ForRoot refuses. It reads no home directory.
+func RetiredRootIn(adoptRoot string) string { return filepath.Join(adoptRoot, "projects") }
+
+// validateLocation refuses path when it, or its symlink target, is inside one of roots.
+func validateLocation(path string, roots []string) error {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return err
 	}
 	candidates := []string{absolute}
 	if canonical, err := filepath.EvalSymlinks(absolute); err == nil {
