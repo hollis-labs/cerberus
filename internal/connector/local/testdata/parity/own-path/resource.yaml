@@ -1,0 +1,13 @@
+id: tool-own-path
+type: process
+project: tool
+connector: local
+config:
+  mode: os_service
+  supervisor: systemd_user
+  run_from: workspace
+  dir: /u/op/.local/share/tool
+  command: ["/u/op/.local/bin/tool", "serve"]
+  env:
+    PATH: /opt/tool/bin:/usr/bin:/bin
+    TOOL_MODE: prod

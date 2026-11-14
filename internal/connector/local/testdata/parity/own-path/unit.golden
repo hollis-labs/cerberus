@@ -1,0 +1,19 @@
+# unit: com.hollis-labs.cerberus.tool.tool-own-path.service
+# Written by Cerberus for resource tool-own-path; `cerberus resource apply` overwrites edits.
+[Unit]
+Description=Cerberus resource tool-own-path
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/u/op/.local/share/tool
+ExecStart="/u/op/.local/bin/tool" "serve"
+Restart=always
+RestartSec=5
+StandardOutput=append:/u/op/.cerberus/apps/tool/tool-own-path/logs/stdout.log
+StandardError=append:/u/op/.cerberus/apps/tool/tool-own-path/logs/stderr.log
+Environment="PATH=/opt/tool/bin:/usr/bin:/bin"
+Environment="TOOL_MODE=prod"
+
+[Install]
+WantedBy=default.target
