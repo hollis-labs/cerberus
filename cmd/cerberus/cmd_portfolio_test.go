@@ -46,7 +46,7 @@ func TestPortfolioHealthCLIAndMCPTool(t *testing.T) {
 		cerbapi.WithInProcessAudit(sink),
 		cerbapi.WithResourceRuntimeService(runtimeSvc),
 		cerbapi.WithPortfolioHealthOptions(cerbapi.PortfolioHealthOptions{
-			ControllerID:     "agent-os",
+			ControllerID:     "controller-1",
 			ProviderInstance: "cerberus-local",
 		}),
 	)

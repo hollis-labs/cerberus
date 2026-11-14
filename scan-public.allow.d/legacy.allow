@@ -1,0 +1,120 @@
+# Legacy findings in the working tree on main (CW-20261114-0119, triaged 2026-11-14).
+# One line per rule and file. Each value was read and judged a fixture or an example:
+# no line covers a real host name, address or credential. Real ones were fixed instead
+# (the operator host's name in code and tests, a real fleet address in a test).
+# Lines are RULE-ID PATH-GLOB REASON; allowlisted findings are still printed by the scan.
+
+internal-ip README.md documentation example address; not a real host (checked against the live host inventory)
+home-path-macos cmd/cerberus/cmd_docker_resource_test.go test fixture home path (a made-up user directory); not a real user
+home-path-linux cmd/cerberus/cmd_install_systemd_test.go test fixture home path (a made-up user directory); not a real user
+home-path-macos cmd/cerberus/cmd_install_test.go test fixture home path (a made-up user directory); not a real user
+internal-ip cmd/cerberus/cmd_mcp_http_tls_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+secret-assignment cmd/cerberus/cmd_mcp_http_token_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key cmd/cerberus/cmd_transport_scope_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment cmd/cerberus/cmd_transport_scope_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-linux cmd/cerberus/mcp_http_accounts_test.go test fixture home path (a made-up user directory); not a real user
+internal-ip cmd/cerberus/posture_listen_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+credentials-in-url docs/catalog/catalog.json documentation text naming the shape of a URL with user and password; no credential
+internal-ip docs/hosts.md documentation example address; not a real host (checked against the live host inventory)
+home-path-linux docs/plans/connector-work-packages.md documentation example home path; not a real user
+home-path-linux docs/plans/infra-admin-control-plane.md documentation example home path; not a real user
+credentials-in-url docs/plugins.md documentation text naming the shape of a URL with user and password; no credential
+home-path-linux docs/plugins.md documentation example home path; not a real user
+home-path-macos internal/app/connector_secrets_test.go test fixture home path (a made-up user directory); not a real user
+generic-api-key internal/audit/sink_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/audit/sink_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+curl-auth-header internal/cerbapi/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/cerbapi/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+github-pat internal/cerbapi/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+github-token internal/cerbapi/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/cerbapi/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/cerbapi/begin_request_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/cerbapi/config_warnings_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/cerbapi/connector_payload_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/cerbapi/console_credentials_test.go test fixture home path (a made-up user directory); not a real user
+secret-assignment internal/cerbapi/console_writes_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+internal-ip internal/cerbapi/docker_target_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+generic-api-key internal/cerbapi/guidance_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/cerbapi/host_service_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+internal-ip internal/cerbapi/host_service_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+secret-assignment internal/cerbapi/host_service_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+github-token internal/cerbapi/host_write_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/cerbapi/inprocess_state_test.go test fixture home path (a made-up user directory); not a real user
+home-path-macos internal/cerbapi/operation_contract_test.go test fixture home path (a made-up user directory); not a real user
+secret-assignment internal/cerbapi/redaction_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/cerbapi/render_scope_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+github-token internal/cerbapi/secret_backend_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/cerbapi/ssh_target_test.go test fixture home path (a made-up user directory); not a real user
+generic-api-key internal/cerbapi/type_check_sweep_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/cerbapi/type_check_sweep_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+credentials-in-url internal/config/web_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/connector/docker/target_test.go test fixture home path (a made-up user directory); not a real user
+internal-ip internal/connector/docker/target_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+secret-assignment internal/connector/local/build_log_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/connector/local/config_warnings_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/connector/local/install_layout_test.go test fixture home path (a made-up user directory); not a real user
+home-path-macos internal/connector/local/launchd_test.go test fixture home path (a made-up user directory); not a real user
+secret-assignment internal/connector/local/launchd_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-linux internal/connector/local/mapper_test.go test fixture home path (a made-up user directory); not a real user
+secret-assignment internal/connector/local/secret_plist_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/connector/local/spec_test.go test fixture home path (a made-up user directory); not a real user
+home-path-linux internal/connector/local/systemd_test.go test fixture home path (a made-up user directory); not a real user
+secret-assignment internal/connector/local/systemd_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/daemon/procident_test.go test fixture home path (a made-up user directory); not a real user
+github-token internal/hosts/edit_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+internal-ip internal/hosts/hosts_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+stripe-key internal/hosts/hosts_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+internal-ip internal/hosts/validate.go the CGNAT range (RFC 6598) as a code constant (tailnet address validation), not a host
+home-path-linux internal/hygiene/denylist_test.go test fixture home path (a made-up user directory); not a real user
+home-path-macos internal/hygiene/denylist_test.go test fixture home path (a made-up user directory); not a real user
+home-path-linux internal/launchenv/launchenv_test.go test fixture home path (a made-up user directory); not a real user
+internal-ip internal/loopback/loopback_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+generic-api-key internal/mcp/budget_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/mcp/budget_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/mcp/request_scope_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/mcp/request_scope_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/pluginhost/scope_fold_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/pluginhost/scope_fold_test.go test fixture home path (a made-up user directory); not a real user
+secret-assignment internal/pluginhost/scope_fold_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/pluginhost/secrets_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/pluginhost/subprocess_transport_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/pluginhost/value_redaction_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-linux internal/procscan/resolve_test.go test fixture home path (a made-up user directory); not a real user
+generic-api-key internal/redact/guidance_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/redact/handler_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/redact/names_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+github-pat internal/redact/names_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+github-token internal/redact/names_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/redact/names_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+aws-access-key internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+bearer-token internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+credentials-in-url internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+curl-auth-header internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+github-token internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+private-key internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+slack-token internal/redact/redact_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+generic-api-key internal/redact/scope_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+private-key internal/scheduling/delivery_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/secretref/secretref_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+credentials-in-url internal/secretref/vault_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/secretref/vault_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/secrets/registering_test.go test fixture home path (a made-up user directory); not a real user
+bearer-token internal/service/lifecycle_log_default_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+internal-ip internal/store/sqlite/store_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+generic-api-key internal/webui/begin_request_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/webui/begin_request_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/webui/console_writes_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/webui/plugin_secret_reload_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+secret-assignment internal/webui/redaction_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+home-path-macos internal/webui/ssh_target_test.go test fixture home path (a made-up user directory); not a real user
+internal-ip internal/webui/ssh_target_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+internal-ip pkg/outpost/protocol.go the CGNAT range (RFC 6598) as a code constant (tailnet address validation), not a host
+credentials-in-url pkg/outpost/review_security_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
+internal-ip pkg/outpost/review_security_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
+credentials-in-url pkg/plugin/secret_backend.go code comment naming the shape of a URL with user and password; no credential
+
+# Live code on main: these two lines leave with #81 (which removes the name), then delete them.
+agent-box-host internal/cerbapi/portfolio_health.go removed in #81 (live code, held for the director's approval)
+agent-box-host internal/registry/resolve.go removed in #81 (a code comment, held with it)
