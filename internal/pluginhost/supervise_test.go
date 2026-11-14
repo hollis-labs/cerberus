@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/testhome"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -32,7 +33,7 @@ func TestMain(m *testing.M) {
 		fakePluginMain(mode)
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	testhome.Main(m) // the tests themselves run under a scratch home (internal/testhome)
 }
 
 func fakePluginMain(mode string) {
