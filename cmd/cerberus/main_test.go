@@ -282,6 +282,9 @@ func TestServeRefusesBadConfig(t *testing.T) {
 		"unknown key":   {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { install_rot: /x }\n", "unknown config key(s): install_rot"},
 		"relative root": {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { install_root: apps }\n", "cerberus.install_root"},
 		"postgres":      {"httphost: { addr: \"127.0.0.1:0\" }\ndatabase: { driver: postgres }\n", "SQLite only"},
+		"bad mode":      {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: chaos }\n", "cerberus.mode must be observe or supervise"},
+		"supervise":     {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n", "slice 5"},
+		"unknown self":  {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { self_resource_id: ghost }\n", "lists no such resource"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			code, out := runToExit(t, newSandbox(t, c.override), "serve")
@@ -346,5 +349,61 @@ func TestServeMigratesTheSchemaOnceAcrossRestarts(t *testing.T) {
 	stopServe(t, cmd, log)
 	if t2, v2 := schemaOf(t, dbPath); t2 != tables || v2 != versions {
 		t.Fatalf("second start changed the schema: %s (%d goose rows), was %s (%d)", t2, v2, tables, versions)
+	}
+}
+
+// Observe mode, started over a populated old state tree, writes nothing in it: the registry,
+// a descriptor it lists, a stale dev session pid file and the unit directory are as they
+// were after a serve and a SIGTERM.
+func TestServeInObserveModeWritesNothingInTheAdoptedTree(t *testing.T) {
+	s := newSandbox(t, "")
+	state := filepath.Join(s.home, ".cerberus")
+	desc := filepath.Join(s.home, "apps", "demo.cerberus.yaml")
+	for _, d := range []string{filepath.Join(state, "pids"), filepath.Dir(desc), filepath.Join(s.home, ".config", "systemd", "user")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		desc: "kind: cerberus-project/v1\nowner: demo\nnamespace: local\nproject:\n  id: demo\n  name: Demo\nresources:\n" +
+			"  - id: demo-dev\n    type: process\n    project: demo\n    connector: local\n    env: dev\n    owner: self\n    admin: self\n    config:\n      mode: dev_session\n      command: [\"/bin/sleep\", \"60\"]\n",
+		filepath.Join(state, "registry.yaml"):                            "version: 1\nentries:\n  - owner: demo\n    namespace: local\n    path: " + desc + "\n    kind: cerberus-project/v1\n",
+		filepath.Join(state, "pids", "demo-dev.pid"):                     "999999\n",
+		filepath.Join(s.home, ".config", "systemd", "user", "x.service"): "[Unit]\n",
+	}
+	for p, content := range files {
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snap := func() map[string]string {
+		out := map[string]string{}
+		for _, root := range []string{state, filepath.Join(s.home, "apps"), filepath.Join(s.home, ".config")} {
+			_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+				if err == nil {
+					b, _ := os.ReadFile(p) //nolint:gosec // the sandbox's own tree
+					out[p] = fmt.Sprintf("%v %d %d %x", info.Mode(), info.Size(), info.ModTime().UnixNano(), b)
+				}
+				return nil
+			})
+		}
+		return out
+	}
+	before := snap()
+	cmd, _, log := start(t, s)
+	if !strings.Contains(log.String(), "cerberus supervision") || !strings.Contains(log.String(), "mode=observe") || !strings.Contains(log.String(), "resources=1") {
+		t.Fatalf("the supervision lane did not start in observe mode over the registry:\n%s", log)
+	}
+	stopServe(t, cmd, log)
+	after := snap()
+	for k, v := range before {
+		if after[k] != v {
+			t.Errorf("changed: %s", k)
+		}
+	}
+	for k := range after {
+		if _, ok := before[k]; !ok {
+			t.Errorf("added: %s", k)
+		}
 	}
 }

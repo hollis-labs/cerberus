@@ -1,0 +1,17 @@
+id: widget-uat
+type: process
+project: widget
+connector: local
+config:
+  mode: os_service
+  supervisor: systemd_user
+  run_from: artifact
+  dir: /u/op/src/widget
+  command: ["./widget", "serve"]
+  build_strategy:
+    kind: go_standard
+    source:
+      root: .
+    rules:
+      output: widget
+      target: ./cmd/widget

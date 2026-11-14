@@ -1,0 +1,13 @@
+id: notes-agent-os
+type: process
+project: notes
+connector: local
+config:
+  mode: os_service
+  supervisor: systemd_user
+  service_name: notes
+  run_from: workspace
+  dir: /u/op/.local/share/notes
+  command: ["/u/op/.local/bin/notes"]
+  env:
+    SUBSTRATE_CONFIG: /u/op/.config/notes/substrate.yaml

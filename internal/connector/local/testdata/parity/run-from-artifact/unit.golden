@@ -1,0 +1,18 @@
+# unit: com.hollis-labs.cerberus.widget.widget-uat.service
+# Written by Cerberus for resource widget-uat; `cerberus resource apply` overwrites edits.
+[Unit]
+Description=Cerberus resource widget-uat
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/u/op/src/widget
+ExecStart="/u/op/.cerberus/apps/widget/widget-uat/bin/widget-uat" "serve"
+Restart=always
+RestartSec=5
+StandardOutput=append:/u/op/.cerberus/apps/widget/widget-uat/logs/stdout.log
+StandardError=append:/u/op/.cerberus/apps/widget/widget-uat/logs/stderr.log
+Environment="PATH=/u/op/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
+[Install]
+WantedBy=default.target

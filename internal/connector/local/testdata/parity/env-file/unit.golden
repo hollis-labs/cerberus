@@ -1,0 +1,21 @@
+# unit: com.hollis-labs.cerberus.ledger.ledger.service
+# Written by Cerberus for resource ledger; `cerberus resource apply` overwrites edits.
+[Unit]
+Description=Cerberus resource ledger
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/u/op/src/ledger
+ExecStart="/u/op/src/ledger/ledger" "serve"
+Restart=always
+RestartSec=5
+StandardOutput=append:/u/op/.cerberus/apps/ledger/ledger/logs/stdout.log
+StandardError=append:/u/op/.cerberus/apps/ledger/ledger/logs/stderr.log
+# env_file sha256: missing
+EnvironmentFile=-/u/op/src/ledger/config/ledger.env
+Environment="LEDGER_ADDR=127.0.0.1:9200"
+Environment="PATH=/u/op/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
+[Install]
+WantedBy=default.target

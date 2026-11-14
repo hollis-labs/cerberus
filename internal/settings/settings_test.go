@@ -60,3 +60,23 @@ func TestRefusalsNameTheKey(t *testing.T) {
 		}
 	}
 }
+
+func TestModeAndSelf(t *testing.T) {
+	s, err := Parse(nil, "/u/op")
+	if err != nil || s.Mode != ModeObserve || s.SelfResourceID != "" {
+		t.Fatalf("defaults: %+v %v", s, err)
+	}
+	s, err = Parse(map[string]any{"mode": "supervise", "self_resource_id": " cerberus-substrate "}, "/u/op")
+	if err != nil || s.Mode != ModeSupervise || s.SelfResourceID != "cerberus-substrate" {
+		t.Fatalf("set: %+v %v", s, err)
+	}
+	for raw, want := range map[string]string{"chaos": "cerberus.mode must be observe or supervise", "": ""} {
+		_, err := Parse(map[string]any{"mode": raw}, "/u/op")
+		if (want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), want)) {
+			t.Fatalf("mode %q: %v", raw, err)
+		}
+	}
+	if _, err := Parse(map[string]any{"self_resource_id": 3.0}, "/u/op"); err == nil || !strings.Contains(err.Error(), "cerberus.self_resource_id must be a string") {
+		t.Fatalf("non-string self: %v", err)
+	}
+}

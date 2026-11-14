@@ -77,6 +77,10 @@ func ForConfig(globalPath string) (*Registry, error) {
 	return &Registry{indexPath: path, globalPath: globalPath}, nil
 }
 
+// Resolve reads the index and every descriptor it lists, fresh, and returns the merged
+// configuration. It writes nothing.
+func (r *Registry) Resolve() (*ResolvedConfig, error) { return Resolve(r.options()) }
+
 // IndexPath returns the index file this registry reads and writes.
 func (r *Registry) IndexPath() string { return r.indexPath }
 

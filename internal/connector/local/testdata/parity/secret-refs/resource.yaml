@@ -1,0 +1,13 @@
+id: gateway
+type: process
+project: gateway
+connector: local
+config:
+  mode: os_service
+  supervisor: systemd_user
+  run_from: workspace
+  dir: /u/op/src/gateway
+  command: ["/u/op/src/gateway/gateway"]
+  env:
+    GATEWAY_TOKEN: keychain://gateway/token
+    GATEWAY_ADDR: 127.0.0.1:9300

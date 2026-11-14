@@ -1,0 +1,20 @@
+# unit: com.hollis-labs.cerberus.gateway.gateway.service
+# Written by Cerberus for resource gateway; `cerberus resource apply` overwrites edits.
+[Unit]
+Description=Cerberus resource gateway
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/u/op/src/gateway
+ExecStart="/u/op/.local/bin/cerberus" "run-secrets" "--" "/u/op/src/gateway/gateway"
+Restart=always
+RestartSec=5
+StandardOutput=append:/u/op/.cerberus/apps/gateway/gateway/logs/stdout.log
+StandardError=append:/u/op/.cerberus/apps/gateway/gateway/logs/stderr.log
+Environment="GATEWAY_ADDR=127.0.0.1:9300"
+Environment="GATEWAY_TOKEN=keychain://gateway/token"
+Environment="PATH=/u/op/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
+[Install]
+WantedBy=default.target

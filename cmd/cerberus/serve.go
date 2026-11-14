@@ -4,14 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hollis-labs/substrate/module"
 	"github.com/hollis-labs/substrate/modules/database"
 	"github.com/hollis-labs/substrate/modules/httphost"
+
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/settings"
+	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
 // cerberus is what the commands share: the started framework app. ready, when set, learns
@@ -19,6 +26,9 @@ import (
 type cerberus struct {
 	app   *module.App
 	ready func(net.Addr)
+	// lane is the supervision lane, in observe mode until slice 5. Its routes arrive with
+	// slice 4.
+	lane *supervise.Service
 }
 
 func (c *cerberus) serveCmd(ctx context.Context) *cobra.Command {
@@ -43,6 +53,11 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if database.From(app) == nil {
 		return errors.New("the database module must be started")
 	}
+	lane, err := startSupervision(app)
+	if err != nil {
+		return err
+	}
+	c.lane = lane
 	handler, err := httphost.Handler(app, httphost.Options{})
 	if err != nil {
 		return err
@@ -75,4 +90,55 @@ func requireLoopback(app *module.App) error {
 		}
 	}
 	return fmt.Errorf("cerberus requires a loopback httphost.addr (for example 127.0.0.1:4786), got %q", addr)
+}
+
+// startSupervision builds the supervision lane over the descriptors the registry lists
+// (<adopt_root>/registry.yaml) and checks the process's own identity: when
+// cerberus.self_resource_id is set, the systemd unit the process runs in must be the unit
+// that resource installs as. Observe mode writes nothing.
+func startSupervision(app *module.App) (*supervise.Service, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := settings.Parse(app.Config[settings.Key], home)
+	if err != nil {
+		return nil, err
+	}
+	reg := registry.ForRoot(cfg.AdoptRoot)
+	resources := func() ([]config.ResourceDef, error) {
+		resolved, resolveErr := reg.Resolve()
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		return resolved.Config.Resources, nil
+	}
+	lane, err := supervise.New(supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: cfg.AdoptRoot, SelfID: cfg.SelfResourceID})
+	if err != nil {
+		return nil, err
+	}
+	list, err := resources()
+	if err != nil {
+		return nil, fmt.Errorf("read the registry at %s: %w", reg.IndexPath(), err)
+	}
+	var check supervise.SelfCheck
+	if cfg.SelfResourceID != "" {
+		cgroup, openErr := supervise.OpenCgroup()
+		if openErr != nil {
+			return nil, openErr
+		}
+		var r io.Reader
+		if cgroup != nil {
+			defer func() { _ = cgroup.Close() }()
+			r = cgroup
+		}
+		if check, err = supervise.CheckSelf(r, cfg.SelfResourceID, list, home); err != nil {
+			return nil, err
+		}
+		if check.Unit == "" {
+			slog.Warn("cerberus is not running in a systemd unit, so its identity is not checked", "self_resource_id", cfg.SelfResourceID, "expected_unit", check.Expected)
+		}
+	}
+	slog.Info("cerberus supervision", "mode", lane.Mode(), "resources", len(list), "registry", reg.IndexPath(), "self", cfg.SelfResourceID, "unit", check.Unit)
+	return lane, nil
 }
