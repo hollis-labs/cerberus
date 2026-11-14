@@ -33,60 +33,39 @@ has four parts:
 | Identity | Cerberus's own (`identity` module), with the owner created offline. Machine callers hold API keys with scopes. |
 | Routes | Every `/api/` route has a scope (section 4.3). The outpost device protocol authenticates its own callers and is an open mount that says so in code. |
 | Background work | Resource monitor, host monitor and janitor, approval-expiry sweeper, overview snapshot recorder, plugin supervision, MCP plugin tool sync, event export (off live). App code owns them; the stop order is in section 4.4. The scheduling core is wired but has never been started; it is ported and stays off until it is turned on separately. |
-| UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in, sign-out, session-expired, keys and sessions use **kit-identity** (in the BOM). Only the passkey ceremony is app UI. |
-| Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. `libs/mesh/eventbus` is being added to the BOM. `libs/security/webauthn` is pinned only if decision 0.1 keeps passkey approvals. |
+| UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in, sign-out, session-expired, keys and sessions use **kit-identity** (in the BOM). The approval page is app UI. |
+| Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. `libs/mesh/eventbus` is pinned (substrate 035e0d33). `libs/security/webauthn` is not needed (decision 0.1). |
 | Where the port lives | **This repository, long-lived branch `substrate-port`** (from `main` at `493a9f0`). Port PRs target it. Merges go through @substrate-manager. `main` stays the live app's source until phase F (section 10). |
 | Live-app change needed | **Yes, one: the standby mode on `main` (section 7.1).** The director approves it with this plan. |
-| Owner decision | **Keep passkey approvals (0.1)?** Recommended: keep. |
+| Owner decision | **0.1: passkey approvals are dropped for the port** (decided by Chrispian, 2026-11-14). |
 | Changes in other apps | **Two socket clients must move to the new API before the handoff** (section 6). Their owners and scheduling are the director's. |
 
-### 0.1 Decision for the owner: keep passkey approvals?
+### 0.1 Decision: passkey approvals are dropped for the port
 
-The adoption guide (section 5, item 8) says strict-mode proofs, passkeys and signed approvals included, are not part
-of a port: they are dropped and recorded as a follow-up. Tachyon dropped its WebAuthn route under that rule. Keeping
-them in Cerberus is an exception, which the owner grants through the director. @substrate-manager pins
-`libs/security/webauthn` the same day if it is granted.
+**Decided by Chrispian, 2026-11-14, through @archie: take the simplest path. Adoption is the priority, and passkeys
+can be improved per app afterwards.** This follows the adoption guide (section 5, item 8: strict-mode proofs are
+not part of a port), as Tachyon did.
 
-- **Who uses it today.** The owner, alone, approves gated admin-lane operations (destructive or high-effect
-  connector writes) out of band with a passkey. The approvals log has a few dozen entries since September (the
-  live-facts item has the count). Agents request approvals; they cannot give them.
-- **What it protects against.** Agents run as the owner's OS user on the same host. A passkey assertion needs user
-  presence on an authenticator, which no process of that user can produce. That is why `cerberus.approve` is
-  unreachable from any key or local-trust MCP process.
-- **If dropped**, the owner approves from a signed-in identity session in the console, as in Tangent and Tachyon:
-  - approval stays human and bound to the plan hash;
-  - the console session's password is the only factor, and a same-user agent that ever learns it, or holds a
-    browser session, could approve;
-  - the passkey files and the approvals chain are still migrated and kept (data is not dropped), but no longer
-    verified;
-  - slices 6 and 11c get smaller; the presence and cool-down code is not ported.
-- **The cost of keeping it:**
-  - one BOM pin;
-  - `internal/presence` ported as app code (registry, counters, cool-down, the ceremony) in slices 6 and 11c;
-  - the allowed-origins config and the RP-ID rehearsal assertion;
-  - Cerberus carries a strict-mode path alone until Substrate has one, and that is recorded as a Substrate
-    follow-up.
-- **Recommendation: keep.** Cerberus is the one app whose approvals gate writes to live infrastructure, and the
-  same-user-agent threat is exactly what the passkey closes.
-
-Until it is decided, the skeleton builds without `internal/presence`, and slice 11c waits.
+- **Approvals stay human and bound to the plan hash.** The owner approves a gated operation from a signed-in
+  identity session in the console (kit-identity sign-in). `cerberus.approve` is held only by the owner's console
+  session; no API key and no local-trust MCP process can hold it.
+- **What is weaker than today:** the console password is the only factor. A same-user agent that learned it, or
+  that held a browser session, could approve. A per-app passkey (or Substrate strict-mode) path is a follow-up, filed
+  with @substrate-manager.
+- **Data:** the passkey registry (`approvals/passkeys/`) is **kept in place, not migrated, and unused**. The approvals
+  chain (`approvals/events.jsonl`) is still migrated, because it is approval history.
+- **Code:** `internal/presence`, the WebAuthn ceremony and the cool-down are not ported. No webauthn BOM pin.
 
 ## 1. What changes for the owner
 
 - **One password, typed once**, at the offline `cerberus identity setup` in the window.
 - **The CLI uses an API key.** It calls the loopback HTTP API with a key read from a 0600 file instead of the unix
   socket. The verbs, flags and output that skills and agents use stay the same.
-- **Approvals: passkey-bound if decision 0.1 keeps them** (the recommendation). The passkey registry is then carried
-  byte for byte with the audit chain that records its hash, so no 24-hour cool-down starts. Either way, no API key and
-  no local-trust MCP process can hold `cerberus.approve`.
+- **Approvals come from the owner's console session** (decision 0.1): no passkey. No API key and no local-trust MCP
+  process can hold `cerberus.approve`.
 - **The console moves to `127.0.0.1:4786`.** The old console's default is 4783, and the old build's `mcp-http`
-  default is 4785, so both are avoided. **A passkey is bound to the hostname of the origin it was enrolled on (its RP
-  ID)**. The enrolled passkey is bound to the console's **public** hostname, so an approval only verifies through
-  that origin. The hostname must not change: the proxy keeps serving the console under the same public hostname and
-  is repointed to 4786 in the window, **before** the approval check (9.5). `cerberus.passkeys.allowed_origins` is
-  migrated from `web.public_url`, plus `http://localhost:4786` for keys enrolled later. Today the origins are derived
-  from the old login-key file. The rehearsal compares each stored credential's `rpIdHash` with
-  `sha256(host of an allowed origin)` and fails if any key matches none.
+  default is 4785, so both are avoided. The console keeps its public hostname: the proxy is repointed to 4786 in the
+  window, and the override carries that name in the allowed hosts with `identity.trusted_proxy: true`.
 - **Restarts the owner will see:**
   - `os_service` units (Cerberus-written and native) are never restarted.
   - Plugin processes and running dev sessions live in the daemon's cgroup. They restart at phase B, at the handoff
@@ -113,7 +92,7 @@ internal/supervise/      monitor, mode (observe|supervise), pause state, self id
 internal/connector/      local (systemd, launchd, artifact, dev session), ssh, docker
 internal/registry/       descriptors (cerberus-project/v1, unchanged), registry index
 internal/admin/          external connector service: dry-run, ack, redaction, generated tools
-internal/approval/, presence/, audit/, policy/, egress/, redact/, brake/
+internal/approval/, audit/, policy/, egress/, redact/, brake/
 internal/hosts/, scheduling/, outpost/, eventexport/, credentialbroker/, pluginhost/
 internal/api/            HTTP handlers; every route has a scope; the legacy-route set (section 6)
 internal/mcp/            typed tools; names unchanged
@@ -126,7 +105,6 @@ web/, ui/app.json        the console on app-shell
 - **The data dir** `~/.local/share/cerberus-substrate/` (0700) holds what new owns and writes:
   - SQLite (host monitoring, pause state, applied digests, credential-issuance receipts);
   - the hash-chained logs (audit, approvals, host history), kept as JSONL in their current format;
-  - the passkey registry files;
   - state snapshots;
   - the signing key.
 - **The adopted root** `~/.cerberus` (config key `cerberus.adopt_root`) holds what new reads and writes **in place**,
@@ -170,7 +148,7 @@ those first and tells @substrate-manager where Cerberus's plugin contract confli
 ### 4.2 Stays app code (moved, tests ported)
 
 The supervision lane, the local connector, the unit renderer, the ssh and docker connectors, the admin lane,
-registry, approvals and presence, audit, policy, egress, brakes, hosts and probes, scheduling core, outpost
+registry, approvals (owner-session approver), audit, policy, egress, brakes, hosts and probes, scheduling core, outpost
 controller, event export, credential broker, plugin host semantics.
 
 Hard requirements carried into the slices:
@@ -193,7 +171,7 @@ Hard requirements carried into the slices:
 | `cerberus.read` | reads |
 | `cerberus.operate` | start, stop, reload, apply, deploy |
 | `cerberus.admin` | connector writes, plugins, hosts, policy |
-| `cerberus.approve` | approving a gated plan: a console session plus a passkey ceremony only |
+| `cerberus.approve` | approving a gated plan: the owner's console identity session only |
 | `cerberus.outpost` | the outpost mount |
 | `public` | `/healthz` |
 
@@ -237,7 +215,7 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 | `audit/*.jsonl` + `audit/.digest_key` (secret, 0600) | **copy** byte for byte into the data dir; new continues the chain from its head in the same format | `audit verify` on the copy before and after; sha256 of the key |
 | keyring `cerberus-audit-anchor` (account = audit dir path) | **transform**: write the same head under the new dir's path; the old entry stays | `audit verify` against both anchors |
 | `approvals/events.jsonl` | **copy** byte for byte; new continues the chain | chain verify; line count |
-| `approvals/passkeys/keys.json`, `key-counters.json` | **copy** byte for byte (no re-serialisation; the registry hash recorded in audit must match, or a 24 h cool-down starts) | sha256 equal; one approval on the rehearsal copy verifies with no cool-down |
+| `approvals/passkeys/keys.json`, `key-counters.json` | **in place, not migrated, unused** (decision 0.1); archived with the old tree at F | listed in the report |
 | `hosts.history.jsonl` (+ rotations), `state/hosts.json`, `state/overview_snapshots.json` | **copy** | sha256 |
 | `runtime/applied.json` | **transform** into SQLite, digest for digest | per-resource digest equal; observe mode reports no resource as changed |
 | `paused`, `paused.<id>` | **transform** into pause state (operator intent) | set equal |
@@ -272,7 +250,7 @@ The standby chain and session list are excluded from the manifest.
 3. Run `migrate-from` three times. Record counts, digests, both chain checks and timing.
 4. Start new in `observe` mode on the copy with a fake supervisor backend. It must list the same resources and pause
    set as the copy, and no "changed" resource.
-5. Verify one approval with a copied passkey and no cool-down.
+5. Approve one gated plan from the owner's identity session on the copy; refused for a key and for local trust.
 6. Run `export-legacy` back onto a second copy, then run the old binary's `audit verify` there.
 7. Run old with the slice 0 build on a third copy: standby entry, the allowed verbs, exit. The main chain, its anchor
    and the manifest-logical state of `main.db` must be unchanged.
@@ -296,7 +274,7 @@ From `inventory-clients.md` (by role). What changes for each:
 | Long-lived `cerberus mcp` stdio children and the Tether gateway's cerberus entries | stdio MCP, `cerberus_*` tool names | Tool names and shapes stay the same. Children started before D8 dial old's socket; in standby, old refuses writes with an error naming the new CLI, and marks reads `standby: true`. **D9 restarts the gateway's entries**; harnesses respawn the rest. The MCP server id stays `cerberus`: renaming it disables the gateway's authority gate for it. |
 | **tachyon** (machine sync, cerbcontrol) | old socket API through its Cerberus address setting: `/health`, `/resources`, `/hosts`, verb POSTs | **Named change, owned by tachyon's team (CW-20261114-0144)**: set its Cerberus address to new's HTTP URL and its token file to a key from D6. New serves the **legacy-route set** (these paths and shapes, under scope) on its HTTP API, so the change is configuration only. It must be ready before D and is applied at D9. |
 | **tether sysop** | old socket at a hard-coded path, `POST /resources/{id}/{action}` | **Named change, owned by @photon-tether (CW-20261114-0145)**: a code change to take a configurable address and token, pointed at new's HTTP API (legacy-route set). It must be merged and deployable before D and is applied at D9. |
-| Browser | console | New port 4786; sign-in through identity; passkeys carried; the proxy entry is repointed in D9 and the public hostname is kept. |
+| Browser | console | New port 4786; sign-in through identity (kit-identity); approvals from the owner's session; the proxy entry is repointed in D9 and the public hostname is kept. |
 | Outposts | outpost protocol, tokens in the adopted root | Unchanged; the open mount verifies its own tokens. |
 | Hadron (`cerberus_op`) and other API or MCP machine callers in the inventory | MCP / API | Each gets an API key with its scopes in D6. |
 | `cerberus-plugins` and third-party plugins | `pkg/plugin`, `plugin.yaml`, capabilities | Unchanged (contract). |
@@ -489,8 +467,8 @@ delete them.
    rewritten, no restart).
 4. One write the owner chooses (pause and resume a non-critical resource). It is recorded in new's audit, and `audit
    verify` passes across the old head into new's records against the new anchor. The old main chain is unchanged.
-5. One approval through the console **at its public hostname** (the proxy already repointed in D9) with the carried
-   passkey: no cool-down.
+5. One approval of a gated plan through the console **at its public hostname** from the owner's session; the same
+   approval attempted with an API key is refused.
 6. `tether_gateway_status` shows the hub's origins connected after the reload. One MCP tool call through the
    restarted gateway entry succeeds; the approve tool is refused under local trust.
 7. tachyon's machine sync and tether sysop's resource action both succeed against new with their keys.
@@ -521,12 +499,12 @@ delete them.
 | 3 | `substrate-port` | Supervision in observe mode: local connector, renderer with byte-parity fixtures (from an env path), status, self identity. |
 | 4 | `substrate-port` | Identity, scopes, read API, the legacy-route set, CLI over HTTP with a key file; scope-coverage test. |
 | 5 | `substrate-port` | Supervise mode: apply, deploy, start, stop, reload, artifacts, pause state, dev sessions, self-guard. |
-| 6 | `substrate-port` | Audit (same format, anchor), approvals and presence (byte-exact registry), policy, redaction, egress, brakes. |
+| 6 | `substrate-port` | Audit (same format, anchor), approvals with the owner-session approver (no presence/WebAuthn), policy, redaction, egress, brakes. |
 | 7 | `substrate-port` | Admin lane: ssh, docker, external connector service, plugin host (`pkg/plugin` unchanged, adopted roots), secrets (keyring names unchanged), credential broker. |
 | 8 | `substrate-port` | Hosts and probes, janitor, scheduling core (off), outpost mount, event export (off), snapshot recorder. |
 | 9 | `substrate-port` | MCP: HTTP and stdio, tool-name parity test, local scopes without approve. |
 | 10 | `substrate-port` | `migrate-from`, `export-legacy`, verify, the standby-sidecar import, and the rehearsal (section 5, all seven steps). |
-| 11a to c | `substrate-port` | Console on app-shell: (a) contract and scaffold, (b) pages, (c) sign-in and the approval ceremony. |
+| 11a and b | `substrate-port` | Console on app-shell: (a) contract and scaffold, (b) pages including the approval page (owner session). Sign-in is kit-identity; there is no ceremony slice. |
 | 12 | `substrate-port` | Deploy: `cerberus-substrate` descriptor, `fleet-install` descriptor, `cutover-runbook.md`. |
 
 Dependencies:
@@ -534,6 +512,7 @@ Dependencies:
 - 2 before 3;
 - 3 and 4 before 5;
 - 4 before 9 and 11b;
+- slice 6 needs no webauthn pin (decision 0.1);
 - 5 to 9 before 10;
 - 0 and 10 before 12.
 
