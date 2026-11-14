@@ -8,6 +8,10 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ## [Unreleased]
 
+### Added
+
+- **Standby mode, the fence for handing Cerberus over to its successor.** While `~/.cerberus/standby` exists (checked at start and every second), the daemon stops its plugins and its loops (resource monitor, host monitor and janitor, approval sweeper, event export, snapshot recorder), stops every running dev session without pausing it, and lists those sessions once in `~/.cerberus/standby.d/sessions.json`. The socket then serves reads, marked with a `Cerberus-Standby` header and `"standby": true` in JSON objects, plus status, apply, stop and reload of the one resource the flag file names. The first line of the file is that resource's id. Everything else is refused, before any handler runs, with guidance naming the new CLI. Those four verbs need `--ack` and are refused for the daemon itself as always, but no policy, approval or brake is consulted. They write neither `paused.<id>` nor `runtime/applied.json`, and are recorded in a separate audit chain, `~/.cerberus/standby.d/audit/`, with its own genesis and digest key. The main chain, its anchor, `approvals/events.jsonl` and `main.db` are not written. Removing the flag starts the listed sessions, the plugins and the loops again, without a restart. `cerberus daemon status` reports `standby: <id>`. A resource's logs (gated and recorded) are refused in standby.
+
 ## [0.5.0-beta.2] - 2026-11-11
 
 The first release since `0.5.0-beta.1` that carries plugin protocol 2: plugins import their SDK from `libs/mcp/plugin-mcp` and no longer from the retired `plugin-sdk` module, so a plugin can pin this version in its `go.mod` without a `replace`.

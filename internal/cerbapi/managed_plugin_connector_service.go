@@ -127,6 +127,15 @@ type managedPluginConfig struct {
 	// process that is not the daemon (run-secrets) loads only the backend
 	// it needs, and never writes the state file.
 	registerOnly bool
+	// deferLoad registers the state file's plugins and leaves loading them
+	// to RestorePlugins: a daemon that starts in standby loads none.
+	deferLoad bool
+}
+
+// WithDeferredPluginLoad registers plugins at construction and loads none;
+// the daemon calls RestorePlugins when it is not in standby.
+func WithDeferredPluginLoad() ManagedPluginOption {
+	return func(c *managedPluginConfig) { c.deferLoad = true }
 }
 
 // WithManagedPluginCoreSecrets sets the resolver a secret backend's own
@@ -230,10 +239,51 @@ func NewManagedPluginConnectorService(sink audit.Sink, hostVersion string, stder
 	if cfg.bindBackends != nil {
 		cfg.bindBackends(service)
 	}
-	if err := restoreManagedPlugins(context.Background(), service, statePath); err != nil {
+	if err := restoreManagedPlugins(context.Background(), service, statePath, !cfg.deferLoad); err != nil {
 		return nil, err
 	}
 	return service, nil
+}
+
+// RestorePlugins loads every plugin the state file marks loaded, as the daemon
+// does at start, recording each load as Cerberus acting on its own. Plugins
+// already loaded are left alone. Standby calls it on exit, and the daemon at
+// start when it was built WithDeferredPluginLoad and is not in standby.
+func (s *ManagedPluginConnectorService) RestorePlugins(ctx context.Context) error {
+	return restoreManagedPlugins(ctx, s, s.statePath, true)
+}
+
+// SuspendPlugins stops every loaded plugin process and returns their ids. The
+// state file is not written, so RestorePlugins loads the same set again, and
+// the supervisor does not restart an unloaded plugin. Standby calls it on
+// entry; it writes nothing.
+func (s *ManagedPluginConnectorService) SuspendPlugins(ctx context.Context) ([]string, error) {
+	var stopped, failed []string
+	for _, p := range s.manager.InstalledPlugins() {
+		if !s.manager.Loaded(p.ID) {
+			continue
+		}
+		if err := s.manager.Unload(ctx, p.ID); err != nil {
+			failed = append(failed, p.ID+": "+err.Error())
+			continue
+		}
+		stopped = append(stopped, p.ID)
+	}
+	if len(failed) > 0 {
+		return stopped, fmt.Errorf("plugins that did not stop: %s", strings.Join(failed, "; "))
+	}
+	return stopped, nil
+}
+
+// LoadedPlugins lists the plugins whose processes are running.
+func (s *ManagedPluginConnectorService) LoadedPlugins() []string {
+	var ids []string
+	for _, p := range s.manager.InstalledPlugins() {
+		if s.manager.Loaded(p.ID) {
+			ids = append(ids, p.ID)
+		}
+	}
+	return ids
 }
 
 // Reload re-reads one plugin's entry from the state file and makes the

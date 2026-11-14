@@ -17,6 +17,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/daemon"
 	"github.com/hollis-labs/cerberus/internal/mcp"
 	"github.com/hollis-labs/cerberus/internal/service"
+	"github.com/hollis-labs/cerberus/internal/standby"
 	"github.com/spf13/cobra"
 )
 
@@ -366,7 +367,12 @@ type daemonStatusView struct {
 	// Degraded says the daemon is up but something it needs is not: today, the
 	// OS credential store (locked and unanswering).
 	Degraded string `json:"degraded,omitempty"`
-	Error    string `json:"error,omitempty"`
+	// Standby is the resource a daemon in standby still operates
+	// (docs/substrate-port-plan.md section 7.1), or "(none)" with the reason
+	// when the flag names none; empty when the daemon is not in standby.
+	Standby      string `json:"standby,omitempty"`
+	StandbySince string `json:"standby_since,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 func currentDaemonStatus(ctx context.Context) (daemonStatusView, error) {
@@ -421,6 +427,12 @@ func currentDaemonStatus(ctx context.Context) (daemonStatusView, error) {
 		out.SocketReady = true
 		if ds.CredentialStore != nil && ds.CredentialStore.Degraded {
 			out.Degraded = "credential store unavailable: " + ds.CredentialStore.Reason
+		}
+		if ds.Standby != nil {
+			out.Standby, out.StandbySince = ds.Standby.Resource, ds.Standby.Since
+			if out.Standby == "" {
+				out.Standby = "(none: " + ds.Standby.Problem + ")"
+			}
 		}
 		if !out.Running {
 			out.Running = true
@@ -516,7 +528,17 @@ func runDaemonBody() error {
 		return fmt.Errorf("identify serving daemon: %w", executableErr)
 	}
 	a.Runtime.ProtectServingDaemon(executable, os.Getenv("XPC_SERVICE_NAME"))
-	resourceMonitor := cerbapi.NewResourceMonitor(a.Runtime, cerbapi.DefaultResourceMonitorConfig(), logger)
+
+	// Standby (docs/substrate-port-plan.md section 7.1): the loops below run
+	// as one restartable group, so the standby controller can stop them on
+	// entry and start them again on exit without restarting the daemon.
+	loops := newDaemonLoops(ctx)
+	loops.add("resource_monitor", func(ctx context.Context) {
+		monitor := cerbapi.NewResourceMonitor(a.Runtime, cerbapi.DefaultResourceMonitorConfig(), logger)
+		if err := monitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "Resource monitor error: %v\n", err)
+		}
+	})
 
 	// Start the background artifact-drift scan and wire it into the
 	// runtime so the high-fanout list path surfaces repo-drift staleness
@@ -525,14 +547,6 @@ func runDaemonBody() error {
 	a.Runtime.AttachDriftCache(driftCache)
 
 	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := resourceMonitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			fmt.Fprintf(os.Stderr, "Resource monitor error: %v\n", err)
-		}
-	}()
 
 	wg.Add(1)
 	go func() {
@@ -563,7 +577,9 @@ func runDaemonBody() error {
 	// (daemon-embedded stdio MCP server AND external callers via the
 	// unix socket) are backed by this single client so state lives in
 	// one place.
-	managedPlugins, external, servicesErr := app.NewDaemonConnectorServices(a, version, os.Stderr, cfgPath)
+	// Plugins are registered here and loaded by the standby controller, so a
+	// daemon that starts in standby starts none.
+	managedPlugins, external, servicesErr := app.NewDaemonConnectorServices(a, version, os.Stderr, cfgPath, cerbapi.WithDeferredPluginLoad())
 	if servicesErr != nil {
 		return servicesErr
 	}
@@ -585,19 +601,13 @@ func runDaemonBody() error {
 		logger.Warn("daemon.host_monitor.unavailable", "error", monErr.Error(), "consequence", "hosts are not probed on a schedule; the daemon keeps running")
 	default:
 		// Retention runs whether or not probing is on.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			hostMonitor.RunJanitor(ctx)
-		}()
+		loops.add("host_monitor_janitor", func(ctx context.Context) { hostMonitor.RunJanitor(ctx) })
 		if hostMonitor.Settings().Enabled {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			loops.add("host_monitor", func(ctx context.Context) {
 				if err := hostMonitor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 					logger.Warn("daemon.host_monitor.stopped", "error", err.Error())
 				}
-			}()
+			})
 		} else {
 			logger.Info("daemon.host_monitor.off", "hint", "set host_monitor.enabled: true in config.yaml to probe hosts on a schedule")
 		}
@@ -640,20 +650,23 @@ func runDaemonBody() error {
 		cerbapi.SetPresence(newPresenceService(logger, approvalsDir))
 		cerbapi.SetUserPresenceWith(newUserPresence(logger), app.AuditSink())
 		// Approvals approved with a pre-v2 passkey proof no longer verify
-		// (H4): expire them now, with the reason, rather than leave them
-		// looking usable.
-		broker.ExpireUpgraded(ctx)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		// (H4): expire them, with the reason, rather than leave them looking
+		// usable. That writes, so it runs with the sweeper, never in standby.
+		loops.add("approval_sweeper", func(ctx context.Context) {
+			broker.ExpireUpgraded(ctx)
 			broker.RunSweeper(ctx, time.Minute)
-		}()
+		})
 	}
 
 	// Event export (CW-20261016-0142): off unless ~/.cerberus/events.yaml turns
 	// it on. It only reads the audit chain and the approval store and writes
 	// its own outbox; a source it cannot trust stops it visibly, never skips.
-	startEventExport(ctx, &wg, logger)
+	loops.add("event_export", func(ctx context.Context) {
+		var exportWG sync.WaitGroup
+		startEventExport(ctx, &exportWG, logger)
+		<-ctx.Done()
+		exportWG.Wait()
+	})
 
 	// Start the overview snapshot recorder. Samples control-plane
 	// counters (resources, projects, running/attention/stopped, registry
@@ -667,19 +680,34 @@ func runDaemonBody() error {
 	} else {
 		snapshotCfg := cerbapi.DefaultSnapshotRecorderConfig()
 		snapshotCfg.Path = snapshotPath
-		recorder := cerbapi.NewSnapshotRecorder(
-			snapshotCfg,
-			cerbapi.NewClientSnapshotFunc(inProc, cfgPath, logger),
-			logger,
-		)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		loops.add("snapshot_recorder", func(ctx context.Context) {
+			recorder := cerbapi.NewSnapshotRecorder(
+				snapshotCfg,
+				cerbapi.NewClientSnapshotFunc(inProc, cfgPath, logger),
+				logger,
+			)
 			if err := recorder.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				logger.Warn("daemon.snapshot.exited", "error", err.Error())
 			}
-		}()
+		})
 	}
+
+	// The standby controller decides, from the flag, whether the loops and
+	// plugins run. The first decision is made here, before the socket opens,
+	// so no request is served outside the fence; the watch then follows the
+	// flag every second.
+	standbyPaths, standbyErr := standby.DefaultPaths()
+	if standbyErr != nil {
+		return standbyErr
+	}
+	fence := cerbapi.NewStandby(a.Runtime, standbyPaths.AuditDir(), logger)
+	controller := &standbyController{paths: standbyPaths, fence: fence, loops: loops, plugins: managedPlugins, sessions: a.Runtime, logger: logger}
+	controller.apply(ctx, standbyPaths.Read())
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		standby.Watch(ctx, standbyPaths, standby.PollInterval, func(st standby.State) { controller.apply(ctx, st) })
+	}()
 
 	// ---- Unix-socket RPC server (CERB-2). ----
 	//
@@ -691,7 +719,7 @@ func runDaemonBody() error {
 	if sockErr != nil {
 		logger.Warn("daemon.socket.path_resolve_failed", "error", sockErr.Error())
 	} else {
-		socketServer := cerbapi.NewSocketServer(inProc, sockPath, cerbapi.WithLogger(logger), cerbapi.WithDataHandler(cerbapi.DataHTTP(dataService)))
+		socketServer := cerbapi.NewSocketServer(inProc, sockPath, cerbapi.WithLogger(logger), cerbapi.WithDataHandler(cerbapi.DataHTTP(dataService)), cerbapi.WithStandby(fence))
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -733,7 +761,7 @@ func runDaemonBody() error {
 	<-ctx.Done()
 	fmt.Println("Shutting down...")
 
-	resourceMonitor.Stop()
+	loops.stop()
 	wg.Wait()
 
 	return nil
