@@ -16,7 +16,7 @@ key `inventory-gui-full`).
 | Build output | `vite.config.ts` builds to `internal/webui/dist` and restores `dist/.gitkeep` |
 | Embed | `internal/webui/server.go:30` `//go:embed all:dist`, served through `fs.Sub` (`:41`) |
 | Process | `cerberus web --listen 127.0.0.1:4783 --open=false`, a subcommand of the main binary (`cmd/cerberus/cmd_web.go:26`). It is a separate process from the daemon and reaches the daemon over `~/.cerberus/cerberus.sock` |
-| Supervision | on the operator host a user unit runs `cerberus web --listen 127.0.0.1:4783 --open=false` after the daemon unit, and Cerberus describes it as its own resource `cerberus-web`. The unit file, its options and the public host are in Tesseract workspace item `01M7DX6SZYHRC0RZV8X5G1922V` |
+| Supervision | a user unit may run `cerberus web`; no code in this repository writes one. The operator host's details (unit, options, public host) are in Tesseract workspace item `01M7DX6SZYHRC0RZV8X5G1922V` |
 | Public access | optional HTTPS reverse proxy; config key `web.public_url` (`internal/config/web.go:15`, `internal/webui/public_url.go`). With it set, cookies are `Secure` |
 | Dev proxy | Vite proxies `/api` to `127.0.0.1:4783` and rewrites `Origin` |
 | Tests | No frontend or browser tests. Go tests in `internal/webui/*_test.go` cover routes, guards, sessions, scoped sessions, passkeys and redaction |
