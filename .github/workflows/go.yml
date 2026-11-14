@@ -28,6 +28,21 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/cerberus-home" "$RUNNER_TEMP/cerberus-config" "$RUNNER_TEMP/cerberus-data" "$RUNNER_TEMP/cerberus-cache" "$RUNNER_TEMP/cerberus-state"
           HOME="$RUNNER_TEMP/cerberus-home" XDG_CONFIG_HOME="$RUNNER_TEMP/cerberus-config" XDG_DATA_HOME="$RUNNER_TEMP/cerberus-data" XDG_CACHE_HOME="$RUNNER_TEMP/cerberus-cache" XDG_STATE_HOME="$RUNNER_TEMP/cerberus-state" go test -race -count=1 -timeout=10m ./...
+      # Every test package runs under its own scratch home (internal/testhome).
+      # This proves it: the whole suite runs with HOME a read-only empty
+      # directory, so a test that reached the real home could not write it and
+      # fails, and the directory must still be empty afterwards
+      # (CW-20261114-0143).
+      - name: The suite never writes HOME
+        run: |
+          ro="$RUNNER_TEMP/read-only-home"
+          mkdir -p "$ro"
+          export GOPATH="$(go env GOPATH)" GOMODCACHE="$(go env GOMODCACHE)" GOCACHE="$(go env GOCACHE)" GOTELEMETRY=off
+          chmod 555 "$ro"
+          env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME HOME="$ro" go test -count=1 -timeout=10m ./...
+          if [ -n "$(find "$ro" -mindepth 1 -print -quit)" ]; then
+            echo "the suite wrote under HOME:"; find "$ro" -mindepth 1; exit 1
+          fi
   scheduler-platform:
     strategy:
       fail-fast: false
