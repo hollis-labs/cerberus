@@ -49,7 +49,9 @@ jobs:
         run: go run github.com/hollis-labs/libs/core/store/cmd/gostore-lint ./...
       - name: Pins match the Substrate BOM
         run: go run github.com/hollis-labs/substrate/cmd/substrate pins check --app .
+      # The gates below run even when an earlier gate fails, so one red check never hides another.
       - name: Race tests with private application roots
+        if: ${{ !cancelled() }}
         run: |
           r="$RUNNER_TEMP/cerberus"
           mkdir -p "$r/home" "$r/config" "$r/data" "$r/cache" "$r/state" "$r/tmp"
@@ -57,10 +59,12 @@ jobs:
             go test -race -count=1 -timeout=15m ./...
       # Code carried over from main is ported slice by slice; lint gates what each PR adds.
       - uses: golangci/golangci-lint-action@v7
+        if: ${{ !cancelled() }}
         with:
           version: v2.11.4
           only-new-issues: true
       - name: Public hygiene (tree and history)
+        if: ${{ !cancelled() }}
         run: go run github.com/hollis-labs/substrate/cmd/substrate scan-public --ref HEAD
   scheduler-platform:
     strategy:
