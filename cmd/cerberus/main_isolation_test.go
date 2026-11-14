@@ -26,6 +26,11 @@ func TestMain(m *testing.M) {
 		runChildStandbyDaemon()
 		return
 	}
+	// The standby CLI test re-executes it as one CLI command under a scratch HOME.
+	if args := os.Getenv(childStandbyCLIEnv); args != "" {
+		runChildStandbyCLI(args)
+		return
+	}
 	cleanupHome, err := testhome.Isolate()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

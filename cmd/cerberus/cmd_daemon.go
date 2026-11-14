@@ -469,6 +469,9 @@ func spawnDaemonChild(ctx context.Context) (int, error) {
 // the SIGHUP handler, write the pidfile, start the resource monitor + MCP
 // server, wait for shutdown.
 func runDaemonBody() error {
+	// Before any service is built: only the daemon's sink writes in standby,
+	// and only through its fence's divert.
+	app.MarkDaemonProcess()
 	service.InitLifecycleLog()
 	service.RedactDefaultLogger()
 	logger := service.GetLogger()
@@ -740,7 +743,10 @@ func runDaemonBody() error {
 		// The stdio MCP server calls the in-process client directly, not through the
 		// socket, so the standby fence does not stand in front of it. A daemon that starts
 		// in standby does not serve it at all (under the systemd unit its stdin is
-		// /dev/null and it would end at once anyway).
+		// /dev/null and it would end at once anyway). The check is at start only: a
+		// hand-run daemon already serving stdio when the flag appears keeps serving
+		// it. Its audit records are still diverted to the standby chain, because they
+		// go through this process's switched sink.
 		if st, _ := fence.State(); st.Active {
 			logger.Warn("daemon.standby.stdio_mcp_not_served", "reason", "in standby, MCP is served only through the socket, behind the fence; use `cerberus mcp`")
 			return

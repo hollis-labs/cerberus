@@ -159,6 +159,8 @@ var (
 //
 // The sink is an audit.Switch over that directory's chain, so the daemon's standby mode can
 // divert every write to the standby chain without any service knowing (AuditSwitch).
+// Outside the daemon, nothing diverts it, so the chain is guarded instead: while
+// the standby flag is present every write is refused (standbyGuardSink).
 func AuditSink() audit.Sink {
 	auditOnce.Do(func() {
 		var primary audit.Sink
@@ -172,7 +174,7 @@ func AuditSink() audit.Sink {
 		if primary == nil {
 			primary = audit.Unavailable{Err: err}
 		}
-		auditSwitch = audit.NewSwitch(primary)
+		auditSwitch = audit.NewSwitch(guardStandby(primary))
 		auditSink = auditSwitch
 	})
 	policyOnce.Do(installPolicy)
