@@ -81,11 +81,12 @@ Until it is decided, the skeleton builds without `internal/presence`, and slice 
   no local-trust MCP process can hold `cerberus.approve`.
 - **The console moves to `127.0.0.1:4786`.** The old console's default is 4783, and the old build's `mcp-http`
   default is 4785, so both are avoided. **A passkey is bound to the hostname of the origin it was enrolled on (its RP
-  ID)**, and the live passkeys are bound to `localhost` and to the console's public host. The port change does not
-  affect them, but the hostname must not change: the proxy keeps serving the console under the same public hostname,
-  now forwarding to 4786. `cerberus.passkeys.allowed_origins` is migrated from `web.public_url` plus
-  `http://localhost:4786`, because today the origins are derived from the old login-key file. The rehearsal reads each
-  key's RP ID and asserts that every one matches the host of an allowed origin.
+  ID)**. The enrolled passkey is bound to the console's **public** hostname, so an approval only verifies through
+  that origin. The hostname must not change: the proxy keeps serving the console under the same public hostname and
+  is repointed to 4786 in the window, **before** the approval check (9.5). `cerberus.passkeys.allowed_origins` is
+  migrated from `web.public_url`, plus `http://localhost:4786` for keys enrolled later. Today the origins are derived
+  from the old login-key file. The rehearsal compares each stored credential's `rpIdHash` with
+  `sha256(host of an allowed origin)` and fails if any key matches none.
 - **Restarts the owner will see:**
   - `os_service` units (Cerberus-written and native) are never restarted.
   - Plugin processes and running dev sessions live in the daemon's cgroup. They restart at phase B, at the handoff
@@ -243,7 +244,7 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 | `standby.d/` (old's standby chain and session list, 7.1) | **not copied at D**. It is old's own record of the window. At F it is archived beside the old tree, and new imports it read-only as a sidecar log. | chain verify at F |
 | `brakes/`, `oauth/tokens.jsonl`, `events/`, `alerts/` | absent live; the window re-checks. **copy** if present. | listed in the report |
 | `web/login-*.key` | not migrated: replaced by identity sessions | — |
-| `cerberus.log`, `logs/`, `backups/`, `*.bak*`, `<XDG_DATA_HOME>/cerberus/{changes,postgres-adoption,review-evidence}`, the 0-byte `cerberus.db` | **archive**: left where they are and never deleted; the owner decides | listed in the report |
+| `cerberus.log`, `logs/`, `backups/`, `*.bak*`, operator runbook directories under `<XDG_DATA_HOME>/cerberus/` (names in the live-facts item), the 0-byte `cerberus.db` | **archive**: left where they are and never deleted; the owner decides | listed in the report |
 | `<XDG_STATE_HOME>/cerberus/` (backup passphrases, database passwords) | **in place**; not Cerberus state, but must never be lost | listed |
 | socket, `cerberus.pid`, `daemon.lock`, `locks/`, `*.lock` | runtime; not migrated | — |
 
@@ -474,7 +475,8 @@ delete them.
    rewritten, no restart).
 4. One write the owner chooses (pause and resume a non-critical resource). It is recorded in new's audit, and `audit
    verify` passes across the old head into new's records against the new anchor. The old main chain is unchanged.
-5. One approval through the console with a carried passkey: no cool-down.
+5. One approval through the console **at its public hostname** (the proxy already repointed in D9) with the carried
+   passkey: no cool-down.
 6. One MCP tool call through the restarted Tether gateway entry; the approve tool is refused under local trust.
 7. tachyon's machine sync and tether sysop's resource action both succeed against new with their keys.
 8. One outpost reports in; one credentialed connector health op succeeds (keyring in place).
