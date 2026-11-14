@@ -1,7 +1,7 @@
 # Console API contract (Substrate port)
 
 Task: CW-20261114-0109, slice 11a of the port plan (`docs/substrate-port-plan.md` sections 4.3, 6
-and 11). Status: **proposed**. The builder slices (4 to 7) implement the server side. The console in
+and 11). Status: **agreed** (decisions in section 6 ratified by the cell lead, 2026-11-14), except where section 6 says open. The builder slices (4 to 7) implement the server side. The console in
 `web/` is built against it. Change it by PR, never by an unannounced server change.
 
 Inputs:
@@ -130,9 +130,9 @@ All of these are `cerberus.approve`, person-only (`403 user_required` otherwise)
   local console, the public host for a console reached through `web.public_url`. A passkey works only on
   the RP ID it was enrolled under, and the live console is used through `web.public_url`, so enrolled keys
   may be bound to the public host rather than `localhost`.
-- **Allowed origins are an explicit list** (proposed key `cerberus.passkeys.allowed_origins`; slice 6
-  names it), no longer derived from `~/.cerberus/web/login-*.key`. It carries both the public console
-  origin (the `web.public_url` value) and `http://localhost:4786`, and the RP ID of each ceremony is taken
+- **Allowed origins are an explicit list** (key `cerberus.passkeys.allowed_origins`), no longer derived
+  from `~/.cerberus/web/login-*.key`. The migration seeds it from the old `web.public_url` value plus
+  `http://localhost:4786`, and the RP ID of each ceremony is taken
   from the origin it arrives on, as today.
 - **Rehearsal step:** on the copy, read each key's enrolment origin and RP ID from `keys.json`. In the
   stored go-webauthn credential, `attestation.clientDataJSON` names the origin and
@@ -160,12 +160,21 @@ All of these are `cerberus.approve`, person-only (`403 user_required` otherwise)
 | Unused by the console and left to their own slices: `/api/brakes` GET, `/api/resources/{id}/{inspect,doctor}`, `/api/health`, `/api/portfolio/health`, `/api/plugins/connectors/{id}/operations/{op}`, `/api/schedules/v1/*`, `/api/hosts*`, `/api/components*` | not part of this contract | service and bearer clients (plan slices 7 to 9) |
 | Retired 410 routes (`/api/config/migrate*`, `/api/plugins/connectors/{health,operations/,install}`) | not carried | already retired |
 
-## 6. Open points
+## 6. Decisions and open points
 
-1. **Sign-in uses kit-identity.** The brief says identity has no UI kit. `@hollis-labs/kit-identity`
-   0.1.4 is pinned in the BOM `kits:` and loom ships with it (`IdentityProvider`, `IdentityGate`,
-   account, keys, sessions, sign-out). The scaffold uses it instead of an app-owned sign-in page.
-   Reversible if the cell prefers app-owned.
+Ratified (cell lead, 2026-11-14): sign-in through kit-identity; approval links as a deep link plus full
+sign-in; `GET /api/console/status` replacing `/api/session`; plugin load and unload as gated writes; the
+config key `cerberus.passkeys.allowed_origins`.
+
+**Open: whether passkey approvals stay at all.** This is a decision for the owner (through the program
+director). Until it is made, the approvals page stays a shell and the ceremony routes in section 3.4 are
+not built on the console side (slice 11c waits). If approvals are dropped, section 3.4 and the
+`cerberus.approve` scope go with them, and section 4 reduces to approval links.
+
+Notes:
+
+1. **Sign-in uses kit-identity** (`@hollis-labs/kit-identity` 0.1.4, BOM-pinned; loom ships with it):
+   `IdentityProvider`, `IdentityGate`, account, keys, sessions, sign-out.
 2. **Header region.** app-shell 0.11.0 has no header or banner region. The status badges and the
    brakes banner render at the top of every page body (`ConsoleHeader` in `web/src/pages/common.tsx`).
    A Substrate gap is worth filing if the cell wants it in the shell.
