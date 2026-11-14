@@ -32,6 +32,7 @@ const (
 	PortfolioHealthSchemaVersion = 1
 	PortfolioHealthContract      = "cerberus.portfolio.health.v1"
 
+	DefaultControllerID     = "agent-os"
 	DefaultProviderInstance = "cerberus-local"
 
 	PortfolioModeCached      = "cached"
@@ -56,17 +57,6 @@ const (
 	defaultProbeCacheTTL    = 15 * time.Second
 	defaultValidForSeconds  = 30
 )
-
-// DefaultControllerID names the controller in a projection when the caller sets none: the
-// host the daemon runs on. A fixed name would put one machine's name in every install.
-func DefaultControllerID() string {
-	if name, err := os.Hostname(); err == nil {
-		if short, _, _ := strings.Cut(strings.TrimSpace(name), "."); short != "" {
-			return short
-		}
-	}
-	return DefaultProviderInstance
-}
 
 // PortfolioHealthQuery filters or tunes the portfolio health read projection.
 type PortfolioHealthQuery struct {
@@ -370,7 +360,7 @@ func NewPortfolioHealthService(
 		o = opts[0]
 	}
 	if o.ControllerID == "" {
-		o.ControllerID = DefaultControllerID()
+		o.ControllerID = DefaultControllerID
 	}
 	if o.ProviderInstance == "" {
 		o.ProviderInstance = DefaultProviderInstance

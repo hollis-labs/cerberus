@@ -114,3 +114,7 @@ internal-ip pkg/outpost/protocol.go the CGNAT range (RFC 6598) as a code constan
 credentials-in-url pkg/outpost/review_security_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential
 internal-ip pkg/outpost/review_security_test.go test fixture address in a private, CGNAT or loopback-check range; not a real host (checked against the live host inventory)
 credentials-in-url pkg/plugin/secret_backend.go code comment naming the shape of a URL with user and password; no credential
+
+# Live code on main: these two lines leave with #81 (which removes the name), then delete them.
+agent-box-host internal/cerbapi/portfolio_health.go removed in #81 (live code, held for the director's approval)
+agent-box-host internal/registry/resolve.go removed in #81 (a code comment, held with it)

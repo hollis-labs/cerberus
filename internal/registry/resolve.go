@@ -94,7 +94,7 @@ func resolveIndex(opts ResolveOptions, idx *Index) (*ResolvedConfig, error) {
 			// Host monitoring is the operator's alone, like the transfer root: only the
 			// global config turns it on, never a registered project config. Without this
 			// line host_monitor in config.yaml is silently dropped whenever projects are
-			// registered (as on the operator's host), and the monitor stays off.
+			// registered (the daemon on agent-os), and the monitor stays off.
 			resolved.Config.HostMonitor = global.HostMonitor
 			for _, p := range global.Projects {
 				projects[p.ID] = p

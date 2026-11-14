@@ -667,15 +667,3 @@ func TestPortfolioHealthReadinessVsLivenessAndRoutes(t *testing.T) {
 		}
 	}
 }
-
-func TestDefaultControllerIDIsThisHost(t *testing.T) {
-	want := DefaultProviderInstance
-	if name, err := os.Hostname(); err == nil {
-		if short, _, _ := strings.Cut(strings.TrimSpace(name), "."); short != "" {
-			want = short
-		}
-	}
-	if got := DefaultControllerID(); got != want {
-		t.Fatalf("DefaultControllerID() = %q, want %q", got, want)
-	}
-}
