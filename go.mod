@@ -13,7 +13,7 @@ require (
 	github.com/hollis-labs/libs/mesh/eventbus v0.2.0
 	github.com/hollis-labs/libs/security/auth v0.3.1
 	github.com/hollis-labs/libs/security/secrets v0.1.0
-	github.com/hollis-labs/substrate v0.1.1-0.20261114095804-d064f53602f8
+	github.com/hollis-labs/substrate v0.1.1-0.20261114213855-035e0d335dee
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pkg/sftp v1.13.11
 	github.com/spf13/cobra v1.10.2
@@ -33,8 +33,8 @@ require (
 	github.com/google/pprof v0.0.0-20260906184651-6331bc6350fe // indirect
 	github.com/hollis-labs/libs/app/app-host v0.1.0 // indirect
 	github.com/hollis-labs/libs/core/panics v0.1.0 // indirect
-	github.com/hollis-labs/libs/mesh/core v0.6.0 // indirect
-	github.com/hollis-labs/libs/ui/ui-go v0.1.0 // indirect
+	github.com/hollis-labs/libs/mesh/core v0.10.0 // indirect
+	github.com/hollis-labs/libs/ui/ui-go v0.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

@@ -261,13 +261,13 @@ func TestStoreRoundTripAndForget(t *testing.T) {
 
 func TestParseUnitStatesAndPosixUnits(t *testing.T) {
 	systemdOut := "" +
-		"agent-os-outpost.service loaded active running Outpost daemon\n" +
+		"box-1-outpost.service loaded active running Outpost daemon\n" +
 		"broken-worker.service loaded failed failed Broken worker\n" +
 		"idle-job.service loaded inactive dead Idle job\n" +
 		"sk_live_abcdefgh12345678.service loaded active running Secret shaped\n"
 	got := ParseUnitStates(systemdOut)
-	if got["agent-os-outpost.service"] != "running" || got["agent-os-outpost"] != "running" {
-		t.Fatalf("expected agent-os-outpost running, got %+v", got)
+	if got["box-1-outpost.service"] != "running" || got["box-1-outpost"] != "running" {
+		t.Fatalf("expected box-1-outpost running, got %+v", got)
 	}
 	if got["broken-worker.service"] != "failed" || got["broken-worker"] != "failed" {
 		t.Fatalf("expected broken-worker failed, got %+v", got)
@@ -291,8 +291,8 @@ func TestParseUnitStatesAndPosixUnits(t *testing.T) {
 		t.Fatalf("unexpected launchd units: %+v", lgot)
 	}
 
-	probe := ParsePosixProbe(linuxFixture + "unit_agent-os-outpost.service=active\nunit_sk_live_abcdefgh12345678=active\n")
-	if probe.Units["agent-os-outpost.service"] != "running" || probe.Units["agent-os-outpost"] != "running" {
+	probe := ParsePosixProbe(linuxFixture + "unit_box-1-outpost.service=active\nunit_sk_live_abcdefgh12345678=active\n")
+	if probe.Units["box-1-outpost.service"] != "running" || probe.Units["box-1-outpost"] != "running" {
 		t.Fatalf("expected unit from posix probe, got %+v", probe.Units)
 	}
 	if len(probe.Units) != 2 {

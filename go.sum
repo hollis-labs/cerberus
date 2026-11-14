@@ -36,8 +36,8 @@ github.com/hollis-labs/libs/harness/core v0.16.0 h1:Kx1ycAgd61aBZJSDoOqX9CKlsvoR
 github.com/hollis-labs/libs/harness/core v0.16.0/go.mod h1:9unAdOAJSvsw5i9rMub7n+kBv+YJbMVzGeTiE8HbgoI=
 github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0 h1:wS9KsD0Jk4QD+SEepirMGZJwUtXpL5hMjPL/wYdEk20=
 github.com/hollis-labs/libs/mcp/plugin-mcp v0.6.0/go.mod h1:jf0jxxm5UOa5YBETO4u8WTD6JY87VAhxkBZgCnFd+UA=
-github.com/hollis-labs/libs/mesh/core v0.6.0 h1:WQwxbGozmC+elJK96iNw275yNEKT+uC93qT+zoupzJI=
-github.com/hollis-labs/libs/mesh/core v0.6.0/go.mod h1:K1a1oeFXakkaJDyKogI/I2j+2lpKklTZgdtzSw45Bss=
+github.com/hollis-labs/libs/mesh/core v0.10.0 h1:PDtFkea2SA/Y750/eDQHzWHRSV/TNyufBaYMra5Xfsg=
+github.com/hollis-labs/libs/mesh/core v0.10.0/go.mod h1:4MIXuPovKfdlaHGpI2Va9nINuNKmfsed4XX53UxeoSk=
 github.com/hollis-labs/libs/mesh/eventbus v0.2.0 h1:9mstpH3GWQWRqnNkgzFiNo2e1/sg20enIs/gHePLcRw=
 github.com/hollis-labs/libs/mesh/eventbus v0.2.0/go.mod h1:KKQBH8hpxgkuoMlowUnqn809z3BDMQqkLHteAIcpkZU=
 github.com/hollis-labs/libs/security/auth v0.3.1 h1:Oi9xrIucjr0mBcGCWGOiS8KC/+cI/HH8ZJ+ZIobFXKU=
@@ -46,10 +46,10 @@ github.com/hollis-labs/libs/security/redact v0.2.0 h1:yaKmfWRMwlaAH1uur2yyS+DJjd
 github.com/hollis-labs/libs/security/redact v0.2.0/go.mod h1:l6JdQCIwWPy686ZQ5li4clrcN6TtjFueotBzMxUbvbk=
 github.com/hollis-labs/libs/security/secrets v0.1.0 h1:/wrYAM5viUnYMpDhvbQmPlTMesqMIVfvfz+GiZ7jMAs=
 github.com/hollis-labs/libs/security/secrets v0.1.0/go.mod h1:Krd1kgmisOVmeN1G/ltaLMva58tIBki9xShsySqd86Y=
-github.com/hollis-labs/libs/ui/ui-go v0.1.0 h1:GFztthzyhlbrKemRItwyNlV+e83pZT+yFr5Y37iXlL4=
-github.com/hollis-labs/libs/ui/ui-go v0.1.0/go.mod h1:MBO41Mrbgo6YfRbm8MI50qQXjDfwhkvA/WxRdtOiL38=
-github.com/hollis-labs/substrate v0.1.1-0.20261114095804-d064f53602f8 h1:K1IP2FyqHxtkUy7ODQInAoVDqZNPeQYb3tZaSQU9sTw=
-github.com/hollis-labs/substrate v0.1.1-0.20261114095804-d064f53602f8/go.mod h1:pnGYpIrVNQLalyvDH4+0C8dfy+MHoThzXY20NZKmn1U=
+github.com/hollis-labs/libs/ui/ui-go v0.4.0 h1:3TydDJElqD1ilgfY1FY+ei+joAuRcwMyuorGTDD1qIw=
+github.com/hollis-labs/libs/ui/ui-go v0.4.0/go.mod h1:MBO41Mrbgo6YfRbm8MI50qQXjDfwhkvA/WxRdtOiL38=
+github.com/hollis-labs/substrate v0.1.1-0.20261114213855-035e0d335dee h1:pKSyuLQDmKlzVx5alc88y0hsMMm+kMF9zXniZUTiji8=
+github.com/hollis-labs/substrate v0.1.1-0.20261114213855-035e0d335dee/go.mod h1:7C7yUpQf26m/v6g4DI/+7WumcQhaVHs7XAG0AMlU8mY=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=

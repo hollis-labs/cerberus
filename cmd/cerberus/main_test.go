@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
 // binary is the real cerberus binary, built once for the tests that run it as a process.
@@ -27,12 +29,21 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	binary = filepath.Join(dir, "cerberus")
-	if out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil { //nolint:gosec // fixed arguments
-		fmt.Fprintf(os.Stderr, "build cerberus: %v\n%s", err, out)
+	if out, buildErr := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); buildErr != nil { //nolint:gosec // fixed arguments
+		fmt.Fprintf(os.Stderr, "build cerberus: %v\n%s", buildErr, out)
+		_ = os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	// The binary is built first, with the toolchain's own caches; the tests then run under
+	// a scratch home (internal/testhome), and each child they start gets a sandbox of its own.
+	cleanupHome, err := testhome.Isolate()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		_ = os.RemoveAll(dir)
 		os.Exit(1)
 	}
 	code := m.Run()
+	cleanupHome()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
