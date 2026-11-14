@@ -222,7 +222,7 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 | `credential-issuance/<id>/*.json` | **transform** (receipts) | counts |
 | `policy/` (`applied.yaml`, `applied.sha256`, `posture.yaml`, `enforcement.yaml`, `providers/*`) | **copy** into the config dir; `applied.sha256` is checked against `applied.yaml` before and after | sha256; `policy show` equal on both |
 | `config.yaml`, `events.yaml`, `connector-config.yaml` | **transform** to config keys (table in conversion-notes; unknown key = error). Event export stays off. | `cerberus config` reviewed against the old values |
-| `registry.yaml` | **in place** (adopted root, same format); the descriptors it lists stay in place too (they belong to their apps) | entry and resource counts equal (observe mode) |
+| `registry.yaml` | **in place** (adopted root, same v1 format); the descriptors it lists stay in place too (they belong to their apps). Excluded from the D3 manifest: rollback keeps any registration new made, because old reads the same format. Register from one build at a time during the transition, since concurrent registers can lose one. | entry and resource counts equal (observe mode); a compat test that old's `LoadIndex` reads a file new wrote |
 | `hosts.yaml` | **copy**; `token_file` paths keep pointing into the adopted root | `hosts list` equal |
 | `connector-secrets.yaml` (secret refs) | **copy** at 0600 | sha256 |
 | keyring `cerberus` service: connector and plugin credentials, `cerberus-oauth/issuer-ed25519` | **in place**: same service and account names (a contract) | one credentialed health op succeeds |
@@ -237,10 +237,17 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 
 **The D3 manifest** records:
 - for each old file that `export-legacy` could touch, its sha256;
-- for `main.db`, **logical state, not bytes**: per table, the row count, `max(rowid)` and a digest of the ordered
+- for `main.db`, **logical state, not bytes**: per table, the row count, the maximum of its primary-key time column
+  (`ts` or `bucket_ts`; three host tables are `WITHOUT ROWID`, so there is no `rowid`) and a digest of the ordered
   `.dump` of the five host tables. A WAL checkpoint or a restart of old changes the bytes without a logical write.
 
-The standby chain and session list are excluded from the manifest.
+Excluded from the manifest: `standby.d/` (the standby chain and the session list), `registry.yaml` (above), and the
+`cerberus-substrate` unit file, which old's allowed verbs may rewrite.
+
+`migrate-from` also reports:
+- pause targets that name no resource (today two are test debris; the owner decides, and they are not carried
+  silently);
+- a `config.yaml` that still lists `resources:` or `projects:` (it must be empty, as it is live).
 
 **Rehearsal (cell, scratch directory, never the live tree).**
 1. Take a `.backup` of `main.db` and a `cp -a` of `~/.cerberus` (old running normally; the rehearsal does not need
@@ -289,14 +296,20 @@ separate, reversible step taken after new is accepted (end of E). It is not part
 - new still boots on its A store;
 - `/healthz` reports `database unavailable` for the affected class;
 - the console shows a banner;
-- B and C endpoints answer 503, and their writes are refused, so new probe samples are dropped and the gap is visible.
+- C endpoints answer 503 (`database_unavailable`) and their writes are refused;
+- B producers (host probes) batch in memory with a bound, drop the oldest when full, and expose the drop counter in
+  health, so the gap is visible.
 
-There is **no durable write spool**. **A writes are never refused**: supervision, pause, start, stop and approvals keep
-working, because Cerberus is what restarts Postgres.
+There is **no durable write spool**. **A writes are never refused**: supervision, pause, start, stop, approvals and
+credential issuance keep working, because Cerberus is what restarts Postgres. No control-plane path (supervision,
+approvals, credential issuance, standby) ever waits on a Postgres call. A data is never kept in the shared cluster that
+Cerberus supervises. (Confirmed by the Postgres coordinator, 2026-11-14.)
 
-**Open with the framework.** Holding A on SQLite and B on Postgres at once needs two stores in one app.
-`database.From(app)` is one store today. Until Substrate answers, the plan assumes one store at cutover (all SQLite)
-and treats the B move as blocked on that answer. It goes to the Postgres coordinator and @substrate-manager.
+**Two stores.** A stays on the default `database` store. B uses a named store, `database.Named(app, "data")`, with
+`required: false`, `schema_mode: verify` (migrations run from a deploy step, not by the app), the `database.Gate`
+middleware for the 503, and `database.Statuses` for the banner. This is hollis-labs/substrate PR #44
+(CW-20261114-0151), not yet merged or pinned. Until it lands, the B store code sits behind a small interface, served
+by the default store, so the later switch is one wiring change. The cutover itself is all-SQLite.
 
 ## 6. Clients
 
@@ -359,13 +372,17 @@ On entry:
   entry while it exists leaves it unchanged, so a restart of old in standby cannot shrink the list.
 
 While in standby:
-- **The socket** refuses every request except reads and `resource status|start|stop|reload` on the one resource named
-  in the flag file. The refusal is guidance naming the new CLI. Reads carry `standby: true`.
+- **The socket** refuses every request except reads and `resource status|apply|stop|reload` on the one resource
+  named in the flag file. The old CLI starts a stopped resource with `apply --ack`. The refusal is guidance naming the
+  new CLI. Reads carry `standby: true`, and reads that audit today (hosts, components, portfolio health) write to the
+  standby chain, never the main one.
 - **The allowed verbs on the flagged resource** do not write `paused.<id>` or `runtime/applied.json`. They need no
   approval: policy is asserted to gate nothing on that resource, with a test.
-- **Audit records for those verbs** go to a **separate chain**, `~/.cerberus/standby.d/audit-<date>.jsonl`, with its
+- **Audit records for those verbs** go to a **separate chain**, `~/.cerberus/standby.d/audit/YYYY-MM.jsonl`, with its
   own genesis and its own digest key, not the main chain. Nothing else under `~/.cerberus` or in `main.db` is
   written: the main audit chain, its anchor and `approvals/events.jsonl` stay byte-identical.
+- **Approvals after a rollback.** Approvals that new decided from the owner's session are not honoured by old (old
+  expects its passkey proof). An operation approved under new must be re-approved under old. This fails closed.
 
 Removing the flag returns old to normal: loops and plugins start again, and the sessions in `sessions.json` are
 started again.
@@ -439,10 +456,10 @@ Soak for at least 24 h. Checks:
    - Then create keys with `--out` (0600): `cerberus-cli` (read, operate, admin), one for tachyon, one for tether
      sysop, `hadron`, and one per other machine caller in section 6.
 7. Hand over.
-   - Set `mode: supervise` in the override file, then `$LEGACY resource start cerberus-substrate` and
+   - Set `mode: supervise` in the override file, then `$LEGACY resource apply cerberus-substrate --ack` (the old CLI has no `start`) and
      `$LEGACY resource status cerberus-substrate`.
    - New loads the plugins and starts the host monitor.
-   - `$NEW resource start <id>` for exactly the ids in `~/.cerberus/standby.d/sessions.json`.
+   - `$NEW resource apply <id> --ack` for exactly the ids in `~/.cerberus/standby.d/sessions.json`.
 8. Point the CLI on `PATH` at `$NEW` (atomic rename). Old is unaffected: it runs from `$LEGACY`.
 9. Apply the tachyon (CW-20261114-0144) and tether sysop (CW-20261114-0145) changes, the proxy entry and the backup
    job's path list. The override already carries the public name in the allowed hosts and `identity.trusted_proxy:
