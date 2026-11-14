@@ -110,7 +110,7 @@ The owner holds `*`. The access-keys page offers only read, operate and admin.
 
 ### 3.4 Approve (owner session)
 
-Decision 0.1 (Chrispian, 2026-11-14): passkey approvals are dropped for the port. Approval stays human and bound
+Decision 0.1 (the owner, 2026-11-14): passkey approvals are dropped for the port. Approval stays human and bound
 to the plan: the owner approves a gated plan from a signed-in identity session in the console, with no ceremony.
 Both routes are `cerberus.approve`, person-only (`403 user_required` for a key, a token minted from one, or a
 local-trust principal).
