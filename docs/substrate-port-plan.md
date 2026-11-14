@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **plan, revision 3, not started.** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks.** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -33,7 +33,7 @@ has four parts:
 | Identity | Cerberus's own (`identity` module), with the owner created offline. Machine callers hold API keys with scopes. |
 | Routes | Every `/api/` route has a scope (section 4.3). The outpost device protocol authenticates its own callers and is an open mount that says so in code. |
 | Background work | Resource monitor, host monitor and janitor, approval-expiry sweeper, overview snapshot recorder, plugin supervision, MCP plugin tool sync, event export (off live). App code owns them; the stop order is in section 4.4. The scheduling core is wired but has never been started; it is ported and stays off until it is turned on separately. |
-| UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in is app-owned until identity has a UI kit. |
+| UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in, sign-out, session-expired, keys and sessions use **kit-identity** (in the BOM). Only the passkey ceremony is app UI. |
 | Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. `libs/mesh/eventbus` is being added to the BOM. `libs/security/webauthn` is pinned only if decision 0.1 keeps passkey approvals. |
 | Where the port lives | **This repository, long-lived branch `substrate-port`** (from `main` at `493a9f0`). Port PRs target it. Merges go through @substrate-manager. `main` stays the live app's source until phase F (section 10). |
 | Live-app change needed | **Yes, one: the standby mode on `main` (section 7.1).** The director approves it with this plan. |
@@ -136,7 +136,9 @@ web/, ui/app.json        the console on app-shell
   - `outpost-tokens/` (named by absolute path in `hosts.yaml`);
   - `events-tokens/` (written by the renewal job);
   - `secrets/` and `credential-issuance/secrets/issued/`;
-  - `transfers/`.
+  - `transfers/`;
+  - `registry.yaml`, the descriptor index. tether sysop reads it directly (`inventory-clients.md`), so it stays in the same
+    path and format.
 
   New never reads `~/.cerberus/paused*`, `standby`, `standby.d/`, `pids/`, `locks/`, `daemon.lock` or the socket (a test asserts
   this).
@@ -156,12 +158,14 @@ Config: the operator override is `~/.config/cerberus/substrate.yaml` (`SUBSTRATE
 | web login keys and sessions | `identity` + `auth` (`enforce`) |
 | `internal/mcp` transport | `mcp` module: HTTP `/mcp`; stdio with `LocalTrust` and narrowed `LocalScopes` |
 | CLI root | `cli` module root; the app adds its verbs |
-| `daemon.lock`, pid file, stray sweep, `procident` | unit plus the database open lock; supervision identifies itself by unit (4.2) |
+| `daemon.lock`, pid file, stray sweep, `procident` | unit plus the database open lock (`<db>.open.lock`, substrate #18); supervision identifies itself by unit (4.2). The lock guards one database file only; "one writer across old and new" rests on the standby mode (7.1), not on it. |
 
 `pluginhost`, `scheduler`, `secrets`, `policy`, `events`: each is evaluated in its slice. The rule: **a published
 contract does not change to fit a module.** Today the plugin contract and the keyring service and account names
 are published contracts. If a module cannot carry one, the app keeps its own code and the gap is filed in project
-Substrate through @substrate-manager.
+Substrate through @substrate-manager. `modules/pluginhost` is changing for the Outpost port (CW-20261114-0100, -0101,
+-0102: config-driven inventory, optional plugins with per-plugin health, a 503 gate, a health monitor). Slice 7 reads
+those first and tells @substrate-manager where Cerberus's plugin contract conflicts, so the framework changes once.
 
 ### 4.2 Stays app code (moved, tests ported)
 
@@ -195,6 +199,11 @@ Hard requirements carried into the slices:
 
 MCP stdio runs with `LocalTrust: true` and `LocalScopes: [cerberus.read, cerberus.operate, cerberus.admin]`, **never
 `cerberus.approve`**. Tests assert that every route has a scope and that no key or local principal reaches approve.
+
+This means every process of the owner's OS user holds `cerberus.admin` over stdio. That is **parity with today's
+socket**, which trusts any process of that user. The safety property is unchanged: admin-lane writes that policy
+gates still stop at the approval gate. A test asserts that a local-trust principal with `cerberus.admin` cannot
+complete a gated write without an approval.
 
 ### 4.4 Stop order
 
@@ -235,7 +244,7 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 | `credential-issuance/<id>/*.json` | **transform** (receipts) | counts |
 | `policy/` (`applied.yaml`, `applied.sha256`, `posture.yaml`, `enforcement.yaml`, `providers/*`) | **copy** into the config dir; `applied.sha256` is checked against `applied.yaml` before and after | sha256; `policy show` equal on both |
 | `config.yaml`, `events.yaml`, `connector-config.yaml` | **transform** to config keys (table in conversion-notes; unknown key = error). Event export stays off. | `cerberus config` reviewed against the old values |
-| `registry.yaml` | **copy**; the descriptors it lists stay in place (they belong to their apps) | entry and resource counts equal (observe mode) |
+| `registry.yaml` | **in place** (adopted root, same format); the descriptors it lists stay in place too (they belong to their apps) | entry and resource counts equal (observe mode) |
 | `hosts.yaml` | **copy**; `token_file` paths keep pointing into the adopted root | `hosts list` equal |
 | `connector-secrets.yaml` (secret refs) | **copy** at 0600 | sha256 |
 | keyring `cerberus` service: connector and plugin credentials, `cerberus-oauth/issuer-ed25519` | **in place**: same service and account names (a contract) | one credentialed health op succeeds |
@@ -285,9 +294,9 @@ From `inventory-clients.md` (by role). What changes for each:
 |---|---|---|
 | Agents and skills (`deploy`, `service-start`, `service-stop`, ad hoc) | `cerberus` CLI on `PATH` | The verbs, flags and output they use stay the same; the CLI reads its key file. At D8 the CLI on `PATH` becomes new. |
 | Long-lived `cerberus mcp` stdio children and the Tether gateway's cerberus entries | stdio MCP, `cerberus_*` tool names | Tool names and shapes stay the same. Children started before D8 dial old's socket; in standby, old refuses writes with an error naming the new CLI, and marks reads `standby: true`. **D9 restarts the gateway's entries**; harnesses respawn the rest. The MCP server id stays `cerberus`: renaming it disables the gateway's authority gate for it. |
-| **tachyon** (machine sync, cerbcontrol) | old socket API through its Cerberus address setting: `/health`, `/resources`, `/hosts`, verb POSTs | **Named change, owned by tachyon's cell**: set its Cerberus address to new's HTTP URL and its token file to a key from D6. New serves the **legacy-route set** (these paths and shapes, under scope) on its HTTP API, so the change is configuration only. It must be ready before D and is applied at D9. |
-| **tether sysop** | old socket at a hard-coded path, `POST /resources/{id}/{action}` | **Named change, owned by Tether's cell**: a code change to take a configurable address and token, pointed at new's HTTP API (legacy-route set). It must be merged and deployable before D and is applied at D9. |
-| Browser | console | New port 4786; sign-in through identity; passkeys carried; proxy (if any) changed in D. |
+| **tachyon** (machine sync, cerbcontrol) | old socket API through its Cerberus address setting: `/health`, `/resources`, `/hosts`, verb POSTs | **Named change, owned by tachyon's team (CW-20261114-0144)**: set its Cerberus address to new's HTTP URL and its token file to a key from D6. New serves the **legacy-route set** (these paths and shapes, under scope) on its HTTP API, so the change is configuration only. It must be ready before D and is applied at D9. |
+| **tether sysop** | old socket at a hard-coded path, `POST /resources/{id}/{action}` | **Named change, owned by @photon-tether (CW-20261114-0145)**: a code change to take a configurable address and token, pointed at new's HTTP API (legacy-route set). It must be merged and deployable before D and is applied at D9. |
+| Browser | console | New port 4786; sign-in through identity; passkeys carried; the proxy entry is repointed in D9 and the public hostname is kept. |
 | Outposts | outpost protocol, tokens in the adopted root | Unchanged; the open mount verifies its own tokens. |
 | Hadron (`cerberus_op`) and other API or MCP machine callers in the inventory | MCP / API | Each gets an API key with its scopes in D6. |
 | `cerberus-plugins` and third-party plugins | `pkg/plugin`, `plugin.yaml`, capabilities | Unchanged (contract). |
@@ -412,7 +421,8 @@ Soak for at least 24 h. Checks:
 4. `$LEGACY resource stop cerberus-substrate` (recorded in the standby chain only). Move new's observe-mode data dir
    aside.
 5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. Read the report.
-6. Offline identity:
+6. Offline identity (the CLI uses identity's Go API; list, revoke and owner-exists come from CW-20261114-0131 /
+   substrate #34; the app never reads identity's tables):
    - The owner runs `$NEW identity setup --username <owner>` at a terminal.
    - Then create keys with `--out` (0600): `cerberus-cli` (read, operate, admin), one for tachyon, one for tether
      sysop, `hadron`, and one per other machine caller in section 6.
@@ -422,8 +432,10 @@ Soak for at least 24 h. Checks:
    - New loads the plugins and starts the host monitor.
    - `$NEW resource start <id>` for exactly the ids in `~/.cerberus/standby.d/sessions.json`.
 8. Point the CLI on `PATH` at `$NEW` (atomic rename). Old is unaffected: it runs from `$LEGACY`.
-9. Apply the tachyon and tether sysop changes, the proxy entry (if any) and the backup job's path list. Restart the
-   Tether gateway's cerberus entries. Run the section 9 checks. Then lift the freeze.
+9. Apply the tachyon (CW-20261114-0144) and tether sysop (CW-20261114-0145) changes, the proxy entry and the backup
+   job's path list. The override already carries the public name in the allowed hosts and `identity.trusted_proxy:
+   true`. The owner reloads the Tether hub, because restarting the gateway's cerberus entries can leave a hub-facing
+   origin marked failed with no retry. Run the section 9 checks. Then lift the freeze.
 
 Old stays running in standby. It owns the `cerberus-substrate` unit and can stop, start or roll back new. Its only
 writes go to the standby chain.
@@ -464,7 +476,9 @@ delete them.
 
 ## 9. Live verification (D9, and again after F)
 
-1. `/healthz` is 200 on 4786. `GET /api/setup` answers `setup_required: false`; `POST /api/setup` answers 403.
+1. `/healthz` is 200 on 4786 **and through the public name**. `GET /api/setup` answers `setup_required: false`;
+   `POST /api/setup` answers 403. Sign-in through the public name sets a session cookie that is `HttpOnly`, `Secure`
+   and `SameSite`; the check uses the public name, never loopback alone.
 2. Refusals:
    - no credential: 401;
    - a key without the scope: 403;
@@ -477,7 +491,8 @@ delete them.
    verify` passes across the old head into new's records against the new anchor. The old main chain is unchanged.
 5. One approval through the console **at its public hostname** (the proxy already repointed in D9) with the carried
    passkey: no cool-down.
-6. One MCP tool call through the restarted Tether gateway entry; the approve tool is refused under local trust.
+6. `tether_gateway_status` shows the hub's origins connected after the reload. One MCP tool call through the
+   restarted gateway entry succeeds; the approve tool is refused under local trust.
 7. tachyon's machine sync and tether sysop's resource action both succeed against new with their keys.
 8. One outpost reports in; one credentialed connector health op succeeds (keyring in place).
 9. Plugins are all parented by new and none by old; the sessions from `sessions.json` run under new.
@@ -528,7 +543,7 @@ Dependencies:
   and 8; gaps go to project Substrate through @substrate-manager.
 - The client changes for tachyon and tether sysop (section 6) need owners and a schedule from the director.
 - The history findings of `scan-public` (old commits) go to the program-wide history pass, through @substrate-manager.
-- The owner of the backup job and of the console proxy (if any) is named in the runbook before D.
+- The owner of the backup job and of the console proxy is named in the runbook before D.
 - `transfers/` (operator payloads) is adopted in place. Whether to move it later is the owner's call.
 
 ## 13. Inventories
