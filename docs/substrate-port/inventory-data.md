@@ -7,8 +7,8 @@ Taken on 2026-11-14 from the operator host, read-only: `ls`, `stat`, `du`, `wc -
 `sqlite3 "file:…?mode=ro"`. No file was written, locked, copied or opened read-write. No secret value was read or printed:
 secret files are named and sized, never opened. Code references are to `main` at `493a9f0`. The live binary `ce767e6`
 differs from it by two commits that touch no store. Paths use `~` for the operator's home. This repository is public:
-live values (row counts, sizes, file counts, dates, host names) are in Tesseract workspace item `01M7DWBT3426DQZKHSXNST18D7`
-(`project/cerberus/workspace/substrate-port`, key `inventory-data-live`); this document keeps the schema, the
+live values (row counts, sizes, file counts, dates, host names) are in Tesseract workspace item `01M7DX799TQJ1FH6JXAD48GYP9`
+(`project/substrate-migration/workspace/cerberus`, key `inventory-data-live`); this document keeps the schema, the
 writers and the treatments.
 
 Writers were found with:
@@ -82,7 +82,7 @@ note on `cerberus_schedule_logs.body`. Version 4 of the migrations is the bootst
 
 `pipeline_runs` (`003`) was dropped by `005_drop_pipeline_runs.sql` and is gone.
 
-Row counts (`sqlite3 "file:main.db?mode=ro" "select count(*) from <table>"`) are in workspace item `01M7DWBT3426DQZKHSXNST18D7`. They move with
+Row counts (`sqlite3 "file:main.db?mode=ro" "select count(*) from <table>"`) are in workspace item `01M7DX799TQJ1FH6JXAD48GYP9`. They move with
 the live host monitor; take them again on the backup copy at rehearsal.
 
 ## 2. Hash-chained and append-only logs
@@ -131,7 +131,7 @@ The **Who** column says who authors each file: **op** means the operator writes 
 | `apps/<project>/<id>/logs/{stdout,stderr,build}.log` | systemd; `build_log.go:25-64` | systemd plus cerb | text | maybe (raw service output) | **in place** |
 | `transfers/` | `internal/cerbapi/transfer_root.go:113`; `internal/connector/ssh/transfer.go:112-128` | cerb (file-transfer root) | arbitrary files | maybe | **in place** or **copy**: operator payloads (outpost rollout bundles). Owner decides. |
 | `backups/` | not written by this repository | op | mixed (old configs, binaries, a patch) | maybe (old `config.yaml`) | **archive** |
-| `config.yaml.bak-*`, `connector-secrets.yaml.bak-*` 🔒, `outpost-recovery.cerberus.yaml.bak-*`, `hardware-from-droplet-*.json`, `web-4784.log` | by hand | op | mixed | `connector-secrets` backups: **yes** | **archive** (mode kept) |
+| hand-made backups of the config, connector secrets 🔒 and descriptor files, and other operator scratch files (names in the workspace item) | by hand | op | mixed | `connector-secrets` backups: **yes** | **archive** (mode kept) |
 | `cerberus.log` | `internal/service/lifecycle_log.go:33-37` | cerb | JSON slog, redacted | No (redacted) | **archive**. The new side logs through Substrate's logging. Flag: this file grows without bound today. |
 | `logs/systemd-{stdout,stderr}.log` | systemd (`cmd_install_systemd.go:87-90`) | systemd | text | No | **archive** |
 
