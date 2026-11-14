@@ -1,8 +1,9 @@
 package secrets
 
 import (
-	"os"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
 // TestMain replaces the OS credential store with an in-memory mock: these
@@ -10,5 +11,5 @@ import (
 // operator's keychain.
 func TestMain(m *testing.M) {
 	MockStoreForTests()
-	os.Exit(m.Run())
+	testhome.Main(m) // and under a scratch home (internal/testhome)
 }

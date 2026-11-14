@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/hollis-labs/cerberus/internal/secrets"
 	"os"
 	"testing"
+
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/secrets"
+	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
 // TestMain points HOME at a scratch directory for the whole package, before
@@ -18,15 +21,16 @@ func TestMain(m *testing.M) {
 		runChildDaemon()
 		return
 	}
-	home, err := os.MkdirTemp("/tmp", "cerb-test-home-")
+	cleanupHome, err := testhome.Isolate()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if err := os.Setenv("HOME", home); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	// The --config default was resolved at package init, from the home the
+	// test binary started with; resolve it again under the scratch home, or a
+	// command without --config reaches the operator's real ~/.cerberus
+	// (plugin-data and plugin-cache, CW-20261114-0143).
+	cfgPath = config.DefaultPath()
 	// Tests never read or write the operator's real credential store: the
 	// CLI reaches KeychainProvider through the connector chain and the
 	// console's store.
@@ -35,6 +39,6 @@ func TestMain(m *testing.M) {
 	// the in-process state check refuses in real use (M11).
 	inProcessStateCheck = func() error { return nil }
 	code := m.Run()
-	_ = os.RemoveAll(home)
+	cleanupHome()
 	os.Exit(code)
 }
