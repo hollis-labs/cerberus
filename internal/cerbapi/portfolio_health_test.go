@@ -99,7 +99,7 @@ func TestPortfolioHealthProjectionContractAndSemantics(t *testing.T) {
   "version": 1,
   "hosts": [
     {
-      "name": "agent-os",
+      "name": "controller-1",
       "role": "operator",
       "reach": {
         "transport": "outpost",
@@ -152,7 +152,7 @@ func TestPortfolioHealthProjectionContractAndSemantics(t *testing.T) {
 		StaleAfter: 24 * time.Hour,
 		Now:        func() time.Time { return now },
 	})
-	_ = hostSvc.store.Put("agent-os", hosts.State{
+	_ = hostSvc.store.Put("controller-1", hosts.State{
 		State:     hosts.StateOnline,
 		LastSeen:  &freshTime,
 		ProbedAt:  &freshTime,
@@ -279,7 +279,7 @@ func TestPortfolioHealthProjectionContractAndSemantics(t *testing.T) {
 				Connector: "ssh",
 				Project:   "outpost-recovery",
 				Config: map[string]any{
-					"host": "192.168.1.252",
+					"host": "192.0.2.52",
 				},
 			},
 		},
@@ -318,7 +318,7 @@ func TestPortfolioHealthProjectionContractAndSemantics(t *testing.T) {
 		WithResourceRuntimeService(runtimeSvc),
 		WithHostService(hostSvc),
 		WithPortfolioHealthOptions(PortfolioHealthOptions{
-			ControllerID:     "agent-os",
+			ControllerID:     "controller-1",
 			ProviderInstance: "cerberus-local",
 			Now:              func() time.Time { return now },
 			HTTPClient:       agentOSTS.Client(),
@@ -334,7 +334,7 @@ func TestPortfolioHealthProjectionContractAndSemantics(t *testing.T) {
 	if proj.SchemaVersion != PortfolioHealthSchemaVersion || proj.Contract != PortfolioHealthContract {
 		t.Fatalf("unexpected contract metadata: version=%d contract=%q", proj.SchemaVersion, proj.Contract)
 	}
-	if proj.ControllerID != "agent-os" || proj.ProviderInstance != "cerberus-local" {
+	if proj.ControllerID != "controller-1" || proj.ProviderInstance != "cerberus-local" {
 		t.Fatalf("unexpected controller metadata: %+v", proj)
 	}
 
@@ -348,8 +348,8 @@ func TestPortfolioHealthProjectionContractAndSemantics(t *testing.T) {
 	for _, h := range proj.Hosts {
 		hostByName[h.Name] = h
 	}
-	if got := hostByName["agent-os"]; got.Readiness != ReadinessReady || got.ReadinessSource != "outpost_readyz" || got.RollupStatus != RollupHealthy {
-		t.Fatalf("agent-os host = %+v", got)
+	if got := hostByName["controller-1"]; got.Readiness != ReadinessReady || got.ReadinessSource != "outpost_readyz" || got.RollupStatus != RollupHealthy {
+		t.Fatalf("controller-1 host = %+v", got)
 	}
 	// worker-1 had 404 on /api/readyz and 200 on /healthz -> liveness_only_healthz, never ReadinessReady!
 	if got := hostByName["worker-1"]; got.Readiness != ReadinessUnknown || got.ReadinessSource != "outpost_healthz" || got.ReadinessDetail != "liveness_only_healthz" {
@@ -665,5 +665,17 @@ func TestPortfolioHealthReadinessVsLivenessAndRoutes(t *testing.T) {
 		if len(filteredProj.Deployments) != 1 || filteredProj.Deployments[0].ID != "hc-unready-svc" {
 			t.Fatalf("GET %s deployments = %+v, want only hc-unready-svc", path, filteredProj.Deployments)
 		}
+	}
+}
+
+func TestDefaultControllerIDIsThisHost(t *testing.T) {
+	want := DefaultProviderInstance
+	if name, err := os.Hostname(); err == nil {
+		if short, _, _ := strings.Cut(strings.TrimSpace(name), "."); short != "" {
+			want = short
+		}
+	}
+	if got := DefaultControllerID(); got != want {
+		t.Fatalf("DefaultControllerID() = %q, want %q", got, want)
 	}
 }
