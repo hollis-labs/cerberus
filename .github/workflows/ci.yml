@@ -19,6 +19,22 @@ jobs:
       GOWORK: "off"
       GOMAXPROCS: "4"
       GOFLAGS: "-p=2"
+    # The store tests run on SQLite and on Postgres (plan section 5.1). A throwaway server per run,
+    # as libs does, reachable only from the job; trust auth, so no credential exists anywhere.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: cerberus
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: cerberus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cerberus -d cerberus_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,6 +72,7 @@ jobs:
           r="$RUNNER_TEMP/cerberus"
           mkdir -p "$r/home" "$r/config" "$r/data" "$r/cache" "$r/state" "$r/tmp"
           HOME="$r/home" XDG_CONFIG_HOME="$r/config" XDG_DATA_HOME="$r/data" XDG_CACHE_HOME="$r/cache" XDG_STATE_HOME="$r/state" TMPDIR="$r/tmp" \
+          SUBSTRATE_TEST_POSTGRES_DSN="postgres://cerberus@127.0.0.1:5432/cerberus_test?sslmode=disable" \
             go test -race -count=1 -timeout=15m ./...
       # Every test package runs under its own scratch home (internal/testhome). This proves
       # it: the whole suite runs with HOME a read-only empty directory, and the directory must

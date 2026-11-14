@@ -318,6 +318,8 @@ func schemaOf(t *testing.T, path string) (tables string, versions int) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
+	// The binary is SQLite only; this reads its file directly.
+	// gostore:allow sqlite-only like-case
 	if err := db.QueryRow(`SELECT group_concat(name, ',') FROM (SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name)`).Scan(&tables); err != nil {
 		t.Fatal(err)
 	}

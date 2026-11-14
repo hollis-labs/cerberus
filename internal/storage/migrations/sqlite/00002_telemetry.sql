@@ -1,19 +1,12 @@
--- The Cerberus schema on Substrate, one migration (clean break from the old numbered files in
--- internal/store/sqlite/migrations). Cerberus is SQLite only.
+-- Cerberus schema, class B: telemetry (docs/substrate-port-plan.md, section 5.1). The host-monitoring tables,
+-- with the old build's columns (old migrations 006 to 008), so the import copies rows unchanged. SQLite at
+-- cutover; they may move to Postgres after acceptance, as one step (host_rollup_state moves with the rollups).
+-- When they do, this file moves to that store's migration set.
 --
--- Until the first release this is the ONLY migration: a schema change edits this file, because
--- there is no deployed database yet. After the first release changes go in new numbered files.
---
--- Not here, on purpose: the old projects and resources tables (empty, definitions live in the
--- *.cerberus.yaml descriptors) and the old schema_migrations table (goose keeps its own).
--- The scheduling tables arrive with the scheduling slice. Times are unix seconds, UTC, unless a
--- column says otherwise.
+-- Until the first release this file is edited in place; after it, changes go in new numbered files. Times are
+-- unix seconds, UTC. The postgres/ twin of this file must stay equivalent; the store tests run on both.
 
 -- +goose Up
-
--- Host monitoring. Same tables and columns as the old build (migrations 006 to 008), so the
--- import (`cerberus migrate-from`, slice 10) copies rows across unchanged.
-
 -- One row per successful probe.
 CREATE TABLE host_samples (
     host TEXT NOT NULL,
@@ -93,35 +86,3 @@ CREATE TABLE host_events (
     expected INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX host_events_host ON host_events (host, id);
-
--- Supervision state that the old build kept as files under ~/.cerberus.
-
--- Pause markers (old: the files paused and paused.<id>). target is a resource id, or '*' for
--- everything. A row means paused; resuming deletes it.
-CREATE TABLE pause_state (
-    target TEXT PRIMARY KEY,
-    paused_at INTEGER NOT NULL
-);
-
--- The digest of the definition each resource was last applied with (old: runtime/applied.json).
--- Digests only, never definitions: a definition's environment can carry values.
-CREATE TABLE applied_definitions (
-    resource_id TEXT PRIMARY KEY,
-    digest TEXT NOT NULL,
-    applied_at INTEGER NOT NULL
-);
-
--- Credential-issuance receipts (old: credential-issuance/<id>/<state>.json, each created once).
--- One row per issuance and lifecycle state; the primary key keeps the old create-once rule.
--- refs is the JSON object of name -> file:// reference (never a value). at is RFC 3339 with
--- nanoseconds, exactly as the old receipt recorded it.
-CREATE TABLE credential_issuance_receipts (
-    issuance_id TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('preparing', 'prepared', 'dispatching', 'completed', 'uncertain')),
-    connector TEXT NOT NULL,
-    operation TEXT NOT NULL,
-    binding_digest TEXT NOT NULL,
-    refs TEXT NOT NULL DEFAULT '{}',
-    at TEXT NOT NULL,
-    PRIMARY KEY (issuance_id, state)
-) WITHOUT ROWID;

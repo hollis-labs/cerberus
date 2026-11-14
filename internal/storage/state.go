@@ -23,11 +23,10 @@ func SetPaused(ctx context.Context, st *store.Store, target string, paused bool,
 	}
 	return st.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
 		if !paused {
-			_, err := tx.ExecContext(ctx, `DELETE FROM pause_state WHERE target = ?`, target)
+			_, err := tx.ExecContext(ctx, tx.Dialect().Rebind(`DELETE FROM pause_state WHERE target = ?`), target)
 			return err
 		}
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO pause_state (target, paused_at) VALUES (?, ?) ON CONFLICT (target) DO NOTHING`,
+		_, err := tx.ExecContext(ctx, tx.Dialect().Rebind(`INSERT INTO pause_state (target, paused_at) VALUES (?, ?) ON CONFLICT (target) DO NOTHING`),
 			target, now.UTC().Unix())
 		return err
 	})
@@ -36,14 +35,13 @@ func SetPaused(ctx context.Context, st *store.Store, target string, paused bool,
 // Paused reports whether target is paused, either itself or through AllTargets.
 func Paused(ctx context.Context, st *store.Store, target string) (bool, error) {
 	var n int
-	err := st.Reader().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM pause_state WHERE target IN (?, ?)`, target, AllTargets).Scan(&n)
+	err := st.Reader().QueryRowContext(ctx, st.Dialect().Rebind(`SELECT COUNT(*) FROM pause_state WHERE target IN (?, ?)`), target, AllTargets).Scan(&n)
 	return n > 0, err
 }
 
 // PausedTargets lists every paused target, sorted.
 func PausedTargets(ctx context.Context, st *store.Store) ([]string, error) {
-	rows, err := st.Reader().QueryContext(ctx, `SELECT target FROM pause_state ORDER BY target`)
+	rows, err := st.Reader().QueryContext(ctx, st.Dialect().Rebind(`SELECT target FROM pause_state ORDER BY target`))
 	if err != nil {
 		return nil, err
 	}
@@ -66,9 +64,9 @@ func SetApplied(ctx context.Context, st *store.Store, resourceID, digest string,
 		return errors.New("applied definition: empty resource id or digest")
 	}
 	return st.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO applied_definitions (resource_id, digest, applied_at) VALUES (?, ?, ?)
+		_, err := tx.ExecContext(ctx, tx.Dialect().Rebind(`INSERT INTO applied_definitions (resource_id, digest, applied_at) VALUES (?, ?, ?)
 ON CONFLICT (resource_id) DO UPDATE SET digest = excluded.digest, applied_at = excluded.applied_at
-WHERE applied_definitions.digest <> excluded.digest`, resourceID, digest, now.UTC().Unix())
+WHERE applied_definitions.digest <> excluded.digest`), resourceID, digest, now.UTC().Unix())
 		return err
 	})
 }
@@ -76,8 +74,7 @@ WHERE applied_definitions.digest <> excluded.digest`, resourceID, digest, now.UT
 // Applied is the digest resourceID was last applied with, if any.
 func Applied(ctx context.Context, st *store.Store, resourceID string) (string, bool, error) {
 	var d string
-	err := st.Reader().QueryRowContext(ctx,
-		`SELECT digest FROM applied_definitions WHERE resource_id = ?`, resourceID).Scan(&d)
+	err := st.Reader().QueryRowContext(ctx, st.Dialect().Rebind(`SELECT digest FROM applied_definitions WHERE resource_id = ?`), resourceID).Scan(&d)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -114,8 +111,8 @@ func RecordReceipt(ctx context.Context, st *store.Store, r Receipt) error {
 		return fmt.Errorf("credential issuance receipt: %w", err)
 	}
 	err = st.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
-		_, execErr := tx.ExecContext(ctx, `INSERT INTO credential_issuance_receipts
-(issuance_id, state, connector, operation, binding_digest, refs, at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		_, execErr := tx.ExecContext(ctx, tx.Dialect().Rebind(`INSERT INTO credential_issuance_receipts
+(issuance_id, state, connector, operation, binding_digest, refs, at) VALUES (?, ?, ?, ?, ?, ?, ?)`),
 			r.IssuanceID, r.State, r.Connector, r.Operation, r.BindingDigest, string(data),
 			r.At.UTC().Format(time.RFC3339Nano))
 		return execErr
@@ -131,8 +128,8 @@ var stateOrder = map[string]int{"preparing": 0, "prepared": 1, "dispatching": 2,
 
 // Receipts returns an issuance's receipts in lifecycle order.
 func Receipts(ctx context.Context, st *store.Store, issuanceID string) ([]Receipt, error) {
-	rows, err := st.Reader().QueryContext(ctx, `SELECT issuance_id, state, connector, operation, binding_digest, refs, at
-FROM credential_issuance_receipts WHERE issuance_id = ?`, issuanceID)
+	rows, err := st.Reader().QueryContext(ctx, st.Dialect().Rebind(`SELECT issuance_id, state, connector, operation, binding_digest, refs, at
+FROM credential_issuance_receipts WHERE issuance_id = ?`), issuanceID)
 	if err != nil {
 		return nil, err
 	}

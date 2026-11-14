@@ -13,6 +13,7 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 	"github.com/hollis-labs/libs/core/store/migrate"
+	"github.com/hollis-labs/libs/core/store/storetest"
 
 	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/storage"
@@ -37,10 +38,64 @@ func open(t *testing.T, path string) *store.Store {
 	return st
 }
 
+// envPostgres names the server the Postgres runs use (a private schema per test, dropped after).
+const envPostgres = "SUBSTRATE_TEST_POSTGRES_DSN"
+
+func TestMain(m *testing.M) {
+	// storetest reads its own variable; CI and local runs set envPostgres.
+	if dsn := os.Getenv(envPostgres); dsn != "" && os.Getenv(storetest.EnvDSN) == "" {
+		_ = os.Setenv(storetest.EnvDSN, dsn)
+	}
+	os.Exit(m.Run())
+}
+
+// eachDialect runs fn on a migrated SQLite file and, when envPostgres is set, on a migrated
+// private Postgres schema. Without it the Postgres run skips, saying so (CI always sets it).
+func eachDialect(t *testing.T, fn func(t *testing.T, st *store.Store, reopen func() *store.Store)) {
+	t.Helper()
+	t.Run("sqlite", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "data", "cerberus.db")
+		fn(t, open(t, path), func() *store.Store { return open(t, path) })
+	})
+	t.Run("postgres", func(t *testing.T) {
+		if os.Getenv(storetest.EnvDSN) == "" && os.Getenv("CI") == "" {
+			t.Skipf("%s not set; skipping the Postgres run of this test", envPostgres)
+		}
+		cfg := storetest.PGConfig(t)
+		if cfg == nil {
+			return
+		}
+		// Postgres defaults to verify-only; the tests migrate, as the app's migrate step will.
+		cfg.SchemaMode = store.SchemaAuto
+		openPG := func() *store.Store {
+			ctx := context.Background()
+			st, err := store.Open(ctx, *cfg)
+			if err != nil {
+				t.Fatalf("open postgres: %v", err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			fsys, root := storage.Migrations()
+			if err := migrate.Ensure(ctx, *cfg, st, migrate.Source{FS: fsys, Root: root}); err != nil {
+				t.Fatalf("migrate postgres: %v", err)
+			}
+			return st
+		}
+		fn(t, openPG(), openPG)
+	})
+}
+
 func tables(t *testing.T, st *store.Store) []string {
 	t.Helper()
-	rows, err := st.Reader().QueryContext(context.Background(),
-		`SELECT name FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	// Catalog queries are per dialect by nature; names are lowercase, so LIKE's case rule does not matter.
+	// gostore:allow like-case
+	q := `SELECT name FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%' ORDER BY name`
+	if st.Dialect().Name() == store.DriverPostgres {
+		// gostore:allow like-case
+		q = `SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'i') AND relname NOT LIKE '%_pkey' AND relname NOT LIKE '%_seq'
+ORDER BY relname`
+	}
+	rows, err := st.Reader().QueryContext(context.Background(), q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,28 +121,24 @@ func gooseVersions(t *testing.T, st *store.Store) int {
 }
 
 func TestSchemaMigratesOnEmptyAndSecondStartIsNoOp(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data", "cerberus.db")
-	st := open(t, path)
-	first, versions := tables(t, st), gooseVersions(t, st)
-	_ = st.Close()
-
-	want := []string{
-		"applied_definitions", "credential_issuance_receipts", "goose_db_version",
-		"host_events", "host_events_host", "host_rollup_state", "host_sample_rollups", "host_samples",
-		"host_status", "pause_state",
-	}
-	if !reflect.DeepEqual(first, want) {
-		t.Fatalf("tables after first start = %v, want %v", first, want)
-	}
-
-	st = open(t, path)
-	defer func() { _ = st.Close() }()
-	if got := tables(t, st); !reflect.DeepEqual(got, first) {
-		t.Fatalf("second start changed the schema: %v, was %v", got, first)
-	}
-	if got := gooseVersions(t, st); got != versions {
-		t.Fatalf("second start recorded more migrations: %d rows, was %d", got, versions)
-	}
+	eachDialect(t, func(t *testing.T, st *store.Store, reopen func() *store.Store) {
+		first, versions := tables(t, st), gooseVersions(t, st)
+		want := []string{
+			"applied_definitions", "credential_issuance_receipts", "goose_db_version",
+			"host_events", "host_events_host", "host_rollup_state", "host_sample_rollups", "host_samples",
+			"host_status", "pause_state",
+		}
+		if !reflect.DeepEqual(first, want) {
+			t.Fatalf("tables after first start = %v, want %v", first, want)
+		}
+		again := reopen()
+		if got := tables(t, again); !reflect.DeepEqual(got, first) {
+			t.Fatalf("second start changed the schema: %v, was %v", got, first)
+		}
+		if got := gooseVersions(t, again); got != versions {
+			t.Fatalf("second start recorded more migrations: %d rows, was %d", got, versions)
+		}
+	})
 }
 
 // columns is PRAGMA table_info for table: name, type, notnull, default, pk.
@@ -108,6 +159,8 @@ func columns(t *testing.T, q store.Querier, table string) [][5]string {
 	}
 	return out
 }
+
+// SQLite only from here: the old build was SQLite, and the old host store is carried code.
 
 // The host tables keep the old build's shape exactly, so the import copies rows unchanged. The
 // old migrations are frozen in testdata/old (from internal/store/sqlite/migrations on main).
@@ -161,108 +214,116 @@ func TestOldHostStoreRunsOnTheNewSchema(t *testing.T) {
 }
 
 func TestPauseState(t *testing.T) {
-	ctx := context.Background()
-	st := open(t, filepath.Join(t.TempDir(), "cerberus.db"))
-	defer func() { _ = st.Close() }()
-	now := time.Unix(1_700_000_000, 0)
+	eachDialect(t, func(t *testing.T, st *store.Store, _ func() *store.Store) {
+		ctx := context.Background()
+		now := time.Unix(1_700_000_000, 0)
 
-	if p, err := storage.Paused(ctx, st, "web"); err != nil || p {
-		t.Fatalf("fresh: paused=%v err=%v", p, err)
-	}
-	if err := storage.SetPaused(ctx, st, "web", true, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.SetPaused(ctx, st, "web", true, now.Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	if p, _ := storage.Paused(ctx, st, "web"); !p {
-		t.Fatal("web not paused")
-	}
-	if p, _ := storage.Paused(ctx, st, "api"); p {
-		t.Fatal("api paused by web's marker")
-	}
-	if err := storage.SetPaused(ctx, st, storage.AllTargets, true, now); err != nil {
-		t.Fatal(err)
-	}
-	if p, _ := storage.Paused(ctx, st, "api"); !p {
-		t.Fatal("pause-all does not cover api")
-	}
-	if got, _ := storage.PausedTargets(ctx, st); !reflect.DeepEqual(got, []string{"*", "web"}) {
-		t.Fatalf("targets = %v", got)
-	}
-	for _, target := range []string{"web", storage.AllTargets} {
-		if err := storage.SetPaused(ctx, st, target, false, now); err != nil {
+		if p, err := storage.Paused(ctx, st, "web"); err != nil || p {
+			t.Fatalf("fresh: paused=%v err=%v", p, err)
+		}
+		if err := storage.SetPaused(ctx, st, "web", true, now); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if p, _ := storage.Paused(ctx, st, "web"); p {
-		t.Fatal("web still paused after resume")
-	}
-	if err := storage.SetPaused(ctx, st, "", true, now); err == nil {
-		t.Fatal("empty target accepted")
-	}
+		if err := storage.SetPaused(ctx, st, "web", true, now.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		if p, _ := storage.Paused(ctx, st, "web"); !p {
+			t.Fatal("web not paused")
+		}
+		if p, _ := storage.Paused(ctx, st, "api"); p {
+			t.Fatal("api paused by web's marker")
+		}
+		if err := storage.SetPaused(ctx, st, storage.AllTargets, true, now); err != nil {
+			t.Fatal(err)
+		}
+		if p, _ := storage.Paused(ctx, st, "api"); !p {
+			t.Fatal("pause-all does not cover api")
+		}
+		if got, _ := storage.PausedTargets(ctx, st); !reflect.DeepEqual(got, []string{"*", "web"}) {
+			t.Fatalf("targets = %v", got)
+		}
+		for _, target := range []string{"web", storage.AllTargets} {
+			if err := storage.SetPaused(ctx, st, target, false, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if p, _ := storage.Paused(ctx, st, "web"); p {
+			t.Fatal("web still paused after resume")
+		}
+		if err := storage.SetPaused(ctx, st, "", true, now); err == nil {
+			t.Fatal("empty target accepted")
+		}
+	})
 }
 
 func TestAppliedDefinitions(t *testing.T) {
-	ctx := context.Background()
-	st := open(t, filepath.Join(t.TempDir(), "cerberus.db"))
-	defer func() { _ = st.Close() }()
-	now := time.Unix(1_700_000_000, 0)
+	eachDialect(t, func(t *testing.T, st *store.Store, _ func() *store.Store) {
+		ctx := context.Background()
+		now := time.Unix(1_700_000_000, 0)
 
-	if _, ok, err := storage.Applied(ctx, st, "web"); err != nil || ok {
-		t.Fatalf("fresh: ok=%v err=%v", ok, err)
-	}
-	for _, d := range []string{"sha256:aaa", "sha256:aaa", "sha256:bbb"} {
-		if err := storage.SetApplied(ctx, st, "web", d, now); err != nil {
-			t.Fatal(err)
+		if _, ok, err := storage.Applied(ctx, st, "web"); err != nil || ok {
+			t.Fatalf("fresh: ok=%v err=%v", ok, err)
 		}
-	}
-	if d, ok, err := storage.Applied(ctx, st, "web"); err != nil || !ok || d != "sha256:bbb" {
-		t.Fatalf("Applied = %q %v %v", d, ok, err)
-	}
-	if err := storage.SetApplied(ctx, st, "web", "", now); err == nil {
-		t.Fatal("empty digest accepted")
-	}
+		for _, d := range []string{"sha256:aaa", "sha256:aaa", "sha256:bbb"} {
+			if err := storage.SetApplied(ctx, st, "web", d, now); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if d, ok, err := storage.Applied(ctx, st, "web"); err != nil || !ok || d != "sha256:bbb" {
+			t.Fatalf("Applied = %q %v %v", d, ok, err)
+		}
+		if err := storage.SetApplied(ctx, st, "web", "", now); err == nil {
+			t.Fatal("empty digest accepted")
+		}
+	})
 }
 
 func TestReceiptsAreWrittenOnceAndReadInOrder(t *testing.T) {
-	ctx := context.Background()
-	st := open(t, filepath.Join(t.TempDir(), "cerberus.db"))
-	defer func() { _ = st.Close() }()
-	at := time.Date(2026, 11, 14, 12, 0, 0, 123456789, time.UTC)
-	base := storage.Receipt{IssuanceID: "iss-1", Connector: "postgres", Operation: "provision", BindingDigest: "d1",
-		References: map[string]string{"runtime": "file:///private/issued/iss-1/runtime"}}
+	eachDialect(t, func(t *testing.T, st *store.Store, _ func() *store.Store) {
+		ctx := context.Background()
+		at := time.Date(2026, 11, 14, 12, 0, 0, 123456789, time.UTC)
+		base := storage.Receipt{IssuanceID: "iss-1", Connector: "postgres", Operation: "provision", BindingDigest: "d1",
+			References: map[string]string{"runtime": "file:///private/issued/iss-1/runtime"}}
 
-	for i, state := range []string{"dispatching", "preparing", "prepared"} {
-		r := base
-		r.State, r.At = state, at.Add(time.Duration(i)*time.Second)
-		if err := storage.RecordReceipt(ctx, st, r); err != nil {
-			t.Fatalf("%s: %v", state, err)
+		for i, state := range []string{"dispatching", "preparing", "prepared"} {
+			r := base
+			r.State, r.At = state, at.Add(time.Duration(i)*time.Second)
+			if err := storage.RecordReceipt(ctx, st, r); err != nil {
+				t.Fatalf("%s: %v", state, err)
+			}
 		}
-	}
-	dup := base
-	dup.State, dup.At = "prepared", at
-	if err := storage.RecordReceipt(ctx, st, dup); !errors.Is(err, storage.ErrReceiptExists) {
-		t.Fatalf("second prepared receipt: %v, want ErrReceiptExists", err)
-	}
-	bad := base
-	bad.State, bad.At = "exploded", at
-	if err := storage.RecordReceipt(ctx, st, bad); err == nil || !strings.Contains(err.Error(), "CHECK") {
-		t.Fatalf("unknown state: %v, want a CHECK failure", err)
-	}
+		dup := base
+		dup.State, dup.At = "prepared", at
+		if err := storage.RecordReceipt(ctx, st, dup); !errors.Is(err, storage.ErrReceiptExists) {
+			t.Fatalf("second prepared receipt: %v, want ErrReceiptExists", err)
+		}
+		bad := base
+		bad.State, bad.At = "exploded", at
+		if err := storage.RecordReceipt(ctx, st, bad); err == nil || (!strings.Contains(err.Error(), "CHECK") && !strings.Contains(err.Error(), "check constraint")) {
+			t.Fatalf("unknown state: %v, want a CHECK failure", err)
+		}
 
-	got, err := storage.Receipts(ctx, st, "iss-1")
-	if err != nil {
+		got, err := storage.Receipts(ctx, st, "iss-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var states []string
+		for _, r := range got {
+			states = append(states, r.State)
+		}
+		if !reflect.DeepEqual(states, []string{"preparing", "prepared", "dispatching"}) {
+			t.Fatalf("states = %v", states)
+		}
+		if !got[0].At.Equal(at.Add(time.Second)) || got[0].References["runtime"] == "" {
+			t.Fatalf("receipt did not round-trip: %+v", got[0])
+		}
+	})
+}
+
+// Both dialects carry the same migration versions, so a class can move without a renumber.
+func TestDialectsHaveTheSameMigrations(t *testing.T) {
+	fsys, root := storage.Migrations()
+	if err := migrate.CheckParity(migrate.Source{FS: fsys, Root: root}); err != nil {
 		t.Fatal(err)
-	}
-	var states []string
-	for _, r := range got {
-		states = append(states, r.State)
-	}
-	if !reflect.DeepEqual(states, []string{"preparing", "prepared", "dispatching"}) {
-		t.Fatalf("states = %v", states)
-	}
-	if !got[0].At.Equal(at.Add(time.Second)) || got[0].References["runtime"] == "" {
-		t.Fatalf("receipt did not round-trip: %+v", got[0])
 	}
 }

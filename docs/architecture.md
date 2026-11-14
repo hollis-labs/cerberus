@@ -14,7 +14,7 @@ with each slice and states only what the branch does now.
 | Routes | Every `/api/` route has a scope (plan section 4.3); `/healthz` is the only public route. The outpost device protocol and event-token endpoints are open mounts that authenticate their own callers. |
 | Background work | Supervision monitor, host probes, scheduler, event export, plugin processes. App code owns them and joins them before modules stop (plan section 4.4). |
 | UI | app-shell plus BOM-pinned kits; app nav and surfaces in `ui/app.json` (slice 11). |
-| Database | **SQLite only.** A `database.driver` other than `sqlite` is refused at start. |
+| Database | **SQLite at cutover; the schema is dialect-ready** (see Database). Until a table class moves to Postgres, a `database.driver` other than `sqlite` is refused at start. |
 
 ## Layout (slices 1 and 2)
 
@@ -73,17 +73,29 @@ never creates one), or if it cannot be read that way.
 
 ## Database
 
-SQLite only, opened by the `database` module (`database.From(app)`, libs `core/store`). The schema is one goose
-migration until the first release; after that, changes go in new numbered files. The module migrates under its open
-lock, so a start on an empty data directory creates the schema and a second start is a no-op (tested in
-`internal/storage` and with the real binary in `cmd/cerberus`).
+Dialect-ready, and the cutover runs on SQLite (plan section 5.1). Every store access goes through the `database`
+module (libs `core/store`), via `storage.FromApp(app)`, which hands out one store per table class:
 
-| Table | From the old build | Notes |
-|---|---|---|
-| `host_samples`, `host_status`, `host_sample_rollups`, `host_rollup_state`, `host_events` | `main.db`, same columns (migrations 006 to 008) | A test compares every column with the old migrations (frozen in `internal/storage/testdata/old`). The old `internal/hosts` store runs on them unchanged. |
-| `pause_state` | the files `paused` and `paused.<id>` | `target` is a resource id or `*`; a row means paused. |
-| `applied_definitions` | `runtime/applied.json` | Digests only, never definitions. |
-| `credential_issuance_receipts` | `credential-issuance/<id>/<state>.json` | One row per issuance and state, written once; `refs` holds `file://` references, never values; `at` keeps RFC 3339 nanoseconds. |
+- `Stores.Local`: class A, local state that must work while Postgres is down. Always the local SQLite store.
+- `Stores.Telemetry`: class B, the host-monitoring tables. Today the same store. After acceptance it may become a
+  named Postgres store (Substrate's `database.Named(app, "data")`). That switch is made in `FromApp` alone.
+
+There is one goose set per dialect: `internal/storage/migrations/sqlite` and `.../postgres`, with the same
+versions (a parity test checks this). `00001_local.sql` holds class A and `00002_telemetry.sql` holds class B,
+which moves to the named store's set when B moves. Until the first release each file is edited in place. SQL goes
+through `Dialect().Rebind`, and the store tests run on SQLite and on Postgres:
+- CI starts a `postgres:17` service and sets `SUBSTRATE_TEST_POSTGRES_DSN`;
+- locally, without that variable, the Postgres runs skip and say so.
+
+The module migrates under its open lock, so a start on an empty data directory creates the schema and a second
+start is a no-op (tested on both dialects, and with the real binary in `cmd/cerberus`).
+
+| Table | Class | From the old build | Notes |
+|---|---|---|---|
+| `pause_state` | A | the files `paused` and `paused.<id>` | `target` is a resource id or `*`; a row means paused. |
+| `applied_definitions` | A | `runtime/applied.json` | Digests only, never definitions. |
+| `credential_issuance_receipts` | A | `credential-issuance/<id>/<state>.json` | One row per issuance and state, written once; `refs` holds `file://` references, never values; `at` keeps RFC 3339 nanoseconds. |
+| `host_samples`, `host_status`, `host_sample_rollups`, `host_rollup_state`, `host_events` | B | `main.db`, same columns (migrations 006 to 008) | The SQLite tables match the old migrations column for column (frozen in `internal/storage/testdata/old`). The old `internal/hosts` store runs on them unchanged. |
 
 Not carried: the old `projects` and `resources` tables (empty; definitions live in the descriptors) and
 `schema_migrations`. The scheduling tables arrive with the scheduling slice. Reads go through `Reader()`, writes
