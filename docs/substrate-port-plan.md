@@ -34,24 +34,58 @@ has four parts:
 | Routes | Every `/api/` route has a scope (section 4.3). The outpost device protocol authenticates its own callers and is an open mount that says so in code. |
 | Background work | Resource monitor, host monitor and janitor, approval-expiry sweeper, overview snapshot recorder, plugin supervision, MCP plugin tool sync, event export (off live). App code owns them; the stop order is in section 4.4. The scheduling core is wired but has never been started; it is ported and stays off until it is turned on separately. |
 | UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in is app-owned until identity has a UI kit. |
-| Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. Requested pins: `libs/mesh/eventbus`, `libs/security/webauthn`. |
+| Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. `libs/mesh/eventbus` is being added to the BOM. `libs/security/webauthn` is pinned only if decision 0.1 keeps passkey approvals. |
 | Where the port lives | **This repository, long-lived branch `substrate-port`** (from `main` at `493a9f0`). Port PRs target it. Merges go through @substrate-manager. `main` stays the live app's source until phase F (section 10). |
 | Live-app change needed | **Yes, one: the standby mode on `main` (section 7.1).** The director approves it with this plan. |
+| Owner decision | **Keep passkey approvals (0.1)?** Recommended: keep. |
 | Changes in other apps | **Two socket clients must move to the new API before the handoff** (section 6). Their owners and scheduling are the director's. |
+
+### 0.1 Decision for the owner: keep passkey approvals?
+
+The adoption guide (section 5, item 8) says strict-mode proofs, passkeys and signed approvals included, are not part
+of a port: they are dropped and recorded as a follow-up. Tachyon dropped its WebAuthn route under that rule. Keeping
+them in Cerberus is an exception, which the owner grants through the director. @substrate-manager pins
+`libs/security/webauthn` the same day if it is granted.
+
+- **Who uses it today.** The owner, alone, approves gated admin-lane operations (destructive or high-effect
+  connector writes) out of band with a passkey. The approvals log has a few dozen entries since September (the
+  live-facts item has the count). Agents request approvals; they cannot give them.
+- **What it protects against.** Agents run as the owner's OS user on the same host. A passkey assertion needs user
+  presence on an authenticator, which no process of that user can produce. That is why `cerberus.approve` is
+  unreachable from any key or local-trust MCP process.
+- **If dropped**, the owner approves from a signed-in identity session in the console, as in Tangent and Tachyon:
+  - approval stays human and bound to the plan hash;
+  - the console session's password is the only factor, and a same-user agent that ever learns it, or holds a
+    browser session, could approve;
+  - the passkey files and the approvals chain are still migrated and kept (data is not dropped), but no longer
+    verified;
+  - slices 6 and 11c get smaller; the presence and cool-down code is not ported.
+- **The cost of keeping it:**
+  - one BOM pin;
+  - `internal/presence` ported as app code (registry, counters, cool-down, the ceremony) in slices 6 and 11c;
+  - the allowed-origins config and the RP-ID rehearsal assertion;
+  - Cerberus carries a strict-mode path alone until Substrate has one, and that is recorded as a Substrate
+    follow-up.
+- **Recommendation: keep.** Cerberus is the one app whose approvals gate writes to live infrastructure, and the
+  same-user-agent threat is exactly what the passkey closes.
+
+Until it is decided, the skeleton builds without `internal/presence`, and slice 11c waits.
 
 ## 1. What changes for the owner
 
 - **One password, typed once**, at the offline `cerberus identity setup` in the window.
 - **The CLI uses an API key.** It calls the loopback HTTP API with a key read from a 0600 file instead of the unix
   socket. The verbs, flags and output that skills and agents use stay the same.
-- **Approvals stay passkey-bound** and keep working with the same passkeys. The guide says strict-mode proofs are
-  not part of a port; for Cerberus they are the product's safety gate on live systems, so they are ported as app
-  code. The passkey registry is carried byte for byte with the audit chain that records its hash, so no 24-hour
-  cool-down starts. No API key and no local-trust MCP process can hold `cerberus.approve`.
+- **Approvals: passkey-bound if decision 0.1 keeps them** (the recommendation). The passkey registry is then carried
+  byte for byte with the audit chain that records its hash, so no 24-hour cool-down starts. Either way, no API key and
+  no local-trust MCP process can hold `cerberus.approve`.
 - **The console moves to `127.0.0.1:4786`.** The old console's default is 4783, and the old build's `mcp-http`
-  default is 4785, so both are avoided. The passkey RP ID is `localhost`, which is unaffected by the port change. The
-  allowed origins are configured explicitly, because today they are derived from the old login-key file. A proxy in
-  front of the console, if any, changes in the window.
+  default is 4785, so both are avoided. **A passkey is bound to the hostname of the origin it was enrolled on (its RP
+  ID)**, and the live passkeys are bound to `localhost` and to the console's public host. The port change does not
+  affect them, but the hostname must not change: the proxy keeps serving the console under the same public hostname,
+  now forwarding to 4786. `cerberus.passkeys.allowed_origins` is migrated from `web.public_url` plus
+  `http://localhost:4786`, because today the origins are derived from the old login-key file. The rehearsal reads each
+  key's RP ID and asserts that every one matches the host of an allowed origin.
 - **Restarts the owner will see:**
   - `os_service` units (Cerberus-written and native) are never restarted.
   - Plugin processes and running dev sessions live in the daemon's cgroup. They restart at phase B, at the handoff
@@ -65,7 +99,7 @@ has four parts:
 | Console | A separate `cerberus web` process on loopback, from a copy of the same binary under another name. |
 | Workloads | `os_service` resources (own units, `Restart=always`, independent of the daemon), native units tracked as resources, `dev_session` resources (children of the daemon), unsupervised handles (ssh, docker). Definitions come from `registry.yaml` plus `config.yaml`. |
 | Self-deploy | By hand: `mv` the new binary over the installed path, then restart the unit from outside. Kept `.prev-<date>-<sha>` copies are the rollback. The self-guard refuses a deploy over the daemon's own socket. |
-| Outside jobs that read Cerberus state | The host's backup job (archives `main.db`, `config.yaml`, `registry.yaml`, `plugin-connectors.json`, `audit/`) and the events token renewal job (writes `events-tokens/`). |
+| Outside jobs that read Cerberus state | An outside backup job reads Cerberus state, and its path list must follow the new layout. A token renewal job writes into `events-tokens/`. Details are in the live-facts item. |
 
 ## 3. Target layout
 
@@ -259,7 +293,7 @@ From `inventory-clients.md` (by role). What changes for each:
 | Go importers of `github.com/hollis-labs/cerberus/pkg/...` | module path | Unchanged (contract). |
 | Every repo's `*.cerberus.yaml` | `cerberus-project/v1` | Unchanged (contract). |
 | `fleet-install` | drop-ins in Cerberus-written units | Unchanged; renderer parity keeps them valid. |
-| The host's backup job | reads `main.db`, `config.yaml`, `registry.yaml`, `plugin-connectors.json`, `audit/` | Its path list gains the new data and config dirs (D, by its owner). The old paths stay until F. |
+| The outside backup job | reads Cerberus state (list in the live-facts item) | Its path list gains the new data and config dirs (D, by its owner). The old paths stay until F. |
 | The events token renewal job | writes `events-tokens/` | Unchanged (adopted root). Export stays off; turning it on later is a separate change with Tether's owner. |
 | Processes old spawns that call `cerberus` through `PATH` | CLI | Old's unit `PATH` is pinned in phase B to put the legacy binary first. |
 
@@ -299,7 +333,8 @@ On entry:
 - **stops the loops**: host monitor and janitor, approval-expiry sweeper, snapshot recorder, resource monitor, event
   export;
 - **stops every running `dev_session`** without writing `paused.<id>`. It records their ids in
-  `~/.cerberus/standby/sessions.json`, outside the pause set.
+  `~/.cerberus/standby/sessions.json`, outside the pause set. The file is written once, at the first entry; a later
+  entry while it exists leaves it unchanged, so a restart of old in standby cannot shrink the list.
 
 While in standby:
 - **The socket** refuses every request except reads and `resource status|start|stop|reload` on the one resource named
