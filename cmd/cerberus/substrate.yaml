@@ -21,3 +21,5 @@ config:
   # SUBSTRATE_CONFIG; docs/architecture.md lists every key.
   cerberus:
     install_root: "~/.cerberus/apps"
+    # Files kept in place in the old format because other programs read them (registry.yaml).
+    adopt_root: "~/.cerberus"

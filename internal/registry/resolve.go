@@ -16,6 +16,18 @@ type ResolveOptions struct {
 	// path that does not exist, means "no global source" — resolution
 	// proceeds from the registry alone.
 	GlobalPath string
+	// RetiredRoots, when set, are the only retired project-config directories a registered
+	// path is checked against (ForRoot sets them). Empty keeps the old check, which also
+	// reads the home directory (ValidateConfigLocation).
+	RetiredRoots []string
+}
+
+// checkLocation applies the retired-directory rule for these options.
+func (o ResolveOptions) checkLocation(path string) error {
+	if len(o.RetiredRoots) > 0 {
+		return validateLocation(path, o.RetiredRoots)
+	}
+	return ValidateConfigLocation(path, o.IndexPath)
 }
 
 // ResolvedConfig is the merged runtime config plus diagnostics.
@@ -117,7 +129,7 @@ func resolveIndex(opts ResolveOptions, idx *Index) (*ResolvedConfig, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Owner < entries[j].Owner })
 
 	for _, entry := range entries {
-		if err := ValidateConfigLocation(entry.Path, opts.IndexPath); err != nil {
+		if err := opts.checkLocation(entry.Path); err != nil {
 			resolved.skip(entry, HealthInvalid, err.Error())
 			continue
 		}

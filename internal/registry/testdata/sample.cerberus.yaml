@@ -1,0 +1,41 @@
+# A synthetic cerberus-project/v1 descriptor (no real hosts, paths or names). It exercises
+# the fields live descriptors use: a local process with a port, an artifact install, a
+# dependency, tags, and a pipeline.
+kind: cerberus-project/v1
+owner: sample-app
+namespace: default
+project:
+  id: sample-app
+  name: Sample App
+  description: Fixture for the Substrate port's registry tests.
+resources:
+  - id: sample-api
+    name: Sample API
+    type: process
+    connector: local
+    project: sample-app
+    tags: [api, fixture]
+    config:
+      command: ["./bin/sample-api", "serve"]
+      port: 8080
+      supervisor: systemd_user
+      service_name: com.hollis-labs.cerberus.sample-app.sample-api
+  - id: sample-worker
+    name: Sample Worker
+    type: process
+    connector: local
+    project: sample-app
+    depends_on: [sample-api]
+    config:
+      command: ["./bin/sample-worker"]
+pipelines:
+  - id: sample-release
+    name: Sample release
+    stages:
+      - name: deploy
+        actions:
+          - type: deploy
+            resource: sample-api
+          - type: health_wait
+            resource: sample-api
+            timeout: 30s
