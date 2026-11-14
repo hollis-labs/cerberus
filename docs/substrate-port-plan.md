@@ -271,6 +271,13 @@ Excluded from the manifest: `standby.d/` (the standby chain and the session list
   `main.db` and the old files;
 - leaves the new data dir intact.
 
+Class B (section 5.1) stays on SQLite through D, E and F; it moves to Postgres only after acceptance. So, until then,
+`export-legacy` reads B rows from new's SQLite file, like A. A rollback run after B has moved (the "after F" row in
+section 8) reads B through the same named database handle that the running instance uses.
+If Postgres is down then, it completes the A and file steps, records the B step as pending and refuses to report
+success, and `export-legacy --since <handoff> --only telemetry` finishes it once Postgres is back. Old runs
+without those rows meanwhile, because they are history and supervision does not read them. No B row is dropped.
+
 ### 5.1 Database dialects and table classes (Postgres direction, 2026-11-14)
 
 The port is **dialect-ready, and the cutover stays on SQLite.** The Postgres switch for any table class is a
@@ -373,7 +380,8 @@ On entry:
 
 While in standby:
 - **The socket** refuses every request except reads and `resource status|apply|stop|reload` on the one resource
-  named in the flag file. The old CLI starts a stopped resource with `apply --ack`. The refusal is guidance naming the
+  named in the flag file. The old CLI starts a stopped resource with `apply --ack` and stops one with `stop --ack`; both verbs
+  refuse without `--ack`. The refusal is guidance naming the
   new CLI. Reads carry `standby: true`, and reads that audit today (hosts, components, portfolio health) write to the
   standby chain, never the main one.
 - **The allowed verbs on the flagged resource** do not write `paused.<id>` or `runtime/applied.json`. They need no
@@ -447,7 +455,7 @@ Soak for at least 24 h. Checks:
    - `cp -a ~/.cerberus <dir>/cerberus-home`, excluding the adopted root's directories and `standby.d/`.
    - Write the D3 manifest (section 5).
    - All of it goes into a private 0700 directory.
-4. `$LEGACY resource stop cerberus-substrate` (recorded in the standby chain only). Move new's observe-mode data dir
+4. `$LEGACY resource stop cerberus-substrate --ack` (recorded in the standby chain only). Move new's observe-mode data dir
    aside.
 5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. Read the report.
 6. Offline identity (the CLI uses identity's Go API; list, revoke and owner-exists come from CW-20261114-0131 /
@@ -495,9 +503,9 @@ writes go to the standby chain.
 | From | Rollback |
 |---|---|
 | B | Remove old's drop-ins and restart: back on the untouched installed binary. |
-| C | `$LEGACY resource stop cerberus-substrate`, remove the descriptor; move new's data dir aside. |
+| C | `$LEGACY resource stop cerberus-substrate --ack`, remove the descriptor; move new's data dir aside. |
 | D, before step 7 | `rm ~/.cerberus/standby` (old restarts its loops, plugins and the listed sessions); start the old console. Old's state is as at D2. |
-| D step 7 to the end of E | 1. `$LEGACY resource stop cerberus-substrate` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
+| D step 7 to the end of E | 1. `$LEGACY resource stop cerberus-substrate --ack` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
 | after F | Re-enable old's units (files kept), stop new, then the same steps from step 2 above. Re-home is undone by removing the drop-in. |
 
 Old's files, `$LEGACY` and the rollback copies are kept until acceptance plus 30 days; the owner decides when to
