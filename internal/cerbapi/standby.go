@@ -34,6 +34,10 @@ type Standby struct {
 	auditDir string
 	logger   *slog.Logger
 
+	// divert is the process's main audit sink; while the fence is up every write to it goes
+	// to the standby chain instead (audit.Switch). Nil in a fence that has none.
+	divert *audit.Switch
+
 	mu    sync.RWMutex
 	state standby.State
 	since time.Time
@@ -42,25 +46,53 @@ type Standby struct {
 	sink   audit.Sink
 }
 
+// StandbyOption configures the fence.
+type StandbyOption func(*Standby)
+
+// WithAuditDivert gives the fence the process's main audit sink: while it is up, every
+// record any service writes (an audited read included) goes to the standby chain, so the
+// main chain stays byte-identical across standby.
+func WithAuditDivert(sw *audit.Switch) StandbyOption {
+	return func(s *Standby) { s.divert = sw }
+}
+
 // NewStandby builds the fence for runtime, keeping its audit chain in auditDir.
-func NewStandby(runtime *ResourceRuntimeService, auditDir string, logger *slog.Logger) *Standby {
+func NewStandby(runtime *ResourceRuntimeService, auditDir string, logger *slog.Logger, opts ...StandbyOption) *Standby {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Standby{runtime: runtime, auditDir: auditDir, logger: logger}
+	s := &Standby{runtime: runtime, auditDir: auditDir, logger: logger}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
-// Set changes the fence's state.
+// Set changes the fence's state. Raising it diverts the main audit sink to the standby
+// chain first; a standby chain that cannot be opened diverts to a sink that refuses every
+// write, so a write that needs its record is refused rather than reaching the main chain.
+// Lowering it restores the main sink last.
 func (s *Standby) Set(st standby.State) {
 	if s == nil {
 		return
 	}
+	if st.Active && s.divert != nil {
+		sink, err := s.Sink()
+		if err != nil {
+			s.logger.Error("daemon.standby.chain_unavailable", "error", err.Error(), "consequence", "audited operations are refused while in standby")
+			sink = audit.Unavailable{Err: err}
+		}
+		s.divert.Divert(sink)
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if st.Active && !s.state.Active {
 		s.since = time.Now()
 	}
 	s.state = st
+	s.mu.Unlock()
+	if !st.Active && s.divert != nil {
+		s.divert.Divert(nil)
+	}
 }
 
 // State is the fence's state, and since when it has been active.

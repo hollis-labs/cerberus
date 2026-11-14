@@ -147,28 +147,42 @@ func NewExternalConnectorService(configPath ...string) *cerbapi.ExternalConnecto
 }
 
 var (
-	auditOnce sync.Once
-	auditSink audit.Sink
+	auditOnce   sync.Once
+	auditSink   audit.Sink
+	auditSwitch *audit.Switch
 )
 
 // AuditSink is this process's audit sink: ~/.cerberus/audit, opened once and
 // shared, so every service in the process writes through one writer. When the
 // directory cannot be opened the sink refuses every write with the reason —
 // non-read operations are then refused and reads are logged (Decision 8).
+//
+// The sink is an audit.Switch over that directory's chain, so the daemon's standby mode can
+// divert every write to the standby chain without any service knowing (AuditSwitch).
 func AuditSink() audit.Sink {
 	auditOnce.Do(func() {
+		var primary audit.Sink
 		dir, err := AuditDir()
 		if err == nil {
 			var sink *audit.FileSink
 			if sink, err = audit.OpenFileSink(dir); err == nil {
-				auditSink = sink
-				return
+				primary = sink
 			}
 		}
-		auditSink = audit.Unavailable{Err: err}
+		if primary == nil {
+			primary = audit.Unavailable{Err: err}
+		}
+		auditSwitch = audit.NewSwitch(primary)
+		auditSink = auditSwitch
 	})
 	policyOnce.Do(installPolicy)
 	return auditSink
+}
+
+// AuditSwitch is AuditSink's switch, for the daemon's standby fence.
+func AuditSwitch() *audit.Switch {
+	AuditSink()
+	return auditSwitch
 }
 
 var policyOnce sync.Once

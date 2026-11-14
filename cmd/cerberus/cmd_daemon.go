@@ -700,7 +700,7 @@ func runDaemonBody() error {
 	if standbyErr != nil {
 		return standbyErr
 	}
-	fence := cerbapi.NewStandby(a.Runtime, standbyPaths.AuditDir(), logger)
+	fence := cerbapi.NewStandby(a.Runtime, standbyPaths.AuditDir(), logger, cerbapi.WithAuditDivert(app.AuditSwitch()))
 	controller := &standbyController{paths: standbyPaths, fence: fence, loops: loops, plugins: managedPlugins, sessions: a.Runtime, logger: logger}
 	controller.apply(ctx, standbyPaths.Read())
 	wg.Add(1)
@@ -737,6 +737,14 @@ func runDaemonBody() error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// The stdio MCP server calls the in-process client directly, not through the
+		// socket, so the standby fence does not stand in front of it. A daemon that starts
+		// in standby does not serve it at all (under the systemd unit its stdin is
+		// /dev/null and it would end at once anyway).
+		if st, _ := fence.State(); st.Active {
+			logger.Warn("daemon.standby.stdio_mcp_not_served", "reason", "in standby, MCP is served only through the socket, behind the fence; use `cerberus mcp`")
+			return
+		}
 		srv := mcp.NewServer("cerberus", "0.1.0", mcp.WithInstructions(mcp.Instructions(currentPosture())))
 		for _, tool := range mcp.AllTools(inProc) {
 			srv.RegisterTool(tool)

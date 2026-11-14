@@ -197,6 +197,10 @@ resources:
 	if err := os.WriteFile(filepath.Join(state, "approvals", "events.jsonl"), []byte(`{"seq":1}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// One host, so the host reads below are audited reads that reach the audit sink.
+	if err := os.WriteFile(filepath.Join(state, "hosts.yaml"), []byte("version: 1\nhosts:\n  - name: box-1\n    role: worker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	xdgData := filepath.Join(home, "xdg-data")
 	mainDB := filepath.Join(xdgData, "cerberus", "workspaces", "default", "main.db")
 
@@ -343,6 +347,14 @@ resources:
 	if _, err := client.ListResources(ctx, cerbapi.ResourceListArgs{}); err != nil {
 		t.Fatalf("a read in standby: %v", err)
 	}
+	// Audited reads (review of #82): served, and recorded in the standby chain, not the main.
+	if hosts, err := client.ListHosts(ctx, cerbapi.HostFilter{}); err != nil || len(hosts) != 1 {
+		t.Fatalf("host list in standby: %v %v", hosts, err)
+	}
+	if _, err := client.GetHost(ctx, "box-1"); err != nil {
+		t.Fatalf("host get in standby: %v", err)
+	}
+	_, _ = client.PortfolioHealth(ctx, cerbapi.PortfolioHealthQuery{})
 	time.Sleep(2 * time.Second) // a stopped monitor would have had time to act
 
 	if d := diffFingerprints(before, fingerprint(t, state, skip)); len(d) > 0 {
@@ -353,6 +365,10 @@ resources:
 	}
 	if running("other") {
 		t.Fatal("the resource monitor restarted other in standby")
+	}
+	standbyChain, err := os.ReadFile(filepath.Join(paths.AuditDir(), time.Now().UTC().Format("2006-01")+".jsonl")) //nolint:gosec // scratch tree
+	if err != nil || !strings.Contains(string(standbyChain), `"connector":"host"`) {
+		t.Fatalf("the audited host reads are not in the standby chain: %v", err)
 	}
 
 	// Exit.

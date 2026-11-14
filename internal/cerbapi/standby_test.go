@@ -112,8 +112,10 @@ func TestStandbyAllowsExactlyReadsAndTheFlaggedVerbs(t *testing.T) {
 type standbyHome struct {
 	home, state string
 	runtime     *ResourceRuntimeService
+	hosts       *HostService
 	mainDir     string
 	anchor      *memAnchor
+	sw          *audit.Switch
 	fence       *Standby
 	paths       standby.Paths
 }
@@ -187,9 +189,17 @@ resources:
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.runtime = NewResourceRuntimeService(main, WithResourceRuntimeConfigPath(cfgPath))
+	// As in the daemon: every service writes through one switch over the main chain, and the
+	// fence diverts it to the standby chain.
+	h.sw = audit.NewSwitch(main)
+	h.runtime = NewResourceRuntimeService(h.sw, WithResourceRuntimeConfigPath(cfgPath))
+	hostsPath := filepath.Join(h.state, "hosts.yaml")
+	if err := os.WriteFile(hostsPath, []byte(hostsYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.hosts = NewHostService(h.sw, HostServiceOptions{HostsPath: hostsPath, StatePath: filepath.Join(h.state, "state", "hosts.json"), Resources: h.runtime.ResourceDef})
 	h.paths = standby.PathsIn(h.state)
-	h.fence = NewStandby(h.runtime, h.paths.AuditDir(), nil)
+	h.fence = NewStandby(h.runtime, h.paths.AuditDir(), nil, WithAuditDivert(h.sw))
 	t.Cleanup(func() {
 		ctx := context.Background()
 		for _, id := range []string{"flagged", "other"} {
@@ -205,7 +215,7 @@ func (h *standbyHome) serve(t *testing.T) *SocketClient {
 	t.Helper()
 	sockPath := filepath.Join("/tmp", fmt.Sprintf("cs-%d-%d.sock", os.Getpid(), time.Now().UnixNano())) // short: a unix socket path is limited to 108 bytes
 	t.Cleanup(func() { _ = os.Remove(sockPath) })
-	srv := NewSocketServer(NewInProcessClient(WithResourceRuntimeService(h.runtime)), sockPath, WithStandby(h.fence))
+	srv := NewSocketServer(NewInProcessClient(WithResourceRuntimeService(h.runtime), WithHostService(h.hosts)), sockPath, WithStandby(h.fence))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -520,4 +530,68 @@ func (c *SocketClient) doRaw(ctx context.Context, method, path string) (rawRespo
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	return rawResponse{header: resp.Header, body: body}, err
+}
+
+// Every read the socket serves in standby leaves the main chain alone: GET and HEAD on every
+// route routes() registers, through the real handlers, audited reads (hosts, components,
+// portfolio health) included. Their records go to the standby chain; the main chain, its
+// anchor and every other file under ~/.cerberus are byte-identical. (Review of #82: the
+// audited reads used to append to the main chain.)
+func TestStandbyEveryReadLeavesTheMainChainAlone(t *testing.T) {
+	h := newStandbyHome(t)
+	client := h.serve(t)
+	ctx := context.Background()
+
+	// Out of standby, a host read is audited in the main chain: the reads below are the
+	// ones that matter.
+	before, _ := os.ReadFile(filepath.Join(h.mainDir, time.Now().UTC().Format("2006-01")+".jsonl")) //nolint:gosec // the test's own tree
+	if _, err := client.doRaw(ctx, http.MethodGet, "/hosts"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(filepath.Join(h.mainDir, time.Now().UTC().Format("2006-01")+".jsonl")) //nolint:gosec // the test's own tree
+	if len(after) <= len(before) {
+		t.Fatal("GET /hosts is not an audited read; this test proves nothing")
+	}
+
+	h.fence.Set(standby.State{Active: true, Resource: "flagged"})
+	anchorBefore, _, _ := h.anchor.Load()
+	storesBefore := h.anchor.stores
+	treeBefore := tree(t, h.state, standbyCovered)
+	sent := 0
+	for _, route := range socketRoutes(t) {
+		for _, path := range requestPaths(route) {
+			for _, method := range []string{http.MethodGet, http.MethodHead} {
+				if _, err := client.doRaw(ctx, method, path); err != nil {
+					t.Fatalf("%s %s: %v", method, path, err)
+				}
+				sent++
+			}
+		}
+	}
+	if d := diffTrees(treeBefore, tree(t, h.state, standbyCovered)); len(d) > 0 {
+		t.Fatalf("%d reads in standby wrote under ~/.cerberus:\n%s", sent, strings.Join(d, "\n"))
+	}
+	if anchorAfter, _, _ := h.anchor.Load(); anchorAfter != anchorBefore || h.anchor.stores != storesBefore {
+		t.Fatalf("the main chain's anchor moved during standby reads")
+	}
+	checked, err := audit.Check(h.paths.AuditDir())
+	if err != nil || len(checked.Problems) > 0 {
+		t.Fatalf("standby chain: %v %v", err, checked.Problems)
+	}
+	var hostReads int
+	for _, rec := range checked.Records {
+		if rec.Connector == "host" {
+			hostReads++
+		}
+	}
+	if hostReads == 0 {
+		t.Fatal("the audited reads were not recorded in the standby chain")
+	}
+	t.Logf("%d reads sent; %d host records in the standby chain", sent, hostReads)
+
+	// Leaving standby restores the main chain.
+	h.fence.Set(standby.State{})
+	if h.sw.Diverted() {
+		t.Fatal("the main sink is still diverted after standby")
+	}
 }
