@@ -15,7 +15,10 @@ import (
 	libauth "github.com/hollis-labs/libs/security/auth"
 
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/testhome"
 )
+
+func TestMain(m *testing.M) { testhome.Main(m) }
 
 // fixture resources: one supervised os_service, one dev session, one ssh handle.
 func fixture() []config.ResourceDef {

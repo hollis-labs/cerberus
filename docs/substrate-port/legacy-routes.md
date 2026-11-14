@@ -1,8 +1,9 @@
 # Legacy-route set (cross-app contract)
 
 Task: CW-20261114-0169 (slice 4 of the port plan, `docs/substrate-port-plan.md` sections 6 and 11). Status:
-**draft for the client owners** (tachyon CW-20261114-0144, tether sysop CW-20261114-0145). Changing anything here
-needs the program director's approval, because other apps depend on it.
+**approved cross-app contract** (program director, 2026-11-14, at `935420b`; sent to the client owners, tachyon
+CW-20261114-0144 and tether sysop CW-20261114-0145). Any change, the `/api` mount included, goes through the cell
+lead to the program director.
 
 This is the subset of the old daemon's socket API that other apps call today, and how the new build serves it.
 Paths, query parameters, request bodies and response bodies keep the old shapes. What changes is where the routes
@@ -103,7 +104,7 @@ sysop escapes with `url.PathEscape` (`main.go:5381`).
 
 | Client | Scopes | Why |
 |---|---|---|
-| tachyon | `cerberus.read`, `cerberus.operate`; `cerberus.admin` only if its `remove` verb stays enabled | L1 to L9 |
+| tachyon | `cerberus.read`, `cerberus.operate`, `cerberus.admin` | L1 to L9. It keeps `remove` (L8) for parity (director, 2026-11-14); narrowing the key is a post-adoption step (`docs/conversion-notes.md`) |
 | tether sysop | `cerberus.read`, `cerberus.operate` | L3, L7 (`status`, `reload`, `apply`, `deploy`) |
 
 No client key holds `cerberus.approve`; the server refuses it on any key (decision 0.1).
@@ -128,5 +129,16 @@ No client key holds `cerberus.approve`; the server refuses it on any key (decisi
 3. L1's `resources[]` and the runtime fields of L2 to L5 (`status`, the `systemd_*` and `launchd_*` fields) come
    from the new build's observation of the same units. The values are the same kind; they are read by a
    different process.
+
+   *Note (observe mode, not a contract change):* until supervision moves to the new build (slice 5), it reports
+   what observation gives. These `omitempty` fields stay absent:
+   - in L2: `operator_stopped`, `artifact_installed`, `artifact_stale`, `recommended_action`;
+   - in L3: the `systemd_*` and `launchd_*` detail, the `artifact_*` fields and the dependency and config
+     warnings;
+   - in L4: the resolved command, paths and raw unit text;
+   - in L5: the checks (`checks` is `[]`, and `summary` says observe mode);
+   - in L9: `status` (the host monitor arrives with slice 8).
+
+   The shapes and field names are unchanged.
 4. Paths in L3 to L6 (`log_path`, `install_root`, `artifact_path`, unit paths) are unchanged, because the install
    root is adopted in place.

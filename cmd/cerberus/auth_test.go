@@ -132,3 +132,96 @@ func TestAuthEnforcedEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// writeRegistry registers one synthetic descriptor in the sandbox's adopted root, in the old
+// index format, so the legacy routes have a resource to answer about.
+func writeRegistry(t *testing.T, s sandbox) {
+	t.Helper()
+	root := filepath.Join(s.home, ".cerberus")
+	desc := filepath.Join(t.TempDir(), "shop.cerberus.yaml")
+	if err := os.WriteFile(desc, []byte(`kind: cerberus-project/v1
+owner: shop
+project: {id: shop, name: Shop}
+resources:
+  - id: web
+    name: Web
+    type: process
+    connector: local
+    project: shop
+    config: {command: ["./bin/web"], port: 8080}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	idx := "version: 1\nentries:\n  - owner: shop\n    namespace: default\n    path: " + desc +
+		"\n    kind: cerberus-project/v1\n    registered_at: \"2026-01-02T03:04:05Z\"\n"
+	if err := os.WriteFile(filepath.Join(root, "registry.yaml"), []byte(idx), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mintKey(t *testing.T, s sandbox, name string, scopes ...string) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), name+".key")
+	args := []string{"identity", "key", "create", "--name", name, "--out", out}
+	for _, sc := range scopes {
+		args = append(args, "--scope", sc)
+	}
+	if code, msg := runWithStdin(t, s, "", args...); code != 0 {
+		t.Fatalf("key create %s: %d %s", name, code, msg)
+	}
+	raw, err := os.ReadFile(out) //nolint:gosec // the test's temp file
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// The legacy-route set (L1-L9) answers under /api on the loopback listener, each route behind
+// its scope: a key without the scope gets 403, one with it reaches the route (reads 200,
+// verbs 409 observe_mode). The /api mount is a cross-app contract (legacy-routes.md).
+func TestLegacyRoutesAnswerUnderAPIWithTheirScopes(t *testing.T) {
+	s := newSandbox(t, "")
+	writeRegistry(t, s)
+	if code, out := runWithStdin(t, s, "correct horse battery staple\n", "identity", "setup", "--username", "owner", "--display-name", "Owner"); code != 0 {
+		t.Fatalf("identity setup: %d %s", code, out)
+	}
+	read := mintKey(t, s, "read", "cerberus.read")
+	operate := mintKey(t, s, "operate", "cerberus.read", "cerberus.operate")
+	admin := mintKey(t, s, "admin", "cerberus.read", "cerberus.operate", "cerberus.admin")
+
+	cmd, base, log := start(t, s)
+	defer stopServe(t, cmd, log)
+	if !strings.HasPrefix(base, "http://127.0.0.1:") {
+		t.Fatalf("the listener is not loopback: %s", base)
+	}
+	for _, c := range []struct {
+		id, method, path, allowed, denied string
+		want                              int
+		body                              string
+	}{
+		{"L1", "GET", "/api/health", read, "", 200, `"daemon_running":true`},
+		{"L2", "GET", "/api/resources", read, "", 200, `[{"id":"web"`},
+		{"L3", "GET", "/api/resources/web/status", read, "", 200, `"id":"web"`},
+		{"L4", "GET", "/api/resources/web/inspect", read, "", 200, `"id":"web"`},
+		{"L5", "GET", "/api/resources/web/doctor", read, "", 200, `"resource_id":"web"`},
+		{"L6", "GET", "/api/resources/web/logs?lines=5", read, "", 200, `"content":`},
+		{"L7", "POST", "/api/resources/web/reload", operate, read, 409, `"observe_mode"`},
+		{"L8", "POST", "/api/resources/web/remove", admin, operate, 409, `"observe_mode"`},
+		{"L9", "GET", "/api/hosts", read, "", 200, `[]`},
+	} {
+		if code, body := call(t, c.method, base+c.path, ""); code != 401 {
+			t.Errorf("%s %s %s without a key: %d %s, want 401", c.id, c.method, c.path, code, body)
+		}
+		if c.denied != "" {
+			if code, body := call(t, c.method, base+c.path, c.denied); code != 403 {
+				t.Errorf("%s %s %s without its scope: %d %s, want 403", c.id, c.method, c.path, code, body)
+			}
+		}
+		if code, body := call(t, c.method, base+c.path, c.allowed); code != c.want || !strings.Contains(body, c.body) {
+			t.Errorf("%s %s %s: %d %s, want %d containing %s", c.id, c.method, c.path, code, body, c.want, c.body)
+		}
+	}
+}

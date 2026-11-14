@@ -10,13 +10,13 @@ with each slice and states only what the branch does now.
 |---|---|
 | Migrated data or fresh start? | **Migrated.** The app is in daily use; every store reaches the new build, verified (plan section 5; `docs/substrate-port/inventory-data.md`). The new build never opens the old data in place: the import is `cerberus migrate-from` (slice 10). |
 | Variant | `app-host`: one process serves the API, the console, MCP over HTTP and the supervision loop. |
-| Who issues identity? | Cerberus's own (`identity` module), owner created offline. Lands in slice 4. |
+| Who issues identity? | Cerberus's own (`identity` module), owner created offline. Auth in enforce mode. |
 | Routes | Every `/api/` route has a scope (plan section 4.3); `/healthz` is the only public route. The outpost device protocol and event-token endpoints are open mounts that authenticate their own callers. |
 | Background work | Supervision monitor, host probes, scheduler, event export, plugin processes. App code owns them and joins them before modules stop (plan section 4.4). |
 | UI | app-shell plus BOM-pinned kits; app nav and surfaces in `ui/app.json` (slice 11). |
 | Database | **SQLite at cutover; the schema is dialect-ready** (see Database). Until a table class moves to Postgres, a `database.driver` other than `sqlite` is refused at start. |
 
-## Layout (slices 1 and 2)
+## Layout (slices 1, 2 and 4)
 
 | Path | What |
 |---|---|
@@ -31,6 +31,7 @@ with each slice and states only what the branch does now.
 | `internal/registry` | Descriptor discovery and validation, carried; `ForRoot(adopt_root)` is the Substrate build's entry point (see Registry). |
 | `internal/supervise` | The supervision lane: observe mode (status of every resource, every mutation refused) and the self check (see Supervision). |
 | `internal/connector/local` | The local connector, carried. `observe.go` is its read-only half: `RenderSystemdUnit`, `ObserveSystemdUnit`, `ObserveDevSession`. |
+| `internal/api` | The route table with a scope per route, the legacy-route set, the approve person check and the key guard (see Identity, scopes and the API). |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
 (plan section 4.2). Removed from this branch, readable on `main`, and ported from there by their slices:
@@ -143,6 +144,39 @@ real unit files, taken into `$CERBERUS_PARITY_FIXTURES` at rehearsal and never c
 While the old and new builds both run, both may write the same index. Each write is an atomic rename, but two
 registers at the same moment can lose one of them (read, modify, write). Register from one build at a time during
 the transition.
+
+## Identity, scopes and the API
+
+`identity` and `auth` (enforce) are in the manifest. The signing key `identity.key_file` is anchored in the data
+directory like the database. The owner is created offline (`cerberus identity setup`, password on stdin). Machine
+callers get API keys (`cerberus identity key create`).
+
+`internal/api` holds every route in one table with the scope the guard enforces:
+- `cerberus.read`, `.operate`, `.admin` and `.approve` (plan section 4.3);
+- the mux and the scope table are both built from it;
+- `Validate` refuses a route without a known scope, so a handler cannot be served unscoped;
+- a path not in the table is refused by the guard (`403 route_not_mapped`).
+
+Served today:
+- the legacy-route set L1 to L9 under `/api` (`docs/substrate-port/legacy-routes.md`, an approved cross-app
+  contract), with the old shapes, held byte for byte to the old types by goldens;
+- the approve routes, registered with `cerberus.approve` and person-only.
+
+Observe mode:
+- reads come from the registry under `cerberus.adopt_root`, and from `hosts.yaml` and `state/hosts.json` there, all
+  read in place;
+- runtime state comes from an `Observer` (the supervision lane once wired; until then `unknown`);
+- mutations answer `409 observe_mode`.
+
+**Approve.** `cerberus.approve` is the owner's console identity session only (decision 0.1). Two rules enforce it:
+- The approve routes refuse any caller that is not a signed-in person with a session: an API key, a token minted
+  from one, or local trust gets `403 user_required`.
+- No machine credential may be minted with `*`, `cerberus.*` or `cerberus.approve`. `api.KeyGuard` refuses this on
+  `POST /api/identity/keys` and `/api/identity/pairing-codes`, and the offline `identity key create` refuses the
+  same scopes.
+
+Order of the handler, outermost first: `api.KeyGuard`, then `identity.Middleware` (cookie to bearer, with
+`X-Requested-With` and a same-origin `Origin` on cookie writes), then the host (guard, routes).
 
 ## Configuration
 
