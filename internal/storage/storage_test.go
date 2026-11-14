@@ -17,6 +17,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/storage"
+	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
 // open opens and migrates the SQLite file at path the way the database module does: libs
@@ -46,7 +47,7 @@ func TestMain(m *testing.M) {
 	if dsn := os.Getenv(envPostgres); dsn != "" && os.Getenv(storetest.EnvDSN) == "" {
 		_ = os.Setenv(storetest.EnvDSN, dsn)
 	}
-	os.Exit(m.Run())
+	testhome.Main(m)
 }
 
 // eachDialect runs fn on a migrated SQLite file and, when envPostgres is set, on a migrated
