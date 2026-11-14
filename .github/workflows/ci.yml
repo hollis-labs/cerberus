@@ -1,0 +1,92 @@
+# CI for the Substrate port (branch substrate-port). Shape follows hollis-labs/substrate
+# docs/adopting-substrate.md section 9; main keeps its own workflows until cutover.
+name: ci
+on:
+  push:
+    branches: [substrate-port]
+  pull_request:
+    branches: [substrate-port]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOWORK: "off"
+      GOMAXPROCS: "4"
+      GOFLAGS: "-p=2"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # scan-public reads history
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # The old console (web/) is still built so the branch keeps it compiling; the new
+      # console arrives with slice 11 and its embed with it.
+      - name: Build the console
+        working-directory: web
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+      - name: Dependencies
+        run: go mod tidy -diff
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+      - name: Portable SQL rules (libs core/store lint)
+        run: go run github.com/hollis-labs/libs/core/store/cmd/gostore-lint ./...
+      - name: Pins match the Substrate BOM
+        run: go run github.com/hollis-labs/substrate/cmd/substrate pins check --app .
+      # The gates below run even when an earlier gate fails, so one red check never hides another.
+      - name: Race tests with private application roots
+        if: ${{ !cancelled() }}
+        run: |
+          r="$RUNNER_TEMP/cerberus"
+          mkdir -p "$r/home" "$r/config" "$r/data" "$r/cache" "$r/state" "$r/tmp"
+          HOME="$r/home" XDG_CONFIG_HOME="$r/config" XDG_DATA_HOME="$r/data" XDG_CACHE_HOME="$r/cache" XDG_STATE_HOME="$r/state" TMPDIR="$r/tmp" \
+            go test -race -count=1 -timeout=15m ./...
+      # Code carried over from main is ported slice by slice; lint gates what each change adds,
+      # against the merge base with substrate-port (from git, not the PR diff API, which refuses
+      # diffs over 20,000 lines).
+      - uses: golangci/golangci-lint-action@v7
+        if: ${{ !cancelled() }}
+        with:
+          version: v2.11.4
+          args: --new-from-merge-base=${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      - name: Public hygiene (tree and history)
+        if: ${{ !cancelled() }}
+        run: go run github.com/hollis-labs/substrate/cmd/substrate scan-public --ref HEAD
+  scheduler-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GOWORK: "off"
+      GOMAXPROCS: "4"
+      GOFLAGS: "-p=2"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Scheduler acceptance with fake targets and private application roots
+        run: |
+          r="$RUNNER_TEMP/cerberus-scheduler"
+          export TMPDIR="$r/tmp" HOME="$r/home" XDG_CONFIG_HOME="$r/config" XDG_DATA_HOME="$r/data" XDG_CACHE_HOME="$r/cache" XDG_STATE_HOME="$r/state"
+          mkdir -p "$TMPDIR" "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
+          go test -race -count=1 -timeout=5m ./internal/scheduling ./internal/pipeline ./internal/pipeline/actions
