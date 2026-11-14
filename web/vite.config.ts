@@ -6,7 +6,7 @@ import { defineConfig } from "vite"
 const outDir = resolve(import.meta.dirname, "../internal/webui/dist")
 // The dev proxy target: the new process's loopback listener (port plan section 1). The backend
 // must list the dev server in identity.allowed_origins, or writes are refused with bad_origin.
-const backend = process.env.CERBERUS_DEV_BACKEND ?? "http://127.0.0.1:4785"
+const backend = process.env.CERBERUS_DEV_BACKEND ?? "http://127.0.0.1:4786"
 
 export default defineConfig({
   base: "/",

@@ -12,7 +12,7 @@ Inputs:
 
 | Rule | Value |
 |---|---|
-| Base path | `/api/`, same origin as the console. The process listens on `127.0.0.1:4785` (plan section 1) |
+| Base path | `/api/`, same origin as the console. The process listens on `127.0.0.1:4786` (4785 is the old MCP-over-HTTP default) |
 | Authentication | Substrate `identity`: an `HttpOnly`, `SameSite=Strict` session cookie set by `POST /api/login`. API keys (`Authorization: Bearer key_…`) for machine callers |
 | Writes | Every non-GET carries `Content-Type: application/json` and `X-Requested-With: XMLHttpRequest`, and a cookie-authenticated write must have a same-origin `Origin` (`identity.Middleware`). **Removed:** `X-Cerberus-Web-Token`, `X-Cerberus-Session-Key`, the `#cerberus-key` fragment |
 | Errors | The flat body `{"code": "…", "message": "…", "details": {…}?}` on every non-2xx. `401 unauthorized` when signed out. `403` when the scope is missing. `403 user_required` on person-only routes called with a key |
@@ -126,11 +126,18 @@ All of these are `cerberus.approve`, person-only (`403 user_required` otherwise)
 
 ## 4. Passkeys and approval links
 
-- **RP ID stays `localhost`** (plan, slice 11 brief), so keys enrolled on the old local console keep
-  working. The allowed origins are an explicit setting (proposed key `cerberus.passkeys.allowed_origins`,
-  a list; slice 6 names it), no longer derived from `~/.cerberus/web/login-*.key`. The default is the new listener's
-  origin, `http://localhost:4785`. A key's credential is bound to its RP ID, and moving the console to
-  a host name other than `localhost` makes every key unusable there.
+- **The RP ID is the console's host name** (`internal/presence/presence.go:307-319`): `localhost` for the
+  local console, the public host for a console reached through `web.public_url`. A passkey works only on
+  the RP ID it was enrolled under, and the live console is used through `web.public_url`, so enrolled keys
+  may be bound to the public host rather than `localhost`.
+- **Allowed origins are an explicit list** (proposed key `cerberus.passkeys.allowed_origins`; slice 6
+  names it), no longer derived from `~/.cerberus/web/login-*.key`. It carries both the public console
+  origin (the `web.public_url` value) and `http://localhost:4786`, and the RP ID of each ceremony is taken
+  from the origin it arrives on, as today.
+- **Rehearsal step:** on the copy, read each key's enrolment origin and RP ID from `keys.json`. In the
+  stored go-webauthn credential, `attestation.clientDataJSON` names the origin and
+  `attestation.authenticatorData` starts with the RP ID hash. Confirm every key matches an origin in the list. A key bound to a host the new console
+  will not serve is named before cutover and re-enrolled, never discovered after it.
 - `keys.json` and `key-counters.json` move byte for byte with the audit chain (plan section 5),
   otherwise the 24-hour cooldown starts.
 - **Approval links:** today an approval link signs a browser into a session limited to one approval
