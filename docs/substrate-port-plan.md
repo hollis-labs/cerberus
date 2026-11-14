@@ -16,7 +16,7 @@ other workloads is handed over by a flag, not by restarting them.
 
 | Question (guide section 0) | Answer |
 |---|---|
-| Migrated data or fresh start? | **Migrated.** The app is in daily use. Note: the live SQLite file is **empty** (0 bytes); all live state is files under `~/.cerberus/` (section 5). The migration is a file-tree import, not a table copy. |
+| Migrated data or fresh start? | **Migrated.** The app is in daily use. Live state is in two places: the workspace SQLite database `~/.local/share/cerberus/workspaces/default/main.db` (WAL; host monitoring holds about 172k rows, the schedule tables are empty today) and the file tree under `~/.cerberus/` (section 5). The `~/.local/share/cerberus/cerberus.db` beside it is an unused 0-byte file. |
 | Variant | `app-host`. One process serves the API, the console, MCP over HTTP and the supervision loop. Today's two units (daemon on a unix socket, `cerberus web` on a loopback port) become one. |
 | Who issues identity? | Cerberus's own (`identity` module), owner created offline. Machine callers hold API keys with scopes. |
 | Routes | Every `/api/` route has a scope (section 4.3). The outpost device protocol and the event-token endpoints authenticate their own callers and are open mounts that say so in code. |
@@ -148,7 +148,8 @@ Treatments (the store inventory, CW-20261114-0086, completes and corrects this t
 | `runtime/applied.json` (per-resource applied digests), `plugin-connectors.json`, `plugin-data/` | Imported into SQLite (applied digests drive the "unchanged, no restart" decision, so they must be exact). | per-resource digest equal; a dry apply of every resource reports "unchanged" |
 | `paused`, `paused.<id>` flags | Imported as pause state. **Carried exactly**: four resource pauses exist today. | set equal |
 | `apps/` (~680 MB), `plugins/` (~130 MB) | **Adopted in place**, not copied (section 3). | live units unchanged; new build resolves the same paths |
-| `~/.local/share/cerberus/` (`changes/`, `postgres-adoption/`, `review-evidence/`), the empty `cerberus.db` | Left in place; content imported if the inventory finds the code reads it. | inventory decides |
+| `workspaces/default/main.db`: `host_samples` (~104k), `host_sample_rollups` (~68k), `host_status`, `host_rollup_state`, `host_events`, the `gosched_*` and `cerberus_schedule_*` tables (empty today), `projects`, `resources` (empty), `schema_migrations` | Copied with `sqlite3 .backup` from the snapshot, then imported table by table into the new schema (goose set; no old `ALTER` ladder). Old migration history is not carried; the import is keyed on the old schema version (7) and refuses any other. Host probes keep writing on old until phase F, so a **delta import** (`migrate-from --delta`, rows newer than the snapshot, deduplicated on host and timestamp) runs before old is retired. | `integrity_check` ok; per-table counts and `EXCEPT` both ways 0 on the copy; delta count reported |
+| `~/.local/share/cerberus/` (`changes/`, `postgres-adoption/`, `review-evidence/`), the 0-byte `cerberus.db` | Left in place; content imported if the inventory finds the code reads it. | inventory decides |
 | `cerberus.log`, `logs/`, `backups/`, `transfers/`, `*.bak*`, `pids/`, `locks/`, `daemon.lock`, `cerberus.sock` | Not migrated, left in place (logs, backups and runtime files). | listed in the report as skipped, with reason |
 
 Rehearsal: on a `.backup`/`cp -a` copy under the cell's scratch directory, with `HOME`, `XDG_*` and
@@ -215,12 +216,9 @@ renderer parity against the live units; no writes under `~/.cerberus` by new (in
 
 **D. Handoff window (director with owner; a write pause of minutes).**
 1. Announce a freeze on Cerberus mutations to agents. Old keeps running.
-2. Old global pause on: create the flag file `~/.cerberus/paused`, which old's monitor reads (`pausectl.IsGloballyPaused`; there is no CLI verb for it), so old auto-restarts nothing. Scheduler: the runtime inventory says how
-   old's schedules are stopped without stopping old; if they cannot be, old's daemon is stopped for the rest of the
-   window and started again in step 9 (old stays installed and startable in seconds). This is the one open point
-   that gates the window.
-3. Snapshot copy of `~/.cerberus` and `~/.local/share/cerberus` into a private 0700 directory; `integrity_check`
-   where SQLite; sha256 manifest.
+2. Old global pause on: create the flag file `~/.cerberus/paused`, which old's monitor reads (`pausectl.IsGloballyPaused`; there is no CLI verb for it), so old auto-restarts nothing. Schedules: old's schedule tables are empty today; the window re-checks that they still are. If any schedule exists then, the runtime inventory's answer on stopping old's scheduler applies; if there is no way short of stopping old, old's daemon is stopped for the rest of the window and started again in step 9 (old stays installed and startable in seconds).
+3. Snapshot copy of `~/.cerberus` and `~/.local/share/cerberus` into a private 0700 directory. `main.db` is live and in
+   WAL mode, so it is copied with `sqlite3 main.db ".backup <copy>"`, never `cp`; `integrity_check` ok; sha256 manifest.
 4. Stop new (through old: `cerberus resource stop cerberus-substrate`).
 5. `cerberus migrate-from --old-home <snapshot>` into new's data dir (emptied first: observe mode wrote only probe
    state, which is regenerated). Read the report.
@@ -236,7 +234,9 @@ renderer parity against the live units; no writes under `~/.cerberus` by new (in
 **E. Soak (at least 7 days).** New supervises. Old is the supervisor of new. Daily: new's applied digests and pause
 state are sane, no unexpected restarts, the audit chain verifies.
 
-**F. Retire old (director).** Stop and disable old's daemon and web units (files kept). Re-home new under the
+**F. Retire old (director).** Stop and disable old's daemon and web units (files kept). Then run the host-monitoring
+delta import (`migrate-from --delta` against a fresh `.backup` of old's `main.db`) so the samples old wrote after the
+snapshot reach new. Re-home new under the
 canonical unit `com.hollis-labs.cerberus.service` with a `fleet-install` drop-in, and remove the transitional
 `cerberus-substrate` unit. That restarts new only. From then on **Cerberus is upgraded by `fleet-install`, never by
 itself**; the self-guard stays. Merge `substrate-port` into `main` (director). `~/.cerberus` stays in place: the
@@ -298,7 +298,7 @@ Dependencies: 1 before all; 2 before 3; 3 and 4 before 5; 4 before 9 and 11; 5 t
 
 ## 12. Open points
 
-- How old's scheduler is stopped without stopping old (gates phase D step 2; runtime inventory).
+- How old's scheduler is stopped without stopping old. Low risk while the schedule tables stay empty (they are today); re-checked in the window (phase D step 2).
 - Whether Substrate `pluginhost`, `scheduler`, `secrets` can carry Cerberus's contracts unchanged (slices 7 and 8;
   gaps filed in project Substrate, not patched here).
 - Whether `httphost` can serve the API on a unix socket as well as TCP. Not needed by this plan (the CLI moves to
