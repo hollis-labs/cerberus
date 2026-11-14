@@ -7,7 +7,7 @@ and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
 
 This repository is public. The plan therefore describes the operator host by role and keeps code-derived facts and
 contracts only. **Live observations** (counts, unit and drop-in names, paths, ports, outside jobs) are in the Tesseract
-workspace item `01M7DW4VZMWGDK17RVMZGN9X0W` (`project/cerberus/workspace/substrate-port`, key `plan-live-facts`),
+workspace item `01M7DX516HNDA31YMYKJ1Q06NP` (`project/substrate-migration/workspace/cerberus`, key `cerberus-plan-live-facts`),
 referred to below as **the live-facts item**. They are re-taken at rehearsal and in the window.
 
 The inventories (`inventory-runtime.md`, `inventory-data.md`, `inventory-clients.md`, `inventory-gui.md`) carry the
