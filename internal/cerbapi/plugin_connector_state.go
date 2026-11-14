@@ -195,7 +195,7 @@ func (s *pluginConnectorPersistedState) findEntry(id string) int {
 	return -1
 }
 
-func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorService, path string) error {
+func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorService, path string, load bool) error {
 	state, err := readPluginConnectorState(path)
 	if err != nil {
 		return err
@@ -217,7 +217,7 @@ func restoreManagedPlugins(ctx context.Context, service *ManagedPluginConnectorS
 		if installed.ReviewPending {
 			service.warnf("plugin %q was installed before install review and loads unchecked until reviewed; run `cerberus connectors plugin managed review %s` in a terminal", installed.ID, installed.ID)
 		}
-		if entry.Loaded && !service.registerOnly {
+		if entry.Loaded && load && !service.registerOnly && !service.manager.Loaded(installed.ID) {
 			toLoad = append(toLoad, installed)
 		}
 	}

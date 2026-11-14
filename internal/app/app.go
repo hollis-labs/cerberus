@@ -275,7 +275,9 @@ func AuditDir() (string, error) {
 // NewDaemonConnectorServices builds the daemon's managed plugin lane and its
 // admin lane, both writing to this process's audit sink. The admin lane
 // resolves resources against the daemon's runtime.
-func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, configPath string) (*cerbapi.ManagedPluginConnectorService, *cerbapi.ExternalConnectorService, error) {
+// opts are added to the managed plugin service's own (the daemon passes
+// cerbapi.WithDeferredPluginLoad, so standby decides whether plugins load).
+func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, configPath string, opts ...cerbapi.ManagedPluginOption) (*cerbapi.ManagedPluginConnectorService, *cerbapi.ExternalConnectorService, error) {
 	statePath, err := cerbapi.PluginConnectorStatePath()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve plugin connector state path: %w", err)
@@ -294,7 +296,7 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 			cerbapi.WithManagedPluginCoreSecrets(CoreConnectorSecrets(configPath)),
 			cerbapi.WithSecretBackendBinder(secretBackends.Bind),
 			cerbapi.WithManagedPluginConnectorConfig(ConnectorConfigPath(configPath)),
-			cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...)}, shimOpts...)...)
+			cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...)}, append(shimOpts, opts...)...)...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize managed plugin connectors: %w", err)
 	}

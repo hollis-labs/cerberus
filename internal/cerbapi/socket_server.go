@@ -52,6 +52,9 @@ type SocketServer struct {
 	// from the socket. Local-only traffic, kept small to fail fast on
 	// wedged clients. Exposed for test injection via option.
 	readHeaderTimeout time.Duration
+
+	// standby is the standby fence (standby.go); nil when the daemon has none.
+	standby *Standby
 }
 
 // SocketServerOption tunes construction of a SocketServer.
@@ -59,6 +62,11 @@ type SocketServerOption func(*SocketServer)
 
 func WithDataHandler(h http.Handler) SocketServerOption {
 	return func(s *SocketServer) { s.dataHandler = h }
+}
+
+// WithStandby puts the socket behind the standby fence (standby.go).
+func WithStandby(sb *Standby) SocketServerOption {
+	return func(s *SocketServer) { s.standby = sb }
 }
 
 // WithLogger attaches a slog logger. Defaults to slog.Default().
@@ -205,6 +213,14 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set(APIHeaderName, APIVersion)
+		// A read answered in standby is marked (standby.go). The marker sits
+		// under the scoped writer, so the redaction scope still finds it.
+		var marker *standbyMarker
+		if st, _ := s.standby.State(); st.Active {
+			marker = newStandbyMarker(w, st.Resource)
+			w = marker
+			defer marker.finish()
+		}
 		// The request begins first, so a refusal renders in its scope and
 		// is marked rendered like any other.
 		w, r = BeginHTTPRequest(w, r, SurfaceSocket)
@@ -226,6 +242,11 @@ func (s *SocketServer) wrap(h http.Handler) http.Handler {
 			return
 		}
 		s.logger.Info("daemon.socket.request", "method", r.Method, "path", r.URL.Path)
+		// Standby: everything but reads and the flagged resource's verbs is
+		// refused here, before any handler runs.
+		if s.standby.serve(w, r, s.handleStream) {
+			return
+		}
 		h.ServeHTTP(w, r)
 	})
 }
@@ -298,6 +319,9 @@ func (s *SocketServer) handlePing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := DaemonStatus{DaemonRunning: true, SocketReady: true}
+	if sb, since := s.standby.State(); sb.Active {
+		st.Standby = &StandbyStatus{Resource: sb.Resource, Problem: sb.Problem, Since: since.UTC().Format(time.RFC3339)}
+	}
 	if h := secrets.Health(); h.Degraded {
 		st.CredentialStore = &CredentialStoreStatus{Degraded: true, ForSeconds: int64(time.Since(h.Since).Seconds()),
 			// Worded to survive the response redaction: no name-colon-value shapes.
