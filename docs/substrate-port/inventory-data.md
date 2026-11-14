@@ -111,7 +111,7 @@ The **Who** column says who authors each file: **op** means the operator writes 
 | 🔒 `connector-secrets.yaml` | read only (`internal/pluginhost/secrets.go`, `internal/app/app.go:284,390`) | op | YAML of `keychain://` / `file://` refs | **yes**, references (literals possible) | **copy**, mode `0600`. The new app's secrets resolver must accept the same reference schemes. |
 | `events.yaml` | read only (`internal/eventexport/settings.go:39-44`) | op | YAML | No | **transform** to config keys |
 | `registry.yaml` | `internal/registry/index.go:84-101` | cerb (via `register`) | YAML, entries pointing at descriptor files | No | **copy**. The descriptor files it points at stay **in place**; they belong to each app. |
-| `outpost-recovery.cerberus.yaml` | hand plus `cerberus host` edits | op | descriptor YAML, ssh resources | No | **in place** (referenced from `registry.yaml`) |
+| an operator descriptor of ssh host handles (`<name>.cerberus.yaml`; name in the workspace item) | hand plus `cerberus host` edits | op | descriptor YAML, ssh resources | No | **in place** (referenced from `registry.yaml`) |
 | `hosts.yaml` | `internal/hosts/edit.go:132,244,269` | op plus cerb | YAML with `token_file` references | No values; points at token files | **copy**. The `token_file` paths are absolute and must still resolve (see `outpost-tokens/` below). |
 | `hosts.yaml.bak-*` (Cerberus keeps 20) and hand `.bak` / `.merged` copies | `edit.go:211-214` | cerb plus op | YAML | No | **archive** |
 | `state/hosts.json` | `internal/hosts/state.go:122-144` | cerb | JSON | No | **copy** |
