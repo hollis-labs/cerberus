@@ -9,6 +9,7 @@
 package datadir
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,12 +51,25 @@ func Resolve(getenv func(string) string) (Dirs, error) {
 // Database is the default database path.
 func (d Dirs) Database() string { return filepath.Join(d.Data, DatabaseFile) }
 
-// Prepare creates the data directory and makes it owner-only.
+// Prepare creates the data directory 0700 if it is missing. An existing directory is never
+// changed: one that others can read or enter is refused, with the fix, so the guard's
+// promise that a refused start changes nothing holds for whatever the path points at.
 func (d Dirs) Prepare() error {
-	if err := os.MkdirAll(d.Data, 0o700); err != nil {
+	fi, err := os.Stat(d.Data)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if mkErr := os.MkdirAll(d.Data, 0o700); mkErr != nil {
+			return mkErr
+		}
+		return os.Chmod(d.Data, 0o700) //nolint:gosec // 0700 on a directory we just created: owner-only, whatever the umask
+	case err != nil:
 		return err
+	case !fi.IsDir():
+		return fmt.Errorf("%s is not a directory", d.Data)
+	case fi.Mode().Perm()&0o077 != 0:
+		return fmt.Errorf("%s is mode %#o and must be private: run `chmod 700 %s`, or point %s at a new directory", d.Data, fi.Mode().Perm(), d.Data, Env)
 	}
-	return os.Chmod(d.Data, 0o700) //nolint:gosec // 0700 on a directory is the point: owner-only
+	return nil
 }
 
 // Within reports whether path is the data directory or below it.
@@ -87,17 +101,27 @@ func (d Dirs) Anchor(def, p string) (string, error) {
 	return joined, nil
 }
 
-// PrivateFile creates the file if missing and makes it 0600.
+// PrivateFile creates the file 0600 if it is missing. An existing file is never changed:
+// one that others can read is refused, with the fix.
 func PrivateFile(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path is operator configuration
-	if err != nil {
+	fi, err := os.Stat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		f, openErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // path is operator configuration
+		if openErr != nil {
+			return openErr
+		}
+		if chErr := f.Chmod(0o600); chErr != nil {
+			_ = f.Close()
+			return chErr
+		}
+		return f.Close()
+	case err != nil:
 		return err
+	case fi.Mode().Perm()&0o077 != 0:
+		return fmt.Errorf("%s is mode %#o and must be private: run `chmod 600 %s`", path, fi.Mode().Perm(), path)
 	}
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return nil
 }
 
 func within(root, path string) bool {

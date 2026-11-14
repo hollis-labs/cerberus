@@ -202,6 +202,64 @@ func TestServeRefusesTheOldBuildsData(t *testing.T) {
 			t.Fatalf("exit %d:\n%s", code, out)
 		}
 	})
+	t.Run("a directory in the old state tree keeps its mode", func(t *testing.T) {
+		s := newSandbox(t, "")
+		s.data = filepath.Join(s.home, ".cerberus", "apps")
+		if err := os.MkdirAll(s.data, 0o755); err != nil { //nolint:gosec // the old tree's mode, which must survive
+			t.Fatal(err)
+		}
+		if err := os.Chmod(s.data, 0o755); err != nil { //nolint:gosec // the old tree's mode, which must survive
+			t.Fatal(err)
+		}
+		code, out := runToExit(t, s, "serve")
+		if code != 1 || !strings.Contains(out, ".cerberus") {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		fi, err := os.Stat(s.data)
+		if err != nil || fi.Mode().Perm() != 0o755 {
+			t.Fatalf("a refused start changed %s: %v %v", s.data, fi.Mode().Perm(), err)
+		}
+	})
+	t.Run("old XDG data directory", func(t *testing.T) {
+		s := newSandbox(t, "")
+		old := filepath.Join(s.home, ".local", "share", "cerberus", "workspaces", "default")
+		if err := os.MkdirAll(old, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		s.data = old
+		code, out := runToExit(t, s, "serve")
+		if code != 1 || !strings.Contains(out, "old Cerberus build") {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		entries, _ := os.ReadDir(old)
+		if len(entries) != 0 {
+			t.Fatalf("a refused start created %d entries beside the old database", len(entries))
+		}
+	})
+	t.Run("old database named by the override", func(t *testing.T) {
+		old := "database: { sqlite: { path: \"%s\" } }\nhttphost: { addr: \"127.0.0.1:0\" }\n"
+		s := newSandbox(t, "")
+		db := filepath.Join(s.home, ".local", "share", "cerberus", "workspaces", "default", "main.db")
+		if err := os.MkdirAll(filepath.Dir(db), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(db, []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(s.override, []byte(fmt.Sprintf(old, db)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, out := runToExit(t, s, "serve")
+		if code != 1 || !strings.Contains(out, "database.sqlite.path") {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		if b, _ := os.ReadFile(db); string(b) != "old" { //nolint:gosec // the test's own temp file
+			t.Fatal("a refused start changed the old database")
+		}
+		if _, err := os.Stat(s.data); err == nil {
+			t.Fatal("a refused start created the data directory")
+		}
+	})
 }
 
 func TestServeRefusesBadConfig(t *testing.T) {

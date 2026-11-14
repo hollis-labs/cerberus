@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
+	paths "github.com/hollis-labs/libs/core/util/apppaths"
 	_ "modernc.org/sqlite" // the guard reads a database file it finds, only to recognize the old schema
 )
 
@@ -22,22 +24,39 @@ const remedy = "point " + Env + " at a new, empty directory (the default is ~/.l
 // oldStateMarkers are entries only the old build's state tree (~/.cerberus) holds.
 var oldStateMarkers = []string{"daemon.lock", "cerberus.sock", "cerberus.pid", "registry.yaml", "plugin-connectors.json", "audit", "approvals"}
 
-// RefuseLegacy refuses to start on the old build's state. It runs immediately before the
-// database module opens (and migrates) dbPath, and only reads.
-//
-// Refused: a data directory or database inside home/.cerberus; a data directory holding
-// the old XDG layout (a workspaces/ directory, as ~/.local/share/cerberus does) or entries
-// of the old state tree; and a database file with the old schema (a schema_migrations
-// table, which the old store kept and goose does not).
-func RefuseLegacy(d Dirs, dbPath, home string) error {
+// OldRoots are the old build's two homes: its state tree (home/.cerberus) and its XDG data
+// directory (the XDG data home's "cerberus", which holds workspaces/<ws>/main.db). Nothing
+// under either may be the new build's data directory or database.
+func OldRoots(home string) ([]string, error) {
+	layout, err := paths.Resolve("cerberus", paths.WithoutMaterialize())
+	if err != nil {
+		return nil, fmt.Errorf("resolve the old build's data directory: %w", err)
+	}
+	roots := []string{layout.DataDir()}
 	if home != "" {
-		old := resolved(filepath.Join(home, ".cerberus"))
+		roots = append([]string{filepath.Join(home, ".cerberus")}, roots...)
+	}
+	return roots, nil
+}
+
+// RefuseOldPaths refuses a data directory or database path that is, or is inside, one of
+// the old roots (symlinks followed). It only resolves paths: it runs before anything is
+// created or changed, so a refused start leaves the old tree exactly as it was.
+func RefuseOldPaths(d Dirs, dbPath string, roots []string) error {
+	for _, root := range roots {
+		r := resolved(root)
 		for _, p := range []struct{ what, path string }{{"the data directory", d.Data}, {"database.sqlite.path", dbPath}} {
-			if p.path != "" && within(old, resolved(p.path)) {
-				return fmt.Errorf("%w: %s %s is inside %s: %s", ErrLegacyLayout, p.what, p.path, old, remedy)
+			if p.path != "" && within(r, resolved(p.path)) {
+				return fmt.Errorf("%w: %s %s is inside %s: %s", ErrLegacyLayout, p.what, p.path, root, remedy)
 			}
 		}
 	}
+	return nil
+}
+
+// RefuseOldContents refuses a data directory that holds the old XDG layout (workspaces/)
+// or an entry of the old state tree. It only stats; a missing directory passes.
+func RefuseOldContents(d Dirs) error {
 	if fi, err := os.Stat(filepath.Join(d.Data, "workspaces")); err == nil && fi.IsDir() {
 		return fmt.Errorf("%w: %s holds workspaces/, the old build's database layout: %s", ErrLegacyLayout, d.Data, remedy)
 	}
@@ -46,10 +65,18 @@ func RefuseLegacy(d Dirs, dbPath, home string) error {
 			return fmt.Errorf("%w: %s holds %s, from the old build's state tree: %s", ErrLegacyLayout, d.Data, m, remedy)
 		}
 	}
-	return refuseOldSchema(dbPath)
+	return nil
 }
 
-func refuseOldSchema(path string) error {
+// RefuseOldSchema refuses a database file with the old schema (a schema_migrations table,
+// which the old store kept and goose never creates). It is the last line, behind
+// RefuseOldPaths.
+//
+// It changes nothing: the file is opened read-only and immutable (no locks, no WAL replay,
+// no checkpoint, no -wal or -shm created or removed). An immutable read sees the main file
+// only; the old database keeps its schema there, and a table that exists only in an
+// un-checkpointed WAL is not the old build's long-lived database.
+func RefuseOldSchema(path string) error {
 	if path == "" {
 		return nil
 	}
@@ -59,16 +86,15 @@ func refuseOldSchema(path string) error {
 	} else if err != nil {
 		return err
 	}
-	// Only reads: the guard never changes the file it judges. (A mode=ro open fails on a WAL
-	// database whose -shm file is gone, so the open is plain and the statements are reads.)
-	db, err := sql.Open("sqlite", path)
+	dsn := (&url.URL{Scheme: "file", OmitHost: true, Path: path, RawQuery: "mode=ro&immutable=1"}).String()
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("inspect %s read-only: %w", path, err)
 	}
 	defer func() { _ = db.Close() }()
 	var n int
 	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&n); err != nil {
-		return fmt.Errorf("inspect %s: %w", path, err)
+		return fmt.Errorf("cannot inspect %s without writing to it (%w); refusing to open it: %s", path, err, remedy)
 	}
 	if n > 0 {
 		return fmt.Errorf("%w: %s has the old build's schema: %s", ErrLegacyLayout, path, remedy)
@@ -76,7 +102,8 @@ func refuseOldSchema(path string) error {
 	return nil
 }
 
-// resolved follows symlinks where the path exists, so a link into ~/.cerberus is caught.
+// resolved follows symlinks where the path (or its parent) exists, so a link into an old
+// root is caught.
 func resolved(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r

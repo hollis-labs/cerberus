@@ -35,24 +35,34 @@ The rest of `internal/` and `pkg/` is the old build's code, carried unchanged un
 ## Data directory
 
 `CERBERUS_DATA_DIR`, otherwise the XDG data home joined with `cerberus-substrate`
-(`~/.local/share/cerberus-substrate`). Resolved in the `AfterConfig` hook, created `0700`. A relative path in the
-config (the manifest default `database.sqlite.path: cerberus.db`) is joined onto it; an absolute path from the
-override is kept; a relative path that leaves the directory is refused. The database file is created `0600`
-after the guard has passed.
+(`~/.local/share/cerberus-substrate`, a sibling of the old build's `~/.local/share/cerberus`). Resolved in the
+`AfterConfig` hook. A relative path in the config (the manifest default `database.sqlite.path: cerberus.db`) is joined
+onto it; an absolute path from the override is kept; a relative path that leaves the directory is refused.
+
+The directory is created `0700` only if it is missing. An existing directory is never changed: one that others can
+read or enter is refused with the `chmod` to run. The database file is likewise created `0600` only if missing, and
+an existing one with a looser mode is refused.
 
 The directory never overlaps the old build, so both run side by side: the old build keeps `~/.cerberus` (state
 tree) and `~/.local/share/cerberus` (its `workspaces/<ws>/main.db`).
 
 ### Legacy guard
 
-`datadir.RefuseLegacy`, keyed `Before["database"]`, runs before the database module opens (and would migrate) the
-file. It only reads. It refuses, with the remedy in the message:
+`internal/datadir`. A refused start changes nothing, under the old homes or anywhere else: every check runs before
+anything is created, and none of them writes.
 
-- a data directory or database path inside `~/.cerberus` (symlinks followed);
-- a data directory holding `workspaces/` (the old XDG layout);
-- a data directory holding an entry of the old state tree (`daemon.lock`, `cerberus.sock`, `cerberus.pid`,
-  `registry.yaml`, `plugin-connectors.json`, `audit`, `approvals`);
-- a database file with the old schema (a `schema_migrations` table; the new build's goose set never creates one).
+In `AfterConfig`, before the data directory is created:
+
+- `RefuseOldPaths`: the data directory or the database path is, or is inside, either of the old build's homes:
+  `~/.cerberus` and the old XDG data directory (the XDG data home's `cerberus`). Symlinks are followed.
+- `RefuseOldContents`: the data directory holds `workspaces/` (the old XDG layout) or an entry of the old state
+  tree (`daemon.lock`, `cerberus.sock`, `cerberus.pid`, `registry.yaml`, `plugin-connectors.json`, `audit`,
+  `approvals`).
+
+In `Before["database"]`, immediately before the module opens (and would migrate) the file: the path check again,
+then `RefuseOldSchema`. An existing file is opened `mode=ro&immutable=1`: no lock, no WAL replay, no checkpoint, and
+no `-wal` or `-shm` created or removed. It is refused if it has a `schema_migrations` table (the old store's; goose
+never creates one), or if it cannot be read that way.
 
 ## Configuration
 

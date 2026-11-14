@@ -1,6 +1,7 @@
 package datadir
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"os"
@@ -53,23 +54,39 @@ func TestExplicitDirectoryWinsAndIsMadeAbsolute(t *testing.T) {
 	}
 }
 
-func TestPrepareMakesTheDirectoryOwnerOnly(t *testing.T) {
+func mode(t *testing.T, p string) os.FileMode {
+	t.Helper()
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode().Perm()
+}
+
+func TestPrepareCreatesAnOwnerOnlyDirectory(t *testing.T) {
 	d := Dirs{Data: filepath.Join(t.TempDir(), "a", "b")}
 	if err := d.Prepare(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(d.Data, 0o755); err != nil { //nolint:gosec // loosened on purpose: Prepare must tighten it
+	if m := mode(t, d.Data); m != 0o700 {
+		t.Fatalf("mode = %v, want 0700", m)
+	}
+	if err := d.Prepare(); err != nil { // an existing private directory is fine
 		t.Fatal(err)
 	}
-	if err := d.Prepare(); err != nil {
+}
+
+func TestPrepareNeverChangesAnExistingDirectory(t *testing.T) {
+	d := Dirs{Data: t.TempDir()}
+	if err := os.Chmod(d.Data, 0o755); err != nil { //nolint:gosec // loose on purpose: Prepare must refuse it, not tighten it
 		t.Fatal(err)
 	}
-	fi, err := os.Stat(d.Data)
-	if err != nil {
-		t.Fatal(err)
+	err := d.Prepare()
+	if err == nil || !strings.Contains(err.Error(), "chmod 700") {
+		t.Fatalf("err = %v, want a refusal naming the fix", err)
 	}
-	if fi.Mode().Perm() != 0o700 {
-		t.Fatalf("mode = %v, want 0700", fi.Mode().Perm())
+	if m := mode(t, d.Data); m != 0o755 {
+		t.Fatalf("Prepare changed the mode to %v", m)
 	}
 }
 
@@ -91,33 +108,51 @@ func TestAnchor(t *testing.T) {
 	}
 }
 
-func TestPrivateFileTightensMode(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "f")
-	if err := os.WriteFile(p, nil, 0o644); err != nil { //nolint:gosec // loose on purpose: PrivateFile must tighten it
-		t.Fatal(err)
-	}
+func TestPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "new")
 	if err := PrivateFile(p); err != nil {
 		t.Fatal(err)
 	}
-	fi, _ := os.Stat(p)
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %v, want 0600", fi.Mode().Perm())
+	if m := mode(t, p); m != 0o600 {
+		t.Fatalf("mode = %v, want 0600", m)
+	}
+	loose := filepath.Join(dir, "loose")
+	if err := os.WriteFile(loose, []byte("x"), 0o644); err != nil { //nolint:gosec // loose on purpose: PrivateFile must refuse it, not tighten it
+		t.Fatal(err)
+	}
+	if err := PrivateFile(loose); err == nil || !strings.Contains(err.Error(), "chmod 600") {
+		t.Fatalf("err = %v, want a refusal naming the fix", err)
+	}
+	if m := mode(t, loose); m != 0o644 {
+		t.Fatalf("PrivateFile changed the mode to %v", m)
 	}
 }
 
-// guardFixture is a home with an old-build state tree and a fresh data directory.
-func guardFixture(t *testing.T) (home string, d Dirs) {
+// fixture is a home with both of the old build's homes and a fresh data directory.
+type fixture struct {
+	home, oldState, oldXDG string
+	roots                  []string
+	d                      Dirs
+}
+
+func newFixture(t *testing.T) fixture {
 	t.Helper()
-	base := t.TempDir()
-	home = filepath.Join(base, "home")
-	if err := os.MkdirAll(filepath.Join(home, ".cerberus", "audit"), 0o700); err != nil {
+	base := xdg(t)
+	f := fixture{home: filepath.Join(base, "home")}
+	f.oldState = filepath.Join(f.home, ".cerberus")
+	f.oldXDG = filepath.Join(base, "data", "cerberus")
+	for _, dir := range []string{filepath.Join(f.oldState, "apps"), filepath.Join(f.oldXDG, "workspaces", "default")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // the old build's tree is not private on every host
+			t.Fatal(err)
+		}
+	}
+	var err error
+	if f.roots, err = OldRoots(f.home); err != nil {
 		t.Fatal(err)
 	}
-	d = Dirs{Data: filepath.Join(base, "data")}
-	if err := d.Prepare(); err != nil {
-		t.Fatal(err)
-	}
-	return home, d
+	f.d = Dirs{Data: filepath.Join(base, "data", "cerberus-substrate")}
+	return f
 }
 
 func wantLegacy(t *testing.T, err error, mention string) {
@@ -130,97 +165,179 @@ func wantLegacy(t *testing.T, err error, mention string) {
 	}
 }
 
-func TestGuardAcceptsAnEmptyDataDirectory(t *testing.T) {
-	home, d := guardFixture(t)
-	if err := RefuseLegacy(d, d.Database(), home); err != nil {
+func TestOldRootsAreBothHomes(t *testing.T) {
+	f := newFixture(t)
+	if len(f.roots) != 2 || f.roots[0] != f.oldState || f.roots[1] != f.oldXDG {
+		t.Fatalf("roots = %q, want [%s %s]", f.roots, f.oldState, f.oldXDG)
+	}
+}
+
+func TestGuardAcceptsANewDataDirectory(t *testing.T) {
+	f := newFixture(t)
+	if err := RefuseOldPaths(f.d, f.d.Database(), f.roots); err != nil {
 		t.Fatal(err)
 	}
-	// A zero-byte database (created 0600 ahead of the open) is new, not old.
-	if err := os.WriteFile(d.Database(), nil, 0o600); err != nil {
+	if err := RefuseOldContents(f.d); err != nil { // missing directory
 		t.Fatal(err)
 	}
-	if err := RefuseLegacy(d, d.Database(), home); err != nil {
+	if err := f.d.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefuseOldContents(f.d); err != nil { // empty directory
+		t.Fatal(err)
+	}
+	if err := RefuseOldSchema(f.d.Database()); err != nil { // missing file
+		t.Fatal(err)
+	}
+	if err := PrivateFile(f.d.Database()); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefuseOldSchema(f.d.Database()); err != nil { // zero-byte file
 		t.Fatal(err)
 	}
 }
 
-func TestGuardRefusesTheOldStateTree(t *testing.T) {
-	home, _ := guardFixture(t)
-	old := Dirs{Data: filepath.Join(home, ".cerberus")}
-	wantLegacy(t, RefuseLegacy(old, old.Database(), home), ".cerberus")
-
-	inside := Dirs{Data: filepath.Join(home, ".cerberus", "substrate")}
-	wantLegacy(t, RefuseLegacy(inside, inside.Database(), home), ".cerberus")
-}
-
-func TestGuardRefusesASymlinkIntoTheOldStateTree(t *testing.T) {
-	home, d := guardFixture(t)
-	link := filepath.Join(filepath.Dir(d.Data), "link")
-	if err := os.Symlink(filepath.Join(home, ".cerberus"), link); err != nil {
+func TestGuardRefusesPathsInEitherOldHome(t *testing.T) {
+	f := newFixture(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(f.oldXDG, link); err != nil {
 		t.Fatal(err)
 	}
-	ld := Dirs{Data: link}
-	wantLegacy(t, RefuseLegacy(ld, ld.Database(), home), ".cerberus")
-}
-
-func TestGuardRefusesADatabasePathInTheOldStateTree(t *testing.T) {
-	home, d := guardFixture(t)
-	wantLegacy(t, RefuseLegacy(d, filepath.Join(home, ".cerberus", "cerberus.db"), home), "database.sqlite.path")
-}
-
-func TestGuardRefusesTheOldXDGLayout(t *testing.T) {
-	home, d := guardFixture(t)
-	if err := os.MkdirAll(filepath.Join(d.Data, "workspaces", "default"), 0o700); err != nil {
+	stateLink := filepath.Join(t.TempDir(), "state-link")
+	if err := os.Symlink(f.oldState, stateLink); err != nil {
 		t.Fatal(err)
 	}
-	wantLegacy(t, RefuseLegacy(d, d.Database(), home), "workspaces/")
+	for name, c := range map[string]struct {
+		d       Dirs
+		db, why string
+	}{
+		"data dir is the state tree":      {Dirs{Data: f.oldState}, "", ".cerberus"},
+		"data dir inside the state tree":  {Dirs{Data: filepath.Join(f.oldState, "apps")}, "", ".cerberus"},
+		"data dir via a link to the tree": {Dirs{Data: filepath.Join(stateLink, "apps")}, "", ".cerberus"},
+		"database in the state tree":      {f.d, filepath.Join(f.oldState, "cerberus.db"), "database.sqlite.path"},
+		"data dir is the old XDG dir":     {Dirs{Data: f.oldXDG}, "", "the data directory"},
+		"data dir inside the old XDG dir": {Dirs{Data: filepath.Join(f.oldXDG, "workspaces", "default")}, "", "the data directory"},
+		"data dir via a link to old XDG":  {Dirs{Data: filepath.Join(link, "workspaces", "default")}, "", "the data directory"},
+		"database in the old XDG dir":     {f.d, filepath.Join(f.oldXDG, "workspaces", "default", "main.db"), "database.sqlite.path"},
+		"database via a link to old XDG":  {f.d, filepath.Join(link, "workspaces", "default", "main.db"), "database.sqlite.path"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := c.db
+			if db == "" {
+				db = c.d.Database()
+			}
+			wantLegacy(t, RefuseOldPaths(c.d, db, f.roots), c.why)
+		})
+	}
+}
+
+func TestGuardRefusesTheOldLayoutInANewDirectory(t *testing.T) {
+	f := newFixture(t)
+	if err := f.d.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(f.d.Data, "workspaces", "default"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	wantLegacy(t, RefuseOldContents(f.d), "workspaces/")
 }
 
 func TestGuardRefusesEntriesOfTheOldStateTree(t *testing.T) {
 	for _, m := range oldStateMarkers {
 		t.Run(m, func(t *testing.T) {
-			home, d := guardFixture(t)
-			if err := os.WriteFile(filepath.Join(d.Data, m), nil, 0o600); err != nil {
+			f := newFixture(t)
+			if err := f.d.Prepare(); err != nil {
 				t.Fatal(err)
 			}
-			wantLegacy(t, RefuseLegacy(d, d.Database(), home), m)
+			if err := os.WriteFile(filepath.Join(f.d.Data, m), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			wantLegacy(t, RefuseOldContents(f.d), m)
 		})
 	}
 }
 
-func TestGuardRefusesTheOldSchemaAndLeavesItUnchanged(t *testing.T) {
-	home, d := guardFixture(t)
-	old := filepath.Join(t.TempDir(), "main.db")
-	db, err := sql.Open("sqlite", old)
+// walDatabase makes a WAL database whose main file holds tables and whose WAL holds frames
+// not yet checkpointed, and keeps a connection open so -wal and -shm stay, like a live
+// database another process is using. The connection is closed at cleanup.
+func walDatabase(t *testing.T, path, table string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-		INSERT INTO schema_migrations VALUES (8, '2026-10-30T18:46:47Z')`); err != nil {
-		t.Fatal(err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	for _, q := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA wal_autocheckpoint=0",
+		"CREATE TABLE " + table + " (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
+		"PRAGMA wal_checkpoint(TRUNCATE)", // the table reaches the main file
+		"INSERT INTO " + table + " VALUES (8, '2026-10-30T18:46:47Z')",
+		"INSERT INTO " + table + " VALUES (9, '2026-10-31T00:00:00Z')", // pending frames
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
 	}
-	_ = db.Close()
-	before, _ := os.ReadFile(old) //nolint:gosec // the test's own temp file
-
-	wantLegacy(t, RefuseLegacy(d, old, home), "old build's schema")
-
-	after, _ := os.ReadFile(old) //nolint:gosec // the test's own temp file
-	if string(before) != string(after) {
-		t.Fatal("the guard changed the database it judged")
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if fi, err := os.Stat(path + suffix); err != nil || fi.Size() == 0 {
+			t.Fatalf("fixture has no %s with content: %v", suffix, err)
+		}
 	}
 }
 
-func TestGuardAcceptsANewDatabase(t *testing.T) {
-	home, d := guardFixture(t)
-	db, err := sql.Open("sqlite", d.Database())
-	if err != nil {
+// snapshot reads the database and its -wal and -shm.
+func snapshot(t *testing.T, path string) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		b, err := os.ReadFile(path + suffix) //nolint:gosec // the test's own temp file
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[suffix] = b
+	}
+	return out
+}
+
+func TestGuardRefusesTheOldSchemaWithoutTouchingAnyFile(t *testing.T) {
+	old := filepath.Join(t.TempDir(), "main.db")
+	walDatabase(t, old, "schema_migrations")
+	before := snapshot(t, old)
+
+	wantLegacy(t, RefuseOldSchema(old), "old build's schema")
+
+	after := snapshot(t, old)
+	for suffix, b := range before {
+		if !bytes.Equal(b, after[suffix]) {
+			t.Fatalf("the guard changed main.db%s (%d bytes -> %d)", suffix, len(b), len(after[suffix]))
+		}
+	}
+}
+
+func TestGuardAcceptsANewDatabaseWithoutTouchingAnyFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "cerberus.db")
+	walDatabase(t, p, "goose_db_version")
+	before := snapshot(t, p)
+	if err := RefuseOldSchema(p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE goose_db_version (id INTEGER PRIMARY KEY)`); err != nil {
+	after := snapshot(t, p)
+	for suffix, b := range before {
+		if !bytes.Equal(b, after[suffix]) {
+			t.Fatalf("the guard changed cerberus.db%s", suffix)
+		}
+	}
+}
+
+func TestGuardRefusesAFileItCannotRead(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "garbage.db")
+	if err := os.WriteFile(p, bytes.Repeat([]byte("not sqlite "), 100), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_ = db.Close()
-	if err := RefuseLegacy(d, d.Database(), home); err != nil {
-		t.Fatal(err)
+	err := RefuseOldSchema(p)
+	if err == nil || !strings.Contains(err.Error(), "without writing") {
+		t.Fatalf("err = %v, want a refusal", err)
 	}
 }

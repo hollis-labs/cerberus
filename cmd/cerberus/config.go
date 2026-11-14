@@ -12,35 +12,54 @@ import (
 	"github.com/hollis-labs/cerberus/internal/settings"
 )
 
-// bootOptions are the app's two boot hooks.
+// bootOptions are the app's two boot hooks. The legacy guard (internal/datadir) runs in
+// both, and nothing is created or changed until the checks that can run at that point pass.
 //
 // After the config module has applied the SUBSTRATE_CONFIG override, the data directory
-// (CERBERUS_DATA_DIR, or the XDG data home's cerberus-substrate) is resolved and created
-// 0700, a relative database path is joined onto it, and the cerberus block is checked so a
-// bad value stops the start naming its key.
+// (CERBERUS_DATA_DIR, or the XDG data home's cerberus-substrate) is resolved, a relative
+// database path is joined onto it, and the cerberus block is checked so a bad value stops
+// the start naming its key. Then the data directory and the database path are refused if
+// they lie in either of the old build's homes (~/.cerberus, the old XDG data directory),
+// and the data directory if it holds the old layout. Only then is it created 0700.
 //
-// Immediately before the database module opens (and migrates) the file, the old build's
-// state is refused (datadir.RefuseLegacy), and only then is the database file created 0600.
-// The guard reads the path from the config the module will read, so it needs no copy of
-// the merge rule.
+// Immediately before the database module opens (and migrates) the file, the paths are
+// checked again (the database module reads exactly this config), an existing file is
+// refused if it has the old schema (read-only and immutable: it changes nothing), and only
+// then is the database file created 0600.
 func bootOptions(getenv func(string) string) boot.Options {
 	var dirs datadir.Dirs
+	var roots []string
+	dbPath := func(app *module.App) string {
+		p, _ := nested(app.Config, "database", "sqlite")["path"].(string)
+		return p
+	}
 	return boot.Options{
 		AfterConfig: func(_ context.Context, app *module.App) error {
 			var err error
 			if dirs, err = datadir.Resolve(getenv); err != nil {
 				return err
 			}
-			if err = dirs.Prepare(); err != nil {
-				return fmt.Errorf("prepare the data directory %s: %w", dirs.Data, err)
-			}
 			sq := nested(app.Config, "database", "sqlite")
 			p, _ := sq["path"].(string)
 			if sq["path"], err = dirs.Anchor(dirs.Database(), p); err != nil {
 				return fmt.Errorf("database.sqlite.path: %w", err)
 			}
-			_, err = settings.Parse(app.Config[settings.Key], home(getenv))
-			return err
+			if _, err = settings.Parse(app.Config[settings.Key], home(getenv)); err != nil {
+				return err
+			}
+			if roots, err = datadir.OldRoots(home(getenv)); err != nil {
+				return err
+			}
+			if err = datadir.RefuseOldPaths(dirs, dbPath(app), roots); err != nil {
+				return err
+			}
+			if err = datadir.RefuseOldContents(dirs); err != nil {
+				return err
+			}
+			if err = dirs.Prepare(); err != nil {
+				return fmt.Errorf("prepare the data directory: %w", err)
+			}
+			return nil
 		},
 		Before: map[string]boot.Hook{
 			"database": func(_ context.Context, app *module.App) error {
@@ -48,8 +67,11 @@ func bootOptions(getenv func(string) string) boot.Options {
 				if d, _ := db["driver"].(string); d != "" && d != "sqlite" {
 					return fmt.Errorf("database.driver %q: Cerberus is SQLite only (docs/architecture.md)", d)
 				}
-				p, _ := nested(app.Config, "database", "sqlite")["path"].(string)
-				if err := datadir.RefuseLegacy(dirs, p, home(getenv)); err != nil {
+				p := dbPath(app)
+				if err := datadir.RefuseOldPaths(dirs, p, roots); err != nil {
+					return err
+				}
+				if err := datadir.RefuseOldSchema(p); err != nil {
 					return err
 				}
 				if err := dirs.EnsureParent(p); err != nil {
