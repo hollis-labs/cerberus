@@ -4,7 +4,7 @@ Task: CW-20261114-0091 (mission CW-20261112-0099). Read from `main` at 493a9f0,
 2026-11-14. No UI was changed and no console was restarted. This feeds the GUI part
 of the port plan. File references are repo-relative. Observations of the live operator
 host (the unit file, the public host name, which state files exist) are in Tesseract
-workspace item `01M7DS5YJAYSMYP8GXN87WPMNQ` (`project/cerberus/workspace/substrate-port`,
+workspace item `01M7DX6SZYHRC0RZV8X5G1922V` (`project/substrate-migration/workspace/cerberus`,
 key `inventory-gui-full`).
 
 ## 1. How the console is built and served
@@ -16,7 +16,7 @@ key `inventory-gui-full`).
 | Build output | `vite.config.ts` builds to `internal/webui/dist` and restores `dist/.gitkeep` |
 | Embed | `internal/webui/server.go:30` `//go:embed all:dist`, served through `fs.Sub` (`:41`) |
 | Process | `cerberus web --listen 127.0.0.1:4783 --open=false`, a subcommand of the main binary (`cmd/cerberus/cmd_web.go:26`). It is a separate process from the daemon and reaches the daemon over `~/.cerberus/cerberus.sock` |
-| Supervision | on the operator host a user unit runs `cerberus web --listen 127.0.0.1:4783 --open=false` after the daemon unit, and Cerberus describes it as its own resource `cerberus-web`. The unit file, its options and the public host are in Tesseract workspace item `01M7DS5YJAYSMYP8GXN87WPMNQ` |
+| Supervision | on the operator host a user unit runs `cerberus web --listen 127.0.0.1:4783 --open=false` after the daemon unit, and Cerberus describes it as its own resource `cerberus-web`. The unit file, its options and the public host are in Tesseract workspace item `01M7DX6SZYHRC0RZV8X5G1922V` |
 | Public access | optional HTTPS reverse proxy; config key `web.public_url` (`internal/config/web.go:15`, `internal/webui/public_url.go`). With it set, cookies are `Secure` |
 | Dev proxy | Vite proxies `/api` to `127.0.0.1:4783` and rewrites `Origin` |
 | Tests | No frontend or browser tests. Go tests in `internal/webui/*_test.go` cover routes, guards, sessions, scoped sessions, passkeys and redaction |
