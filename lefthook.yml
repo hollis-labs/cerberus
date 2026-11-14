@@ -76,10 +76,17 @@ pre-push:
   commands:
 
     go-test:
-      # Full test suite gate before code reaches the remote.
+      # Full test suite gate before code reaches the remote. Every test package
+      # already runs under its own scratch home (internal/testhome); the hook
+      # also starts the suite under one, so nothing it misses reaches the
+      # operator's ~/.cerberus (CW-20261114-0143).
       glob: "*.go"
       skip_empty: true
-      run: go test ./...
+      run: |
+        export GOPATH="$(go env GOPATH)" GOMODCACHE="$(go env GOMODCACHE)" GOCACHE="$(go env GOCACHE)"
+        scratch="$(mktemp -d)"
+        trap 'rm -rf "$scratch"' EXIT
+        HOME="$scratch" XDG_CONFIG_HOME="$scratch/.config" XDG_DATA_HOME="$scratch/.local/share" XDG_STATE_HOME="$scratch/.local/state" XDG_CACHE_HOME="$scratch/.cache" go test ./...
 
     catalog-tools-test:
       # The catalog's own tooling (add_record.py, validate.py) against real
