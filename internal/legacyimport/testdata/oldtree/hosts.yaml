@@ -1,0 +1,7 @@
+version: 1
+hosts:
+  - name: box-1
+    hostname: box-1.example
+    reach:
+      transport: ssh
+      ssh: box

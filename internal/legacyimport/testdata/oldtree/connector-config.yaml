@@ -1,0 +1,5 @@
+fixture-echo:
+  fields:
+    region: test-1
+  mcp:
+    expose: [echo]

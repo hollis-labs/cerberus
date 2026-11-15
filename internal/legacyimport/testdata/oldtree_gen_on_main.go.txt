@@ -1,0 +1,429 @@
+// Generator for testdata/oldtree, testdata/oldmain.db and testdata/oldanchor.json: an old
+// build's ~/.cerberus and main.db written by the OLD build's own writers (audit sink, approvals
+// store, pause markers, credential broker, host state and history, snapshot recorder, policy
+// store, brakes, the registry, the SQLite host store). Copy this file onto a checkout of main as
+// internal/oldtreegen/gen_test.go and run, under the fixed scratch HOME it requires (the paths
+// it records, such as the registry's descriptor path and the receipts' file references, name
+// that directory and nothing else):
+//
+//	rm -rf /tmp/oldtree-gen && mkdir -p /tmp/oldtree-gen/h
+//	HOME=/tmp/oldtree-gen/h XDG_CONFIG_HOME=/tmp/oldtree-gen/h/.config \
+//	  XDG_DATA_HOME=/tmp/oldtree-gen/h/.local/share XDG_STATE_HOME=/tmp/oldtree-gen/h/.local/state \
+//	  XDG_CACHE_HOME=/tmp/oldtree-gen/h/.cache DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/oldtree-gen/nobus \
+//	  CERBERUS_OLDTREE_OUT=<this testdata dir> go test -count=1 -run TestGenerateOldTree ./internal/oldtreegen
+//
+// No keychain is touched: the audit chain is anchored in memory and its head written to
+// oldanchor.json. Keys and secrets are fixed fakes. Do not commit this file to main.
+package oldtreegen
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hollis-labs/cerberus/internal/approval"
+	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/brake"
+	"github.com/hollis-labs/cerberus/internal/cerbapi"
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/credentialbroker"
+	"github.com/hollis-labs/cerberus/internal/hosts"
+	"github.com/hollis-labs/cerberus/internal/pausectl"
+	"github.com/hollis-labs/cerberus/internal/policy"
+	"github.com/hollis-labs/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/store/sqlite"
+)
+
+const genRoot = "/tmp/oldtree-gen"
+
+type genAnchor struct{ head audit.Head }
+
+func (g *genAnchor) Load() (audit.Head, bool, error) { return g.head, g.head.Seq > 0, nil }
+func (g *genAnchor) Store(h audit.Head) error        { g.head = h; return nil }
+
+// acceptAll stands in for the passkey verifier the old console used: the fixture's approve is a
+// passkey-era decision, which the new build lists as legacy.
+type acceptAll struct{}
+
+func (acceptAll) Verify(approval.Approval, approval.Decision) error { return nil }
+
+const descriptor = `kind: cerberus-project/v1
+owner: shop
+project: {id: shop, name: Shop}
+resources:
+  - id: web
+    name: Web
+    type: process
+    connector: local
+    project: shop
+    tags: [ui]
+    config:
+      command: ["/srv/fixture/web/bin/web", "--port", "5173"]
+      dir: /srv/fixture/web
+      port: 5173
+  - id: api
+    name: API
+    type: process
+    connector: local
+    project: shop
+    config:
+      command: ["/srv/fixture/api/bin/api"]
+      dir: /srv/fixture/api
+      port: 5174
+  - id: box
+    name: Box
+    type: server
+    connector: ssh
+    project: shop
+    config: {host: box-1.example}
+`
+
+const configYAML = `version: 2
+web:
+  public_url: https://cerberus.example.test
+host_monitor:
+  enabled: true
+  ssh_interval: 5m
+  sample_retention: 168h
+  thresholds:
+    disk_free_percent: 10
+`
+
+const eventsYAML = `export:
+  enabled: true
+  grace_seconds: 90
+  interval_seconds: 10
+  hub:
+    enabled: false
+`
+
+const connectorConfigYAML = `fixture-echo:
+  fields:
+    region: test-1
+  mcp:
+    expose: [echo]
+`
+
+const connectorSecretsYAML = `fixture-echo:
+  api_token: "keyring:cerberus/FAKE-fixture-echo-token"
+`
+
+const hostsYAML = `version: 1
+hosts:
+  - name: box-1
+    hostname: box-1.example
+    reach:
+      transport: ssh
+      ssh: box
+`
+
+const pluginConnectorsJSON = `{
+  "version": 2,
+  "entries": [
+    {"id": "fixture-echo", "plugin_dir": "/tmp/oldtree-gen/h/.cerberus/plugins/fixture-echo", "options": {}, "loaded": true,
+     "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ]
+}
+`
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func write(t *testing.T, path, data string, mode os.FileMode) {
+	t.Helper()
+	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	must(t, os.WriteFile(path, []byte(data), mode))
+}
+
+func TestGenerateOldTree(t *testing.T) {
+	out := os.Getenv("CERBERUS_OLDTREE_OUT")
+	if out == "" {
+		t.Skip("CERBERUS_OLDTREE_OUT unset")
+	}
+	home, _ := os.UserHomeDir()
+	if home != genRoot+"/h" {
+		t.Fatalf("run under HOME=%s/h (got %s): the fixture records that path", genRoot, home)
+	}
+	ctx := context.Background()
+	root := filepath.Join(home, ".cerberus")
+	must(t, os.MkdirAll(root, 0o700))
+	auditDir := filepath.Join(root, "audit")
+	must(t, os.MkdirAll(auditDir, 0o700))
+
+	// The audit chain: a fixed, fake digest key and a memory anchor.
+	must(t, os.WriteFile(filepath.Join(auditDir, ".digest_key"), bytes.Repeat([]byte{0x42}, 32), 0o600))
+	anchor := &genAnchor{}
+	audit.SetAnchor(auditDir, anchor)
+	sink, err := audit.OpenFileSink(auditDir)
+	must(t, err)
+	human := audit.Principal{Kind: "human", Surface: "socket", Via: "cli", SelfReported: true}
+	agent := audit.Principal{Kind: "agent", Surface: "mcp", Via: "mcp_stdio", Client: "fixture-agent", SelfReported: true}
+	for i, op := range []string{"apply", "deploy", "reload"} {
+		in, werr := sink.Write(audit.Record{Kind: audit.KindIntent, Connector: "local", Operation: op, Principal: human,
+			Target: audit.Target{Kind: "local.resource", Resource: "web"}, ArgsDigest: sink.Digest(map[string]any{"id": "web", "n": i})})
+		must(t, werr)
+		_, werr = sink.Write(audit.Record{Kind: audit.KindOutcome, OperationID: in.OperationID, Connector: "local", Operation: op, Principal: human, Decision: "allowed"})
+		must(t, werr)
+	}
+
+	// The registry, its descriptor and the global config.
+	write(t, filepath.Join(root, "config.yaml"), configYAML, 0o600)
+	desc := filepath.Join(genRoot, "apps", "shop", "shop.cerberus.yaml")
+	write(t, desc, descriptor, 0o644)
+	reg, err := registry.Default()
+	must(t, err)
+	_, err = reg.Register(desc)
+	must(t, err)
+	cfg, err := registry.ResolveConfig(config.DefaultPath())
+	must(t, err)
+
+	// Applied digests, as the resource runtime records them (sink.Digest of the definition).
+	digests := map[string]string{}
+	for i := range cfg.Resources {
+		res := &cfg.Resources[i]
+		if res.Type == "process" {
+			digests[res.ID] = sink.Digest(res)
+		}
+	}
+	data, err := json.MarshalIndent(digests, "", "  ")
+	must(t, err)
+	write(t, filepath.Join(root, "runtime", "applied.json"), string(data), 0o600)
+
+	// Pause markers: everything, web, and a target that names no resource.
+	must(t, pausectl.PauseAll())
+	must(t, pausectl.PauseService("web"))
+	must(t, pausectl.PauseService("ghost.x"))
+
+	// Approvals: a passkey-era approve, a deny, one left pending.
+	apr, err := approval.Open(filepath.Join(root, "approvals"))
+	must(t, err)
+	req := func(op string) approval.Approval {
+		a, rerr := apr.Request(approval.Approval{Principal: agent, Connector: "local", Operation: op,
+			Target: audit.Target{Kind: "local.resource", Resource: "web"}, ArgsDigest: sink.Digest(map[string]any{"id": "web", "op": op}),
+			Channel: approval.ChannelOutOfBand, Scope: approval.ScopeOnce, Rule: "fixture"}, 24*time.Hour)
+		must(t, rerr)
+		return a
+	}
+	a1 := req("deploy")
+	_, err = apr.Decide(a1.ID, approval.Decision{Approve: true, By: audit.Principal{Kind: "human", Surface: "web", Via: "web"},
+		Surface: "web", KeyFingerprint: "SHA256:FAKE-passkey-fixture-0000", Assertion: []byte("fake-passkey-assertion")}, acceptAll{})
+	must(t, err)
+	_, err = sink.Write(audit.Record{Kind: audit.KindApprovalDecided, Connector: "approvals", Operation: "decide", Principal: human})
+	must(t, err)
+	a2 := req("stop")
+	_, err = apr.Decide(a2.ID, approval.Decision{Approve: false, By: human, Surface: "socket", Reason: "fixture deny"}, nil)
+	must(t, err)
+	req("remove")
+	write(t, filepath.Join(root, "approvals", "passkeys", "keys.json"), `{"keys":[]}`+"\n", 0o600)
+	write(t, filepath.Join(root, "approvals", "passkeys", "key-counters.json"), `{}`+"\n", 0o600)
+
+	// Credential issuance: a completed lifecycle, an uncertain one, one stopped at prepared, and
+	// an empty reservation (a crash between the mkdir and the first receipt).
+	broker := credentialbroker.New(filepath.Join(root, "credential-issuance"))
+	issue := func(id string, steps int, success bool) {
+		d, perr := broker.Prepare(ctx, credentialbroker.Binding{ID: id, Connector: "postgres", Operation: "provision",
+			Digest: "hmac-sha256:" + strings.Repeat("ab", 32)}, []string{"runtime_ref"})
+		must(t, perr)
+		if steps > 1 {
+			must(t, d.Start())
+		}
+		if steps > 2 {
+			must(t, d.Finish(success))
+		}
+	}
+	issue(strings.Repeat("a", 32), 3, true)
+	issue(strings.Repeat("b", 32), 3, false)
+	issue(strings.Repeat("c", 32), 1, false)
+	must(t, os.Mkdir(filepath.Join(root, "credential-issuance", strings.Repeat("d", 32)), 0o700))
+	// The issued values are random; replace them with an obvious fake.
+	must(t, filepath.WalkDir(filepath.Join(root, "credential-issuance", "secrets"), func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || d.IsDir() {
+			return werr
+		}
+		return os.WriteFile(p, []byte("FAKE-ISSUED-VALUE-FOR-TESTS"), 0o600)
+	}))
+
+	// Hosts: hosts.yaml, its derived state and its change history.
+	hostsPath := filepath.Join(root, "hosts.yaml")
+	write(t, hostsPath, hostsYAML, 0o600)
+	if _, perr := hosts.Parse([]byte(hostsYAML)); perr != nil {
+		t.Fatal(perr)
+	}
+	seen := time.Date(2026, 11, 14, 11, 0, 0, 0, time.UTC)
+	must(t, hosts.NewStore(filepath.Join(root, "state", "hosts.json")).Put("box-1", hosts.State{State: "online", LastSeen: &seen, CheckedAt: &seen}))
+	must(t, hosts.HistoryFor(hostsPath).Append(hosts.Change{Time: seen, Caller: "cli", Op: "add", Kind: "host", Name: "box-1",
+		Hosts: []string{"box-1"}, After: map[string]any{"hostname": "box-1.example"}, RevisionBefore: "", RevisionAfter: "rev-1"}))
+
+	// The overview snapshot recorder, a few ticks.
+	rec := cerbapi.NewSnapshotRecorder(cerbapi.SnapshotRecorderConfig{Interval: 10 * time.Millisecond, Path: filepath.Join(root, "state", "overview_snapshots.json")},
+		func(context.Context) (cerbapi.OverviewSnapshot, error) {
+			return cerbapi.OverviewSnapshot{Resources: 3, Projects: 1, Running: 1, Stopped: 1, RegistryEntries: 1, RegistryHealthy: 1}, nil
+		}, nil)
+	rctx, cancel := context.WithTimeout(ctx, 55*time.Millisecond)
+	_ = rec.Run(rctx)
+	cancel()
+
+	// Policy: the applied snapshot (recorded on the chain as `cerberus policy apply` does), the
+	// working files, and a backup the import leaves behind.
+	pol := policy.Store{Dir: filepath.Join(root, "policy"), AuditDir: auditDir}
+	file := policy.File{Version: 1, Posture: policy.PostureSecure}
+	hash, err := pol.Apply(file)
+	must(t, err)
+	snap, err := policy.Encode(file)
+	must(t, err)
+	tgt := audit.Target{Kind: "policy.snapshot", Fields: map[string]string{"hash": hash}}
+	in, err := sink.Write(audit.Record{Kind: audit.KindIntent, Connector: "policy", Operation: "apply", Principal: human, Target: tgt})
+	must(t, err)
+	_, err = sink.Write(audit.Record{Kind: audit.KindOutcome, OperationID: in.OperationID, Connector: "policy", Operation: "apply",
+		Principal: human, Target: tgt, Decision: "allowed", PolicySnapshot: string(snap)})
+	must(t, err)
+	write(t, filepath.Join(root, "policy", "posture.yaml"), "version: 1\nposture: secure\n", 0o600)
+	write(t, filepath.Join(root, "policy", "enforcement.yaml"), "version: 1\n", 0o600)
+	write(t, filepath.Join(root, "policy", "providers", "fixture-echo.yaml"), "version: 1\n", 0o600)
+	write(t, filepath.Join(root, "policy", "posture.yaml.bak-20261101"), "version: 1\nposture: permissive\n", 0o600)
+
+	// Brakes: a freeze, a suspension, and a version-1 reset of it (no proof, applied as legacy).
+	bs := brake.Store{Dir: filepath.Join(root, "brakes")}
+	_, _, err = bs.EngageFreeze(policy.TargetMatch{ID: "api"}, human, "fixture freeze")
+	must(t, err)
+	_, sus, err := bs.Suspend("agent:fixture-agent", agent, 5, "1m")
+	must(t, err)
+	appendV1Reset(t, filepath.Join(root, "brakes", brake.FileName), sus.ID, human)
+	if st, problems := bs.Load(); len(problems) > 0 || len(st.Suspensions) != 0 || len(st.Freezes) != 1 {
+		t.Fatalf("brakes: %+v %v", st, problems)
+	}
+
+	// Config files the import transforms, and the adopted root's other residents.
+	write(t, filepath.Join(root, "events.yaml"), eventsYAML, 0o600)
+	write(t, filepath.Join(root, "connector-config.yaml"), connectorConfigYAML, 0o600)
+	write(t, filepath.Join(root, "connector-secrets.yaml"), connectorSecretsYAML, 0o600)
+	write(t, filepath.Join(root, "plugin-connectors.json"), pluginConnectorsJSON, 0o600)
+	write(t, filepath.Join(root, "events", "outbox.jsonl"), `{"seq":1,"type":"fixture"}`+"\n", 0o600)
+	write(t, filepath.Join(root, "pids", "web.pid"), "424242\n", 0o600)
+	write(t, filepath.Join(root, "pids", "web.meta"), `{"id":"web"}`+"\n", 0o600)
+	write(t, filepath.Join(root, "web", "login-fixture.key"), "FAKE-LOGIN-KEY\n", 0o600)
+	write(t, filepath.Join(root, "cerberus.log"), "fixture log line\n", 0o600)
+	write(t, filepath.Join(root, "logs", "web.log"), "fixture log line\n", 0o600)
+	write(t, filepath.Join(root, "config.yaml.bak-20261001"), "version: 2\n", 0o600)
+	write(t, filepath.Join(root, "cerberus.db"), "", 0o600)
+	write(t, filepath.Join(root, "cerberus.pid"), "424243\n", 0o600)
+	write(t, filepath.Join(root, "daemon.lock"), "", 0o600)
+	write(t, filepath.Join(root, "apps", "shop", "web", "bin", "web"), "#!/bin/sh\nexit 0\n", 0o700)
+	write(t, filepath.Join(root, "outpost-tokens", "box-1.token"), "FAKE-OUTPOST-TOKEN\n", 0o600)
+	for _, d := range []string{"plugins/fixture-echo", "events-tokens", "secrets", "transfers", "locks", "backups"} {
+		must(t, os.MkdirAll(filepath.Join(root, d), 0o700))
+	}
+
+	// main.db: the old store with host monitoring rows, then the newest events deleted so
+	// sqlite_sequence is past max(id), then a .backup-style copy.
+	dbPath := filepath.Join(home, ".local", "share", "cerberus", "workspaces", "default", "main.db")
+	db, err := sqlite.Open(dbPath)
+	must(t, err)
+	ss := hosts.NewSampleStore(db.Core())
+	base := time.Date(2026, 11, 13, 0, 0, 0, 0, time.UTC)
+	f := func(v float64) *float64 { return &v }
+	for i := 0; i < 90; i++ {
+		at := base.Add(time.Duration(i) * 2 * time.Minute)
+		for _, h := range []string{"box-1", "box-2"} {
+			s := hosts.Sample{Host: h, At: at, CPU: 4, MemoryTotal: 8 << 30, MemoryAvailable: int64(4<<30 + i*1024), DiskTotal: 100 << 30,
+				DiskFree: int64(50<<30 - i*4096), UptimeSeconds: int64(1000 + i*120), ProbeMS: int64(10 + i%7)}
+			if h == "box-1" {
+				s.Load1, s.Load5, s.Load15 = f(0.1*float64(i%10)+0.05), f(0.333333333333), f(1.0)
+			}
+			must(t, ss.AppendSample(ctx, s))
+		}
+	}
+	last := base.Add(178 * time.Minute)
+	must(t, ss.PutStatus(ctx, hosts.HostStatus{Host: "box-1", Status: "ok", Since: base, LastOK: &last, LastAttempt: &last, NextDue: &last}))
+	must(t, ss.PutStatus(ctx, hosts.HostStatus{Host: "box-2", Status: "degraded", Since: base.Add(time.Hour), LastAttempt: &last, ConsecutiveFailures: 2, Candidate: "ok", CandidateCount: 1}))
+	for i, ev := range []hosts.Event{
+		{At: base, Host: "box-1", Kind: "status", From: "unknown", To: "ok"},
+		{At: base, Host: "box-2", Kind: "status", From: "unknown", To: "ok"},
+		{At: base.Add(time.Hour), Host: "box-2", Kind: "status", From: "ok", To: "degraded", Reasons: []string{"disk_low"}},
+		{At: base.Add(2 * time.Hour), Host: "box-2", Kind: "status", From: "degraded", To: "ok", Expected: true},
+		{At: base.Add(150 * time.Minute), Host: "box-1", Kind: "status", From: "ok", To: "offline", Reasons: []string{"unreachable"}},
+	} {
+		if _, aerr := ss.AppendEvent(ctx, ev); aerr != nil {
+			t.Fatalf("event %d: %v", i, aerr)
+		}
+	}
+	rep, err := ss.Compact(ctx, base.Add(5*time.Hour), hosts.Retention{Raw: 4 * time.Hour, Rollup5m: 30 * 24 * time.Hour, Rollup1h: 90 * 24 * time.Hour, Events: 90 * 24 * time.Hour})
+	must(t, err)
+	t.Logf("compact: %s", rep)
+	_, err = db.DB().ExecContext(ctx, `DELETE FROM host_events WHERE id > 3`)
+	must(t, err)
+	backup := filepath.Join(out, "oldmain.db")
+	_ = os.Remove(backup)
+	_, err = db.DB().ExecContext(ctx, `VACUUM INTO ?`, backup)
+	must(t, err)
+	must(t, db.Close())
+
+	raw, err := json.Marshal(anchor.head)
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(out, "oldanchor.json"), append(raw, '\n'), 0o600))
+
+	// The tree, and the empty directories git does not keep.
+	tree := filepath.Join(out, "oldtree")
+	must(t, os.RemoveAll(tree))
+	if b, cerr := exec.Command("cp", "-a", root, tree).CombinedOutput(); cerr != nil { //nolint:gosec // fixed arguments
+		t.Fatalf("cp: %v %s", cerr, b)
+	}
+	var empty []string
+	must(t, filepath.WalkDir(tree, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || !d.IsDir() {
+			return werr
+		}
+		entries, rerr := os.ReadDir(p)
+		if rerr != nil {
+			return rerr
+		}
+		if len(entries) == 0 {
+			rel, _ := filepath.Rel(tree, p)
+			empty = append(empty, rel)
+		}
+		return nil
+	}))
+	sort.Strings(empty)
+	must(t, os.WriteFile(filepath.Join(out, "oldtree.emptydirs"), []byte(strings.Join(empty, "\n")+"\n"), 0o600))
+	must(t, os.MkdirAll(filepath.Join(out, "descriptors"), 0o700))
+	must(t, os.WriteFile(filepath.Join(out, "descriptors", "shop.cerberus.yaml"), []byte(descriptor), 0o600))
+}
+
+// appendV1Reset appends a suspension reset as the old build wrote it before resets carried a
+// proof: version 1, chained to the last event.
+func appendV1Reset(t *testing.T, path, id string, by audit.Principal) {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // the fixture's own file
+	must(t, err)
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	var prev brake.Event
+	must(t, json.Unmarshal(lines[len(lines)-1], &prev))
+	ev := brake.Event{V: 1, Seq: prev.Seq + 1, Time: prev.Time.Add(time.Second), Type: brake.EventSuspensionReset, ID: id, By: &by, PrevHash: prev.Hash}
+	body, err := json.Marshal(ev)
+	must(t, err)
+	sum := sha256.Sum256(body)
+	ev.Hash = "sha256:" + hex.EncodeToString(sum[:])
+	line, err := json.Marshal(ev)
+	must(t, err)
+	fh, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // as above
+	must(t, err)
+	_, err = fh.Write(append(line, '\n'))
+	must(t, errors.Join(err, fh.Close()))
+	_ = fmt.Sprint()
+}

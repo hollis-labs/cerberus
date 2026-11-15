@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "entries": [
+    {"id": "fixture-echo", "plugin_dir": "/tmp/oldtree-gen/h/.cerberus/plugins/fixture-echo", "options": {}, "loaded": true,
+     "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  ]
+}

@@ -1,0 +1,7 @@
+version: 1
+entries:
+    - owner: shop
+      namespace: local
+      path: /tmp/oldtree-gen/apps/shop/shop.cerberus.yaml
+      kind: cerberus-project/v1
+      registered_at: "2026-11-15T05:42:29Z"
