@@ -73,3 +73,22 @@ export function confirmableApproval(err: unknown): ApprovalRef | null {
   const ref = refusalApproval(err)
   return ref && ref.channel === "tty_confirm" ? ref : null
 }
+
+/**
+ * True when the route's backend has not landed in this build yet: the guard refuses a route it
+ * does not map (403 route_not_mapped), or the route answers 404 or 501. Pages show "not available
+ * yet" for these, never mock data.
+ */
+export function notAvailable(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  return (
+    err.status === 404 ||
+    err.status === 501 ||
+    (err.status === 403 && err.code === "route_not_mapped")
+  )
+}
+
+/** True when the caller is not a signed-in person: the person-only routes answer 403 user_required. */
+export function userRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403 && err.code === "user_required"
+}

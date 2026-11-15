@@ -78,7 +78,7 @@ The owner holds `*`. The access-keys page offers only read, operate and admin.
 | overview | GET | `/api/overview` | read | | `OverviewInfo` |
 | overview | GET | `/api/system` | read | | `SystemInfo` |
 | resources, connectors | GET | `/api/resources` | read | query `project?`, `connector?`, `tag?` | `ResourceInfo[]` |
-| resources | GET | `/api/resources/{id}` | read | | `ResourceRuntimeStatus` |
+| resources | GET | `/api/resources/{id}/status` | read | | `ResourceRuntimeStatus` (the legacy route L3; one handler, no alias) |
 | resources | GET | `/api/resources/{id}/logs` | read | query `stream`, `lines` | `LogLines` |
 | resources | POST **W** gated | `/api/resources/{id}/{apply\|deploy\|reload\|stop\|sync}` | operate | `{acknowledged}` | `OpResult` |
 | resources | POST **W** gated | `/api/resources/{id}/remove` | admin | `{acknowledged}` | `OpResult` |
