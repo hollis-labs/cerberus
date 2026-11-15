@@ -56,6 +56,12 @@ func mcpApp(t *testing.T) *module.App {
 
 func connect(t *testing.T, app *module.App, scopes []string) *mcpsdk.ClientSession {
 	t.Helper()
+	return connectNamed(t, app, scopes, "t")
+}
+
+// connectNamed connects an MCP client whose clientInfo name is client.
+func connectNamed(t *testing.T, app *module.App, scopes []string, client string) *mcpsdk.ClientSession {
+	t.Helper()
 	srvIn, cliOut := io.Pipe()
 	cliIn, srvOut := io.Pipe()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -64,7 +70,7 @@ func connect(t *testing.T, app *module.App, scopes []string) *mcpsdk.ClientSessi
 		_ = smcp.ServeStdio(ctx, app, smcp.StdioOptions{In: srvIn, Out: srvOut, LocalTrust: true, LocalScopes: scopes, Notice: io.Discard})
 		_ = srvOut.Close()
 	}()
-	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "t", Version: "1"}, nil).
+	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: client, Version: "1"}, nil).
 		Connect(ctx, &mcpsdk.IOTransport{Reader: cliIn, Writer: cliOut}, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -195,11 +201,16 @@ func jsonOf(v any) string {
 // production resource (the API's own gate tests' setup).
 func gatedAPI(t *testing.T) (*api.API, *gatetest.World) {
 	t.Helper()
+	return gatedAPIWith(t, gatetest.Options{})
+}
+
+func gatedAPIWith(t *testing.T, o gatetest.Options) (*api.API, *gatetest.World) {
+	t.Helper()
 	prod := config.ResourceDef{ID: "web", Type: "process", Project: "demo", Connector: "local",
 		Env: target.EnvProd, Owner: target.OwnerSelf, Admin: target.Admin{Default: target.AdminSelf},
 		Config: map[string]any{"mode": "dev_session", "command": []any{"/bin/sleep", "300"}}}
 	resources := []config.ResourceDef{prod}
-	w := gatetest.New(t, gatetest.Options{})
+	w := gatetest.New(t, o)
 	base := t.TempDir()
 	ctx := context.Background()
 	cfg := store.Config{Driver: store.DriverSQLite, SQLite: store.SQLiteConfig{Path: filepath.Join(base, "cerberus.db"), CreateParentDir: true}}

@@ -24,6 +24,7 @@ func Register(app *module.App, b Backend) error {
 	if err != nil {
 		return err
 	}
+	srv.SDKServer().AddReceivingMiddleware(captureClient)
 	table := auth.ScopeTable(app)
 	for _, d := range defs {
 		name, scope := d.Name, scopeOf(d)

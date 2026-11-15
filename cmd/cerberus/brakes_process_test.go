@@ -88,7 +88,7 @@ func TestLockdownEngagedByTheCLIAndLiftedWithTheOwnersApproval(t *testing.T) {
 	}
 	var body string
 	code, out := runWithStdin(t, s, "", "lockdown", "--reason", "drill")
-	if code != 0 || !strings.HasPrefix(out, "LOCKDOWN ldn_") || !strings.Contains(out, "by agent over api: drill") {
+	if code != 0 || !strings.HasPrefix(out, "LOCKDOWN ldn_") || !strings.Contains(out, "by agent over cli: drill") {
 		t.Fatalf("cerberus lockdown: %d %s\n%s", code, out, log)
 	}
 	stop := func() (int, string) {

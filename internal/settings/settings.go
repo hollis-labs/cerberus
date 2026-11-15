@@ -7,6 +7,7 @@
 //	  mode: observe                      # observe (read and report only) or supervise
 //	  self_resource_id: ""               # the resource this process runs as, checked at start
 //	  cli_key_file: "~/.config/cerberus/cli.key"   # the API key the cerberus CLI presents
+//	  mcp_key_file: "~/.config/cerberus/mcp.key"   # the API key `cerberus mcp` presents
 //	  host_monitor: {enabled: false, ...}  # the old config.yaml host_monitor block, same keys
 //	  scheduler: {enabled: false, allow_existing: false}
 //	  event_export: {enabled: false, grace_seconds: 0, interval_seconds: 0, hub: false}
@@ -70,6 +71,10 @@ const (
 // directory, created offline with `cerberus identity key create --out` (mode 0600).
 const DefaultCLIKeyFile = "~/.config/cerberus/cli.key"
 
+// DefaultMCPKeyFile is mcp_key_file when the block does not set it: `cerberus mcp`'s own key, named
+// cerberus-mcp (read, operate, admin; never approve), so the gate tells its calls from the CLI's.
+const DefaultMCPKeyFile = "~/.config/cerberus/mcp.key"
+
 // Settings are the parsed block.
 type Settings struct {
 	// InstallRoot is absolute.
@@ -82,6 +87,8 @@ type Settings struct {
 	SelfResourceID string
 	// CLIKeyFile is absolute.
 	CLIKeyFile string
+	// MCPKeyFile is absolute.
+	MCPKeyFile string
 	// HostMonitor is the host_monitor block as the old config.yaml held it; nil when unset
 	// (the defaults, which leave monitoring off).
 	HostMonitor *config.HostMonitorConfig
@@ -121,7 +128,7 @@ func Parse(raw any, home string) (Settings, error) {
 		}
 		block = m
 	}
-	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true, "cli_key_file": true,
+	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true, "cli_key_file": true, "mcp_key_file": true,
 		"host_monitor": true, "scheduler": true, "event_export": true, "connectors": true}
 	var unknown []string
 	for k := range block {
@@ -157,6 +164,9 @@ func Parse(raw any, home string) (Settings, error) {
 		return s, err
 	}
 	if s.CLIKeyFile, err = path(block, "cli_key_file", DefaultCLIKeyFile, home); err != nil {
+		return s, err
+	}
+	if s.MCPKeyFile, err = path(block, "mcp_key_file", DefaultMCPKeyFile, home); err != nil {
 		return s, err
 	}
 	if v, ok := block["host_monitor"]; ok && v != nil {

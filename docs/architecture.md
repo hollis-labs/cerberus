@@ -33,7 +33,7 @@ with each slice and states only what the branch does now.
 | `internal/connector/local` | The local connector, carried. `observe.go` is its read-only half: `RenderSystemdUnit`, `ObserveSystemdUnit`, `ObserveSystemdDetail` (the state plus the unit's `systemctl --user show` record, from one show), `ObserveDevSession`; `NewWithSystemd` sets its systemd runner and unit environment. |
 | `internal/api` | The route table with a scope per route, the legacy-route set, the approve person check and the key guard (see Identity, scopes and the API). |
 | `internal/mcp` | The MCP tools (see MCP): main's catalog, embedded as dumped from main's own definitions, each tool with its scope and a handler that calls `/api` through a `Backend`. |
-| `cmd/cerberus/mcp.go` | `cerberus mcp`: MCP over stdio, forwarding every call to the serving Cerberus with the CLI key file. |
+| `cmd/cerberus/mcp.go` | `cerberus mcp`: MCP over stdio, forwarding every call to the serving Cerberus with its own key (`cerberus.mcp_key_file`). |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
 (plan section 4.2). Removed from this branch, readable on `main`, and ported from there by their slices:
@@ -236,8 +236,10 @@ Served today:
 
 **The caller in the gate.** Each request is entered into the gate as the caller the guard established
 (`api.GateContext`): the owner's console session is a human via `web`, named by its session; local trust (MCP stdio)
-is an agent via `mcp_stdio` (no transport sends it today: `cerberus mcp` forwards with the CLI key, so its calls
-are that key's); an API key, any token minted at `/api/token` and auth's off-mode operator are agents via
+is an agent via `mcp_stdio`; an MCP tool call is an agent via `mcp_http` (HTTP `/mcp`, stamped in-process) or
+`mcp_stdio` (`cerberus mcp`'s own key, named `cerberus-mcp`), whoever sent it, with the MCP client's clientInfo name as
+its client (a label, unverified, as on main) and the principal id as its session; the CLI's key (named `cli`) is an
+agent via `cli`; any other API key, any token minted at `/api/token` and auth's off-mode operator are agents via
 `api`. An agent's principal id is its client and its session, so an approval one key asked for is not usable by
 another (`approval.SameRequester`). The label chooses default policy; it is never approval.
 
@@ -318,13 +320,17 @@ through `cerberus mcp`. The server is `cerberus` 0.1.0, as on main.
   built from it, so a client sees what it saw. Plugin tools generated at runtime come with the plugin host (slice 7).
 - **One process supervises.** Every tool calls `/api` through a `Backend`: in `serve`, the API's own handlers
   in-process under the caller's principal (`MuxBackend`); in `cerberus mcp`, the serving Cerberus over loopback with
-  the CLI key file. `cerberus mcp` starts only config, logging, auth and mcp: no database, data directory, signing
+  its own key (`cerberus.mcp_key_file`, the key named `cerberus-mcp`: read, operate, admin, never approve). `cerberus mcp` starts only config, logging, auth and mcp: no database, data directory, signing
   key or loop. With no serving Cerberus a call fails naming the address; nothing runs in-process instead.
 - **Scopes.** `/mcp` needs `cerberus.read`. Each tool then needs its own scope, checked before it runs
   (`mcp.Authorize`): the scope of the route it calls, or for a tool not served yet, from its old effect (reads read;
   resource and pipeline runs operate; removals and configuration, host and connector writes admin). No tool needs
   `cerberus.approve`. Stdio runs under local trust with `cerberus.read`, `.operate` and `.admin`; its calls reach the
-  API as the CLI key, which cannot hold approve, and approving answers it 403 `user_required`.
+  API as the `cerberus-mcp` key, which cannot hold approve, and approving answers any MCP call 403 `user_required`.
+- **The caller is the MCP client's, as on main.** The gate records HTTP `/mcp` as an agent via `mcp_http` and
+  `cerberus mcp` as an agent via `mcp_stdio`, each with the MCP client's name (`api.MCPClientHeader` carries it from
+  stdio, read only from the `cerberus-mcp` key's calls), so policy rules naming a client match as before, and the
+  circuit breaker (kind, channel, session) suspends an MCP caller without touching the CLI's.
 - **Answers are main's.** Lists page into `{items,count,total,truncated,hint}`, reads are indented JSON, mutations
   answer `{success,message,error}` with `isError` on failure, and a gate refusal is main's structured refusal with
   its code, approval and next step (pointing at the console: decision 0.1).

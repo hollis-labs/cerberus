@@ -148,7 +148,7 @@ func (a *API) RegisterScopes(t *libauth.ScopeTable) {
 func (a *API) Mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, rt := range a.routes {
-		mux.Handle(rt.Method+" "+rt.Pattern, legacyVersion(rt.Handler))
+		mux.Handle(rt.Method+" "+rt.Pattern, legacyVersion(stampMCPStdio(rt.Handler)))
 	}
 	return mux
 }
@@ -529,7 +529,9 @@ func unknownAction(w http.ResponseWriter, r *http.Request) {
 func personOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, ok := libauth.FromContext(r.Context())
-		if !ok || !IsConsolePerson(p) {
+		_, viaMCP := mcpCallerFrom(r.Context())
+		// An MCP tool call is an agent's whoever sent it, even a console session on /mcp.
+		if !ok || !IsConsolePerson(p) || viaMCP {
 			apierr.Write(w, http.StatusForbidden, "user_required", "this needs the owner signed in to the console", nil)
 			return
 		}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/gate"
 )
 
@@ -50,9 +51,10 @@ func DecodeAnswer(status int, data []byte, out any) error {
 }
 
 // MuxBackend serves the calls in-process through the API's own handlers (api.API.Mux), under the
-// caller's context, so the principal the MCP transport stamped is the principal the route sees:
-// the gate, approvals and the person check behave as they do over HTTP. The route scopes are not
-// checked here; each tool's scope is (Register).
+// caller's context, so the principal the MCP transport stamped is the principal the route sees.
+// The call is marked as HTTP /mcp's (api.WithMCPCaller, gate.ViaMCPHTTP, with the MCP client), so
+// the gate records it as an agent via mcp_http and keys its breaker apart from other channels;
+// approving answers it 403. The route scopes are not checked here; each tool's scope is (Register).
 type MuxBackend struct{ Handler http.Handler }
 
 // Do runs one call through the handler.
@@ -65,6 +67,7 @@ func (b MuxBackend) Do(ctx context.Context, method, path string, in, out any) er
 		}
 		body = bytes.NewReader(data)
 	}
+	ctx = api.WithMCPCaller(ctx, api.MCPCaller{Via: gate.ViaMCPHTTP, Client: ClientFrom(ctx)})
 	req, err := http.NewRequestWithContext(ctx, method, "/api"+path, body)
 	if err != nil {
 		return err

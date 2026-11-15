@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // `cerberus mcp` under a read-only, empty HOME: it answers initialize and lists main's 71 tools
@@ -25,12 +27,12 @@ func TestMCPStdioCreatesNothingAndForwardsToServe(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // a directory needs x to be removed
 	side := t.TempDir()
-	keyFile, override := filepath.Join(side, "cli.key"), filepath.Join(side, "override.yaml")
+	keyFile, override := filepath.Join(side, "mcp.key"), filepath.Join(side, "override.yaml")
 	addr := "127.0.0.1:" + freePort(t)
 	if err := os.WriteFile(keyFile, []byte("key_x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(override, []byte("httphost: { addr: \""+addr+"\" }\ncerberus: { cli_key_file: \""+keyFile+"\" }\n"), 0o600); err != nil {
+	if err := os.WriteFile(override, []byte("httphost: { addr: \""+addr+"\" }\ncerberus: { mcp_key_file: \""+keyFile+"\" }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -121,25 +123,37 @@ func mcpSession(t *testing.T, s sandbox) func(method, params string) map[string]
 		t.Fatalf("no answer to %s; stderr:\n%s", method, stderr.String())
 		return nil
 	}
-	req("initialize", `{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}`)
+	req("initialize", `{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e-client","version":"0"}}`)
 	_, _ = stdin.Write([]byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"))
 	return req
 }
 
-// Against a serving Cerberus (observe mode): `cerberus mcp` forwards reads and gets the API's
-// answers in main's shapes, and a mutation gets the API's refusal as a structured tool error.
-// HTTP /mcp is mounted beside /api and needs a key holding cerberus.read.
-func TestMCPForwardsToServeAndHTTPNeedsAKey(t *testing.T) {
-	keyFile := filepath.Join(t.TempDir(), "cli.key")
+// Against a serving Cerberus in supervise mode (the fake user manager, never the host's):
+// `cerberus mcp` forwards with its own key and gets the API's answers in main's shapes; HTTP /mcp
+// needs a key holding cerberus.read. The audit chain records the stdio calls as an agent via
+// mcp_stdio, labeled with the MCP client's name, and the /mcp calls via mcp_http.
+func TestMCPForwardsToServeAndTheAuditNamesTheChannel(t *testing.T) {
+	side := t.TempDir()
+	cliKeyFile, mcpKeyFile := filepath.Join(side, "cli.key"), filepath.Join(side, "mcp.key")
 	port := freePort(t)
-	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:"+port+"\" }\ncerberus: { cli_key_file: \""+keyFile+"\" }\n")
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:"+port+"\" }\ncerberus: { mode: supervise, cli_key_file: \""+cliKeyFile+
+		"\", mcp_key_file: \""+mcpKeyFile+"\" }\n")
+	s.bin = filepath.Join(filepath.Dir(s.home), "bin")
+	if err := os.MkdirAll(s.bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.bin, "systemctl"), []byte(fakeSystemctl), 0o700); err != nil { //nolint:gosec // the fake must run
+		t.Fatal(err)
+	}
 	writeRegistry(t, s)
 	if code, out := runWithStdin(t, s, "correct horse battery staple\n", "identity", "setup", "--username", "owner", "--display-name", "Owner"); code != 0 {
 		t.Fatalf("identity setup: %d %s", code, out)
 	}
-	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cli", "--scope", "cerberus.read",
-		"--scope", "cerberus.operate", "--scope", "cerberus.admin", "--out", keyFile); code != 0 {
-		t.Fatalf("key create: %d %s", code, out)
+	for name, file := range map[string]string{"cli": cliKeyFile, "cerberus-mcp": mcpKeyFile} {
+		if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", name, "--scope", "cerberus.read",
+			"--scope", "cerberus.operate", "--scope", "cerberus.admin", "--out", file); code != 0 {
+			t.Fatalf("key create %s: %d %s", name, code, out)
+		}
 	}
 	read := mintKey(t, s, "reader", "cerberus.read")
 	cmd, base, log := start(t, s)
@@ -157,9 +171,7 @@ func TestMCPForwardsToServeAndHTTPNeedsAKey(t *testing.T) {
 	if out, isErr := tool("cerberus_resource_status", `{"resource_id":"web"}`); isErr || !strings.Contains(out, `\"id\": \"web\"`) {
 		t.Fatalf("resource_status: %v %s", isErr, out)
 	}
-	if out, isErr := tool("cerberus_resource_reload", `{"resource_id":"web","acknowledged":true}`); !isErr || !strings.Contains(out, "observe_mode") {
-		t.Fatalf("resource_reload in observe mode: %v %s", isErr, out)
-	}
+	tool("cerberus_resource_logs", `{"resource_id":"web","lines":5}`)
 
 	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
 	post := func(key string) (int, string) {
@@ -183,4 +195,49 @@ func TestMCPForwardsToServeAndHTTPNeedsAKey(t *testing.T) {
 	if code, body := post(read); code != http.StatusOK || !strings.Contains(body, `"name":"cerberus"`) {
 		t.Fatalf("/mcp with a read key: %d %s", code, body)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	hc := &http.Client{Transport: bearer{key: read}}
+	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "http-client", Version: "1"}, nil).
+		Connect(ctx, &mcpsdk.StreamableClientTransport{Endpoint: base + "/mcp", HTTPClient: hc}, nil)
+	if err != nil {
+		t.Fatalf("connect to /mcp: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+	if _, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{Name: "cerberus_resource_logs", Arguments: map[string]any{"resource_id": "web", "lines": 5}}); err != nil {
+		t.Fatalf("logs over /mcp: %v", err)
+	}
+
+	chain := auditText(t, s.data)
+	for _, want := range []string{`"via":"mcp_stdio"`, `"client":"e2e-client"`, `"via":"mcp_http"`, `"client":"http-client"`} {
+		if !strings.Contains(chain, want) {
+			t.Errorf("the audit chain has no %s", want)
+		}
+	}
+	if strings.Contains(chain, `"via":"api"`) {
+		t.Errorf("an MCP call was recorded via api")
+	}
+}
+
+// bearer adds an API key to every request.
+type bearer struct{ key string }
+
+func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+b.key)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// auditText is every audit JSONL file under data, joined.
+func auditText(t *testing.T, data string) string {
+	t.Helper()
+	var sb strings.Builder
+	_ = filepath.WalkDir(data, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".jsonl") {
+			b, _ := os.ReadFile(p) //nolint:gosec // the sandbox's own tree
+			sb.Write(b)
+		}
+		return nil
+	})
+	return sb.String()
 }
