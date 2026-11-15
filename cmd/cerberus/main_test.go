@@ -517,7 +517,10 @@ func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 	// monitor, the host monitor before the janitor's flush.
 	// Enabled by config alone, the scheduler and event export start, and the scheduler stops
 	// first, before the host monitor.
-	for _, l := range []string{"loop=scheduler", "loop=event_export"} {
+	if _, err := os.Stat(filepath.Join(s.data, "state", "overview_snapshots.json")); err != nil {
+		t.Fatalf("the snapshot recorder wrote no buffer in the data directory: %v\n%s", err, out)
+	}
+	for _, l := range []string{"loop=scheduler", "loop=event_export", "loop=snapshot_recorder"} {
 		if !strings.Contains(out, `cerberus background start" app=cerberus `+l) {
 			t.Fatalf("%s did not start:\n%s", l, out)
 		}

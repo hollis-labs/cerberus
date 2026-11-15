@@ -19,6 +19,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/storage"
+	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
 // flushTimeout bounds each loop's final flush on stop.
@@ -60,7 +61,7 @@ func hostsPaths(st settings.Settings, dirs datadir.Dirs) (hostsYAML, state strin
 
 // startBackground starts the background loops in supervise mode and returns them for Stop.
 // In observe mode it starts nothing and returns an empty set.
-func startBackground(app *module.App, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) (*background, error) {
+func startBackground(app *module.App, lane *supervise.Service, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) (*background, error) {
 	b := &background{}
 	if st.Mode != settings.ModeSupervise {
 		return b, nil
@@ -81,7 +82,8 @@ func startBackground(app *module.App, st settings.Settings, dirs datadir.Dirs, l
 	if err != nil {
 		return nil, err
 	}
-	b.start(context.Background(), "hosts", append(hostLoops, exportLoops(st, dirs, logger)...))
+	loops := append(hostLoops, snapshotLoop(lane, registry.ForRoot(st.AdoptRoot), dirs, logger))
+	b.start(context.Background(), "hosts", append(loops, exportLoops(st, dirs, logger)...))
 	return b, nil
 }
 
