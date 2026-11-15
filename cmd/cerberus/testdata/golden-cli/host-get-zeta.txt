@@ -1,0 +1,13 @@
+zeta  [online]
+  role:          builder
+  provider:      homelab
+  hostname:      zeta.example.test
+  tailnet:       zeta fd7a:115c:a1e0::9
+  ssh reach:     zeta-ssh
+  labels:        intermittent=true tier=gold
+  declared:      linux amd64 cpu=8 memory=32.0GiB disk=465.7GiB gpu=
+  probed:        Linux  x86_64 cpu=8 memory=14.9GiB/31.2GiB disk=186.3GiB/465.7GiB
+  load:          0.50
+  tools:         docker=true
+  measured:      7612h29m47s ago (stale)
+  These facts are stale. Run `cerberus host probe zeta` for current ones.

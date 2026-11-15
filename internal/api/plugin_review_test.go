@@ -15,12 +15,20 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/gate/gatetest"
+	"github.com/hollis-labs/cerberus/internal/policy"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // reviewAPI is the API with an admin lane over the adopted root root (a fresh one when empty).
 func reviewAPI(t *testing.T, root string) (*gatedAPI, string) {
 	t.Helper()
-	w := gatetest.New(t, gatetest.Options{})
+	return reviewAPIWith(t, root, gatetest.Options{})
+}
+
+// reviewAPIWith is reviewAPI over a gate built with o.
+func reviewAPIWith(t *testing.T, root string, o gatetest.Options) (*gatedAPI, string) {
+	t.Helper()
+	w := gatetest.New(t, o)
 	if root == "" {
 		root = filepath.Join(t.TempDir(), "adopted")
 		if err := os.MkdirAll(root, 0o700); err != nil {
@@ -234,4 +242,33 @@ func TestTheOwnerReviewsAPendingPlugin(t *testing.T) {
 	wantInstalled(t, root, res)
 	code, out = g.call(t, ownerSession, "POST", "/api/plugins/connectors/echo/review", `{"typed":"echo"}`)
 	wantCode(t, "a second review", code, out, http.StatusConflict, "nothing_to_review")
+}
+
+// Under a policy rule enforcing approve on plugin.install, the typed id on the console is not an
+// approval (the lead's ruling (a)): the owner's console install asks for the owner's approval
+// (409 approval_pending) and installs nothing; once approved, the retry naming it installs with
+// that one approval as its proof.
+func TestThePolicyApproveOnAPluginInstallNeedsTheOwnersApproval(t *testing.T) {
+	f := policy.File{Version: policy.FileVersion,
+		Baseline:  &policy.BaselineOverride{ByEffect: map[contract.Effect]map[string]policy.Decision{contract.EffectAdmin: {"agent": policy.Allow, "human": policy.Allow}}},
+		Providers: map[string]policy.Provider{"plugin": {Rules: []policy.Rule{{ID: "approve-plugin-install", Ops: []string{"install"}, Decision: policy.Approve}}}}}
+	if problems := f.Validate(); len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	g, root := reviewAPIWith(t, "", gatetest.Options{Policy: policy.NewEvaluator(f, "test"), Enforcement: enforceAll{}})
+	src := echoSource(t, "fresh")
+	id := g.pendingID(t, ownerSession, "POST", "/api/plugins/connectors/install", `{"plugin_dir":"`+src+`","typed":"fresh"}`)
+	if _, ok := installedEntry(t, root, "fresh"); ok {
+		t.Fatal("the typed id installed the plugin under a policy approve")
+	}
+	if code, out := g.call(t, ownerSession, "POST", "/api/approvals/"+id+"/decide", `{"approve":true,"typed":"fresh"}`); code != http.StatusOK {
+		t.Fatalf("the owner's approval: %d %s", code, out)
+	}
+	res := accepted(t, func() (int, string) {
+		return g.call(t, ownerSession, "POST", "/api/plugins/connectors/install", `{"plugin_dir":"`+src+`","typed":"fresh","approval_id":"`+id+`"}`)
+	})
+	if res.Proof != "approval:"+id || len(g.w.Broker.List()) != 1 {
+		t.Fatalf("result %+v; %d approvals", res, len(g.w.Broker.List()))
+	}
+	wantInstalled(t, root, res)
 }

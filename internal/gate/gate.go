@@ -293,6 +293,12 @@ func (g *Gate) enforceDecision(ctx context.Context, call *Call, spec Spec, req p
 		if spec.ConfirmedPlanHash != "" {
 			return g.confirmOnCall(ctx, call, spec, req, res)
 		}
+		if spec.OwnerAuthorized {
+			// The owner's approval, which the lane asks for next (Call.OwnerApproval), meets
+			// this approve too: one approval, not a second one beside it.
+			call.policyApprove = &res
+			return nil
+		}
 		if spec.ApprovalID != "" {
 			// The channel policy asks for now, not the one the store says
 			// the approval was met on (H4).

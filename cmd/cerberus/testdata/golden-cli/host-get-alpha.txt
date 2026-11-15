@@ -1,0 +1,10 @@
+alpha  [offline]
+  role:          worker
+  provider:      homelab
+  lan ip:        192.0.2.10
+  ssh reach:     alpha-ssh
+  labels:        tier=silver
+  declared:      cpu=0 memory=0B disk=0B gpu=
+  measured:      never
+  reason:        the host did not answer over ssh: timeout
+  No probe data: the host's facts are unknown. Run `cerberus host probe alpha`.

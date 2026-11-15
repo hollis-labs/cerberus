@@ -1,0 +1,3 @@
+NAME  STATE    ROLE     CPU  MEM AVAIL  DISK FREE  PROBED
+mid   unknown  builder  -    -          -          never
+zeta  online   builder  8    14.9GiB    186.3GiB   7612h29m47s ago (stale)

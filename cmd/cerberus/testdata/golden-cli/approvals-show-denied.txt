@@ -1,0 +1,9 @@
+Approval apr_fa84bbf553ad: denied
+  Operation:    ssh.exec [destructive]
+  Target:       box [-/-/-]
+  Requested by: agent via api (key:k1) at 2026-11-15T07:32:51Z
+  Why:          rule baseline.destructive.agent
+  How:          out_of_band, scope once, expires 2126-10-22T07:32:51Z
+  What it runs: not recorded with this approval (it was asked for before approvals stored their plan); decide on the operation and target above, or deny and ask again
+  Decision:     denied by human via web at 2026-11-15T07:32:51Z
+(from the store, read directly: the daemon is not running)

@@ -1,0 +1,8 @@
+2026-11-15T07:32:51Z  #1  chain_start  first record in this audit directory
+2026-11-15T07:32:51Z  #2  intent  agent/socket  local deploy  lifecycle  local.resource(id=dev)
+2026-11-15T07:32:51Z  #3  outcome  agent/socket  local deploy  lifecycle  ok  local.resource(id=dev)
+2026-11-15T07:32:51Z  #4  intent  agent/socket  ssh exec  destructive  ssh.host(id=box)
+2026-11-15T07:32:51Z  #5  outcome  agent/socket  ssh exec  destructive  refused:acknowledgment_required  ssh.host(id=box)
+2026-11-15T07:32:51Z  #6  intent  agent/socket  ssh exec  destructive  ssh.host(id=box)  dry-run
+2026-11-15T07:32:51Z  #7  outcome  agent/socket  ssh exec  destructive  ok  ssh.host(id=box)  dry-run
+2026-11-15T07:32:51Z  #8  intent  monitor  local reload  lifecycle  local.resource(id=dev)  reason=exited

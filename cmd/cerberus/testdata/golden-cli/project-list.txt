@@ -1,0 +1,3 @@
+ID    NAME  RESOURCES  CAPABILITIES  DESCRIPTION
+--    ----  ---------  ------------  -----------
+shop  Shop  2          -             

@@ -110,6 +110,8 @@ func (s *Service) SetStoredSecret(ctx context.Context, req SecretSetRequest, opt
 		Acknowledged: req.Acknowledged, Config: map[string]any{"name": name},
 		// The approval named is the owner's (secretProof), never a policy approval for the call.
 		PlanOnly: opts.Plan, DryRun: opts.Plan, ConfirmedPlanHash: opts.ConfirmedPlanHash,
+		// The owner's approval also meets a policy approve on the write (the lead's ruling (a)).
+		OwnerAuthorized: true,
 		// The target is the secret's name, so an approver types what is being set; it has no
 		// labels of its own.
 		Resources: func(id string) (*config.ResourceDef, bool) {
@@ -139,7 +141,7 @@ func (s *Service) SetStoredSecret(ctx context.Context, req SecretSetRequest, opt
 		}
 		return &SecretSetResult{Success: true, Name: name, Plan: shown}, nil
 	}
-	proof, err := s.secretProof(ctx, spec, name, req.Acknowledged, opts.ApprovalID)
+	proof, err := s.secretProof(ctx, call, spec, name, req.Acknowledged, opts.ApprovalID)
 	if err != nil {
 		call.Finish(err)
 		return nil, scopeError(scope, err)
@@ -159,17 +161,19 @@ func (s *Service) SetStoredSecret(ctx context.Context, req SecretSetRequest, opt
 // secretProof is what authorizes the write: the acknowledgment, then the owner. The owner signed
 // in on the console sets it directly; any other caller but an MCP client names the owner's
 // out-of-band approval (asked for when none is named), bound to the plan, so to this name and
-// value. An MCP client is refused and asks for nothing.
-func (s *Service) secretProof(ctx context.Context, spec gate.Spec, name string, acknowledged bool, approvalID string) (string, error) {
+// value. An MCP client is refused and asks for nothing. Where policy also asks to approve the
+// write, the owner's approval is that approval too, one approval consumed once
+// (call.PolicyApproves); the console session alone is not an approval, so it does not meet it.
+func (s *Service) secretProof(ctx context.Context, call *gate.Call, spec gate.Spec, name string, acknowledged bool, approvalID string) (string, error) {
 	if !acknowledged {
 		return "", gate.NewError(SecretsConnector, SecretsSet, gate.CodeAckRequired,
 			redact.Guidance("storing %s replaces what the credential store holds under that name, so it needs an acknowledgment (\"acknowledged\": true); nothing was stored", name))
 	}
-	if gate.ConsolePerson(ctx) && approvalID == "" {
+	if gate.ConsolePerson(ctx) && approvalID == "" && !call.PolicyApproves() {
 		return "console", nil
 	}
 	tgt, _ := gate.AuditTarget(spec)
-	return s.gate.OwnerApproval(ctx, gate.OwnerApprovalRequest{Connector: SecretsConnector, Operation: SecretsSet, Target: tgt,
+	return call.OwnerApproval(ctx, gate.OwnerApprovalRequest{Connector: SecretsConnector, Operation: SecretsSet, Target: tgt,
 		ArgsDigest: s.gate.Sink().Digest(spec.Config), ApprovalID: approvalID, What: "storing secret " + name,
 		Rule: "secrets.set", Reason: "a stored secret is set by the owner on the console", Plan: spec.Plan})
 }
