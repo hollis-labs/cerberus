@@ -15,6 +15,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/target"
@@ -324,6 +325,48 @@ const errOwnerPaths = "the owner does it on the console, signed in; or run it fr
 // the retry naming it goes ahead once the owner has approved; a person still decides, so the
 // decision 0.1 boundary holds. An MCP client is never let through.
 func (g *Gate) ownerApproval(ctx context.Context, args opArgs, t audit.Target, id, approvalID, what string) (string, error) {
+	return g.ownerApprovalFor(ctx, OwnerApprovalRequest{Connector: args.Connector, Operation: args.Operation, Target: t, ArgsDigest: id,
+		ApprovalID: approvalID, What: what, Rule: "brake." + args.Operation, Reason: "a brake is lifted, and a suspension reset, by the owner on the console"})
+}
+
+// OwnerApprovalRequest is an operation only the owner authorizes (the lead's ruling (a) on
+// decision 0.1): what it is, what the approval binds to, and how it is shown.
+type OwnerApprovalRequest struct {
+	Connector, Operation string
+	Target               audit.Target
+	// ArgsDigest is what the approval binds to besides the target.
+	ArgsDigest string
+	// ApprovalID names the approval the owner decided; empty asks for one.
+	ApprovalID string
+	// What names the act in the refusals ("installing plugin echo").
+	What string
+	// Rule and Reason are what the approval request records as its deciding rule.
+	Rule, Reason string
+	// Plan, when set, is the plan the owner is shown and the approval binds to by its hash.
+	Plan func(context.Context) (plan.Plan, error)
+}
+
+// OwnerApproval is ownerApproval for a lane: an out-of-band approval the owner decided on the
+// console, asked for by any caller but an MCP client, sealed with the owner session and
+// verified on consume. It answers the proof ("approval:<id>"), or the coded refusal:
+// approval_required (428) for an MCP client or an approval that cannot be used,
+// approval_pending (409, the approval under details) when one is asked for or still pending.
+func (g *Gate) OwnerApproval(ctx context.Context, r OwnerApprovalRequest) (string, error) {
+	return g.ownerApprovalFor(ctx, r)
+}
+
+// ConsolePerson reports whether ctx's caller is a person on the console: a human over the web
+// with a session the HTTP layer established (api.GatePrincipal of the owner's console session),
+// never a self-reported web claim, a key, local trust or MCP.
+func ConsolePerson(ctx context.Context) bool {
+	who, ok := PrincipalFrom(ctx)
+	return ok && who.Kind == PrincipalHuman && who.Via == ViaWeb && !who.SelfReported && who.Session != "" &&
+		CallerSurfaceFrom(ctx) == SurfaceWeb
+}
+
+func (g *Gate) ownerApprovalFor(ctx context.Context, r OwnerApprovalRequest) (string, error) {
+	args := opArgs{Connector: r.Connector, Operation: r.Operation}
+	what := r.What
 	p := principalFor(ctx, Spec{})
 	if strings.HasPrefix(p.Via, "mcp") {
 		return "", codedError(args, CodeApprovalRequired,
@@ -334,10 +377,17 @@ func (g *Gate) ownerApproval(ctx context.Context, args opArgs, t audit.Target, i
 		return "", codedError(args, CodeApprovalPending,
 			redact.Guidance("%s needs the owner's approval on the console, and this Cerberus holds no approvals (observe mode): %s", what, errOwnerPaths))
 	}
-	if approvalID == "" {
-		intent := audit.Record{OperationID: audit.NewID(), Principal: p, Connector: args.Connector, Operation: args.Operation, Effect: string(contract.EffectAdmin), Target: t, ArgsDigest: id}
-		a, err := broker.request(ctx, intent, policy.Result{Matched: []policy.Match{{Rule: "brake." + args.Operation, Decision: policy.Approve, Reason: "a brake is lifted, and a suspension reset, by the owner on the console"}}},
-			approval.ChannelOutOfBand, approval.ScopeOnce, 30*time.Minute, PlanSnapshot{}, nil)
+	snap := PlanSnapshot{}
+	if r.Plan != nil {
+		var err error
+		if snap, err = specPlanSnapshot(ctx, Spec{Plan: r.Plan}); err != nil {
+			return "", codedError(args, CodeAuditUnavailable, redact.GuidanceWrap(err, "the plan the owner approves could not be computed, so nothing ran"))
+		}
+	}
+	if r.ApprovalID == "" {
+		intent := audit.Record{OperationID: audit.NewID(), Principal: p, Connector: args.Connector, Operation: args.Operation, Effect: string(contract.EffectAdmin), Target: r.Target, ArgsDigest: r.ArgsDigest}
+		a, err := broker.request(ctx, intent, policy.Result{Matched: []policy.Match{{Rule: r.Rule, Decision: policy.Approve, Reason: r.Reason}}},
+			approval.ChannelOutOfBand, approval.ScopeOnce, 30*time.Minute, snap, nil)
 		if err != nil {
 			return "", codedError(args, CodeAuditUnavailable, err)
 		}
@@ -352,9 +402,10 @@ func (g *Gate) ownerApproval(ctx context.Context, args opArgs, t audit.Target, i
 	// The channel is required here, never read from the store, where a
 	// same-uid process could write an approval met on a terminal (H-b); the
 	// out-of-band decision's owner-session seal is verified on consume.
-	a, err := broker.Consume(ctx, approvalID, approval.ConsumeCheck{Connector: args.Connector, Operation: args.Operation, Principal: p, Target: t, ArgsDigest: id, RequireOutOfBand: true})
+	a, err := broker.Consume(ctx, r.ApprovalID, approval.ConsumeCheck{Connector: args.Connector, Operation: args.Operation, Principal: p, Target: r.Target,
+		ArgsDigest: r.ArgsDigest, PlanHash: snap.Hash, RequireOutOfBand: true})
 	if err != nil {
-		return "", consumeRefusal(args, approvalID, a, err)
+		return "", consumeRefusal(args, r.ApprovalID, a, err)
 	}
 	return "approval:" + a.ID, nil
 }
