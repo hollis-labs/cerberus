@@ -57,3 +57,28 @@ func TestExitCodeCarriesThePendingClassBStep(t *testing.T) {
 		t.Fatal("a refusal does not exit 1")
 	}
 }
+
+// import-standby is not a data command either: with no data directory it refuses (no main key)
+// and creates nothing.
+func TestImportStandbyNeedsNoServerAndCreatesNothingWhenRefused(t *testing.T) {
+	s := newSandbox(t, "")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	archive := t.TempDir()
+	if err := os.MkdirAll(archive+"/audit", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := s.command(ctx, "import-standby", "--from", archive, "-o", "json")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("import-standby without a data directory succeeded:\n%s", stdout.String())
+	}
+	var rep legacyexport.StandbyReport
+	if err := json.Unmarshal(stdout.Bytes(), &rep); err != nil || rep.Result != legacyexport.ResultRefused {
+		t.Fatalf("report: %v %s %v", err, rep.Result, rep.Refusals)
+	}
+	if _, err := os.Lstat(s.data); !os.IsNotExist(err) {
+		t.Errorf("%s exists after a refused import-standby (%v)", s.data, err)
+	}
+}

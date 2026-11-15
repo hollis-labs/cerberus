@@ -398,7 +398,7 @@ func TestNeedsData(t *testing.T) {
 		"resource list": false, "resource status web": false, "status": false,
 		"mcp": false, "lockdown --reason x": false, "freeze --scope env=prod": false, "freeze --off frz_1": false, "breaker reset sus_1": false, "identity": false, "nonsense": false,
 		"run-secrets -- /bin/prog": false, "run-secrets -- serve": false, "run-secrets -- identity setup": false,
-		"migrate-from --old-home /x --old-db /y": false, "export-legacy --since sha256:x": false, "export-legacy --only telemetry --since /m": false,
+		"migrate-from --old-home /x --old-db /y": false, "export-legacy --since sha256:x": false, "export-legacy --only telemetry --since /m": false, "import-standby --from /a": false,
 	} {
 		if got := needsData(strings.Fields(args)); got != want {
 			t.Errorf("needsData(%q) = %v, want %v", args, got, want)

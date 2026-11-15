@@ -87,7 +87,7 @@ func rootCommand(ctx context.Context, c *cerberus) *cobra.Command {
 	rootCmd.AddCommand(c.pluginCommands()...)
 	rootCmd.AddCommand(c.runSecretsCmd(), c.secretsCommand())
 	rootCmd.AddCommand(c.registryCommands()...)
-	rootCmd.AddCommand(c.migrateFromCmd(), manifestCmd(), c.exportLegacyCmd())
+	rootCmd.AddCommand(c.migrateFromCmd(), manifestCmd(), c.exportLegacyCmd(), importStandbyCmd())
 	guardKeyCreate(rootCmd)
 	return rootCmd
 }
@@ -140,9 +140,10 @@ func isStdioMCP(args []string) bool {
 // identity commands. Help anywhere on the line, version, config, health, completion, the read
 // verbs (they call the serving Cerberus over HTTP), run-secrets (a managed service's start, which
 // must not open the database; whatever follows its "--" is the service's command line),
-// migrate-from, export-legacy and manifest (they open what they need themselves: migrate-from
-// creates the data directory and database under its own refusals, export-legacy opens the ones
-// migrate-from created, manifest reads the old tree only) and unknown
+// migrate-from, export-legacy, import-standby and manifest (they open what they need themselves:
+// migrate-from creates the data directory and database under its own refusals, export-legacy
+// opens the ones migrate-from created, import-standby writes only its sidecar, manifest reads the
+// old tree only) and unknown
 // words do not. Every argument that
 // does not start with "-" counts as a command word, which holds while the root has no global flag
 // taking a value (TestRootHasNoValueFlags).

@@ -256,6 +256,7 @@ var newVerbs = map[string][]string{
 	"cerberus manifest write": {"old-home", "old-db", "out", "anchor-account"},
 	"cerberus manifest check": {"manifest", "old-home", "old-db", "anchor-account"},
 	"cerberus export-legacy":  {"since", "old-home", "old-db", "old-anchor-account", "only", "check-legacy-files", "d3-copy", "output"},
+	"cerberus import-standby": {"from", "output"},
 }
 
 func TestNewVerbsArePresent(t *testing.T) {
