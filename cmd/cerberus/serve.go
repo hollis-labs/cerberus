@@ -298,7 +298,8 @@ func startSupervision(app *module.App) (supervision, error) {
 		return supervision{}, err
 	}
 	service.SetStateRoot(dirs.Data)
-	opts := supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: dirs.Data, SelfID: cfg.SelfResourceID}
+	opts := supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: dirs.Data, SelfID: cfg.SelfResourceID,
+		InstallAfterBuild: cfg.Build.InstallAfterBuild}
 	if cfg.Mode == settings.ModeSupervise {
 		if err = superviseOptions(app, &opts, reg, dirs.Data, home); err != nil {
 			return supervision{}, err

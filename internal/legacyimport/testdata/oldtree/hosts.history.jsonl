@@ -1,0 +1,1 @@
+{"time":"2026-11-14T11:00:00Z","caller":"cli","op":"add","kind":"host","name":"box-1","hosts":["box-1"],"after":{"hostname":"box-1.example"},"revision_before":"","revision_after":"rev-1"}

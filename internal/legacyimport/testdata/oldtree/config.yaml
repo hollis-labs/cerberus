@@ -1,0 +1,9 @@
+version: 2
+web:
+  public_url: https://cerberus.example.test
+host_monitor:
+  enabled: true
+  ssh_interval: 5m
+  sample_retention: 168h
+  thresholds:
+    disk_free_percent: 10

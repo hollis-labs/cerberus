@@ -1,0 +1,7 @@
+# internal/legacyimport/testdata is a synthetic old ~/.cerberus, generated on main by
+# oldtree_gen_on_main.go.txt (CW-20261115-0060). It holds no real credential and no real path.
+# Lines are RULE-ID PATH-GLOB REASON; allowlisted findings are still printed by the scan.
+
+secret-assignment internal/legacyimport/testdata/oldtree/connector-secrets.yaml fixture: a connector secret binding whose value is an obviously fake keyring reference (FAKE-fixture-echo-token), the shape migrate-from copies; not a credential
+secret-assignment internal/legacyimport/testdata/oldtree_gen_on_main.go.txt the generator's copy of the same fake connector-secrets.yaml binding; not a credential
+key-or-certificate-file internal/legacyimport/testdata/oldtree/web/login-fixture.key fixture: the old console's login key file by name (R22 lists it, never opens it); it holds the text FAKE-LOGIN-KEY

@@ -275,7 +275,7 @@ func (s *Service) deployRun(ctx context.Context, cfg *config.ConfigV2, res *conf
 	if err := localconn.ValidateDeployOutput(spec); err != nil {
 		return failed(id, err)
 	}
-	installAfterBuild := ResolveInstallAfterBuild(res.Config, spec.InstallAfterBuild, cfg.InstallAfterBuildDefault(), req.InstallAfterBuildOverride)
+	installAfterBuild := ResolveInstallAfterBuild(res.Config, spec.InstallAfterBuild, s.installAfterBuildDefault(), req.InstallAfterBuildOverride)
 	ctx, release, err := localconn.WithBuildLock(ctx, spec, id)
 	if err != nil {
 		return failed(id, err)
@@ -448,6 +448,14 @@ func (s *Service) remove(ctx context.Context, cfg *config.ConfigV2, id string) *
 		return failed(id, err)
 	}
 	return &OpResult{Success: true, ServiceID: id, Message: fmt.Sprintf("resource %q removed successfully", id)}
+}
+
+// installAfterBuildDefault is the global default: the setting, or the old build's true.
+func (s *Service) installAfterBuildDefault() bool {
+	if s.o.InstallAfterBuild == nil {
+		return true
+	}
+	return *s.o.InstallAfterBuild
 }
 
 // ResolveInstallAfterBuild is the old build's precedence: the caller's override, then the

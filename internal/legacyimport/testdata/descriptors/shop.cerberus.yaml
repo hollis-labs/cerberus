@@ -1,0 +1,29 @@
+kind: cerberus-project/v1
+owner: shop
+project: {id: shop, name: Shop}
+resources:
+  - id: web
+    name: Web
+    type: process
+    connector: local
+    project: shop
+    tags: [ui]
+    config:
+      command: ["/srv/fixture/web/bin/web", "--port", "5173"]
+      dir: /srv/fixture/web
+      port: 5173
+  - id: api
+    name: API
+    type: process
+    connector: local
+    project: shop
+    config:
+      command: ["/srv/fixture/api/bin/api"]
+      dir: /srv/fixture/api
+      port: 5174
+  - id: box
+    name: Box
+    type: server
+    connector: ssh
+    project: shop
+    config: {host: box-1.example}

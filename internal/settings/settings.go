@@ -11,6 +11,7 @@
 //	  host_monitor: {enabled: false, ...}  # the old config.yaml host_monitor block, same keys
 //	  scheduler: {enabled: false, allow_existing: false}
 //	  event_export: {enabled: false, grace_seconds: 0, interval_seconds: 0, hub: false}
+//	  build: {install_after_build: true}  # the old config.yaml build block
 //
 // install_root is adopted in place from the old build: the live resource units point their
 // ExecStart and log paths into it, so moving it would rewrite and restart every unit
@@ -26,6 +27,10 @@
 // host_monitor, scheduler and event_export run only in supervise mode, and only when enabled.
 // The scheduler and event export are off by default (plan section 4.2); scheduler.allow_existing
 // lets an enabled scheduler start over schedule tables that already hold rows.
+//
+// build.install_after_build is the global default of whether a deploy runs `make install` after a
+// successful build (the old config.yaml's build.install_after_build, default true). A resource's
+// own install_after_build and the CLI's --install-after-build override it.
 //
 // connectors is the old connector-config.yaml as config keys, the same shape: each managed
 // plugin's declared fields, its MCP exposure and its limits (supervise mode, slice 7).
@@ -96,6 +101,8 @@ type Settings struct {
 	Scheduler Scheduler
 	// EventExport gates event export; off unless enabled.
 	EventExport EventExport
+	// Build is the build block.
+	Build Build
 	// Connectors is the managed plugins' settings, the old connector-config.yaml: never nil
 	// entries; SHA256 fingerprints the block as YAML, empty when unset.
 	Connectors pluginhost.ConnectorConfig
@@ -106,6 +113,21 @@ type Scheduler struct {
 	Enabled bool `yaml:"enabled"`
 	// AllowExisting lets an enabled scheduler start while its tables hold rows.
 	AllowExisting bool `yaml:"allow_existing"`
+}
+
+// Build is the build block: the old config.yaml's build keys.
+type Build struct {
+	// InstallAfterBuild is the global install-after-build default; nil when unset (true).
+	InstallAfterBuild *bool `yaml:"install_after_build"`
+}
+
+// InstallAfterBuildDefault is the global install-after-build default: the key when set, else
+// the old build's default, true.
+func (s Settings) InstallAfterBuildDefault() bool {
+	if s.Build.InstallAfterBuild == nil {
+		return true
+	}
+	return *s.Build.InstallAfterBuild
 }
 
 // EventExport is the event_export block: the old events.yaml export keys.
@@ -129,7 +151,7 @@ func Parse(raw any, home string) (Settings, error) {
 		block = m
 	}
 	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true, "cli_key_file": true, "mcp_key_file": true,
-		"host_monitor": true, "scheduler": true, "event_export": true, "connectors": true}
+		"host_monitor": true, "scheduler": true, "event_export": true, "connectors": true, "build": true}
 	var unknown []string
 	for k := range block {
 		if !known[k] {
@@ -183,6 +205,9 @@ func Parse(raw any, home string) (Settings, error) {
 	}
 	if s.EventExport.GraceSeconds < 0 || s.EventExport.IntervalSeconds < 0 {
 		return s, fmt.Errorf("%s.event_export: grace_seconds and interval_seconds must not be negative", Key)
+	}
+	if err = strict(block["build"], "build", &s.Build); err != nil {
+		return s, err
 	}
 	if s.Connectors, err = connectors(block["connectors"]); err != nil {
 		return s, err

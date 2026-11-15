@@ -294,6 +294,7 @@ Defaults are in the manifest. The operator overrides any key in the YAML file na
 | `cerberus.self_resource_id` | empty | The resource this process runs as; checked against its systemd unit at start. |
 | `cerberus.adopt_root` | `~/.cerberus` | Files kept in place in the old format because other programs read them: the registry index `registry.yaml` (tether sysop reads it). Absolute or `~/`-prefixed. |
 | `cerberus.cli_key_file` | `~/.config/cerberus/cli.key` | The API key the CLI presents as a bearer to `http://<httphost.addr>/api`. Created offline (`cerberus identity key create --out`). |
+| `cerberus.build.install_after_build` | `true` | The global default of whether `resource deploy` runs `make install` after a successful build (the old `config.yaml` `build.install_after_build`). A resource's own `install_after_build` and the CLI's `--install-after-build` override it. |
 
 ## Shutdown
 

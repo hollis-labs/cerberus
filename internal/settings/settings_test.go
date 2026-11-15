@@ -142,3 +142,29 @@ func TestConnectors(t *testing.T) {
 		}
 	}
 }
+
+// build.install_after_build is the global install-after-build default: true (old's default)
+// when unset, the key's value when set; a wrong type or an unknown key names the block.
+func TestBuildInstallAfterBuild(t *testing.T) {
+	for _, c := range []struct {
+		raw  any
+		want bool
+	}{
+		{nil, true},
+		{map[string]any{"build": nil}, true},
+		{map[string]any{"build": map[string]any{}}, true},
+		{map[string]any{"build": map[string]any{"install_after_build": nil}}, true},
+		{map[string]any{"build": map[string]any{"install_after_build": true}}, true},
+		{map[string]any{"build": map[string]any{"install_after_build": false}}, false},
+	} {
+		s, err := Parse(c.raw, "/u/op")
+		if err != nil || s.InstallAfterBuildDefault() != c.want {
+			t.Fatalf("Parse(%v): default %v, %v; want %v", c.raw, s.InstallAfterBuildDefault(), err, c.want)
+		}
+	}
+	for _, block := range []map[string]any{{"install_after_build": "sometimes"}, {"install_after_build": 1.0}, {"install_after_biuld": false}} {
+		if _, err := Parse(map[string]any{"build": block}, "/u/op"); err == nil || !strings.Contains(err.Error(), "cerberus.build") {
+			t.Errorf("build %v: want an error naming cerberus.build, got %v", block, err)
+		}
+	}
+}

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hosts": {
+    "box-1": {
+      "state": "online",
+      "last_seen": "2026-11-14T11:00:00Z",
+      "checked_at": "2026-11-14T11:00:00Z"
+    }
+  }
+}

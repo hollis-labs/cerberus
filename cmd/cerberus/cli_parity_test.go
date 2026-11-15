@@ -248,3 +248,32 @@ func TestParityCheckSeesFlags(t *testing.T) {
 		t.Fatal("resource list -o")
 	}
 }
+
+// newVerbs are verbs this build adds that main never had: they are not in main.tree, so the parity
+// check cannot see them; this keeps them from disappearing (slice 10a).
+var newVerbs = map[string][]string{
+	"cerberus migrate-from":   {"old-home", "old-db", "manifest", "old-anchor-account", "output"},
+	"cerberus manifest write": {"old-home", "old-db", "out", "anchor-account"},
+	"cerberus manifest check": {"manifest", "old-home", "old-db", "anchor-account"},
+}
+
+func TestNewVerbsArePresent(t *testing.T) {
+	tree := newTree(t)
+	for path, flags := range newVerbs {
+		c := tree[path]
+		if c == nil {
+			t.Errorf("%s is missing", path)
+			continue
+		}
+		for _, f := range flags {
+			if c.Flags().Lookup(f) == nil {
+				t.Errorf("%s --%s is missing", path, f)
+			}
+		}
+	}
+	for _, old := range readOldTree(t) {
+		if _, isNew := newVerbs[old.path]; isNew {
+			t.Errorf("%s is in main.tree: move it out of newVerbs", old.path)
+		}
+	}
+}

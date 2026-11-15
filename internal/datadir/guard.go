@@ -21,8 +21,12 @@ const remedy = "point " + Env + " at a new, empty directory (the default is ~/.l
 	"The old build keeps ~/.cerberus and ~/.local/share/cerberus; its data reaches the new build only through " +
 	"`cerberus migrate-from` (docs/conversion-notes.md), never by opening it in place"
 
-// oldStateMarkers are entries only the old build's state tree (~/.cerberus) holds.
-var oldStateMarkers = []string{"daemon.lock", "cerberus.sock", "cerberus.pid", "registry.yaml", "plugin-connectors.json", "audit", "approvals"}
+// oldStateMarkers are entries only the old build's state tree (~/.cerberus) holds. audit/ and
+// approvals/ are not among them: the new data directory holds both by design (the chains are
+// copied there by migrate-from and continued by supervise mode), so they cannot tell the trees
+// apart; the old tree's config files, pause marker and runtime directory can.
+var oldStateMarkers = []string{"daemon.lock", "cerberus.sock", "cerberus.pid", "registry.yaml", "plugin-connectors.json",
+	"config.yaml", "hosts.yaml", "connector-secrets.yaml", "paused", "runtime"}
 
 // OldRoots are the old build's two homes: its state tree (home/.cerberus) and its XDG data
 // directory (the XDG data home's "cerberus", which holds workspaces/<ws>/main.db). Nothing
