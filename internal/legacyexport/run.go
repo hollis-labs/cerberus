@@ -190,6 +190,9 @@ func (x *export) run(ctx context.Context, name string) error {
 		x.r.step(name, StatusDone, false, "done by an earlier run; the old tree is in its post state")
 		return nil
 	}
+	if _, err := probeDaemonLock(x.o.OldHome); err != nil {
+		return err
+	}
 	x.state.Steps[name] = &Step{Status: StatusStarted, At: x.now().UTC(), Post: clonePost(&p.post)}
 	if err := x.save(); err != nil {
 		return err
@@ -290,6 +293,15 @@ func (x *export) preflight(ctx context.Context) error {
 	}
 	x.newAudit, x.oldAudit = filepath.Join(o.DataDir, "audit"), filepath.Join(o.OldHome, "audit")
 
+	// The old daemon must not be running (plan rev 10): a try-lock on its single-instance lock,
+	// released at once. --only telemetry is held to it too.
+	lock, lockErr := probeDaemonLock(o.OldHome)
+	r.OldDaemonLock = lock
+	if lockErr != nil {
+		r.refuse("%v", lockErr)
+		return nil
+	}
+
 	// The progress of an earlier run belongs to this handoff and this tree, or it is refused.
 	st, ok, err := loadState(o.DataDir)
 	switch {
@@ -332,7 +344,7 @@ func (x *export) preflight(ctx context.Context) error {
 		fn   func(context.Context) (*plan, error)
 	}{
 		{StepAudit, x.planAudit}, {StepApprovals, x.planApprovals}, {StepBrakes, x.planBrakes},
-		{StepPause, x.planPause}, {StepApplied, x.planApplied}, {StepReceipts, x.planReceipts},
+		{StepPause, x.planPause}, {StepApplied, x.planApplied}, {StepReceipts, x.planReceipts}, {StepState, x.planState},
 	}
 	for _, p := range planners {
 		pl, perr := p.fn(ctx)
@@ -580,12 +592,6 @@ func (x *export) notReversed() {
 		"registry.yaml, hosts.yaml, hosts.history.jsonl*, plugin-connectors.json: in place in the adopted root; a rollback keeps new's edits (10a rulings R8, R15, R18)",
 		"credential-issuance/secrets/issued: in place; nothing to do",
 		"standby.d/: old's own record of the window; nothing to do",
-	}
-	x.r.AwaitingRuling = []string{
-		"state/hosts.json and state/overview_snapshots.json are not copied back; the old tree keeps its own (the manifest still requires them unchanged)",
-		"refusing while the old daemon's lock is held is not built: stop the old daemon before export-legacy and restart it in standby after (it folds approvals and loads applied.json once at start)",
-		"the standby sidecar import (F2) is not built",
-		"the progress file's location: " + StateRel + " in the data directory (StateRel)",
 	}
 }
 

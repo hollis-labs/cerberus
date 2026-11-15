@@ -172,6 +172,7 @@ func (x *export) planApplied(ctx context.Context) (*plan, error) {
 		if ferr != nil {
 			return nil, ferr
 		}
+		ar.SHA256 = now.SHA256
 		return &plan{post: Post{Files: map[string]manifest.File{oldtree.AppliedRel: now}}, apply: noop, verify: noop,
 			summary: fmt.Sprintf("%d digests; new added or changed none, the file is left as it is", ar.Count)}, nil
 	}
@@ -180,6 +181,7 @@ func (x *export) planApplied(ctx context.Context) (*plan, error) {
 		return nil, err
 	}
 	post := manifest.File{SHA256: oldtree.BytesSHA256(data), Size: int64(len(data))}
+	ar.SHA256 = post.SHA256
 	pl := &plan{post: Post{Files: map[string]manifest.File{oldtree.AppliedRel: post}}}
 	pl.summary = fmt.Sprintf("%d digests; added %v, changed %v", ar.Count, ar.Added, ar.Changed)
 	pl.apply = func(context.Context) error {
@@ -388,4 +390,78 @@ func policyDigests(dir string) (map[string]string, error) {
 		return err
 	})
 	return out, err
+}
+
+// stateFiles are the old build's state/ files the manifest covers (fixedFiles), which the new
+// build keeps in <data>/state and the rollback copies back whole.
+var stateFiles = []string{"state/hosts.json", "state/overview_snapshots.json"}
+
+// planState copies new's state/hosts.json and state/overview_snapshots.json back whole, as the
+// old writers write them (a temporary file renamed into place, 0600; origin/main's
+// snapshot_recorder.go and hosts/state.go). A file new does not have leaves old's as it is.
+func (x *export) planState(context.Context) (*plan, error) {
+	sr := &StateFilesReport{Copied: map[string]string{}, Kept: []string{}}
+	x.r.State = sr
+	pl := &plan{post: Post{Files: map[string]manifest.File{}}}
+	type copyFile struct {
+		rel, src, dst string
+		post          manifest.File
+	}
+	var copies []copyFile
+	for _, rel := range stateFiles {
+		src := filepath.Join(x.o.DataDir, filepath.FromSlash(rel))
+		post, err := fileState(src)
+		if err != nil {
+			return nil, err
+		}
+		if post.Absent {
+			sr.Kept = append(sr.Kept, rel)
+			continue
+		}
+		pl.post.Files[rel] = post
+		sr.Copied[rel] = post.SHA256
+		copies = append(copies, copyFile{rel: rel, src: src, dst: filepath.Join(x.o.OldHome, filepath.FromSlash(rel)), post: post})
+	}
+	pl.summary = fmt.Sprintf("copied %v whole; kept old's %v", sortedKeys(sr.Copied), sr.Kept)
+	pl.apply = func(context.Context) error {
+		for _, c := range copies {
+			cur, err := fileState(c.dst)
+			if err != nil {
+				return err
+			}
+			if cur == c.post {
+				continue
+			}
+			if cur != x.manifestFile(c.rel) {
+				return fmt.Errorf("old's %s is neither in its manifest state nor in its post state", c.rel)
+			}
+			data, err := os.ReadFile(c.src) //nolint:gosec // new's own state file
+			if err != nil {
+				return err
+			}
+			if oldtree.BytesSHA256(data) != c.post.SHA256 {
+				return fmt.Errorf("new's %s changed during the run; stop the new build and run again", c.rel)
+			}
+			if err = os.MkdirAll(filepath.Dir(c.dst), 0o700); err != nil {
+				return err
+			}
+			if err = replaceFile(c.dst, data, 0o600); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	pl.verify = func(context.Context) error {
+		for _, c := range copies {
+			cur, err := fileState(c.dst)
+			if err != nil || cur != c.post {
+				return errors.Join(fmt.Errorf("old's %s is not new's after the copy", c.rel), err)
+			}
+			if fi, err := os.Stat(c.dst); err != nil || fi.Mode().Perm() != 0o600 {
+				return errors.Join(fmt.Errorf("old's %s is not mode 0600", c.rel), err)
+			}
+		}
+		return nil
+	}
+	return pl, nil
 }

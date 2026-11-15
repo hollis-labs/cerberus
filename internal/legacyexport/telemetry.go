@@ -32,6 +32,9 @@ func (x *export) telemetry(ctx context.Context) error {
 		x.r.step(StepTelemetry, StatusDone, false, "done by an earlier run; main.db is in its post state")
 		return nil
 	}
+	if _, err := probeDaemonLock(x.o.OldHome); err != nil {
+		return err
+	}
 	rep := &TelemetryReport{Inserted: map[string]int64{}, Updated: map[string]int64{}, KeptOld: map[string]int64{}}
 	x.r.Telemetry = rep
 	x.state.Steps[StepTelemetry] = &Step{Status: StatusStarted, At: x.now().UTC()}

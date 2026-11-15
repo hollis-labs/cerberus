@@ -20,6 +20,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/credentialbroker"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/hosts"
+	"github.com/hollis-labs/cerberus/internal/overview"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/storage"
 )
@@ -169,6 +170,24 @@ func driveNewActivity(t testing.TB, dataDir, dbPath string) activity {
 	if e := d.Finish(true); e != nil {
 		t.Fatal(e)
 	}
+
+	// The state files, through their own writers: a host's state, and an overview snapshot the
+	// recorder persists on its first tick.
+	if e := hosts.NewStore(filepath.Join(dataDir, "state", "hosts.json")).Put("box-1", hosts.State{State: "online", CheckedAt: &last}); e != nil {
+		t.Fatal(e)
+	}
+	ticked := make(chan struct{}, 1)
+	rec := overview.NewSnapshotRecorder(overview.SnapshotRecorderConfig{Interval: time.Hour, Retention: 30 * 24 * time.Hour, Path: filepath.Join(dataDir, "state", "overview_snapshots.json")},
+		func(context.Context) (overview.OverviewSnapshot, error) {
+			defer func() { ticked <- struct{}{} }()
+			return overview.OverviewSnapshot{Timestamp: time.Now(), Resources: 3, Running: 1}, nil
+		}, nil)
+	rctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { _ = rec.Run(rctx); close(done) }()
+	<-ticked
+	cancel()
+	<-done
 
 	// December: the chain rolls over to a new month file.
 	decSink, err := audit.OpenFileSinkClock(auditDir, tick(december))

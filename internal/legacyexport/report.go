@@ -53,22 +53,23 @@ type Report struct {
 	ManifestMatches bool     `json:"manifest_matches"`
 	Mismatches      []string `json:"mismatches,omitempty"`
 
-	Steps     []StepRow        `json:"steps"`
-	Audit     *AuditReport     `json:"audit,omitempty"`
-	Approvals *ChainFileReport `json:"approvals,omitempty"`
-	Brakes    *ChainFileReport `json:"brakes,omitempty"`
-	Pause     *PauseReport     `json:"pause,omitempty"`
-	Applied   *AppliedReport   `json:"applied,omitempty"`
-	Receipts  *ReceiptsReport  `json:"receipts,omitempty"`
-	Anchor    *AnchorReport    `json:"anchor,omitempty"`
-	Telemetry *TelemetryReport `json:"telemetry,omitempty"`
+	Steps     []StepRow         `json:"steps"`
+	Audit     *AuditReport      `json:"audit,omitempty"`
+	Approvals *ChainFileReport  `json:"approvals,omitempty"`
+	Brakes    *ChainFileReport  `json:"brakes,omitempty"`
+	Pause     *PauseReport      `json:"pause,omitempty"`
+	Applied   *AppliedReport    `json:"applied,omitempty"`
+	Receipts  *ReceiptsReport   `json:"receipts,omitempty"`
+	State     *StateFilesReport `json:"state,omitempty"`
+	// OldDaemonLock is the probe of old's daemon lock: "free", "absent" or who holds it.
+	OldDaemonLock string           `json:"old_daemon_lock,omitempty"`
+	Anchor        *AnchorReport    `json:"anchor,omitempty"`
+	Telemetry     *TelemetryReport `json:"telemetry,omitempty"`
 
 	LegacyFiles *LegacyFilesReport `json:"legacy_files,omitempty"`
 
 	// NotReversed are the stores a rollback leaves as they are, and why.
 	NotReversed []string `json:"not_reversed,omitempty"`
-	// AwaitingRuling are the parts of the spec this build does not do yet.
-	AwaitingRuling []string `json:"awaiting_ruling,omitempty"`
 
 	Warnings []string `json:"warnings"`
 	Refusals []string `json:"refusals"`
@@ -107,6 +108,10 @@ type ChainFileReport struct {
 	Verify   string `json:"verify"`
 	// NextSeq is the store's next cursor seq (approvals) after writing.
 	NextSeq uint64 `json:"next_seq,omitempty"`
+	// HeadSeq and HeadHash are the exported approvals head: the last event's seq and hash in
+	// the old store once the step is done (runbook step 4 checks the old daemon reads to it).
+	HeadSeq  uint64 `json:"head_seq,omitempty"`
+	HeadHash string `json:"head_hash,omitempty"`
 	// Legacy, Verified and Failed are VerifyApprovals' counts on new's store (approvals).
 	Legacy   int `json:"legacy,omitempty"`
 	Verified int `json:"verified,omitempty"`
@@ -126,6 +131,15 @@ type AppliedReport struct {
 	Added          []string `json:"added"`
 	Changed        []string `json:"changed"`
 	Written        bool     `json:"written"`
+	// SHA256 is the sha256 of runtime/applied.json as the step leaves it (the file written, or
+	// the one left as it was when new added nothing).
+	SHA256 string `json:"sha256,omitempty"`
+}
+
+// StateFilesReport is the state step: state/*.json copied back whole.
+type StateFilesReport struct {
+	Copied map[string]string `json:"copied"`
+	Kept   []string          `json:"kept"`
 }
 
 // ReceiptsReport is the receipts step (R11).
@@ -228,6 +242,12 @@ func (r *Report) WriteText(w io.Writer) error {
 		}
 		p("  %-10s %-8s %-8s %s", s.Step, s.Status, ran, s.Detail)
 	}
+	if a := r.Approvals; a != nil && a.HeadSeq > 0 {
+		p("  approvals head: seq %d hash %s", a.HeadSeq, a.HeadHash)
+	}
+	if a := r.Applied; a != nil && a.SHA256 != "" {
+		p("  applied.json sha256: %s (written %v)", a.SHA256, a.Written)
+	}
 	if t := r.Telemetry; t != nil && t.Pending {
 		p("  B step pending: run `cerberus export-legacy --since %s --only telemetry` once the Telemetry store is reachable", r.Handoff)
 	}
@@ -239,9 +259,6 @@ func (r *Report) WriteText(w io.Writer) error {
 	}
 	for _, x := range r.NotReversed {
 		p("  not reversed: %s", x)
-	}
-	for _, x := range r.AwaitingRuling {
-		p("  awaiting ruling: %s", x)
 	}
 	for _, x := range r.Warnings {
 		p("  warning: %s", x)

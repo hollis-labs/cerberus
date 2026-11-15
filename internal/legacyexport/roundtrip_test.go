@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/hollis-labs/libs/core/store"
@@ -234,6 +236,44 @@ func TestExportLegacyRoundTrip(t *testing.T) {
 	}
 	if fi, err := os.Stat(filepath.Join(old, "credential-issuance", rt.act.Issuance)); err != nil || fi.Mode().Perm() != 0o700 {
 		t.Errorf("the new reservation directory: %v %v", fi, err)
+	}
+
+	// state/*.json: new's, whole, 0600 (both changed in the window).
+	for _, rel := range stateFiles {
+		nb, ob := readBytes(t, filepath.Join(data, rel)), readBytes(t, filepath.Join(old, rel))
+		if !bytes.Equal(nb, ob) || bytes.Equal(ob, readBytes(t, filepath.Join(legacyimporttest.Testdata(), "oldtree", rel))) {
+			t.Errorf("%s: the old tree's file is not new's, or new's never changed", rel)
+		}
+		if fi, _ := os.Stat(filepath.Join(old, rel)); fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode %v", rel, fi.Mode())
+		}
+		if r.State.Copied[rel] == "" {
+			t.Errorf("%s not reported copied: %+v", rel, r.State)
+		}
+	}
+
+	// Runbook step 4's fields: the exported approvals head and the written applied.json's sha256.
+	if r.Approvals.HeadSeq != ob.Next.Seq || r.Approvals.HeadHash != ob.Next.Hash || r.Approvals.HeadHash == "" {
+		t.Errorf("approvals head %d %s, old reads to %+v", r.Approvals.HeadSeq, r.Approvals.HeadHash, ob.Next)
+	}
+	if sum, _ := oldtree.FileSHA256(filepath.Join(old, "runtime", "applied.json")); r.Applied.SHA256 != sum || !r.Applied.Written {
+		t.Errorf("applied sha256 %s (written %v), the file is %s", r.Applied.SHA256, r.Applied.Written, sum)
+	}
+	var text, js bytes.Buffer
+	_ = r.WriteText(&text)
+	_ = r.WriteJSON(&js)
+	for _, want := range []string{"approvals head: seq " + strconv.FormatUint(ob.Next.Seq, 10) + " hash " + ob.Next.Hash, "applied.json sha256: " + r.Applied.SHA256} {
+		if !strings.Contains(text.String(), want) {
+			t.Errorf("the text report lacks %q", want)
+		}
+	}
+	for _, want := range []string{`"head_seq"`, `"head_hash"`, `"sha256": "` + r.Applied.SHA256} {
+		if !strings.Contains(js.String(), want) {
+			t.Errorf("the JSON report lacks %s", want)
+		}
+	}
+	if r.OldDaemonLock != "free" {
+		t.Errorf("old daemon lock %q, want free (the fixture has an unheld daemon.lock)", r.OldDaemonLock)
 	}
 
 	// The host tables: new EXCEPT old is empty on all five; old keeps what new's janitor removed.
@@ -537,4 +577,66 @@ func TestPlanAppendableProvesThePrefix(t *testing.T) {
 	if err := a.apply(nil); err == nil || string(readBytes(t, dst)) != "abX" {
 		t.Fatalf("a file in neither state: %v %q", err, readBytes(t, dst))
 	}
+}
+
+// holdDaemonLock holds old's daemon lock as the old daemon does (an exclusive flock, its pid
+// inside) until the returned func runs.
+func holdDaemonLock(t *testing.T, oldHome string) func() {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(oldHome, DaemonLockName), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the test's own tree
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil { //nolint:gosec // a file descriptor fits an int
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"pid":` + strconv.Itoa(os.Getpid()) + `,"acquired_at":"2026-11-15T00:00:00Z","origin":"manual"}`); err != nil {
+		t.Fatal(err)
+	}
+	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() } //nolint:gosec // as above
+}
+
+// While the old daemon holds its lock, export-legacy refuses, the full run and --only telemetry
+// alike, writing nothing; the probe leaves the lock file as it was and never takes it.
+func TestExportLegacyRefusesWhileTheOldDaemonRuns(t *testing.T) {
+	rt := setup(t)
+	release := holdDaemonLock(t, rt.c2.OldHome)
+	lockBytes := readBytes(t, filepath.Join(rt.c2.OldHome, DaemonLockName))
+	before := fingerprint(t, rt)
+	r, err := rt.export(t, rt.options())
+	if !errors.Is(err, ErrRefused) || r.OldDaemonLock != "held" || !strings.Contains(strings.Join(r.Refusals, " "), "old daemon is running") ||
+		!strings.Contains(strings.Join(r.Refusals, " "), "PID "+strconv.Itoa(os.Getpid())) {
+		t.Fatalf("a running old daemon: %v %s %v", err, r.OldDaemonLock, r.Refusals)
+	}
+	if fingerprint(t, rt) != before || !bytes.Equal(readBytes(t, filepath.Join(rt.c2.OldHome, DaemonLockName)), lockBytes) {
+		t.Fatal("a refused run changed the old tree or the lock file")
+	}
+	if _, err := os.Stat(statePath(rt.c1.DataDir)); !os.IsNotExist(err) {
+		t.Fatalf("a refused run left a progress file (%v)", err)
+	}
+	release()
+
+	// Every step but B, then the daemon starts again: --only telemetry refuses too.
+	o := rt.options()
+	o.Telemetry = func(context.Context) (hostdump.Querier, func() error, error) { return nil, nil, errors.New("down") }
+	var pending *PendingError
+	if _, err := rt.export(t, o); !errors.As(err, &pending) {
+		t.Fatalf("B pending: %v", err)
+	}
+	release = holdDaemonLock(t, rt.c2.OldHome)
+	o.Telemetry, o.Only = nil, OnlyTelemetry
+	dbBefore := dbState(t, rt.c2.OldDB)
+	if r, err := rt.export(t, o); !errors.Is(err, ErrRefused) || !strings.Contains(strings.Join(r.Refusals, " "), "old daemon is running") {
+		t.Fatalf("--only telemetry with the old daemon running: %v %v", err, r.Refusals)
+	}
+	if got := dbState(t, rt.c2.OldDB); got.Diff(dbBefore) != "" {
+		t.Fatal("--only telemetry changed main.db while refused")
+	}
+	release()
+	if r := mustExport(t, rt, o); r.Result != ResultExported {
+		t.Fatalf("--only telemetry after the daemon stopped: %s", r.Result)
+	}
+	// The probe never takes the lock: it is free for the old daemon afterwards, and still there.
+	release = holdDaemonLock(t, rt.c2.OldHome)
+	release()
 }

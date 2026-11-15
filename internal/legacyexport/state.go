@@ -31,12 +31,13 @@ const (
 	StepPause     = "pause"
 	StepApplied   = "applied"
 	StepReceipts  = "receipts"
+	StepState     = "state"
 	StepAnchor    = "anchor"
 	StepTelemetry = "telemetry"
 )
 
 // fileSteps are the steps that write files of the old tree, in order.
-var fileSteps = []string{StepAudit, StepApprovals, StepBrakes, StepPause, StepApplied, StepReceipts}
+var fileSteps = []string{StepAudit, StepApprovals, StepBrakes, StepPause, StepApplied, StepReceipts, StepState}
 
 // Step statuses. started is a step whose writes began and did not finish (a crash): on the next
 // run each of its files may be in its manifest state or its post state, and nothing else. failed

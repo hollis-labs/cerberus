@@ -366,6 +366,7 @@ func (x *export) planApprovals(context.Context) (*plan, error) {
 		return nil, errors.New("verifying new's approvals changed the store; its chain is not intact")
 	}
 	cr.Legacy, cr.Verified = len(vr.Legacy), len(vr.Verified)
+	cr.HeadSeq, cr.HeadHash = batch.Next.Seq, batch.Next.Hash
 	if err = vr.Err(); err != nil {
 		r.refuse("new's approvals: %v", err)
 		return empty, nil
@@ -389,8 +390,8 @@ func (x *export) planApprovals(context.Context) (*plan, error) {
 			return err
 		case got.Stop != nil:
 			return fmt.Errorf("old's %s does not read whole after the append: %w", rel, got.Stop)
-		case got.Next.Seq != batch.Next.Seq:
-			return fmt.Errorf("old's %s reads to seq %d, new's to %d", rel, got.Next.Seq, batch.Next.Seq)
+		case got.Next.Seq != batch.Next.Seq || got.Next.Hash != batch.Next.Hash:
+			return fmt.Errorf("old's %s reads to seq %d (%s), new's to %d (%s)", rel, got.Next.Seq, got.Next.Hash, batch.Next.Seq, batch.Next.Hash)
 		}
 		cr.NextSeq, cr.Verify = got.Next.Seq, "ok"
 		return nil
