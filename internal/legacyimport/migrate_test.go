@@ -270,6 +270,7 @@ func TestHostTablesAreTheOldRows(t *testing.T) {
 		}
 	}
 	var ids []string
+	// gostore:allow sqlite-only (old's main.db is SQLite by definition, attached beside the migrated file)
 	rows, err := db.QueryContext(ctx, "SELECT group_concat(id) FROM main.host_events UNION ALL SELECT group_concat(id) FROM old.host_events")
 	if err != nil {
 		t.Fatal(err)
@@ -295,12 +296,7 @@ func TestHostTablesAreTheOldRows(t *testing.T) {
 	st := openStore(t, f.DBPath)
 	var next int64
 	if err := st.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
-		res, err := tx.ExecContext(ctx, `INSERT INTO host_events (ts, host, kind, from_status, to_status) VALUES (1, 'box-1', 'status', 'ok', 'offline')`)
-		if err != nil {
-			return err
-		}
-		next, err = res.LastInsertId()
-		return err
+		return tx.QueryRowContext(ctx, `INSERT INTO host_events (ts, host, kind, from_status, to_status) VALUES (1, 'box-1', 'status', 'ok', 'offline') RETURNING id`).Scan(&next)
 	}); err != nil {
 		t.Fatal(err)
 	}
