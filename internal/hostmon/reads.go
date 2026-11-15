@@ -19,7 +19,7 @@ import (
 var ErrNotFound = errors.New("host not found")
 
 // ErrInvalid marks a bad query (a time, a grain).
-var ErrInvalid = errors.New("invalid host query")
+var ErrInvalid = errors.New("invalid host request")
 
 // HostStatusView is a host's health as reported now.
 type HostStatusView struct {

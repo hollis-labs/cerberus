@@ -26,7 +26,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
-	"github.com/hollis-labs/cerberus/internal/hostmon"
 	cmcp "github.com/hollis-labs/cerberus/internal/mcp"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -52,7 +51,7 @@ type cerberus struct {
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
 // place and never written, with runtime state from the supervision lane (nil: unknown). g is the
 // operation gate and adm the admin lane in supervise mode; both are nil in observe mode.
-func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service, reads *hostmon.Reads) (*api.API, error) {
+func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service, parts *hostParts) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
@@ -80,7 +79,9 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 			HostsPath: hostsYAML,
 			StatePath: hostsState,
 		},
-		HostReads: reads,
+		HostReads:   parts.reads(),
+		HostWriter:  parts.writer,
+		HostActions: parts.actions,
 		Projects: func() ([]config.ProjectDef, error) {
 			resolved, err := reg.Resolve()
 			if err != nil {
@@ -156,7 +157,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if id == nil {
 		return errors.New("the identity module must be started")
 	}
-	a, err := newAPI(app, c.home, lane, sup.gate, adm, parts.reads())
+	a, err := newAPI(app, c.home, lane, sup.gate, adm, parts)
 	if err != nil {
 		return err
 	}

@@ -19,12 +19,13 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/hollis-labs/cerberus/internal/hosts"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/storage"
 	"github.com/hollis-labs/cerberus/internal/testhome"
 	"github.com/hollis-labs/cerberus/pkg/outpost"
 )
 
-func TestMain(m *testing.M) { testhome.Main(m) }
+func TestMain(m *testing.M) { secrets.MockStoreForTests(); testhome.Main(m) }
 
 const goodProbeOutput = "os=Linux\narch=x86_64\nkernel=6.1.0-test\ncpu=4\nmem_total_kb=8000000\nmem_available_kb=4000000\n" +
 	"load=0.10 0.20 0.30\nuptime_seconds=60\ndisk_kb=1000000 500000\ntool_docker=1\ntool_tmux=0\ntool_tailscale=1\ntool_caddy=0\n"
