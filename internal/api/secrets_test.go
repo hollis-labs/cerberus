@@ -14,6 +14,8 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/gate/gatetest"
+	"github.com/hollis-labs/cerberus/internal/policy"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // secretsAPI is the API with an admin lane over the Cerberus keychain provider (the OS store,
@@ -195,4 +197,78 @@ func TestSecretSetInObserveMode(t *testing.T) {
 	a := newTestAPI(t, "")
 	code, out := (&gatedAPI{h: a.Mux()}).call(t, apiKey, "POST", "/api/secrets/keeper/ksm_config", `{"value":"v"}`)
 	wantCode(t, "observe mode", code, out, http.StatusServiceUnavailable, "admin_unavailable")
+}
+
+// approveSecretsSet is a policy whose rule enforces approve on secrets.set, its baseline letting
+// an agent run admin operations, so that rule alone decides the write.
+func approveSecretsSet(t *testing.T) policy.PDP {
+	t.Helper()
+	f := policy.File{Version: policy.FileVersion,
+		Baseline: &policy.BaselineOverride{ByEffect: map[contract.Effect]map[string]policy.Decision{contract.EffectAdmin: {"agent": policy.Allow}}},
+		Providers: map[string]policy.Provider{
+			"secrets": {Rules: []policy.Rule{{ID: "approve-secrets-set", Ops: []string{"set"}, Decision: policy.Approve, Reason: "the test asks for it"}}}}}
+	if problems := f.Validate(); len(problems) > 0 {
+		t.Fatal(problems)
+	}
+	return policy.NewEvaluator(f, "test")
+}
+
+// The lead's ruling (a): where a policy rule enforces approve on an owner-only write, the owner's
+// approval meets it too. A key's write asks for one approval, the owner's, out of band, naming
+// the policy rule beside the owner's; once the owner approves it on the console, the retry naming
+// it stores the value with that one approval, written on the outcome with its plan hash; a second
+// use of the same approval is refused, and nothing asks for a second approval. The owner on the
+// console is no shortcut past the policy: the console session alone is not an approval.
+func TestTheOwnersApprovalMeetsAPolicyApproveOnSecretsSet(t *testing.T) {
+	g := secretsAPI(t, gatetest.Options{Policy: approveSecretsSet(t), Enforcement: enforceAll{}})
+	const value = "ksm-config-value-policy"
+	body := `{"value":"` + value + `","acknowledged":true}`
+	path := "/api/secrets/keeper/ksm_config"
+
+	id := g.pendingID(t, apiKey, "POST", path, body)
+	a, ok := g.w.Broker.Get(id)
+	if !ok || a.Channel != "out_of_band" || a.Rule != "secrets.set" || a.PlanHash == "" || !strings.Contains(a.Reason, "approve-secrets-set") {
+		t.Fatalf("the one approval: %+v", a)
+	}
+	if n := len(g.w.Broker.List()); n != 1 {
+		t.Fatalf("asking opened %d approvals, want the owner's alone", n)
+	}
+	if code, out := g.call(t, ownerSession, "POST", "/api/approvals/"+id+"/decide", `{"approve":true}`); code != http.StatusOK {
+		t.Fatalf("the owner's approval: %d %s", code, out)
+	}
+
+	withApproval := `{"value":"` + value + `","acknowledged":true,"approval_id":"` + id + `"}`
+	code, out := g.call(t, apiKey, "POST", path, withApproval)
+	var res admin.SecretSetResult
+	if code != http.StatusOK || json.Unmarshal([]byte(out), &res) != nil || !res.Success || res.Proof != "approval:"+id {
+		t.Fatalf("the approved write under the policy: %d %s", code, out)
+	}
+	if got, err := keyring.Get("cerberus", "keeper/ksm_config"); err != nil || got != value {
+		t.Fatalf("the keyring entry: %q %v", got, err)
+	}
+	if a, _ = g.w.Broker.Get(id); a.Status != "consumed" {
+		t.Fatalf("the approval was not spent: %s", a.Status)
+	}
+	var spent bool
+	for _, r := range g.w.Records(audit.KindOutcome) {
+		if r.Connector == "secrets" && r.Operation == "set" && r.OutcomeCode == "ok" {
+			spent = r.ApprovalID == id && r.PlanHash == a.PlanHash
+		}
+	}
+	if !spent {
+		t.Fatalf("the outcome does not carry the approval and its plan: %+v", g.w.Records(audit.KindOutcome))
+	}
+
+	code, out = g.call(t, apiKey, "POST", path, withApproval)
+	wantCode(t, "a second use of the same approval", code, out, http.StatusPreconditionRequired, "approval_required")
+	if n := len(g.w.Broker.List()); n != 1 {
+		t.Fatalf("%d approvals: the refused second use asked for another", n)
+	}
+
+	// The console session is not an approval: under the policy the owner, too, is asked for one.
+	code, out = g.call(t, ownerSession, "POST", path, `{"value":"tok","acknowledged":true}`)
+	wantCode(t, "the owner on the console under the policy", code, out, http.StatusConflict, "approval_pending")
+	if got, _ := keyring.Get("cerberus", "keeper/ksm_config"); got != value {
+		t.Fatalf("the console write stored without an approval: %q", got)
+	}
 }

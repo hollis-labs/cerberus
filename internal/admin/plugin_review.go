@@ -355,7 +355,7 @@ func (p *Plugins) reviewSpec(r *pendingReview, typedOK bool, opts GateOpts) gate
 		Review: &audit.PluginReview{Kind: r.kind, SummarySHA256: review.SummaryDigest(), BundleDigest: review.BundleDigest,
 			Source: review.Source, Gaps: review.Gaps, Changes: r.changes},
 		PlanOnly: opts.Plan, DryRun: opts.Plan, ConfirmedPlanHash: opts.ConfirmedPlanHash,
-		PluginEntrypointSHA256: review.EntrypointSHA256}
+		PluginEntrypointSHA256: review.EntrypointSHA256, OwnerAuthorized: true}
 	planSpec := spec
 	digest := p.gate.Sink().Digest
 	preview, _ := json.Marshal(ReviewPreview{Kind: r.kind, ID: review.ID, Text: r.text(), Changes: r.changes, PolicyChange: r.policyChange, AcceptedAt: r.acceptedAt})
@@ -392,7 +392,7 @@ func (p *Plugins) acceptReview(ctx context.Context, r *pendingReview, typed stri
 		p.discard(r)
 		return ReviewResult{}, shown, planErr
 	}
-	proof, err := p.reviewProof(ctx, r, spec, typed, typedOK, person, opts.ApprovalID)
+	proof, err := p.reviewProof(ctx, call, r, spec, typed, typedOK, person, opts.ApprovalID)
 	if err != nil {
 		call.Finish(err)
 		p.discard(r)
@@ -409,10 +409,13 @@ func (p *Plugins) acceptReview(ctx context.Context, r *pendingReview, typed stri
 
 // reviewProof is what authorizes accepting: a person on the console typing the plugin id, or
 // the owner's out-of-band approval named by approvalID (asked for when none is named). An MCP
-// client, local trust and an in-process caller have neither.
-func (p *Plugins) reviewProof(ctx context.Context, r *pendingReview, spec gate.Spec, typed string, typedOK, person bool, approvalID string) (string, error) {
+// client, local trust and an in-process caller have neither. Where policy also asks to approve
+// the review, only the owner's approval meets both (call.PolicyApproves): the typed id is not
+// an approval.
+func (p *Plugins) reviewProof(ctx context.Context, call *gate.Call, r *pendingReview, spec gate.Spec, typed string, typedOK, person bool, approvalID string) (string, error) {
 	id := r.review.ID
 	switch {
+	case call.PolicyApproves():
 	case typedOK:
 		return "typed", nil
 	case person && approvalID == "":
@@ -428,7 +431,7 @@ func (p *Plugins) reviewProof(ctx context.Context, r *pendingReview, spec gate.S
 			redact.Guidance("the confirmation did not match the plugin id %q; nothing was %s", id, what))
 	}
 	tgt, _ := gate.AuditTarget(spec)
-	return p.gate.OwnerApproval(ctx, gate.OwnerApprovalRequest{Connector: "plugin", Operation: r.kind, Target: tgt,
+	return call.OwnerApproval(ctx, gate.OwnerApprovalRequest{Connector: "plugin", Operation: r.kind, Target: tgt,
 		ArgsDigest: r.review.BundleDigest, ApprovalID: approvalID, What: fmt.Sprintf("a plugin %s of %s", r.kind, id),
 		Rule: "plugin." + r.kind, Reason: "a plugin is installed, upgraded or reviewed by the owner on the console", Plan: spec.Plan})
 }

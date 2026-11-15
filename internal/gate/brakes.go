@@ -325,7 +325,7 @@ const errOwnerPaths = "the owner does it on the console, signed in; or run it fr
 // the retry naming it goes ahead once the owner has approved; a person still decides, so the
 // decision 0.1 boundary holds. An MCP client is never let through.
 func (g *Gate) ownerApproval(ctx context.Context, args opArgs, t audit.Target, id, approvalID, what string) (string, error) {
-	return g.ownerApprovalFor(ctx, OwnerApprovalRequest{Connector: args.Connector, Operation: args.Operation, Target: t, ArgsDigest: id,
+	return g.OwnerApproval(ctx, OwnerApprovalRequest{Connector: args.Connector, Operation: args.Operation, Target: t, ArgsDigest: id,
 		ApprovalID: approvalID, What: what, Rule: "brake." + args.Operation, Reason: "a brake is lifted, and a suspension reset, by the owner on the console"})
 }
 
@@ -352,7 +352,29 @@ type OwnerApprovalRequest struct {
 // approval_required (428) for an MCP client or an approval that cannot be used,
 // approval_pending (409, the approval under details) when one is asked for or still pending.
 func (g *Gate) OwnerApproval(ctx context.Context, r OwnerApprovalRequest) (string, error) {
-	return g.ownerApprovalFor(ctx, r)
+	proof, _, _, err := g.ownerApprovalFor(ctx, r)
+	return proof, err
+}
+
+// PolicyApproves reports whether policy asked for an approval of this OwnerAuthorized call,
+// which only the owner's approval (OwnerApproval) meets: a lane's own shortcut for the owner on
+// the console (the console session, the typed plugin id) is not an approval, so it does not.
+func (c *Call) PolicyApproves() bool { return c != nil && c.policyApprove != nil }
+
+// OwnerApproval is the gate's OwnerApproval for this call: the owner's out-of-band approval,
+// asked for or consumed once. On an OwnerAuthorized call that policy asked to approve, the same
+// approval meets the policy too (the lead's ruling (a)): the request names the policy's rule
+// beside the owner's, and the approval consumed, with the plan it binds, is written on the
+// call's records as a policy approval's is.
+func (c *Call) OwnerApproval(ctx context.Context, r OwnerApprovalRequest) (string, error) {
+	if res := c.policyApprove; res != nil {
+		r.Reason += fmt.Sprintf("; policy also asks for an approval (rule %s), which this one approval meets", decidingRule(*res))
+	}
+	proof, id, planHash, err := c.g.ownerApprovalFor(ctx, r)
+	if err == nil && id != "" {
+		c.intent.ApprovalID, c.intent.PlanHash = id, planHash
+	}
+	return proof, err
 }
 
 // ConsolePerson reports whether ctx's caller is a person on the console: a human over the web
@@ -364,32 +386,33 @@ func ConsolePerson(ctx context.Context) bool {
 		CallerSurfaceFrom(ctx) == SurfaceWeb
 }
 
-func (g *Gate) ownerApprovalFor(ctx context.Context, r OwnerApprovalRequest) (string, error) {
+// ownerApprovalFor answers the proof and, when an approval was consumed, its id and the plan
+// hash it was bound to.
+func (g *Gate) ownerApprovalFor(ctx context.Context, r OwnerApprovalRequest) (proof, approvalID, planHash string, err error) {
 	args := opArgs{Connector: r.Connector, Operation: r.Operation}
 	what := r.What
 	p := principalFor(ctx, Spec{})
 	if strings.HasPrefix(p.Via, "mcp") {
-		return "", codedError(args, CodeApprovalRequired,
+		return "", "", "", codedError(args, CodeApprovalRequired,
 			redact.Guidance("%s is not done by an MCP client (this caller is %s over %s): %s", what, p.Kind, p.Via, errOwnerPaths))
 	}
 	broker := g.broker
 	if broker == nil {
-		return "", codedError(args, CodeApprovalPending,
+		return "", "", "", codedError(args, CodeApprovalPending,
 			redact.Guidance("%s needs the owner's approval on the console, and this Cerberus holds no approvals (observe mode): %s", what, errOwnerPaths))
 	}
 	snap := PlanSnapshot{}
 	if r.Plan != nil {
-		var err error
 		if snap, err = specPlanSnapshot(ctx, Spec{Plan: r.Plan}); err != nil {
-			return "", codedError(args, CodeAuditUnavailable, redact.GuidanceWrap(err, "the plan the owner approves could not be computed, so nothing ran"))
+			return "", "", "", codedError(args, CodeAuditUnavailable, redact.GuidanceWrap(err, "the plan the owner approves could not be computed, so nothing ran"))
 		}
 	}
 	if r.ApprovalID == "" {
 		intent := audit.Record{OperationID: audit.NewID(), Principal: p, Connector: args.Connector, Operation: args.Operation, Effect: string(contract.EffectAdmin), Target: r.Target, ArgsDigest: r.ArgsDigest}
-		a, err := broker.request(ctx, intent, policy.Result{Matched: []policy.Match{{Rule: r.Rule, Decision: policy.Approve, Reason: r.Reason}}},
+		a, rerr := broker.request(ctx, intent, policy.Result{Decision: policy.Approve, Matched: []policy.Match{{Rule: r.Rule, Decision: policy.Approve, Reason: r.Reason}}},
 			approval.ChannelOutOfBand, approval.ScopeOnce, 30*time.Minute, snap, nil)
-		if err != nil {
-			return "", codedError(args, CodeAuditUnavailable, err)
+		if rerr != nil {
+			return "", "", "", codedError(args, CodeAuditUnavailable, rerr)
 		}
 		pending := codedError(args, CodeApprovalPending,
 			redact.Guidance("%s is approved by the owner on the console: approve %s there, signed in, then run it again with --approval %s", what, a.ID, a.ID))
@@ -397,7 +420,7 @@ func (g *Gate) ownerApprovalFor(ctx context.Context, r OwnerApprovalRequest) (st
 		if errors.As(pending, &coded) {
 			coded.Approval = approvalReference(a)
 		}
-		return "", pending
+		return "", "", "", pending
 	}
 	// The channel is required here, never read from the store, where a
 	// same-uid process could write an approval met on a terminal (H-b); the
@@ -405,9 +428,9 @@ func (g *Gate) ownerApprovalFor(ctx context.Context, r OwnerApprovalRequest) (st
 	a, err := broker.Consume(ctx, r.ApprovalID, approval.ConsumeCheck{Connector: args.Connector, Operation: args.Operation, Principal: p, Target: r.Target,
 		ArgsDigest: r.ArgsDigest, PlanHash: snap.Hash, RequireOutOfBand: true})
 	if err != nil {
-		return "", consumeRefusal(args, r.ApprovalID, a, err)
+		return "", "", "", consumeRefusal(args, r.ApprovalID, a, err)
 	}
-	return "approval:" + a.ID, nil
+	return "approval:" + a.ID, a.ID, snap.Hash, nil
 }
 
 // BrakesView is the brakes as a surface shows them.

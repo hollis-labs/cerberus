@@ -12,6 +12,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/target"
@@ -88,6 +89,12 @@ type Spec struct {
 	ApprovalID string
 	// PlanOnly marks a request for the plan alone (connectors plan).
 	PlanOnly bool
+	// OwnerAuthorized marks an operation only the owner authorizes (OwnerApproval, the lead's
+	// ruling (a) on decision 0.1): secrets set, a plugin install, upgrade or review. A policy
+	// approve on it is met by the owner's out-of-band approval the lane asks for with
+	// Call.OwnerApproval: one approval, bound to the same plan and consumed once, never a
+	// second policy approval beside it.
+	OwnerAuthorized bool
 	// ConfirmedPlanHash is the plan a person confirmed on their own
 	// terminal (P3-3), from a confirm route only.
 	ConfirmedPlanHash string
@@ -131,6 +138,9 @@ type Call struct {
 	// if it is refused.
 	rates   []rateHold
 	limiter *RateLimiter
+	// policyApprove is the policy approve an OwnerAuthorized call deferred to the owner's
+	// approval (Call.OwnerApproval); nil when policy did not ask for one.
+	policyApprove *policy.Result
 }
 
 // Intent is the call's intent record as written, with what the gate added
