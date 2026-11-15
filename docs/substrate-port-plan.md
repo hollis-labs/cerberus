@@ -387,7 +387,9 @@ While in standby:
 - **The allowed verbs on the flagged resource** do not write `paused.<id>` or `runtime/applied.json`. They need no
   approval: policy is asserted to gate nothing on that resource, with a test.
 - **Audit records for those verbs** go to a **separate chain**, `~/.cerberus/standby.d/audit/YYYY-MM.jsonl`, with its
-  own genesis and its own digest key, not the main chain. Nothing else under `~/.cerberus` or in `main.db` is
+  its own genesis, not the main chain. Argument digests in it are keyed with the **main** chain's digest key
+  (`audit/.digest_key`), so the same arguments digest the same in both chains. Verify them against that key, never a
+  separate standby key. Nothing else under `~/.cerberus` or in `main.db` is
   written: the main audit chain, its anchor and `approvals/events.jsonl` stay byte-identical.
 - **Approvals after a rollback.** Approvals that new decided from the owner's session are not honoured by old (old
   expects its passkey proof). An operation approved under new must be re-approved under old. This fails closed.
@@ -443,6 +445,8 @@ Soak for at least 24 h. Checks:
 - no plugin process with new as its parent.
 
 **D. Handoff window (director with owner; a write pause of minutes).**
+From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` verbs this section lists.
+
 1. Announce a freeze on Cerberus mutations. Re-check:
    - the schedule, project and resource tables are still empty;
    - which of `brakes/`, `oauth/` and `events/` exist.
@@ -565,6 +569,10 @@ delete them.
 | 10 | `substrate-port` | `migrate-from`, `export-legacy`, verify, the standby-sidecar import, and the rehearsal (section 5, all seven steps). |
 | 11a and b | `substrate-port` | Console on app-shell: (a) contract and scaffold, (b) pages including the approval page (owner session). Sign-in is kit-identity; there is no ceremony slice. |
 | 12 | `substrate-port` | Deploy: `cerberus-substrate` descriptor, `fleet-install` descriptor, `cutover-runbook.md`. |
+
+Until slice 6 lands, the logs route (L6, `legacy-routes.md`) is served without redaction. So no client API key is
+issued to a running new build before slice 6 is merged; D6 comes after it in any case. Slice 6's acceptance
+includes redaction on L6.
 
 Dependencies:
 - the triage and slice 1 before every `substrate-port` merge;
