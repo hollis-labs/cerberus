@@ -189,15 +189,15 @@ func TestAForgedOwnerSessionDecisionFailsVerification(t *testing.T) {
 	agent := as(Principal{Kind: PrincipalAgent, Via: ViaMCPStdio, Client: "claude-code/2", Session: "s1"})
 	ask := func(container string) string {
 		t.Helper()
-		_, err := svc.Execute(agent, laneArgs{Connector: "docker", Operation: "stop", Config: map[string]any{"container": container}, Acknowledged: true})
+		_, askErr := svc.Execute(agent, laneArgs{Connector: "docker", Operation: "stop", Config: map[string]any{"container": container}, Acknowledged: true})
 		var coded *Error
-		if !errors.As(err, &coded) || coded.Approval == nil {
-			t.Fatalf("asking: %v", err)
+		if !errors.As(askErr, &coded) || coded.Approval == nil {
+			t.Fatalf("asking: %v", askErr)
 		}
 		return coded.Approval.ID
 	}
 	genuine, forged, legacy := ask("web"), ask("db"), ask("cache")
-	if _, err := broker.DecideAs(asOwner(), genuine, ApprovalDecisionArgs{Approve: true}, ownerConsole); err != nil {
+	if _, err = broker.DecideAs(asOwner(), genuine, ApprovalDecisionArgs{Approve: true}, ownerConsole); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,10 +208,10 @@ func TestAForgedOwnerSessionDecisionFailsVerification(t *testing.T) {
 	var trustAll trustingVerifier
 	web := audit.Principal{Kind: "human", Via: ViaWeb}
 	forgedSeal, _ := json.Marshal(map[string]any{"v": 1, "t": time.Now().UnixNano(), "mac": "hmac-sha256:" + strings.Repeat("0", 64)})
-	if _, err := store.Decide(forged, approval.Decision{Approve: true, By: web, Surface: ViaWeb, KeyFingerprint: ownerConsole.proof(), Assertion: forgedSeal}, trustAll); err != nil {
+	if _, err = store.Decide(forged, approval.Decision{Approve: true, By: web, Surface: ViaWeb, KeyFingerprint: ownerConsole.proof(), Assertion: forgedSeal}, trustAll); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Decide(legacy, approval.Decision{Approve: true, By: web, Surface: ViaWeb, KeyFingerprint: "sha256:passkey-fingerprint", Assertion: []byte(`{"v":2}`)}, trustAll); err != nil {
+	if _, err = store.Decide(legacy, approval.Decision{Approve: true, By: web, Surface: ViaWeb, KeyFingerprint: "sha256:passkey-fingerprint", Assertion: []byte(`{"v":2}`)}, trustAll); err != nil {
 		t.Fatal(err)
 	}
 

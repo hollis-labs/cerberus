@@ -45,7 +45,7 @@ func auditVerify(data string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := checked.Err(); err != nil {
+	if err = checked.Err(); err != nil {
 		return err
 	}
 	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
