@@ -214,3 +214,81 @@ func appendTo(t *testing.T, p, data string) {
 		t.Fatal(err)
 	}
 }
+
+// Expect is the manifest after the overridden steps: a tree in that state compares equal to it,
+// the manifest itself is unchanged, and Diff keys each mismatch by what it is.
+func TestExpectOverridesWhatAStepWrote(t *testing.T) {
+	l := newLive(t)
+	ctx := context.Background()
+	m, err := manifest.Take(ctx, l.opts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := m.Files["approvals/events.jsonl"]
+
+	appendTo(t, filepath.Join(l.home, "approvals", "events.jsonl"), "{}\n")
+	if err := os.WriteFile(filepath.Join(l.home, "paused.new"), []byte("paused\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(l.home, "paused.web")); err != nil {
+		t.Fatal(err)
+	}
+	now, err := manifest.Take(ctx, l.opts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	for _, d := range manifest.Diff(m, now) {
+		keys[d.Key] = true
+	}
+	for _, k := range []string{"approvals/events.jsonl", "paused.new", "paused.web"} {
+		if !keys[k] {
+			t.Errorf("Diff has no mismatch keyed %s: %v", k, keys)
+		}
+	}
+
+	o := manifest.Overrides{Files: map[string]manifest.File{
+		"approvals/events.jsonl": now.Files["approvals/events.jsonl"],
+		"paused.new":             now.Files["paused.new"],
+		"paused.web":             {Absent: true},
+	}}
+	if got := manifest.Compare(manifest.Expect(m, o), now); len(got) != 0 {
+		t.Fatalf("the tree after the steps does not match Expect: %v", got)
+	}
+	if m.Files["approvals/events.jsonl"] != before || m.Files["paused.new"] != (manifest.File{}) {
+		t.Fatal("Expect changed the manifest it cloned")
+	}
+	// Overriding one file only: the other two still mismatch.
+	partial := manifest.Overrides{Files: map[string]manifest.File{"paused.web": {Absent: true}}}
+	if got := manifest.Diff(manifest.Expect(m, partial), now); len(got) != 2 {
+		t.Fatalf("partial overrides: %v", got)
+	}
+	// The anchor and the database are overridden whole.
+	head := []byte(`{"seq":99,"hash":"sha256:x","file":"2026-11.jsonl","offset":1}`)
+	moved := manifest.Expect(m, manifest.Overrides{Anchor: &manifest.Anchor{Account: m.Anchor.Account, Head: head}})
+	if d := manifest.Diff(moved, m); len(d) != 1 || d[0].Key != manifest.KeyAnchor {
+		t.Fatalf("anchor override: %v", d)
+	}
+}
+
+// The kept manifest loads from the data directory, with its body digest checked; a data
+// directory without one is an error that says so.
+func TestLoadKept(t *testing.T) {
+	l := newLive(t)
+	data := t.TempDir()
+	if _, _, err := manifest.LoadKept(data); err == nil || !strings.Contains(err.Error(), "kept no D3 manifest") {
+		t.Fatalf("no kept manifest: %v", err)
+	}
+	kept := filepath.Join(data, filepath.FromSlash(manifest.KeptRel))
+	if err := os.MkdirAll(filepath.Dir(kept), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Write(context.Background(), l.opts(), kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, sum, err := manifest.LoadKept(data)
+	if err != nil || got.BodySHA256 != m.BodySHA256 || !strings.HasPrefix(sum, "sha256:") {
+		t.Fatalf("LoadKept: %v %v", got, err)
+	}
+}

@@ -274,6 +274,19 @@ func Write(ctx context.Context, o Options, out string) (*Manifest, error) {
 	return m, nil
 }
 
+// KeptRel is where migrate-from keeps the manifest it checked its snapshot against, relative to
+// the new data directory: the handoff export-legacy reverses.
+const KeptRel = "migration/d3-manifest.json"
+
+// LoadKept loads the manifest migrate-from kept in dataDir (Load: its body digest is checked).
+func LoadKept(dataDir string) (*Manifest, string, error) {
+	p := filepath.Join(dataDir, filepath.FromSlash(KeptRel))
+	if _, err := os.Lstat(p); err != nil {
+		return nil, "", fmt.Errorf("manifest: migrate-from kept no D3 manifest at %s (%w); a rollback needs the handoff it recorded", p, err)
+	}
+	return Load(p)
+}
+
 // Load reads a manifest and checks its body digest. It returns the file's sha256 as well.
 func Load(path string) (*Manifest, string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the operator's manifest

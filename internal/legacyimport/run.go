@@ -37,6 +37,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
+	"github.com/hollis-labs/cerberus/internal/legacyimport/manifest"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/secrets"
@@ -319,11 +320,11 @@ func (m *migration) build(ctx context.Context) error {
 
 	// The D3 manifest, kept with the migration.
 	if r.Manifest != nil {
-		dst := filepath.Join(m.partial, "migration", "d3-manifest.json")
+		dst := filepath.Join(m.partial, filepath.FromSlash(manifest.KeptRel))
 		if _, cerr := copyFile(o.Manifest, dst); cerr != nil {
 			return cerr
 		}
-		r.Manifest.CopiedTo = filepath.Join(o.DataDir, "migration", "d3-manifest.json")
+		r.Manifest.CopiedTo = filepath.Join(o.DataDir, filepath.FromSlash(manifest.KeptRel))
 	}
 	return nil
 }
