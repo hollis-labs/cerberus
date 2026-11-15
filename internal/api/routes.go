@@ -23,8 +23,8 @@ import (
 	"github.com/hollis-labs/substrate/apierr"
 
 	"github.com/hollis-labs/cerberus/internal/config"
-	"github.com/hollis-labs/cerberus/internal/supervise"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
 // The scopes (plan section 4.3). The owner holds "*".

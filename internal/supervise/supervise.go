@@ -58,6 +58,9 @@ type Options struct {
 	Approver Approver
 	// Logger receives the lane's records; nil is slog.Default.
 	Logger *slog.Logger
+	// Systemd configures the connector's systemd backend. Runner defaults to Options.Runner and
+	// Env.Home to Options.Home; tests set a fake systemctl here.
+	Systemd localconn.SystemdOptions
 }
 
 // Service is the supervision lane.
@@ -104,7 +107,13 @@ func New(o Options) (*Service, error) {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
-	s := &Service{o: o, conn: localconn.New()}
+	if o.Systemd.Runner == nil {
+		o.Systemd.Runner = o.Runner
+	}
+	if o.Systemd.Env.Home == "" {
+		o.Systemd.Env.Home = o.Home
+	}
+	s := &Service{o: o, conn: localconn.NewWithSystemd(o.Systemd)}
 	// Every local mutation, including one the lane does not start itself, refuses the
 	// resource this process runs as.
 	s.conn.SetMutationGuard(func(res *domain.Resource, _ localconn.ProcessSpec) error {
