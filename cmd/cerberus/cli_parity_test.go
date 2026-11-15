@@ -250,11 +250,12 @@ func TestParityCheckSeesFlags(t *testing.T) {
 }
 
 // newVerbs are verbs this build adds that main never had: they are not in main.tree, so the parity
-// check cannot see them; this keeps them from disappearing (slice 10a).
+// check cannot see them; this keeps them from disappearing (slices 10a and 10b).
 var newVerbs = map[string][]string{
 	"cerberus migrate-from":   {"old-home", "old-db", "manifest", "old-anchor-account", "output"},
 	"cerberus manifest write": {"old-home", "old-db", "out", "anchor-account"},
 	"cerberus manifest check": {"manifest", "old-home", "old-db", "anchor-account"},
+	"cerberus export-legacy":  {"since", "old-home", "old-db", "old-anchor-account", "only", "check-legacy-files", "d3-copy", "output"},
 }
 
 func TestNewVerbsArePresent(t *testing.T) {
