@@ -33,7 +33,9 @@ func TestDataQueryAtTheCLI(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	cl := &apiClient{base: srv.URL + "/api", key: "cli-key", keyFile: "/keys/cli.key", http: srv.Client()}
-	cmds := func() []*cobra.Command { return []*cobra.Command{dataCommand(func() (*apiClient, error) { return cl, nil })} }
+	cmds := func() []*cobra.Command {
+		return []*cobra.Command{dataCommand(func() (*apiClient, error) { return cl, nil })}
+	}
 	dir := t.TempDir()
 	tok := filepath.Join(dir, "session.jwt")
 	if err := os.WriteFile(tok, []byte("a.b.c\n"), 0o600); err != nil {
