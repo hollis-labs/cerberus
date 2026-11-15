@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks.** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15).** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -451,6 +451,12 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
    - the schedule, project and resource tables are still empty;
    - which of `brakes/`, `oauth/` and `events/` exist.
 
+   **Director step:** list the dev sessions that are down, unpaused and `auto_restart`. They will not be in `sessions.json`,
+   which records only running sessions. New's first monitor pass at D7 starts them, as old does on any restart (parity).
+   The director reviews the list and pauses, with the old CLI, anything that must stay down, asking the owner only if
+   one looks like the owner's own. The pause is migrated with the rest of the pause set. After D3, the runbook re-derives the same
+   list from the snapshot and compares it with the D1 list; a difference stops the window.
+
    Any surprise stops the window.
 2. Stop the old console unit. `echo cerberus-substrate > ~/.cerberus/standby`. Wait until `$LEGACY daemon status`
    reports standby, plugins stopped and the sessions listed.
@@ -461,7 +467,12 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
    - All of it goes into a private 0700 directory.
 4. `$LEGACY resource stop cerberus-substrate --ack` (recorded in the standby chain only). Move new's observe-mode data dir
    aside.
-5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. Read the report.
+5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. Read the report. It copies
+   `audit/.digest_key` into new's data dir with the audit chain (section 5). **Before the first supervise start**,
+   check that the sha256 of the key in new's data dir equals the snapshot's. Applied digests are keyed with it; a
+   fresh key would make every resource look changed. As a backstop, `migrate-from` records a fingerprint of
+   the migrated key beside the applied digests, and new refuses supervise mode when migrated applied digests exist
+   but its key's fingerprint differs (slice 5, tested with a fresh key next to migrated digests).
 6. Offline identity (the CLI uses identity's Go API; list, revoke and owner-exists come from CW-20261114-0131 /
    substrate #34; the app never reads identity's tables):
    - The owner runs `$NEW identity setup --username <owner>` at a terminal.
@@ -472,6 +483,7 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
      `$LEGACY resource status cerberus-substrate`.
    - New loads the plugins and starts the host monitor.
    - `$NEW resource apply <id> --ack` for exactly the ids in `~/.cerberus/standby.d/sessions.json`.
+   - New's first monitor pass also starts the down, unpaused `auto_restart` sessions reviewed at D1, as old would.
 8. Point the CLI on `PATH` at `$NEW` (atomic rename). Old is unaffected: it runs from `$LEGACY`.
 9. Apply the tachyon (CW-20261114-0144) and tether sysop (CW-20261114-0145) changes, the proxy entry and the backup
    job's path list. The override already carries the public name in the allowed hosts and `identity.trusted_proxy:
