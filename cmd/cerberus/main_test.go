@@ -21,11 +21,13 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/hollis-labs/cerberus/internal/admin/admintest"
 	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
-// binary is the real cerberus binary, built once for the tests that run it as a process.
-var binary string
+// binary is the real cerberus binary, built once for the tests that run it as a process, and
+// echoPlugin the synthetic third-party plugin (internal/admin/testdata/echoplugin).
+var binary, echoPlugin string
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "cerberus-bin-")
@@ -36,6 +38,11 @@ func TestMain(m *testing.M) {
 	binary = filepath.Join(dir, "cerberus")
 	if out, buildErr := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); buildErr != nil { //nolint:gosec // fixed arguments
 		fmt.Fprintf(os.Stderr, "build cerberus: %v\n%s", buildErr, out)
+		_ = os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	if echoPlugin, err = admintest.BuildEcho(dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		_ = os.RemoveAll(dir)
 		os.Exit(1)
 	}
@@ -433,6 +440,10 @@ func TestServeInObserveModeWritesNothingInTheAdoptedTree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A plugin the old build runs, marked loaded: observe mode starts no plugin.
+	if _, err := admintest.Install(state, echoPlugin, admintest.Plugin{Loaded: true}); err != nil {
+		t.Fatal(err)
+	}
 	snap := func() map[string]string {
 		out := map[string]string{}
 		for _, root := range []string{state, filepath.Join(s.home, "apps"), filepath.Join(s.home, ".config")} {
@@ -452,6 +463,9 @@ func TestServeInObserveModeWritesNothingInTheAdoptedTree(t *testing.T) {
 		t.Fatalf("the supervision lane did not start in observe mode over the registry:\n%s", log)
 	}
 	stopServe(t, cmd, log)
+	if strings.Contains(log.String(), "admin.plugins") || len(admintest.Marks(state, "loaded")) != 0 {
+		t.Fatalf("observe mode started a plugin:\n%s", log)
+	}
 	after := snap()
 	for k, v := range before {
 		if after[k] != v {
@@ -510,6 +524,18 @@ func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A third-party-style plugin in the adopted root, reviewed (its bundle digest recorded in
+	// plugin-connectors.json) and marked loaded: supervise mode restores it once the lane runs,
+	// through this binary's __plugin-exec shim, and stops it last.
+	plugin, err := admintest.Install(state, echoPlugin, admintest.Plugin{Loaded: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateFile := filepath.Join(state, "plugin-connectors.json")
+	stateBefore, err := os.ReadFile(stateFile) //nolint:gosec // the sandbox's own tree
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd, _, log := start(t, s)
 	pidFile := filepath.Join(s.data, "pids", "demo-dev.pid")
 	var pid int
@@ -524,6 +550,17 @@ func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 		t.Fatalf("the monitor did not start the auto_restart session:\n%s", log)
 	}
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	var pluginPID int
+	for pluginPID == 0 && time.Now().Before(deadline) {
+		if marks := admintest.Marks(state, "loaded"); len(marks) == 1 {
+			b, _ := os.ReadFile(marks[0]) //nolint:gosec // the sandbox's own tree
+			pluginPID, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if pluginPID == 0 || !strings.Contains(log.String(), "msg=admin.plugins.restored app=cerberus plugin=echo bundle_digest="+plugin.Digest) {
+		t.Fatalf("the plugin was not restored from the adopted root with its digest checked:\n%s", log)
+	}
 	stopServe(t, cmd, log)
 
 	out := log.String()
@@ -555,6 +592,22 @@ func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 	}
 	if syscall.Kill(pid, 0) != nil {
 		t.Fatal("the dev session did not outlive cerberus")
+	}
+	// Step 5: the plugin processes stop after the resource monitor, and before the modules
+	// (the database closes after serve returns). The plugin was asked to unload and is gone,
+	// and stopping at exit did not rewrite the shared state file.
+	pluginsAt := strings.Index(out, "msg=admin.plugins.stop app=cerberus stopped=echo")
+	if pluginsAt < 0 || pluginsAt < monitorAt {
+		t.Fatalf("stop order: resource monitor at %d, plugins at %d, want the plugins after the monitor:\n%s", monitorAt, pluginsAt, out)
+	}
+	if len(admintest.Marks(state, "unloaded")) != 1 {
+		t.Fatal("the plugin was not unloaded at exit")
+	}
+	if syscall.Kill(pluginPID, 0) == nil {
+		t.Fatalf("the plugin process %d outlived cerberus", pluginPID)
+	}
+	if after, _ := os.ReadFile(stateFile); string(after) != string(stateBefore) { //nolint:gosec // the sandbox's own tree
+		t.Fatalf("stopping at exit rewrote plugin-connectors.json:\n%s", after)
 	}
 	calls, _ := os.ReadFile(filepath.Join(s.bin, "calls.log")) //nolint:gosec // the sandbox's own tree
 	for _, verb := range []string{" stop ", " kill ", " disable ", " restart ", " start "} {
