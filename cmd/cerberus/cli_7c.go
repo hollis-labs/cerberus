@@ -24,6 +24,7 @@ func (c *cerberus) addFollowUpCommands(root *cobra.Command) error {
 	if auditGroup := childNamed(root, "audit"); auditGroup != nil {
 		auditGroup.AddCommand(auditWriteCommands(client, stdIsTerminal)...)
 	}
+	root.AddCommand(c.whoamiCommand())
 	return addPendingCommands(root, pendingSpecs)
 }
 

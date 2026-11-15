@@ -634,7 +634,7 @@ func TestAnErrorPrintsOnceAsMainsDid(t *testing.T) {
 		want  string
 		usage bool
 	}{
-		{[]string{"whoami"}, "Error: cerberus whoami: pending (slice 7d): ", false},
+		{[]string{"pipeline", "list"}, "Error: cerberus pipeline list: pending (slice 8b): ", false},
 		{[]string{"schedule", "list"}, "Error: cerberus schedule list: pending (slice 8b): ", false},
 		{[]string{"resource", "list"}, "Error: no API key at ", false},
 		{[]string{"resource", "list", "--bogus"}, "Error: unknown flag: --bogus", true},

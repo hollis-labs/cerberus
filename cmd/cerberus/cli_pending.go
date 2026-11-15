@@ -25,7 +25,7 @@ const (
 
 // pendingOwner is the slice a path waits for, by the pendingWhy key that names it.
 var pendingOwner = map[string]string{
-	"data": slice7d, "policy": slice7d, "posture": slice7d, "whoami": slice7d,
+	"data": slice7d, "policy": slice7d, "posture": slice7d,
 }
 
 // pendingSlice is the slice path waits for.
@@ -59,7 +59,6 @@ var pendingWhy = map[string]string{
 	"portfolio":           "the portfolio health projection has no route yet",
 	"posture":             "the posture is the policy's, and no route serves it to the CLI yet",
 	"schedule":            "the scheduling core is off and no schedule route is served",
-	"whoami":              "how the serving Cerberus classifies this CLI (it calls with its API key, an agent via api) needs a route not served yet",
 }
 
 // pendingError is a pending verb's answer.
@@ -412,8 +411,5 @@ var pendingSpecs = []pendingSpec{
 		{"file", "", "string", "-", "JSON job file, or - for stdin"},
 		{"id", "", "string", "", "job ID selector"},
 		{"revision", "", "string", "", "required revision from get; stale edits refuse"},
-	}},
-	{path: "whoami", use: "whoami", short: "Show how Cerberus classifies the current caller", group: false, flags: []flagSpec{
-		{"output", "o", "string", "text", "output format: text|json"},
 	}},
 }

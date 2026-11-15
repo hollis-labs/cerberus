@@ -475,7 +475,7 @@ func TestPendingVerbsAnswerPending(t *testing.T) {
 		}
 		err := c.RunE(c, nil)
 		want := "pending (slice 8b)"
-		if top := strings.Fields(s.path)[0]; top == "policy" || top == "posture" || top == "whoami" || top == "data" {
+		if top := strings.Fields(s.path)[0]; top == "policy" || top == "posture" || top == "data" {
 			want = "pending (slice 7d)"
 		}
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "nothing was done") {
@@ -495,7 +495,6 @@ func TestPendingVerbsAnswerPending(t *testing.T) {
 		{"slice 8b", []string{"pipeline", "show", "release"}},
 		{"slice 7d", []string{"policy", "enforce", "--since", "24h", "--all"}},
 		{"slice 8b", []string{"host", "capacity", "--max-age", "5m", "--recent-max-load", "0.5", "--free-slot", "nvme_m2=1"}},
-		{"slice 7d", []string{"whoami", "-o", "json"}},
 		{"slice 7d", []string{"data", "query", "--token-file", "x"}},
 		{"slice 7d", []string{"posture", "show"}},
 	} {
