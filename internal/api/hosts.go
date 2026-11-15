@@ -106,7 +106,11 @@ func (a *API) hosts(w http.ResponseWriter, r *http.Request) {
 		}
 		now := time.Now()
 		for _, h := range file.Hosts {
-			if v := hostView(h, file.Components, a.o.Hosts.State(h.Name), now); f.matches(v) {
+			v := hostView(h, file.Components, a.o.Hosts.State(h.Name), now)
+			if a.o.HostReads != nil {
+				v.Status = a.o.HostReads.HostStatus(r.Context(), h)
+			}
+			if f.matches(v) {
 				out = append(out, v)
 			}
 		}

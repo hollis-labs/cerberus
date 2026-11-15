@@ -26,6 +26,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
+	"github.com/hollis-labs/cerberus/internal/hostmon"
 	cmcp "github.com/hollis-labs/cerberus/internal/mcp"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -51,7 +52,7 @@ type cerberus struct {
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
 // place and never written, with runtime state from the supervision lane (nil: unknown). g is the
 // operation gate and adm the admin lane in supervise mode; both are nil in observe mode.
-func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service) (*api.API, error) {
+func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service, reads *hostmon.Reads) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
@@ -78,6 +79,14 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 		Hosts: api.FileHosts{
 			HostsPath: hostsYAML,
 			StatePath: hostsState,
+		},
+		HostReads: reads,
+		Projects: func() ([]config.ProjectDef, error) {
+			resolved, err := reg.Resolve()
+			if err != nil {
+				return nil, err
+			}
+			return resolved.Config.Projects, nil
 		},
 		Home:    home,
 		Mutator: lane,
@@ -138,7 +147,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	}
 	// The background loops stop after HTTP and before the sweeper and the resource monitor
 	// (deferred last, so they run first).
-	bg, err := c.startBackground(app, lane, sup.gate, adm)
+	bg, parts, err := c.startBackground(app, lane, sup.gate, adm)
 	if err != nil {
 		return err
 	}
@@ -147,7 +156,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if id == nil {
 		return errors.New("the identity module must be started")
 	}
-	a, err := newAPI(app, c.home, lane, sup.gate, adm)
+	a, err := newAPI(app, c.home, lane, sup.gate, adm, parts.reads())
 	if err != nil {
 		return err
 	}
@@ -182,20 +191,21 @@ func (c *cerberus) serve(ctx context.Context) error {
 	return err
 }
 
-// startBackground starts the background loops for this app's settings (none in observe mode).
-// adm, in supervise mode, gives the host monitor the ssh connector.
-func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, adm *admin.Service) (*background, error) {
+// startBackground builds the host monitor's pieces and starts the background loops for this
+// app's settings (none in observe mode). adm, in supervise mode, gives the host monitor the ssh
+// connector.
+func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, adm *admin.Service) (*background, *hostParts, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dirs, err := dataDirs()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	reg := registry.ForRoot(st.AdoptRoot)
 	lookup := func(id string) (*config.ResourceDef, bool) {
@@ -205,7 +215,11 @@ func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *
 		}
 		return gate.ConfigResourceLookup(resolved.Config)(id)
 	}
-	return startBackground(app, lane, g, st, dirs, hostSSH(adm, lookup), slog.Default())
+	parts, err := buildHostParts(app, g, st, dirs, hostSSH(adm, lookup), slog.Default())
+	if err != nil {
+		return nil, nil, err
+	}
+	return startBackground(app, lane, st, dirs, parts, slog.Default()), parts, nil
 }
 
 // requireLoopback keeps the host on the loopback interface until identity and the scope
