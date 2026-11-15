@@ -220,7 +220,7 @@ func (m *migration) build(ctx context.Context) error {
 	if !ar.DigestKeySHA256Equal {
 		return errors.New("audit/.digest_key: the copy's sha256 is not the source's")
 	}
-	checked, verdict := checkChain(auditDst, memoryAnchor{head: m.oldHead})
+	checked, verdict := checkChain(auditDst, memoryAnchor{Head: m.oldHead})
 	ar.CopyVerify, ar.Records = verdict, len(checked.Records)
 	if verdict != "ok" {
 		return fmt.Errorf("the copied audit chain does not verify against the old anchor's head: %s", verdict)
@@ -419,16 +419,16 @@ func (m *migration) database(ctx context.Context, digester audit.Digester) error
 	// R9: the applied digests and the key's fingerprint, in one transaction.
 	ap := &AppliedReport{Changed: []string{}, KeyFingerprint: digester.Fingerprint()}
 	r.Applied = ap
-	if m.applied.present {
-		ap.AppliedAtSource = m.applied.mtime.UTC()
-		if err = storage.ImportApplied(ctx, stores.Local, m.applied.digests, digester.Fingerprint(), m.applied.mtime); err != nil {
+	if m.applied.Present {
+		ap.AppliedAtSource = m.applied.MTime.UTC()
+		if err = storage.ImportApplied(ctx, stores.Local, m.applied.Digests, digester.Fingerprint(), m.applied.MTime); err != nil {
 			return fmt.Errorf("import the applied digests: %w", err)
 		}
 		got, aerr := storage.AppliedAll(ctx, stores.Local)
 		if aerr != nil {
 			return aerr
 		}
-		if !reflect.DeepEqual(got, m.applied.digests) {
+		if !reflect.DeepEqual(got, m.applied.Digests) {
 			return errors.New("applied digests: the store does not hold exactly the file's digests")
 		}
 		fp, ok, kerr := storage.AppliedKey(ctx, stores.Local)
@@ -459,7 +459,7 @@ func (m *migration) database(ctx context.Context, digester audit.Digester) error
 			r.warn("applied digests: %v differ from their definition as the registry resolves it now; the monitor will not restart them until they are applied", ap.Changed)
 		}
 		m.row(StoreRow{Row: "R9", Store: "runtime/applied.json", Treatment: "transform", Dest: "<data>/" + filepath.Base(m.stagedDB) + " applied_definitions, applied_digest_key",
-			SourceSHA256: m.applied.sha256, CountBefore: i64(len(m.applied.digests)), CountAfter: i64(len(got)),
+			SourceSHA256: m.applied.SHA256, CountBefore: i64(len(m.applied.Digests)), CountAfter: i64(len(got)),
 			Verify: fmt.Sprintf("digest for digest equal; key fingerprint recorded; changed %v", ap.Changed)})
 	}
 
@@ -467,12 +467,12 @@ func (m *migration) database(ctx context.Context, digester audit.Digester) error
 	pr := &PauseReport{Targets: []string{}, NoResource: []string{}}
 	r.Pause = pr
 	for _, p := range m.pause {
-		if err = storage.SetPaused(ctx, stores.Local, p.target, true, p.mtime); err != nil {
-			return fmt.Errorf("pause %s: %w", p.target, err)
+		if err = storage.SetPaused(ctx, stores.Local, p.Target, true, p.MTime); err != nil {
+			return fmt.Errorf("pause %s: %w", p.Target, err)
 		}
-		pr.Targets = append(pr.Targets, p.target)
-		if p.target != storage.AllTargets && !resourceKnown(m.resolved, p.target) {
-			pr.NoResource = append(pr.NoResource, p.target)
+		pr.Targets = append(pr.Targets, p.Target)
+		if p.Target != storage.AllTargets && !resourceKnown(m.resolved, p.Target) {
+			pr.NoResource = append(pr.NoResource, p.Target)
 		}
 	}
 	gotPaused, err := storage.PausedTargets(ctx, stores.Local)
@@ -496,12 +496,12 @@ func (m *migration) database(ctx context.Context, digester audit.Digester) error
 	if err != nil {
 		return err
 	}
-	r.Receipts = &ReceiptsReport{Issuances: m.receipts.ids, Files: len(m.receipts.byFile), Rows: rows, ReservationsWithoutReceipt: append([]string{}, m.receipts.empty...)}
-	if len(m.receipts.empty) > 0 {
-		r.warn("credential-issuance reservations without a receipt (left in place): %v", m.receipts.empty)
+	r.Receipts = &ReceiptsReport{Issuances: m.receipts.IDs, Files: len(m.receipts.ByFile), Rows: rows, ReservationsWithoutReceipt: append([]string{}, m.receipts.Empty...)}
+	if len(m.receipts.Empty) > 0 {
+		r.warn("credential-issuance reservations without a receipt (left in place): %v", m.receipts.Empty)
 	}
 	m.row(StoreRow{Row: "R11", Store: "credential-issuance/<id>/<state>.json", Treatment: "transform", Dest: "<data>/" + filepath.Base(m.stagedDB) + " credential_issuance_receipts",
-		CountBefore: i64(len(m.receipts.byFile)), CountAfter: i64(rows), Verify: "row count equals file count; every row equals its file"})
+		CountBefore: i64(len(m.receipts.ByFile)), CountAfter: i64(rows), Verify: "row count equals file count; every row equals its file"})
 
 	if err = verifyHostTables(ctx, m.stagedDB, o.OldDB, r.MainDB); err != nil {
 		return err
