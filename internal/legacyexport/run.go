@@ -7,11 +7,11 @@
 //     byte for byte (a prefix proof against the D3 manifest), and the suffix is appended; the
 //     audit anchor moves to the new head only after the appended chain verifies against it;
 //   - the pause set, the applied digests and the credential-issuance receipts, rendered exactly
-//     as the old writers rendered them;
+//     as the old writers rendered them, and state/*.json copied back whole;
 //   - the class B host tables, merged into old's main.db in one transaction (B last; if the
 //     Telemetry store is unreachable the run records it pending and exits 3).
 //
-// It refuses, before writing anything, unless the old tree matches the D3 manifest migrate-from
+// It refuses while the old daemon holds its lock, and, before writing anything, unless the old tree matches the D3 manifest migrate-from
 // kept, or the post-write state of the steps an earlier run did (manifest.Expect), so a partial
 // run resumes and a finished one is a no-op. It never writes new's data directory except its
 // progress file (StateRel).
