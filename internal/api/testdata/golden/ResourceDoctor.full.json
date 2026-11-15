@@ -1,0 +1,1 @@
+{"resource_id":"resourceid","status":"status","operator_stopped":true,"summary":"summary","recommended_action":"recommendedaction","recommended_reason":"recommendedreason","recommended_next_step":"recommendednextstep","checks":[{"name":"name","status":"status","message":"message"}]}

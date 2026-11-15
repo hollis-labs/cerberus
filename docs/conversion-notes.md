@@ -42,10 +42,20 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 | Console `cerberus web` on `127.0.0.1:4783` | Same process as the API (slice 11) |
 | `cerberus mcp-http` on `127.0.0.1:4785` | `/mcp` on the same host (slice 9) |
 | — | `GET /healthz`: `{"status":"ok","checks":{"database":"ok"}}` |
+| Socket routes `/health`, `/resources…`, `/hosts` (tachyon, tether sysop) | The legacy-route set under `/api` with the same shapes, behind an API key (`docs/substrate-port/legacy-routes.md`, an approved cross-app contract) |
+| Same-uid trust on the socket | Substrate identity: the owner signs in (created offline with `cerberus identity setup`); machine callers present an API key (`cerberus identity key create`) with scopes `cerberus.read`, `.operate`, `.admin`. `cerberus.approve` is the owner's console session only and is refused on any key |
 
 ## Commands
 
 | Old | New |
 |---|---|
 | `cerberus daemon --foreground` | `cerberus serve` (also the default with no command) |
+| — | `cerberus identity setup` (offline owner), `cerberus identity key create` (refuses `*`, `cerberus.*` and `cerberus.approve`) |
 | Every other verb | Not on this branch yet; each returns in its slice with the same name and flags (plan section 6). |
+
+## Post-adoption improvements
+
+Steps to take after the new build is accepted. None blocks the cutover.
+
+- Narrow tachyon's Cerberus key by dropping `cerberus.admin` once tachyon no longer uses `remove` (legacy route L8;
+  `docs/substrate-port/legacy-routes.md` section 4).

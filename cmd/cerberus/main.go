@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"github.com/hollis-labs/substrate/modules/cli"
 	"github.com/hollis-labs/substrate/modules/database"
 
+	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/storage"
 )
 
@@ -39,12 +41,35 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}
 	defer func() { _ = started.Stop(context.Background()) }()
 
-	c := &cerberus{app: started.App}
+	c := &cerberus{app: started.App, home: home(getenv)}
 	rootCmd := cli.Root(started.App)
 	serve := c.serveCmd(ctx)
 	// `cerberus` with no command serves, like `cerberus serve`.
 	rootCmd.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
 	rootCmd.Args = cobra.NoArgs
 	rootCmd.AddCommand(serve)
+	guardKeyCreate(rootCmd)
 	return rootCmd.ExecuteContext(ctx)
+}
+
+// guardKeyCreate refuses `cerberus identity key create` with a scope no machine credential may
+// hold (api.RefusedKeyScope): the offline path gets the same rule as the HTTP one.
+func guardKeyCreate(root *cobra.Command) {
+	create, _, err := root.Find([]string{"identity", "key", "create"})
+	if err != nil || create == nil || create.Name() != "create" {
+		return
+	}
+	prev := create.PreRunE
+	create.PreRunE = func(cmd *cobra.Command, args []string) error {
+		scopes, _ := cmd.Flags().GetStringSlice("scope")
+		for _, s := range scopes {
+			if why := api.RefusedKeyScope(s); why != "" {
+				return errors.New(why)
+			}
+		}
+		if prev != nil {
+			return prev(cmd, args)
+		}
+		return nil
+	}
 }

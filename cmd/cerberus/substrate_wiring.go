@@ -3,18 +3,20 @@
 package main
 
 import (
+	_ "github.com/hollis-labs/substrate/modules/auth"
 	_ "github.com/hollis-labs/substrate/modules/cli"
 	_ "github.com/hollis-labs/substrate/modules/config"
 	_ "github.com/hollis-labs/substrate/modules/database"
 	_ "github.com/hollis-labs/substrate/modules/health"
 	_ "github.com/hollis-labs/substrate/modules/httphost"
+	_ "github.com/hollis-labs/substrate/modules/identity"
 	_ "github.com/hollis-labs/substrate/modules/logging"
 )
 
 const (
 	substrateApp        = "cerberus"
-	substrateConfigJSON = "{\"cerberus\":{\"adopt_root\":\"~/.cerberus\",\"install_root\":\"~/.cerberus/apps\"},\"database\":{\"sqlite\":{\"path\":\"cerberus.db\"}},\"httphost\":{\"addr\":\"127.0.0.1:4786\"},\"logging\":{\"format\":\"text\",\"level\":\"info\"}}"
+	substrateConfigJSON = "{\"auth\":{\"mode\":\"enforce\"},\"cerberus\":{\"adopt_root\":\"~/.cerberus\",\"install_root\":\"~/.cerberus/apps\"},\"database\":{\"sqlite\":{\"path\":\"cerberus.db\"}},\"httphost\":{\"addr\":\"127.0.0.1:4786\"},\"identity\":{\"key_file\":\"identity-signing.key\",\"setup\":\"offline\"},\"logging\":{\"format\":\"text\",\"level\":\"info\"}}"
 )
 
 // substrateModules is the start order.
-var substrateModules = []string{"config", "logging", "health", "database", "cli", "httphost"}
+var substrateModules = []string{"config", "logging", "health", "database", "auth", "httphost", "identity", "cli"}

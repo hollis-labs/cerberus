@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/hollis-labs/substrate/boot"
 	"github.com/hollis-labs/substrate/module"
@@ -43,6 +44,12 @@ func bootOptions(getenv func(string) string) boot.Options {
 			p, _ := sq["path"].(string)
 			if sq["path"], err = dirs.Anchor(dirs.Database(), p); err != nil {
 				return fmt.Errorf("database.sqlite.path: %w", err)
+			}
+			// The identity signing key lives beside the database in the data directory.
+			id := nested(app.Config, "identity")
+			k, _ := id["key_file"].(string)
+			if id["key_file"], err = dirs.Anchor(filepath.Join(dirs.Data, "identity-signing.key"), k); err != nil {
+				return fmt.Errorf("identity.key_file: %w", err)
 			}
 			if _, err = settings.Parse(app.Config[settings.Key], home(getenv)); err != nil {
 				return err
