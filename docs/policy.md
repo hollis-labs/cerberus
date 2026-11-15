@@ -724,6 +724,19 @@ marks each active one with `!`, and every use carries
 
 ### Break glass
 
+> **The Substrate build does not serve break glass.** It needs a person at the
+> CLI, and under decision 0.1 (passkey approvals dropped) no caller of the new
+> build is one: an API key is an agent over `api`, local trust an agent over
+> `mcp_stdio`, and the console a person over `web`. `--break-glass` and
+> `--reason` are gone from the resource verbs, `connectors exec` and
+> `pipeline run`, and no route has a break-glass form. When policy asks for an
+> approval, the owner approves it on the console, signed in, and the same
+> command runs with `--approval <id>`. A break-glass use recorded by the old
+> build is acknowledged by the owner on the console
+> (`POST /api/approvals/{id}/ack-break-glass`); `cerberus approvals
+> ack-break-glass` is not served. The rest of this section describes the old
+> build (`docs/conversion-notes.md`, CLI verb parity).
+
 When policy asks for an approval you can't get in time, you can break glass
 on your own call:
 

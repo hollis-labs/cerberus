@@ -166,4 +166,6 @@ func (b *Broker) AckBreakGlassAs(ctx context.Context, id, note string) (approval
 	return a, nil
 }
 
-var errAckNotHuman = redact.Guidance("a break-glass follow-up is acknowledged by a person, on a terminal: run `cerberus approvals ack-break-glass <id>` yourself")
+// errAckNotHuman names where the follow-up is closed in this build: the owner, signed in to the
+// console (POST /api/approvals/{id}/ack-break-glass, decision 0.1). The old CLI verb is not served.
+var errAckNotHuman = redact.Guidance("a break-glass follow-up is acknowledged by the owner, signed in to the console: open the approval there and acknowledge it (POST /api/approvals/<id>/ack-break-glass)")
