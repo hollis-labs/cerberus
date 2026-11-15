@@ -96,6 +96,10 @@ func (c *cerberus) serve(ctx context.Context) error {
 		return err
 	}
 	c.lane = lane
+	// The monitor outlives the signal that ends serve: it stops after HTTP, in the order of
+	// plan section 4.4, never with it.
+	lane.StartMonitor(context.WithoutCancel(ctx), supervise.DefaultMonitorConfig())
+	defer lane.Shutdown()
 	id := identity.From(app)
 	if id == nil {
 		return errors.New("the identity module must be started")
@@ -114,7 +118,10 @@ func (c *cerberus) serve(ctx context.Context) error {
 	// cookie writes need X-Requested-With and a same-origin Origin), then the host (guard,
 	// routes).
 	handler = api.KeyGuard(id.Middleware(handler))
-	return httphost.Serve(ctx, app, handler, httphost.ServeOptions{
+	// Stop order (plan section 4.4): HTTP stops accepting and drains first; then, through the
+	// deferred Shutdown, the resource monitor, which stops no workload; the modules stop after
+	// serve returns.
+	err = httphost.Serve(ctx, app, handler, httphost.ServeOptions{
 		Ready: func(addr net.Addr) {
 			slog.Info("cerberus listening", "addr", addr.String())
 			if c.ready != nil {
@@ -122,6 +129,8 @@ func (c *cerberus) serve(ctx context.Context) error {
 			}
 		},
 	})
+	slog.Info("cerberus http stopped")
+	return err
 }
 
 // requireLoopback keeps the host on the loopback interface until identity and the scope

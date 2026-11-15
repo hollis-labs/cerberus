@@ -69,6 +69,9 @@ type Service struct {
 	// opMu serializes mutations, as the old build's runtime service did.
 	opMu sync.Mutex
 	conn *localconn.Connector
+
+	monMu sync.Mutex
+	mon   *monitor
 }
 
 // New builds the lane.
