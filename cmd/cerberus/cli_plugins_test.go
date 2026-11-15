@@ -23,7 +23,14 @@ import (
 // reviewServer is a brakeServer whose API runs an admin lane over a scratch adopted root.
 func newReviewServer(t *testing.T, root string) *brakeServer {
 	t.Helper()
-	s := &brakeServer{as: &libauth.Principal{}, w: gatetest.New(t, gatetest.Options{})}
+	return newAdminServer(t, root, gatetest.Options{}, nil)
+}
+
+// newAdminServer is a brakeServer whose API runs an admin lane over a scratch adopted root, with
+// the gate's options and, when set, a resource mutator.
+func newAdminServer(t *testing.T, root string, o gatetest.Options, mutator api.Mutator) *brakeServer {
+	t.Helper()
+	s := &brakeServer{as: &libauth.Principal{}, w: gatetest.New(t, o)}
 	*s.as = cliKey
 	if root == "" {
 		root = filepath.Join(t.TempDir(), "adopted")
@@ -36,7 +43,7 @@ func newReviewServer(t *testing.T, root string) *brakeServer {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { svc.Plugins().Stop(context.Background()) })
-	a, err := api.New(api.Options{Resources: func() ([]config.ResourceDef, error) { return nil, nil }, Home: t.TempDir(), Gate: s.w.Gate, Admin: svc})
+	a, err := api.New(api.Options{Resources: func() ([]config.ResourceDef, error) { return nil, nil }, Home: t.TempDir(), Gate: s.w.Gate, Admin: svc, Mutator: mutator})
 	if err != nil {
 		t.Fatal(err)
 	}

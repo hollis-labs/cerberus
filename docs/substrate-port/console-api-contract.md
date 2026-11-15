@@ -93,6 +93,8 @@ The owner holds `*`. The access-keys page offers only read, operate and admin.
 | registry | POST **W** gated | `/api/registry/deregister` | admin | `{owner}` | `{success}` |
 | credentials | GET | `/api/credentials` | read | | `CredentialsResponse` (presence only, never values) |
 | credentials | POST **W** gated | `/api/credentials/{id}` | admin | `{secrets?, clear_secrets?}` | `CredentialSaveResult` |
+| (CLI `secrets set`) | GET | `/api/secrets/{service}/{key}` | read | | `{name, present}` (never the value) |
+| (CLI `secrets set`) | POST **W** gated, owner only | `/api/secrets/{service}/{key}` | admin | `{value, acknowledged}` | `SecretSetResult` `{success, name, length, existed, proof}`; recorded as `secrets.set`, any well-formed name (no declaring connector needed). The owner's: a console session, or a key naming with `approval_id` the out-of-band approval its first call opened (409 `approval_pending`) once the owner approved it; the approval binds the value by keyed digest. MCP is 428 `approval_required`; no `acknowledged` is 409 `acknowledgment_required` |
 | connectors | GET | `/api/connectors` | read | | `ConnectorDefinition[]` |
 | connectors | POST **W** gated | `/api/connectors/{id}/operations/{op}` | admin | `ConnectorOperationRequest` `{config?, dry_run?, acknowledged?}` | `ConnectorOperationResult` |
 | plugins | GET | `/api/plugins/connectors` | read | | `ManagedPluginState[]` |

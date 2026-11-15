@@ -143,3 +143,9 @@ No client key holds `cerberus.approve`; the server refuses it on any key (decisi
    The shapes and field names are unchanged.
 4. Paths in L3 to L6 (`log_path`, `install_root`, `artifact_path`, unit paths) are unchanged, because the install
    root is adopted in place.
+5. `details.approval.approve_with` on an `approval_pending` refusal now reads
+   `approve it on the console: /approvals/<id>` instead of `cerberus approvals approve <id>`, a verb the new
+   build does not carry (decision 0.1: the owner decides on the console). The field and its type are unchanged.
+   No client parses it: neither repository names `approve_with`. tachyon passes the refusal body through
+   (`cerbcontrol.go:150-151`, `register_cerbcontrol.go:67-75`); sysop decodes only `success` and `error`
+   (`main.go:5359-5362, 5407-5420`).

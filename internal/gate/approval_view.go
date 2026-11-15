@@ -42,7 +42,7 @@ func ViewOfApproval(a approval.Approval) ApprovalView {
 	v := ApprovalView{ID: a.ID, Status: a.Status, Connector: a.Connector, Operation: a.Operation, Target: target,
 		Channel: a.Channel, CreatedAt: a.CreatedAt, ExpiresAt: a.ExpiresAt}
 	if a.Status == approval.Pending {
-		v.ApproveWith = a.ApproveWith()
+		v.ApproveWith = ApproveWith(a)
 	}
 	if d := a.Decision; d != nil {
 		by := d.By.Kind

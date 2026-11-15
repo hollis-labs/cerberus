@@ -27,6 +27,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/gate/gatetest"
 	cmcp "github.com/hollis-labs/cerberus/internal/mcp"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/service"
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/storage"
@@ -35,7 +36,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
-func TestMain(m *testing.M) { testhome.Main(m) }
+func TestMain(m *testing.M) { secrets.MockStoreForTests(); testhome.Main(m) }
 
 // stdioScopes are `cerberus mcp`'s local principal's (cmd/cerberus): never approve.
 var stdioScopes = []string{api.ScopeRead, api.ScopeOperate, api.ScopeAdmin}

@@ -113,7 +113,7 @@ func (g *Gate) confirmOnCall(ctx context.Context, call *Call, spec Spec, req pol
 				redact.Guidance("there is no approval %s to confirm; run the command again to ask for one", spec.ApprovalID))
 		case got.Channel != approval.ChannelTTYConfirm:
 			return codedError(args, CodeApprovalRequired,
-				redact.Guidance("approval %s must be met %s and cannot be confirmed on the call; decide it with `%s`", got.ID, got.Channel, got.ApproveWith()))
+				redact.Guidance("approval %s must be met %s and cannot be confirmed on the call; %s, signed in as the owner", got.ID, got.Channel, ApproveWith(got)))
 		case got.Status != approval.Pending:
 			return codedError(args, CodeApprovalRequired,
 				redact.Guidance("approval %s is %s, not pending, so there is nothing to confirm; run the command again to ask again", got.ID, got.Status))

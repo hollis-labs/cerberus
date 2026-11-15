@@ -65,7 +65,7 @@ func adminAPI(t *testing.T) (*gatedAPI, *API) {
 func TestAdminRoutesInObserveMode(t *testing.T) {
 	a := newTestAPI(t, "")
 	for _, rt := range a.adminRoutes() {
-		path := strings.NewReplacer("{id}", "echo", "{op}", "echo").Replace(rt.Pattern)
+		path := strings.NewReplacer("{id}", "echo", "{op}", "echo", "{service}", "echo", "{key}", "token").Replace(rt.Pattern)
 		req := httptest.NewRequest(rt.Method, path, strings.NewReader(`{}`))
 		req = req.WithContext(libauth.WithPrincipal(req.Context(), ownerSession))
 		rec := httptest.NewRecorder()
@@ -88,10 +88,13 @@ func TestAdminRoutesHaveTheContractsScopes(t *testing.T) {
 		if rt.Scope != want {
 			t.Errorf("%s %s has scope %s, want %s", rt.Method, rt.Pattern, rt.Scope, want)
 		}
+		if rt.Method != http.MethodPost {
+			continue
+		}
 		base := strings.TrimSuffix(strings.TrimSuffix(rt.Pattern, "/plan"), "/confirm")
 		forms[base]++
 	}
-	for _, base := range []string{"/api/connectors/{id}/operations/{op}", "/api/credentials/{id}", "/api/plugins/connectors/{id}/load", "/api/plugins/connectors/{id}/unload",
+	for _, base := range []string{"/api/connectors/{id}/operations/{op}", "/api/credentials/{id}", "/api/secrets/{service}/{key}", "/api/plugins/connectors/{id}/load", "/api/plugins/connectors/{id}/unload",
 		"/api/plugins/connectors/install", "/api/plugins/connectors/{id}/upgrade", "/api/plugins/connectors/{id}/review"} {
 		if forms[base] != 3 {
 			t.Errorf("%s has %d forms, want the base, /plan and /confirm", base, forms[base])

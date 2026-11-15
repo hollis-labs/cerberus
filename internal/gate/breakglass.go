@@ -115,8 +115,8 @@ func (g *Gate) breakGlassOnCall(ctx context.Context, call *Call, spec Spec, req 
 		}
 		g.notify("Cerberus: break glass requested", fmt.Sprintf("%s.%s on %s: %s", spec.Connector, spec.Operation, name, bg.Reason))
 		pending := codedError(args, CodeApprovalPending,
-			redact.Guidance("BREAK GLASS on %s, a prod, shared or not-ours target, is completed on the console: approve %s there, signed in as the owner (`%s`), then run this again with --break-glass and --approval %s",
-				name, a.ID, a.ApproveWith(), a.ID))
+			redact.Guidance("BREAK GLASS on %s, a prod, shared or not-ours target, is completed on the console: approve %s there, signed in as the owner (%s), then run this again with --break-glass and --approval %s",
+				name, a.ID, ApproveWith(a), a.ID))
 		var coded *Error
 		if errors.As(pending, &coded) {
 			coded.Approval = approvalReference(a)
@@ -166,4 +166,6 @@ func (b *Broker) AckBreakGlassAs(ctx context.Context, id, note string) (approval
 	return a, nil
 }
 
-var errAckNotHuman = redact.Guidance("a break-glass follow-up is acknowledged by a person, on a terminal: run `cerberus approvals ack-break-glass <id>` yourself")
+// errAckNotHuman names where the follow-up is closed in this build: the owner, signed in to the
+// console (POST /api/approvals/{id}/ack-break-glass, decision 0.1). The old CLI verb is not served.
+var errAckNotHuman = redact.Guidance("a break-glass follow-up is acknowledged by the owner, signed in to the console: open the approval there and acknowledge it (POST /api/approvals/<id>/ack-break-glass)")

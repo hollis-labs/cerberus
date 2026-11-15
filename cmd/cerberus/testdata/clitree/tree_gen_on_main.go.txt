@@ -1,0 +1,60 @@
+// Generator for main.tree, the old CLI's full command tree. It walks the OLD build's cobra root:
+// copy this file into cmd/cerberus of a checkout of main (the live build's source) as
+// clitree_gen_test.go and run, under a scratch HOME,
+//
+//	CERBERUS_CLI_TREE_OUT=<this testdata/clitree dir>/main.tree go test -run TestGenerateCLITree ./cmd/cerberus
+//
+// Each line is a command path, a tab, and the flags defined on that command (its local flags
+// and the persistent flags it declares; inherited ones are listed where they are declared),
+// sorted, as --name or --name/-x with its shorthand. Cobra's own help and version flags and
+// the help and completion commands it adds at run time are left out. Do not commit it to main.
+package main
+
+import (
+	"os"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+func TestGenerateCLITree(t *testing.T) {
+	out := os.Getenv("CERBERUS_CLI_TREE_OUT")
+	if out == "" {
+		t.Skip("CERBERUS_CLI_TREE_OUT unset")
+	}
+	var lines []string
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		var flags []string
+		seen := map[string]bool{}
+		add := func(f *pflag.Flag) {
+			if f.Name == "help" || f.Name == "version" || seen[f.Name] {
+				return
+			}
+			seen[f.Name] = true
+			s := "--" + f.Name
+			if f.Shorthand != "" {
+				s += "/-" + f.Shorthand
+			}
+			flags = append(flags, s)
+		}
+		c.LocalNonPersistentFlags().VisitAll(add)
+		c.PersistentFlags().VisitAll(add)
+		sort.Strings(flags)
+		lines = append(lines, c.CommandPath()+"\t"+strings.Join(flags, " "))
+		for _, sub := range c.Commands() {
+			if sub.Name() == "help" || sub.Name() == "completion" {
+				continue
+			}
+			walk(sub)
+		}
+	}
+	walk(rootCmd)
+	sort.Strings(lines)
+	if err := os.WriteFile(out, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

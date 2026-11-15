@@ -41,11 +41,13 @@ func (a *API) adminRoutes() []Route {
 		{http.MethodGet, "/api/plugins/connectors", ScopeRead, a.plugins},
 		{http.MethodGet, "/api/plugins/connectors/{id}/health", ScopeRead, a.pluginHealth},
 		{http.MethodPost, "/api/plugins/connectors/{id}/operations/{op}", ScopeAdmin, a.pluginOperation},
+		{http.MethodGet, "/api/secrets/{service}/{key}", ScopeRead, a.secretPresence},
 	}
 	for _, form := range gatedForms {
 		rs = append(rs,
 			Route{http.MethodPost, "/api/connectors/{id}/operations/{op}" + form, ScopeAdmin, a.connectorOperation(form)},
 			Route{http.MethodPost, "/api/credentials/{id}" + form, ScopeAdmin, a.credentialSave(form)},
+			Route{http.MethodPost, "/api/secrets/{service}/{key}" + form, ScopeAdmin, a.secretSet(form)},
 		)
 		for _, action := range pluginActions {
 			rs = append(rs, Route{http.MethodPost, "/api/plugins/connectors/{id}/" + action + form, ScopeAdmin, a.pluginAction(action, form)})
@@ -206,6 +208,74 @@ func (a *API) credentialSave(form string) http.HandlerFunc {
 		}
 		ctx := GateContext(r.Context())
 		out, err := svc.SaveCredentials(ctx, r.PathValue("id"), body.CredentialSaveRequest, opts)
+		if err != nil {
+			writeAdminErr(w, err)
+			return
+		}
+		if out.Plan != nil {
+			writeScoped(ctx, w, out.Plan)
+			return
+		}
+		writeScoped(ctx, w, out)
+	}
+}
+
+// SecretPresence is GET /api/secrets/{service}/{key}: whether the credential store holds a value
+// under that name. Never the value.
+type SecretPresence struct {
+	Name    string `json:"name"`
+	Present bool   `json:"present"`
+}
+
+// secretPresence answers whether a stored secret has a value, so `cerberus secrets set` warns
+// before it replaces one (old's check, made by the server that writes the store).
+func (a *API) secretPresence(w http.ResponseWriter, r *http.Request) {
+	svc, ok := a.adminLane(w)
+	if !ok {
+		return
+	}
+	name := r.PathValue("service") + "/" + r.PathValue("key")
+	present, err := svc.SecretExists(r.Context(), name)
+	if err != nil {
+		writeAdminErr(w, err)
+		return
+	}
+	writeJSON(w, SecretPresence{Name: name, Present: present})
+}
+
+// secretSet is POST /api/secrets/{service}/{key}[/plan|/confirm]: `cerberus secrets set`, one
+// entry in the OS credential store under service "cerberus", account "<service>/<key>". Any
+// well-formed name is accepted, declared by an installed connector or not (a secret backend's
+// own credential is set before its plugin is installed). Body {value, acknowledged} with the
+// form's fields; recorded as secrets.set with config {name}, never the value. The answer is
+// SecretSetResult, or the plan for the plan form. Setting is the owner's (the lead's ruling (a)):
+// a person on the console, or a key naming with approval_id the out-of-band approval its first
+// call opened (409 approval_pending, the approval under details) once the owner approved it on
+// the console; the approval binds the value by its keyed digest. An MCP client is refused 428
+// approval_required. A write without acknowledged is 409 acknowledgment_required.
+func (a *API) secretSet(form string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		svc, ok := a.adminLane(w)
+		if !ok {
+			return
+		}
+		var body struct {
+			Value        string `json:"value"`
+			Acknowledged bool   `json:"acknowledged"`
+			confirmBody
+		}
+		if err := decodeBody(r.Body, &body); err != nil {
+			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
+			return
+		}
+		opts, err := body.gateOpts(form)
+		if err != nil {
+			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
+			return
+		}
+		ctx := GateContext(r.Context())
+		req := admin.SecretSetRequest{Name: r.PathValue("service") + "/" + r.PathValue("key"), Value: body.Value, Acknowledged: body.Acknowledged}
+		out, err := svc.SetStoredSecret(ctx, req, opts)
 		if err != nil {
 			writeAdminErr(w, err)
 			return

@@ -17,6 +17,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/admin/admintest"
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
@@ -25,6 +26,9 @@ import (
 var echoBinary string
 
 func TestMain(m *testing.M) {
+	// No test reaches the operator's OS credential store (a scratch HOME does not protect a
+	// macOS Keychain).
+	secrets.MockStoreForTests()
 	dir, err := os.MkdirTemp("", "api-plugin-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

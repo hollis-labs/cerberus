@@ -62,8 +62,12 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	}
 	defer func() { _ = started.Stop(context.Background()) }()
 
-	c := &cerberus{app: started.App, home: home(getenv)}
-	rootCmd := cli.Root(started.App)
+	return rootCommand(ctx, &cerberus{app: started.App, home: home(getenv)}).ExecuteContext(ctx)
+}
+
+// rootCommand is the whole CLI over a started app: Substrate's root and every Cerberus verb.
+func rootCommand(ctx context.Context, c *cerberus) *cobra.Command {
+	rootCmd := cli.Root(c.app)
 	serve := c.serveCmd(ctx)
 	// `cerberus` with no command serves, like `cerberus serve`.
 	rootCmd.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
@@ -72,8 +76,10 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	rootCmd.AddCommand(c.readCommands()...)
 	rootCmd.AddCommand(c.brakeCommands()...)
 	rootCmd.AddCommand(c.pluginCommands()...)
+	rootCmd.AddCommand(c.runSecretsCmd(), c.secretsCommand())
+	rootCmd.AddCommand(c.registryCommands()...)
 	guardKeyCreate(rootCmd)
-	return rootCmd.ExecuteContext(ctx)
+	return rootCmd
 }
 
 // guardKeyCreate refuses `cerberus identity key create` with a scope no machine credential may
@@ -122,7 +128,9 @@ func isStdioMCP(args []string) bool {
 // needsData reports whether the command line runs a command bound to the data (the database,
 // the signing key, the data directory): serve (also the default with no command) and the offline
 // identity commands. Help anywhere on the line, version, config, health, completion, the read
-// verbs (they call the serving Cerberus over HTTP) and unknown words do not. Every argument that
+// verbs (they call the serving Cerberus over HTTP), run-secrets (a managed service's start, which
+// must not open the database; whatever follows its "--" is the service's command line) and
+// unknown words do not. Every argument that
 // does not start with "-" counts as a command word, which holds while the root has no global flag
 // taking a value (TestRootHasNoValueFlags).
 func needsData(args []string) bool {
