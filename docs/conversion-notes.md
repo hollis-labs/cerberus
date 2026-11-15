@@ -82,6 +82,11 @@ Steps to take after the new build is accepted. None blocks the cutover.
   (lead's decision, slice 8).
 - Narrow tachyon's Cerberus key by dropping `cerberus.admin` once tachyon no longer uses `remove` (legacy route L8;
   `docs/substrate-port/legacy-routes.md` section 4).
+- Owner-session approvals (decision 0.1, @archie's ruling (b)): a decision's seal is an HMAC under the audit digest key,
+  so a process that can write the approvals store but not read the key cannot forge one. A process running as the
+  owner can read the key and could still forge a decision; only the approvals hash chain and the anchored
+  `approval_decided` audit record would show the edit. Accepted residual risk. Follow-up (c), with @substrate-manager:
+  a per-app passkey, or a strict mode that refuses out-of-band approvals without one.
 
 ## Resource verbs (slice 5)
 
@@ -100,7 +105,7 @@ Steps to take after the new build is accepted. None blocks the cutover.
 | `~/.cerberus/audit/` (hash-chained log, anchor in the keychain) | `<data dir>/audit/`, same format, continuing old's chain once copied (slice 10), same keychain item. Opened in supervise mode only |
 | `~/.cerberus/approvals/events.jsonl` | `<data dir>/approvals/`, same chain and format; opened in supervise mode only. `approvals/passkeys/` is not used (decision 0.1) |
 | `~/.cerberus/policy/` | `<config dir>/cerberus/policy/` (`applied.yaml`, `applied.sha256`), reloaded on change |
-| Passkey approval (`/approvals/{id}/challenge`, WebAuthn assertion on decide) | The owner signed in to the console decides: `POST /api/approvals/{id}/decide` with `{"approve":true}`. The decision carries an owner-session marker, not a signature |
+| Passkey approval (`/approvals/{id}/challenge`, WebAuthn assertion on decide) | The owner signed in to the console decides: `POST /api/approvals/{id}/decide` with `{"approve":true}`. The decision carries an owner-session marker and a seal (an HMAC under the audit digest key); `cerberus audit verify` fails on a seal that does not verify and lists pre-cutover decisions as legacy |
 | `cerberus approvals approve` from a terminal (tty_confirm channel) | Not served: approvals are decided on the console session only. A confirm-on-the-call route is not in the legacy set |
 | Socket `GET /approvals`, `GET /approvals/{id}`, `POST /approvals/{id}/{decide,revoke,ack-break-glass}` | The same under `/api`, same bodies; errors in the flat body with old's statuses. Decide, revoke and ack need `cerberus.approve` and the owner's console session (403 `user_required` for keys, minted tokens and local trust) |
 | Socket `/resources/{id}/logs` gated as `read_sensitive` | L6 gated the same way in supervise mode (`?approval_id=` included); in observe mode a redacted read, logged, not recorded |

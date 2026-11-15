@@ -19,7 +19,7 @@ import (
 // old build's was the passkey service; passkeys are dropped (decision 0.1)
 // and the default here is OwnerSessionVerifier: an out-of-band decision
 // counts only when it was made by the owner signed in to the console
-// (DecideAs with an OwnerSession).
+// (DecideAs with an OwnerSession), sealed with the audit sink's digest key.
 type Broker struct {
 	store    *approval.Store
 	sink     audit.Sink
@@ -37,7 +37,7 @@ func NewBroker(sink audit.Sink, dir string) (*Broker, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := &Broker{store: store, sink: sink, logger: slog.Default(), verifier: OwnerSessionVerifier{}}
+	b := &Broker{store: store, sink: sink, logger: slog.Default(), verifier: OwnerSessionVerifier{Key: sink}}
 	for _, p := range store.Problems {
 		b.logger.Warn("approvals.store_problem", "problem", p)
 	}

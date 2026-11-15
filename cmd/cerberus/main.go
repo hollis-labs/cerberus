@@ -55,7 +55,7 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	// `cerberus` with no command serves, like `cerberus serve`.
 	rootCmd.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
 	rootCmd.Args = cobra.NoArgs
-	rootCmd.AddCommand(serve)
+	rootCmd.AddCommand(serve, auditCmd())
 	rootCmd.AddCommand(c.readCommands()...)
 	guardKeyCreate(rootCmd)
 	return rootCmd.ExecuteContext(ctx)

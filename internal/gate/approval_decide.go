@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -87,6 +88,9 @@ func (b *Broker) DecideAs(ctx context.Context, id string, args ApprovalDecisionA
 	d.Surface = d.By.Via
 	if d.Approve {
 		d.KeyFingerprint = owner.proof()
+		if v, ok := b.verifier.(OwnerSessionVerifier); ok {
+			d.Assertion = v.Seal(a, d.KeyFingerprint, time.Now())
+		}
 	}
 	if err := checkDecider(a, d); err != nil {
 		return a, err

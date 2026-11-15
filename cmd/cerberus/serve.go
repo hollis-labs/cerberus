@@ -332,7 +332,8 @@ func superviseOptions(app *module.App, opts *supervise.Options, reg *registry.Re
 	if err != nil {
 		return fmt.Errorf("open the approvals store: %w", err)
 	}
-	broker.SetVerifier(gate.OwnerSessionVerifier{})
+	// The default verifier seals and checks owner-session decisions with the audit chain's digest key.
+	broker.SetVerifier(gate.OwnerSessionVerifier{Key: sink})
 	opts.Gate = gate.New(gate.Options{
 		Sink:        sink,
 		Policy:      pdp,

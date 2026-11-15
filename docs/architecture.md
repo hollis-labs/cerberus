@@ -251,10 +251,15 @@ Observe mode:
 **Owner-session approvals.** Passkeys are gone (decision 0.1). The decide route passes `gate.OwnerSession` (the
 caller is a console person, and its session id) to `Broker.DecideAs`, which puts the owner-session proof on an
 approve: the marker `owner-session:` and a digest of the session id, in the field the passkey fingerprint used, so the
-approvals file format is unchanged. `gate.OwnerSessionVerifier` accepts an out-of-band approval only with that proof,
-on a human's approve over the web console, when it is decided and again when it is used. The proof is a marker, not
-a signature: a process that can write the approvals store can write one. The store's hash chain is what notices such
-an edit; a signed or passkey proof is a follow-up (plan decision 0.1). The no-self-approval rule is old's: a decider
+approvals file format is unchanged. The decision's `assertion` carries a seal: the time it was made and an HMAC, under
+the audit chain's digest key (`audit/.digest_key`, 0600), over the approval id, the action's digests, the verdict, the
+marker and that time. `gate.OwnerSessionVerifier` accepts an out-of-band approval only with that proof and a seal that
+verifies, on a human's approve over the web console, when it is decided and again when it is used. `cerberus audit
+verify` checks the chain against its keychain anchor and every owner-session seal in the approvals store
+(`gate.VerifyApprovals`, which export-legacy runs too in slice 10): a seal that does not verify fails it, and a
+pre-cutover decision (a passkey, no seal) is listed as legacy and accepted. A process that can write the approvals
+store but cannot read the key cannot forge a decision; one running as the owner can read the key, which is the residual
+risk recorded under post-adoption improvements in `docs/conversion-notes.md`. The no-self-approval rule is old's: a decider
 on the requester's own surface is refused, except the owner's console session on an out-of-band approval.
 
 Order of the handler, outermost first: `api.KeyGuard`, then `identity.Middleware` (cookie to bearer, with
