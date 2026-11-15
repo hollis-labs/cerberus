@@ -397,6 +397,7 @@ func TestNeedsData(t *testing.T) {
 		"--help": false, "serve --help": false, "version": false, "config": false, "health": false,
 		"resource list": false, "resource status web": false, "status": false,
 		"mcp": false, "lockdown --reason x": false, "freeze --scope env=prod": false, "freeze --off frz_1": false, "breaker reset sus_1": false, "identity": false, "nonsense": false,
+		"run-secrets -- /bin/prog": false, "run-secrets -- serve": false, "run-secrets -- identity setup": false,
 	} {
 		if got := needsData(strings.Fields(args)); got != want {
 			t.Errorf("needsData(%q) = %v, want %v", args, got, want)
