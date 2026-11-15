@@ -1,0 +1,61 @@
+// Generator for testdata/oldchain: an audit chain written by the OLD build's audit package. Copy
+// this file into internal/audit of a checkout of main as oldchain_gen_test.go and run
+//
+//	CERBERUS_OLDCHAIN_OUT=<this testdata/oldchain dir> go test -run TestGenerateOldChain ./internal/audit
+//
+// under a scratch HOME. It writes the chain with a fixed, fake digest key and a memory anchor (no
+// keychain is touched), and anchor.json with the head it anchored. Do not commit it to main.
+package audit
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+type genAnchor struct{ head Head }
+
+func (g *genAnchor) Load() (Head, bool, error) { return g.head, g.head.Seq > 0, nil }
+func (g *genAnchor) Store(h Head) error        { g.head = h; return nil }
+
+func TestGenerateOldChain(t *testing.T) {
+	out := os.Getenv("CERBERUS_OLDCHAIN_OUT")
+	if out == "" {
+		t.Skip("CERBERUS_OLDCHAIN_OUT unset")
+	}
+	if err := os.MkdirAll(out, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A fixed, fake key: the fixture's digests are reproducible and nothing secret is committed.
+	if err := os.WriteFile(filepath.Join(out, ".digest_key"), bytes.Repeat([]byte{0x42}, 32), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := &genAnchor{}
+	SetAnchor(out, a)
+	clock := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	sink, err := openFileSink(out, func() time.Time { clock = clock.Add(time.Second); return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Principal{Kind: "human", Surface: "socket", Via: "cli", SelfReported: true}
+	for i, op := range []string{"apply", "deploy", "reload"} {
+		intent, err := sink.Write(Record{Kind: KindIntent, OperationID: "op-" + op, Connector: "local", Operation: op, Principal: p,
+			Target: Target{Kind: "local.resource", Resource: "web"}, ArgsDigest: sink.Digest(map[string]any{"id": "web", "n": i})})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sink.Write(Record{Kind: KindOutcome, OperationID: intent.OperationID, Connector: "local", Operation: op, Principal: p, Decision: "allowed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := sink.Write(Record{Kind: KindApprovalDecided, Connector: "approvals", Operation: "decide", Principal: p}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(a.head)
+	if err := os.WriteFile(filepath.Join(out, "anchor.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
