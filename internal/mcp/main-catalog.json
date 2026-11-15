@@ -1,0 +1,5946 @@
+[
+  {
+    "name": "cerberus_health",
+    "description": "Get daemon and resource health. Optional resource_id filters to one resource.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "description": "Optional resource ID filter.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_portfolio_health",
+    "description": "Get combined portfolio health projection (cerberus.portfolio.health.v1) across hosts, projects, deployments, shared containers, and connectors.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "description": "Optional host name filter.",
+          "type": "string"
+        },
+        "include_unsupervised": {
+          "description": "Include unsupervised connector handles (default true).",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "Optional deployment kind filter.",
+          "enum": [
+            "local_service",
+            "remote_service",
+            "shared_infra",
+            "connector_handle"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "description": "Observation mode: cached (default) or live_bounded.",
+          "enum": [
+            "cached",
+            "live_bounded"
+          ],
+          "type": "string"
+        },
+        "project": {
+          "description": "Optional project ID filter.",
+          "type": "string"
+        },
+        "rollup_status": {
+          "description": "Optional rollup status filter.",
+          "enum": [
+            "healthy",
+            "degraded",
+            "down",
+            "unknown",
+            "expected_stopped",
+            "unsupervised",
+            "stale"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_project_list",
+    "description": "List projects and resource counts. Returns a budgeted envelope ({items,count,total,truncated,hint}).",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Max items to return (1-25, default 25). Combine with offset to page through a truncated list.",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Number of items to skip before this page (default 0). Use with limit to page through results.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_list",
+    "description": "List resources. Optional filters: project_id, connector, tag. Returns a budgeted envelope ({items,count,total,truncated,hint}); narrow with filters if truncated.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "connector": {
+          "description": "Connector ID filter, such as local or ssh.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max items to return (1-25, default 25). Combine with offset to page through a truncated list.",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Number of items to skip before this page (default 0). Use with limit to page through results.",
+          "type": "integer"
+        },
+        "project_id": {
+          "description": "Project ID filter.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Tag filter.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_status",
+    "description": "Get runtime status for one resource. Read artifact_stale and recommended_action / recommended_next_step and act on them — or just call cerberus_resource_ensure_fresh to perform the recommended action automatically. Use before deploy, apply, reload, or remove.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_inspect",
+    "description": "Get runtime details, install paths, and log paths for one resource.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_doctor",
+    "description": "Run checks for one resource and return pass, warn, or fail guidance.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_logs",
+    "description": "Get recent logs for one resource.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Number of lines to return. Default 50.",
+          "type": "integer"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        },
+        "stream": {
+          "description": "Log stream.",
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_reload",
+    "description": "Restart an installed resource WITHOUT rebuilding or syncing — relaunches the existing (possibly stale) artifact. If the source changed, use cerberus_resource_deploy or cerberus_resource_ensure_fresh with force=true instead. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: every resource mutation needs it.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_stop",
+    "description": "Stop a resource without uninstalling it. Use remove for uninstall. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: every resource mutation needs it.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_deploy",
+    "description": "Build, sync, and apply a resource from the current source tree. Use this when source changed and you want the running service to match it — run_from: artifact services run an installed copy, so building (go/make) or reloading alone does NOT update them. This is the default action after editing source. ensure_fresh requires force=true to guarantee a rebuild. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: every resource mutation needs it.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_ensure_fresh",
+    "description": "Reconcile drift between built binaries and installed/running resources. Source edits are NOT checked. After editing source, use cerberus_resource_deploy or pass force=true to rebuild, install and activate. Without force, this may apply/sync existing binaries or report no built-binary drift. Unconfirmed activation returns success=false without restarting; follow the verification guidance before retrying. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: every resource mutation needs it.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "force": {
+          "description": "Always rebuild, install and activate. Required after source edits in ANY runtime mode; default false only checks built-binary drift.",
+          "type": "boolean"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_sync",
+    "description": "Sync installed artifacts without applying the runtime backend. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: every resource mutation needs it.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_apply",
+    "description": "Activate an already-built resource WITHOUT running its build step. If the source changed, use cerberus_resource_deploy (or cerberus_resource_ensure_fresh with force=true) so it rebuilds first. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: every resource mutation needs it.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_resource_remove",
+    "description": "Uninstall a resource and remove installed artifacts. Use stop to pause only. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: every resource mutation needs it.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "Resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_pipeline_list",
+    "description": "List pipelines (budgeted envelope).",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Max items to return (1-25, default 25). Combine with offset to page through a truncated list.",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Number of items to skip before this page (default 0). Use with limit to page through results.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_pipeline_run",
+    "description": "Run a pipeline and return per-stage results. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the run. Required: a stage can run shell commands, so a run is exec.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "pipeline_id": {
+          "description": "Pipeline ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pipeline_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_connector_list",
+    "description": "List available connectors (budgeted envelope). Use cerberus_connector_describe for full schema and operations.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Max items to return (1-25, default 25). Combine with offset to page through a truncated list.",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Number of items to skip before this page (default 0). Use with limit to page through results.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_connector_describe",
+    "description": "Get full schema and operations for one connector.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Connector ID, such as docker, github, cloudflare, or ssh.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_approval_wait",
+    "description": "Wait for an approval to be decided: after an approval_pending answer, ask your operator to approve it, then call this with its id. Returns when the approval changes state or at the timeout (default 30s, at most 60s), with the next step. It never approves anything.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Approval ID, from approval_pending.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "How long to wait, 1 to 60 seconds. Default 30.",
+          "maximum": 60,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_lockdown",
+    "description": "Put Cerberus in lockdown: every operation but a plain read is refused until a person lifts it. Use it when you believe you, or something acting through Cerberus, is doing harm, and say why. You cannot lift it; a person does, with `cerberus lockdown --off`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "description": "Why, for the operator and the record.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_ssh_exec",
+    "description": "Run a command on an SSH resource.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "command": {
+          "description": "Command to run on the remote host.",
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "Preview only.",
+          "type": "boolean"
+        },
+        "resource_id": {
+          "description": "SSH resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "command"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_ssh_status",
+    "description": "Check connectivity and host info for an SSH resource.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "description": "SSH resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_ssh_put",
+    "description": "Upload a local file to an SSH resource over SFTP, replacing the remote file if it exists.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "Preview only.",
+          "type": "boolean"
+        },
+        "local_path": {
+          "description": "Local file to upload. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it.",
+          "type": "string"
+        },
+        "remote_path": {
+          "description": "Destination path on the remote host.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "SSH resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "local_path",
+        "remote_path"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_ssh_get",
+    "description": "Download a file from an SSH resource over SFTP, overwriting local_path if it exists. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge overwriting local_path. Required: the download writes to the local filesystem.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "local_path": {
+          "description": "Local destination path. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it.",
+          "type": "string"
+        },
+        "remote_path": {
+          "description": "File to download from the remote host.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "SSH resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "remote_path",
+        "local_path"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_ssh_put_dir",
+    "description": "Recursively upload a local directory tree to an SSH resource over SFTP, replacing remote files that already exist. Permission bits are carried and a symlink pointing outside the tree is refused. Every byte is copied every time — there is no delta transfer.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "Preview only. Reports file count and total bytes without transferring.",
+          "type": "boolean"
+        },
+        "local_path": {
+          "description": "Local directory to upload. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it.",
+          "type": "string"
+        },
+        "remote_path": {
+          "description": "Destination directory on the remote host.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "SSH resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "local_path",
+        "remote_path"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_ssh_get_dir",
+    "description": "Recursively download a directory tree from an SSH resource over SFTP into a local directory, overwriting local files that already exist. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge overwriting local files. Required: the download writes to the local filesystem.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "local_path": {
+          "description": "Local destination directory. Over MCP it must be under the operator's transfer root (default ~/.cerberus/transfers); a relative path is taken from it.",
+          "type": "string"
+        },
+        "remote_path": {
+          "description": "Directory to download from the remote host.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "SSH resource ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "remote_path",
+        "local_path"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_docker_ps",
+    "description": "List running Docker containers on the machine running Cerberus.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_docker_logs",
+    "description": "Get recent logs for a Docker container on the machine running Cerberus.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "container": {
+          "description": "Container name or ID.",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Number of log lines to return. Default 50.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "container"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_docker_up",
+    "description": "Start a local Docker container by name, or a declared docker resource (a container or a Compose stack, local or remote) by resource_id. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "container_name"
+          ]
+        },
+        {
+          "required": [
+            "resource_id"
+          ]
+        }
+      ],
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: starting and stopping are lifecycle operations.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "container_name": {
+          "description": "Name of a container on the Docker daemon of the machine running Cerberus.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "ID of a declared docker resource (type: container, connector: docker). Its compose file, container and Docker host come from the declaration.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_docker_down",
+    "description": "Stop a local Docker container by name (docker stop), or a declared docker resource by resource_id (a Compose stack is stopped with docker compose stop). This does not remove anything: containers and networks are kept and cerberus_docker_up starts them again. Removal is cerberus_docker_destroy. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "container_name"
+          ]
+        },
+        {
+          "required": [
+            "resource_id"
+          ]
+        }
+      ],
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: starting and stopping are lifecycle operations.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "container_name": {
+          "description": "Name of a container on the Docker daemon of the machine running Cerberus.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "ID of a declared docker resource (type: container, connector: docker). Its compose file, container and Docker host come from the declaration.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_docker_destroy",
+    "description": "Remove a local Docker container by name (docker rm), or tear down a declared docker resource by resource_id (a Compose stack is removed with docker compose down, taking its containers and networks with it). This cannot be undone from Cerberus: cerberus_docker_up does not bring a removed stack back as it was. Requires acknowledged=true.",
+    "input_schema": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "container_name"
+          ]
+        },
+        {
+          "required": [
+            "resource_id"
+          ]
+        }
+      ],
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledge the operation. Required: starting and stopping are lifecycle operations.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "container_name": {
+          "description": "Name of a container on the Docker daemon of the machine running Cerberus.",
+          "type": "string"
+        },
+        "resource_id": {
+          "description": "ID of a declared docker resource (type: container, connector: docker). Its compose file, container and Docker host come from the declaration.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_list",
+    "description": "List declared hosts with recorded state and probed facts (budgeted envelope). Each host reports state, probed_at and stale; stale or never-probed hosts are called out in the text. Facts only: hosts are in name order, not ranked.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Only hosts with all of these labels.",
+          "type": "object"
+        },
+        "limit": {
+          "description": "Max items to return (1-25, default 25). Combine with offset to page through a truncated list.",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Number of items to skip before this page (default 0). Use with limit to page through results.",
+          "type": "integer"
+        },
+        "provider": {
+          "description": "Only hosts with this provider.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Only hosts with this declared role.",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "online",
+            "offline",
+            "unknown"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_get",
+    "description": "Show one declared host: declared specs and probed facts side by side, state, probed_at and stale.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Host name, as in cerberus_host_list.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_probe",
+    "description": "Measure one host over ssh with a fixed read-only script and record the facts. An unreachable host is reported as state offline, not as an error. Returns the host as cerberus_host_get does.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Host name, as in cerberus_host_list.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_capacity",
+    "description": "List the hosts that satisfy constraints, from recorded facts, in name order. Facts only: Cerberus does not rank, reserve or choose a host, and the caller decides placement. A host with no probe data, or data older than max_stale_age, is reported under unknown and never guessed to fit; call cerberus_host_probe on it for fresh facts. Set explain=true to also list excluded hosts with the reason for each.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "disk_types": {
+          "description": "At least one recorded disk of one of these types.",
+          "items": {
+            "enum": [
+              "ssd",
+              "hdd",
+              "nvme",
+              "emmc",
+              "usb",
+              "other"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "explain": {
+          "description": "Also list excluded hosts with the reason for each.",
+          "type": "boolean"
+        },
+        "free_memory_slots": {
+          "description": "At least this many empty memory slots (recorded).",
+          "type": "integer"
+        },
+        "free_storage_slots": {
+          "description": "Free storage slots required by kind, e.g. [{kind: nvme_m2, min: 1}]. A host whose slots are not recorded is unknown.",
+          "items": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "nvme_m2",
+                  "sata_25",
+                  "sata_35",
+                  "m2_sata",
+                  "msata",
+                  "ide",
+                  "pcie"
+                ],
+                "type": "string"
+              },
+              "min": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "min"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "include_offline": {
+          "description": "Judge offline hosts on their last measurement (shown with its age) instead of excluding them.",
+          "type": "boolean"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Labels that must all match exactly.",
+          "type": "object"
+        },
+        "max_stale_age": {
+          "description": "Oldest probe a measured constraint is judged on, such as 10m. Default 5m.",
+          "type": "string"
+        },
+        "min_cpu": {
+          "description": "Minimum probed logical cores.",
+          "type": "integer"
+        },
+        "min_disk_free": {
+          "description": "Minimum free disk on the data mount, in bytes or a size such as 50GB.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "min_disk_size": {
+          "description": "At least one recorded disk at least this large.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "min_memory_available": {
+          "description": "Minimum available memory, in bytes or a size such as 4GiB.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "min_memory_total": {
+          "description": "Installed memory at least this (probed when fresh, else recorded), such as 16GiB.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "min_memory_upgrade": {
+          "description": "Room to add at least this much memory: the recorded memory ceiling minus installed memory.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "recent": {
+          "description": "Headroom held throughout a window: the host passes when its WORST sample in the window still meets every limit. Fewer than half the expected samples makes the host unknown. window is a duration up to 7d (default 15m).",
+          "properties": {
+            "max_load_per_core": {
+              "type": "number"
+            },
+            "min_disk_free": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            },
+            "min_memory_available": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            },
+            "window": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "require_tools": {
+          "description": "Probed tools that must be installed.",
+          "items": {
+            "enum": [
+              "docker",
+              "tmux",
+              "tailscale",
+              "caddy"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "role": {
+          "type": "string"
+        },
+        "status_in": {
+          "description": "The monitor's status must be one of these.",
+          "items": {
+            "enum": [
+              "online",
+              "degraded",
+              "offline",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_events",
+    "description": "Host status-change events (status_changed: from, to, reason codes) after an event id, oldest first. Resume from last_id of the previous call; a gap means older events were pruned. Events carry status and reason codes only. Use cerberus_host_status for the details.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "after_id": {
+          "description": "Return events after this id (0 for the oldest kept).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host": {
+          "description": "Only this host.",
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_status",
+    "description": "Health of one host, or of every host when no name is given: online, degraded, offline or unknown, with reasons in plain words (disk_low, memory_low, load_high, probe_slow, unreachable, stale, ...), since when, the last good measurement, and the thresholds the status is derived from. A measurement older than three probe intervals reads unknown with its age. Facts only: not ranked, nothing reserved.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Host name; omit for every host.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_samples",
+    "description": "A host's retained measurements (load, memory, disk, uptime, probe time) in time order, raw or as 5m, 1h or 1d rollups. since is an RFC 3339 time or a duration such as 6h; at most limit samples (default 500, the newest).",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "grain": {
+          "description": "raw (default) returns measurements; 5m, 1h and 1d return rollups: per bucket the sample count and min, mean and max of load, memory available, free disk and probe time.",
+          "enum": [
+            "raw",
+            "5m",
+            "1h",
+            "1d"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 5000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Host name.",
+          "type": "string"
+        },
+        "since": {
+          "description": "RFC 3339 time or a duration such as 6h.",
+          "type": "string"
+        },
+        "until": {
+          "description": "RFC 3339 time or a duration ago.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_monitor",
+    "description": "What the host monitor is doing: whether it is on, its effective settings (intervals, jitter, backoff, concurrency, thresholds) and each monitored host's interval, last attempt and next probe.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_revision",
+    "description": "The current revision of hosts.yaml. Pass it as `revision` on a host or component write.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_update",
+    "description": "Change one host in hosts.yaml with a JSON merge patch (labels, notes, role, hardware, ceilings, storage_slots, ...): objects merge, null deletes a field, lists replace. The whole resulting file is validated first and a bad change writes nothing. Returns the changed fields (before/after) and the new revision. No credentials in any field.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "create": {
+          "description": "Create the host when it does not exist.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Host name.",
+          "type": "string"
+        },
+        "patch": {
+          "description": "JSON merge patch of the host record.",
+          "type": "object"
+        },
+        "revision": {
+          "description": "The hosts.yaml revision you read (cerberus_host_revision, or the revision in the last write's result). A write on a stale revision is refused and writes nothing.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "patch",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_inventory",
+    "description": "Collect a host's physical facts (make, model, serials, BIOS, CPU, memory layout, disks, NICs) over its ssh reach and record them. Runs a fixed read-only script, with sudo -n for root-only facts where the host allows it. Notes, storage_slots, vendor- or operator-sourced ceilings and components are kept. dry_run shows the change without writing. revision is optional here.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "Collect and show what would change; write nothing.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Host name.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "Optional: the hosts.yaml revision you read.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_remove",
+    "description": "Remove a host from hosts.yaml. Refused while a component is located on it: move or remove those first.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Host name.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The hosts.yaml revision you read (cerberus_host_revision, or the revision in the last write's result). A write on a stale revision is refused and writes nothing.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_component_create",
+    "description": "Add a spare or installed part (RAM, disk, CPU, other). location is {spare: true} or {host, slot}; a disk or PCIe card in a slot also fills that slot.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "component": {
+          "description": "id, kind (ram|disk|cpu|other), size, type, speed, serial, location, notes.",
+          "type": "object"
+        },
+        "revision": {
+          "description": "The hosts.yaml revision you read (cerberus_host_revision, or the revision in the last write's result). A write on a stale revision is refused and writes nothing.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "component",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_component_update",
+    "description": "Change a part's fields with a JSON merge patch (size, type, speed, serial, notes ...). Not its location: use cerberus_component_move.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Component id.",
+          "type": "string"
+        },
+        "patch": {
+          "description": "JSON merge patch.",
+          "type": "object"
+        },
+        "revision": {
+          "description": "The hosts.yaml revision you read (cerberus_host_revision, or the revision in the last write's result). A write on a stale revision is refused and writes nothing.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "patch",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_component_move",
+    "description": "Move a part to a slot on a host ({host, slot}) or to the spares ({spare: true}). The slot it leaves is freed and the slot it enters is filled; a taken slot is refused.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Component id.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The hosts.yaml revision you read (cerberus_host_revision, or the revision in the last write's result). A write on a stale revision is refused and writes nothing.",
+          "type": "string"
+        },
+        "to": {
+          "description": "{host, slot} or {spare: true}.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "to",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_component_remove",
+    "description": "Delete a part from hosts.yaml and free the slot it held.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this change.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Component id.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The hosts.yaml revision you read (cerberus_host_revision, or the revision in the last write's result). A write on a stale revision is refused and writes nothing.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_history",
+    "description": "The change history of a host, newest first: who changed what, when, with only the changed fields before and after. Includes parts moved on or off the host.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Most entries (default 100).",
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Host name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_component_history",
+    "description": "The change history of one component, newest first, with only the changed fields before and after.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Component id.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Most entries (default 100).",
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_component_list",
+    "description": "List spare and installed parts (RAM, disks, CPUs, other) recorded in hosts.yaml, in id order. A part is installed (host and slot) or spare. Facts only: no suggestion of where a part goes.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "description": "Only components located on this host.",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "ram",
+            "disk",
+            "cpu",
+            "other"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max items to return (1-25, default 25). Combine with offset to page through a truncated list.",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Number of items to skip before this page (default 0). Use with limit to page through results.",
+          "type": "integer"
+        },
+        "spare": {
+          "description": "Only spare components.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_component_get",
+    "description": "Show one component: kind, size, type, speed, serial and where it is (host and slot, or spare).",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Component id, as in cerberus_component_list.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_units",
+    "description": "Run the declared host's scoped Outpost units operation through Cerberus policy. Mutations require the controller's approval flow; plan performs no remote operation.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this operation.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Log line limit; logs only.",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Declared host name.",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Native user-service unit identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_logs",
+    "description": "Run the declared host's scoped Outpost logs operation through Cerberus policy. Mutations require the controller's approval flow; plan performs no remote operation.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this operation.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Log line limit; logs only.",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Declared host name.",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Native user-service unit identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_start",
+    "description": "Run the declared host's scoped Outpost start operation through Cerberus policy. Mutations require the controller's approval flow; plan performs no remote operation.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this operation.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Log line limit; logs only.",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Declared host name.",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Native user-service unit identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_stop",
+    "description": "Run the declared host's scoped Outpost stop operation through Cerberus policy. Mutations require the controller's approval flow; plan performs no remote operation.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this operation.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Log line limit; logs only.",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Declared host name.",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Native user-service unit identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_restart",
+    "description": "Run the declared host's scoped Outpost restart operation through Cerberus policy. Mutations require the controller's approval flow; plan performs no remote operation.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "The operator asked for this operation.",
+          "type": "boolean"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "lines": {
+          "description": "Log line limit; logs only.",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Declared host name.",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Native user-service unit identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_host_plan",
+    "description": "Run the declared host's scoped Outpost plan operation through Cerberus policy. Mutations require the controller's approval flow; plan performs no remote operation.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "lines": {
+          "description": "Log line limit; logs only.",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Declared host name.",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Native user-service unit identifier.",
+          "type": "string"
+        },
+        "verb": {
+          "enum": [
+            "units",
+            "logs",
+            "start",
+            "stop",
+            "restart"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "verb"
+      ],
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": true
+  },
+  {
+    "name": "cerberus_schedule_create",
+    "description": "Schedule create through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_update",
+    "description": "Schedule update through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_delete",
+    "description": "Schedule delete through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_get",
+    "description": "Schedule get through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_list",
+    "description": "Schedule list through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_run_now",
+    "description": "Schedule run_now through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_pause",
+    "description": "Schedule pause through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_resume",
+    "description": "Schedule resume through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_history",
+    "description": "Schedule history through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_logs",
+    "description": "Schedule logs through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_dry_run",
+    "description": "Schedule dry_run through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": true,
+    "destructive_hint": false,
+    "idempotent_hint": true,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_register",
+    "description": "Schedule register through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  },
+  {
+    "name": "cerberus_schedule_admin_view",
+    "description": "Schedule admin_view through the shared service. Engine remains inactive; run_now needs separate exact-fire authority. Per-run capture is available only through a trusted bound shell-only pipeline delivery transport; unsupported or unbound runs report unavailable.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "description": "Acknowledges metadata mutation, never authorizes execution.",
+          "type": "boolean"
+        },
+        "after": {
+          "description": "RFC3339 dry-run starting instant.",
+          "type": "string"
+        },
+        "approval_id": {
+          "description": "The approval id from an approval_pending answer, once your operator has approved it. Retry with exactly the same arguments; anything different is plan_stale.",
+          "type": "string"
+        },
+        "fire_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "job": {
+          "type": "object",
+          "properties": {
+            "incarnation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner_app": {
+              "type": "string"
+            },
+            "timing": {
+              "type": "object",
+              "properties": {
+                "cron": {
+                  "type": "string"
+                },
+                "interval": {
+                  "type": "integer"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "capture_logs": {
+              "type": "boolean"
+            },
+            "env_refs": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "env",
+                  "ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "timeout": {
+              "type": "integer"
+            },
+            "overlap": {
+              "type": "string"
+            },
+            "misfire": {
+              "type": "string"
+            },
+            "misfire_grace": {
+              "type": "integer"
+            },
+            "max_catch_up": {
+              "type": "integer"
+            },
+            "max_queued_fires": {
+              "type": "integer"
+            },
+            "keep_last_n": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "owner_app",
+            "timing",
+            "target",
+            "enabled",
+            "timeout"
+          ],
+          "additionalProperties": false
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "owner_app": {
+          "description": "App selector; confers no permission.",
+          "type": "string"
+        },
+        "registration": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "job": {
+                "type": "object",
+                "properties": {
+                  "incarnation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_app": {
+                    "type": "string"
+                  },
+                  "timing": {
+                    "type": "object",
+                    "properties": {
+                      "cron": {
+                        "type": "string"
+                      },
+                      "interval": {
+                        "type": "integer"
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "capture_logs": {
+                    "type": "boolean"
+                  },
+                  "env_refs": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "env": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "env",
+                        "ref"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "timeout": {
+                    "type": "integer"
+                  },
+                  "overlap": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string"
+                  },
+                  "misfire_grace": {
+                    "type": "integer"
+                  },
+                  "max_catch_up": {
+                    "type": "integer"
+                  },
+                  "max_queued_fires": {
+                    "type": "integer"
+                  },
+                  "keep_last_n": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "owner_app",
+                  "timing",
+                  "target",
+                  "enabled",
+                  "timeout"
+                ],
+                "additionalProperties": false
+              },
+              "absent": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "job"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enabled",
+            "paused",
+            "completed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "read_only_hint": false,
+    "destructive_hint": true,
+    "idempotent_hint": false,
+    "open_world_hint": false
+  }
+]

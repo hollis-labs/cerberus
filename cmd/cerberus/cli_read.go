@@ -38,6 +38,8 @@ const (
 type apiClient struct {
 	base, key, keyFile string
 	http               *http.Client
+	// header, when set, adds headers to every request (`cerberus mcp`'s client label).
+	header func(ctx context.Context) http.Header
 }
 
 // newAPIClient reads the key file named by the settings and the listen address from the
@@ -47,32 +49,38 @@ func newAPIClient(app *module.App, home string) (*apiClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newKeyedClient(app, st.CLIKeyFile, fmt.Sprintf("cerberus identity key create --name %s --scope cerberus.read --out %s", api.CLIKeyName, st.CLIKeyFile),
+		"cerberus.cli_key_file")
+}
+
+// newKeyedClient is a client presenting the key in keyFile; create is the command that makes one,
+// setting the settings key that names the file.
+func newKeyedClient(app *module.App, keyFile, create, setting string) (*apiClient, error) {
 	// The key travels as a bearer over plain http, so only to a loopback address.
 	if lerr := requireLoopback(app); lerr != nil {
 		return nil, lerr
 	}
 	hh, _ := app.Config["httphost"].(map[string]any)
 	addr, _ := hh["addr"].(string)
-	fi, err := os.Stat(st.CLIKeyFile)
+	fi, err := os.Stat(keyFile)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("no API key at %s: create one with `cerberus identity key create --name cli --scope cerberus.read --out %s` "+
-			"(or set cerberus.cli_key_file)", st.CLIKeyFile, st.CLIKeyFile)
+		return nil, fmt.Errorf("no API key at %s: create one with `%s` (or set %s)", keyFile, create, setting)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read the API key %s: %w", st.CLIKeyFile, err)
+		return nil, fmt.Errorf("read the API key %s: %w", keyFile, err)
 	}
-	if perr := privateKeyFile(st.CLIKeyFile, fi); perr != nil {
+	if perr := privateKeyFile(keyFile, fi); perr != nil {
 		return nil, perr
 	}
-	raw, err := os.ReadFile(st.CLIKeyFile) //nolint:gosec // the operator's configured key file, checked above
+	raw, err := os.ReadFile(keyFile) //nolint:gosec // the operator's configured key file, checked above
 	if err != nil {
-		return nil, fmt.Errorf("read the API key %s: %w", st.CLIKeyFile, err)
+		return nil, fmt.Errorf("read the API key %s: %w", keyFile, err)
 	}
 	key := strings.TrimSpace(string(raw))
 	if key == "" {
-		return nil, fmt.Errorf("the API key file %s is empty", st.CLIKeyFile)
+		return nil, fmt.Errorf("the API key file %s is empty", keyFile)
 	}
-	return &apiClient{base: "http://" + addr + "/api", key: key, keyFile: st.CLIKeyFile,
+	return &apiClient{base: "http://" + addr + "/api", key: key, keyFile: keyFile,
 		http: &http.Client{Timeout: 30 * time.Second}}, nil
 }
 
@@ -113,6 +121,13 @@ func (c *apiClient) do(ctx context.Context, method, path string, in, out any) er
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
 	if err != nil {
 		return err
+	}
+	if c.header != nil {
+		for k, vs := range c.header(ctx) {
+			for _, v := range vs {
+				req.Header.Add(k, v)
+			}
+		}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.key)
 	req.Header.Set("Accept", "application/json")

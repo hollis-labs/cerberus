@@ -1,12 +1,12 @@
 # Cerberus on Substrate. The manifest is the shell: modules and config.
 # Slice 1 (CW-20261114-0108) is the skeleton: config, logging, health, the HTTP host, the
 # database and the CLI root. Slice 4 adds identity (owner created offline, API keys) and auth in
-# enforce mode. MCP arrives with its slice (docs/substrate-port-plan.md, section 11).
+# enforce mode. Slice 9 adds MCP: HTTP /mcp beside /api, and stdio through `cerberus mcp`.
 app: cerberus
 variant: app-host
 profiles: [minimal]
 modules:
-  add: [database, auth, identity, cli]
+  add: [database, auth, identity, mcp, cli]
 config:
   logging: { level: info, format: text }
   # Loopback only. 4785 is the old build's mcp-http default and 4783 its console; the new
@@ -22,6 +22,9 @@ config:
   # Relative, so it lands in the data directory beside the database (anchored like the database
   # path). Setup is offline only: `cerberus identity setup` on the host.
   identity: { key_file: identity-signing.key, setup: offline }
+  # The old build's server: name cerberus (the app), version 0.1.0. Any reader may reach /mcp;
+  # each tool then needs its own scope (internal/mcp), and no tool needs cerberus.approve.
+  mcp: { version: "0.1.0", scope: cerberus.read }
   # The app's own block (internal/settings). Override any key in the YAML file named by
   # SUBSTRATE_CONFIG; docs/architecture.md lists every key.
   cerberus:

@@ -46,7 +46,12 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	// The database module applies the embedded schema when it opens the file.
 	database.UseMigrationFS(storage.Migrations())
 	modules, opts := substrateModules, bootOptions(getenv)
-	if !needsData(args) {
+	switch {
+	case isStdioMCP(args):
+		// `cerberus mcp` forwards to the serving Cerberus: it opens and creates nothing, and
+		// starts only what stdio MCP needs (auth for the local principal's scopes, mcp).
+		modules, opts = pickModules(stdioModules), boot.Options{}
+	case !needsData(args):
 		// Help, version, config and the read verbs open and create nothing: no data directory,
 		// no database, no signing key. Only the modules that read config start.
 		modules, opts = pickModules(readOnlyModules), boot.Options{}
@@ -63,7 +68,7 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	// `cerberus` with no command serves, like `cerberus serve`.
 	rootCmd.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
 	rootCmd.Args = cobra.NoArgs
-	rootCmd.AddCommand(serve, auditCmd())
+	rootCmd.AddCommand(serve, auditCmd(), c.mcpCmd(ctx))
 	rootCmd.AddCommand(c.readCommands()...)
 	rootCmd.AddCommand(c.brakeCommands()...)
 	rootCmd.AddCommand(c.pluginCommands()...)
@@ -95,6 +100,24 @@ func guardKeyCreate(root *cobra.Command) {
 
 // readOnlyModules open and create no file.
 var readOnlyModules = []string{"config", "logging", "health", "cli"}
+
+// stdioModules are `cerberus mcp`'s: no database, data directory, signing key or loop.
+var stdioModules = []string{"config", "logging", "auth", "mcp", "cli"}
+
+// isStdioMCP reports whether the command line is `cerberus mcp` (not its help).
+func isStdioMCP(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "--help" || a == "--version" {
+			return false
+		}
+	}
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			return a == "mcp"
+		}
+	}
+	return false
+}
 
 // needsData reports whether the command line runs a command bound to the data (the database,
 // the signing key, the data directory): serve (also the default with no command) and the offline

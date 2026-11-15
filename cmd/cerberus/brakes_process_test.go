@@ -71,7 +71,7 @@ func TestLockdownEngagedByTheCLIAndLiftedWithTheOwnersApproval(t *testing.T) {
 	if code, out := runWithStdin(t, s, "correct horse battery staple\n", "identity", "setup", "--username", "owner", "--display-name", "Owner"); code != 0 {
 		t.Fatalf("identity setup: %d %s", code, out)
 	}
-	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cli", "--scope", "cerberus.read", "--scope", "cerberus.operate", "--scope", "cerberus.admin", "--out", keyFile); code != 0 {
+	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cerberus-cli", "--scope", "cerberus.read", "--scope", "cerberus.operate", "--scope", "cerberus.admin", "--out", keyFile); code != 0 {
 		t.Fatalf("key create: %d %s", code, out)
 	}
 	raw, err := os.ReadFile(keyFile) //nolint:gosec // the test's temp file
@@ -88,7 +88,7 @@ func TestLockdownEngagedByTheCLIAndLiftedWithTheOwnersApproval(t *testing.T) {
 	}
 	var body string
 	code, out := runWithStdin(t, s, "", "lockdown", "--reason", "drill")
-	if code != 0 || !strings.HasPrefix(out, "LOCKDOWN ldn_") || !strings.Contains(out, "by agent over api: drill") {
+	if code != 0 || !strings.HasPrefix(out, "LOCKDOWN ldn_") || !strings.Contains(out, "by agent over cli: drill") {
 		t.Fatalf("cerberus lockdown: %d %s\n%s", code, out, log)
 	}
 	stop := func() (int, string) {
