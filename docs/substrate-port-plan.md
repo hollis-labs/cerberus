@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope; revision 7 adds slice 8b for the lanes slice 9's tool-parity survey found unowned.** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope; revision 7 adds slice 8b for the lanes slice 9's tool-parity survey found unowned; revision 8 adds the `cerberus-mcp` key at D6 and fixes the key names that set the audit channel.** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -475,8 +475,15 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
 6. Offline identity (the CLI uses identity's Go API; list, revoke and owner-exists come from CW-20261114-0131 /
    substrate #34; the app never reads identity's tables):
    - The owner runs `$NEW identity setup --username <owner>` at a terminal.
-   - Then create keys with `--out` (0600): `cerberus-cli` (read, operate, admin), one for tachyon, one for tether
-     sysop, `hadron`, and one per other machine caller in section 6.
+   - Then create keys with `--out` (0600):
+     - `cerberus-cli` (read, operate, admin), the key file the CLI on `PATH` reads;
+     - `cerberus-mcp` (read, operate, admin) to `~/.config/cerberus/mcp.key` (`cerberus.mcp_key_file`), the key the
+       `cerberus mcp` stdio forwarder uses;
+     - one for tachyon (read, operate, admin) and one for tether sysop (read, operate), as `legacy-routes.md` sets;
+     - `hadron`, and one per other machine caller in section 6.
+
+     The key **name** sets the audit channel: `cerberus-cli` records as `cli`, `cerberus-mcp` as `mcp_stdio`, and any
+     other name as `api`. Use these names exactly. No key ever carries `cerberus.approve`.
 7. Hand over.
    - Set `mode: supervise` in the override file, then `$LEGACY resource apply cerberus-substrate --ack` (the old CLI has no `start`) and
      `$LEGACY resource status cerberus-substrate`.
@@ -535,7 +542,8 @@ delete them.
    - no credential: 401;
    - a key without the scope: 403;
    - an unknown `Host`: 403;
-   - the `cerberus-cli` key on an approve route: 403;
+   - the `cerberus-cli` key, and the `cerberus-mcp` key, on an approve route: 403;
+   - one read through a `cerberus mcp` stdio child is recorded in new's audit with channel `mcp_stdio`;
    - a call to old's socket from a pre-D8 MCP child: the standby error naming the new CLI.
 3. New's resource list and statuses equal the D3 snapshot; pause set equal; no resource reported as changed (no unit
    rewritten, no restart).
