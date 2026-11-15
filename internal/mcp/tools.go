@@ -43,10 +43,6 @@ func ownerOf(name string) string {
 	case strings.HasPrefix(name, "cerberus_pipeline_"):
 		return OwnerSlice8b
 	}
-	switch name {
-	case "cerberus_portfolio_health":
-		return OwnerSlice8b
-	}
 	return OwnerHere
 }
 

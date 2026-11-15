@@ -121,3 +121,17 @@ func (g *Gate) RecordEnforcementChange(ctx context.Context, before, after policy
 	g.notify("Cerberus: enforcement changed", "now "+after.Summary()+" (was "+before.Summary()+")")
 	return nil
 }
+
+// AllowsRead reports whether policy lets the caller see one target in a read projection (the
+// old build's portfolio allowTarget): where the decision on a read of it is enforced, deny and
+// approve both hide it. Nothing is recorded.
+func (g *Gate) AllowsRead(ctx context.Context, connector, targetKind, id string, labels *target.ResourceLabels) bool {
+	resolved := target.Resolve(connector, targetKind, id, labels, false)
+	op := contract.Operation{Name: "read", Effect: contract.EffectRead, Target: contract.TargetDescriptor{Kind: targetKind}}.Finalize()
+	req := policyRequest(ctx, Spec{Connector: connector, Operation: "read", Op: op, Known: true, ResolvedTarget: &resolved}, resolved)
+	if !g.enforced(req) {
+		return true
+	}
+	d := g.pdp.Authorize(req).Decision
+	return d != policy.Deny && d != policy.Approve
+}

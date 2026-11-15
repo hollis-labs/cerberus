@@ -34,6 +34,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/storage"
 	"github.com/hollis-labs/cerberus/internal/supervise"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // cerberus is what the commands share: the started framework app. ready, when set, learns
@@ -66,8 +67,34 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 		return nil, err
 	}
 	hostsYAML, hostsState := hostsPaths(st, dirs)
+	po := api.PortfolioOptions{Config: func() (*config.ConfigV2, api.ResolveDiagnostics, error) {
+		resolved, err := reg.Resolve()
+		if err != nil {
+			return nil, api.ResolveDiagnostics{}, err
+		}
+		d := api.ResolveDiagnostics{Skipped: len(resolved.Skipped), Warned: len(resolved.Warned)}
+		for _, r := range resolved.Skipped {
+			d.SkippedOwners = append(d.SkippedOwners, r.Owner)
+		}
+		for _, r := range resolved.Warned {
+			d.WarnedOwners = append(d.WarnedOwners, r.Owner)
+		}
+		return resolved.Config, d, nil
+	}}
+	if lane != nil {
+		po.DependencyWarnings = lane.DependencyWarnings
+	}
+	if adm != nil {
+		po.Connectors = func(ctx context.Context) (defs, live []contract.Definition) {
+			return adm.Definitions(), adm.LiveDefinitions(ctx)
+		}
+		if pl := adm.Plugins(); pl != nil {
+			po.Plugins = pl.List
+		}
+	}
 	return api.New(api.Options{
-		Observer: observer,
+		Portfolio: api.NewPortfolio(po),
+		Observer:  observer,
 		Resources: func() ([]config.ResourceDef, error) {
 			resolved, err := reg.Resolve()
 			if err != nil {
