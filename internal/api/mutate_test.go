@@ -92,9 +92,9 @@ func TestMutationAnswersAsTheOldSocketDid(t *testing.T) {
 		body string
 	}{
 		{"failed run", &recordingMutator{out: &supervise.OpResult{ServiceID: "nope", Error: `resource "nope" not found`}}, 200,
-			`{"build_performed":false,"success":false,"service_id":"nope","error":"resource \"nope\" not found"}` + "\n"},
+			`{"build_performed":false,"error":"resource \"nope\" not found","service_id":"nope","success":false}` + "\n"},
 		{"run", &recordingMutator{out: &supervise.OpResult{Success: true, ServiceID: "web", Message: `resource "web" reloaded successfully`}}, 200,
-			`{"build_performed":false,"success":true,"service_id":"web","message":"resource \"web\" reloaded successfully"}` + "\n"},
+			`{"build_performed":false,"message":"resource \"web\" reloaded successfully","service_id":"web","success":true}` + "\n"},
 		{"no ack", &recordingMutator{err: &supervise.Refusal{Status: 409, Code: "acknowledgment_required", Message: "needs --ack"}}, 409,
 			`"code":"acknowledgment_required"`},
 		{"approval required", &recordingMutator{err: gate.NewError("local", "reload", gate.CodeApprovalRequired, errors.New("no approval ap-1"))}, 428,

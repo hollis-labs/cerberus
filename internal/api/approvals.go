@@ -29,12 +29,12 @@ func (a *API) broker(w http.ResponseWriter) (*gate.Broker, bool) {
 	return a.o.Gate.Broker(), true
 }
 
-func (a *API) approvalList(w http.ResponseWriter, _ *http.Request) {
+func (a *API) approvalList(w http.ResponseWriter, r *http.Request) {
 	b, ok := a.broker(w)
 	if !ok {
 		return
 	}
-	writeJSON(w, gate.ApprovalList{Approvals: b.List(), Problems: b.Problems()})
+	writeScoped(GateContext(r.Context()), w, gate.ApprovalList{Approvals: b.List(), Problems: b.Problems()})
 }
 
 func (a *API) approvalGet(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +48,7 @@ func (a *API) approvalGet(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, http.StatusNotFound, "not_found", fmt.Sprintf("no approval %q", id), nil)
 		return
 	}
-	writeJSON(w, got)
+	writeScoped(GateContext(r.Context()), w, got)
 }
 
 // approvalDecide decides a pending approval as the owner's console session: personOnly has
@@ -96,7 +96,7 @@ func (a *API) approvalAction(w http.ResponseWriter, r *http.Request, args any, d
 		apierr.Write(w, status, approvalErrorCode(err, status), msg, nil)
 		return
 	}
-	writeJSON(w, got)
+	writeScoped(GateContext(r.Context()), w, got)
 }
 
 // approvalErrorCode names a decision's refusal for the flat body. The old socket sent only the
