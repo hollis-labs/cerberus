@@ -81,8 +81,10 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 		}
 		return resolved.Config, d, nil
 	}}
+	var pipelines api.Pipelines
 	if lane != nil {
 		po.DependencyWarnings = lane.DependencyWarnings
+		pipelines = lane
 	}
 	if adm != nil {
 		po.Connectors = func(ctx context.Context) (defs, live []contract.Definition) {
@@ -94,6 +96,7 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 	}
 	return api.New(api.Options{
 		Portfolio: api.NewPortfolio(po),
+		Pipelines: pipelines,
 		Observer:  observer,
 		Resources: func() ([]config.ResourceDef, error) {
 			resolved, err := reg.Resolve()

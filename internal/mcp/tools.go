@@ -18,9 +18,6 @@ import (
 const (
 	// OwnerHere is a tool served now.
 	OwnerHere = ""
-	// OwnerSlice8b is the host writes, components, outpost host actions, capacity, portfolio
-	// health, pipelines and ensure_fresh (plan rev 7).
-	OwnerSlice8b = "8b"
 	// OwnerSchedulerOff is the schedule tools: the scheduling core is ported but off.
 	OwnerSchedulerOff = "scheduler-off"
 )
@@ -40,8 +37,6 @@ func ownerOf(name string) string {
 	switch {
 	case strings.HasPrefix(name, "cerberus_schedule_"):
 		return OwnerSchedulerOff
-	case strings.HasPrefix(name, "cerberus_pipeline_"):
-		return OwnerSlice8b
 	}
 	return OwnerHere
 }
