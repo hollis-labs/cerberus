@@ -185,3 +185,62 @@ FROM credential_issuance_receipts WHERE issuance_id = ?`), issuanceID)
 	sort.Slice(out, func(i, j int) bool { return stateOrder[out[i].State] < stateOrder[out[j].State] })
 	return out, nil
 }
+
+// ErrAppliedNotEmpty is ImportApplied's refusal of a store that already holds applied digests
+// or a digest-key fingerprint: an import fills a new store, never merges into a used one.
+var ErrAppliedNotEmpty = errors.New("applied digests: the store already holds applied digests or a digest-key fingerprint")
+
+// ImportApplied records the old build's applied digests (runtime/applied.json, resource id to
+// digest, verbatim) and the fingerprint of the key they were made with, in ONE transaction: a
+// store never holds migrated digests without the fingerprint that says which key they need
+// (supervise.OpenAppliedKey refuses a start on a key with another fingerprint). Every digest gets
+// applied_at at. The store must hold neither digests nor a fingerprint yet.
+func ImportApplied(ctx context.Context, st *store.Store, digests map[string]string, fingerprint string, at time.Time) error {
+	if fingerprint == "" {
+		return errors.New("applied digests: empty key fingerprint")
+	}
+	ids := make([]string, 0, len(digests))
+	for id, d := range digests {
+		if id == "" || d == "" {
+			return fmt.Errorf("applied digests: empty resource id or digest (%q)", id)
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return st.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM applied_definitions) + (SELECT COUNT(*) FROM applied_digest_key)`).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			return ErrAppliedNotEmpty
+		}
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, tx.Dialect().Rebind(`INSERT INTO applied_definitions (resource_id, digest, applied_at) VALUES (?, ?, ?)`),
+				id, digests[id], at.UTC().Unix()); err != nil {
+				return err
+			}
+		}
+		_, err := tx.ExecContext(ctx, tx.Dialect().Rebind(`INSERT INTO applied_digest_key (id, fingerprint, recorded_at) VALUES (1, ?, ?)`),
+			fingerprint, at.UTC().Unix())
+		return err
+	})
+}
+
+// AppliedAll returns every applied digest by resource id.
+func AppliedAll(ctx context.Context, st *store.Store) (map[string]string, error) {
+	rows, err := st.Reader().QueryContext(ctx, `SELECT resource_id, digest FROM applied_definitions ORDER BY resource_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, d string
+		if err := rows.Scan(&id, &d); err != nil {
+			return nil, err
+		}
+		out[id] = d
+	}
+	return out, rows.Err()
+}

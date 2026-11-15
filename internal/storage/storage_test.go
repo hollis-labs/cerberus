@@ -370,3 +370,54 @@ func TestADataDirAtVersionTwoMigratesForward(t *testing.T) {
 		t.Fatalf("goose rows %d after the upgrade", got)
 	}
 }
+
+// The import writes the digests and the key's fingerprint together, verbatim, and refuses a store
+// that already has either: a store never holds migrated digests without the fingerprint.
+func TestImportAppliedWritesDigestsAndKeyTogether(t *testing.T) {
+	eachDialect(t, func(t *testing.T, st *store.Store, _ func() *store.Store) {
+		ctx := context.Background()
+		at := time.Unix(1_700_000_000, 0)
+		digests := map[string]string{"web": "hmac-sha256:aa", "api": "hmac-sha256:bb", "ghost.x": "hmac-sha256:cc"}
+
+		for _, bad := range []struct {
+			digests map[string]string
+			fp      string
+		}{{digests, ""}, {map[string]string{"": "hmac-sha256:aa"}, "hmac-sha256:ff"}, {map[string]string{"web": ""}, "hmac-sha256:ff"}} {
+			if err := storage.ImportApplied(ctx, st, bad.digests, bad.fp, at); err == nil {
+				t.Fatalf("ImportApplied(%v, %q) accepted", bad.digests, bad.fp)
+			}
+		}
+		if n, _ := storage.AppliedCount(ctx, st); n != 0 {
+			t.Fatalf("a refused import wrote %d digests", n)
+		}
+		if err := storage.ImportApplied(ctx, st, digests, "hmac-sha256:ff", at); err != nil {
+			t.Fatal(err)
+		}
+		got, err := storage.AppliedAll(ctx, st)
+		if err != nil || !reflect.DeepEqual(got, digests) {
+			t.Fatalf("AppliedAll = %v %v, want %v", got, err, digests)
+		}
+		if fp, ok, err := storage.AppliedKey(ctx, st); err != nil || !ok || fp != "hmac-sha256:ff" {
+			t.Fatalf("AppliedKey = %q %v %v", fp, ok, err)
+		}
+		if err := storage.ImportApplied(ctx, st, map[string]string{"other": "hmac-sha256:dd"}, "hmac-sha256:ff", at); !errors.Is(err, storage.ErrAppliedNotEmpty) {
+			t.Fatalf("second import: %v, want ErrAppliedNotEmpty", err)
+		}
+		if got, _ := storage.AppliedAll(ctx, st); !reflect.DeepEqual(got, digests) {
+			t.Fatalf("a refused second import changed the digests: %v", got)
+		}
+	})
+	// A store holding only a fingerprint (a supervise start before the import) is refused too.
+	eachDialect(t, func(t *testing.T, st *store.Store, _ func() *store.Store) {
+		ctx := context.Background()
+		if err := storage.SetAppliedKey(ctx, st, "hmac-sha256:ee", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.ImportApplied(ctx, st, map[string]string{"web": "hmac-sha256:aa"}, "hmac-sha256:ff", time.Now()); !errors.Is(err, storage.ErrAppliedNotEmpty) {
+			t.Fatalf("import over a recorded key: %v", err)
+		}
+		if n, _ := storage.AppliedCount(ctx, st); n != 0 {
+			t.Fatalf("refused import wrote %d digests", n)
+		}
+	})
+}
