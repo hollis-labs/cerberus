@@ -30,7 +30,7 @@ func BuildEcho(dir string) (string, error) {
 	cmd.Dir = src
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if b, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("admintest: build the echo plugin: %v\n%s", err, b)
+		return "", fmt.Errorf("admintest: build the echo plugin: %w\n%s", err, b)
 	}
 	return out, nil
 }

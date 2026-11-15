@@ -206,7 +206,7 @@ func TestAThirdPartyPluginLoadsFromTheAdoptedRoot(t *testing.T) {
 	if l.svc.Plugins().Loaded("echo") {
 		t.Fatal("a plugin loaded at construction; only RestorePlugins loads")
 	}
-	if err := l.svc.Plugins().RestorePlugins(context.Background()); err != nil {
+	if err = l.svc.Plugins().RestorePlugins(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !l.svc.Plugins().Loaded("echo") {
@@ -427,7 +427,7 @@ func TestSSHRunsThroughTheResourceAndTheTransferRoot(t *testing.T) {
 	if len(l.ssh.hosts) != 1 || l.ssh.hosts[0] != "box.invalid" {
 		t.Fatalf("connected to %v, want the resource's host", l.ssh.hosts)
 	}
-	if _, err := l.svc.Execute(owner(), admin.OperationArgs{Connector: "ssh", Operation: "exec", Config: map[string]any{"id": "box", "command": "uptime"}}); gate.CodeOf(err) != gate.CodeAckRequired {
+	if _, err = l.svc.Execute(owner(), admin.OperationArgs{Connector: "ssh", Operation: "exec", Config: map[string]any{"id": "box", "command": "uptime"}}); gate.CodeOf(err) != gate.CodeAckRequired {
 		t.Fatalf("exec without acknowledgment: %v", err)
 	}
 	_, err = l.svc.Execute(owner(), admin.OperationArgs{Connector: "ssh", Operation: "get", Acknowledged: true,
