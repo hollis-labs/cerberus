@@ -25,6 +25,10 @@ adds its rows. The plan is `docs/substrate-port-plan.md`.
 | `~/.cerberus/paused`, `paused.<id>` | `pause_state` in the class A store (migrated by slice 10) |
 | `~/.cerberus/runtime/applied.json` | `applied_definitions` in the class A store, same digests (key `<data dir>/audit/.digest_key`) |
 | `~/.cerberus/brakes/` | `<data dir>/brakes/` (copied if present) |
+| `~/.cerberus/hosts.yaml` | Unchanged, adopted in place (`<adopt_root>/hosts.yaml`); Outpost `token_file` paths keep pointing into the adopted root and are read in place on every call |
+| `~/.cerberus/state/hosts.json` | `<data dir>/state/hosts.json` in supervise mode (copied by slice 10); observe mode reads the old file in place and never writes it |
+| `~/.cerberus/events/` (export outbox and hub cursor) | `<data dir>/events/`; export is off (`cerberus.event_export.enabled: false`) |
+| `~/.cerberus/events-tokens/` | Unchanged, adopted in place; written by the renewal job, read only by the hub relay through the eventbus environment when export and its hub are on |
 
 ## Environment
 
@@ -49,6 +53,16 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 | Socket routes `/health`, `/resources…`, `/hosts` (tachyon, tether sysop) | The legacy-route set under `/api` with the same shapes, behind an API key (`docs/substrate-port/legacy-routes.md`, an approved cross-app contract) |
 | Same-uid trust on the socket | Substrate identity: the owner signs in (created offline with `cerberus identity setup`); machine callers present an API key (`cerberus identity key create`) with scopes `cerberus.read`, `.operate`, `.admin`. `cerberus.approve` is the owner's console session only and is refused on any key |
 
+## Settings (slice 8)
+
+| Old | New |
+|---|---|
+| `config.yaml` `host_monitor:` (same keys) | `cerberus.host_monitor` in the override file. Probing and the janitor run in supervise mode only; probing only when `enabled` |
+| `events.yaml` `export.{enabled, grace_seconds, interval_seconds, hub.enabled}` | `cerberus.event_export.{enabled, grace_seconds, interval_seconds, hub}`, off by default; `migrate-from` transforms `events.yaml` |
+| The scheduling core, built and never started; no key | `cerberus.scheduler.enabled` (default `false`). Enabled, it refuses to start while its `gosched_*` or `cerberus_schedule_*` tables hold rows, naming them, unless `cerberus.scheduler.allow_existing: true`; a refusal fails its `/healthz` check and never stops Cerberus |
+| — | `/healthz` gains `telemetry`: an error while host-monitor writes are held in memory because the Telemetry store fails (up to 1000, oldest dropped and counted) |
+| ssh hosts probed through the ssh connector | Not probed until the ssh connector arrives (slice 7): skipped with a warning, never marked offline |
+
 ## Commands
 
 | Old | New |
@@ -63,6 +77,9 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 
 Steps to take after the new build is accepted. None blocks the cutover.
 
+- Adopt Substrate's `modules/scheduler` through `Engine(app)` and `UseRunner` (option B) when the scheduler is turned
+  on. Today the scheduling core builds its own engine over the same tables, so the module stays out of the manifest
+  (lead's decision, slice 8).
 - Narrow tachyon's Cerberus key by dropping `cerberus.admin` once tachyon no longer uses `remove` (legacy route L8;
   `docs/substrate-port/legacy-routes.md` section 4).
 

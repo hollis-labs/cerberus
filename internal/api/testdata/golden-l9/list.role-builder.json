@@ -1,0 +1,73 @@
+[
+  {
+    "ceilings": null,
+    "host": {
+      "declared": {},
+      "name": "mid",
+      "provider": "homelab",
+      "reach": {},
+      "role": "builder"
+    },
+    "stale": true,
+    "state": "unknown",
+    "storage_slots": null,
+    "storage_summary": null
+  },
+  {
+    "ceilings": null,
+    "checked_at": "2026-01-02T03:04:05Z",
+    "host": {
+      "declared": {
+        "arch": "amd64",
+        "cpu": 8,
+        "disk": 500000000000,
+        "memory": 34359738368,
+        "os": "linux"
+      },
+      "hostname": "zeta.example.test",
+      "labels": {
+        "intermittent": "true",
+        "tier": "gold"
+      },
+      "name": "zeta",
+      "owner": "ops",
+      "provider": "homelab",
+      "reach": {
+        "outpost": {
+          "token_file": "@HOME@/.cerberus/outpost-tokens/zeta",
+          "url": "https://zeta.example.test:7777"
+        },
+        "ssh": "zeta-ssh",
+        "transport": "outpost"
+      },
+      "role": "builder",
+      "tailnet_ip": "fd7a:115c:a1e0::9",
+      "tailnet_name": "zeta"
+    },
+    "last_seen": "2026-01-02T03:04:05Z",
+    "onboarding_stage": "ready",
+    "probed": {
+      "arch": "x86_64",
+      "cpu": 8,
+      "disk_free": 200000000000,
+      "disk_total": 500000000000,
+      "kernel": "6.1.0",
+      "load1": 0.5,
+      "load15": 0.3,
+      "load5": 0.4,
+      "memory_available": 16000000000,
+      "memory_total": 33554432000,
+      "os": "Linux",
+      "source": "outpost",
+      "tools": {
+        "docker": true
+      },
+      "uptime_seconds": 3600
+    },
+    "probed_at": "2026-01-02T03:04:05Z",
+    "stale": true,
+    "state": "online",
+    "storage_slots": null,
+    "storage_summary": null
+  }
+]

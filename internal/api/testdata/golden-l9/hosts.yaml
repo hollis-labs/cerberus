@@ -1,0 +1,24 @@
+version: 1
+hosts:
+  - name: zeta
+    hostname: zeta.example.test
+    tailnet_name: zeta
+    tailnet_ip: "fd7a:115c:a1e0::9"
+    role: builder
+    provider: homelab
+    owner: ops
+    labels: {tier: gold, intermittent: "true"}
+    reach:
+      transport: outpost
+      ssh: zeta-ssh
+      outpost: {url: "https://zeta.example.test:7777", token_file: "@HOME@/.cerberus/outpost-tokens/zeta"}
+    declared: {os: linux, arch: amd64, cpu: 8, memory: 32GiB, disk: 500GB}
+  - name: alpha
+    lan_ip: 192.0.2.10
+    role: worker
+    provider: homelab
+    labels: {tier: silver}
+    reach: {ssh: alpha-ssh}
+  - name: mid
+    role: builder
+    provider: homelab
