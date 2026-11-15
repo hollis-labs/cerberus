@@ -20,7 +20,9 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/registry"
+	"github.com/hollis-labs/cerberus/internal/service"
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/supervise"
 )
@@ -158,7 +160,14 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 		}
 		return resolved.Config.Resources, nil
 	}
-	lane, err := supervise.New(supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: cfg.AdoptRoot, SelfID: cfg.SelfResourceID})
+	// Dev-session pid and lock files are new's own, in the data dir: new never reads or writes
+	// the old tree's pids/ or locks/ (plan section 3).
+	dirs, err := datadir.Resolve(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	service.SetStateRoot(dirs.Data)
+	lane, err := supervise.New(supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: dirs.Data, SelfID: cfg.SelfResourceID})
 	if err != nil {
 		return nil, err
 	}
