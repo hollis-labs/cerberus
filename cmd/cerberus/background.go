@@ -65,11 +65,23 @@ func startBackground(app *module.App, st settings.Settings, dirs datadir.Dirs, l
 	if st.Mode != settings.ModeSupervise {
 		return b, nil
 	}
+	// The scheduler stops first (plan section 4.4), so it starts first. A scheduler that refuses
+	// to start never takes Cerberus down: the refusal is logged and fails its /healthz check.
+	sched, err := schedulerLoop(context.Background(), storage.FromApp(app).Local, st)
+	if err != nil {
+		logger.Error("daemon.scheduler.refused", "error", err.Error())
+		if h := health.From(app); h != nil {
+			refused := err
+			h.Add("scheduler", func(context.Context) error { return refused })
+		}
+	} else if sched != nil {
+		b.start(context.Background(), "scheduler", []loop{*sched})
+	}
 	hostLoops, err := hostMonitorLoops(app, st, dirs, logger)
 	if err != nil {
 		return nil, err
 	}
-	b.start(context.Background(), "hosts", hostLoops)
+	b.start(context.Background(), "hosts", append(hostLoops, exportLoops(st, dirs, logger)...))
 	return b, nil
 }
 

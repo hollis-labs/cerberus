@@ -11,8 +11,8 @@ with each slice and states only what the branch does now.
 | Migrated data or fresh start? | **Migrated.** The app is in daily use; every store reaches the new build, verified (plan section 5; `docs/substrate-port/inventory-data.md`). The new build never opens the old data in place: the import is `cerberus migrate-from` (slice 10). |
 | Variant | `app-host`: one process serves the API, the console, MCP over HTTP and the supervision loop. |
 | Who issues identity? | Cerberus's own (`identity` module), owner created offline. Auth in enforce mode. |
-| Routes | Every `/api/` route has a scope (plan section 4.3); `/healthz` is the only public route. The outpost device protocol and event-token endpoints are open mounts that authenticate their own callers. |
-| Background work | Supervision monitor, host probes, scheduler, event export, plugin processes. App code owns them and joins them before modules stop (plan section 4.4). |
+| Routes | Every `/api/` route has a scope (plan section 4.3); `/healthz` is the only public route. There is no open mount: Cerberus is an outbound client of Outposts (`pkg/outpost`, token files read in place), and the events credential is a file the hub relay reads, not an endpoint. |
+| Background work | Supervise mode only: the resource monitor, the host monitor and janitor (`internal/hostmon`), the scheduler and event export (both off by default), plugin processes. App code owns them and stops them in the plan's section 4.4 order (`cmd/cerberus/background.go`). |
 | UI | app-shell plus BOM-pinned kits; app nav and surfaces in `ui/app.json` (slice 11). |
 | Database | **SQLite at cutover; the schema is dialect-ready** (see Database). Until a table class moves to Postgres, a `database.driver` other than `sqlite` is refused at start. |
 
