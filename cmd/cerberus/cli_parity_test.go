@@ -81,7 +81,6 @@ var cliDecisions = map[string]parityDecision{
 	"cerberus uninstall": {ownerLegacy, "as install"},
 	"cerberus init":      {ownerLegacy, "created the old ~/.cerberus tree and config.yaml; the new data directory is created by serve, the import by migrate-from"},
 	"cerberus web":       {ownerSlice11, "the console moves into the serving process (slice 11); the old console unit is retired"},
-	"cerberus mcp":       {ownerSlice9, "MCP stdio, with the tool-name parity test"},
 	"cerberus mcp-http":  {ownerSlice9, "MCP over HTTP moves to /mcp on the same host; tokens become API keys"},
 
 	"cerberus data":   {ownerSlice7c, "data query over the data-access lane (internal/dataaccess)"},
