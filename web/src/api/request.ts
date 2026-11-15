@@ -77,15 +77,13 @@ export function confirmableApproval(err: unknown): ApprovalRef | null {
 /**
  * True when the route's backend has not landed in this build yet: the guard refuses a route it
  * does not map (403 route_not_mapped), or the route answers 404 or 501. Pages show "not available
- * yet" for these, never mock data.
+ * yet" for these, never mock data. A 404 with the code not_found is a served route saying the
+ * thing asked for does not exist (an unknown resource), so it is an error, not "not available".
  */
 export function notAvailable(err: unknown): boolean {
   if (!(err instanceof ApiError)) return false
-  return (
-    err.status === 404 ||
-    err.status === 501 ||
-    (err.status === 403 && err.code === "route_not_mapped")
-  )
+  if (err.status === 404) return err.code !== "not_found"
+  return err.status === 501 || (err.status === 403 && err.code === "route_not_mapped")
 }
 
 /** True when the caller is not a signed-in person: the person-only routes answer 403 user_required. */

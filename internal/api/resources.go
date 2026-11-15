@@ -22,11 +22,23 @@ type Observation struct {
 	Unit string
 	// Detail explains an unknown state.
 	Detail string
+	// Systemd is the unit's record for a systemd-supervised resource, when the user manager
+	// answered; nil leaves the systemd_* fields omitted.
+	Systemd *SystemdDetail
 }
 
-// Observer reports a supervised resource's runtime state. In observe mode the supervision
-// lane (internal/supervise, slice 3) is the observer; until it is wired, NoObserver reports
-// every state as unknown.
+// SystemdDetail is what L3 reports from a unit's `systemctl --user show` record.
+type SystemdDetail struct {
+	LoadState, ActiveState, SubState, UnitFileState, Result string
+	PID                                                     int
+	ExitStatus                                              *int
+	Restarts                                                int
+	Diagnosis                                               string
+	Highlights                                              []string
+}
+
+// Observer reports a supervised resource's runtime state. The serving build's observer is
+// the supervision lane (internal/supervise); NoObserver reports every state as unknown.
 type Observer interface {
 	Observe(ctx context.Context, r config.ResourceDef) Observation
 }
@@ -192,6 +204,13 @@ func runtimeStatus(r config.ResourceDef, obs Observation) ResourceRuntimeStatus 
 	}
 	if obs.Detail != "" {
 		st.RecommendedReason = obs.Detail
+	}
+	if d := obs.Systemd; d != nil {
+		st.SystemdLoadState, st.SystemdActiveState, st.SystemdSubState = d.LoadState, d.ActiveState, d.SubState
+		st.SystemdUnitFileState, st.SystemdResult = d.UnitFileState, d.Result
+		st.SystemdPID, st.SystemdExitStatus, st.SystemdRestarts = d.PID, d.ExitStatus, d.Restarts
+		st.SystemdDiagnosis = d.Diagnosis
+		st.SystemdHighlights = append([]string(nil), d.Highlights...)
 	}
 	return st
 }

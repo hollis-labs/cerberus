@@ -36,23 +36,27 @@ import (
 type cerberus struct {
 	app   *module.App
 	ready func(net.Addr)
-	// lane is the supervision lane, in observe mode until slice 5. The API does not read it
-	// yet; its runtime state reaches the routes with the adapter follow-up to slice 4.
+	// lane is the supervision lane. The read API's runtime fields come from it
+	// (laneObserver), and L7 and L8 run through it.
 	lane *supervise.Service
 	// home is the user's home directory (HOME from the environment the app was given).
 	home string
 }
 
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
-// place and never written. Runtime state comes from the supervision lane once the adapter
-// follow-up wires it; until then every state is unknown.
+// place and never written, with runtime state from the supervision lane (nil: unknown).
 func newAPI(app *module.App, home string, lane *supervise.Service) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
 	}
 	reg := registry.ForRoot(st.AdoptRoot)
+	var observer api.Observer
+	if lane != nil {
+		observer = laneObserver{lane: lane}
+	}
 	return api.New(api.Options{
+		Observer: observer,
 		Resources: func() ([]config.ResourceDef, error) {
 			resolved, err := reg.Resolve()
 			if err != nil {

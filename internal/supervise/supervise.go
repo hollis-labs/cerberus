@@ -148,6 +148,10 @@ type Status struct {
 	// Observed is false for a resource the lane does not supervise (a named handle for
 	// connector operations, such as an ssh server or a container).
 	Observed bool `json:"observed"`
+	// Systemd is the unit's show record for a systemd-supervised resource whose unit the
+	// user manager answered for; nil otherwise. Not serialized: the API maps it onto the old
+	// systemd_* fields.
+	Systemd *localconn.SystemdRecord `json:"-"`
 }
 
 // List observes every resource the registry lists, sorted by id.
@@ -203,6 +207,11 @@ func (s *Service) refuseSelfID(id string) error {
 		"and a Cerberus never changes itself through its own API. Upgrade it with fleet-install, or change it from another Cerberus", id)
 }
 
+// Observe observes one resource the caller already holds, without reading the registry.
+func (s *Service) Observe(ctx context.Context, res *config.ResourceDef) Status {
+	return s.observe(ctx, res)
+}
+
 func (s *Service) observe(ctx context.Context, res *config.ResourceDef) Status {
 	st := Status{ID: res.ID, Project: res.Project, Type: res.Type, Connector: res.Connector, Self: res.ID == s.o.SelfID}
 	if res.Type != string(domain.ResourceProcess) || res.Connector != "local" {
@@ -222,8 +231,11 @@ func (s *Service) observe(ctx context.Context, res *config.ResourceDef) Status {
 		st.Mode = string(localconn.ProcessModeDevSession)
 		st.State, st.Detail = localconn.ObserveDevSession(s.o.StateDir, res.ID)
 	case localconn.IsSystemdSupervised(spec):
-		state, unit, err := localconn.ObserveSystemdUnit(ctx, s.o.Runner, s.o.Home, dr)
+		state, unit, rec, err := localconn.ObserveSystemdDetail(ctx, s.o.Runner, s.o.Home, dr)
 		st.State, st.Unit = state, unit
+		if rec.LoadState != "" {
+			st.Systemd = &rec
+		}
 		if err != nil {
 			st.Detail = err.Error()
 		}
