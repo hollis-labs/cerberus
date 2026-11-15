@@ -632,7 +632,7 @@ func TestConfigBuildWebTransfers(t *testing.T) {
 				t.Fatal(err)
 			}
 			var doc map[string]any
-			if err := yaml.Unmarshal(frag, &doc); err != nil {
+			if err = yaml.Unmarshal(frag, &doc); err != nil {
 				t.Fatal(err)
 			}
 			s, err := settings.Parse(doc[settings.Key], "/u/op")
@@ -678,7 +678,7 @@ func TestTheDatabaseIsOneCleanFile(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	var ok string
-	if err := db.QueryRow("PRAGMA integrity_check").Scan(&ok); err != nil || ok != "ok" {
+	if err = db.QueryRow("PRAGMA integrity_check").Scan(&ok); err != nil || ok != "ok" {
 		t.Fatalf("integrity_check %q, %v", ok, err)
 	}
 	st, err := hostdump.ReadState(context.Background(), db, "")

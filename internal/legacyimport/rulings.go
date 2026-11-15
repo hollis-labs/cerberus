@@ -1,7 +1,7 @@
 package legacyimport
 
 // rulings are the treatments the lead ruled on for slice 10a (the rows the spec left pending).
-// They are fixed behaviour, not options; the report lists them so a reader sees what a run did
+// They are fixed behavior, not options; the report lists them so a reader sees what a run did
 // with each without reading the code.
 //
 //   - R8 hosts.history.jsonl and its rotations, R15 hosts.yaml and R18 plugin-connectors.json stay

@@ -206,7 +206,7 @@ func Parse(raw any, home string) (Settings, error) {
 	if s.EventExport.GraceSeconds < 0 || s.EventExport.IntervalSeconds < 0 {
 		return s, fmt.Errorf("%s.event_export: grace_seconds and interval_seconds must not be negative", Key)
 	}
-	if err := strict(block["build"], "build", &s.Build); err != nil {
+	if err = strict(block["build"], "build", &s.Build); err != nil {
 		return s, err
 	}
 	if s.Connectors, err = connectors(block["connectors"]); err != nil {
