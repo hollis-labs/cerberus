@@ -50,8 +50,9 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 | Old | New |
 |---|---|
 | `cerberus daemon --foreground` | `cerberus serve` (also the default with no command) |
+| — | `--help`, `version`, `config`, `health`, the read verbs and unknown words start only the modules that read config: no data directory, database or signing key is created (safe to run on the operator's account) |
 | — | `cerberus identity setup` (offline owner), `cerberus identity key create` (refuses `*`, `cerberus.*` and `cerberus.approve`) |
-| `cerberus resource list` / `resource status <id>` / `status` over the socket | The same verbs, flags and output, over HTTP to `/api` with the API key in `cerberus.cli_key_file` (default `~/.config/cerberus/cli.key`). `status` keeps the old section labels; sections later slices own print `unavailable (slice N)` |
+| `cerberus resource list` / `resource status <id>` / `status` over the socket | The same verbs, flags and output, over HTTP to `/api` with the API key in `cerberus.cli_key_file` (default `~/.config/cerberus/cli.key`). `status` keeps the old text layout and section labels; sections later slices own print `unavailable (slice N)`. **Not parity:** `status -o json` is a flat `{section: line}` object, not the old nested `statusReport`. The key file must be mode 0600 and owned by the caller, and the address must be loopback |
 | Every other verb | Not on this branch yet; each returns in its slice with the same name and flags (plan section 6). |
 
 ## Post-adoption improvements

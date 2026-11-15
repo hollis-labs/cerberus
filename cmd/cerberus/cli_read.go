@@ -44,16 +44,24 @@ func newAPIClient(app *module.App, home string) (*apiClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The key travels as a bearer over plain http, so only to a loopback address.
+	if lerr := requireLoopback(app); lerr != nil {
+		return nil, lerr
+	}
 	hh, _ := app.Config["httphost"].(map[string]any)
 	addr, _ := hh["addr"].(string)
-	if addr == "" {
-		return nil, errors.New("httphost.addr is empty; the CLI needs the serving Cerberus's address")
-	}
-	raw, err := os.ReadFile(st.CLIKeyFile) //nolint:gosec // the operator's configured key file
+	fi, err := os.Stat(st.CLIKeyFile)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("no API key at %s: create one with `cerberus identity key create --name cli --scope cerberus.read --out %s` "+
 			"(or set cerberus.cli_key_file)", st.CLIKeyFile, st.CLIKeyFile)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("read the API key %s: %w", st.CLIKeyFile, err)
+	}
+	if perr := privateKeyFile(st.CLIKeyFile, fi); perr != nil {
+		return nil, perr
+	}
+	raw, err := os.ReadFile(st.CLIKeyFile) //nolint:gosec // the operator's configured key file, checked above
 	if err != nil {
 		return nil, fmt.Errorf("read the API key %s: %w", st.CLIKeyFile, err)
 	}
@@ -355,4 +363,19 @@ func (c *cerberus) readCommands() []*cobra.Command {
 	}
 	overall.Flags().StringVarP(&overallOut, "output", "o", outputText, "output format: text|json")
 	return []*cobra.Command{resource, overall}
+}
+
+// privateKeyFile refuses a key file that is not a regular file readable by its owner alone, or
+// that another account owns: a key others can read is a key others can use.
+func privateKeyFile(path string, fi os.FileInfo) error {
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("the API key %s is not a regular file", path)
+	}
+	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("the API key %s is mode %#o, readable by other accounts; run `chmod 600 %s`", path, perm, path)
+	}
+	if uid, ok := fileOwner(fi); ok && uid != os.Getuid() {
+		return fmt.Errorf("the API key %s belongs to uid %d, not to this account (uid %d)", path, uid, os.Getuid())
+	}
+	return nil
 }

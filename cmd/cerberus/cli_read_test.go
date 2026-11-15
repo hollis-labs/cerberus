@@ -148,3 +148,29 @@ func TestRefusedKeyIsShown(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// A key file others can read, or that is not a regular file, is refused before it is read.
+func TestKeyFileMustBePrivate(t *testing.T) {
+	dir := t.TempDir()
+	key := filepath.Join(dir, "cli.key")
+	if err := os.WriteFile(key, []byte("key_x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Stat(key)
+	if err := privateKeyFile(key, fi); err != nil {
+		t.Fatalf("0600: %v", err)
+	}
+	for _, mode := range []os.FileMode{0o644, 0o640, 0o604} {
+		if err := os.Chmod(key, mode); err != nil {
+			t.Fatal(err)
+		}
+		fi, _ = os.Stat(key)
+		if err := privateKeyFile(key, fi); err == nil || !strings.Contains(err.Error(), "chmod 600") {
+			t.Errorf("mode %#o: %v, want a refusal naming chmod 600", mode, err)
+		}
+	}
+	fi, _ = os.Stat(dir)
+	if err := privateKeyFile(dir, fi); err == nil {
+		t.Error("a directory was accepted as a key file")
+	}
+}

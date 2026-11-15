@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -345,4 +346,81 @@ func freePort(t *testing.T) string {
 	}
 	defer func() { _ = l.Close() }()
 	return fmt.Sprint(l.Addr().(*net.TCPAddr).Port)
+}
+
+// The CLI sends its key over plain http, so only to a loopback address.
+func TestCLIRefusesANonLoopbackAddress(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "cli.key")
+	if err := os.WriteFile(keyFile, []byte("key_x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := newSandbox(t, "httphost: { addr: \"192.0.2.1:4786\" }\ncerberus: { cli_key_file: \""+keyFile+"\" }\n")
+	if code, out := runWithStdin(t, s, "", "resource", "list"); code == 0 || !strings.Contains(out, "loopback") {
+		t.Fatalf("non-loopback address: %d %s", code, out)
+	}
+}
+
+// Help, version and the other commands not bound to the data start no module that opens or
+// creates a file: under a read-only, empty HOME they succeed and HOME stays empty (the cutover
+// runbook runs the new binary for checks on the operator's account).
+func TestHelpAndVersionCreateNothing(t *testing.T) {
+	ro := t.TempDir()
+	if err := os.Chmod(ro, 0o555); err != nil { //nolint:gosec // a read-only directory is the point
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+	for _, args := range [][]string{
+		{"--help"}, {"-h"}, {"help"}, {"version"}, {"config"},
+		{"serve", "--help"}, {"resource", "list", "--help"}, {"status", "--help"}, {"identity", "--help"},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // the test binary
+		cmd.Env = []string{"HOME=" + ro, "PATH=" + os.Getenv("PATH")}
+		out, err := cmd.CombinedOutput()
+		cancel()
+		if err != nil {
+			t.Errorf("cerberus %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		entries, _ := os.ReadDir(ro)
+		if len(entries) != 0 {
+			t.Fatalf("cerberus %s wrote under HOME: %v", strings.Join(args, " "), entries)
+		}
+	}
+}
+
+// needsData is the module plan: only serve (the default) and the offline identity commands
+// start the modules that open the database and the signing key.
+func TestNeedsData(t *testing.T) {
+	for args, want := range map[string]bool{
+		"": true, "serve": true, "identity setup --username o": true, "identity key create --name k": true,
+		"--help": false, "serve --help": false, "version": false, "config": false, "health": false,
+		"resource list": false, "resource status web": false, "status": false, "identity": false, "nonsense": false,
+	} {
+		if got := needsData(strings.Fields(args)); got != want {
+			t.Errorf("needsData(%q) = %v, want %v", args, got, want)
+		}
+	}
+}
+
+// The plan reads every non-flag word as a command word, which holds only while the root has no
+// global flag that takes a value.
+func TestRootHasNoValueFlags(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "--help") //nolint:gosec // the test binary
+	cmd.Env = []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH")}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := strings.SplitN(string(out), "Flags:", 2)
+	if len(flags) != 2 {
+		t.Fatalf("no Flags section in:\n%s", out)
+	}
+	for _, line := range strings.Split(flags[1], "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "-h, --help") {
+			t.Errorf("root flag %q: needsData must learn to skip its value", line)
+		}
+	}
 }
