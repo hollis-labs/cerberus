@@ -11,6 +11,10 @@ adds its rows. The plan is `docs/substrate-port-plan.md`.
 | BOM does not pin `libs/security/webauthn` (passkey approvals). | Not pinned until the owner decides whether passkey approvals stay. Every package that depends on it is out of this branch (`docs/architecture.md`). |
 | `substrate scan-public --ref HEAD` reports findings carried from `main` (test fixtures with fake keys, example paths and addresses in docs; tree and history). None come from the port's own files. | Needs triage: fix or allowlist with a reason, owner sign-off for history. |
 | Code carried from `main` has lint findings that `main` never gated in full. | CI lints new issues only; each slice cleans what it ports. |
+| `export-legacy` does not refuse while the old daemon's lock is held. Old folds approvals and loads `applied.json` once at start, so a running old daemon would chain its next approval from a stale seq and rewrite `applied.json` from a stale map. | Awaiting the lead's ruling (refuse on the lock, and stop old before runbook step 2). Until then the runbook must stop the old daemon before `export-legacy` and start it again in standby after. |
+| `export-legacy` does not copy `state/hosts.json` and `state/overview_snapshots.json` back. They are in the D3 manifest, so they must still be unchanged in the old tree. | Awaiting the lead's ruling. |
+| The standby sidecar import (F2, `import-standby`) is not built: old's standby chain mixes the standby sink's key and the main key, against section 7.1. | Awaiting the lead's ruling (fix on main, or accept both keys). |
+| `export-legacy`'s progress file is `<data>/migration/export-state.json` (`legacyexport.StateRel`), the one write into the new data directory. | Awaiting the lead's ruling on its location (the alternative is `--state <path>`). |
 
 ## Paths
 
@@ -92,6 +96,7 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 | `cerberus secrets set <service>/<key>` (in-process keyring write, `beginAudit` only) | The same verb, terminal only, the value pasted with no echo (raw mode, Ctrl-C cancels), old's output and unload/load hint, now over `POST /api/secrets/{service}/{key}[/plan,/confirm]` (admin) with `GET /api/secrets/{service}/{key}` (read, presence only) for the "already has a value" warning. **Changed:** a gated admin write, recorded as `secrets.set` with `config {name}` and old's operation contract (effect admin, target kind `secret` from `name`); the plan binds the value by its keyed digest. Any well-formed name is accepted (old's regex), declared by an installed connector or not, so a backend's credential is set before its plugin is installed. Keyring effect unchanged (service `cerberus`, account `<service>/<key>`). **Owner only** (the lead's ruling (a), as for the brakes and plugin install; old allowed it from any interactive terminal): the owner signed in on the console, or the CLI's key with `--approval <id>` naming the out-of-band approval its first run opened (409 `approval_pending`, printed with the approve-on-console instruction) once the owner approved it there; paste the same value, since the approval binds its digest. An MCP client is refused 428 and opens no approval. The body carries `acknowledged` (the CLI sends it; a write without it is 409 `acknowledgment_required`). Needs the server |
 | `cerberus register <path>`, `deregister <owner>`, `registry list [-o json]`, `registry health` | The same verbs and output. They read and write `<adopt_root>/registry.yaml` in place, directly, as old's CLI did (no gate, no audit record, old's atomic rename; old had no lock), so registering works with the server down; the server reads the index fresh. The console's gated register route is slice 11's |
 | `cerberus connectors exec\|plan <id> <op>` (`--arg`, `--arg-json`, `--input`, `--dry-run`, `--ack`, `--approval`), `connectors plugin managed list\|load\|unload\|uninstall\|health` | The same verbs, flags and JSON output over the admin routes. `--break-glass`/`--reason` on exec are obsolete (below) |
+| — | `cerberus export-legacy --since <handoff> [--old-home] [--old-db] [--old-anchor-account] [--only telemetry] [-o json]`: the rollback of `migrate-from` (section "Rollback (slice 10b)" below). `--check-legacy-files --d3-copy <dir>` is runbook step 0. Needs no server; exits 0 when every step is done, 3 when only the class B step is pending, 1 for a refusal or an error |
 | Every other verb | Listed with its owner in the CLI verb parity table (below); each returns with its slice with the same name and flags, or is recorded obsolete. |
 
 ## CLI verb parity
@@ -110,6 +115,43 @@ reason; an unknown old verb, or a decision for something now present, fails it. 
 | slice 10 | 1 | `config migrate` (the import is `migrate-from`) |
 | slice 11 | 1 | `web` (the console moves into the serving process) |
 | slice 12; `$LEGACY` until F | 4 | `daemon` (replaced by `serve`), `install`, `uninstall`, `init` |
+
+## Rollback (slice 10b)
+
+`cerberus export-legacy --since <handoff>` writes what this build recorded after the handoff back into the old tree, in
+the old build's formats, so the old binary takes over where this one stopped. The handoff is the D3 manifest
+`migrate-from` kept in `<data>/migration/d3-manifest.json`, named by its body sha256 or a path to it; the migration's
+own `report.json` must say it migrated against that manifest. `--old-home`, `--old-db` and `--old-anchor-account`
+default to the tree the manifest was taken of; a rehearsal points them at a second copy.
+
+Nothing is written unless the old tree matches the manifest (files by sha256, the anchor's head, `main.db` logically,
+read live through its WAL), or the post-write state an earlier run recorded for the steps it finished
+(`manifest.Expect`). The first mismatch is named. A step a crash or an error interrupted may have each of its files in
+either state; anything else refuses. A finished run run again changes nothing.
+
+| Store | What export-legacy does |
+|---|---|
+| `audit/YYYY-MM.jsonl` | New's file must start with old's bytes (sha256 of the first `size` bytes equals the manifest's); the rest is appended under old's `audit/.lock`. A month old never had (a rollover) is created whole, 0600. Month files new pruned stay. `.digest_key` is never touched and must be the same key. New's chain must verify against new's anchor first |
+| audit anchor | Moved to new's last record (`{seq, hash, file, offset}`, under `cerberus-audit-anchor` and the old account) only after the old tree's chain verifies against that head, then checked against the keychain. New's own anchor is left |
+| `approvals/events.jsonl` | Prefix-checked and appended, after new's store reads whole and `gate.VerifyApprovals` passes on it. Old's store must then read to new's next seq. Owner-session decisions go as they are: old never consumes one (its verifier refuses a `v: 1` seal) |
+| `brakes/events.jsonl` | Prefix-checked and appended under the file's flock; old's store must fold to new's state |
+| `paused`, `paused.<id>` | Set to new's pause set: a missing marker is created as old wrote it (`paused\n`, 0644), a marker new resumed is removed |
+| `runtime/applied.json` | Old's map overlaid with new's digests (none is deleted), written as old wrote it (`MarshalIndent`, two spaces, no trailing newline, tmp 0600 and rename), and only when new added or changed one. New's digests must be keyed with old's key |
+| `credential-issuance/<id>/<state>.json` | Each receipt new recorded becomes old's create-once file (0600, id, connector, operation, binding_digest, state, references, at in UTC, no newline); a new id's directory is created 0700. An existing file must already be those bytes |
+| `main.db` host tables (class B) | Last, in one `BEGIN IMMEDIATE` transaction: samples and rollups old lacks are inserted (a sample past the manifest's newest; a rollup past old's newest bucket of its host and grain), events past the manifest's `sqlite_sequence`, status per host when new's `last_attempt` is newer, the larger rollup watermark. A row both sides hold with different values is a conflict. Verified before commit; nothing new's janitor deleted is removed from old. If the Telemetry store is unreachable or a row conflicts, the step is recorded pending and the command exits 3; `--only telemetry` finishes it |
+
+Not reversed, reported: the config-dir `policy/` and the config fragment (a warning names the policy files that differ),
+`oauth/`, `alerts/`, `events/`, `standby.d/`, and the files that stay in place (`registry.yaml`, `hosts.yaml`,
+`hosts.history.jsonl*`, `plugin-connectors.json`). The pending rulings are in Gaps, above.
+
+`export-legacy --check-legacy-files --d3-copy <dir>` (runbook step 0) compares `plugin-connectors.json` with
+`<dir>/cerberus-home/plugin-connectors.json` and, when it changed, parses it with the old build's own decoder, carried
+verbatim from main (`readPluginConnectorState`, pinned to main's text by a test). A file old would refuse stops the
+rollback.
+
+`scripts/verify-exported-chain.sh` is the rehearsal: the old binary built from `git archive origin/main`, the fixture
+migrated, a window of activity, `export-legacy` onto a second copy, then the old binary's `audit verify` there, and a
+cut chain it must refuse.
 
 ## Post-adoption improvements
 
