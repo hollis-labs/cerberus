@@ -170,6 +170,7 @@ func mergeHostTables(ctx context.Context, q hostdump.Querier, oldPath string, m 
 		return hostdump.State{}, fmt.Errorf("open old's main.db %s: %w", oldPath, err)
 	}
 	defer func() { _ = conn.Close() }()
+	// gostore:allow sqlite-only (old's main.db is the old build's SQLite file)
 	if _, err = conn.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", busyTimeoutMS)); err != nil {
 		return hostdump.State{}, err
 	}
@@ -188,6 +189,7 @@ func mergeHostTables(ctx context.Context, q hostdump.Querier, oldPath string, m 
 		return hostdump.State{}, fmt.Errorf("read new's sqlite_sequence: %w", err)
 	}
 
+	// gostore:allow sqlite-only (old's main.db is the old build's SQLite file)
 	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return hostdump.State{}, fmt.Errorf("lock old's main.db %s: %w", oldPath, err)
 	}
@@ -341,16 +343,19 @@ func (g *merger) run(newRows map[string][]hostRow, newSeqs map[string]int64, m d
 		}
 	}
 	var oldSeq int64
+	// gostore:allow sqlite-only (old's main.db is the old build's SQLite file)
 	if err := g.conn.QueryRowContext(g.ctx, "SELECT seq FROM sqlite_sequence WHERE name = ?", hostdump.SequenceTable).Scan(&oldSeq); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	want := max(oldSeq, newSeqs[hostdump.SequenceTable], maxID)
 	if want != oldSeq {
+		// gostore:allow sqlite-only (old's main.db is the old build's SQLite file)
 		res, err := g.conn.ExecContext(g.ctx, "UPDATE sqlite_sequence SET seq = ? WHERE name = ?", want, hostdump.SequenceTable)
 		if err != nil {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
+			// gostore:allow sqlite-only (old's main.db is the old build's SQLite file)
 			if _, err = g.conn.ExecContext(g.ctx, "INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", hostdump.SequenceTable, want); err != nil {
 				return err
 			}
@@ -447,12 +452,14 @@ func (g *merger) verify(newRows map[string][]hostRow, newSeqs map[string]int64) 
 		}
 	}
 	var seq, maxID sql.NullInt64
+	// gostore:allow sqlite-only (old's main.db is the old build's SQLite file)
 	if err := g.conn.QueryRowContext(g.ctx, "SELECT (SELECT seq FROM sqlite_sequence WHERE name = ?), (SELECT MAX(id) FROM host_events)", hostdump.SequenceTable).Scan(&seq, &maxID); err != nil {
 		return err
 	}
 	if maxID.Valid && (!seq.Valid || seq.Int64 < maxID.Int64 || seq.Int64 < newSeqs[hostdump.SequenceTable]) {
 		return fmt.Errorf("verify: host_events sqlite_sequence %v is behind max(id) %d or new's %d", seq, maxID.Int64, newSeqs[hostdump.SequenceTable])
 	}
+	// gostore:allow sqlite-only (old's main.db is the old build's SQLite file)
 	rows, err := g.conn.QueryContext(g.ctx, "PRAGMA integrity_check")
 	if err != nil {
 		return err
