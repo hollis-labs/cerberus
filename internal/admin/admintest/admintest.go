@@ -43,6 +43,9 @@ type Plugin struct {
 	Loaded bool
 	// Pending leaves the entry without a review, as an install from before review did.
 	Pending bool
+	// SecretBackend, when set, makes the plugin the secret backend for that vault scheme (op or
+	// keeper): it resolves <scheme>://<path> to "resolved-<scheme>:<path with / as ->".
+	SecretBackend string
 }
 
 // Installed is where the fixture put the plugin.
@@ -54,20 +57,30 @@ type Installed struct {
 
 // Manifest is the echo plugin's plugin.yaml: a read (echo), an issuing write (provision,
 // on the resource its id names), a secret (token), and the issuance capability.
-func Manifest(id string) string {
-	return strings.ReplaceAll(`schema_version: "1"
+func Manifest(id string) string { return manifest(id, "") }
+
+// BackendManifest is Manifest for a plugin that is also the secret backend for scheme.
+func BackendManifest(id, scheme string) string { return manifest(id, scheme) }
+
+func manifest(id, scheme string) string {
+	args, backend := "[ID]", ""
+	if scheme != "" {
+		args = "[ID, backend]"
+		backend = "  secret_backend:\n    scheme: " + scheme + "\n"
+	}
+	return strings.Replace(strings.ReplaceAll(strings.Replace(`schema_version: "1"
 id: ID
 version: 1.0.0
 protocol: plugin-sdk/subprocess
 runtime: subprocess
 entrypoint:
   command: bin/echo-plugin
-  args: [ID]
+  args: ARGS
 capabilities:
   - name: credential_issuance_v1
     reason: issues a login for the target it provisions
 cerberus:
-  connector:
+BACKEND  connector:
     api_version: cerberus.connector/v1
     kind: Connector
     id: ID
@@ -102,7 +115,7 @@ cerberus:
           properties:
             issuance_id: {type: string}
             id: {type: string}
-`, "ID", id)
+`, "ARGS", args, 1), "ID", id), "BACKEND", backend, 1)
 }
 
 // Install puts the echo plugin built at binary into adoptRoot as a reviewed bundle and records
@@ -116,7 +129,7 @@ func Install(adoptRoot, binary string, p Plugin) (Installed, error) {
 		return Installed{}, err
 	}
 	defer func() { _ = os.RemoveAll(src) }()
-	if err = WriteSource(src, binary, p.ID); err != nil {
+	if err = writeSource(src, binary, p.ID, p.SecretBackend); err != nil {
 		return Installed{}, err
 	}
 	store := pluginhost.Store{Root: filepath.Join(adoptRoot, "plugins")}
@@ -159,7 +172,9 @@ func Install(adoptRoot, binary string, p Plugin) (Installed, error) {
 
 // WriteSource writes the echo plugin built at binary, as plugin id, into dir: a plugin source
 // directory an install reviews (plugin.yaml and bin/echo-plugin).
-func WriteSource(dir, binary, id string) error {
+func WriteSource(dir, binary, id string) error { return writeSource(dir, binary, id, "") }
+
+func writeSource(dir, binary, id, scheme string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o700); err != nil {
 		return err
 	}
@@ -170,7 +185,7 @@ func WriteSource(dir, binary, id string) error {
 	if err = os.WriteFile(filepath.Join(dir, "bin", "echo-plugin"), bin, 0o700); err != nil { //nolint:gosec // an executable
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "plugin.yaml"), []byte(Manifest(id)), 0o600)
+	return os.WriteFile(filepath.Join(dir, "plugin.yaml"), []byte(manifest(id, scheme)), 0o600)
 }
 
 // Marks are the files the echo plugin wrote under the adopted root's plugin-data (one directory

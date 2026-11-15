@@ -1,6 +1,7 @@
 // Command echoplugin is a synthetic third-party plugin for tests: a standalone binary built
 // against the public plugin SDK only, as an out-of-tree plugin is. It echoes each call's tool
-// and arguments, reports the names (never the values) of credentials the host issued to it,
+// and arguments (or, installed as a secret backend, resolves vault references to predictable
+// values), reports the names (never the values) of credentials the host issued to it,
 // and marks its data directory when it loads and unloads, so a test can see the host stop it.
 package main
 
@@ -77,12 +78,37 @@ func (e *echo) MCPCallTool(_ context.Context, req sdk.MCPCallRequest) (sdk.MCPCa
 	return sdk.MCPCallResult{Content: content}, nil
 }
 
+// resolveCommand is pkg/plugin's ResolveCommand, spelled out like issuedPrefix.
+const resolveCommand = "cerberus.secret/resolve"
+
+// backend is the echo plugin as a secret backend: it resolves <scheme>://<path> to
+// "resolved-<scheme>:<path with / as ->", a value the test can predict and nothing else holds.
+type backend struct{ *echo }
+
+func (b backend) Command(_ context.Context, req sdk.CommandRequest) (sdk.CommandResult, error) {
+	if req.Name != resolveCommand {
+		return sdk.CommandResult{Action: "error", Content: "unknown command"}, nil
+	}
+	var args struct {
+		Ref string `json:"ref"`
+	}
+	if err := json.Unmarshal([]byte(req.Args), &args); err != nil {
+		return sdk.CommandResult{}, err
+	}
+	b.mark("resolved")
+	return sdk.CommandResult{Action: "message", Content: "resolved-" + strings.ReplaceAll(args.Ref, "/", "-")}, nil
+}
+
 func main() {
 	id := "echo"
 	if len(os.Args) > 1 {
 		id = os.Args[1]
 	}
-	if err := sdk.Serve(&echo{id: id}); err != nil {
+	var p sdk.Plugin = &echo{id: id}
+	if len(os.Args) > 2 && os.Args[2] == "backend" {
+		p = backend{&echo{id: id}}
+	}
+	if err := sdk.Serve(p); err != nil {
 		os.Exit(1)
 	}
 }
