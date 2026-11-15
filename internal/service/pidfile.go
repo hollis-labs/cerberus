@@ -27,13 +27,14 @@ type PIDMeta struct {
 	CerberusVersion string    `json:"cerberus_version"`
 }
 
-// pidDir returns the path to ~/.cerberus/pids/, creating it if needed.
+// pidDir returns the path to <state root>/pids/ (~/.cerberus/pids/ by default), creating it
+// if needed.
 func pidDir() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := stateDir()
 	if err != nil {
-		return "", fmt.Errorf("get home dir: %w", err)
+		return "", err
 	}
-	dir := filepath.Join(home, ".cerberus", "pids")
+	dir := filepath.Join(root, "pids")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create pid dir: %w", err)
 	}

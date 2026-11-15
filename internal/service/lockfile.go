@@ -22,13 +22,14 @@ type Lock struct {
 	lockDir   string // override for testing; empty means use default
 }
 
-// lockDir returns the path to ~/.cerberus/locks/, creating it if needed.
+// defaultLockDir returns the path to <state root>/locks/ (~/.cerberus/locks/ by default),
+// creating it if needed.
 func defaultLockDir() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := stateDir()
 	if err != nil {
-		return "", fmt.Errorf("get home dir: %w", err)
+		return "", err
 	}
-	dir := filepath.Join(home, ".cerberus", "locks")
+	dir := filepath.Join(root, "locks")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create lock dir: %w", err)
 	}

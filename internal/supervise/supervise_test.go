@@ -136,26 +136,34 @@ func linuxSystemd(t *testing.T) {
 	}
 }
 
-// Observe mode refuses every mutation, naming observe mode and the old CLI.
+// Observe mode refuses every mutation, acknowledged or not, naming observe mode and the old CLI.
 func TestObserveRefusesEveryMutation(t *testing.T) {
 	w := newWorld(t)
-	for _, verb := range []string{"apply", "deploy", "start", "stop", "reload", "sync", "remove"} {
+	for _, verb := range Verbs {
 		t.Run(verb, func(t *testing.T) {
-			err := w.svc.Mutate(context.Background(), verb, "api")
-			if !errors.Is(err, ErrObserve) {
-				t.Fatalf("err = %v, want ErrObserve", err)
+			out, err := w.svc.Mutate(context.Background(), Request{Verb: verb, ID: "api", Acknowledged: true})
+			if out != nil || !IsObserveRefusal(err) {
+				t.Fatalf("out = %+v, err = %v, want the observe refusal", out, err)
+			}
+			var r *Refusal
+			if !errors.As(err, &r) || r.Status != 409 {
+				t.Fatalf("refusal %+v, want 409 observe_mode", err)
 			}
 			for _, want := range []string{"observe mode", verb + ` of "api"`, "old CLI"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("refusal %q lacks %q", err, want)
 				}
 			}
+			if _, err = w.svc.Mutate(context.Background(), Request{Verb: verb, ID: "api"}); !IsObserveRefusal(err) {
+				t.Fatalf("without --ack: %v, want the observe refusal first", err)
+			}
 		})
 	}
-	if err := w.svc.Mutate(context.Background(), "explode", "api"); err == nil || errors.Is(err, ErrObserve) {
+	_, err := w.svc.Mutate(context.Background(), Request{Verb: "explode", ID: "api", Acknowledged: true})
+	if err == nil || IsObserveRefusal(err) {
 		t.Fatalf("an unknown verb: %v", err)
 	}
-	if len(Verbs) != 7 {
+	if strings.Join(Verbs, ",") != "apply,deploy,stop,reload,sync,remove" {
 		t.Fatalf("Verbs = %v", Verbs)
 	}
 	if len(w.manager.calls) != 0 {
@@ -163,10 +171,10 @@ func TestObserveRefusesEveryMutation(t *testing.T) {
 	}
 }
 
-// Supervise mode is not available in this slice.
-func TestSuperviseModeWaitsForItsSlice(t *testing.T) {
+// Supervise mode needs its config, store, digest key and approver; an unknown mode is refused.
+func TestSuperviseModeNeedsItsDependencies(t *testing.T) {
 	_, err := New(Options{Mode: settings.ModeSupervise, Resources: func() ([]config.ResourceDef, error) { return nil, nil }})
-	if err == nil || !strings.Contains(err.Error(), "slice 5") {
+	if err == nil || !strings.Contains(err.Error(), "config source") {
 		t.Fatalf("err = %v", err)
 	}
 	if _, err := New(Options{Mode: "chaos", Resources: func() ([]config.ResourceDef, error) { return nil, nil }}); err == nil {
@@ -287,7 +295,7 @@ func TestObserveWritesNothing(t *testing.T) {
 		}
 	}
 	for _, verb := range Verbs {
-		_ = w.svc.Mutate(context.Background(), verb, "web-dev")
+		_, _ = w.svc.Mutate(context.Background(), Request{Verb: verb, ID: "web-dev", Acknowledged: true})
 	}
 	after := fingerprint(t, w.home)
 	for k, v := range before {

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
 // The scopes (plan section 4.3). The owner holds "*".
@@ -83,6 +85,14 @@ type Options struct {
 	Hosts HostSource
 	// Home is the home directory install layouts derive from (log paths).
 	Home string
+	// Mutator runs L7 and L8 (the supervision lane); nil answers them 409 observe_mode.
+	Mutator Mutator
+}
+
+// Mutator runs one resource mutation. A *supervise.Refusal is answered with its status and
+// the flat {code, message} body; a result, successful or not, with 200.
+type Mutator interface {
+	Mutate(ctx context.Context, req supervise.Request) (*supervise.OpResult, error)
 }
 
 // API serves the routes.
@@ -333,18 +343,83 @@ func logPath(home string, d config.ResourceDef, sp localconn.ProcessSpec, stream
 	return "", fmt.Errorf("unsupported process mode %q for resource %q", sp.Mode, d.ID)
 }
 
-// mutate refuses in observe mode: the old build still supervises (plan section 7.2). Slice 5
-// serves the verbs.
+// mutate serves L7 and L8 (docs/substrate-port/legacy-routes.md) as the old socket did: the
+// body is JSON or empty (an empty body carries no acknowledgment), at most 1 MiB, unknown
+// fields ignored. The lane answers a refusal before the run with its status and code, and
+// every run, failed or not, with 200 and the OpResult.
 func (a *API) mutate(verb string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if _, err := findResource(a.o.Resources, id); err != nil {
+		if a.o.Mutator == nil {
+			apierr.Write(w, http.StatusConflict, "observe_mode", fmt.Sprintf(
+				"this Cerberus is in observe mode, so it refused %s of %q: the old Cerberus still supervises the workloads and runs every change", verb, id), nil)
+			return
+		}
+		req, err := decodeMutation(r.Body, verb, id)
+		if err != nil {
+			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
+			return
+		}
+		out, err := a.o.Mutator.Mutate(r.Context(), req)
+		if err != nil {
+			var refusal *supervise.Refusal
+			if errors.As(err, &refusal) {
+				apierr.Write(w, refusal.Status, refusal.Code, refusal.Message, nil)
+				return
+			}
 			writeErr(w, err)
 			return
 		}
-		apierr.Write(w, http.StatusConflict, "observe_mode", fmt.Sprintf(
-			"this Cerberus is in observe mode, so it refused %s of %q: the old Cerberus still supervises the workloads and runs every change", verb, id), nil)
+		writeJSON(w, opResult(out))
 	}
+}
+
+// decodeMutation is the old socket's decodeMutationOptions for the plain route: a
+// confirmed_plan_hash in the body is ignored there, since only a confirm route sets it.
+func decodeMutation(body io.Reader, verb, id string) (supervise.Request, error) {
+	req := supervise.Request{Verb: verb, ID: id}
+	var data []byte
+	if body != nil {
+		var err error
+		if data, err = io.ReadAll(io.LimitReader(body, 1<<20)); err != nil {
+			return req, fmt.Errorf("read mutation body: %w", err)
+		}
+	}
+	if len(data) == 0 {
+		return req, nil
+	}
+	var opts struct {
+		Acknowledged              bool   `json:"acknowledged"`
+		InstallAfterBuildOverride *bool  `json:"install_after_build_override"`
+		ApprovalID                string `json:"approval_id"`
+		Plan                      bool   `json:"plan"`
+	}
+	if err := json.Unmarshal(data, &opts); err != nil {
+		return req, fmt.Errorf("decode mutation body: %w", err)
+	}
+	req.Acknowledged, req.InstallAfterBuildOverride, req.ApprovalID, req.Plan =
+		opts.Acknowledged, opts.InstallAfterBuildOverride, opts.ApprovalID, opts.Plan
+	return req, nil
+}
+
+// opResult is the lane's result in the API's OpResult.
+func opResult(o *supervise.OpResult) OpResult {
+	out := OpResult{
+		Warnings:       o.Warnings,
+		BuildPerformed: o.BuildPerformed,
+		Success:        o.Success,
+		ServiceID:      o.ServiceID,
+		Message:        o.Message,
+		BuildOutput:    o.BuildOutput,
+		BuildLogPath:   o.BuildLogPath,
+		InstallOutput:  o.InstallOutput,
+		InstallSkipped: o.InstallSkipped,
+		Error:          o.Error,
+	}
+	if o.Activation != nil {
+		out.Activation = &ActivationArtifact{Path: o.Activation.Path, SHA256: o.Activation.SHA256, ModifiedAt: o.Activation.ModifiedAt}
+	}
+	return out
 }
 
 func unknownAction(w http.ResponseWriter, r *http.Request) {

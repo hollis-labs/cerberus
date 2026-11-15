@@ -12,7 +12,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -55,6 +57,9 @@ func TestMain(m *testing.M) {
 // listens on an ephemeral loopback port.
 type sandbox struct {
 	home, data, override string
+	// bin, when set, comes first on PATH: a test's fake systemctl, so the binary never reaches
+	// the host's user manager.
+	bin string
 }
 
 func newSandbox(t *testing.T, override string) sandbox {
@@ -77,7 +82,7 @@ func (s sandbox) command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // the test binary
 	cmd.Env = []string{
 		"HOME=" + s.home,
-		"PATH=" + os.Getenv("PATH"),
+		"PATH=" + strings.TrimPrefix(s.bin+":"+os.Getenv("PATH"), ":"),
 		"XDG_DATA_HOME=" + filepath.Join(s.home, ".local", "share"),
 		"XDG_CONFIG_HOME=" + filepath.Join(s.home, ".config"),
 		"XDG_STATE_HOME=" + filepath.Join(s.home, ".local", "state"),
@@ -90,8 +95,27 @@ func (s sandbox) command(ctx context.Context, args ...string) *exec.Cmd {
 
 var listening = regexp.MustCompile(`msg="cerberus listening".*addr=(\S+)`)
 
+// serveLog is serve's stderr as the reader goroutine collects it; the test reads it while the
+// process still logs, so it is guarded.
+type serveLog struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *serveLog) WriteString(s string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.b.WriteString(s)
+}
+
+func (l *serveLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // start runs `cerberus serve` and returns its base URL once it listens.
-func start(t *testing.T, s sandbox) (*exec.Cmd, string, *strings.Builder) {
+func start(t *testing.T, s sandbox) (*exec.Cmd, string, *serveLog) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	t.Cleanup(cancel)
@@ -105,7 +129,7 @@ func start(t *testing.T, s sandbox) (*exec.Cmd, string, *strings.Builder) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
-	log := &strings.Builder{}
+	log := &serveLog{}
 	addr := make(chan string, 1)
 	go func() {
 		sc := bufio.NewScanner(stderr)
@@ -283,7 +307,6 @@ func TestServeRefusesBadConfig(t *testing.T) {
 		"relative root": {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { install_root: apps }\n", "cerberus.install_root"},
 		"postgres":      {"httphost: { addr: \"127.0.0.1:0\" }\ndatabase: { driver: postgres }\n", "SQLite only"},
 		"bad mode":      {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: chaos }\n", "cerberus.mode must be observe or supervise"},
-		"supervise":     {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n", "slice 5"},
 		"unknown self":  {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { self_resource_id: ghost }\n", "lists no such resource"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -292,6 +315,23 @@ func TestServeRefusesBadConfig(t *testing.T) {
 				t.Fatalf("exit %d, want 1 naming %q:\n%s", code, c.want, out)
 			}
 		})
+	}
+}
+
+// Supervise mode refuses to start while a policy is configured: until slice 6 nothing would
+// enforce it.
+func TestServeInSuperviseModeRefusesAConfiguredPolicy(t *testing.T) {
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n")
+	dir := filepath.Join(s.home, ".config", "cerberus", "policy")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "applied.yaml"), []byte("rules: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out := runToExit(t, s, "serve")
+	if code != 1 || !strings.Contains(out, "a policy is configured") || !strings.Contains(out, "slice 6") {
+		t.Fatalf("exit %d, want 1 naming the policy:\n%s", code, out)
 	}
 }
 
@@ -405,5 +445,79 @@ func TestServeInObserveModeWritesNothingInTheAdoptedTree(t *testing.T) {
 		if _, ok := before[k]; !ok {
 			t.Errorf("added: %s", k)
 		}
+	}
+}
+
+// fakeSystemctl is a systemctl on PATH that records every call and reports every unit loaded,
+// enabled and running.
+const fakeSystemctl = `#!/bin/sh
+echo "$*" >> "$(dirname "$0")/calls.log"
+case "$2" in
+show) printf 'Id=%s\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nNeedDaemonReload=no\nMainPID=4242\n' "$3" ;;
+esac
+exit 0
+`
+
+// Supervise mode's stop order (plan section 4.4), with a real process and SIGTERM: HTTP stops
+// first, then the resource monitor; the process exits 0; no os_service unit is stopped,
+// disabled, killed or restarted, and the dev session the monitor started is left running.
+func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n")
+	s.bin = filepath.Join(filepath.Dir(s.home), "bin")
+	if err := os.MkdirAll(s.bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.bin, "systemctl"), []byte(fakeSystemctl), 0o700); err != nil { //nolint:gosec // the fake must run
+		t.Fatal(err)
+	}
+	state := filepath.Join(s.home, ".cerberus")
+	desc := filepath.Join(s.home, "apps", "demo.cerberus.yaml")
+	if err := os.MkdirAll(filepath.Dir(desc), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := "kind: cerberus-project/v1\nowner: demo\nnamespace: local\nproject:\n  id: demo\n  name: Demo\nresources:\n" +
+		"  - id: demo-svc\n    type: process\n    project: demo\n    connector: local\n    env: dev\n    owner: self\n    admin: self\n    config:\n      mode: os_service\n      supervisor: systemd_user\n      command: [\"/bin/sleep\", \"300\"]\n" +
+		"  - id: demo-dev\n    type: process\n    project: demo\n    connector: local\n    env: dev\n    owner: self\n    admin: self\n    config:\n      mode: dev_session\n      auto_restart: true\n      command: [\"/bin/sleep\", \"300\"]\n"
+	registry := "version: 1\nentries:\n  - owner: demo\n    namespace: local\n    path: " + desc + "\n    kind: cerberus-project/v1\n"
+	for p, content := range map[string]string{desc: descriptor, filepath.Join(state, "registry.yaml"): registry} {
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd, _, log := start(t, s)
+	pidFile := filepath.Join(s.data, "pids", "demo-dev.pid")
+	var pid int
+	deadline := time.Now().Add(20 * time.Second)
+	for pid == 0 && time.Now().Before(deadline) {
+		if b, err := os.ReadFile(pidFile); err == nil { //nolint:gosec // the sandbox's own tree
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatalf("the monitor did not start the auto_restart session:\n%s", log)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	stopServe(t, cmd, log)
+
+	out := log.String()
+	httpAt, monitorAt := strings.Index(out, "cerberus http stopped"), strings.Index(out, "daemon.resource_monitor.stop")
+	if httpAt < 0 || monitorAt < 0 || httpAt > monitorAt {
+		t.Fatalf("stop order: http at %d, monitor at %d, want http first:\n%s", httpAt, monitorAt, out)
+	}
+	if syscall.Kill(pid, 0) != nil {
+		t.Fatal("the dev session did not outlive cerberus")
+	}
+	calls, _ := os.ReadFile(filepath.Join(s.bin, "calls.log")) //nolint:gosec // the sandbox's own tree
+	for _, verb := range []string{" stop ", " kill ", " disable ", " restart ", " start "} {
+		if strings.Contains(" "+strings.ReplaceAll(string(calls), "\n", " \n ")+" ", verb) {
+			t.Fatalf("cerberus ran systemctl%s on exit or start:\n%s", verb, calls)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(state, "pids")); !os.IsNotExist(err) {
+		t.Fatalf("the old tree's pids/ was touched: %v", err)
 	}
 }

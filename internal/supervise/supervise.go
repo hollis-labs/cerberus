@@ -1,19 +1,26 @@
 // Package supervise is the Substrate build's supervision lane (docs/substrate-port-plan.md
-// sections 4.2 and 7.2 C). In observe mode, the only mode this slice enables, it reads the
-// descriptors the registry lists and the state of each workload, reports status, and refuses
-// every mutation: the old build still owns the units, and two writers must never meet.
+// sections 4.2 and 7.2). In observe mode it reads the descriptors the registry lists and the
+// state of each workload, reports status, and refuses every mutation: the old build still owns
+// the units, and two writers must never meet. In supervise mode it runs the old build's
+// mutations (apply, deploy, reload, stop, sync, remove) with the old build's results.
 //
 // Observe writes nothing anywhere. A systemd unit's state comes from `systemctl --user show`;
-// a dev session's from the old build's pid and launch metadata files, read in place and never
-// tidied (a stale pid file is reported, not removed).
+// a dev session's from this build's pid and launch metadata files in the data directory, read
+// and never tidied (a stale pid file is reported, not removed).
 package supervise
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"sort"
+	"sync"
 
+	"github.com/hollis-labs/libs/core/store"
+
+	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/domain"
@@ -21,12 +28,9 @@ import (
 	"github.com/hollis-labs/cerberus/internal/settings"
 )
 
-// Verbs are the mutations the supervision lane will serve in supervise mode. Observe mode
-// refuses each of them.
-var Verbs = []string{"apply", "deploy", "start", "stop", "reload", "sync", "remove"}
-
-// ErrObserve is the class of every refusal in observe mode.
-var ErrObserve = errors.New("observe mode")
+// Verbs are the mutations the supervision lane serves in supervise mode, the old build's six.
+// Observe mode refuses each of them. There is no start: apply starts (plan 7.2 D7).
+var Verbs = []string{"apply", "deploy", "stop", "reload", "sync", "remove"}
 
 // Options build a Service.
 type Options struct {
@@ -35,25 +39,69 @@ type Options struct {
 	Resources func() ([]config.ResourceDef, error)
 	// Home is the home directory units and install layouts derive from.
 	Home string
-	// StateDir is the old build's state tree (adopt_root), where dev session pid files live.
+	// StateDir is the data directory, where this build's dev session pid files live. It is never
+	// the old build's tree: new never reads ~/.cerberus/pids or locks (plan section 3).
 	StateDir string
 	// Runner runs systemctl for unit state; nil is the user manager.
 	Runner localconn.CommandRunner
 	// SelfID is the resource this process runs as; empty when it has none.
 	SelfID string
+
+	// Supervise mode only.
+
+	// Config returns the configuration the registry assembles, read fresh for each call.
+	Config func() (*config.ConfigV2, error)
+	// Store is the class A store: pause state and applied digests.
+	Store *store.Store
+	// Digester keys applied digests (the audit chain's digest key).
+	Digester Digester
+	// Approver decides each mutation before it runs.
+	Approver Approver
+	// Brakes returns the brake state; the monitor's restarts skip a frozen resource. Nil means
+	// none engaged. It is the lane's own source, whatever the approver is.
+	Brakes func() brake.State
+	// Logger receives the lane's records; nil is slog.Default.
+	Logger *slog.Logger
+	// Systemd configures the connector's systemd backend. Runner defaults to Options.Runner and
+	// Env.Home to Options.Home; tests set a fake systemctl here.
+	Systemd localconn.SystemdOptions
 }
 
 // Service is the supervision lane.
 type Service struct {
 	o Options
+	// opMu serializes mutations, as the old build's runtime service did.
+	opMu sync.Mutex
+	conn *localconn.Connector
+
+	monMu sync.Mutex
+	mon   *monitor
 }
 
-// New builds the lane. Supervise mode is refused until slice 5 enables it.
+// New builds the lane.
 func New(o Options) (*Service, error) {
+	if o.Config != nil && o.Resources == nil {
+		o.Resources = func() ([]config.ResourceDef, error) {
+			cfg, err := o.Config()
+			if err != nil || cfg == nil {
+				return nil, err
+			}
+			return cfg.Resources, nil
+		}
+	}
 	switch o.Mode {
 	case settings.ModeObserve:
 	case settings.ModeSupervise:
-		return nil, redact.Guidance("cerberus.mode supervise is not available in this build yet (it arrives with slice 5 of the port); set cerberus.mode: observe")
+		switch {
+		case o.Config == nil:
+			return nil, errors.New("supervise: supervise mode needs a config source")
+		case o.Store == nil:
+			return nil, errors.New("supervise: supervise mode needs the class A store")
+		case o.Digester == nil:
+			return nil, errors.New("supervise: supervise mode needs the applied-digest key")
+		case o.Approver == nil:
+			return nil, errors.New("supervise: supervise mode needs an approver")
+		}
 	default:
 		return nil, fmt.Errorf("unknown supervision mode %q", o.Mode)
 	}
@@ -63,7 +111,22 @@ func New(o Options) (*Service, error) {
 	if o.Runner == nil {
 		o.Runner = localconn.UserBusRunner()
 	}
-	return &Service{o: o}, nil
+	if o.Logger == nil {
+		o.Logger = slog.Default()
+	}
+	if o.Systemd.Runner == nil {
+		o.Systemd.Runner = o.Runner
+	}
+	if o.Systemd.Env.Home == "" {
+		o.Systemd.Env.Home = o.Home
+	}
+	s := &Service{o: o, conn: localconn.NewWithSystemd(o.Systemd)}
+	// Every local mutation, including one the lane does not start itself, refuses the
+	// resource this process runs as.
+	s.conn.SetMutationGuard(func(res *domain.Resource, _ localconn.ProcessSpec) error {
+		return s.refuseSelfID(res.ID)
+	})
+	return s, nil
 }
 
 // Mode is the lane's mode.
@@ -115,18 +178,29 @@ func (s *Service) Status(ctx context.Context, id string) (Status, error) {
 	return Status{}, fmt.Errorf("resource %q not found", id)
 }
 
-// Mutate refuses every verb in observe mode.
-func (s *Service) Mutate(_ context.Context, verb, id string) error {
-	known := false
-	for _, v := range Verbs {
-		known = known || v == verb
-	}
-	if !known {
-		return fmt.Errorf("unknown resource verb %q", verb)
-	}
-	return fmt.Errorf("%w: %w", ErrObserve, redact.Guidance(
+// observeRefusal is every mutation's answer in observe mode: the old build still supervises.
+func (s *Service) observeRefusal(verb, id string) error {
+	return &Refusal{Status: http.StatusConflict, Code: "observe_mode", Message: fmt.Sprintf(
 		"this Cerberus is in observe mode, so it refused %s of %q: the old Cerberus still supervises the workloads and runs every change. "+
-			"Run the command with the old CLI until the handover (docs/substrate-port-plan.md section 7.2 D)", verb, id))
+			"Run the command with the old CLI until the handover (docs/substrate-port-plan.md section 7.2 D)", verb, id)}
+}
+
+// IsObserveRefusal reports whether err is observe mode's refusal.
+func IsObserveRefusal(err error) bool {
+	var r *Refusal
+	return errors.As(err, &r) && r.Code == "observe_mode"
+}
+
+// refuseSelf is the self-guard (plan section 4.2): no mutation through this process's own API
+// reaches the resource it runs as. The old CLI or fleet-install changes it, never itself.
+func (s *Service) refuseSelf(res *config.ResourceDef) error { return s.refuseSelfID(res.ID) }
+
+func (s *Service) refuseSelfID(id string) error {
+	if s.o.SelfID == "" || id != s.o.SelfID {
+		return nil
+	}
+	return redact.Guidance("refusing to mutate %q: it is the resource this Cerberus runs as (cerberus.self_resource_id), "+
+		"and a Cerberus never changes itself through its own API. Upgrade it with fleet-install, or change it from another Cerberus", id)
 }
 
 func (s *Service) observe(ctx context.Context, res *config.ResourceDef) Status {
