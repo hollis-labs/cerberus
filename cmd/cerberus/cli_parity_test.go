@@ -25,10 +25,9 @@ import (
 // old binary, kept as $LEGACY through the cutover; obsolete and replaced need their evidence in
 // the reason.
 const (
-	ownerSlice7c = "CW-20261115-0065" // slice 7c: the CLI follow-up over lanes this branch already serves
-	ownerSlice9  = "slice 9"          // MCP
-	ownerSlice10 = "slice 10"         // migrate-from, export-legacy
-	ownerSlice11 = "slice 11"         // console
+	ownerSlice9  = "slice 9"  // MCP
+	ownerSlice10 = "slice 10" // migrate-from, export-legacy
+	ownerSlice11 = "slice 11" // console
 	ownerLegacy  = "slice 12; $LEGACY until F"
 	obsolete     = "obsolete"
 	replaced     = "replaced"
@@ -70,20 +69,6 @@ var cliDecisions = map[string]parityDecision{
 	"cerberus init":      {ownerLegacy, "created the old ~/.cerberus tree and config.yaml; the new data directory is created by serve, the import by migrate-from"},
 	"cerberus web":       {ownerSlice11, "the console moves into the serving process (slice 11); the old console unit is retired"},
 	"cerberus mcp-http":  {ownerSlice9, "MCP over HTTP moves to /mcp on the same host; tokens become API keys"},
-
-	// Slice 7c's verbs with no served backend yet.
-	"cerberus audit prune":         {ownerSlice7c, "a write to the chain: needs the server's audit lane, not a second in-process writer"},
-	"cerberus audit reanchor":      {ownerSlice7c, "re-seats the keychain anchor of <data>/audit; with audit verify's lane"},
-	"cerberus component":           {ownerSlice7c, "the host component inventory; its store and gated writes come with the hosts lane's CLI (slice 8 serves hosts read-only)"},
-	"cerberus connectors describe": {ownerSlice7c, "prints a definition from GET /api/connectors (served) with liveness, which needs a live-connectors read"},
-	"cerberus data":                {ownerSlice7c, "data query over the data-access lane (internal/dataaccess)"},
-	"cerberus host":                {ownerSlice7c, "the hosts lane (slice 8) serves GET /api/hosts; its CLI, probes on demand and gated writes come with a hosts CLI"},
-	"cerberus pipeline":            {ownerSlice7c, "pipeline list/show/plan/run over the pipeline lane (internal/pipeline); the console's /api/pipelines is slice 11's"},
-	"cerberus policy":              {ownerSlice7c, "policy apply/enforce/explain/report over the policy point of slice 6"},
-	"cerberus posture":             {ownerSlice7c, "posture show/set/reset over the policy point of slice 6"},
-	"cerberus portfolio":           {ownerSlice7c, "portfolio health over the overview lane"},
-	"cerberus schedule":            {ownerSlice7c, "the scheduling core (slice 8, off by default); its CLI comes when it is turned on"},
-	"cerberus whoami":              {ownerSlice7c, "the caller's principal and scopes: the key's, from the identity module"},
 
 	// Resource verbs not carried yet, and the break-glass flags.
 	"cerberus resource apply --break-glass":        {obsolete, "break glass needs a person at the CLI, which no caller is under decision 0.1 (see connectors exec --break-glass); legacy-routes.md carries no break-glass form for L7/L8; approvals come from the owner on the console, then --approval <id>"},

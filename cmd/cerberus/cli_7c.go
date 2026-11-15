@@ -7,7 +7,8 @@ import (
 )
 
 // addFollowUpCommands adds slice 7c's verbs to root (the old CLI's verbs over lanes this branch
-// serves, docs/conversion-notes.md "CLI verb parity").
+// serves, docs/conversion-notes.md "CLI verb parity"), then the pending ones, which join the
+// groups already there.
 func (c *cerberus) addFollowUpCommands(root *cobra.Command) error {
 	client := func() (*apiClient, error) { return newAPIClient(c.app, c.home) }
 	reg := func() (*registry.Registry, error) { return registryFor(c) }
@@ -19,7 +20,7 @@ func (c *cerberus) addFollowUpCommands(root *cobra.Command) error {
 	if connectors := childNamed(root, "connectors"); connectors != nil {
 		connectors.AddCommand(prototypeCommand())
 	}
-	return nil
+	return addPendingCommands(root, pendingSpecs)
 }
 
 // childNamed is c's subcommand named name, or nil.

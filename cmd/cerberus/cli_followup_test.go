@@ -460,3 +460,38 @@ func TestDockerAndSSHOverTheAdminLane(t *testing.T) {
 		t.Fatalf("ssh exec with no command: %v", err)
 	}
 }
+
+// Every pending verb exists with old's flags (the parity test), parses them, and answers
+// pending, exit 1, having called nothing.
+func TestPendingVerbsAnswerPending(t *testing.T) {
+	tree := newTree(t)
+	for _, s := range pendingSpecs {
+		if s.group {
+			continue
+		}
+		c := tree["cerberus "+s.path]
+		if c == nil {
+			t.Fatalf("%s is not in the tree", s.path)
+		}
+		err := c.RunE(c, nil)
+		if err == nil || !strings.Contains(err.Error(), "pending (slice 8b)") || !strings.Contains(err.Error(), "nothing was done") {
+			t.Fatalf("%s: %v", s.path, err)
+		}
+	}
+	root := tree["cerberus"]
+	root.SilenceErrors, root.SilenceUsage = true, true
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	for _, args := range [][]string{
+		{"host", "set", "zeta", "--ack", "--label", "a=b", "--revision", "r1", "-o", "json"},
+		{"schedule", "--json", "create", "--file", "-", "--ack"},
+		{"policy", "enforce", "--since", "24h", "--all"},
+		{"host", "capacity", "--max-age", "5m", "--recent-max-load", "0.5", "--free-slot", "nvme_m2=1"},
+		{"audit", "prune", "--before", "2026-01-01"},
+	} {
+		root.SetArgs(args)
+		if err := root.ExecuteContext(t.Context()); err == nil || !strings.Contains(err.Error(), "pending (slice 8b)") {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+}
