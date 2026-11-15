@@ -257,6 +257,24 @@ func TestGuardRefusesEntriesOfTheOldStateTree(t *testing.T) {
 	}
 }
 
+// The new layout's own directories pass: a migrated or supervising data directory holds audit/,
+// approvals/, brakes/, events/, state/ and migration/, and a second start must not take it for
+// the old tree.
+func TestGuardAcceptsTheNewLayout(t *testing.T) {
+	f := newFixture(t)
+	if err := f.d.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"audit", "approvals", "brakes", "events", "state", "migration"} {
+		if err := os.MkdirAll(filepath.Join(f.d.Data, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := RefuseOldContents(f.d); err != nil {
+		t.Fatalf("the new layout is refused: %v", err)
+	}
+}
+
 // walDatabase makes a WAL database whose main file holds tables and whose WAL holds frames
 // not yet checkpointed, and keeps a connection open so -wal and -shm stay, like a live
 // database another process is using. The connection is closed at cleanup.
