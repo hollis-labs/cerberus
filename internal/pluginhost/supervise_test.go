@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/cerberus/internal/secrets"
 	"github.com/hollis-labs/cerberus/internal/testhome"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
@@ -24,6 +25,9 @@ import (
 // The test binary doubles as the plugin shim and as a family of fake
 // plugins, chosen by CERB_FAKE_PLUGIN, each misbehaving in one way.
 func TestMain(m *testing.M) {
+	// No test, and no fake plugin this binary becomes, reaches the operator's OS credential
+	// store: a scratch HOME does not protect a macOS Keychain.
+	secrets.MockStoreForTests()
 	if len(os.Args) > 1 && os.Args[1] == PluginExecCommand {
 		err := RunPluginExec(os.Args[2:], os.Environ())
 		fmt.Fprintln(os.Stderr, err)
