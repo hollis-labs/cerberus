@@ -38,8 +38,17 @@ func main() {
 	if err := run(ctx, os.Getenv, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "cerberus:", err)
 		stop()
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+// exitCode is 1, or the code an error carries (export-legacy's pending class B step is 3).
+func exitCode(err error) int {
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) && coded.ExitCode() > 0 {
+		return coded.ExitCode()
+	}
+	return 1
 }
 
 func run(ctx context.Context, getenv func(string) string, args []string) error {
@@ -78,7 +87,7 @@ func rootCommand(ctx context.Context, c *cerberus) *cobra.Command {
 	rootCmd.AddCommand(c.pluginCommands()...)
 	rootCmd.AddCommand(c.runSecretsCmd(), c.secretsCommand())
 	rootCmd.AddCommand(c.registryCommands()...)
-	rootCmd.AddCommand(c.migrateFromCmd(), manifestCmd())
+	rootCmd.AddCommand(c.migrateFromCmd(), manifestCmd(), c.exportLegacyCmd(), importStandbyCmd())
 	guardKeyCreate(rootCmd)
 	return rootCmd
 }
@@ -131,8 +140,10 @@ func isStdioMCP(args []string) bool {
 // identity commands. Help anywhere on the line, version, config, health, completion, the read
 // verbs (they call the serving Cerberus over HTTP), run-secrets (a managed service's start, which
 // must not open the database; whatever follows its "--" is the service's command line),
-// migrate-from and manifest (they open what they need themselves: migrate-from creates the data
-// directory and database under its own refusals, manifest reads the old tree only) and unknown
+// migrate-from, export-legacy, import-standby and manifest (they open what they need themselves:
+// migrate-from creates the data directory and database under its own refusals, export-legacy
+// opens the ones migrate-from created, import-standby writes only its sidecar, manifest reads the
+// old tree only) and unknown
 // words do not. Every argument that
 // does not start with "-" counts as a command word, which holds while the root has no global flag
 // taking a value (TestRootHasNoValueFlags).

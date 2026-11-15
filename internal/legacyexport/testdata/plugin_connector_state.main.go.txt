@@ -1,0 +1,92 @@
+// Code carried from origin/main, verbatim, for TestCarriedDecoderIsMains (legacyfiles_test.go).
+// Source: internal/cerbapi/plugin_connector_state.go (the decoder and its structs) and
+// internal/cerbapi/plugin_connector_service.go (the install options it folds).
+// Not compiled: the .txt keeps it out of the build.
+
+package cerbapi
+
+// pluginStateVersion is the format of plugin-connectors.json written since
+// install review. Version 1 (no version field) held pointers at plugin
+// directories and no review; those entries still load, as review_pending.
+const pluginStateVersion = 2
+
+type pluginConnectorPersistedState struct {
+	Version int                             `json:"version,omitempty"`
+	Entries []pluginConnectorPersistedEntry `json:"entries"`
+}
+
+type pluginConnectorPersistedEntry struct {
+	// ID is the plugin id. Absent in version 1 entries, whose id is read from
+	// the plugin.yaml at PluginDir.
+	ID string `json:"id,omitempty"`
+	// PluginDir is where the plugin runs from: its reviewed copy in the
+	// plugin store, a development install's source directory, or, for a
+	// version 1 entry still pending review, the directory it was installed
+	// from.
+	PluginDir string `json:"plugin_dir"`
+	// Source is the directory the reviewed bundle was installed from.
+	Source  string               `json:"source,omitempty"`
+	Options PluginInstallOptions `json:"options"`
+	Loaded  bool                 `json:"loaded"`
+	// BundleDigest is the accepted bundle digest; load refuses a bundle that
+	// does not match it. Empty while review is pending.
+	BundleDigest string `json:"bundle_digest,omitempty"`
+	// Review is the review the operator accepted: what a later change is
+	// shown as a diff against. Nil while review is pending.
+	Review     *pluginhost.Review `json:"review,omitempty"`
+	AcceptedAt time.Time          `json:"accepted_at,omitzero"`
+	// LegacyTrust is the "trust" object written before P0-4. Only its
+	// dev_mode is honored; the signing fields it may carry are ignored. It
+	// is folded into Options on read and never written back.
+	LegacyTrust *legacyInstallOptions `json:"trust,omitempty"`
+}
+
+func readPluginConnectorState(path string) (pluginConnectorPersistedState, error) {
+	if path == "" {
+		return pluginConnectorPersistedState{}, nil
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // the operator's own state file
+	if err != nil {
+		if os.IsNotExist(err) {
+			return pluginConnectorPersistedState{}, nil
+		}
+		return pluginConnectorPersistedState{}, fmt.Errorf("read plugin connector state: %w", err)
+	}
+	var state pluginConnectorPersistedState
+	if len(data) == 0 {
+		return state, nil
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return pluginConnectorPersistedState{}, fmt.Errorf("decode plugin connector state: %w", err)
+	}
+	if state.Version > pluginStateVersion {
+		return pluginConnectorPersistedState{}, fmt.Errorf("plugin connector state %s is version %d, newer than this Cerberus understands (%d); upgrade Cerberus", path, state.Version, pluginStateVersion)
+	}
+	for i := range state.Entries {
+		state.Entries[i].Options = mergeLegacyOptions(state.Entries[i].Options, state.Entries[i].LegacyTrust)
+		state.Entries[i].LegacyTrust = nil
+	}
+	return state, nil
+}
+
+// PluginInstallOptions are how a plugin is installed. There is no trust or
+// signing option: Cerberus does not vet plugins, so nothing a caller could
+// assert about a plugin changes what it may do. DevMode selects a development
+// install, which is a restriction (see pluginhost.OriginDev).
+type PluginInstallOptions struct {
+	DevMode bool `json:"dev_mode,omitempty"`
+}
+
+// legacyInstallOptions reads the "trust" object older CLIs sent and older
+// state files stored. Only dev_mode still means anything; catalog_signed,
+// archive_signed and archive_sha256 were self-asserted and are ignored.
+type legacyInstallOptions struct {
+	DevMode bool `json:"dev_mode,omitempty"`
+}
+
+func mergeLegacyOptions(options PluginInstallOptions, legacy *legacyInstallOptions) PluginInstallOptions {
+	if legacy != nil && legacy.DevMode {
+		options.DevMode = true
+	}
+	return options
+}

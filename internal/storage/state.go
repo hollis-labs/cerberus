@@ -157,8 +157,34 @@ var stateOrder = map[string]int{"preparing": 0, "prepared": 1, "dispatching": 2,
 
 // Receipts returns an issuance's receipts in lifecycle order.
 func Receipts(ctx context.Context, st *store.Store, issuanceID string) ([]Receipt, error) {
-	rows, err := st.Reader().QueryContext(ctx, st.Dialect().Rebind(`SELECT issuance_id, state, connector, operation, binding_digest, refs, at
-FROM credential_issuance_receipts WHERE issuance_id = ?`), issuanceID)
+	out, err := queryReceipts(ctx, st, `SELECT issuance_id, state, connector, operation, binding_digest, refs, at
+FROM credential_issuance_receipts WHERE issuance_id = ?`, issuanceID)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(out, func(i, j int) bool { return stateOrder[out[i].State] < stateOrder[out[j].State] })
+	return out, nil
+}
+
+// ReceiptsAll returns every receipt of every issuance: by issuance id, then in lifecycle order
+// (export-legacy writes them back as the old build's files).
+func ReceiptsAll(ctx context.Context, st *store.Store) ([]Receipt, error) {
+	out, err := queryReceipts(ctx, st, `SELECT issuance_id, state, connector, operation, binding_digest, refs, at
+FROM credential_issuance_receipts ORDER BY issuance_id, state`)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].IssuanceID != out[j].IssuanceID {
+			return out[i].IssuanceID < out[j].IssuanceID
+		}
+		return stateOrder[out[i].State] < stateOrder[out[j].State]
+	})
+	return out, nil
+}
+
+func queryReceipts(ctx context.Context, st *store.Store, query string, args ...any) ([]Receipt, error) {
+	rows, err := st.Reader().QueryContext(ctx, st.Dialect().Rebind(query), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +208,6 @@ FROM credential_issuance_receipts WHERE issuance_id = ?`), issuanceID)
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool { return stateOrder[out[i].State] < stateOrder[out[j].State] })
 	return out, nil
 }
 

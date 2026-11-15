@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/hollis-labs/cerberus/internal/legacyimport/oldtree"
 )
 
 // Fingerprint is the source as it stood: every entry of the snapshot (path, type, mode, size,
@@ -81,18 +83,7 @@ func entryLine(p, rel string) (string, error) {
 }
 
 // fileSHA256 is "sha256:<hex>" of a file's bytes.
-func fileSHA256(p string) (string, error) {
-	f, err := os.Open(p) //nolint:gosec // a path inside the snapshot or the new data directory
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
-}
+func fileSHA256(p string) (string, error) { return oldtree.FileSHA256(p) }
 
 // fileDigest is a file's size and sha256, its path reported as rel.
 func fileDigest(p, rel string) (FileDigest, error) {
