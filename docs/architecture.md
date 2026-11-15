@@ -14,9 +14,9 @@ with each slice and states only what the branch does now.
 | Routes | Every `/api/` route has a scope (plan section 4.3); `/healthz` is the only public route. The outpost device protocol and event-token endpoints are open mounts that authenticate their own callers. |
 | Background work | Supervision monitor, host probes, scheduler, event export, plugin processes. App code owns them and joins them before modules stop (plan section 4.4). |
 | UI | app-shell plus BOM-pinned kits; app nav and surfaces in `ui/app.json` (slice 11). |
-| Database | **SQLite only.** A `database.driver` other than `sqlite` is refused at start. |
+| Database | **SQLite at cutover; the schema is dialect-ready** (see Database). Until a table class moves to Postgres, a `database.driver` other than `sqlite` is refused at start. |
 
-## Layout (slice 1)
+## Layout (slices 1 and 2)
 
 | Path | What |
 |---|---|
@@ -27,6 +27,8 @@ with each slice and states only what the branch does now.
 | `cmd/cerberus/serve.go` | `serve`: loopback check, `httphost.Handler`, `httphost.Serve`; drains on signal. |
 | `internal/settings` | Decodes the `cerberus:` block; refuses unknown keys and bad values, naming the key. |
 | `internal/datadir` | Resolves the data directory and refuses the old build's state (`RefuseLegacy`). |
+| `internal/storage` | The schema: one embedded goose migration (`migrations/sqlite/00001_schema.sql`), registered with `database.UseMigrationFS` in `main.go`, plus typed functions for pause state, applied digests and credential-issuance receipts. |
+| `internal/registry` | Descriptor discovery and validation, carried; `ForRoot(adopt_root)` is the Substrate build's entry point (see Registry). |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
 (plan section 4.2). Removed from this branch, readable on `main`, and ported from there by their slices:
@@ -69,6 +71,49 @@ then `RefuseOldSchema`. An existing file is opened `mode=ro&immutable=1`: no loc
 no `-wal` or `-shm` created or removed. It is refused if it has a `schema_migrations` table (the old store's; goose
 never creates one), or if it cannot be read that way.
 
+## Database
+
+Dialect-ready, and the cutover runs on SQLite (plan section 5.1). Every store access goes through the `database`
+module (libs `core/store`), via `storage.FromApp(app)`, which hands out one store per table class:
+
+- `Stores.Local`: class A, local state that must work while Postgres is down. Always the local SQLite store.
+- `Stores.Telemetry`: class B, the host-monitoring tables. Today the same store. After acceptance it may become a
+  named Postgres store (Substrate's `database.Named(app, "data")`). That switch is made in `FromApp` alone.
+
+There is one goose set per dialect: `internal/storage/migrations/sqlite` and `.../postgres`, with the same
+versions (a parity test checks this). `00001_local.sql` holds class A and `00002_telemetry.sql` holds class B,
+which moves to the named store's set when B moves. Until the first release each file is edited in place. SQL goes
+through `Dialect().Rebind`, and the store tests run on SQLite and on Postgres:
+- CI starts a `postgres:17` service and sets `SUBSTRATE_TEST_POSTGRES_DSN`;
+- locally, without that variable, the Postgres runs skip and say so.
+
+The module migrates under its open lock, so a start on an empty data directory creates the schema and a second
+start is a no-op (tested on both dialects, and with the real binary in `cmd/cerberus`).
+
+| Table | Class | From the old build | Notes |
+|---|---|---|---|
+| `pause_state` | A | the files `paused` and `paused.<id>` | `target` is a resource id or `*`; a row means paused. |
+| `applied_definitions` | A | `runtime/applied.json` | Digests only, never definitions. |
+| `credential_issuance_receipts` | A | `credential-issuance/<id>/<state>.json` | One row per issuance and state, written once; `refs` holds `file://` references, never values; `at` keeps RFC 3339 nanoseconds. |
+| `host_samples`, `host_status`, `host_sample_rollups`, `host_rollup_state`, `host_events` | B | `main.db`, same columns (migrations 006 to 008) | The SQLite tables match the old migrations column for column (frozen in `internal/storage/testdata/old`). The old `internal/hosts` store runs on them unchanged. |
+
+Not carried: the old `projects` and `resources` tables (empty; definitions live in the descriptors) and
+`schema_migrations`. The scheduling tables arrive with the scheduling slice. Reads go through `Reader()`, writes
+through `WriteTx`, and nothing writes while a cursor is open (guide section 4).
+
+## Registry
+
+`registry.ForRoot(adopt_root)`: the index is `<adopt_root>/registry.yaml`, read and written in place in the old
+format (`version: 1`, pointer entries), because tether sysop reads that file directly. Descriptors stay in their
+owning repos and keep the `cerberus-project/v1` schema unchanged; validation messages are the old ones (`port is 0;
+omit the port field ...`). The only retired directory refused is `<adopt_root>/projects`; `ForRoot` reads no home
+directory and no global `config.yaml`. The home-based constructors (`Default`, `ForConfig`, `IndexPathFor`) stay for
+the carried callers until their slices port them.
+
+While the old and new builds both run, both may write the same index. Each write is an atomic rename, but two
+registers at the same moment can lose one of them (read, modify, write). Register from one build at a time during
+the transition.
+
 ## Configuration
 
 Defaults are in the manifest. The operator overrides any key in the YAML file named by `SUBSTRATE_CONFIG`
@@ -80,6 +125,7 @@ Defaults are in the manifest. The operator overrides any key in the YAML file na
 | `database.sqlite.path` | `cerberus.db` (under the data directory) | The database. |
 | `logging.level`, `logging.format` | `info`, `text` | Logging module. |
 | `cerberus.install_root` | `~/.cerberus/apps` | Artifact installs and resource logs, adopted in place (plan section 3). Absolute or `~/`-prefixed. |
+| `cerberus.adopt_root` | `~/.cerberus` | Files kept in place in the old format because other programs read them: the registry index `registry.yaml` (tether sysop reads it). Absolute or `~/`-prefixed. |
 
 ## Shutdown
 

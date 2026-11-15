@@ -11,8 +11,8 @@ func TestDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.InstallRoot != "/u/op/.cerberus/apps" {
-			t.Fatalf("install_root = %q", s.InstallRoot)
+		if s.InstallRoot != "/u/op/.cerberus/apps" || s.AdoptRoot != "/u/op/.cerberus" {
+			t.Fatalf("install_root = %q, adopt_root = %q", s.InstallRoot, s.AdoptRoot)
 		}
 	}
 }
@@ -32,6 +32,13 @@ func TestInstallRoot(t *testing.T) {
 	}
 }
 
+func TestAdoptRoot(t *testing.T) {
+	s, err := Parse(map[string]any{"adopt_root": "~/state/"}, "/u/op")
+	if err != nil || s.AdoptRoot != "/u/op/state" {
+		t.Fatalf("adopt_root = %q, %v", s.AdoptRoot, err)
+	}
+}
+
 func TestRefusalsNameTheKey(t *testing.T) {
 	for _, c := range []struct {
 		raw  any
@@ -44,6 +51,8 @@ func TestRefusalsNameTheKey(t *testing.T) {
 		{map[string]any{"install_root": " "}, "/h", "cerberus.install_root must not be empty"},
 		{map[string]any{"install_root": "apps"}, "/h", "cerberus.install_root"},
 		{map[string]any{"install_root": "~/apps"}, "", "home directory is unknown"},
+		{map[string]any{"adopt_root": 1.0}, "/h", "cerberus.adopt_root must be a string"},
+		{map[string]any{"adopt_root": "rel"}, "/h", "cerberus.adopt_root"},
 	} {
 		_, err := Parse(c.raw, c.home)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
