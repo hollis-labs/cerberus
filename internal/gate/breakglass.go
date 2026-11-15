@@ -115,8 +115,8 @@ func (g *Gate) breakGlassOnCall(ctx context.Context, call *Call, spec Spec, req 
 		}
 		g.notify("Cerberus: break glass requested", fmt.Sprintf("%s.%s on %s: %s", spec.Connector, spec.Operation, name, bg.Reason))
 		pending := codedError(args, CodeApprovalPending,
-			redact.Guidance("BREAK GLASS on %s, a prod, shared or not-ours target, is completed on the console: approve %s there, signed in as the owner (`%s`), then run this again with --break-glass and --approval %s",
-				name, a.ID, a.ApproveWith(), a.ID))
+			redact.Guidance("BREAK GLASS on %s, a prod, shared or not-ours target, is completed on the console: approve %s there, signed in as the owner (%s), then run this again with --break-glass and --approval %s",
+				name, a.ID, ApproveWith(a), a.ID))
 		var coded *Error
 		if errors.As(pending, &coded) {
 			coded.Approval = approvalReference(a)

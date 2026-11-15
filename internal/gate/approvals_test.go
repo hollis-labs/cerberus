@@ -72,7 +72,7 @@ func TestEnforcedApproveRequestsAnApproval(t *testing.T) {
 	if !ok || a.Status != approval.Pending || a.Rule != "test.rule" || a.Channel != approval.ChannelTTYConfirm || a.Principal.Kind != "agent" || a.Target.Resource != "dev-box" || a.ArgsDigest == "" {
 		t.Fatalf("approval %+v", a)
 	}
-	if !strings.Contains(err.Error(), a.ApproveWith()) || !strings.Contains(err.Error(), a.ID) {
+	if !strings.Contains(err.Error(), ApproveWith(a)) || !strings.Contains(err.Error(), a.ID) {
 		t.Fatalf("the refusal does not name how to decide it: %v", err)
 	}
 	var intent, requested audit.Record

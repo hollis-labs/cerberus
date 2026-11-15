@@ -517,11 +517,13 @@ func auditTargetLabels(t audit.Target) target.Target {
 }
 
 // ApprovalRef is the machine-readable half of approval_pending: which
-// approval, until when, and the command that decides it.
+// approval, until when, and where it is decided.
 type ApprovalRef struct {
-	ID          string    `json:"id"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	ApproveWith string    `json:"approve_with"`
+	ID        string    `json:"id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	// ApproveWith is where the approval is decided (ApproveWith): the
+	// console's approvals page. Clients display it and never parse it.
+	ApproveWith string `json:"approve_with"`
 	// Channel is how the approval is met. tty_confirm tells a CLI on a
 	// terminal it can show the plan and confirm on the call (P3-3).
 	Channel string `json:"channel,omitempty"`
@@ -537,8 +539,8 @@ func approvalPendingError(args opArgs, a approval.Approval) error {
 		grant = fmt.Sprintf("; it is a %s grant, good for %s once approved", a.Scope, a.TTL)
 	}
 	err := codedError(args, CodeApprovalPending,
-		redact.Guidance("%s %s needs approval (%s, rule %s): approval %s is pending until %s%s; decide it with `%s`, then retry with the approval id",
-			args.Connector, args.Operation, a.Channel, a.Rule, a.ID, a.ExpiresAt.UTC().Format(time.RFC3339), grant, a.ApproveWith()))
+		redact.Guidance("%s %s needs approval (%s, rule %s): approval %s is pending until %s%s; %s, signed in as the owner, then retry with the approval id",
+			args.Connector, args.Operation, a.Channel, a.Rule, a.ID, a.ExpiresAt.UTC().Format(time.RFC3339), grant, ApproveWith(a)))
 	var coded *Error
 	if errors.As(err, &coded) {
 		coded.Approval = approvalReference(a)
@@ -570,7 +572,16 @@ func decidingRule(res policy.Result) string {
 // passkey-setup hint for an out-of-band approval; with passkeys gone
 // (decision 0.1) there is nothing to set up.
 func approvalReference(a approval.Approval) *ApprovalRef {
-	return &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: a.ApproveWith(), Channel: a.Channel}
+	return &ApprovalRef{ID: a.ID, ExpiresAt: a.ExpiresAt, ApproveWith: ApproveWith(a), Channel: a.Channel}
+}
+
+// ApproveWith is where a is decided, for a caller told to wait for it: the owner signed in to
+// the console, on its approvals page (decision 0.1). The old build's value,
+// approval.Approval.ApproveWith, named `cerberus approvals approve <id>`, a verb this build does
+// not carry; internal/approval is shared with main, so the value is replaced here. Tachyon and
+// tether sysop display approve_with (or pass the body through) and do not parse it.
+func ApproveWith(a approval.Approval) string {
+	return "approve it on the console: /approvals/" + a.ID
 }
 
 // inProcessStateRefusal refuses an in-process mutation when the gate's
