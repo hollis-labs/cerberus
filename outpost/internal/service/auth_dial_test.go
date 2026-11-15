@@ -32,7 +32,7 @@ func TestAuthDial(t *testing.T) {
 	if _, err := resolve(t, lo, "bogus", ""); err == nil {
 		t.Fatal("invalid accepted")
 	}
-	for _, a := range []string{"100.64.0.5:8090", "0.0.0.0:8090", ":8090"} {
+	for _, a := range []string{"192.0.2.5:8090", "0.0.0.0:8090", ":8090"} {
 		for _, m := range []string{"off", "permissive"} {
 			if _, err := resolve(t, a, m, ""); err == nil {
 				t.Fatalf("%s on %s must be refused", m, a)

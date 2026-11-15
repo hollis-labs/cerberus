@@ -39,14 +39,14 @@ func Listen(address string) (net.Listener, error) {
 const AuthApp = "outpost"
 
 // ResolveMode is HOLLIS_AUTH_OUTPOST, then HOLLIS_AUTH, else enforce. A
-// non-enforce mode is only honoured when address is a loopback listener.
+// non-enforce mode is only honored when address is a loopback listener.
 func ResolveMode(address string) (auth.Mode, error) {
 	mode, err := auth.ModeFromEnv(AuthApp, auth.ModeEnforce)
 	if err != nil {
 		return "", err
 	}
 	if mode != auth.ModeEnforce && !isLoopbackAddr(address) {
-		return "", fmt.Errorf("outpost: auth mode %q is only honoured on a loopback listener; %q is not loopback (use enforce)", mode, address)
+		return "", fmt.Errorf("outpost: auth mode %q is only honored on a loopback listener; %q is not loopback (use enforce)", mode, address)
 	}
 	return mode, nil
 }
