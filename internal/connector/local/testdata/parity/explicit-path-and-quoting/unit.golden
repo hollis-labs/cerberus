@@ -1,0 +1,19 @@
+# unit: com.hollis-labs.cerberus.odd.odd-one.service
+# Written by Cerberus for resource odd-one; `cerberus resource apply` overwrites edits.
+[Unit]
+Description=Cerberus resource odd-one
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/u/op/src/odd dir
+ExecStart="/u/op/src/odd dir/run" "--label" "100%% \"quoted\" $$HOME"
+Restart=always
+RestartSec=5
+StandardOutput=append:/u/op/.cerberus/apps/odd/odd-one/logs/stdout.log
+StandardError=append:/u/op/.cerberus/apps/odd/odd-one/logs/stderr.log
+Environment="ODD_VALUE=a b;c\\d"
+Environment="PATH=/u/op/tools/bin:/usr/bin:/bin"
+
+[Install]
+WantedBy=default.target

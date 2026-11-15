@@ -1,0 +1,20 @@
+# unit: com.hollis-labs.cerberus.demo.demo-api.service
+# Written by Cerberus for resource demo-api; `cerberus resource apply` overwrites edits.
+[Unit]
+Description=Cerberus resource demo-api
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/u/op/src/demo
+ExecStart="/u/op/src/demo/bin/demo" "serve" "--addr" "127.0.0.1:9100"
+Restart=always
+RestartSec=5
+StandardOutput=append:/u/op/.cerberus/apps/demo/demo-api/logs/stdout.log
+StandardError=append:/u/op/.cerberus/apps/demo/demo-api/logs/stderr.log
+Environment="DEMO_LOG_LEVEL=info"
+Environment="DEMO_MODE=prod"
+Environment="PATH=/u/op/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
+[Install]
+WantedBy=default.target

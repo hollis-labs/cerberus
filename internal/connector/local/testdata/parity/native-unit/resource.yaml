@@ -1,0 +1,16 @@
+id: console-service
+type: process
+project: console
+connector: local
+tags: [infrastructure, native-unit]
+config:
+  dir: '/u/op'
+  command: ["/u/op/.local/bin/console", "web", "--listen", "127.0.0.1:4783", "--open=false"]
+  mode: os_service
+  supervisor: systemd_user
+  run_from: workspace
+  service_name: console
+  port: 4783
+  auto_start: true
+  auto_restart: true
+  protected: true

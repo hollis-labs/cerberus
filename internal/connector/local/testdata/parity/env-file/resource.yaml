@@ -1,0 +1,13 @@
+id: ledger
+type: process
+project: ledger
+connector: local
+config:
+  mode: os_service
+  supervisor: systemd_user
+  run_from: workspace
+  dir: /u/op/src/ledger
+  command: ["/u/op/src/ledger/ledger", "serve"]
+  env_file: config/ledger.env
+  env:
+    LEDGER_ADDR: 127.0.0.1:9200

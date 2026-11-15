@@ -1,0 +1,13 @@
+id: demo-api
+type: process
+project: demo
+connector: local
+config:
+  mode: os_service
+  supervisor: systemd_user
+  run_from: workspace
+  dir: /u/op/src/demo
+  command: ["/u/op/src/demo/bin/demo", "serve", "--addr", "127.0.0.1:9100"]
+  env:
+    DEMO_MODE: prod
+    DEMO_LOG_LEVEL: info

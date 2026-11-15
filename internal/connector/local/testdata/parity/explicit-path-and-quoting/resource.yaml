@@ -1,0 +1,13 @@
+id: odd-one
+type: process
+project: odd
+connector: local
+config:
+  mode: os_service
+  supervisor: systemd_user
+  run_from: workspace
+  dir: /u/op/src/odd dir
+  command: ["/u/op/src/odd dir/run", "--label", "100% \"quoted\" $HOME"]
+  env:
+    PATH: /u/op/tools/bin:/usr/bin:/bin
+    ODD_VALUE: "a b;c\\d"

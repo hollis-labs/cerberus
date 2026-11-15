@@ -1,0 +1,62 @@
+// Generator for the parity goldens. It renders each case with the OLD renderer: copy this
+// file into internal/connector/local of a checkout of main (the live build's source) as
+// parity_gen_test.go and run
+//
+//	CERBERUS_PARITY_CASES=<this testdata/parity dir> go test -run TestGenerateParityGoldens ./internal/connector/local
+//
+// It writes <case>/unit.golden next to each resource.yaml. Do not commit it to main.
+package local
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/domain"
+)
+
+func TestGenerateParityGoldens(t *testing.T) {
+	dir := os.Getenv("CERBERUS_PARITY_CASES")
+	if dir == "" {
+		t.Skip("CERBERUS_PARITY_CASES unset")
+	}
+	cases, _ := filepath.Glob(filepath.Join(dir, "*", "resource.yaml"))
+	if len(cases) == 0 {
+		t.Fatal("no cases")
+	}
+	b := systemdBackend{
+		homeDir:  func() (string, error) { return "/u/op", nil },
+		envPath:  func() string { return "/u/op/.local/bin:/usr/local/bin:/usr/bin:/bin" },
+		selfPath: func() (string, error) { return "/u/op/.local/bin/cerberus", nil },
+	}
+	for _, p := range cases {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var r config.ResourceDef
+		if err := yaml.Unmarshal(raw, &r); err != nil {
+			t.Fatal(err)
+		}
+		res := &domain.Resource{ID: r.ID, Name: r.Name, Type: domain.ResourceType(r.Type), ProjectID: r.Project, Connector: r.Connector, Config: r.Config}
+		spec, err := SpecFromResourceConfig(res.Config)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		layout, err := b.layout(res, spec)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		unit, err := b.renderUnit(res, spec, layout)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		out := append([]byte("# unit: "+layout.UnitName+"\n"), unit...)
+		if err := os.WriteFile(filepath.Join(filepath.Dir(p), "unit.golden"), out, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

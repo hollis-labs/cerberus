@@ -1,0 +1,19 @@
+# unit: notes.service
+# Written by Cerberus for resource notes-box1; `cerberus resource apply` overwrites edits.
+[Unit]
+Description=Cerberus resource notes-box1
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/u/op/.local/share/notes
+ExecStart="/u/op/.local/bin/notes"
+Restart=always
+RestartSec=5
+StandardOutput=append:/u/op/.cerberus/apps/notes/notes-box1/logs/stdout.log
+StandardError=append:/u/op/.cerberus/apps/notes/notes-box1/logs/stderr.log
+Environment="PATH=/u/op/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+Environment="SUBSTRATE_CONFIG=/u/op/.config/notes/substrate.yaml"
+
+[Install]
+WantedBy=default.target
