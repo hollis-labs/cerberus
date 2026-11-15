@@ -381,7 +381,8 @@ func writeStatus(w io.Writer, banners []string, sections []statusSection) {
 	}
 }
 
-// readCommands are `resource list`, `resource status` and `status`.
+// readCommands are `resource list`, `resource status`, the resource verbs (cli_resource.go) and
+// `status`.
 func (c *cerberus) readCommands() []*cobra.Command {
 	client := func() (*apiClient, error) { return newAPIClient(c.app, c.home) }
 
@@ -438,8 +439,10 @@ func (c *cerberus) readCommands() []*cobra.Command {
 	}
 	status.Flags().StringVarP(&statusOut, "output", "o", outputText, "output format: text|json")
 
-	resource := &cobra.Command{Use: "resource", Short: "Read resources (observe mode: mutations arrive with slice 5)"}
+	resource := &cobra.Command{Use: "resource", Short: "V2 resource management",
+		Long: "Manages v2 resources through the serving Cerberus. After editing source, use deploy to build and activate it. Lower-level verbs: apply for already-built activation, reload for restart-only (NO rebuild), sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state. Every mutation needs --ack."}
 	resource.AddCommand(list, status)
+	resource.AddCommand(resourceMutationCommands(client)...)
 
 	overall := &cobra.Command{
 		Use:   "status",

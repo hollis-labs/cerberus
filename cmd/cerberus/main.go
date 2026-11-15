@@ -72,7 +72,8 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	rootCmd.AddCommand(c.readCommands()...)
 	rootCmd.AddCommand(c.brakeCommands()...)
 	rootCmd.AddCommand(c.pluginCommands()...)
-	rootCmd.AddCommand(c.runSecretsCmd())
+	rootCmd.AddCommand(c.runSecretsCmd(), c.secretsCommand())
+	rootCmd.AddCommand(c.registryCommands()...)
 	guardKeyCreate(rootCmd)
 	return rootCmd.ExecuteContext(ctx)
 }

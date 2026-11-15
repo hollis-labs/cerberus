@@ -28,8 +28,8 @@ import (
 // accepts it, with no terminal needed. --yes (the old permissive-posture shortcut) is gone: no
 // path skips the owner.
 
-// pluginCommands are `connectors plugin managed install|review`, against the server client
-// returns.
+// pluginCommands are `connectors plugin managed install|review` and, from cli_admin.go, the
+// managed plugin lifecycle and `connectors exec|plan`, against the server client returns.
 func pluginCommands(client func() (*apiClient, error), isTerminal func() bool) []*cobra.Command {
 	var dev bool
 	var approvalID, reviewApproval string
@@ -80,10 +80,12 @@ as for install: on the console, or here with --approval <id>.`,
 
 	managed := &cobra.Command{Use: "managed", Short: "The managed plugins of the serving Cerberus"}
 	managed.AddCommand(install, review)
+	managed.AddCommand(managedPluginCommands(client)...)
 	plugin := &cobra.Command{Use: "plugin", Short: "Connector plugins"}
 	plugin.AddCommand(managed)
 	connectors := &cobra.Command{Use: "connectors", Short: "Connectors and their plugins"}
 	connectors.AddCommand(plugin)
+	connectors.AddCommand(connectorExecCommands(client)...)
 	return []*cobra.Command{connectors}
 }
 
