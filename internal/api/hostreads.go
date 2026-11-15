@@ -73,6 +73,10 @@ func hostErr(w http.ResponseWriter, err error) {
 		writeErr(w, fmt.Errorf("%w: %s", errNotFound, err.Error()))
 	case errors.Is(err, hostmon.ErrInvalid):
 		writeErr(w, fmt.Errorf("%w: %s", errBadArgs, err.Error()))
+	case errors.Is(err, hostmon.ErrConflict):
+		apierr.Write(w, http.StatusConflict, "revision_conflict", err.Error(), nil)
+	case errors.Is(err, hostmon.ErrRevisionRequired):
+		apierr.Write(w, http.StatusPreconditionRequired, "revision_required", err.Error(), nil)
 	default:
 		writeGateErr(w, err)
 	}
