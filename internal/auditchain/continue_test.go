@@ -16,7 +16,7 @@ import (
 // into dir, and returns the head the old build anchored.
 func copyOldChain(t *testing.T, dir string) audit.Head {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // the test's own temp dir
 		t.Fatal(err)
 	}
 	var head audit.Head
@@ -58,7 +58,7 @@ func TestNewContinuesTheOldChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (KeychainAnchor{Dir: dir}).Store(head); err != nil {
+	if err = (KeychainAnchor{Dir: dir}).Store(head); err != nil {
 		t.Fatal(err)
 	}
 	sink, err := Open(dir)
@@ -68,16 +68,16 @@ func TestNewContinuesTheOldChain(t *testing.T) {
 	p := audit.Principal{Kind: "human", Surface: "web", Via: "web", SelfReported: false}
 	var last audit.Record
 	for _, op := range []string{"apply", "stop"} {
-		in, err := sink.Write(audit.Record{Kind: audit.KindIntent, Connector: "local", Operation: op, Principal: p,
+		in, writeErr := sink.Write(audit.Record{Kind: audit.KindIntent, Connector: "local", Operation: op, Principal: p,
 			Target: audit.Target{Kind: "local.resource", Resource: "web"}, ArgsDigest: sink.Digest(map[string]any{"id": "web"})})
-		if err != nil {
-			t.Fatal(err)
+		if writeErr != nil {
+			t.Fatal(writeErr)
 		}
 		if last, err = sink.Write(audit.Record{Kind: audit.KindOutcome, OperationID: in.OperationID, Connector: "local", Operation: op, Principal: p, Decision: "allowed"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := sink.Write(audit.Record{Kind: audit.KindApprovalDecided, Connector: "approvals", Operation: "decide", Principal: p}); err != nil {
+	if _, err = sink.Write(audit.Record{Kind: audit.KindApprovalDecided, Connector: "approvals", Operation: "decide", Principal: p}); err != nil {
 		t.Fatal(err)
 	}
 	if last.Seq <= head.Seq {
@@ -94,7 +94,7 @@ func TestNewContinuesTheOldChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checked.Err(); err != nil {
+	if err = checked.Err(); err != nil {
 		t.Fatalf("the continued chain does not verify: %v", err)
 	}
 	moved, ok, err := (KeychainAnchor{Dir: dir}).Load()
@@ -103,7 +103,7 @@ func TestNewContinuesTheOldChain(t *testing.T) {
 	}
 	if out := os.Getenv("CERBERUS_CONTINUED_CHAIN_OUT"); out != "" {
 		raw, _ := json.Marshal(moved)
-		if err := os.WriteFile(filepath.Join(filepath.Dir(out), "anchor.json"), raw, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(out), "anchor.json"), raw, 0o600); err != nil { //nolint:gosec // a scratch dir the script names
 			t.Fatal(err)
 		}
 	}
