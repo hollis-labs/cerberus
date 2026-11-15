@@ -26,6 +26,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
+	cmcp "github.com/hollis-labs/cerberus/internal/mcp"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
@@ -151,6 +152,11 @@ func (c *cerberus) serve(ctx context.Context) error {
 		return err
 	}
 	a.RegisterScopes(auth.ScopeTable(app))
+	// MCP over HTTP (/mcp): the tools call the API's own handlers in-process, under the caller's
+	// principal, so the gate, approvals and the person check are the API's.
+	if err = cmcp.Register(app, cmcp.MuxBackend{Handler: a.Mux()}); err != nil {
+		return err
+	}
 	handler, err := httphost.Handler(app, httphost.Options{Routes: a.Mux()})
 	if err != nil {
 		return err

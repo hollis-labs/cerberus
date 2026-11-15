@@ -54,7 +54,7 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 |---|---|
 | Daemon on a unix socket | HTTP on `httphost.addr`, default `127.0.0.1:4786` (loopback only) |
 | Console `cerberus web` on `127.0.0.1:4783` | Same process as the API (slice 11) |
-| `cerberus mcp-http` on `127.0.0.1:4785` | `/mcp` on the same host (slice 9) |
+| `cerberus mcp-http` on `127.0.0.1:4785` (OAuth resource server, `cerberus:read`-style scopes) | `/mcp` on the same listener as `/api` (`127.0.0.1:4786`), behind an API key holding `cerberus.read`; each tool then needs its own `cerberus.*` scope. The old colon scopes and `--no-auth` are gone |
 | — | `GET /healthz`: `{"status":"ok","checks":{"database":"ok"}}` |
 | Socket routes `/health`, `/resources…`, `/hosts` (tachyon, tether sysop) | The legacy-route set under `/api` with the same shapes, behind an API key (`docs/substrate-port/legacy-routes.md`, an approved cross-app contract) |
 | Same-uid trust on the socket | Substrate identity: the owner signs in (created offline with `cerberus identity setup`); machine callers present an API key (`cerberus identity key create`) with scopes `cerberus.read`, `.operate`, `.admin`. `cerberus.approve` is the owner's console session only and is refused on any key |
@@ -75,6 +75,7 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 | Old | New |
 |---|---|
 | `cerberus daemon --foreground` | `cerberus serve` (also the default with no command) |
+| `cerberus mcp` (stdio, dialling the daemon socket) | `cerberus mcp`: the same tools (main's catalog, same names and input schemas), forwarding to the serving Cerberus with the key in `cerberus.cli_key_file`; it creates nothing. No serving Cerberus: each call fails naming the address. **Not yet:** the posture instructions main sent on initialize (Substrate gap CW-20261115-0043) |
 | — | `--help`, `version`, `config`, `health`, the read verbs and unknown words start only the modules that read config: no data directory, database or signing key is created (safe to run on the operator's account) |
 | — | `cerberus identity setup` (offline owner), `cerberus identity key create` (refuses `*`, `cerberus.*` and `cerberus.approve`) |
 | `cerberus resource list` / `resource status <id>` / `status` over the socket | The same verbs, flags and output, over HTTP to `/api` with the API key in `cerberus.cli_key_file` (default `~/.config/cerberus/cli.key`). `status` keeps the old text layout and section labels; sections later slices own print `unavailable (slice N)`. **Not parity:** `status -o json` is a flat `{section: line}` object, not the old nested `statusReport`. The key file must be mode 0600 and owned by the caller, and the address must be loopback |
@@ -141,4 +142,4 @@ contract's plan and confirm forms (`docs/substrate-port/console-api-contract.md`
 | Socket `/resources/{id}/logs` gated as `read_sensitive` | L6 gated the same way in supervise mode (`?approval_id=` included); in observe mode a redacted read, logged, not recorded |
 | Resource monitor restarts recorded as automation | Recorded the same way (`auto_restart: …`) |
 | The interim approver of slice 5 (`approvals_unavailable`) | Gone. No shipped wiring builds a lane without the gate: `supervise.New` refuses supervise mode without one |
-| Principal: CLI's own claim over the socket, `mcp_stdio` for `cerberus mcp` | Console session: human via `web`. Local trust: agent via `mcp_stdio`. API key or any minted token: agent via `api`, its principal id as client and session |
+| Principal: CLI's own claim over the socket, `mcp_stdio` for `cerberus mcp` (`cerberus mcp` now forwards with the CLI key, so the gate sees that key: an agent via `api`) | Console session: human via `web`. Local trust: agent via `mcp_stdio`. API key or any minted token: agent via `api`, its principal id as client and session |

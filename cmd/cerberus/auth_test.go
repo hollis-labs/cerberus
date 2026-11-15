@@ -372,7 +372,7 @@ func TestHelpAndVersionCreateNothing(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // a directory needs x to be removed
 	for _, args := range [][]string{
 		{"--help"}, {"-h"}, {"help"}, {"version"}, {"config"},
-		{"serve", "--help"}, {"resource", "list", "--help"}, {"status", "--help"}, {"identity", "--help"},
+		{"serve", "--help"}, {"mcp", "--help"}, {"resource", "list", "--help"}, {"status", "--help"}, {"identity", "--help"},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // the test binary
@@ -396,7 +396,7 @@ func TestNeedsData(t *testing.T) {
 		"": true, "serve": true, "identity setup --username o": true, "identity key create --name k": true,
 		"--help": false, "serve --help": false, "version": false, "config": false, "health": false,
 		"resource list": false, "resource status web": false, "status": false,
-		"lockdown --reason x": false, "freeze --scope env=prod": false, "freeze --off frz_1": false, "breaker reset sus_1": false, "identity": false, "nonsense": false,
+		"mcp": false, "lockdown --reason x": false, "freeze --scope env=prod": false, "freeze --off frz_1": false, "breaker reset sus_1": false, "identity": false, "nonsense": false,
 	} {
 		if got := needsData(strings.Fields(args)); got != want {
 			t.Errorf("needsData(%q) = %v, want %v", args, got, want)

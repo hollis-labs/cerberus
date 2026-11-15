@@ -32,6 +32,8 @@ with each slice and states only what the branch does now.
 | `internal/supervise` | The supervision lane: status, the six mutations in supervise mode, the interim approver, the resource monitor and the self-guard (see Supervision). |
 | `internal/connector/local` | The local connector, carried. `observe.go` is its read-only half: `RenderSystemdUnit`, `ObserveSystemdUnit`, `ObserveSystemdDetail` (the state plus the unit's `systemctl --user show` record, from one show), `ObserveDevSession`; `NewWithSystemd` sets its systemd runner and unit environment. |
 | `internal/api` | The route table with a scope per route, the legacy-route set, the approve person check and the key guard (see Identity, scopes and the API). |
+| `internal/mcp` | The MCP tools (see MCP): main's catalog, embedded as dumped from main's own definitions, each tool with its scope and a handler that calls `/api` through a `Backend`. |
+| `cmd/cerberus/mcp.go` | `cerberus mcp`: MCP over stdio, forwarding every call to the serving Cerberus with the CLI key file. |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
 (plan section 4.2). Removed from this branch, readable on `main`, and ported from there by their slices:
@@ -39,7 +41,7 @@ The rest of `internal/` and `pkg/` is the old build's code, carried unchanged un
 - the old `cmd/cerberus` entry and its CLI;
 - the packages that depend on `libs/security/webauthn`, which the BOM does not pin until the owner decides
   whether passkey approvals stay: `internal/presence`, and through it `internal/cerbapi`, `internal/app`,
-  `internal/mcp`, `internal/webui`, `internal/egress/results`, `internal/conformance` (tests only),
+  `internal/webui`, `internal/egress/results`, `internal/conformance` (tests only),
   `internal/smoke/confirmdialog` and `internal/testfixture/sentinel`.
 
 ## Data directory
@@ -234,7 +236,8 @@ Served today:
 
 **The caller in the gate.** Each request is entered into the gate as the caller the guard established
 (`api.GateContext`): the owner's console session is a human via `web`, named by its session; local trust (MCP stdio)
-is an agent via `mcp_stdio`; an API key, any token minted at `/api/token` and auth's off-mode operator are agents via
+is an agent via `mcp_stdio` (no transport sends it today: `cerberus mcp` forwards with the CLI key, so its calls
+are that key's); an API key, any token minted at `/api/token` and auth's off-mode operator are agents via
 `api`. An agent's principal id is its client and its session, so an approval one key asked for is not usable by
 another (`approval.SameRequester`). The label chooses default policy; it is never approval.
 
@@ -304,3 +307,28 @@ add the scheduler, host monitor and plugins to this drain at their steps.
 `go vet ./...`, `go test -race ./...`, `golangci-lint` (new issues on PRs; carried code is linted as it is ported),
 `substrate pins check --app .`, the console build before tests, `substrate scan-public --ref HEAD`
 (`.github/workflows/ci.yml`).
+
+## MCP
+
+The `mcp` module serves Cerberus's tools over HTTP at `/mcp` (beside `/api`, on the same listener) and over stdio
+through `cerberus mcp`. The server is `cerberus` 0.1.0, as on main.
+
+- **The catalog is main's.** `internal/mcp/main-catalog.json` is main's `AllTools(nil)` dumped from its own
+  definitions: names, descriptions, input schemas (with `approval_id`) and hints, in main's order. The tools are
+  built from it, so a client sees what it saw. Plugin tools generated at runtime come with the plugin host (slice 7).
+- **One process supervises.** Every tool calls `/api` through a `Backend`: in `serve`, the API's own handlers
+  in-process under the caller's principal (`MuxBackend`); in `cerberus mcp`, the serving Cerberus over loopback with
+  the CLI key file. `cerberus mcp` starts only config, logging, auth and mcp: no database, data directory, signing
+  key or loop. With no serving Cerberus a call fails naming the address; nothing runs in-process instead.
+- **Scopes.** `/mcp` needs `cerberus.read`. Each tool then needs its own scope, checked before it runs
+  (`mcp.Authorize`): the scope of the route it calls, or for a tool not served yet, from its old effect (reads read;
+  resource and pipeline runs operate; removals and configuration, host and connector writes admin). No tool needs
+  `cerberus.approve`. Stdio runs under local trust with `cerberus.read`, `.operate` and `.admin`; its calls reach the
+  API as the CLI key, which cannot hold approve, and approving answers it 403 `user_required`.
+- **Answers are main's.** Lists page into `{items,count,total,truncated,hint}`, reads are indented JSON, mutations
+  answer `{success,message,error}` with `isError` on failure, and a gate refusal is main's structured refusal with
+  its code, approval and next step (pointing at the console: decision 0.1).
+- **Not served yet.** A tool whose backend has not landed answers `not available in this build (slice N)`;
+  `internal/mcp.Pending()` lists them, and the list must be empty before phase A. The schedule tools answer that the
+  scheduler is off (`cerberus.scheduler.enabled`).
+

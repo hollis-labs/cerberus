@@ -11,12 +11,13 @@ import (
 	_ "github.com/hollis-labs/substrate/modules/httphost"
 	_ "github.com/hollis-labs/substrate/modules/identity"
 	_ "github.com/hollis-labs/substrate/modules/logging"
+	_ "github.com/hollis-labs/substrate/modules/mcp"
 )
 
 const (
 	substrateApp        = "cerberus"
-	substrateConfigJSON = "{\"auth\":{\"mode\":\"enforce\"},\"cerberus\":{\"adopt_root\":\"~/.cerberus\",\"install_root\":\"~/.cerberus/apps\"},\"database\":{\"sqlite\":{\"path\":\"cerberus.db\"}},\"httphost\":{\"addr\":\"127.0.0.1:4786\"},\"identity\":{\"key_file\":\"identity-signing.key\",\"setup\":\"offline\"},\"logging\":{\"format\":\"text\",\"level\":\"info\"}}"
+	substrateConfigJSON = "{\"auth\":{\"mode\":\"enforce\"},\"cerberus\":{\"adopt_root\":\"~/.cerberus\",\"install_root\":\"~/.cerberus/apps\"},\"database\":{\"sqlite\":{\"path\":\"cerberus.db\"}},\"httphost\":{\"addr\":\"127.0.0.1:4786\"},\"identity\":{\"key_file\":\"identity-signing.key\",\"setup\":\"offline\"},\"logging\":{\"format\":\"text\",\"level\":\"info\"},\"mcp\":{\"scope\":\"cerberus.read\",\"version\":\"0.1.0\"}}"
 )
 
 // substrateModules is the start order.
-var substrateModules = []string{"config", "logging", "health", "database", "auth", "httphost", "identity", "cli"}
+var substrateModules = []string{"config", "logging", "health", "database", "auth", "httphost", "identity", "mcp", "cli"}
