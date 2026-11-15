@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope.** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope; revision 7 adds slice 8b for the lanes slice 9's tool-parity survey found unowned.** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -576,7 +576,8 @@ delete them.
 | 6 | `substrate-port` | Audit (same format, anchor), approvals with the owner-session approver (no presence/WebAuthn), policy, redaction, egress, brakes. |
 | 7 | `substrate-port` | Admin lane: ssh, docker, external connector service, plugin host (`pkg/plugin` unchanged, adopted roots), secrets (keyring names unchanged), credential broker. |
 | 8 | `substrate-port` | Hosts and probes, janitor, scheduling core (off, `cerberus.scheduler.enabled`), outbound outpost client, event export (off, `cerberus.event_export.*`), snapshot recorder. |
-| 9 | `substrate-port` | MCP: HTTP and stdio, tool-name parity test, local scopes without approve. |
+| 8b | `substrate-port` | Host writes (revision, update, inventory, remove, history), components, outpost host actions (units, logs, start, stop, restart, plan; outbound and gated), host capacity, portfolio health, pipelines, `ensure_fresh`. Found by slice 9's tool-parity survey: these lanes had no slice. |
+| 9 | `substrate-port` | MCP: HTTP and stdio, tool-name parity test, local scopes without approve. Every old tool keeps its name and schema; the pending list is empty before phase A. |
 | 10 | `substrate-port` | `migrate-from`, `export-legacy`, verify, the standby-sidecar import, and the rehearsal (section 5, all seven steps). |
 | 11a and b | `substrate-port` | Console on app-shell: (a) contract and scaffold, (b) pages including the approval page (owner session). Sign-in is kit-identity; there is no ceremony slice. |
 | 12 | `substrate-port` | Deploy: `cerberus-substrate` descriptor, `fleet-install` descriptor, `cutover-runbook.md`. |
@@ -592,7 +593,8 @@ Dependencies:
 - 3 and 4 before 5;
 - 4 before 9 and 11b;
 - slice 6 needs no webauthn pin (decision 0.1);
-- 5 to 9 before 10;
+- 5 to 9 and 8b before 10;
+- 6 and 7 before 8b (its writes are gated, and host actions use the admin lane);
 - 0 and 10 before 12.
 
 ## 12. Open points
