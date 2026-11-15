@@ -114,6 +114,12 @@ No client key holds `cerberus.approve`; the server refuses it on any key (decisi
 - `/ping`, `/whoami`, `/hosts/{name}` and the `/hosts/_…` routes; the plan, confirm and break-glass forms of the
   mutations; streaming (`X-Cerberus-Progress`). No current caller uses them. The console uses its own routes
   (`console-api-contract.md`).
+
+  *Note (slice 7d, CW-20261115-0089):* the CLI's own routes now serve `whoami` (`GET /api/whoami`, the caller as
+  the gate and the identity module see it, not old's body), the audit lane, policy and posture, and data access
+  (`POST /api/data/v1/query`, with the session token in `X-Cerberus-Data-Token` beside a key, where old's
+  `/data/v1/query` took the session as the bearer). They are not legacy routes: no tachyon or sysop caller uses them
+  (conversion-notes.md, CLI parity rows).
 - The CLI fallbacks. sysop runs `cerberus resource <action> <id>` and `cerberus register <file>`
   (`main.go:5345-5356, 5424-5484`), and tachyon's approve-and-run path runs `cerberus resource <verb> <id> --ack`
   and `cerberus resource list -o json` over SSH (`internal/actionrun/registry.go:67-72`,
