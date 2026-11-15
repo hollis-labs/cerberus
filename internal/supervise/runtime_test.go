@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -113,6 +114,12 @@ func newLane(t *testing.T, resources ...config.ResourceDef) *lane {
 // newLaneAs is newLane for a process that runs as the resource self.
 func newLaneAs(t *testing.T, self string, resources ...config.ResourceDef) *lane {
 	t.Helper()
+	return newLaneWith(t, self, nil, resources...)
+}
+
+// newLaneWith is newLaneAs with the lane's options adjusted by opt before the lane is built.
+func newLaneWith(t *testing.T, self string, opt func(*supervise.Options), resources ...config.ResourceDef) *lane {
+	t.Helper()
 	base := t.TempDir()
 	l := &lane{home: filepath.Join(base, "home"), data: filepath.Join(base, "data"), manager: &systemctlFake{units: map[string]string{}}}
 	t.Setenv("HOME", l.home)
@@ -130,7 +137,7 @@ func newLaneAs(t *testing.T, self string, resources ...config.ResourceDef) *lane
 		t.Fatal(err)
 	}
 	l.gate = gatetest.New(t, gatetest.Options{})
-	l.svc, err = supervise.New(supervise.Options{
+	o := supervise.Options{
 		Mode: settings.ModeSupervise, Home: l.home, StateDir: l.data, Runner: l.manager, SelfID: self,
 		Config:   func() (*config.ConfigV2, error) { return l.cfg, nil },
 		Store:    l.st,
@@ -141,7 +148,11 @@ func newLaneAs(t *testing.T, self string, resources ...config.ResourceDef) *lane
 			Env:      localconn.RenderEnv{Home: l.home, Path: l.home + "/.local/bin:/usr/local/bin:/usr/bin:/bin", Cerberus: l.home + "/.local/bin/cerberus"},
 			LookPath: func(name string) (string, error) { return name, nil },
 		},
-	})
+	}
+	if opt != nil {
+		opt(&o)
+	}
+	l.svc, err = supervise.New(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +411,57 @@ func TestSuperviseApplyOnAnUnchangedUnitRestartsNothing(t *testing.T) {
 			}
 			if m := l.manager.mutating(); len(m) != 0 {
 				t.Fatalf("apply on an unchanged unit ran %v", m)
+			}
+		})
+	}
+}
+
+// The global install-after-build default is cerberus.build.install_after_build (Options), not the
+// registry's assembled config; unset, it is the old build's true. The resource's own key and the
+// caller's override still win over it. Each deploy builds with make; the install step leaves a
+// marker in the checkout when it ran.
+func TestDeployInstallAfterBuildDefault(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make is not installed")
+	}
+	no, yes := false, true
+	for _, c := range []struct {
+		name     string
+		global   *bool
+		resource *bool
+		override *bool
+		want     bool
+	}{
+		{name: "unset is true", want: true},
+		{name: "setting false", global: &no, want: false},
+		{name: "setting true", global: &yes, want: true},
+		{name: "resource key over the setting", global: &no, resource: &yes, want: true},
+		{name: "override over both", global: &yes, resource: &yes, override: &no, want: false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			makefile := "build:\n\ttouch built\ninstall:\n\ttouch installed\n"
+			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(makefile), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res := config.ResourceDef{ID: "app", Type: "process", Project: "web", Connector: "local",
+				Config: map[string]any{"command": []any{"/bin/sleep", "300"}, "dir": dir, "build_strategy": map[string]any{"kind": "make_standard"}}}
+			if c.resource != nil {
+				res.Config["install_after_build"] = *c.resource
+			}
+			l := newLaneWith(t, "cerberus-substrate", func(o *supervise.Options) { o.InstallAfterBuild = c.global }, res)
+			// The registry's config says the opposite; it is not the global default's source.
+			opposite := !c.want
+			l.cfg.Build = &config.BuildConfig{InstallAfterBuild: &opposite}
+			if _, err := l.svc.Mutate(context.Background(), supervise.Request{Verb: "deploy", ID: "app", Acknowledged: true, InstallAfterBuildOverride: c.override}); err != nil {
+				t.Fatalf("deploy: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "built")); err != nil {
+				t.Fatalf("the build did not run: %v", err)
+			}
+			_, err := os.Stat(filepath.Join(dir, "installed"))
+			if got := err == nil; got != c.want {
+				t.Fatalf("install ran: %v, want %v", got, c.want)
 			}
 		})
 	}

@@ -66,6 +66,8 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 | Old | New |
 |---|---|
 | `config.yaml` `host_monitor:` (same keys) | `cerberus.host_monitor` in the override file. Probing and the janitor run in supervise mode only; probing only when `enabled` |
+| `config.yaml` `build.install_after_build` (default `true`) | `cerberus.build.install_after_build` (default `true`, old's): the global default of `resource deploy`'s install step, below the resource's own `install_after_build` and the CLI's `--install-after-build`. The registry's project configs no longer set it. `migrate-from` carries an old value into the fragment |
+| `config.yaml` `web.public_url` | No key of its own. `migrate-from` reports the value and writes it into the fragment as a comment: the console's public origin goes in `identity.allowed_origins` with `identity.trusted_proxy: true` behind the TLS proxy (the console's host section) |
 | `events.yaml` `export.{enabled, grace_seconds, interval_seconds, hub.enabled}` | `cerberus.event_export.{enabled, grace_seconds, interval_seconds, hub}`, off by default; `migrate-from` transforms `events.yaml` |
 | The scheduling core, built and never started; no key | `cerberus.scheduler.enabled` (default `false`). Enabled, it refuses to start while its `gosched_*` or `cerberus_schedule_*` tables hold rows, naming them, unless `cerberus.scheduler.allow_existing: true`; a refusal fails its `/healthz` check and never stops Cerberus |
 | — | `/healthz` gains `telemetry`: an error while host-monitor writes are held in memory because the Telemetry store fails (up to 1000, oldest dropped and counted) |

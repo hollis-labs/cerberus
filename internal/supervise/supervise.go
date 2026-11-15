@@ -51,6 +51,11 @@ type Options struct {
 
 	// Config returns the configuration the registry assembles, read fresh for each call.
 	Config func() (*config.ConfigV2, error)
+	// InstallAfterBuild is the global install-after-build default a deploy uses below the
+	// resource's own install_after_build and the caller's override: cerberus.build.install_after_build
+	// (settings). Nil is the old build's default, true. The registry's assembled config is not
+	// consulted for it: the global default is the operator's setting, not a project's.
+	InstallAfterBuild *bool
 	// Store is the class A store: pause state and applied digests.
 	Store *store.Store
 	// Digester keys applied digests (the audit chain's digest key).
