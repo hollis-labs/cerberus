@@ -103,6 +103,9 @@ type Options struct {
 	// Admin is the admin lane (connectors, credentials, plugins), in supervise mode; nil is
 	// observe mode, where its routes answer 503 admin_unavailable.
 	Admin *admin.Service
+	// Policy is the operator's policy, for whoami's posture and the policy and posture routes;
+	// nil reads as the built-in baseline and answers the policy routes 503 policy_unavailable.
+	Policy *PolicyOptions
 	// Logger receives what the API logs; nil is slog.Default.
 	Logger *slog.Logger
 }
@@ -189,6 +192,8 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/hosts/{name}/status", ScopeRead, a.hostStatus},
 		Route{http.MethodGet, "/api/hosts/{name}/samples", ScopeRead, a.hostSamples},
 		Route{http.MethodGet, "/api/projects", ScopeRead, a.projects},
+		// The server's view of the caller (the old socket's GET /whoami).
+		Route{http.MethodGet, "/api/whoami", ScopeRead, a.whoami},
 		// Approvals (the old socket's /approvals routes): anyone who may read sees them; only the
 		// owner signed in to the console decides, revokes or acknowledges one (decision 0.1).
 		Route{http.MethodGet, "/api/approvals", ScopeRead, a.approvalList},

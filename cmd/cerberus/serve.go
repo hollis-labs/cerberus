@@ -24,10 +24,12 @@ import (
 	"github.com/hollis-labs/cerberus/internal/auditchain"
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
+	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/hostmon"
 	cmcp "github.com/hollis-labs/cerberus/internal/mcp"
+	"github.com/hollis-labs/cerberus/internal/pipeline"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
@@ -35,6 +37,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/storage"
 	"github.com/hollis-labs/cerberus/internal/supervise"
+	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
 // cerberus is what the commands share: the started framework app. ready, when set, learns
@@ -92,7 +95,24 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 		Mutator: lane,
 		Gate:    g,
 		Admin:   adm,
+		Policy: &api.PolicyOptions{
+			Store:       policy.Store{Dir: policyDir(home), AuditDir: filepath.Join(dirs.Data, "audit")},
+			Definitions: policyDefinitions(adm),
+		},
 	})
+}
+
+// policyDefinitions are every operation Cerberus can be asked to run, as old's
+// defaultPolicyDefinitions listed them: the admin lane's connectors (built-ins and installed
+// plugins; none in observe mode), the local runtime and pipelines.
+func policyDefinitions(adm *admin.Service) func(context.Context) []contract.Definition {
+	return func(context.Context) []contract.Definition {
+		var defs []contract.Definition
+		if adm != nil {
+			defs = adm.Definitions()
+		}
+		return append(defs, localconn.Definition(), pipeline.Definition())
+	}
 }
 
 func (c *cerberus) serveCmd(ctx context.Context) *cobra.Command {
