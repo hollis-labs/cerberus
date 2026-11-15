@@ -25,6 +25,7 @@ func (c *cerberus) addFollowUpCommands(root *cobra.Command) error {
 		auditGroup.AddCommand(auditWriteCommands(client, stdIsTerminal)...)
 	}
 	root.AddCommand(c.whoamiCommand())
+	root.AddCommand(c.policyCommands()...)
 	return addPendingCommands(root, pendingSpecs)
 }
 

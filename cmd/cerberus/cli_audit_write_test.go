@@ -91,6 +91,59 @@ func TestWriteAuditCLIFixture(t *testing.T) {
 	for _, s := range []string{"months", "break"} {
 		auditFixture(t, filepath.Join(out, s, "audit"), s)
 	}
+	policyFixture(t, filepath.Join(out, "policy", "audit"))
+}
+
+// policyFixture is a chain of shadow decisions for `policy report`: agents' and a person's
+// intents on labeled, unlabeled and ad hoc targets, some that would block, and an outcome with
+// an egress decision.
+func policyFixture(t *testing.T, dir string) {
+	t.Helper()
+	clk := &fixedClock{t: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)}
+	sink, err := audit.OpenFileSinkClock(dir, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := audit.Principal{Kind: "agent", Surface: "socket", Via: "cli", Client: "cerberus-cli"}
+	human := audit.Principal{Kind: "human", Surface: "web", Via: "web"}
+	prod := audit.Target{Kind: "local.resource", Resource: "web", Env: "prod", Owner: "self", Admin: "self"}
+	unlabeled := audit.Target{Kind: "local.resource", Resource: "dev"}
+	adhoc := audit.Target{Kind: "ssh.host", Adhoc: true}
+	decision := func(d string, block bool, rule string) *audit.PolicyDecision {
+		return &audit.PolicyDecision{Decision: d, WouldBlock: block, Snapshot: "baseline", Shadow: true,
+			MatchedRules: []audit.MatchedRule{{Rule: rule, Decision: d, Reason: "fixture"}}}
+	}
+	for i, r := range []struct {
+		p    audit.Principal
+		conn string
+		op   string
+		eff  string
+		t    audit.Target
+		d    *audit.PolicyDecision
+	}{
+		{agent, "local", "deploy", "lifecycle", prod, decision("approve", true, "baseline.lifecycle.agent")},
+		{agent, "local", "stop", "lifecycle", prod, decision("approve", true, "baseline.lifecycle.agent")},
+		{agent, "local", "deploy", "lifecycle", prod, decision("approve", true, "baseline.lifecycle.agent")},
+		{agent, "local", "stop", "lifecycle", unlabeled, decision("deny", true, "builtin.admin-unknown")},
+		{human, "ssh", "exec", "exec", adhoc, decision("deny", true, "builtin.admin-unknown")},
+		{agent, "local", "status", "read", prod, decision("allow", false, "baseline.read")},
+	} {
+		clk.mu.Lock()
+		clk.t = clk.t.Add(time.Duration(i+1) * time.Hour)
+		clk.mu.Unlock()
+		in, werr := sink.Write(audit.Record{Kind: audit.KindIntent, OperationID: audit.NewID(), Principal: r.p, Connector: r.conn, Operation: r.op,
+			Effect: r.eff, Target: r.t, Policy: r.d, Posture: "secure"})
+		if werr != nil {
+			t.Fatal(werr)
+		}
+		out := audit.Record{Kind: audit.KindOutcome, OperationID: in.OperationID, Principal: r.p, Connector: r.conn, Operation: r.op, Effect: r.eff, Target: r.t, Decision: audit.DecisionAllowed}
+		if r.op == "status" {
+			out.Egress = []audit.EgressAction{{Rule: "mask-tokens", Label: "secret", Action: "mask", Mode: "shadow", Withheld: 2}}
+		}
+		if _, werr = sink.Write(out); werr != nil {
+			t.Fatal(werr)
+		}
+	}
 }
 
 // chainServer is the API over a gate whose sink is the audit chain in dir, served to the CLI's

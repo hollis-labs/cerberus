@@ -25,7 +25,7 @@ const (
 
 // pendingOwner is the slice a path waits for, by the pendingWhy key that names it.
 var pendingOwner = map[string]string{
-	"data": slice7d, "policy": slice7d, "posture": slice7d,
+	"data": slice7d,
 }
 
 // pendingSlice is the slice path waits for.
@@ -55,9 +55,7 @@ var pendingWhy = map[string]string{
 	"data":                "the data-access route (old POST /data/v1/query) is not served yet",
 	"host":                "this host verb has no route yet; host list, get, probe, status, samples, monitor and events are served",
 	"pipeline":            "no pipeline route is served yet",
-	"policy":              "the policy point runs inside the serving Cerberus, and no route serves policy to the CLI yet",
 	"portfolio":           "the portfolio health projection has no route yet",
-	"posture":             "the posture is the policy's, and no route serves it to the CLI yet",
 	"schedule":            "the scheduling core is off and no schedule route is served",
 }
 
@@ -280,29 +278,6 @@ var pendingSpecs = []pendingSpec{
 		{"break-glass", "", "bool", "", "get past an approve decision yourself, loudly: needs a terminal, --reason and the target typed; never gets past a deny"},
 		{"reason", "", "string", "", "why you are breaking glass (required with --break-glass; it goes on the record)"},
 	}},
-	{path: "policy", use: "policy", short: "Explain, apply and report on the operator's policy", group: true, flags: []flagSpec{}},
-	{path: "policy apply", use: "apply", short: "Make the working policy files the applied snapshot (interactive)", group: false, flags: []flagSpec{}},
-	{path: "policy enforce", use: "enforce --scope <key=value,...> | --all", short: "Switch enforcement on for a scope, or back to shadow (interactive)", group: false, flags: []flagSpec{
-		{"all", "", "bool", "", "enforce everything (mode: enforce)"},
-		{"id", "", "string", "", "a name for the enforced scope"},
-		{"off", "", "bool", "", "return the scope, or with --all the mode, to shadow"},
-		{"scope", "", "string", "", "the scope to enforce, as comma-separated key=value terms"},
-		{"since", "", "duration", "168h0m0s", "the shadow data to show for the scope"},
-	}},
-	{path: "policy explain", use: "explain <connector.operation>", short: "Show the decision for an operation and every rule that matched", group: false, flags: []flagSpec{
-		{"adhoc", "", "bool", "", "evaluate a target named by connection settings rather than a registered resource"},
-		{"as", "", "string", "", "principal kind: human, agent or automation (default: how this terminal is classified)"},
-		{"dry-run", "", "bool", "", "evaluate as a dry run (the plan step)"},
-		{"output", "o", "string", "text", "output format: text|json"},
-		{"target", "", "string", "", "a registered resource id to evaluate against"},
-		{"working", "", "bool", "", "evaluate the working files instead of the applied snapshot"},
-	}},
-	{path: "policy report", use: "report", short: "Summarize what policy would block, and what enforcing it would need", group: false, flags: []flagSpec{
-		{"output", "o", "string", "text", "output format: text|json"},
-		{"scope", "", "string", "", "only decisions in this scope: key=value terms, comma-separated (principal, env, effect, connector, target, rule)"},
-		{"since", "", "string", "", "decisions at or after this date or time"},
-		{"until", "", "string", "", "decisions before this date or time"},
-	}},
 	{path: "portfolio", use: "portfolio", short: "Combined portfolio health and cross-fleet observation", group: true, flags: []flagSpec{}},
 	{path: "portfolio health", use: "health", short: "Combined portfolio health projection across hosts, projects, and deployments", group: false, flags: []flagSpec{
 		{"host", "", "string", "", "filter to one host name"},
@@ -313,16 +288,6 @@ var pendingSpecs = []pendingSpec{
 		{"output", "o", "string", "text", "output format: text|json"},
 		{"project", "", "string", "", "filter to one project ID"},
 		{"rollup-status", "", "string", "", "filter by rollup status"},
-	}},
-	{path: "posture", use: "posture", short: "Show or change the posture: secure by default, permissive by choice", group: true, flags: []flagSpec{}},
-	{path: "posture show", use: "show", short: "Show the applied posture and what it relaxes", group: false, flags: []flagSpec{
-		{"output", "o", "string", "text", "output format: text|json"},
-	}},
-	{path: "posture set", use: "set <secure|permissive>", short: "Set the global posture, or with --scope a posture rule (interactive)", group: false, flags: []flagSpec{
-		{"scope", "", "stringArray", "", "a posture rule's scope, as key=value (repeatable)"},
-	}},
-	{path: "posture reset", use: "reset", short: "Return to the secure default, or with --scope remove one posture rule (interactive)", group: false, flags: []flagSpec{
-		{"scope", "", "stringArray", "", "a posture rule's scope, as key=value (repeatable)"},
 	}},
 	{path: "schedule", use: "schedule", short: "Manage durable schedules (engine remains inactive)", group: true, flags: []flagSpec{
 		{"json", "", "bool", "", "print the shared JSON response (errors also use JSON)"},

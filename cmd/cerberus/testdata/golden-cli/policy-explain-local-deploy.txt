@@ -1,0 +1,15 @@
+local.deploy [lifecycle] on local.resource: env unknown, owner unknown, admin unknown — as agent
+Decision: deny (would be blocked once enforced).
+Policy:   the built-in baseline (no snapshot is applied)
+
+Matched rules:
+  approve  baseline.lifecycle.agent  the baseline requires approval for an agent's lifecycle operation
+  deny     builtin.admin-unknown     nobody declared who administers this target, so it is read as the owner's (label it with admin:)
+  approve  builtin.env-unknown       no env declared, so it is read as production (label it with env:)
+
+Enforcement: shadow for this call: the decision is recorded and nothing is refused.
+
+Break glass: gets past an approve, never a deny; at most 3 per target per 24h0m0s.
+Circuit breaker: off (policy sets no circuit_breaker).
+
+Posture:  secure, from the global posture (evaluated in shadow, like every decision above)

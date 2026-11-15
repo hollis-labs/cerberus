@@ -1,0 +1,15 @@
+5 of 6 recorded decision(s) would be blocked once enforced.
+Under the built-in baseline (no snapshot is applied): 5 still would, 0 no longer would.
+Approvals needed: out_of_band 3.
+! 3 would-block decision(s) need a channel that is not ready: enforcing them now would refuse them with no way to approve.
+
+COUNT  RULE                      PRINCIPAL  TARGET                                                         OPERATIONS               NOW      NEEDS                                                                                                                                                                                                                                                                                                                                 LAST
+3      baseline.lifecycle.agent  agent      web [env prod, owner self, admin self]                         local.deploy local.stop  approve  NOT READY: out-of-band approval with a passkey: the daemon did not report its passkeys (cerberus daemon not running at <home>/.cerberus/cerberus.sock; start with 'cerberus daemon' (Get "http://cerberus-daemon/approvals/keys": dial unix <home>/.cerberus/cerberus.sock: connect: no such file or directory))  2026-11-03T15:00:00Z
+1      builtin.admin-unknown     agent      dev [unlabeled] [env unknown, owner unknown, admin unknown]    local.stop               deny     nothing can: policy denies it                                                                                                                                                                                                                                                                                                         2026-11-03T19:00:00Z
+1      builtin.admin-unknown     human      ssh.host (ad hoc) [env unknown, owner unknown, admin unknown]  ssh.exec                 deny     nothing can: policy denies it                                                                                                                                                                                                                                                                                                         2026-11-04T00:00:00Z
+
+Channels: out_of_band NOT READY: the daemon did not report its passkeys (cerberus daemon not running at <home>/.cerberus/cerberus.sock; start with 'cerberus daemon' (Get "http://cerberus-daemon/approvals/keys": dial unix <home>/.cerberus/cerberus.sock: connect: no such file or directory)); tty_confirm ready for a person at a terminal only: the daemon is NOT running, so nothing can hold an agent's pending approval.
+
+Egress: 1 decision group(s); 1 decision(s) recorded in shadow (would have applied).
+COUNT  RULE         LABEL   ACTION  MODE    PRINCIPAL  TARGET  WITHHELD  LAST
+1      mask-tokens  secret  mask    shadow  agent      web     2         2026-11-04T06:00:00Z
