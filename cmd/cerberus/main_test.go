@@ -623,3 +623,28 @@ func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 		t.Fatalf("the old tree's pids/ was touched: %v", err)
 	}
 }
+
+// An error prints once, as main's did: "Error: <text>" on stderr, exit 1; misuse (a bad flag or
+// argument) leads with its usage, a failure after that does not, and an unknown command is
+// cobra's one line.
+func TestAnErrorPrintsOnceAsMainsDid(t *testing.T) {
+	s := newSandbox(t, "")
+	for _, c := range []struct {
+		args  []string
+		want  string
+		usage bool
+	}{
+		{[]string{"whoami"}, "Error: cerberus whoami: pending (slice 7d): ", false},
+		{[]string{"schedule", "list"}, "Error: cerberus schedule list: pending (slice 8b): ", false},
+		{[]string{"resource", "list"}, "Error: no API key at ", false},
+		{[]string{"resource", "list", "--bogus"}, "Error: unknown flag: --bogus", true},
+		{[]string{"resource", "status"}, "Error: accepts 1 arg(s), received 0", true},
+		{[]string{"nope"}, "Error: unknown command \"nope\" for \"cerberus\"", false},
+	} {
+		code, out := runToExit(t, s, c.args...)
+		if code != 1 || strings.Count(out, "Error: ") != 1 || !strings.Contains(out, c.want) || strings.Contains(out, "cerberus: ") ||
+			strings.Contains(out, "Usage:") != c.usage {
+			t.Errorf("%v: exit %d\n%s", c.args, code, out)
+		}
+	}
+}
