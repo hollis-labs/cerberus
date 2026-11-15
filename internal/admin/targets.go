@@ -16,6 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/secrets"
+	"github.com/hollis-labs/cerberus/internal/target"
 	contract "github.com/hollis-labs/cerberus/pkg/connector"
 )
 
@@ -292,4 +293,32 @@ func noCredentialRefusal(args OperationArgs, err error) error {
 		return err
 	}
 	return codedErr(args, gate.CodeCredentialMissing, redact.Guidance("%s", none.Error()))
+}
+
+// CredentialBindingView is one declared secret's binding for a call, for `cerberus policy
+// explain` (the old cerbapi.CredentialBindingView).
+type CredentialBindingView struct {
+	Name  string `json:"name"`
+	Label string `json:"label,omitempty"`
+	// None is a binding that refuses the call: no credential for its access.
+	None bool `json:"none,omitempty"`
+}
+
+// ExplainCredentials is which binding each of def's declared secrets would use for operation,
+// as a preview or not, on the resolved target: the old cerbapi.ExplainCredentials. An error is
+// connector-secrets.yaml failing to load, when every call needing a credential fails.
+func (s *Service) ExplainCredentials(def contract.Definition, operation string, preview bool, resolved target.Target) ([]CredentialBindingView, error) {
+	file, err := s.refs.Bindings()
+	if err != nil {
+		return nil, err
+	}
+	op, known := def.Operation(operation)
+	scope := credentialScope(gate.Spec{Connector: def.ID, Operation: operation, Op: op, Known: known, DryRun: preview})
+	scope.Target = resolved
+	out := make([]CredentialBindingView, 0, len(def.Config.Secrets))
+	for _, sec := range def.Config.Secrets {
+		b := file[def.ID].Resolve(def.ID, sec.Name, &scope)
+		out = append(out, CredentialBindingView{Name: secrets.CredentialName(def.ID, sec.Name, b), Label: b.Label, None: b.None})
+	}
+	return out, nil
 }
