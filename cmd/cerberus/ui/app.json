@@ -1,0 +1,230 @@
+{
+  "schema_version": 0,
+  "module": "cerberus",
+  "contributions": [
+    {
+      "kind": "nav.item",
+      "key": "overview",
+      "label": "Overview",
+      "icon": "layout-dashboard",
+      "route": "/",
+      "priority": 1
+    },
+    {
+      "kind": "surface",
+      "key": "overview",
+      "label": "Overview",
+      "title": "Overview",
+      "route": "/",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "resources",
+      "label": "Resources",
+      "icon": "server",
+      "route": "/resources",
+      "priority": 2
+    },
+    {
+      "kind": "surface",
+      "key": "resources",
+      "label": "Resources",
+      "title": "Resources",
+      "route": "/resources",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "projects",
+      "label": "Projects",
+      "icon": "folder-tree",
+      "route": "/projects",
+      "priority": 3
+    },
+    {
+      "kind": "surface",
+      "key": "projects",
+      "label": "Projects",
+      "title": "Projects",
+      "route": "/projects",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "pipelines",
+      "label": "Pipelines",
+      "icon": "workflow",
+      "route": "/pipelines",
+      "priority": 4
+    },
+    {
+      "kind": "surface",
+      "key": "pipelines",
+      "label": "Pipelines",
+      "title": "Pipelines",
+      "route": "/pipelines",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "approvals",
+      "label": "Approvals",
+      "icon": "shield-check",
+      "route": "/approvals",
+      "priority": 5
+    },
+    {
+      "kind": "surface",
+      "key": "approvals",
+      "label": "Approvals",
+      "title": "Approvals",
+      "route": "/approvals",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "registry",
+      "label": "Registry",
+      "icon": "book-open",
+      "route": "/registry",
+      "priority": 6
+    },
+    {
+      "kind": "surface",
+      "key": "registry",
+      "label": "Registry",
+      "title": "Registry",
+      "route": "/registry",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "credentials",
+      "label": "Credentials",
+      "icon": "key-square",
+      "route": "/credentials",
+      "priority": 7
+    },
+    {
+      "kind": "surface",
+      "key": "credentials",
+      "label": "Credentials",
+      "title": "Credentials",
+      "route": "/credentials",
+      "layout": "form"
+    },
+    {
+      "kind": "nav.item",
+      "key": "connectors",
+      "label": "Connectors",
+      "icon": "plug",
+      "route": "/connectors",
+      "priority": 8
+    },
+    {
+      "kind": "surface",
+      "key": "connectors",
+      "label": "Connectors",
+      "title": "Connectors",
+      "route": "/connectors",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "plugins",
+      "label": "Plugins",
+      "icon": "puzzle",
+      "route": "/plugins",
+      "priority": 9
+    },
+    {
+      "kind": "surface",
+      "key": "plugins",
+      "label": "Plugins",
+      "title": "Plugins",
+      "route": "/plugins",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "settings",
+      "label": "Settings",
+      "icon": "settings",
+      "route": "/settings",
+      "region": "nav.footer"
+    },
+    {
+      "kind": "surface",
+      "key": "settings",
+      "label": "Settings",
+      "title": "Settings",
+      "route": "/settings",
+      "layout": "form"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-account",
+      "label": "Account security",
+      "icon": "shield",
+      "route": "/identity/account",
+      "region": "nav.footer"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-account",
+      "label": "Account security",
+      "title": "Account security",
+      "route": "/identity/account",
+      "layout": "form"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-keys",
+      "label": "Access keys",
+      "icon": "key-round",
+      "route": "/identity/keys",
+      "region": "nav.footer"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-keys",
+      "label": "Access keys",
+      "title": "Access keys",
+      "route": "/identity/keys",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-sessions",
+      "label": "Active sessions",
+      "icon": "monitor",
+      "route": "/identity/sessions",
+      "region": "nav.footer"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-sessions",
+      "label": "Active sessions",
+      "title": "Active sessions",
+      "route": "/identity/sessions",
+      "layout": "list"
+    },
+    {
+      "kind": "nav.item",
+      "key": "identity-sign-out",
+      "label": "Sign out",
+      "icon": "log-out",
+      "route": "/identity/sign-out",
+      "region": "nav.footer"
+    },
+    {
+      "kind": "surface",
+      "key": "identity-sign-out",
+      "label": "Sign out",
+      "title": "Sign out",
+      "route": "/identity/sign-out",
+      "layout": "form"
+    }
+  ]
+}
