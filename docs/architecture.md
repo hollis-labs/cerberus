@@ -221,7 +221,15 @@ Served today:
 - the approvals routes, the old socket's `/approvals` with the old bodies: `GET /api/approvals` (`ApprovalList`) and
   `GET /api/approvals/{id}` (`cerberus.read`); `POST /api/approvals/{id}/decide`, `/revoke` and `/ack-break-glass`
   (`cerberus.approve`, person-only). Refusals use the flat body with old's statuses (`gate.ApprovalErrorStatus`). In
-  observe mode they answer 503 `approvals_unavailable`: old holds the approvals until the handover.
+  observe mode they answer 503 `approvals_unavailable`: old holds the approvals until the handover;
+- the brake routes, the old socket's `/brakes` with the old bodies (`gate.BrakesView`, `BrakeEngageArgs`,
+  `BrakeLiftArgs`, `BrakeResetArgs`): `GET /api/brakes` (`cerberus.read`); `POST /api/brakes/lockdown`,
+  `/lockdown/lift`, `/freeze`, `/freeze/{id}/lift` and `/suspensions/{id}/reset` (`cerberus.admin`). The gate decides
+  the rest as old's daemon did: anyone engages (an agent may stop itself); a lift needs a person and the owner's
+  out-of-band approval (409 `approval_pending` with `details.approval`, then the retry naming it); a reset needs a
+  person typing `reset <id>`. The only person here is the owner's console session, so an API key, a minted token and
+  local trust are refused a lift or a reset with 428 `approval_required`. A brake that is not engaged is old's 409
+  (`not_engaged`), a freeze without a match 400 `invalid_args`. In observe mode they answer 503 `brakes_unavailable`.
 
 **The caller in the gate.** Each request is entered into the gate as the caller the guard established
 (`api.GateContext`): the owner's console session is a human via `web`, named by its session; local trust (MCP stdio)
