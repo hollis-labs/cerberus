@@ -116,7 +116,7 @@ func (a *API) hosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Host.Name < out[j].Host.Name })
-	writeJSON(w, out)
+	writeScoped(GateContext(r.Context()), w, out)
 }
 
 // resourceToDomain is the connector's view of a registry resource.

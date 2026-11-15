@@ -183,17 +183,17 @@ func TestHostReadsAreRecordedAndAnswerAsMain(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ path, want string }{
-		{"/api/hosts/box/status", `"name":"box","monitored":true`},
+		{"/api/hosts/box/status", `"monitored":true,"name":"box"`},
 		{"/api/hosts/zeta/status", `"code":"never_probed"`},
 		{"/api/hosts/mid/status", `"code":"not_monitored"`},
-		{"/api/hosts/_status", `[{"name":"alpha"`},
+		{"/api/hosts/_status", `"name":"alpha"`},
 		{"/api/hosts/box/samples?since=1h", `"cpu":4`},
 		{"/api/hosts/box/samples?grain=5m", `[]`},
 		{"/api/hosts/box/samples?grain=2m", `"code":"invalid_args"`},
 		{"/api/hosts/box/samples?since=yesterday", `"code":"invalid_args"`},
 		{"/api/hosts/_events?host=box", `"to":"online"`},
-		{"/api/hosts/_monitor", `"name":"box","transport":"outpost"`},
-		{"/api/projects", `[{"id":"shop","name":"Shop","description":"the shop","resource_count":`},
+		{"/api/hosts/_monitor", `"name":"box"`},
+		{"/api/projects", `"description":"the shop","id":"shop","name":"Shop","resource_count":`},
 	} {
 		if code, body := get(t, a, "GET", c.path); !strings.Contains(body, c.want) || (code != 200 && !strings.Contains(c.want, "invalid_args")) {
 			t.Errorf("GET %s: %d %s, want %s", c.path, code, body, c.want)
@@ -212,5 +212,28 @@ func TestHostReadsAreRecordedAndAnswerAsMain(t *testing.T) {
 	}
 	if code, body := get(t, observe, "GET", "/api/hosts/box/status"); code != 200 || !strings.Contains(body, `"name":"box"`) {
 		t.Fatalf("status in observe mode: %d %s", code, body)
+	}
+}
+
+// Every host read answers through the request's redaction scope, as main's socket did: a secret in
+// a stored reason (here a bearer token an outpost echoed) never reaches the caller, in the host
+// view (with its MCP note built from it), in L9, or in the status.
+func TestHostReadsAreRedacted(t *testing.T) {
+	w := newHostWorld(t)
+	// Assembled at run time, so the repository holds no credential-shaped string.
+	secret := "ghp" + "_" + strings.Repeat("Zq7x", 9)
+	st := `{"version":1,"hosts":{"zeta":{"state":"offline","reason":"the host did not answer over outpost: Bearer ` + secret + `","checked_at":"2026-01-02T03:04:05Z"}}}`
+	if err := os.WriteFile(filepath.Join(w.root, "state", "hosts.json"), []byte(st), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := w.api(t, gatetest.New(t, gatetest.Options{}))
+	for _, path := range []string{"/api/hosts/zeta", "/api/hosts", "/api/hosts/_status"} {
+		code, body := get(t, a, "GET", path)
+		if code != 200 || strings.Contains(body, secret) {
+			t.Fatalf("GET %s leaks the token: %d %s", path, code, body)
+		}
+		if path != "/api/hosts/_status" && !strings.Contains(body, "[REDACTED]") {
+			t.Fatalf("GET %s: no redaction marker: %s", path, body)
+		}
 	}
 }

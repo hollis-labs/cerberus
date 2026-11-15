@@ -40,7 +40,7 @@ type (
 	EventsResult     = hostmon.EventsResult
 )
 
-func (a *API) projects(w http.ResponseWriter, _ *http.Request) {
+func (a *API) projects(w http.ResponseWriter, r *http.Request) {
 	out := []ProjectInfo{}
 	if a.o.Projects != nil {
 		projects, err := a.o.Projects()
@@ -63,7 +63,7 @@ func (a *API) projects(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	writeJSON(w, out)
+	writeScoped(GateContext(r.Context()), w, out)
 }
 
 // hostErr maps the host reads' errors onto the flat body.
@@ -90,7 +90,7 @@ func (a *API) hostRead(w http.ResponseWriter, r *http.Request, op string, args m
 			hostErr(w, err)
 			return
 		}
-		writeJSON(w, out)
+		writeScoped(GateContext(r.Context()), w, out)
 		return
 	}
 	def, known := hostmon.HostDefinition().Operation(op)
@@ -105,7 +105,7 @@ func (a *API) hostRead(w http.ResponseWriter, r *http.Request, op string, args m
 		hostErr(w, err)
 		return
 	}
-	writeJSON(w, out)
+	writeScoped(GateContext(r.Context()), w, out)
 }
 
 // view is the old HostService.view: declared data, the stored state, and the monitor's status.

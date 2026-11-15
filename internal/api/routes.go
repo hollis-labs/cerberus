@@ -265,7 +265,7 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 			Mode: resourceMode(d), Supervisor: resourceSupervisor(d), RunFrom: resourceRunFrom(d),
 		})
 	}
-	writeJSON(w, h)
+	writeScoped(GateContext(r.Context()), w, h)
 }
 
 func (a *API) resources(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +276,7 @@ func (a *API) resources(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, list)
+	writeScoped(GateContext(r.Context()), w, list)
 }
 
 func (a *API) observeOne(ctx context.Context, id string) (config.ResourceDef, Observation, error) {
@@ -297,7 +297,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, runtimeStatus(d, obs))
+	writeScoped(GateContext(r.Context()), w, runtimeStatus(d, obs))
 }
 
 // inspect answers with the status fields the observation has. The resolved command, paths
@@ -309,7 +309,7 @@ func (a *API) inspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := runtimeStatus(d, obs)
-	writeJSON(w, ResourceInspect{
+	writeScoped(GateContext(r.Context()), w, ResourceInspect{
 		ID: st.ID, Name: st.Name, Type: st.Type, Project: st.Project, Connector: st.Connector,
 		Mode: st.Mode, Supervisor: st.Supervisor, RunFrom: st.RunFrom, URL: st.URL, Port: st.Port,
 		Status: st.Status, ServiceName: st.ServiceName,
@@ -324,7 +324,7 @@ func (a *API) doctor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := runtimeStatus(d, obs)
-	writeJSON(w, ResourceDoctor{
+	writeScoped(GateContext(r.Context()), w, ResourceDoctor{
 		ResourceID: d.ID, Status: st.Status,
 		Summary: "observe mode: this build reports state only; the full diagnosis arrives with supervision",
 		Checks:  []ResourceDoctorCheck{},
