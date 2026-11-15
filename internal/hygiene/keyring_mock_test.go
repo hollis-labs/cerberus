@@ -20,7 +20,7 @@ import (
 // Manager or the Secret Service.
 const keyringModule = "github.com/zalando/go-keyring"
 
-const secretsPackage = "github.com/hollis-labs/cerberus/internal/secrets"
+const secretsPackage = "github.com/hollis-labs/cerberus/internal/secrets" //nolint:gosec // an import path, not a credential
 
 // goToolEnv is the toolchain's module and build caches, read before TestMain isolates the home:
 // the scratch home holds no module cache, and go list must not download one.

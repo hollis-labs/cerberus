@@ -81,8 +81,8 @@ func TestSecretsSetAtTheCLI(t *testing.T) {
 		!strings.Contains(out, "run `cerberus connectors plugin managed unload keeper`, then `cerberus connectors plugin managed load keeper`") || strings.Contains(out, "ksm-value") {
 		t.Fatalf("output:\n%s", out)
 	}
-	if got, err := keyring.Get("cerberus", "keeper/ksm_config"); err != nil || got != "ksm-value" {
-		t.Fatalf("keyring: %q %v", got, err)
+	if got, kerr := keyring.Get("cerberus", "keeper/ksm_config"); kerr != nil || got != "ksm-value" {
+		t.Fatalf("keyring: %q %v", got, kerr)
 	}
 	out, _, err = runCLI(t, s.secretsCmd(true, "ksm-value-2\n"), "", "secrets", "set", "keeper/ksm_config")
 	if err != nil || !strings.Contains(out, "keeper/ksm_config already has a value; pasting replaces it.\n") {

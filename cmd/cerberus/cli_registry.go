@@ -90,7 +90,7 @@ the config fails schema validation.`,
 			if err != nil {
 				return err
 			}
-			if err := r.Deregister(args[0]); err != nil {
+			if err = r.Deregister(args[0]); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "deregistered: %s\n", args[0])
