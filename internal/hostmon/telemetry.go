@@ -137,4 +137,5 @@ func (t *Telemetry) Check(context.Context) error {
 	return fmt.Errorf("telemetry store unavailable: %d host-monitor writes held in memory, %d dropped (oldest first): %s",
 		st.Held, st.Dropped, st.LastErr)
 }
+
 var _ SampleStore = (*hosts.SampleStore)(nil)
