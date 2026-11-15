@@ -469,7 +469,10 @@ func (a *API) mutate(verb string) http.HandlerFunc {
 			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
 			return
 		}
-		out, err := a.o.Mutator.Mutate(GateContext(r.Context()), req)
+		// One request scope for the mutation and its answer, so what the call put in scope is
+		// redacted from what it returns, as main's socket answered.
+		ctx := GateContext(r.Context())
+		out, err := a.o.Mutator.Mutate(ctx, req)
 		if err != nil {
 			var refusal *supervise.Refusal
 			if errors.As(err, &refusal) {
@@ -479,7 +482,7 @@ func (a *API) mutate(verb string) http.HandlerFunc {
 			writeGateErr(w, err)
 			return
 		}
-		writeJSON(w, opResult(out))
+		writeScoped(ctx, w, opResult(out))
 	}
 }
 

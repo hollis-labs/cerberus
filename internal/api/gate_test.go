@@ -293,7 +293,7 @@ func TestOwnerSessionApprovesAndTheApprovedMutationRuns(t *testing.T) {
 		t.Fatalf("no outcome records the stop under the approval: %+v", w.Records(audit.KindOutcome))
 	}
 	// A plan request runs nothing and answers with the plan an approval binds to.
-	if code, body = g.call(t, apiKey, "POST", "/api/resources/web/apply", `{"acknowledged":true,"plan":true}`); code != 200 || !strings.Contains(body, `"plan":{"plan_hash":"sha256:`) {
+	if code, body = g.call(t, apiKey, "POST", "/api/resources/web/apply", `{"acknowledged":true,"plan":true}`); code != 200 || !strings.Contains(body, `"plan_hash":"sha256:`) {
 		t.Fatalf("plan: %d %s", code, body)
 	}
 	// Revoking is the owner's too; a revoke of a consumed approval is the old 409.

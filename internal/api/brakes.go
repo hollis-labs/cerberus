@@ -35,12 +35,12 @@ func (a *API) brakes(w http.ResponseWriter) (*gate.Gate, *gate.Brakes, bool) {
 }
 
 // brakesGet is GET /api/brakes: the effective state and what reading it found wrong.
-func (a *API) brakesGet(w http.ResponseWriter, _ *http.Request) {
+func (a *API) brakesGet(w http.ResponseWriter, r *http.Request) {
 	_, b, ok := a.brakes(w)
 	if !ok {
 		return
 	}
-	writeJSON(w, gate.BrakesView{State: b.Current(), Problems: b.Problems()})
+	writeScoped(GateContext(r.Context()), w, gate.BrakesView{State: b.Current(), Problems: b.Problems()})
 }
 
 // brakeAction decodes the body into args as the old socket did (empty is the zero value, at
@@ -61,7 +61,7 @@ func (a *API) brakeAction(w http.ResponseWriter, r *http.Request, args any, do f
 	case err != nil:
 		writeGateErr(w, err)
 	default:
-		writeJSON(w, gate.BrakesView{State: st})
+		writeScoped(GateContext(r.Context()), w, gate.BrakesView{State: st})
 	}
 }
 
