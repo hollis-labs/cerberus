@@ -108,6 +108,6 @@ func (a *API) brakeLiftFreeze(w http.ResponseWriter, r *http.Request) {
 func (a *API) brakeResetSuspension(w http.ResponseWriter, r *http.Request) {
 	var args gate.BrakeResetArgs
 	a.brakeAction(w, r, &args, func(g *gate.Gate) (brake.State, error) {
-		return g.ResetSuspension(GateContext(r.Context()), r.PathValue("id"), args.Typed)
+		return g.ResetSuspension(GateContext(r.Context()), r.PathValue("id"), args.Typed, args.ApprovalID)
 	})
 }

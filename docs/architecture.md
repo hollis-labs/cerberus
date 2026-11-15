@@ -225,10 +225,11 @@ Served today:
 - the brake routes, the old socket's `/brakes` with the old bodies (`gate.BrakesView`, `BrakeEngageArgs`,
   `BrakeLiftArgs`, `BrakeResetArgs`): `GET /api/brakes` (`cerberus.read`); `POST /api/brakes/lockdown`,
   `/lockdown/lift`, `/freeze`, `/freeze/{id}/lift` and `/suspensions/{id}/reset` (`cerberus.admin`). The gate decides
-  the rest as old's daemon did: anyone engages (an agent may stop itself); a lift needs a person and the owner's
-  out-of-band approval (409 `approval_pending` with `details.approval`, then the retry naming it); a reset needs a
-  person typing `reset <id>`. The only person here is the owner's console session, so an API key, a minted token and
-  local trust are refused a lift or a reset with 428 `approval_required`. A brake that is not engaged is old's 409
+  the rest: anyone holding admin engages (an agent may stop itself). Lifting a brake and resetting a suspension are
+  the owner's, on the console or from the CLI naming an out-of-band approval the owner decided on the console: a
+  key's first call is 409 `approval_pending` with `details.approval`, and its retry with `approval_id` goes through
+  once the owner has approved (the lift's record notes `approval:<id>`); the owner's console session resets with the
+  typed `reset <id>`. An MCP client (local trust) is refused with 428 `approval_required`. A brake that is not engaged is old's 409
   (`not_engaged`), a freeze without a match 400 `invalid_args`. In observe mode they answer 503 `brakes_unavailable`.
 
 **The caller in the gate.** Each request is entered into the gate as the caller the guard established

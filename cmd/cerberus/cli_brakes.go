@@ -24,14 +24,19 @@ import (
 // `breaker` verbs (cmd/cerberus cmd_lockdown.go and cmd_breaker.go on main), with the old
 // flags and output, over the serving Cerberus's /api/brakes routes with the CLI's key.
 //
-// Who may do what is the server's: engaging needs a key holding cerberus.admin; a lift needs a
-// person and the owner's approval on the console, and a reset a person typing "reset <id>". The
-// only person the server knows is the owner signed in to the console; this CLI calls with an
-// API key, which the gate treats as an agent, so the server refuses its lift and reset with
-// 428 approval_required, and the owner does them from the console session.
+// Who may do what is the server's: engaging needs a key holding cerberus.admin. Lifting a brake
+// and resetting a suspension are the owner's (decision 0.1, the lead's ruling): on the console,
+// or from here naming an approval the owner decided there. This CLI calls with an API key, so
+// its first lift or reset is answered 409 approval_pending naming an out-of-band approval; the
+// owner approves it on the console, signed in, and the same command with --approval <id> goes
+// through.
+//
+// Asking for the approval is still the old interactive act: a terminal and the typed phrase.
+// Naming an approval with --approval needs neither, since the owner's console decision is the
+// proof, so a script can carry it out once approved.
 
-// stdIsTerminal reports whether stdin and stdout are a terminal: a lift and a reset are typed
-// by a person, as the old CLI required.
+// stdIsTerminal reports whether stdin and stdout are a terminal: asking to lift or reset is
+// typed by a person, as the old CLI required.
 func stdIsTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) //nolint:gosec // a file descriptor fits an int
 }
@@ -50,10 +55,10 @@ in every enforcement mode, until a person lifts it. It survives a restart.
 Engaging it takes one command and no confirmation, from here (a key holding
 cerberus.admin) or the console.
 
-Lifting it (--off) is a person's act, approved by the owner on the console: the
-first --off asks for the approval, and --off --approval <id> lifts it once
-approved. The server knows a person only as the owner signed in to the console;
-this CLI calls with an API key, which is refused a lift.
+Lifting it (--off) is the owner's: on the console, or here. The first --off (on a
+terminal, with the typed phrase) asks for the owner's approval; the owner
+approves it on the console, signed in, and --off --approval <id> then lifts it,
+with no terminal or phrase needed.
 
 Resource auto-restarts keep running under a lockdown, to keep declared services
 up.`,
@@ -96,8 +101,8 @@ one command; lifting (--off <id>) is a person's act, like lifting a lockdown.`,
 	}
 	for _, c := range []*cobra.Command{lockdown, freeze} {
 		c.Flags().StringVar(&reason, "reason", "", "why, for the record and the banner")
-		c.Flags().BoolVar(&off, "off", false, "lift it (a person, with the owner's approval on the console)")
-		c.Flags().StringVar(&approvalID, "approval", "", "the approved console approval that lifts it")
+		c.Flags().BoolVar(&off, "off", false, "lift it (with the owner's approval on the console)")
+		c.Flags().StringVar(&approvalID, "approval", "", "the approval the owner decided on the console that lifts it")
 	}
 	freeze.Flags().StringArrayVar(&scope, "scope", nil, "what to freeze, as key=value (repeatable)")
 
@@ -107,7 +112,7 @@ one command; lifting (--off <id>) is a person's act, like lifting a lockdown.`,
 		Long: `The circuit breaker suspends an agent session after repeated real policy
 denials (policy's circuit_breaker: {denials, window}). An API key is an agent,
 named by its key. A suspended session's every call but a plain read is refused
-as session_suspended, in every enforcement mode, until a person resets it.
+as session_suspended, in every enforcement mode, until the owner resets it.
 There is no automatic reset.`,
 	}
 	breakerList := &cobra.Command{
@@ -126,41 +131,47 @@ There is no automatic reset.`,
 			return writeSuspensions(cmd.OutOrStdout(), view.State)
 		},
 	}
+	var resetApproval string
 	breakerReset := &cobra.Command{
 		Use:   "reset <suspension-id>",
-		Short: "Reset a suspended session (interactive, with a typed phrase)",
-		Args:  cobra.ExactArgs(1),
+		Short: "Reset a suspended session (with the owner's approval on the console)",
+		Long: `Resetting a suspended session is the owner's: on the console, or here. The
+first reset (on a terminal, with the typed phrase) asks for the owner's approval;
+the owner approves it on the console, signed in, and reset <id> --approval
+<approval-id> then resets it, with no terminal or phrase needed.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
-			if !isTerminal() {
-				return errors.New("a suspended session is reset only from an interactive terminal, by a person, with a typed phrase (or on the console)")
-			}
-			out := cmd.OutOrStdout()
-			phrase := "reset " + id
-			typed, err := askPhrase(cmd, fmt.Sprintf("Type %q to reset it: ", phrase))
-			if err != nil {
-				return err
-			}
-			if typed != phrase {
-				return errors.New("the confirmation did not match; nothing was reset")
+			body := gate.BrakeResetArgs{ApprovalID: resetApproval}
+			if resetApproval == "" {
+				typed, err := confirmPhrase(cmd, isTerminal, "reset "+id, "a suspended session is reset", "reset", "reset")
+				if err != nil {
+					return err
+				}
+				body.Typed = typed
 			}
 			cl, err := client()
 			if err != nil {
 				return err
 			}
+			out := cmd.OutOrStdout()
 			var view gate.BrakesView
-			err = cl.post(cmd.Context(), "/brakes/suspensions/"+url.PathEscape(id)+"/reset", gate.BrakeResetArgs{Typed: typed}, &view)
+			err = cl.post(cmd.Context(), "/brakes/suspensions/"+url.PathEscape(id)+"/reset", body, &view)
 			var refused *apiError
-			switch {
-			case errors.As(err, &refused) && refused.Code == "not_engaged":
+			if errors.As(err, &refused) && refused.Code == "not_engaged" {
 				return fmt.Errorf("no suspension %s; `cerberus breaker list` shows them", id)
-			case err != nil:
-				return personOnlyHint(err, cl, "a suspended session is reset")
+			}
+			if pending, perr := approvalPending(out, err, resetApproval); pending {
+				return perr
+			}
+			if err != nil {
+				return ownerOnlyHint(err, cl, "a suspended session is reset")
 			}
 			_, _ = fmt.Fprintln(out, "Reset.")
 			return writeSuspensions(out, view.State)
 		},
 	}
+	breakerReset.Flags().StringVar(&resetApproval, "approval", "", "the approval the owner decided on the console that resets it")
 	breaker.AddCommand(breakerList, breakerReset)
 	return []*cobra.Command{lockdown, freeze, breaker}
 }
@@ -175,12 +186,45 @@ func askPhrase(cmd *cobra.Command, prompt string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// personOnlyHint adds, to the server's refusal of a lift or a reset from this CLI's key, where
-// it is done instead.
-func personOnlyHint(err error, cl *apiClient, what string) error {
+// confirmPhrase is the old interactive ask before a lift or a reset: a terminal and the typed
+// phrase. It is asked only when no --approval is named.
+func confirmPhrase(cmd *cobra.Command, isTerminal func() bool, phrase, what, verb, done string) (string, error) {
+	if !isTerminal() {
+		return "", fmt.Errorf("%s by the owner: asking for that is done from an interactive terminal, with a typed phrase, or on the console; with an approval the owner decided on the console, run it with --approval <id>", what)
+	}
+	typed, err := askPhrase(cmd, fmt.Sprintf("Type %q to %s it: ", phrase, verb))
+	if err != nil {
+		return "", err
+	}
+	if typed != phrase {
+		return "", fmt.Errorf("the confirmation did not match; nothing was %s", done)
+	}
+	return typed, nil
+}
+
+// approvalPending handles the server's 409 approval_pending naming an approval. Asked without
+// one (named empty), it prints what the owner does on the console and how to run it again, and
+// that is the command's answer. Run with --approval naming one the owner has not decided yet,
+// it is an error, so a script does not take it for done. It reports whether err was that answer.
+func approvalPending(out io.Writer, err error, named string) (bool, error) {
+	var refused *apiError
+	if !errors.As(err, &refused) || refused.Code != string(gate.CodeApprovalPending) || refused.Approval == nil {
+		return false, nil
+	}
+	if named != "" {
+		return true, fmt.Errorf("%w\napproval %s is not approved yet: the owner approves it on the console, signed in; then run this again", err, named)
+	}
+	_, _ = fmt.Fprintln(out, refused.Message)
+	_, _ = fmt.Fprintf(out, "Approve %s on the console, signed in as the owner, then run this again with --approval %s\n", refused.Approval.ID, refused.Approval.ID)
+	return true, nil
+}
+
+// ownerOnlyHint adds, to the server's 428 refusal of a lift or a reset from this CLI's key,
+// the two ways the owner does it.
+func ownerOnlyHint(err error, cl *apiClient, what string) error {
 	var refused *apiError
 	if errors.As(err, &refused) && refused.Status == http.StatusPreconditionRequired && refused.Code == string(gate.CodeApprovalRequired) {
-		return fmt.Errorf("%w\n%s by the owner signed in to the console; this CLI calls with the API key in %s, which the server treats as an agent", err, what, cl.keyFile)
+		return fmt.Errorf("%w\n%s by the owner: on the console, signed in; or from this CLI (the API key in %s) with --approval <id> once the owner has approved that request on the console (run it without --approval to ask)", err, what, cl.keyFile)
 	}
 	return err
 }
@@ -202,16 +246,10 @@ func engageBrake(cmd *cobra.Command, client func() (*apiClient, error), args gat
 }
 
 func liftBrake(cmd *cobra.Command, client func() (*apiClient, error), isTerminal func() bool, freezeID, phrase, approvalID string) error {
-	if !isTerminal() {
-		return errors.New("a brake is lifted only from an interactive terminal, by a person, with a typed phrase; engaging needs none of that")
-	}
-	out := cmd.OutOrStdout()
-	typed, err := askPhrase(cmd, fmt.Sprintf("Type %q to lift it: ", phrase))
-	if err != nil {
-		return err
-	}
-	if typed != phrase {
-		return errors.New("the confirmation did not match; nothing was lifted")
+	if approvalID == "" {
+		if _, err := confirmPhrase(cmd, isTerminal, phrase, "a brake is lifted", "lift", "lifted"); err != nil {
+			return err
+		}
 	}
 	cl, err := client()
 	if err != nil {
@@ -221,17 +259,14 @@ func liftBrake(cmd *cobra.Command, client func() (*apiClient, error), isTerminal
 	if freezeID != "" {
 		path = "/brakes/freeze/" + url.PathEscape(freezeID) + "/lift"
 	}
+	out := cmd.OutOrStdout()
 	var view gate.BrakesView
 	err = cl.post(cmd.Context(), path, gate.BrakeLiftArgs{ApprovalID: approvalID}, &view)
-	var refused *apiError
-	if errors.As(err, &refused) && refused.Code == string(gate.CodeApprovalPending) && refused.Approval != nil {
-		// The owner approves the lift on the console; the retry naming it lifts.
-		_, _ = fmt.Fprintln(out, refused.Message)
-		_, _ = fmt.Fprintf(out, "Approve %s on the console, signed in as the owner, then run this again with --approval %s\n", refused.Approval.ID, refused.Approval.ID)
-		return nil
+	if pending, perr := approvalPending(out, err, approvalID); pending {
+		return perr
 	}
 	if err != nil {
-		return personOnlyHint(err, cl, "a brake is lifted")
+		return ownerOnlyHint(err, cl, "a brake is lifted")
 	}
 	_, _ = fmt.Fprintln(out, "Lifted.")
 	return writeBrakes(out, view.State)

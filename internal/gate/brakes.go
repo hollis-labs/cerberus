@@ -311,26 +311,38 @@ func (g *Gate) LiftFreeze(ctx context.Context, id, approvalID string) (brake.Sta
 // gone (decision 0.1) the owner's console session is always the proof, so
 // there is no terminal floor: every lift needs the console approval.
 func (g *Gate) liftProof(ctx context.Context, operation string, t audit.Target, id, approvalID string) (string, error) {
-	args := opArgs{Connector: "brake", Operation: operation}
+	return g.ownerApproval(ctx, opArgs{Connector: "brake", Operation: operation}, t, id, approvalID, "lifting "+id)
+}
+
+// errOwnerPaths names both ways the owner recovers from a brake (the lead's ruling (a)+(b) on
+// decision 0.1): on the console, or from the CLI naming an approval the owner decided there.
+const errOwnerPaths = "the owner does it on the console, signed in; or run it from the CLI with --approval <id> once the owner has approved that request on the console"
+
+// ownerApproval is what lifting a brake or resetting a suspension needs: an out-of-band
+// approval the owner decided on the console (sealed with the owner session). Any caller but an
+// MCP client may ask for one, a person on the console or an operator's key at the CLI, and
+// the retry naming it goes ahead once the owner has approved; a person still decides, so the
+// decision 0.1 boundary holds. An MCP client is never let through.
+func (g *Gate) ownerApproval(ctx context.Context, args opArgs, t audit.Target, id, approvalID, what string) (string, error) {
 	p := principalFor(ctx, Spec{})
-	if p.Kind != string(PrincipalHuman) || strings.HasPrefix(p.Via, "mcp") {
+	if strings.HasPrefix(p.Via, "mcp") {
 		return "", codedError(args, CodeApprovalRequired,
-			redact.Guidance("a brake is lifted by a person, and this caller is %s over %s; engaging is open to anyone, lifting is not", p.Kind, p.Via))
+			redact.Guidance("%s is not done by an MCP client (this caller is %s over %s): %s", what, p.Kind, p.Via, errOwnerPaths))
 	}
 	broker := g.broker
 	if broker == nil {
 		return "", codedError(args, CodeApprovalPending,
-			redact.Guidance("lifting a brake needs an approval on the console, which only the daemon can hold; start it with `cerberus daemon`"))
+			redact.Guidance("%s needs the owner's approval on the console, and this Cerberus holds no approvals (observe mode): %s", what, errOwnerPaths))
 	}
 	if approvalID == "" {
-		intent := audit.Record{OperationID: audit.NewID(), Principal: p, Connector: "brake", Operation: operation, Effect: string(contract.EffectAdmin), Target: t, ArgsDigest: id}
-		a, err := broker.request(ctx, intent, policy.Result{Matched: []policy.Match{{Rule: "brake.lift", Decision: policy.Approve, Reason: "a brake is lifted by the owner on the console"}}},
+		intent := audit.Record{OperationID: audit.NewID(), Principal: p, Connector: args.Connector, Operation: args.Operation, Effect: string(contract.EffectAdmin), Target: t, ArgsDigest: id}
+		a, err := broker.request(ctx, intent, policy.Result{Matched: []policy.Match{{Rule: "brake." + args.Operation, Decision: policy.Approve, Reason: "a brake is lifted, and a suspension reset, by the owner on the console"}}},
 			approval.ChannelOutOfBand, approval.ScopeOnce, 30*time.Minute, PlanSnapshot{}, nil)
 		if err != nil {
 			return "", codedError(args, CodeAuditUnavailable, err)
 		}
 		pending := codedError(args, CodeApprovalPending,
-			redact.Guidance("lifting %s is approved by the owner on the console: approve %s there (`%s`), then lift again with --approval %s", id, a.ID, a.ApproveWith(), a.ID))
+			redact.Guidance("%s is approved by the owner on the console: approve %s there, signed in, then run it again with --approval %s", what, a.ID, a.ID))
 		var coded *Error
 		if errors.As(pending, &coded) {
 			coded.Approval = approvalReference(a)
@@ -338,8 +350,9 @@ func (g *Gate) liftProof(ctx context.Context, operation string, t audit.Target, 
 		return "", pending
 	}
 	// The channel is required here, never read from the store, where a
-	// same-uid process could write an approval met on a terminal (H-b).
-	a, err := broker.Consume(ctx, approvalID, approval.ConsumeCheck{Connector: "brake", Operation: operation, Principal: p, Target: t, ArgsDigest: id, RequireOutOfBand: true})
+	// same-uid process could write an approval met on a terminal (H-b); the
+	// out-of-band decision's owner-session seal is verified on consume.
+	a, err := broker.Consume(ctx, approvalID, approval.ConsumeCheck{Connector: args.Connector, Operation: args.Operation, Principal: p, Target: t, ArgsDigest: id, RequireOutOfBand: true})
 	if err != nil {
 		return "", consumeRefusal(args, approvalID, a, err)
 	}

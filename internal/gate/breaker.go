@@ -165,7 +165,7 @@ func (g *Gate) suspensionRefusal(ctx context.Context, spec Spec, effect contract
 // ResetSuspension ends a suspension. A person does it, from the CLI or the
 // console, typing "reset <id>"; the daemon checks the phrase, so no
 // surface can skip it.
-func (g *Gate) ResetSuspension(ctx context.Context, id, typed string) (brake.State, error) {
+func (g *Gate) ResetSuspension(ctx context.Context, id, typed, approvalID string) (brake.State, error) {
 	sink, store, err := g.brakeStore()
 	if err != nil {
 		return brake.State{}, err
@@ -176,28 +176,42 @@ func (g *Gate) ResetSuspension(ctx context.Context, id, typed string) (brake.Sta
 		return cur, brake.ErrNotEngaged
 	}
 	args := opArgs{Connector: "brake", Operation: "reset_suspension"}
+	target := audit.Target{Kind: "brake.suspension", Fields: map[string]string{"id": id, "caller": x.Key}}
 	p := principalFor(ctx, Spec{})
-	if p.Kind != string(PrincipalHuman) || strings.HasPrefix(p.Via, "mcp") {
+	proof := "typed"
+	switch {
+	case strings.HasPrefix(p.Via, "mcp"):
 		return cur, codedError(args, CodeApprovalRequired,
-			redact.Guidance("a suspended session is reset by a person, and this caller is %s over %s", p.Kind, p.Via))
-	}
-	if strings.TrimSpace(typed) != "reset "+id {
-		return cur, codedError(args, CodeApprovalRequired,
-			redact.Guidance("type %q to reset it; nothing was reset", "reset "+id))
+			redact.Guidance("a suspended session is not reset by an MCP client (this caller is %s over %s): %s", p.Kind, p.Via, errOwnerPaths))
+	case p.Kind == string(PrincipalHuman) && approvalID == "":
+		// A person resets it by typing the phrase, as in the old build.
+		if strings.TrimSpace(typed) != "reset "+id {
+			return cur, codedError(args, CodeApprovalRequired,
+				redact.Guidance("type %q to reset it; nothing was reset", "reset "+id))
+		}
+	default:
+		// Anyone else (an operator's key at the CLI) resets it with the owner's approval.
+		if proof, err = g.ownerApproval(ctx, args, target, id, approvalID, "resetting suspension "+id); err != nil {
+			return cur, err
+		}
 	}
 	if err = liftUntrusted(sink, "reset_suspension"); err != nil {
 		return cur, err
 	}
-	st, err := store.ResetSuspension(id, principalFor(ctx, Spec{}), "typed")
+	st, err := store.ResetSuspension(id, p, proof)
 	if err != nil {
 		return st, err
 	}
 	g.denials.clear(x.Key)
-	return st, g.recordBrakes(ctx, sink, "reset_suspension", "SESSION RESET: "+x.Key+" ("+id+")", st,
-		audit.Target{Kind: "brake.suspension", Fields: map[string]string{"id": id, "caller": x.Key}})
+	note := "SESSION RESET: " + x.Key + " (" + id + ")"
+	if strings.HasPrefix(proof, "approval:") {
+		note += " (" + proof + ")"
+	}
+	return st, g.recordBrakes(ctx, sink, "reset_suspension", note, st, target)
 }
 
 // BrakeResetArgs resets a suspension, with the phrase typed.
 type BrakeResetArgs struct {
-	Typed string `json:"typed"`
+	Typed      string `json:"typed"`
+	ApprovalID string `json:"approval_id,omitempty"`
 }

@@ -130,31 +130,89 @@ func TestFreezeNeedsAScope(t *testing.T) {
 	}
 }
 
-// Lifting is a person's act on a terminal, with the typed phrase. This CLI calls with a key,
-// which the server refuses a lift (428 approval_required); the CLI says where it is done.
-func TestLiftingNeedsATerminalAndThePhrase(t *testing.T) {
+// ownerApproves decides approval id as the owner signed in to the console, after the CLI's key
+// is refused deciding it itself (403 user_required); the server is then called as the key again.
+func (s *brakeServer) ownerApproves(t *testing.T, id string) {
+	t.Helper()
+	var decided any
+	err := s.c.post(context.Background(), "/approvals/"+id+"/decide", gate.ApprovalDecisionArgs{Approve: true}, &decided)
+	if err == nil || !strings.Contains(err.Error(), "403 user_required") {
+		t.Fatalf("the key approving its own request: %v", err)
+	}
+	*s.as = theOwner
+	defer func() { *s.as = cliKey }()
+	if err = s.c.post(context.Background(), "/approvals/"+id+"/decide", gate.ApprovalDecisionArgs{Approve: true}, &decided); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// onlyApproval is the one approval the server holds.
+func (s *brakeServer) onlyApproval(t *testing.T) string {
+	t.Helper()
+	approvals := s.w.Broker.List()
+	if len(approvals) != 1 || approvals[0].Channel != "out_of_band" {
+		t.Fatalf("approvals: %+v", approvals)
+	}
+	return approvals[0].ID
+}
+
+// Asking to lift is the old interactive act, on a terminal with the typed phrase; the CLI's key
+// is answered with the owner's out-of-band approval to decide, and the CLI says to approve it on
+// the console and run it again with --approval. A pending approval lifts nothing (an error, so
+// a script does not take it for done); once the owner approves, --approval lifts with no
+// terminal or phrase, recorded with the approval. An MCP caller is refused (428) and the CLI
+// names both owner paths.
+func TestAKeyLiftsAtTheCLIOnlyWithTheOwnersApproval(t *testing.T) {
 	s := newBrakeServer(t, true)
 	if _, err := s.run(t, false, "", "lockdown"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.run(t, false, "lift lockdown\n", "lockdown", "--off"); err == nil || !strings.Contains(err.Error(), "interactive terminal") {
-		t.Fatalf("lift off a terminal: %v", err)
+	if _, err := s.run(t, false, "lift lockdown\n", "lockdown", "--off"); err == nil || !strings.Contains(err.Error(), "interactive terminal") || !strings.Contains(err.Error(), "--approval <id>") {
+		t.Fatalf("asking off a terminal: %v", err)
 	}
 	if _, err := s.run(t, true, "yes\n", "lockdown", "--off"); err == nil || !strings.Contains(err.Error(), "nothing was lifted") {
 		t.Fatalf("a wrong phrase: %v", err)
 	}
-	_, err := s.run(t, true, "lift lockdown\n", "lockdown", "--off")
-	if err == nil || !strings.Contains(err.Error(), "428 approval_required") || !strings.Contains(err.Error(), "owner signed in to the console") || !strings.Contains(err.Error(), "/keys/cli.key") {
-		t.Fatalf("a key lifting: %v", err)
+	if len(s.w.Broker.List()) != 0 {
+		t.Fatal("a refused ask asked the owner")
+	}
+	out, err := s.run(t, true, "lift lockdown\n", "lockdown", "--off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := s.onlyApproval(t)
+	if !strings.Contains(out, "Approve "+id+" on the console") || !strings.Contains(out, "--approval "+id) {
+		t.Fatalf("pending lift output:\n%s", out)
+	}
+	if _, err = s.run(t, false, "", "lockdown", "--off", "--approval", id); err == nil || !strings.Contains(err.Error(), "409 approval_pending") || !strings.Contains(err.Error(), "not approved yet") {
+		t.Fatalf("a lift on a pending approval: %v", err)
 	}
 	if s.state(t).Lockdown == nil {
-		t.Fatal("a key lifted the lockdown")
+		t.Fatal("a pending approval lifted the lockdown")
+	}
+	s.ownerApproves(t, id)
+
+	*s.as = libauth.Principal{Verified: true, ID: api.LocalTrustID, Kind: libauth.KindOperator, Scopes: cliKey.Scopes}
+	_, err = s.run(t, false, "", "lockdown", "--off", "--approval", id)
+	if err == nil || !strings.Contains(err.Error(), "428 approval_required") || !strings.Contains(err.Error(), "on the console, signed in") || !strings.Contains(err.Error(), "--approval <id>") || !strings.Contains(err.Error(), "/keys/cli.key") {
+		t.Fatalf("an MCP caller lifting: %v", err)
+	}
+	*s.as = cliKey
+	out, err = s.run(t, false, "", "lockdown", "--off", "--approval", id)
+	if err != nil || !strings.Contains(out, "Lifted.\nNo brake is engaged.\n") {
+		t.Fatalf("the key's lift with the owner's approval: %v\n%s", err, out)
+	}
+	var recorded bool
+	for _, r := range s.w.Records(audit.KindBrakeChanged) {
+		recorded = recorded || (r.Operation == "lift_lockdown" && r.Note == "LOCKDOWN lifted (approval:"+id+")" && r.Principal.Client == "key:cli")
+	}
+	if !recorded {
+		t.Fatalf("no brake_changed for the lift: %+v", s.w.Records(audit.KindBrakeChanged))
 	}
 }
 
-// Where the server knows the caller as the owner's console session, the first --off asks for the
-// approval and the CLI names it; once the owner approves, --off --approval <id> lifts. The CLI
-// never reaches this with a key; it is the old flow, kept for the server's answer.
+// The owner's own console session asks to lift a freeze the same way: the first --off asks for
+// the approval and the CLI names it; once the owner approves, --off --approval <id> lifts.
 func TestLiftWithTheOwnersApproval(t *testing.T) {
 	s := newBrakeServer(t, true)
 	if _, err := s.run(t, false, "", "freeze", "--scope", "id=web"); err != nil {
@@ -166,11 +224,7 @@ func TestLiftWithTheOwnersApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approvals := s.w.Broker.List()
-	if len(approvals) != 1 {
-		t.Fatalf("approvals: %+v", approvals)
-	}
-	id := approvals[0].ID
+	id := s.onlyApproval(t)
 	if !strings.Contains(out, "Approve "+id+" on the console") || !strings.Contains(out, "--approval "+id) {
 		t.Fatalf("pending lift output:\n%s", out)
 	}
@@ -187,8 +241,10 @@ func TestLiftWithTheOwnersApproval(t *testing.T) {
 	}
 }
 
-// A reset is a person's act on a terminal, typing the phrase, which also travels to the server
-// to check. A key is refused it (428); the owner's session resets.
+// Asking to reset is the old interactive act, on a terminal typing the phrase. The CLI's key is
+// answered with the owner's approval to decide; a pending one resets nothing; once the owner
+// approves on the console, `breaker reset <id> --approval <id>` resets with no terminal or
+// phrase. The owner's own session still resets with the typed phrase alone.
 func TestBreakerListAndReset(t *testing.T) {
 	s := newBrakeServer(t, true)
 	key := "agent|api|session:key:other"
@@ -209,13 +265,34 @@ func TestBreakerListAndReset(t *testing.T) {
 	if _, err = s.run(t, true, "yes\n", "breaker", "reset", sid); err == nil || !strings.Contains(err.Error(), "nothing was reset") {
 		t.Fatalf("a wrong phrase: %v", err)
 	}
-	if _, err = s.run(t, true, "reset "+sid+"\n", "breaker", "reset", sid); err == nil || !strings.Contains(err.Error(), "428 approval_required") || !strings.Contains(err.Error(), "owner signed in to the console") {
-		t.Fatalf("a key resetting: %v", err)
-	}
-	*s.as = theOwner
 	if _, err = s.run(t, true, "reset sus_nope\n", "breaker", "reset", "sus_nope"); err == nil || !strings.Contains(err.Error(), "no suspension sus_nope") {
 		t.Fatalf("an unknown suspension: %v", err)
 	}
+	out, err = s.run(t, true, "reset "+sid+"\n", "breaker", "reset", sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := s.onlyApproval(t)
+	if !strings.Contains(out, "Approve "+id+" on the console") || !strings.Contains(out, "--approval "+id) {
+		t.Fatalf("pending reset output:\n%s", out)
+	}
+	if _, err = s.run(t, false, "", "breaker", "reset", sid, "--approval", id); err == nil || !strings.Contains(err.Error(), "not approved yet") {
+		t.Fatalf("a reset on a pending approval: %v", err)
+	}
+	if len(s.state(t).Suspensions) != 1 {
+		t.Fatal("a pending approval reset the suspension")
+	}
+	s.ownerApproves(t, id)
+	out, err = s.run(t, false, "", "breaker", "reset", sid, "--approval", id)
+	if err != nil || !strings.Contains(out, "Reset.\nNo session is suspended.\n") {
+		t.Fatalf("the key's reset with the owner's approval: %v\n%s", err, out)
+	}
+
+	if _, _, err = s.w.Brakes.Suspend(key, audit.Principal{Kind: "agent", Via: "api", Client: "key:other", Session: "key:other"}, 3, "10m0s"); err != nil {
+		t.Fatal(err)
+	}
+	sid = s.state(t).Suspensions[0].ID
+	*s.as = theOwner
 	out, err = s.run(t, true, "reset "+sid+"\n", "breaker", "reset", sid)
 	if err != nil || !strings.Contains(out, "Reset.\nNo session is suspended.\n") {
 		t.Fatalf("the owner's reset: %v\n%s", err, out)

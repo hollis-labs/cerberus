@@ -302,7 +302,7 @@ func LiftFreeze(ctx context.Context, sink audit.Sink, store brake.Store, id, app
 }
 
 func ResetSuspension(ctx context.Context, sink audit.Sink, store brake.Store, id, typed string) (brake.State, error) {
-	return brakeGate(sink, store).ResetSuspension(ctx, id, typed)
+	return brakeGate(sink, store).ResetSuspension(ctx, id, typed, "")
 }
 
 // ownerConsole is the decider the HTTP layer establishes as the owner signed

@@ -90,12 +90,12 @@ func TestLiftingIsProtected(t *testing.T) {
 	if _, _, err := EngageLockdown(agent, sink, store, "an agent stopping itself"); err != nil {
 		t.Fatalf("an agent engaging: %v", err)
 	}
-	if _, err := LiftLockdown(agent, sink, store, ""); connectorErrorCode(err) != CodeApprovalRequired {
-		t.Fatalf("an agent lifting: %v", err)
+	if _, err := LiftLockdown(agent, sink, store, ""); connectorErrorCode(err) != CodeApprovalRequired || !strings.Contains(err.Error(), "--approval <id>") || !strings.Contains(err.Error(), "on the console") {
+		t.Fatalf("an MCP agent lifting, refused naming both owner paths: %v", err)
 	}
 	cli := callerAs(confirmHuman, SurfaceSocket)
 	// No broker, no approval: nothing is lifted on a terminal alone.
-	if st, err := LiftLockdown(cli, sink, store, ""); connectorErrorCode(err) != CodeApprovalPending || !strings.Contains(err.Error(), "cerberus daemon") || st.Lockdown == nil {
+	if st, err := LiftLockdown(cli, sink, store, ""); connectorErrorCode(err) != CodeApprovalPending || !strings.Contains(err.Error(), "holds no approvals") || st.Lockdown == nil {
 		t.Fatalf("a person at the CLI with no daemon: %v", err)
 	} else if redact.Text(err.Error()) != err.Error() {
 		t.Fatalf("redaction rewrote the refusal: %q", redact.Text(err.Error()))
@@ -219,5 +219,44 @@ func TestALiftRefusesAnApprovalMetOnATerminal(t *testing.T) {
 	}
 	if cur, _ := store.Load(); cur.Lockdown == nil {
 		t.Fatal("the lockdown is gone")
+	}
+}
+
+// The lead's ruling (a)+(b) on decision 0.1: an operator's key at the CLI lifts a brake, and
+// resets a suspension, only by naming an approval the owner decided on the console. Asking
+// opens one; the owner's console approval is what lets the retry through, and nothing else
+// does: not a pending approval, not one the key approved itself, never an MCP client.
+func TestAKeyLiftsAndResetsOnlyWithTheOwnersConsoleApproval(t *testing.T) {
+	store := withBrakes(t)
+	broker := withLiftBroker(t)
+	sink := audit.NewMemory()
+	key := callerAs(Principal{Kind: PrincipalAgent, Via: "api", Client: "key:k1", Session: "key:k1"}, SurfaceSocket)
+	if _, _, err := EngageLockdown(key, sink, store, "kill switch"); err != nil {
+		t.Fatalf("a key engaging: %v", err)
+	}
+	_, err := LiftLockdown(key, sink, store, "")
+	var coded *Error
+	if !errors.As(err, &coded) || coded.Code != CodeApprovalPending || coded.Approval == nil || coded.Approval.Channel != approval.ChannelOutOfBand {
+		t.Fatalf("a key asking to lift: %v", err)
+	}
+	if st, lerr := LiftLockdown(key, sink, store, coded.Approval.ID); lerr == nil || st.Lockdown == nil {
+		t.Fatalf("a key lifted on a pending approval: %v", lerr)
+	}
+	if _, err = broker.DecideAs(key, coded.Approval.ID, ApprovalDecisionArgs{Approve: true}, OwnerSession{}); err == nil {
+		t.Fatal("the key approved its own lift")
+	}
+	if _, err = broker.DecideAs(asOwner(), coded.Approval.ID, ApprovalDecisionArgs{Approve: true}, ownerConsole); err != nil {
+		t.Fatalf("the owner approving: %v", err)
+	}
+	mcp := callerAs(Principal{Kind: PrincipalAgent, Via: ViaMCPStdio, Client: "key:k1", Session: "key:k1"}, SurfaceSocket)
+	if _, err = LiftLockdown(mcp, sink, store, coded.Approval.ID); connectorErrorCode(err) != CodeApprovalRequired {
+		t.Fatalf("an MCP client naming the owner's approval: %v", err)
+	}
+	st, err := LiftLockdown(key, sink, store, coded.Approval.ID)
+	if err != nil || st.Lockdown != nil {
+		t.Fatalf("the key with the owner's approval: %v %+v", err, st)
+	}
+	if _, err := LiftLockdown(key, sink, store, coded.Approval.ID); err == nil {
+		t.Fatal("an approval lifted twice")
 	}
 }

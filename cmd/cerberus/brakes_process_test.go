@@ -37,11 +37,12 @@ func send(t *testing.T, client *http.Client, base, method, path, key, body strin
 
 // The kill switch end to end, with the real binary in supervise mode (scratch sandbox, fake
 // systemctl): a read key cannot engage; the CLI engages a lockdown with its admin key; a
-// mutation is then 423 lockdown and `status` leads with the banner; neither the key nor the
-// CLI can lift it; the owner, signed in to the console, asks for the lift, approves it there
-// and lifts it with the approval; the mutation is no longer braked; and the engage and the
-// lift are brake_changed records in the audit chain.
-func TestLockdownEngagedByTheCLIAndLiftedByTheOwner(t *testing.T) {
+// mutation is then 423 lockdown and `status` leads with the banner; the key's lift is answered
+// 409 approval_pending naming an out-of-band approval, which the key cannot approve itself and
+// which lifts nothing while pending; the owner, signed in to the console, approves it there;
+// the CLI then lifts with --approval <id>; the mutation is no longer braked; and the engage and
+// the lift (noting the approval) are brake_changed records in the audit chain.
+func TestLockdownEngagedByTheCLIAndLiftedWithTheOwnersApproval(t *testing.T) {
 	keyFile := filepath.Join(t.TempDir(), "cli.key")
 	port := freePort(t)
 	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:"+port+"\" }\ncerberus: { mode: supervise, cli_key_file: \""+keyFile+"\" }\n")
@@ -99,12 +100,34 @@ func TestLockdownEngagedByTheCLIAndLiftedByTheOwner(t *testing.T) {
 	if code, out = runWithStdin(t, s, "", "status"); code != 0 || !strings.HasPrefix(out, "!!! LOCKDOWN since ") {
 		t.Fatalf("cerberus status: %d %s", code, out)
 	}
-	if code, body = send(t, plain, base, "POST", "/api/brakes/lockdown/lift", admin, `{}`); code != http.StatusPreconditionRequired || !strings.Contains(body, `"code":"approval_required"`) {
-		t.Fatalf("a key lifting: %d %s", code, body)
-	}
 	// Off a terminal the CLI does not even ask.
 	if code, out = runWithStdin(t, s, "lift lockdown\n", "lockdown", "--off"); code == 0 || !strings.Contains(out, "interactive terminal") {
 		t.Fatalf("cerberus lockdown --off: %d %s", code, out)
+	}
+	// The key's lift asks for the owner's approval.
+	code, body = send(t, plain, base, "POST", "/api/brakes/lockdown/lift", admin, `{}`)
+	var pending struct {
+		Code    string `json:"code"`
+		Details struct {
+			Approval struct {
+				ID      string `json:"id"`
+				Channel string `json:"channel"`
+			} `json:"approval"`
+		} `json:"details"`
+	}
+	if code != http.StatusConflict || json.Unmarshal([]byte(body), &pending) != nil || pending.Code != "approval_pending" || pending.Details.Approval.ID == "" || pending.Details.Approval.Channel != "out_of_band" {
+		t.Fatalf("a key asking to lift: %d %s\n%s", code, body, log)
+	}
+	id := pending.Details.Approval.ID
+	if code, out = runWithStdin(t, s, "", "lockdown", "--off", "--approval", id); code == 0 || !strings.Contains(out, "not approved yet") {
+		t.Fatalf("cerberus lockdown --off --approval on a pending approval: %d %s", code, out)
+	}
+	// No key approves it: cerberus.approve is held only by the owner's console session.
+	if code, body = send(t, plain, base, "POST", "/api/approvals/"+id+"/decide", admin, `{"approve":true}`); code != http.StatusForbidden || !strings.Contains(body, "cerberus.approve") {
+		t.Fatalf("the key approving its own lift: %d %s", code, body)
+	}
+	if code, body = stop(); code != http.StatusLocked {
+		t.Fatalf("a stop before the owner approved: %d %s", code, body)
 	}
 
 	jar, _ := cookiejar.New(nil)
@@ -112,24 +135,11 @@ func TestLockdownEngagedByTheCLIAndLiftedByTheOwner(t *testing.T) {
 	if code, body = send(t, owner, base, "POST", "/api/login", "", `{"username":"owner","password":"correct horse battery staple"}`); code != 200 {
 		t.Fatalf("login: %d %s", code, body)
 	}
-	code, body = send(t, owner, base, "POST", "/api/brakes/lockdown/lift", "", `{}`)
-	var pending struct {
-		Code    string `json:"code"`
-		Details struct {
-			Approval struct {
-				ID string `json:"id"`
-			} `json:"approval"`
-		} `json:"details"`
-	}
-	if code != http.StatusConflict || json.Unmarshal([]byte(body), &pending) != nil || pending.Code != "approval_pending" || pending.Details.Approval.ID == "" {
-		t.Fatalf("the owner asking to lift: %d %s\n%s", code, body, log)
-	}
-	id := pending.Details.Approval.ID
 	if code, body = send(t, owner, base, "POST", "/api/approvals/"+id+"/decide", "", `{"approve":true}`); code != 200 {
 		t.Fatalf("the owner approving: %d %s", code, body)
 	}
-	if code, body = send(t, owner, base, "POST", "/api/brakes/lockdown/lift", "", `{"approval_id":"`+id+`"}`); code != 200 || strings.Contains(body, `"lockdown":{`) {
-		t.Fatalf("the owner lifting: %d %s", code, body)
+	if code, out = runWithStdin(t, s, "", "lockdown", "--off", "--approval", id); code != 0 || !strings.Contains(out, "Lifted.") {
+		t.Fatalf("cerberus lockdown --off --approval: %d %s\n%s", code, out, log)
 	}
 	if code, body = stop(); code == http.StatusLocked {
 		t.Fatalf("a stop after the lift: %d %s", code, body)
