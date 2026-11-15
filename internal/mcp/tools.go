@@ -18,9 +18,6 @@ import (
 const (
 	// OwnerHere is a tool served now.
 	OwnerHere = ""
-	// OwnerSlice9b is the rest of slice 9: the host reads beyond L9 and project_list, which need
-	// /api routes this PR does not add yet.
-	OwnerSlice9b = "9 (part 2)"
 	// OwnerSlice7 is the admin lane: connectors, ssh, docker.
 	OwnerSlice7 = "7"
 	// OwnerSlice8b is the host writes, components, outpost host actions, capacity, portfolio
@@ -55,9 +52,6 @@ func ownerOf(name string) string {
 		"cerberus_host_revision", "cerberus_host_update", "cerberus_host_inventory", "cerberus_host_remove", "cerberus_host_history",
 		"cerberus_host_units", "cerberus_host_logs", "cerberus_host_start", "cerberus_host_stop", "cerberus_host_restart", "cerberus_host_plan":
 		return OwnerSlice8b
-	case "cerberus_project_list", "cerberus_host_get", "cerberus_host_probe", "cerberus_host_status",
-		"cerberus_host_samples", "cerberus_host_monitor", "cerberus_host_events":
-		return OwnerSlice9b
 	}
 	return OwnerHere
 }
@@ -94,6 +88,13 @@ var handlers = map[string]handler{
 	"cerberus_resource_sync":    resourceVerb("sync"),
 	"cerberus_resource_remove":  resourceVerb("remove"),
 	"cerberus_host_list":        hostList,
+	"cerberus_project_list":     projectList,
+	"cerberus_host_get":         hostGet,
+	"cerberus_host_probe":       hostProbe,
+	"cerberus_host_status":      hostStatus,
+	"cerberus_host_samples":     hostSamples,
+	"cerberus_host_monitor":     hostMonitor,
+	"cerberus_host_events":      hostEvents,
 	"cerberus_approval_wait":    approvalWait,
 	"cerberus_lockdown":         lockdown,
 }
@@ -383,4 +384,105 @@ func notYet(name, owner string) handler {
 		}
 		return toolResult(lifecycleResult{Success: false, Error: fmt.Sprintf("%s is not available in this build (slice %s of the port)", name, owner)})
 	}
+}
+
+// The host reads and the project list, main's tools_host.go, tools_host_monitor.go and
+// tools_resources.go handlers over the old socket's routes, now under /api.
+
+func projectList(ctx context.Context, b Backend, args map[string]any) (any, error) {
+	var list []api.ProjectInfo
+	if err := b.Do(ctx, http.MethodGet, "/projects", nil, &list); err != nil {
+		return nil, err
+	}
+	return budgetedList("cerberus_project_list", list, args, "%d projects total."), nil
+}
+
+// hostViewText is one host with its note, if any (main's).
+func hostViewText(v api.HostView) (any, error) {
+	var notes []string
+	if note := hostNote(v); note != "" {
+		notes = append(notes, note)
+	}
+	return withNotes(v, notes)
+}
+
+func hostGet(ctx context.Context, b Backend, args map[string]any) (any, error) {
+	var v api.HostView
+	if err := b.Do(ctx, http.MethodGet, "/hosts/"+url.PathEscape(str(args, "name")), nil, &v); err != nil {
+		return nil, err
+	}
+	return hostViewText(v)
+}
+
+func hostProbe(ctx context.Context, b Backend, args map[string]any) (any, error) {
+	var v api.HostView
+	if err := b.Do(ctx, http.MethodPost, "/hosts/"+url.PathEscape(str(args, "name"))+"/probe", map[string]any{}, &v); err != nil {
+		return nil, err
+	}
+	return hostViewText(v)
+}
+
+func hostStatus(ctx context.Context, b Backend, args map[string]any) (any, error) {
+	if name := str(args, "name"); name != "" {
+		var v api.HostStatusView
+		if err := b.Do(ctx, http.MethodGet, "/hosts/"+url.PathEscape(name)+"/status", nil, &v); err != nil {
+			return nil, err
+		}
+		return indented(v)
+	}
+	var all []api.HostStatusView
+	if err := b.Do(ctx, http.MethodGet, "/hosts/_status", nil, &all); err != nil {
+		return nil, err
+	}
+	return indented(all)
+}
+
+func hostSamples(ctx context.Context, b Backend, args map[string]any) (any, error) {
+	q := url.Values{}
+	for _, k := range []string{"since", "until"} {
+		if v := str(args, k); v != "" {
+			q.Set(k, v)
+		}
+	}
+	if n, ok := args["limit"].(float64); ok {
+		q.Set("limit", fmt.Sprint(int(n)))
+	}
+	if g := str(args, "grain"); g != "" {
+		q.Set("grain", g)
+	}
+	var out json.RawMessage
+	if err := b.Do(ctx, http.MethodGet, withQuery("/hosts/"+url.PathEscape(str(args, "name"))+"/samples", q), nil, &out); err != nil {
+		return nil, err
+	}
+	var v any
+	if err := json.Unmarshal(out, &v); err != nil {
+		return nil, err
+	}
+	return indented(v)
+}
+
+func hostMonitor(ctx context.Context, b Backend, _ map[string]any) (any, error) {
+	var snap api.MonitorSnapshot
+	if err := b.Do(ctx, http.MethodGet, "/hosts/_monitor", nil, &snap); err != nil {
+		return nil, err
+	}
+	return indented(snap)
+}
+
+func hostEvents(ctx context.Context, b Backend, args map[string]any) (any, error) {
+	q := url.Values{}
+	if n, ok := args["after_id"].(float64); ok {
+		q.Set("after_id", fmt.Sprint(int64(n)))
+	}
+	if h := str(args, "host"); h != "" {
+		q.Set("host", h)
+	}
+	if n, ok := args["limit"].(float64); ok {
+		q.Set("limit", fmt.Sprint(int(n)))
+	}
+	var res api.EventsResult
+	if err := b.Do(ctx, http.MethodGet, withQuery("/hosts/_events", q), nil, &res); err != nil {
+		return nil, err
+	}
+	return indented(res)
 }

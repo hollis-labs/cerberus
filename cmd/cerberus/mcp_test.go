@@ -172,6 +172,16 @@ func TestMCPForwardsToServeAndTheAuditNamesTheChannel(t *testing.T) {
 		t.Fatalf("resource_status: %v %s", isErr, out)
 	}
 	tool("cerberus_resource_logs", `{"resource_id":"web","lines":5}`)
+	// The host reads and the project list (slice 9 part 2) answer through /api.
+	if out, isErr := tool("cerberus_project_list", `{}`); isErr || !strings.Contains(out, `\"id\":\"shop\"`) || !strings.Contains(out, `\"resource_count\":1`) {
+		t.Fatalf("project_list: %v %s", isErr, out)
+	}
+	if out, isErr := tool("cerberus_host_monitor", `{}`); isErr || !strings.Contains(out, `\"enabled\"`) {
+		t.Fatalf("host_monitor: %v %s", isErr, out)
+	}
+	if out, isErr := tool("cerberus_host_get", `{"name":"nope"}`); !isErr || !strings.Contains(out, "not_found") {
+		t.Fatalf("host_get of an undeclared host: %v %s", isErr, out)
+	}
 
 	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
 	post := func(key string) (int, string) {

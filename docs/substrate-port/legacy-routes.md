@@ -138,7 +138,7 @@ No client key holds `cerberus.approve`; the server refuses it on any key (decisi
      exit status, restarts, diagnosis and highlights, from `systemctl --user show`);
    - in L4: the resolved command, paths and raw unit text;
    - in L5: the checks (`checks` is `[]`, and `summary` says observe mode);
-   - in L9: `status` (the host monitor arrives with slice 8).
+   - in L9: nothing. Since slice 9 part 2 each view carries the host monitor's `status` (from the Telemetry store) when the monitor has recorded one, as the old daemon's did.
 
    The shapes and field names are unchanged.
 4. Paths in L3 to L6 (`log_path`, `install_root`, `artifact_path`, unit paths) are unchanged, because the install

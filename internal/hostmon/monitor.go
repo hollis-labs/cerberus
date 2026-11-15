@@ -344,3 +344,57 @@ func (m *Monitor) CompactOnce(ctx context.Context) {
 		"rollup_5m_deleted", rep.Rollup5mDeleted, "rollup_1h_deleted", rep.Rollup1hDeleted)
 	m.record(ctx, "compacted", rep.String())
 }
+
+// MonitorHostState is one host's place in the schedule (main's cerbapi.MonitorHostState).
+type MonitorHostState struct {
+	Name                string     `json:"name"`
+	Transport           string     `json:"transport"`
+	Interval            string     `json:"interval"`
+	LastAttempt         *time.Time `json:"last_attempt,omitempty"`
+	NextDue             *time.Time `json:"next_due,omitempty"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+	InFlight            bool       `json:"in_flight,omitempty"`
+}
+
+// MonitorSnapshot is what the monitor is doing now (main's cerbapi.MonitorSnapshot).
+type MonitorSnapshot struct {
+	// Enabled: monitoring is switched on in the settings. Running: the loop is up in this
+	// process.
+	Enabled  bool                  `json:"enabled"`
+	Running  bool                  `json:"running"`
+	Settings hosts.MonitorSettings `json:"settings"`
+	Hosts    []MonitorHostState    `json:"hosts"`
+}
+
+// Snapshot reports the schedule, hosts in name order. Before the loop has loaded hosts.yaml it
+// loads it once, so a snapshot of a monitor that is not running still lists the monitored hosts.
+func (m *Monitor) Snapshot(ctx context.Context) MonitorSnapshot {
+	m.mu.Lock()
+	if m.hostList == nil {
+		if f, err := m.o.Prober.Load(); err == nil {
+			m.hostList, m.loadedAt = f.Hosts, m.o.Now()
+		}
+	}
+	m.mu.Unlock()
+	status, _ := m.o.Store.AllStatus(ctx)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	snap := MonitorSnapshot{Enabled: m.o.Settings.Enabled, Running: m.running, Settings: m.o.Settings, Hosts: []MonitorHostState{}}
+	for _, h := range m.hostList {
+		interval, ok := m.o.Settings.IntervalFor(h)
+		if !ok {
+			continue
+		}
+		hs := MonitorHostState{Name: h.Name, Transport: h.Reach.EffectiveTransport(), Interval: interval.String(), InFlight: m.inFlight[h.Name]}
+		if st, ok := status[h.Name]; ok {
+			hs.LastAttempt, hs.ConsecutiveFailures = st.LastAttempt, st.ConsecutiveFailures
+		}
+		if d, ok := m.due[h.Name]; ok {
+			dd := d
+			hs.NextDue = &dd
+		}
+		snap.Hosts = append(snap.Hosts, hs)
+	}
+	sort.Slice(snap.Hosts, func(i, j int) bool { return snap.Hosts[i].Name < snap.Hosts[j].Name })
+	return snap
+}

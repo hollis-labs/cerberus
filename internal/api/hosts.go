@@ -106,13 +106,17 @@ func (a *API) hosts(w http.ResponseWriter, r *http.Request) {
 		}
 		now := time.Now()
 		for _, h := range file.Hosts {
-			if v := hostView(h, file.Components, a.o.Hosts.State(h.Name), now); f.matches(v) {
+			v := hostView(h, file.Components, a.o.Hosts.State(h.Name), now)
+			if a.o.HostReads != nil {
+				v.Status = a.o.HostReads.HostStatus(r.Context(), h)
+			}
+			if f.matches(v) {
 				out = append(out, v)
 			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Host.Name < out[j].Host.Name })
-	writeJSON(w, out)
+	writeScoped(GateContext(r.Context()), w, out)
 }
 
 // resourceToDomain is the connector's view of a registry resource.

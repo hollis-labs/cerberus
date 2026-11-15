@@ -63,11 +63,11 @@ func hostsPaths(st settings.Settings, dirs datadir.Dirs) (hostsYAML, state strin
 // startBackground starts the background loops in supervise mode and returns them for Stop.
 // In observe mode it starts nothing and returns an empty set.
 // ssh is the admin lane's ssh connector for the host monitor's ssh hosts (nil: they are skipped).
-func startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, st settings.Settings, dirs datadir.Dirs,
-	ssh func(context.Context) (hostmon.SSH, error), logger *slog.Logger) (*background, error) {
+func startBackground(app *module.App, lane *supervise.Service, st settings.Settings, dirs datadir.Dirs, parts *hostParts,
+	logger *slog.Logger) *background {
 	b := &background{}
 	if st.Mode != settings.ModeSupervise {
-		return b, nil
+		return b
 	}
 	// The scheduler stops first (plan section 4.4), so it starts first. A scheduler that refuses
 	// to start never takes Cerberus down: the refusal is logged and fails its /healthz check.
@@ -81,20 +81,29 @@ func startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, st 
 	} else if sched != nil {
 		b.start(context.Background(), "scheduler", []loop{*sched})
 	}
-	hostLoops, err := hostMonitorLoops(app, g, st, dirs, ssh, logger)
-	if err != nil {
-		return nil, err
-	}
-	loops := append(hostLoops, snapshotLoop(lane, registry.ForRoot(st.AdoptRoot), dirs, logger))
+	loops := append(hostMonitorLoops(app, parts), snapshotLoop(lane, registry.ForRoot(st.AdoptRoot), dirs, logger))
 	b.start(context.Background(), "hosts", append(loops, exportLoops(st, dirs, logger)...))
-	return b, nil
+	return b
 }
 
 // hostMonitorLoops builds the janitor (always, in supervise mode, so retention never depends on
 // probing) and the host monitor (when cerberus.host_monitor.enabled), writing class B through
 // the Telemetry store, and adds the telemetry check to /healthz. ssh hosts are probed through the
 // admin lane's ssh connector, resolved per probe as the old host service did.
-func hostMonitorLoops(app *module.App, g *gate.Gate, st settings.Settings, dirs datadir.Dirs, ssh func(context.Context) (hostmon.SSH, error), logger *slog.Logger) ([]loop, error) {
+// hostParts are the host monitor's pieces, built once in serve and shared: the background loops
+// run them in supervise mode, and the API reads through them (status, samples, events, the
+// schedule, probe) in both modes. In observe mode the monitor never runs and nothing is written.
+type hostParts struct {
+	prober   *hostmon.Prober
+	store    *hosts.SampleStore
+	tel      *hostmon.Telemetry
+	monitor  *hostmon.Monitor
+	settings hosts.MonitorSettings
+}
+
+// buildHostParts builds the prober over hosts.yaml and the state file (hostsPaths), the sample
+// store on the Telemetry store, the bounded telemetry writer and the monitor.
+func buildHostParts(app *module.App, g *gate.Gate, st settings.Settings, dirs datadir.Dirs, ssh func(context.Context) (hostmon.SSH, error), logger *slog.Logger) (*hostParts, error) {
 	ms, err := hostmon.Settings(st.HostMonitor)
 	if err != nil {
 		return nil, fmt.Errorf("%s.%w", settings.Key, err)
@@ -118,16 +127,28 @@ func hostMonitorLoops(app *module.App, g *gate.Gate, st settings.Settings, dirs 
 	if err != nil {
 		return nil, err
 	}
-	tel := hostmon.NewTelemetry(0, logger)
+	p := &hostParts{prober: prober, store: hosts.NewSampleStore(stores.Telemetry), tel: hostmon.NewTelemetry(0, logger), settings: ms}
+	p.monitor = hostmon.New(hostmon.Options{Prober: prober, Store: p.store, Telemetry: p.tel, Settings: ms, Record: hostMonitorRecorder(g, logger), Logger: logger})
+	return p, nil
+}
+
+// reads is the API's view of the host monitor.
+func (p *hostParts) reads() *hostmon.Reads {
+	return &hostmon.Reads{Prober: p.prober, Store: p.store, Monitor: p.monitor, Settings: p.settings}
+}
+
+// hostMonitorLoops are the janitor (always, in supervise mode, so retention never depends on
+// probing) and the host monitor (when cerberus.host_monitor.enabled), writing class B through
+// the Telemetry store; the telemetry check joins /healthz.
+func hostMonitorLoops(app *module.App, p *hostParts) []loop {
 	if h := health.From(app); h != nil {
-		h.Add("telemetry", tel.Check)
+		h.Add("telemetry", p.tel.Check)
 	}
-	m := hostmon.New(hostmon.Options{Prober: prober, Store: hosts.NewSampleStore(stores.Telemetry), Telemetry: tel, Settings: ms, Record: hostMonitorRecorder(g, logger), Logger: logger})
-	loops := []loop{{name: "janitor", run: m.RunJanitor, flush: tel.Flush}}
-	if ms.Enabled {
-		loops = append([]loop{{name: "host_monitor", run: m.Run}}, loops...)
+	loops := []loop{{name: "janitor", run: p.monitor.RunJanitor, flush: p.tel.Flush}}
+	if p.settings.Enabled {
+		loops = append([]loop{{name: "host_monitor", run: p.monitor.Run}}, loops...)
 	}
-	return loops, nil
+	return loops
 }
 
 func (b *background) start(ctx context.Context, name string, loops []loop) {

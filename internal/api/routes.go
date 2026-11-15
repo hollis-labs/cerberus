@@ -27,6 +27,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/gate"
+	"github.com/hollis-labs/cerberus/internal/hostmon"
 	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
@@ -86,6 +87,11 @@ type Options struct {
 	Observer Observer
 	// Hosts reads the declared hosts and their last known state; nil serves an empty list.
 	Hosts HostSource
+	// HostReads answers the host reads beyond L9 (status, samples, the monitor, events, probe)
+	// and puts the monitor's status on host views; nil answers them 503 hosts_unavailable.
+	HostReads *hostmon.Reads
+	// Projects lists the registry's projects, read fresh; nil serves an empty list.
+	Projects func() ([]config.ProjectDef, error)
 	// Home is the home directory install layouts derive from (log paths).
 	Home string
 	// Mutator runs L7 and L8 (the supervision lane); nil answers them 409 observe_mode.
@@ -174,6 +180,15 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/resources/{id}/{action}", ScopeRead, unknownAction},
 		Route{http.MethodPost, "/api/resources/{id}/{action}", ScopeOperate, unknownAction},
 		Route{http.MethodGet, "/api/hosts", ScopeRead, a.hosts},
+		// The old socket's host reads (cerbapi host_http.go, host_monitor_http.go, host_events.go).
+		Route{http.MethodGet, "/api/hosts/_status", ScopeRead, a.hostStatusAll},
+		Route{http.MethodGet, "/api/hosts/_monitor", ScopeRead, a.hostMonitor},
+		Route{http.MethodGet, "/api/hosts/_events", ScopeRead, a.hostEvents},
+		Route{http.MethodGet, "/api/hosts/{name}", ScopeRead, a.hostGet},
+		Route{http.MethodPost, "/api/hosts/{name}/probe", ScopeRead, a.hostProbe},
+		Route{http.MethodGet, "/api/hosts/{name}/status", ScopeRead, a.hostStatus},
+		Route{http.MethodGet, "/api/hosts/{name}/samples", ScopeRead, a.hostSamples},
+		Route{http.MethodGet, "/api/projects", ScopeRead, a.projects},
 		// Approvals (the old socket's /approvals routes): anyone who may read sees them; only the
 		// owner signed in to the console decides, revokes or acknowledges one (decision 0.1).
 		Route{http.MethodGet, "/api/approvals", ScopeRead, a.approvalList},
@@ -250,7 +265,7 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 			Mode: resourceMode(d), Supervisor: resourceSupervisor(d), RunFrom: resourceRunFrom(d),
 		})
 	}
-	writeJSON(w, h)
+	writeScoped(GateContext(r.Context()), w, h)
 }
 
 func (a *API) resources(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +276,7 @@ func (a *API) resources(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, list)
+	writeScoped(GateContext(r.Context()), w, list)
 }
 
 func (a *API) observeOne(ctx context.Context, id string) (config.ResourceDef, Observation, error) {
@@ -282,7 +297,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, runtimeStatus(d, obs))
+	writeScoped(GateContext(r.Context()), w, runtimeStatus(d, obs))
 }
 
 // inspect answers with the status fields the observation has. The resolved command, paths
@@ -294,7 +309,7 @@ func (a *API) inspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := runtimeStatus(d, obs)
-	writeJSON(w, ResourceInspect{
+	writeScoped(GateContext(r.Context()), w, ResourceInspect{
 		ID: st.ID, Name: st.Name, Type: st.Type, Project: st.Project, Connector: st.Connector,
 		Mode: st.Mode, Supervisor: st.Supervisor, RunFrom: st.RunFrom, URL: st.URL, Port: st.Port,
 		Status: st.Status, ServiceName: st.ServiceName,
@@ -309,7 +324,7 @@ func (a *API) doctor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := runtimeStatus(d, obs)
-	writeJSON(w, ResourceDoctor{
+	writeScoped(GateContext(r.Context()), w, ResourceDoctor{
 		ResourceID: d.ID, Status: st.Status,
 		Summary: "observe mode: this build reports state only; the full diagnosis arrives with supervision",
 		Checks:  []ResourceDoctorCheck{},

@@ -237,7 +237,7 @@ func TestLegacyRoutesAnswerUnderAPIWithTheirScopes(t *testing.T) {
 		body                              string
 	}{
 		{"L1", "GET", "/api/health", read, "", 200, `"daemon_running":true`},
-		{"L2", "GET", "/api/resources", read, "", 200, `[{"id":"web"`},
+		{"L2", "GET", "/api/resources", read, "", 200, `"id":"web"`},
 		{"L3", "GET", "/api/resources/web/status", read, "", 200, `"id":"web"`},
 		{"L4", "GET", "/api/resources/web/inspect", read, "", 200, `"id":"web"`},
 		{"L5", "GET", "/api/resources/web/doctor", read, "", 200, `"resource_id":"web"`},

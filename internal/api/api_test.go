@@ -179,10 +179,10 @@ hosts:
 	if list[0]["id"] != "web" || list[0]["status"] != "running" || list[2]["status"] != "unsupervised" || list[0]["admin"] != "unknown" {
 		t.Fatalf("rows = %s", body)
 	}
-	if code, body = do(t, h, "GET", "/api/resources?project_id=fleet", nil); code != 200 || !strings.HasPrefix(body, `[{"id":"box"`) {
+	if code, body = do(t, h, "GET", "/api/resources?project_id=fleet", nil); code != 200 || !strings.HasPrefix(body, `[{`) || !strings.Contains(body, `"id":"box"`) || strings.Contains(body, `"id":"web"`) {
 		t.Fatalf("project filter = %d %s", code, body)
 	}
-	if code, body = do(t, h, "GET", "/api/resources?tag=api", nil); code != 200 || !strings.HasPrefix(body, `[{"id":"web"`) {
+	if code, body = do(t, h, "GET", "/api/resources?tag=api", nil); code != 200 || !strings.HasPrefix(body, `[{`) || !strings.Contains(body, `"id":"web"`) {
 		t.Fatalf("tag filter (case-insensitive) = %d %s", code, body)
 	}
 	if code, body = do(t, h, "GET", "/api/resources?connector=docker", nil); code != 200 || body != "[]\n" {
@@ -213,7 +213,9 @@ hosts:
 	}
 
 	code, body = do(t, h, "GET", "/api/health", nil)
-	if code != 200 || !strings.HasPrefix(body, `{"services":null,"resources":[`) || !strings.Contains(body, `"daemon_running":true,"services_protected":0,"services_failed":0}`) {
+	// Keys sorted, as main's socket answered (its writeJSON marshaled through the response's
+	// redaction scope).
+	if code != 200 || !strings.HasPrefix(body, `{"daemon_running":true,"resources":[`) || !strings.Contains(body, `"services":null,"services_failed":0,"services_protected":0}`) {
 		t.Fatalf("health = %d %s", code, body)
 	}
 	if code, body = do(t, h, "GET", "/api/health?resource_id=nope", nil); code != 200 || strings.Contains(body, `"resources"`) {
@@ -221,7 +223,8 @@ hosts:
 	}
 
 	code, body = do(t, h, "GET", "/api/hosts", nil)
-	if code != 200 || !strings.HasPrefix(body, `[{"host":{"name":"box-1"`) || !strings.Contains(body, `"state":"unknown"`) || !strings.Contains(body, `"stale":true`) {
+	if code != 200 || !strings.HasPrefix(body, `[{`) || !strings.Contains(body, `"name":"box-1"`) || strings.Index(body, `"name":"box-1"`) > strings.Index(body, `"name":"box-2"`) ||
+		!strings.Contains(body, `"state":"unknown"`) || !strings.Contains(body, `"stale":true`) {
 		t.Fatalf("hosts = %d %s", code, body)
 	}
 	if code, body = do(t, h, "GET", "/api/hosts?label=rack=a", nil); code != 200 || strings.Contains(body, "box-2") {
