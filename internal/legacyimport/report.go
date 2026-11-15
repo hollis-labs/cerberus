@@ -198,6 +198,12 @@ type ConfigReport struct {
 	ProjectsListed        int      `json:"projects_listed"`
 	PipelinesListed       int      `json:"pipelines_listed"`
 	EventExportWasEnabled bool     `json:"event_export_was_enabled"`
+	// WebPublicURL is the old web.public_url: reported, and named in the fragment as a comment
+	// with the override keys it feeds; not a cerberus key.
+	WebPublicURL string `json:"web_public_url,omitempty"`
+	// TransfersRoot is the old transfers.root when it is the default or unset (another root
+	// refuses the run).
+	TransfersRoot string `json:"transfers_root"`
 }
 
 // RegistryReport is R14.
@@ -310,7 +316,13 @@ func (r *Report) WriteText(w io.Writer) error {
 		p("  receipts: %d files -> %d rows; reservations without a receipt: %v", a.Files, a.Rows, a.ReservationsWithoutReceipt)
 	}
 	if c := r.Config; c != nil {
-		p("  config: fragment %s; unmapped %v; resources listed %d, projects listed %d", c.Fragment, c.Unmapped, c.ResourcesListed, c.ProjectsListed)
+		p("  config: fragment %s; resources listed %d, projects listed %d", c.Fragment, c.ResourcesListed, c.ProjectsListed)
+		for _, x := range c.Mapped {
+			p("    mapped: %s", x)
+		}
+		for _, x := range c.Unmapped {
+			p("    reported: %s", x)
+		}
 	}
 	for _, group := range []struct {
 		name    string

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/libs/core/store"
+	"gopkg.in/yaml.v3"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/audit"
@@ -127,7 +128,8 @@ func TestTheFixtureMigrates(t *testing.T) {
 		t.Errorf("receipts: %+v", rc)
 	}
 	if c := rep.Config; c.Fragment != filepath.Join(f.DataDir, "migration", "config-fragment.yaml") || !c.EventExportWasEnabled ||
-		len(c.Unmapped) != 1 || !strings.HasPrefix(c.Unmapped[0], "web.public_url") || c.ResourcesListed != 0 {
+		len(c.Unmapped) != 2 || !strings.HasPrefix(c.Unmapped[0], "web.public_url") || c.WebPublicURL != "https://cerberus.example.test" ||
+		!strings.HasPrefix(c.TransfersRoot, "unset") || c.ResourcesListed != 0 {
 		t.Errorf("config: %+v", c)
 	}
 	if rep.Registry.Entries != 1 || rep.Registry.Resources != 3 || rep.Hosts.Hosts != 1 {
@@ -182,7 +184,8 @@ func TestTheFixtureMigrates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"host_monitor:", "event_export:", "enabled: false", "grace_seconds: 90", "connectors:", "fixture-echo:"} {
+	for _, want := range []string{"host_monitor:", "event_export:", "enabled: false", "grace_seconds: 90", "connectors:", "fixture-echo:",
+		"# The old web.public_url was https://cerberus.example.test. It is not a cerberus key: set identity.allowed_origins"} {
 		if !bytes.Contains(frag, []byte(want)) {
 			t.Errorf("config fragment lacks %q:\n%s", want, frag)
 		}
@@ -593,5 +596,66 @@ func TestRuledRows(t *testing.T) {
 	}
 	if len(rep.Rulings) == 0 {
 		t.Error("the report does not list the rulings")
+	}
+}
+
+// config.yaml's build, web and transfers keys: build.install_after_build is carried to
+// cerberus.build.install_after_build (the fragment parses as the cerberus block); web.public_url
+// is reported and named in the fragment as a comment, never a key; transfers.root at the default
+// (written either way) is reported, and any other root refuses the run.
+func TestConfigBuildWebTransfers(t *testing.T) {
+	run := func(t *testing.T, extra string) (legacyimporttest.Fixture, *legacyimport.Report, error) {
+		t.Helper()
+		f := legacyimporttest.Materialize(t, t.TempDir())
+		appendFile(t, filepath.Join(f.OldHome, "config.yaml"), strings.ReplaceAll(extra, "<home>", f.Home))
+		rep, err := legacyimport.Run(context.Background(), options(f))
+		return f, rep, err
+	}
+	for _, c := range []struct{ name, extra, root string }{
+		{"default with ~", "build:\n  install_after_build: false\ntransfers:\n  root: ~/.cerberus/transfers\n", "~/.cerberus/transfers (the default)"},
+		{"default as an absolute path", "build:\n  install_after_build: false\ntransfers:\n  root: <home>/.cerberus/transfers/\n", "/.cerberus/transfers/ (the default)"},
+		{"empty", "build:\n  install_after_build: false\ntransfers:\n  root: \"\"\n", "unset (the default ~/.cerberus/transfers)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, rep, err := run(t, c.extra)
+			if err != nil {
+				t.Fatalf("run: %v %v", err, rep.Refusals)
+			}
+			if !strings.HasSuffix(rep.Config.TransfersRoot, c.root) || !anyContains(rep.Config.Unmapped, "transfers.root = ") {
+				t.Fatalf("transfers root %q, unmapped %v", rep.Config.TransfersRoot, rep.Config.Unmapped)
+			}
+			if !anyContains(rep.Config.Mapped, "cerberus.build.install_after_build (false)") {
+				t.Fatalf("mapped %v", rep.Config.Mapped)
+			}
+			frag, err := os.ReadFile(rep.Config.Fragment) //nolint:gosec // a path in the test's own dir
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]any
+			if err := yaml.Unmarshal(frag, &doc); err != nil {
+				t.Fatal(err)
+			}
+			s, err := settings.Parse(doc[settings.Key], "/u/op")
+			if err != nil || s.InstallAfterBuildDefault() {
+				t.Fatalf("the fragment's cerberus block: install_after_build %v, %v", s.InstallAfterBuildDefault(), err)
+			}
+			if bytes.Contains(frag, []byte("public_url:")) || bytes.Contains(frag, []byte("transfers")) {
+				t.Fatalf("the fragment carries a key it must not:\n%s", frag)
+			}
+		})
+	}
+	for _, c := range []struct{ name, extra, want string }{
+		{"another root", "transfers:\n  root: /srv/transfers\n", "transfers.root is /srv/transfers, not the default"},
+		{"another root under the home", "transfers:\n  root: ~/elsewhere\n", "transfers.root is ~/elsewhere"},
+		{"a non-boolean install_after_build", "build:\n  install_after_build: sometimes\n", "build.install_after_build is sometimes, not a boolean"},
+		{"an unknown build key", "build:\n  parallel: 2\n", "unknown key build.parallel"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f, rep, err := run(t, c.extra)
+			if !errors.Is(err, legacyimport.ErrRefused) || !anyContains(rep.Refusals, c.want) {
+				t.Fatalf("run: %v, refusals %v; want one containing %q", err, rep.Refusals, c.want)
+			}
+			assertNothingWritten(t, f)
+		})
 	}
 }

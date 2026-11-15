@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -24,15 +25,16 @@ const (
 	fragmentOutput = "fragment file <data>/migration/config-fragment.yaml"
 )
 
-// Config keys: where each old key goes. Every key of the three files is in one of these, or the
-// run refuses naming it.
-var (
-	// unmappedKeys have no new key yet; their values are reported.
-	unmappedKeys = map[string]bool{"web.public_url": true, "build.install_after_build": true, "transfers.root": true}
-	// listedKeys must be empty on the live tree (registered descriptors replaced them); a value is
-	// reported, never carried.
-	listedKeys = map[string]bool{"resources": true, "projects": true, "pipelines": true}
-)
+// listedKeys must be empty on the live tree (registered descriptors replaced them); a value is
+// reported, never carried. Every other key of the three files is handled by name in
+// transformConfig, or the run refuses naming it.
+var listedKeys = map[string]bool{"resources": true, "projects": true, "pipelines": true}
+
+// publicURLKeys are the override keys the old web.public_url feeds: the console's public origin
+// behind the operator's TLS proxy (docs/substrate-port/console-api-contract.md, section 4). The
+// new build has no key of its own for it, so the value is reported and written into the
+// fragment as a comment for the operator, never as a key.
+const publicURLKeys = "identity.allowed_origins (the origin) with identity.trusted_proxy: true"
 
 // oldEvents is events.yaml.
 type oldEvents struct {
@@ -97,17 +99,16 @@ func transformConfig(oldHome, home string, r *Report) (fragment []byte, rep *Con
 					continue
 				}
 				for _, sk := range sortedKeys(sub) {
-					full := k + "." + sk
-					if !unmappedKeys[full] {
-						r.refuse("config.yaml has the unknown key %s", full)
-						continue
-					}
-					rep.Unmapped = append(rep.Unmapped, fmt.Sprintf("%s = %v", full, sub[sk]))
+					oldKey(k+"."+sk, sub[sk], home, block, rep, r)
 				}
 			default:
 				r.refuse("config.yaml has the unknown key %s", k)
 			}
 		}
+	}
+
+	if rep.TransfersRoot == "" {
+		reportTransfersRoot("unset (the default "+config.DefaultTransferRoot+")", rep)
 	}
 
 	if raw, ok := readYAML(filepath.Join(oldHome, "events.yaml"), "events.yaml", r); ok {
@@ -151,9 +152,79 @@ func transformConfig(oldHome, home string, r *Report) (fragment []byte, rep *Con
 	header := []byte("# Written by `cerberus migrate-from` from the old config.yaml, events.yaml and connector-config.yaml.\n" +
 		"# Merge the cerberus block into the SUBSTRATE_CONFIG override file; event export stays off until you enable it.\n")
 	fragment = append(header, data...)
+	if rep.WebPublicURL != "" {
+		fragment = append(fragment, []byte(fmt.Sprintf("# The old web.public_url was %s. It is not a cerberus key: set %s\n# in the override file once the proxy serves 127.0.0.1:4786 under that name.\n",
+			rep.WebPublicURL, publicURLKeys))...)
+	}
 	sum := sha256.Sum256(fragment)
 	rep.FragmentSHA256 = "sha256:" + hex.EncodeToString(sum[:])
 	return fragment, rep
+}
+
+// oldKey places one key of config.yaml's web, build or transfers block.
+func oldKey(full string, v any, home string, block map[string]any, rep *ConfigReport, r *Report) {
+	switch full {
+	case "build.install_after_build":
+		if v == nil {
+			return
+		}
+		b, ok := v.(bool)
+		if !ok {
+			r.refuse("config.yaml build.install_after_build is %v, not a boolean", v)
+			return
+		}
+		block["build"] = map[string]any{"install_after_build": b}
+		rep.Mapped = append(rep.Mapped, fmt.Sprintf("config.yaml build.install_after_build -> cerberus.build.install_after_build (%v)", b))
+	case "web.public_url":
+		if v == nil {
+			return
+		}
+		u, ok := v.(string)
+		if !ok {
+			r.refuse("config.yaml web.public_url is %v, not a string", v)
+			return
+		}
+		if u = strings.TrimSpace(u); u == "" {
+			return
+		}
+		rep.WebPublicURL = u
+		rep.Unmapped = append(rep.Unmapped, fmt.Sprintf("web.public_url = %s (no cerberus key: set %s; written in the fragment as a comment)", u, publicURLKeys))
+	case "transfers.root":
+		root, ok := v.(string)
+		if v != nil && !ok {
+			r.refuse("config.yaml transfers.root is %v, not a string", v)
+			return
+		}
+		root = strings.TrimSpace(root)
+		if root != "" && !defaultTransferRoot(root, home) {
+			rep.TransfersRoot = root + " (refused: not the default)"
+			r.refuse("config.yaml transfers.root is %s, not the default %s: the new build's transfer root is fixed at <adopt_root>/transfers, so transfers there would move; set it back to the default (moving the files into the adopted root) before migrating", root, config.DefaultTransferRoot)
+			return
+		}
+		if root != "" {
+			reportTransfersRoot(root+" (the default)", rep)
+		}
+	default:
+		r.refuse("config.yaml has the unknown key %s", full)
+	}
+}
+
+// reportTransfersRoot reports the old transfer root when it is the default or unset.
+func reportTransfersRoot(what string, rep *ConfigReport) {
+	rep.TransfersRoot = what
+	rep.Unmapped = append(rep.Unmapped, fmt.Sprintf("transfers.root = %s: the new build's root is <adopt_root>/transfers, the same directory; nothing to carry", what))
+}
+
+// defaultTransferRoot reports whether root names the old build's default transfer root,
+// ~/.cerberus/transfers, written with "~" or as the home directory's absolute path.
+func defaultTransferRoot(root, home string) bool {
+	if root == config.DefaultTransferRoot || root == config.DefaultTransferRoot+"/" {
+		return true
+	}
+	if home == "" || !filepath.IsAbs(root) {
+		return false
+	}
+	return filepath.Clean(root) == filepath.Join(home, ".cerberus", "transfers")
 }
 
 // readYAML reads an optional YAML file of the snapshot. Absent: listed, ok false.
