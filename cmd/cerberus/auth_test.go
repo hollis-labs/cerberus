@@ -368,7 +368,7 @@ func TestHelpAndVersionCreateNothing(t *testing.T) {
 	if err := os.Chmod(ro, 0o555); err != nil { //nolint:gosec // a read-only directory is the point
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // a directory needs x to be removed
 	for _, args := range [][]string{
 		{"--help"}, {"-h"}, {"help"}, {"version"}, {"config"},
 		{"serve", "--help"}, {"resource", "list", "--help"}, {"status", "--help"}, {"identity", "--help"},
