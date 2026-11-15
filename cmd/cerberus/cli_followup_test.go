@@ -462,7 +462,7 @@ func TestDockerAndSSHOverTheAdminLane(t *testing.T) {
 }
 
 // Every pending verb exists with old's flags (the parity test), parses them, and answers
-// pending, exit 1, having called nothing.
+// pending with the slice that owns its backend (7d or 8b), exit 1, having called nothing.
 func TestPendingVerbsAnswerPending(t *testing.T) {
 	tree := newTree(t)
 	for _, s := range pendingSpecs {
@@ -474,7 +474,11 @@ func TestPendingVerbsAnswerPending(t *testing.T) {
 			t.Fatalf("%s is not in the tree", s.path)
 		}
 		err := c.RunE(c, nil)
-		if err == nil || !strings.Contains(err.Error(), "pending (slice 8b)") || !strings.Contains(err.Error(), "nothing was done") {
+		want := "pending (slice 8b)"
+		if top := strings.Fields(s.path)[0]; top == "policy" || top == "posture" || top == "audit" || top == "whoami" || top == "data" {
+			want = "pending (slice 7d)"
+		}
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "nothing was done") {
 			t.Fatalf("%s: %v", s.path, err)
 		}
 	}
@@ -482,16 +486,23 @@ func TestPendingVerbsAnswerPending(t *testing.T) {
 	root.SilenceErrors, root.SilenceUsage = true, true
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	for _, args := range [][]string{
-		{"host", "set", "zeta", "--ack", "--label", "a=b", "--revision", "r1", "-o", "json"},
-		{"schedule", "--json", "create", "--file", "-", "--ack"},
-		{"policy", "enforce", "--since", "24h", "--all"},
-		{"host", "capacity", "--max-age", "5m", "--recent-max-load", "0.5", "--free-slot", "nvme_m2=1"},
-		{"audit", "prune", "--before", "2026-01-01"},
+	for _, c := range []struct {
+		slice string
+		args  []string
+	}{
+		{"slice 8b", []string{"host", "set", "zeta", "--ack", "--label", "a=b", "--revision", "r1", "-o", "json"}},
+		{"slice 8b", []string{"schedule", "--json", "create", "--file", "-", "--ack"}},
+		{"slice 8b", []string{"pipeline", "show", "release"}},
+		{"slice 7d", []string{"policy", "enforce", "--since", "24h", "--all"}},
+		{"slice 8b", []string{"host", "capacity", "--max-age", "5m", "--recent-max-load", "0.5", "--free-slot", "nvme_m2=1"}},
+		{"slice 7d", []string{"audit", "prune", "--before", "2026-01-01"}},
+		{"slice 7d", []string{"whoami", "-o", "json"}},
+		{"slice 7d", []string{"data", "query", "--token-file", "x"}},
+		{"slice 7d", []string{"posture", "show"}},
 	} {
-		root.SetArgs(args)
-		if err := root.ExecuteContext(t.Context()); err == nil || !strings.Contains(err.Error(), "pending (slice 8b)") {
-			t.Fatalf("%v: %v", args, err)
+		root.SetArgs(c.args)
+		if err := root.ExecuteContext(t.Context()); err == nil || !strings.Contains(err.Error(), "pending ("+c.slice+")") {
+			t.Fatalf("%v: %v", c.args, err)
 		}
 	}
 }

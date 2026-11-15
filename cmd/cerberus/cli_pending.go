@@ -11,12 +11,30 @@ import (
 
 // The old verbs whose backend no served lane carries yet (slice 7c's plan): each exists with
 // old's use line, short help and flags, so a script that runs it parses as it did, and answers
-// "pending (slice 8b)" with exit 1, having done nothing. The flags mirror main's
+// "pending (slice N)" with exit 1, having done nothing. The flags mirror main's
 // (`cerberus <path> --help` on main); the parity test checks every one of them.
 
-// pendingSlice is the slice that owns the backends these verbs wait for: host writes,
-// components, pipelines, and every other backend not served yet.
-const pendingSlice = "slice 8b"
+// The slices that own the backends these verbs wait for. Slice 7d (CW-20261115-0089) takes the
+// ones no slice owned: the policy point's CLI routes (policy, posture), the audit chain's writes
+// (audit prune, reanchor), the server's view of the caller (whoami) and data access. Slice 8b
+// owns the rest: host writes, components, pipelines, and every other backend not served yet.
+const (
+	slice7d = "slice 7d"
+	slice8b = "slice 8b"
+)
+
+// pendingOwner is the slice a path waits for, by the pendingWhy key that names it.
+var pendingOwner = map[string]string{
+	"audit": slice7d, "data": slice7d, "policy": slice7d, "posture": slice7d, "whoami": slice7d,
+}
+
+// pendingSlice is the slice path waits for.
+func pendingSlice(path string) string {
+	if s, ok := pendingOwner[whyKey(path)]; ok {
+		return s
+	}
+	return slice8b
+}
 
 // flagSpec is one old flag: name, shorthand, type (bool, string, int, float, duration,
 // stringArray), default as old printed it, and usage.
@@ -47,7 +65,7 @@ var pendingWhy = map[string]string{
 
 // pendingError is a pending verb's answer.
 func pendingError(path string) error {
-	return fmt.Errorf("cerberus %s: pending (%s): %s; nothing was done", path, pendingSlice, pendingWhy[whyKey(path)])
+	return fmt.Errorf("cerberus %s: pending (%s): %s; nothing was done", path, pendingSlice(path), pendingWhy[whyKey(path)])
 }
 
 // whyKey is the longest pendingWhy key that names path.
@@ -84,7 +102,7 @@ func addPendingCommands(root *cobra.Command, specs []pendingSpec) error {
 			flags = cmd.PersistentFlags()
 		} else {
 			path := s.path
-			cmd.Long = s.short + "\n\nPending (" + pendingSlice + "): " + pendingWhy[whyKey(path)] + "."
+			cmd.Long = s.short + "\n\nPending (" + pendingSlice(path) + "): " + pendingWhy[whyKey(path)] + "."
 			cmd.Args = cobra.ArbitraryArgs
 			cmd.RunE = func(*cobra.Command, []string) error { return pendingError(path) }
 		}
