@@ -227,11 +227,11 @@ func TestExpectOverridesWhatAStepWrote(t *testing.T) {
 	before := m.Files["approvals/events.jsonl"]
 
 	appendTo(t, filepath.Join(l.home, "approvals", "events.jsonl"), "{}\n")
-	if err := os.WriteFile(filepath.Join(l.home, "paused.new"), []byte("paused\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if werr := os.WriteFile(filepath.Join(l.home, "paused.new"), []byte("paused\n"), 0o600); werr != nil {
+		t.Fatal(werr)
 	}
-	if err := os.Remove(filepath.Join(l.home, "paused.web")); err != nil {
-		t.Fatal(err)
+	if rerr := os.Remove(filepath.Join(l.home, "paused.web")); rerr != nil {
+		t.Fatal(rerr)
 	}
 	now, err := manifest.Take(ctx, l.opts())
 	if err != nil {
