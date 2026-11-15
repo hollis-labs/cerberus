@@ -29,6 +29,12 @@ adds its rows. The plan is `docs/substrate-port-plan.md`.
 | `~/.cerberus/state/hosts.json` | `<data dir>/state/hosts.json` in supervise mode (copied by slice 10); observe mode reads the old file in place and never writes it |
 | `~/.cerberus/events/` (export outbox and hub cursor) | `<data dir>/events/`; export is off (`cerberus.event_export.enabled: false`) |
 | `~/.cerberus/events-tokens/` | Unchanged, adopted in place; written by the renewal job, read only by the hub relay through the eventbus environment when export and its hub are on |
+| `~/.cerberus/plugins/`, `plugin-data/`, `plugin-cache/` | Unchanged, adopted in place (`<adopt_root>/…`): the reviewed bundles at their recorded paths and digests, each plugin's data and cache directories |
+| `~/.cerberus/plugin-connectors.json` | Unchanged, shared in place (`<adopt_root>/plugin-connectors.json`), same format (version 2). Supervise mode reads it at start and writes it, under old's lock (`.lock`, flock) with an atomic 0600 rename, only when the operator loads, unloads, reloads or uninstalls a plugin; stopping plugins at exit does not rewrite it. Only one build runs plugins at a time |
+| `~/.cerberus/credential-issuance/<id>/<state>.json` (receipts) | `credential_issuance_receipts` in the class A store; inserting the `preparing` receipt is the exclusive reservation of an issuance id (migrated by slice 10). The issued secrets stay files in the adopted root, `<adopt_root>/credential-issuance/secrets/issued/<id>/<name>` |
+| `~/.cerberus/connector-secrets.yaml` | `<config dir>/cerberus/connector-secrets.yaml` (`$XDG_CONFIG_HOME/cerberus`, beside the policy), copied at 0600 by slice 10 |
+| `~/.cerberus/connector-config.yaml` | `cerberus.connectors` in the override file (Settings) |
+| `transfers.root` (default `~/.cerberus/transfers`) | `<adopt_root>/transfers`, fixed; the old config key is not read |
 
 ## Environment
 
@@ -61,7 +67,8 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 | `events.yaml` `export.{enabled, grace_seconds, interval_seconds, hub.enabled}` | `cerberus.event_export.{enabled, grace_seconds, interval_seconds, hub}`, off by default; `migrate-from` transforms `events.yaml` |
 | The scheduling core, built and never started; no key | `cerberus.scheduler.enabled` (default `false`). Enabled, it refuses to start while its `gosched_*` or `cerberus_schedule_*` tables hold rows, naming them, unless `cerberus.scheduler.allow_existing: true`; a refusal fails its `/healthz` check and never stops Cerberus |
 | — | `/healthz` gains `telemetry`: an error while host-monitor writes are held in memory because the Telemetry store fails (up to 1000, oldest dropped and counted) |
-| ssh hosts probed through the ssh connector | Not probed until the ssh connector arrives (slice 7): skipped with a warning, never marked offline |
+| ssh hosts probed through the ssh connector | Unchanged (slice 7): probed through the admin lane's ssh connector, resolved per probe, each probe's credentials resolved as a read of its `reach.ssh` resource |
+| `connector-config.yaml` (plugin id: `fields`, `mcp.expose`, `limits`) | `cerberus.connectors`, the same shape under one key; an unknown key refuses the start, naming the block. Read at start: an edit takes a restart, where old re-read the file on every load. `config_sha256` on a plugin is the block's fingerprint, not the old file's |
 
 ## Commands
 
@@ -100,6 +107,24 @@ Steps to take after the new build is accepted. None blocks the cutover.
 | `--approval`, `--plan`, a lockdown or freeze | Slice 6: as old. `approval_id` runs under that approval, `plan` answers with the plan, a lockdown or freeze is 423 `lockdown` or `frozen`. The confirm route is not in the legacy set: a `confirmed_plan_hash` on the plain route is ignored, as old's plain route did |
 | Supervise mode with a policy in force | Slice 6: the policy is loaded from `<config dir>/cerberus/policy` and enforced as the snapshot says |
 | A self-mutation guarded by the daemon's executable path and labels | Guarded by `cerberus.self_resource_id`: every verb on it is refused; upgrade with fleet-install |
+
+## Admin lane (slice 7)
+
+Supervise mode only: observe mode builds no admin lane, starts no plugin and writes nothing, and every route
+below answers 503 `admin_unavailable`. Every write goes through the operation gate of slice 6, with the
+contract's plan and confirm forms (`docs/substrate-port/console-api-contract.md` section 1).
+
+| Old | New |
+|---|---|
+| Socket and console `GET /connectors`, `POST /connectors/{id}/operations/{op}[/plan,/confirm]` | `GET /api/connectors` (read), `POST /api/connectors/{id}/operations/{op}[/plan,/confirm]` (admin), same bodies (`config`, `dry_run`, `acknowledged`, `approval_id`, `plan`; `confirmed_plan_hash` on confirm). Refusals in the flat body with old's status per code. The break-glass form is not served |
+| Console `GET /api/credentials`, `POST /api/credentials/{id}[/plan,/confirm]` (provider save) | The same under `/api` (read; admin). Values go to the keyring, service `cerberus`, account `<id>/<name>`, and are never recorded; a loaded plugin with that id is reloaded |
+| Console and socket `/plugins/connectors`, `{id}/health`, `{id}/load`, `{id}/unload` (plain posts) | `GET /api/plugins/connectors`, `GET …/{id}/health` (read); `POST …/{id}/{load,unload,reload,uninstall}[/plan,/confirm]` (admin), gated like every admin write (the contract's change). `POST …/{id}/operations/{op}` (admin, `approval_id`); a `plugin_dir` is refused |
+| Plugins restored at daemon start (automation, `daemon_start`), stopped by standby | Restored once the supervision lane runs, recorded as automation via `daemon_start`, never refused (a lockdown included); stopped at exit after the resource monitor (plan 4.4 step 5) without rewriting the state file |
+| Keyring service `cerberus`, accounts `<id>/<name>`, `ssh/<resource-id>/key`, `<plugin-id>/<secret>`; `keychain://` and `keyring://` | Unchanged (a contract; `internal/admin` tests assert the names) |
+| Plugins launched through `cerberus __plugin-exec` (rlimits) | Unchanged: the serving binary's own path |
+| `cerberus connectors plugin managed install/upgrade/review` (terminal-only install review) | Not served. Install, upgrade and review arrive with the pending ruling; until then an install is done with the old build, whose entry the new build loads |
+| `cerberus connectors plugin exec/health <dir>` (one-shot), `cerberus run-secrets` (secret backends in the service's own process), `cerberus secrets set` | Not on this branch: each returns with its CLI slice |
+| MCP plugin-tool sync (a loaded plugin's operations as MCP tools), MCP progress notifications during an operation | Out of this slice: with MCP (slice 9). `mcp_expose` is still reported per plugin |
 
 ## Audit, approvals and policy (slice 6)
 
