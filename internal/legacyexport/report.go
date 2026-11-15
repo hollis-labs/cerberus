@@ -205,7 +205,9 @@ func (r *Report) WriteText(w io.Writer) error {
 	if r.Handoff != "" {
 		p("  handoff:    %s", r.Handoff)
 	}
-	p("  data dir:   %s", r.DataDir)
+	if r.DataDir != "" {
+		p("  data dir:   %s", r.DataDir)
+	}
 	p("  old home:   %s", r.OldHome)
 	if r.OldDB != "" {
 		p("  old db:     %s", r.OldDB)
