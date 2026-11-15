@@ -22,6 +22,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/settings"
 )
 
@@ -269,27 +270,7 @@ func printResourceRuntimeStatus(w io.Writer, st api.ResourceRuntimeStatus) {
 	if len(st.LaunchdHighlights) > 0 {
 		p("Highlights:  %s\n", strings.Join(st.LaunchdHighlights, " | "))
 	}
-	if st.SystemdActiveState != "" {
-		p("Systemd:     %s/%s\n", st.SystemdActiveState, st.SystemdSubState)
-	}
-	if st.SystemdUnitFileState != "" {
-		p("Unit File:   %s\n", st.SystemdUnitFileState)
-	}
-	if st.SystemdPID > 0 {
-		p("Main PID:    %d\n", st.SystemdPID)
-	}
-	if st.SystemdExitStatus != nil {
-		p("Last Exit:   %d\n", *st.SystemdExitStatus)
-	}
-	if st.SystemdRestarts > 0 {
-		p("Restarts:    %d\n", st.SystemdRestarts)
-	}
-	if st.SystemdDiagnosis != "" {
-		p("Diagnosis:   %s\n", st.SystemdDiagnosis)
-	}
-	if len(st.SystemdHighlights) > 0 {
-		p("Highlights:  %s\n", strings.Join(st.SystemdHighlights, " | "))
-	}
+	printSystemdSummary(w, st.SystemdActiveState, st.SystemdSubState, st.SystemdUnitFileState, st.SystemdPID, st.SystemdExitStatus, st.SystemdRestarts, st.SystemdDiagnosis, st.SystemdHighlights)
 }
 
 // statusSection is one line of `cerberus status`: the old labels, in the old order.
@@ -381,8 +362,8 @@ func writeStatus(w io.Writer, banners []string, sections []statusSection) {
 	}
 }
 
-// readCommands are `resource list`, `resource status`, the resource verbs (cli_resource.go) and
-// `status`.
+// readCommands are `resource list`, `resource status`, the resource verbs (cli_resource.go),
+// the resource read family (cli_resource_read.go) and `status`.
 func (c *cerberus) readCommands() []*cobra.Command {
 	client := func() (*apiClient, error) { return newAPIClient(c.app, c.home) }
 
@@ -443,6 +424,7 @@ func (c *cerberus) readCommands() []*cobra.Command {
 		Long: "Manages v2 resources through the serving Cerberus. After editing source, use deploy to build and activate it. Lower-level verbs: apply for already-built activation, reload for restart-only (NO rebuild), sync for artifact-copy only, stop for non-destructive stop/pause intent, and remove only for uninstalling runtime state. Every mutation needs --ack."}
 	resource.AddCommand(list, status)
 	resource.AddCommand(resourceMutationCommands(client)...)
+	resource.AddCommand(resourceReadCommands(client, func() (*registry.Registry, error) { return registryFor(c) })...)
 
 	overall := &cobra.Command{
 		Use:   "status",
