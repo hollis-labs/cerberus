@@ -57,6 +57,7 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	rootCmd.Args = cobra.NoArgs
 	rootCmd.AddCommand(serve, auditCmd())
 	rootCmd.AddCommand(c.readCommands()...)
+	rootCmd.AddCommand(c.brakeCommands()...)
 	guardKeyCreate(rootCmd)
 	return rootCmd.ExecuteContext(ctx)
 }

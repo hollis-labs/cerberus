@@ -177,6 +177,16 @@ func (a *API) table() []Route {
 		Route{http.MethodPost, "/api/approvals/{id}/decide", ScopeApprove, personOnly(a.approvalDecide)},
 		Route{http.MethodPost, "/api/approvals/{id}/revoke", ScopeApprove, personOnly(a.approvalRevoke)},
 		Route{http.MethodPost, "/api/approvals/{id}/ack-break-glass", ScopeApprove, personOnly(a.approvalAckBreakGlass)},
+		// The brakes (the old socket's /brakes routes): anyone who may read sees them; engaging,
+		// lifting and resetting need cerberus.admin, and the gate decides the rest as the old
+		// daemon did (brakes.go): engaging is open, a lift needs a person and the owner's console
+		// approval, a reset a person and the typed phrase.
+		Route{http.MethodGet, "/api/brakes", ScopeRead, a.brakesGet},
+		Route{http.MethodPost, "/api/brakes/lockdown", ScopeAdmin, a.brakeLockdown},
+		Route{http.MethodPost, "/api/brakes/lockdown/lift", ScopeAdmin, a.brakeLiftLockdown},
+		Route{http.MethodPost, "/api/brakes/freeze", ScopeAdmin, a.brakeFreeze},
+		Route{http.MethodPost, "/api/brakes/freeze/{id}/lift", ScopeAdmin, a.brakeLiftFreeze},
+		Route{http.MethodPost, "/api/brakes/suspensions/{id}/reset", ScopeAdmin, a.brakeResetSuspension},
 	)
 	return rs
 }

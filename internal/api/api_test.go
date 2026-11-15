@@ -98,6 +98,8 @@ func TestEveryRouteHasAScope(t *testing.T) {
 	for path, want := range map[string]string{
 		"/api/resources/x/reload": ScopeOperate, "/api/resources/x/remove": ScopeAdmin,
 		"/api/approvals/x/decide": ScopeApprove,
+		"/api/brakes/lockdown":    ScopeAdmin, "/api/brakes/lockdown/lift": ScopeAdmin, "/api/brakes/freeze": ScopeAdmin,
+		"/api/brakes/freeze/x/lift": ScopeAdmin, "/api/brakes/suspensions/x/reset": ScopeAdmin,
 	} {
 		if got, _ := table.ForRoute(http.MethodPost, path); got != want {
 			t.Errorf("POST %s: scope %q, want %q", path, got, want)

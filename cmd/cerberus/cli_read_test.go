@@ -116,7 +116,7 @@ func TestStatusKeepsTheOldLabelsAndLayout(t *testing.T) {
 	}
 	c := goldenServer(t)
 	var out bytes.Buffer
-	writeStatus(&out, statusSections(context.Background(), c))
+	writeStatus(&out, nil, statusSections(context.Background(), c))
 	old := golden(t, "status.txt")
 	if got, want := strings.Join(labels(out.String()), " "), strings.Join(labels(old), " "); got != want {
 		t.Fatalf("labels %q, want %q", got, want)

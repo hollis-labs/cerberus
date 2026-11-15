@@ -395,7 +395,8 @@ func TestNeedsData(t *testing.T) {
 	for args, want := range map[string]bool{
 		"": true, "serve": true, "identity setup --username o": true, "identity key create --name k": true,
 		"--help": false, "serve --help": false, "version": false, "config": false, "health": false,
-		"resource list": false, "resource status web": false, "status": false, "identity": false, "nonsense": false,
+		"resource list": false, "resource status web": false, "status": false,
+		"lockdown --reason x": false, "freeze --scope env=prod": false, "freeze --off frz_1": false, "breaker reset sus_1": false, "identity": false, "nonsense": false,
 	} {
 		if got := needsData(strings.Fields(args)); got != want {
 			t.Errorf("needsData(%q) = %v, want %v", args, got, want)
