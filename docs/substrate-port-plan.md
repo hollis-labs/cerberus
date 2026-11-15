@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope; revision 7 adds slice 8b for the lanes slice 9's tool-parity survey found unowned; revision 8 adds the `cerberus-mcp` key at D6 and fixes the key names that set the audit channel.** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope; revision 7 adds slice 8b for the lanes slice 9's tool-parity survey found unowned; revision 8 adds the `cerberus-mcp` key at D6 and fixes the key names that set the audit channel; revision 9 keeps `hosts.yaml`, host history and `plugin-connectors.json` in place, adds the config-fragment merge at D5, and adds slices 7b and 7c.** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -215,20 +215,21 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 | keyring `cerberus-audit-anchor` (account = audit dir path) | **transform**: write the same head under the new dir's path; the old entry stays | `audit verify` against both anchors |
 | `approvals/events.jsonl` | **copy** byte for byte; new continues the chain | chain verify; line count |
 | `approvals/passkeys/keys.json`, `key-counters.json` | **in place, not migrated, unused** (decision 0.1); archived with the old tree at F | listed in the report |
-| `hosts.history.jsonl` (+ rotations), `state/hosts.json`, `state/overview_snapshots.json` | **copy** | sha256 |
+| `hosts.history.jsonl` (+ rotations) | **in place** (adopted root); new appends in the same format; excluded from the D3 manifest | line count; old reads it |
+| `state/hosts.json`, `state/overview_snapshots.json` | **copy** | sha256 |
 | `runtime/applied.json` | **transform** into SQLite, digest for digest | per-resource digest equal; observe mode reports no resource as changed |
 | `paused`, `paused.<id>` | **transform** into pause state (operator intent) | set equal |
-| `credential-issuance/<id>/*.json` | **transform** (receipts) | counts |
+| `credential-issuance/<id>/*.json` | **transform** (receipts). A reservation dir with no receipt (reserved, then crashed) is reported as `reservations_without_receipt` and left in place | counts |
 | `policy/` (`applied.yaml`, `applied.sha256`, `posture.yaml`, `enforcement.yaml`, `providers/*`) | **copy** into the config dir; `applied.sha256` is checked against `applied.yaml` before and after | sha256; `policy show` equal on both |
 | `config.yaml`, `events.yaml`, `connector-config.yaml` | **transform** to config keys (table in conversion-notes; unknown key = error). Event export stays off. | `cerberus config` reviewed against the old values |
 | `registry.yaml` | **in place** (adopted root, same v1 format); the descriptors it lists stay in place too (they belong to their apps). Excluded from the D3 manifest: rollback keeps any registration new made, because old reads the same format. Register from one build at a time during the transition, since concurrent registers can lose one. | entry and resource counts equal (observe mode); a compat test that old's `LoadIndex` reads a file new wrote |
-| `hosts.yaml` | **copy**; `token_file` paths keep pointing into the adopted root | `hosts list` equal |
+| `hosts.yaml` | **in place** (adopted root, same format; new's editor is byte-compatible with old's, slice 8b); `token_file` paths unchanged; excluded from the D3 manifest | `hosts list` equal; old reads it |
 | `connector-secrets.yaml` (secret refs) | **copy** at 0600 | sha256 |
 | keyring `cerberus` service: connector and plugin credentials, `cerberus-oauth/issuer-ed25519` | **in place**: same service and account names (a contract) | one credentialed health op succeeds |
 | the adopted root (section 3) | **in place**. Exactly one daemon runs plugins at any time. | plugins load with the same digests |
 | `pids/<id>.{pid,meta}` | not copied. The dev sessions old was running are listed by standby (7.1) and started under new at D7. | session status after D7 |
 | `standby.d/` (old's standby chain and session list, 7.1) | **not copied at D**. It is old's own record of the window. At F it is archived beside the old tree, and new imports it read-only as a sidecar log. | chain verify at F |
-| `brakes/`, `oauth/tokens.jsonl`, `events/`, `alerts/` | absent live; the window re-checks. **copy** if present. | listed in the report |
+| `brakes/`, `oauth/tokens.jsonl`, `events/`, `alerts/` | absent live; the window re-checks. **copy** if present (`oauth/` and `alerts/` are carried inert to `data/oauth`, `data/alerts`). | listed in the report |
 | `web/login-*.key` | not migrated: replaced by identity sessions | — |
 | `cerberus.log`, `logs/`, `backups/`, `*.bak*`, operator runbook directories under `<XDG_DATA_HOME>/cerberus/` (names in the live-facts item), the 0-byte `cerberus.db` | **archive**: left where they are and never deleted; the owner decides | listed in the report |
 | `<XDG_STATE_HOME>/cerberus/` (backup passphrases, database passwords) | **in place**; not Cerberus state, but must never be lost | listed |
@@ -237,10 +238,12 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 **The D3 manifest** records:
 - for each old file that `export-legacy` could touch, its sha256;
 - for `main.db`, **logical state, not bytes**: per table, the row count, the maximum of its primary-key time column
-  (`ts` or `bucket_ts`; three host tables are `WITHOUT ROWID`, so there is no `rowid`) and a digest of the ordered
+  (`ts` or `bucket_ts`; `watermark` for `host_rollup_state`, `last_attempt` for `host_status`; three host tables are `WITHOUT ROWID`, so there is no `rowid`) and a digest of the ordered
   `.dump` of the five host tables. A WAL checkpoint or a restart of old changes the bytes without a logical write.
 
-Excluded from the manifest: `standby.d/` (the standby chain and the session list), `registry.yaml` (above), and the
+Excluded from the manifest: `standby.d/` (the standby chain and the session list), `registry.yaml`, `hosts.yaml`,
+`hosts.history.jsonl*` and `plugin-connectors.json` (in place; rollback keeps new's edits, which old reads in the
+same format), and the
 `cerberus-substrate` unit file, which old's allowed verbs may rewrite.
 
 `migrate-from` also reports:
@@ -466,7 +469,11 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
    - All of it goes into a private 0700 directory.
 4. `$LEGACY resource stop cerberus-substrate --ack` (recorded in the standby chain only). Move new's observe-mode data dir
    aside.
-5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. Read the report. It copies
+5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. It refuses a non-empty data dir and any
+   existing destination (the config dir's `policy/` and `connector-secrets.yaml`, the new anchor account). Read the
+   report. Merge `data/migration/config-fragment.yaml` (old `config.yaml`, `events.yaml`, `connector-config.yaml`
+   mapped to config keys) into the override file, and confirm `web.public_url` against the override's public name.
+   It copies
    `audit/.digest_key` into new's data dir with the audit chain (section 5). **Before the first supervise start**,
    check that the sha256 of the key in new's data dir equals the snapshot's. Applied digests are keyed with it; a
    fresh key would make every resource look changed. As a backstop, `migrate-from` records a fingerprint of
@@ -527,7 +534,7 @@ writes go to the standby chain.
 | B | Remove old's drop-ins and restart: back on the untouched installed binary. |
 | C | `$LEGACY resource stop cerberus-substrate --ack`, remove the descriptor; move new's data dir aside. |
 | D, before step 7 | `rm ~/.cerberus/standby` (old restarts its loops, plugins and the listed sessions); start the old console. Old's state is as at D2. |
-| D step 7 to the end of E | 1. `$LEGACY resource stop cerberus-substrate --ack` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
+| D step 7 to the end of E | 0. Check that the old binary parses each in-place file new may have edited: `$LEGACY host list` (`hosts.yaml`), `$LEGACY host history <name>` for each host new edited (`hosts.history.jsonl*`) (these two read their files). `plugin-connectors.json` is held in old's memory from before D, so no `$LEGACY` socket verb parses it: `$NEW export-legacy --check-legacy-files` (slice 10b) compares it to the D3 copy and, if it changed, parses it with old's decoder (the unchanged `pkg/plugin` code) outside any daemon. Any parse error stops the rollback for a decision. 1. `$LEGACY resource stop cerberus-substrate --ack` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
 | after F | Re-enable old's units (files kept), stop new, then the same steps from step 2 above. Re-home is undone by removing the drop-in. |
 
 Old's files, `$LEGACY` and the rollback copies are kept until acceptance plus 30 days; the owner decides when to
@@ -584,6 +591,8 @@ delete them.
 | 6 | `substrate-port` | Audit (same format, anchor), approvals with the owner-session approver (no presence/WebAuthn), policy, redaction, egress, brakes. |
 | 7 | `substrate-port` | Admin lane: ssh, docker, external connector service, plugin host (`pkg/plugin` unchanged, adopted roots), secrets (keyring names unchanged), credential broker. |
 | 8 | `substrate-port` | Hosts and probes, janitor, scheduling core (off, `cerberus.scheduler.enabled`), outbound outpost client, event export (off, `cerberus.event_export.*`), snapshot recorder. |
+| 7b | `substrate-port` | `run-secrets`, owner-only `secrets set`, the resource mutation and read verbs, `register`; the CLI parity test against main's command tree. One-shot plugin exec and connector break-glass recorded obsolete (decision 0.1). |
+| 7c | `substrate-port` | The remaining old CLI verbs (approvals, audit, host, component, pipeline, policy, posture, schedule, ssh, docker and others) as clients over served lanes. |
 | 8b | `substrate-port` | Host writes (revision, update, inventory, remove, history), components, outpost host actions (units, logs, start, stop, restart, plan; outbound and gated), host capacity, portfolio health, pipelines, `ensure_fresh`. Found by slice 9's tool-parity survey: these lanes had no slice. |
 | 9 | `substrate-port` | MCP: HTTP and stdio, tool-name parity test, local scopes without approve. Every old tool keeps its name and schema; the pending list is empty before phase A. |
 | 10 | `substrate-port` | `migrate-from`, `export-legacy`, verify, the standby-sidecar import, and the rehearsal (section 5, all seven steps). |
@@ -602,6 +611,9 @@ Dependencies:
 - 4 before 9 and 11b;
 - slice 6 needs no webauthn pin (decision 0.1);
 - 5 to 9 and 8b before 10;
+- 6 before 7b; 8b before 7c;
+- the in-place files (`hosts.yaml`, `hosts.history.jsonl*`, `plugin-connectors.json`): slice 8b's acceptance and slice 10b's round-trip test show the old binary reads what new wrote, for all three (director's condition, rev 9);
+- 7b and 7c before phase A: every old CLI command path exists (the parity test in 7b shows no unowned row);
 - 6 and 7 before 8b (its writes are gated, and host actions use the admin lane);
 - 0 and 10 before 12.
 
