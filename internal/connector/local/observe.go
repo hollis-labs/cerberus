@@ -76,6 +76,32 @@ func ObserveSystemdUnit(ctx context.Context, runner CommandRunner, home string, 
 	return state, layout.UnitName, err
 }
 
+// ObserveSystemdDetail reports what ObserveSystemdUnit does, plus the unit's
+// `systemctl --user show` record, from one show. It only reads: the record's
+// Raw and Journal are left empty (no journal is read, and the raw text is not
+// handed out), so it is the status fields alone.
+func ObserveSystemdDetail(ctx context.Context, runner CommandRunner, home string, res *domain.Resource) (domain.State, string, SystemdRecord, error) {
+	spec, err := SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return domain.StateUnknown, "", SystemdRecord{}, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
+	}
+	b := systemdBackend{runner: runner, homeDir: func() (string, error) { return home, nil }}
+	layout, err := b.layout(res, spec)
+	if err != nil {
+		return domain.StateUnknown, "", SystemdRecord{}, err
+	}
+	rec, err := b.show(ctx, layout.UnitName)
+	if err != nil {
+		return domain.StateUnknown, layout.UnitName, SystemdRecord{}, err
+	}
+	rec.Raw = ""
+	state := systemdState(rec)
+	if state == domain.StateUnknown {
+		return state, layout.UnitName, rec, fmt.Errorf("systemd unit %s is in a state Cerberus does not recognize (LoadState=%s ActiveState=%s SubState=%s); run `cerberus resource inspect %s`", layout.UnitName, rec.LoadState, rec.ActiveState, rec.SubState, res.ID)
+	}
+	return state, layout.UnitName, rec, nil
+}
+
 // ObserveDevSession reports a dev session's state from the pid and launch
 // metadata files under stateDir/pids (the old build's ~/.cerberus) without
 // adopting, stopping or tidying anything: a stale pid file is reported as

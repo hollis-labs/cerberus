@@ -133,8 +133,9 @@ No client key holds `cerberus.approve`; the server refuses it on any key (decisi
    *Note (observe mode, not a contract change):* until supervision moves to the new build (slice 5), it reports
    what observation gives. These `omitempty` fields stay absent:
    - in L2: `operator_stopped`, `artifact_installed`, `artifact_stale`, `recommended_action`;
-   - in L3: the `systemd_*` and `launchd_*` detail, the `artifact_*` fields and the dependency and config
-     warnings;
+   - in L3: the `launchd_*` detail, the `artifact_*` fields and the dependency and config warnings. The
+     `systemd_*` fields are filled for a systemd user unit the user manager answers for (state, result, pid,
+     exit status, restarts, diagnosis and highlights, from `systemctl --user show`);
    - in L4: the resolved command, paths and raw unit text;
    - in L5: the checks (`checks` is `[]`, and `summary` says observe mode);
    - in L9: `status` (the host monitor arrives with slice 8).

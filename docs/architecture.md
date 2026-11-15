@@ -30,7 +30,7 @@ with each slice and states only what the branch does now.
 | `internal/storage` | The schema: one embedded goose migration (`migrations/sqlite/00001_schema.sql`), registered with `database.UseMigrationFS` in `main.go`, plus typed functions for pause state, applied digests and credential-issuance receipts. |
 | `internal/registry` | Descriptor discovery and validation, carried; `ForRoot(adopt_root)` is the Substrate build's entry point (see Registry). |
 | `internal/supervise` | The supervision lane: status, the six mutations in supervise mode, the interim approver, the resource monitor and the self-guard (see Supervision). |
-| `internal/connector/local` | The local connector, carried. `observe.go` is its read-only half: `RenderSystemdUnit`, `ObserveSystemdUnit`, `ObserveDevSession`; `NewWithSystemd` sets its systemd runner and unit environment. |
+| `internal/connector/local` | The local connector, carried. `observe.go` is its read-only half: `RenderSystemdUnit`, `ObserveSystemdUnit`, `ObserveSystemdDetail` (the state plus the unit's `systemctl --user show` record, from one show), `ObserveDevSession`; `NewWithSystemd` sets its systemd runner and unit environment. |
 | `internal/api` | The route table with a scope per route, the legacy-route set, the approve person check and the key guard (see Identity, scopes and the API). |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
@@ -192,7 +192,7 @@ Served today:
 Observe mode:
 - reads come from the registry under `cerberus.adopt_root`, and from `hosts.yaml` and `state/hosts.json` there, all
   read in place;
-- runtime state comes from an `Observer` (the supervision lane once wired; until then `unknown`);
+- runtime state comes from an `Observer`: the supervision lane, through `laneObserver` (`cmd/cerberus/observer.go`). L3 carries a systemd unit's `systemd_*` fields from its show record;
 - mutations answer `409 observe_mode`.
 
 **Approve.** `cerberus.approve` is the owner's console identity session only (decision 0.1). Two rules enforce it:
