@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -25,17 +27,23 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, os.Getenv); err != nil {
+	if err := run(ctx, os.Getenv, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "cerberus:", err)
 		stop()
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, getenv func(string) string) error {
+func run(ctx context.Context, getenv func(string) string, args []string) error {
 	// The database module applies the embedded schema when it opens the file.
 	database.UseMigrationFS(storage.Migrations())
-	started, err := boot.StartWith(ctx, substrateApp, substrateModules, substrateConfigJSON, bootOptions(getenv))
+	modules, opts := substrateModules, bootOptions(getenv)
+	if !needsData(args) {
+		// Help, version, config and the read verbs open and create nothing: no data directory,
+		// no database, no signing key. Only the modules that read config start.
+		modules, opts = pickModules(readOnlyModules), boot.Options{}
+	}
+	started, err := boot.StartWith(ctx, substrateApp, modules, substrateConfigJSON, opts)
 	if err != nil {
 		return err
 	}
@@ -48,6 +56,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	rootCmd.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
 	rootCmd.Args = cobra.NoArgs
 	rootCmd.AddCommand(serve)
+	rootCmd.AddCommand(c.readCommands()...)
 	guardKeyCreate(rootCmd)
 	return rootCmd.ExecuteContext(ctx)
 }
@@ -72,4 +81,43 @@ func guardKeyCreate(root *cobra.Command) {
 		}
 		return nil
 	}
+}
+
+// readOnlyModules open and create no file.
+var readOnlyModules = []string{"config", "logging", "health", "cli"}
+
+// needsData reports whether the command line runs a command bound to the data (the database,
+// the signing key, the data directory): serve (also the default with no command) and the offline
+// identity commands. Help anywhere on the line, version, config, health, completion, the read
+// verbs (they call the serving Cerberus over HTTP) and unknown words do not. Every argument that
+// does not start with "-" counts as a command word, which holds while the root has no global flag
+// taking a value (TestRootHasNoValueFlags).
+func needsData(args []string) bool {
+	var words []string
+	for _, a := range args {
+		if a == "-h" || a == "--help" || a == "--version" {
+			return false
+		}
+		if !strings.HasPrefix(a, "-") {
+			words = append(words, a)
+		}
+	}
+	switch {
+	case len(words) == 0 || words[0] == "serve":
+		return true
+	case words[0] == "identity" && len(words) > 1 && (words[1] == "setup" || (words[1] == "key" && len(words) > 2 && words[2] == "create")):
+		return true
+	}
+	return false
+}
+
+// pickModules keeps the start order of substrateModules.
+func pickModules(want []string) []string {
+	var out []string
+	for _, m := range substrateModules {
+		if slices.Contains(want, m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }

@@ -1,0 +1,32 @@
+[
+  {
+    "admin": "unknown",
+    "connector": "ssh",
+    "env": "unknown",
+    "id": "box",
+    "name": "Box",
+    "owner": "unknown",
+    "project": "shop",
+    "recommended_next_step": "cerberus ssh status box | cerberus ssh exec box -- \u003ccommand\u003e",
+    "status": "unsupervised",
+    "type": "server"
+  },
+  {
+    "admin": "unknown",
+    "connector": "local",
+    "env": "unknown",
+    "id": "dev",
+    "mode": "dev_session",
+    "name": "Dev",
+    "owner": "unknown",
+    "port": 5173,
+    "project": "shop",
+    "run_from": "workspace",
+    "status": "stopped",
+    "supervisor": "auto",
+    "tags": [
+      "ui"
+    ],
+    "type": "process"
+  }
+]

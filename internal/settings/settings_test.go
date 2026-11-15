@@ -11,7 +11,7 @@ func TestDefaults(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if s.InstallRoot != "/u/op/.cerberus/apps" || s.AdoptRoot != "/u/op/.cerberus" {
+		if s.InstallRoot != "/u/op/.cerberus/apps" || s.AdoptRoot != "/u/op/.cerberus" || s.CLIKeyFile != "/u/op/.config/cerberus/cli.key" {
 			t.Fatalf("install_root = %q, adopt_root = %q", s.InstallRoot, s.AdoptRoot)
 		}
 	}

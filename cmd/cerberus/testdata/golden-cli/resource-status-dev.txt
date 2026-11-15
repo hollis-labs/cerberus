@@ -1,0 +1,6 @@
+Resource:    dev
+Name:        Dev
+Status:      stopped
+Mode:        dev_session
+Supervisor:  auto
+Run From:    workspace
