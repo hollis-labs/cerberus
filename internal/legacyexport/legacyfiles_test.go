@@ -8,11 +8,12 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 )
 
 // carried are the declarations legacyfiles.go carries from main, by name.
@@ -82,7 +83,7 @@ func TestCarriedDecoderIsMains(t *testing.T) {
 
 	// The pinned text against main itself, when the ref is here (a CI checkout may not have it).
 	show := func(path string) []byte {
-		cmd := exec.CommandContext(context.Background(), "git", "show", "origin/main:"+path) //nolint:gosec // fixed paths of this test
+		cmd := gitenv.Command(context.Background(), ".", "show", "origin/main:"+path)
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		if cmd.Run() != nil {
