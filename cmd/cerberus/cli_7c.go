@@ -20,6 +20,10 @@ func (c *cerberus) addFollowUpCommands(root *cobra.Command) error {
 	if connectors := childNamed(root, "connectors"); connectors != nil {
 		connectors.AddCommand(prototypeCommand())
 	}
+	// Slice 7d's verbs join the groups already there.
+	if auditGroup := childNamed(root, "audit"); auditGroup != nil {
+		auditGroup.AddCommand(auditWriteCommands(client, stdIsTerminal)...)
+	}
 	return addPendingCommands(root, pendingSpecs)
 }
 

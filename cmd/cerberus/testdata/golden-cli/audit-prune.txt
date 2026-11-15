@@ -1,0 +1,5 @@
+This removes 2 audit month file(s) from <dir>:
+  2026-09.jsonl
+  2026-10.jsonl
+Type "prune before 2026-11-01" to confirm: removed 2026-09.jsonl
+removed 2026-10.jsonl

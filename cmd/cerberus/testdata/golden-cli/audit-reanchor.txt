@@ -1,0 +1,3 @@
+The audit chain in <dir> has 1 problem(s):
+  2026-11.jsonl: seq 4 hash does not match its content
+Type "reanchor" to acknowledge them and trust what is written from here on: reanchored at seq 8; brakes are read from here on, and can be lifted again

@@ -25,7 +25,7 @@ const (
 
 // pendingOwner is the slice a path waits for, by the pendingWhy key that names it.
 var pendingOwner = map[string]string{
-	"audit": slice7d, "data": slice7d, "policy": slice7d, "posture": slice7d, "whoami": slice7d,
+	"data": slice7d, "policy": slice7d, "posture": slice7d, "whoami": slice7d,
 }
 
 // pendingSlice is the slice path waits for.
@@ -50,7 +50,6 @@ type pendingSpec struct {
 
 // pendingWhy is why a path is pending, by the longest prefix that names it.
 var pendingWhy = map[string]string{
-	"audit":               "pruning and reanchoring write the audit chain, which only the serving Cerberus writes, and no served lane does either yet (a second, in-process writer would race it)",
 	"component":           "the component inventory has no route on the serving Cerberus yet",
 	"connectors describe": "the definitions are served (GET /api/connectors), but the live field needs the serving Cerberus's live-connector read, which no route serves yet; `cerberus connectors exec <id> <op>` runs the connector's operations",
 	"data":                "the data-access route (old POST /data/v1/query) is not served yet",
@@ -150,10 +149,6 @@ func addFlagSpec(fs *pflag.FlagSet, f flagSpec) error {
 }
 
 var pendingSpecs = []pendingSpec{
-	{path: "audit prune", use: "prune --before <date>", short: "Remove whole audit month files older than a date (interactive only)", group: false, flags: []flagSpec{
-		{"before", "", "string", "", "remove month files wholly before this date (required)"},
-	}},
-	{path: "audit reanchor", use: "reanchor", short: "Acknowledge an audit chain that does not verify (interactive only)", group: false, flags: []flagSpec{}},
 	{path: "component", use: "component", short: "Spare and installed parts recorded in hosts.yaml (read-only)", group: true, flags: []flagSpec{
 		{"json", "", "bool", "", "print JSON"},
 		{"output", "o", "string", "text", "output format: text|json"},
