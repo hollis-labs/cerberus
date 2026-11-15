@@ -215,25 +215,42 @@ func TestHostReadsAreRecordedAndAnswerAsMain(t *testing.T) {
 	}
 }
 
-// Every host read answers through the request's redaction scope, as main's socket did: a secret in
-// a stored reason (here a bearer token an outpost echoed) never reaches the caller, in the host
-// view (with its MCP note built from it), in L9, or in the status.
-func TestHostReadsAreRedacted(t *testing.T) {
+// leakyObserver reports a state and a detail carrying a secret-shaped value, as a unit's own
+// status text might.
+type leakyObserver struct{ secret string }
+
+func (o leakyObserver) Observe(context.Context, config.ResourceDef) Observation {
+	return Observation{State: "Bearer " + o.secret, Detail: "the unit said Bearer " + o.secret}
+}
+
+// Every JSON read answers through the request's redaction scope, as main's socket did: a
+// secret-shaped value in the fixture (a resource's name, a project's description, the
+// observed state and detail, a host's stored reason) is redacted on L1 to L4, L9, the host
+// reads and /api/projects. The test fails on any route that writes plain JSON.
+func TestEveryReadIsRedacted(t *testing.T) {
 	w := newHostWorld(t)
-	// Assembled at run time, so the repository holds no credential-shaped string.
 	secret := "ghp" + "_" + strings.Repeat("Zq7x", 9)
-	st := `{"version":1,"hosts":{"zeta":{"state":"offline","reason":"the host did not answer over outpost: Bearer ` + secret + `","checked_at":"2026-01-02T03:04:05Z"}}}`
+	st := `{"version":1,"hosts":{"zeta":{"state":"offline","reason":"Bearer ` + secret + `","checked_at":"2026-01-02T03:04:05Z"}}}`
 	if err := os.WriteFile(filepath.Join(w.root, "state", "hosts.json"), []byte(st), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	a := w.api(t, gatetest.New(t, gatetest.Options{}))
-	for _, path := range []string{"/api/hosts/zeta", "/api/hosts", "/api/hosts/_status"} {
+	w.project = []config.ProjectDef{{ID: "shop", Name: "Shop", Description: "Bearer " + secret}}
+	resources := fixture()
+	resources[0].Name = "Bearer " + secret
+	a, err := New(Options{Resources: func() ([]config.ResourceDef, error) { return resources, nil },
+		Projects: func() ([]config.ProjectDef, error) { return w.project, nil }, Observer: leakyObserver{secret: secret},
+		Hosts:     FileHosts{HostsPath: filepath.Join(w.root, "hosts.yaml"), StatePath: filepath.Join(w.root, "state", "hosts.json")},
+		HostReads: w.reads, Home: t.TempDir(), Gate: gatetest.New(t, gatetest.Options{}).Gate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"/api/health", "/api/resources", "/api/resources/web/status", "/api/resources/web/inspect", "/api/resources/web/doctor",
+		"/api/hosts", "/api/hosts/zeta", "/api/projects",
+	} {
 		code, body := get(t, a, "GET", path)
-		if code != 200 || strings.Contains(body, secret) {
-			t.Fatalf("GET %s leaks the token: %d %s", path, code, body)
-		}
-		if path != "/api/hosts/_status" && !strings.Contains(body, "[REDACTED]") {
-			t.Fatalf("GET %s: no redaction marker: %s", path, body)
+		if code != 200 || strings.Contains(body, secret) || !strings.Contains(body, "[REDACTED]") {
+			t.Errorf("GET %s: %d, leaks or is not redacted: %s", path, code, body)
 		}
 	}
 }

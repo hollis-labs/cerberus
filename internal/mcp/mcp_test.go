@@ -173,6 +173,7 @@ func TestServedCatalogIsMain(t *testing.T) {
 	t.Logf("parity: %d tools, names, descriptions, input schemas and hints identical to main's", len(want))
 	t.Logf("served: %d", served)
 	t.Logf("scheduler off (answer that cerberus.scheduler.enabled is false): %d", len(off))
+	t.Logf("dropped beside the tools: the host events SSE stream (Accept: text/event-stream on /hosts/_events); no caller in inventory-clients.md, and cerberus_host_events is served")
 	byOwner := map[string][]string{}
 	for _, p := range pending {
 		byOwner[p.Owner] = append(byOwner[p.Owner], p.Name)
