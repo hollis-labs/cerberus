@@ -98,6 +98,8 @@ The owner holds `*`. The access-keys page offers only read, operate and admin.
 | plugins | GET | `/api/plugins/connectors` | read | | `ManagedPluginState[]` |
 | plugins | GET | `/api/plugins/connectors/{id}/health` | read | | `PluginHealth` |
 | plugins | POST **W** gated | `/api/plugins/connectors/{id}/{load\|unload}` | admin | `{}` | `ManagedPluginState` |
+| plugins | POST **W** gated, owner | `/api/plugins/connectors/install` | admin | `{plugin_dir, dev?, typed?, approval_id?}` | `PluginReviewResult` `{kind, review, changes?, policy_change?, proof, state: ManagedPluginState}`. The `/plan` form answers the review as a `ConnectorPlan` (preview kind `review`). Accepting is the owner's: a person on the console sends `typed` equal to the plugin id; a key gets 409 `approval_pending` naming an out-of-band approval, which the owner approves here, and the key's retry with `approval_id` installs. MCP: 428 |
+| plugins | POST **W** gated, owner | `/api/plugins/connectors/{id}/{upgrade\|review}` | admin | upgrade `{plugin_dir, dev?, typed?, approval_id?}`; review `{typed?, approval_id?}` | `PluginReviewResult`, gated as install. `review` is the one-time review of a plugin installed before reviews, or accepting a changed bundle. Already reviewed: 409 `nothing_to_review` |
 | settings | GET | `/api/settings` | read | | `SettingsInfo` |
 | settings | GET | `/api/config/backups` | read | | `ConfigBackupResponse` |
 | settings | POST **W** gated | `/api/config/backups/restore` | admin | `{backup_path}` | `ConfigRestoreResponse` |
@@ -144,9 +146,10 @@ registry under `~/.cerberus/approvals/passkeys/` is kept in place, not migrated,
 | Scoped approval session (`scopedRouteAllowed`) | deep link plus full sign-in | identity has no scoped sessions |
 | Out-of-band approval with a WebAuthn passkey (challenge, assertion), passkey enrolment and removal | the owner approves from the console session; passkey routes removed | decision 0.1 |
 | Plugin load and unload were plain posts | gated like every other admin write | consistency. The server may never gate them, and then only the base form is used |
+| Plugin install, upgrade and review only in the operator's terminal (in-process, the typed plugin id) | the owner accepts on the console (typed plugin id), or a key with `approval_id` naming the owner's out-of-band approval; no in-process, local-trust or `--yes` path | the lead's ruling (a) on decision 0.1 |
 | `GET /login?token=` | removed. `cerberus web open` is retired; the owner signs in with a password | Substrate identity |
 | Unused by the console and left to their own slices: `/api/brakes` GET, `/api/resources/{id}/{inspect,doctor}`, `/api/health`, `/api/portfolio/health`, `/api/plugins/connectors/{id}/operations/{op}`, `/api/schedules/v1/*`, `/api/hosts*`, `/api/components*` | not part of this contract | service and bearer clients (plan slices 7 to 9) |
-| Retired 410 routes (`/api/config/migrate*`, `/api/plugins/connectors/{health,operations/,install}`) | not carried | already retired |
+| Retired 410 routes (`/api/config/migrate*`, `/api/plugins/connectors/{health,operations/,install}`) | not carried. `POST /api/plugins/connectors/install` is served again as the owner-accepted install review (section 3.3), with a new body; the old `plugin_dir` install is not | already retired |
 
 ## 6. Decisions and open points
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,11 +15,37 @@ import (
 
 	libauth "github.com/hollis-labs/libs/security/auth"
 
+	"github.com/hollis-labs/cerberus/internal/admin/admintest"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/testhome"
 )
 
-func TestMain(m *testing.M) { testhome.Main(m) }
+// echoBinary is the synthetic third-party plugin (internal/admin/testdata/echoplugin), built
+// once with the toolchain's caches before the tests run under a scratch home.
+var echoBinary string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "api-plugin-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if echoBinary, err = admintest.BuildEcho(dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		_ = os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	cleanup, err := testhome.Isolate()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		_ = os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	code := m.Run()
+	cleanup()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 // fixture resources: one supervised os_service, one dev session, one ssh handle.
 func fixture() []config.ResourceDef {

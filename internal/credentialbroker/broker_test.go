@@ -156,3 +156,73 @@ func TestFailedOutcomePersistenceCannotReplay(t *testing.T) {
 		t.Fatal("failed outcome was replayed")
 	}
 }
+
+// memRecorder keeps receipts in memory, as a database-backed recorder would.
+type memRecorder struct {
+	mu       sync.Mutex
+	receipts map[string][]Receipt
+}
+
+func (m *memRecorder) Reserve(_ context.Context, r Receipt) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, taken := m.receipts[r.ID]; taken {
+		return errors.New("reserved")
+	}
+	m.receipts[r.ID] = []Receipt{r}
+	return nil
+}
+
+func (m *memRecorder) Record(_ context.Context, r Receipt) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, got := range m.receipts[r.ID] {
+		if got.State == r.State {
+			return errors.New("recorded")
+		}
+	}
+	m.receipts[r.ID] = append(m.receipts[r.ID], r)
+	return nil
+}
+
+// A recorder replaces the receipt files: its reservation is the exclusive one, every lifecycle
+// state reaches it in order, and no receipt directory is created. The issued secrets stay files.
+func TestARecorderKeepsTheReceiptsInsteadOfFiles(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "broker")
+	rec := &memRecorder{receipts: map[string][]Receipt{}}
+	var success atomic.Int32
+	var wg sync.WaitGroup
+	for n := 0; n < 8; n++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if d, err := New(root, WithRecorder(rec)).Prepare(context.Background(), binding(), []string{"runtime"}); err == nil {
+				success.Add(1)
+				if d.Start() != nil || d.Finish(true) != nil {
+					t.Error("lifecycle failed")
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if success.Load() != 1 {
+		t.Fatalf("%d issuances prepared, want exactly one", success.Load())
+	}
+	var states []string
+	for _, r := range rec.receipts[binding().ID] {
+		states = append(states, r.State)
+		data, _ := json.Marshal(r)
+		if strings.Contains(string(data), "\"values\"") {
+			t.Fatal("a receipt carries values")
+		}
+	}
+	if strings.Join(states, ",") != "preparing,prepared,dispatching,completed" {
+		t.Fatalf("receipts = %v", states)
+	}
+	if _, err := os.Stat(filepath.Join(root, binding().ID)); !os.IsNotExist(err) {
+		t.Fatalf("a receipt directory was created beside the recorder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "secrets", "issued", binding().ID, "runtime")); err != nil {
+		t.Fatalf("the issued secret is not a file under the root: %v", err)
+	}
+}

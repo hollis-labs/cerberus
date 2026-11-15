@@ -37,17 +37,96 @@ type Receipt struct {
 	At         time.Time         `json:"at"`
 }
 
-// Broker is safe to share: exclusive directory creation arbitrates concurrent
-// requests across processes. A reservation is never deleted or automatically
-// replayed, including when preparation or a later operation fails.
+// Broker is safe to share: the recorder's exclusive reservation arbitrates
+// concurrent requests (by default, exclusive directory creation, across
+// processes). A reservation is never deleted or automatically replayed,
+// including when preparation or a later operation fails.
 type Broker struct {
 	root   string
 	store  *shared.Resolver
 	random io.Reader
+	rec    Recorder
 }
 
-func New(root string) *Broker {
-	return &Broker{root: root, store: shared.New(shared.WithStateDir(filepath.Join(root, "secrets"))), random: rand.Reader}
+// Recorder keeps an issuance's lifecycle receipts. Each receipt is written
+// once and durably before Prepare, Start or Finish returns, so a receipt is
+// never behind what was done. Receipts carry names and file:// references,
+// never a value.
+type Recorder interface {
+	// Reserve claims r.ID exclusively and records its "preparing" receipt.
+	// It fails for an id that was ever reserved, by any broker sharing the
+	// recorder: that is what keeps an issuance from being replayed.
+	Reserve(ctx context.Context, r Receipt) error
+	// Record writes the receipt for r.State, once.
+	Record(ctx context.Context, r Receipt) error
+}
+
+// Option configures a Broker.
+type Option func(*Broker)
+
+// WithRecorder keeps receipts in rec instead of the files under the
+// broker's root. The issued secrets stay files under <root>/secrets/issued.
+func WithRecorder(rec Recorder) Option {
+	return func(b *Broker) {
+		if rec != nil {
+			b.rec = rec
+		}
+	}
+}
+
+// New is a broker over root: issued secrets under <root>/secrets/issued, and,
+// unless WithRecorder says otherwise, receipts as create-once files under
+// <root>/<id>/<state>.json.
+func New(root string, opts ...Option) *Broker {
+	b := &Broker{root: root, store: shared.New(shared.WithStateDir(filepath.Join(root, "secrets"))), random: rand.Reader, rec: FileRecorder{Root: root}}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
+}
+
+// FileRecorder is the default recorder: an issuance's receipts are files
+// <Root>/<id>/<state>.json, each created once and fsynced with its
+// directory. Creating <Root>/<id> is the exclusive reservation.
+type FileRecorder struct{ Root string }
+
+// Reserve creates the issuance's directory, exclusively, and its preparing
+// receipt.
+func (f FileRecorder) Reserve(_ context.Context, r Receipt) error {
+	dir := filepath.Join(f.Root, r.ID)
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return errors.New("credential issuance ID is already reserved or unavailable; inspect its durable record before retrying")
+	}
+	if err := syncDir(f.Root); err != nil {
+		return errors.New("credential issuance reservation could not be synced")
+	}
+	return writeReceipt(dir, r)
+}
+
+// Record creates the receipt for r.State in the issuance's directory.
+func (f FileRecorder) Record(_ context.Context, r Receipt) error {
+	return writeReceipt(filepath.Join(f.Root, r.ID), r)
+}
+
+func writeReceipt(dir string, r Receipt) error {
+	data, err := json.Marshal(r)
+	if err != nil {
+		return errors.New("credential issuance record encoding failed")
+	}
+	f, err := os.OpenFile(filepath.Join(dir, r.State+".json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // dir is a reserved host path; state is an internal lifecycle constant
+	if err != nil {
+		return errors.New("credential issuance record could not be created")
+	}
+	_, writeErr := f.Write(data)
+	syncErr := f.Sync()
+	closeErr := f.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil {
+		return errors.New("credential issuance record could not be persisted")
+	}
+	if syncDir(dir) != nil {
+		return errors.New("credential issuance record directory could not be synced")
+	}
+	return nil
 }
 
 // Dispatch deliberately cannot be serialized or constructed by a wire caller.
@@ -56,6 +135,7 @@ type Dispatch struct {
 	receipt Receipt
 	values  map[string]string
 	dir     string
+	rec     Recorder
 }
 
 func (d *Dispatch) Receipt() Receipt {
@@ -89,15 +169,10 @@ func (b *Broker) Prepare(ctx context.Context, bind Binding, names []string) (*Di
 	if err := privateDir(b.root); err != nil {
 		return nil, errors.New("credential issuance directory is unavailable or not private")
 	}
-	dir := filepath.Join(b.root, bind.ID)
-	if err := os.Mkdir(dir, 0o700); err != nil {
-		return nil, errors.New("credential issuance ID is already reserved or unavailable; inspect its durable record before retrying")
-	}
-	if err := syncDir(b.root); err != nil {
-		return nil, errors.New("credential issuance reservation could not be synced")
-	}
-	d := &Dispatch{dir: dir, receipt: Receipt{Binding: bind, State: "preparing", References: map[string]string{}, At: time.Now().UTC()}, values: map[string]string{}}
-	if err := d.record("preparing"); err != nil {
+	d := &Dispatch{dir: filepath.Join(b.root, bind.ID), rec: b.rec, receipt: Receipt{Binding: bind, State: "preparing", References: map[string]string{}, At: time.Now().UTC()}, values: map[string]string{}}
+	// The reservation is the preparing receipt: written, durably and
+	// exclusively, before any credential is generated.
+	if err := b.rec.Reserve(ctx, d.Receipt()); err != nil {
 		return nil, err
 	}
 	for _, name := range names {
@@ -160,22 +235,8 @@ func (d *Dispatch) record(state string) error {
 	r := d.Receipt()
 	r.State = state
 	r.At = time.Now().UTC()
-	data, err := json.Marshal(r)
-	if err != nil {
-		return errors.New("credential issuance record encoding failed")
-	}
-	f, err := os.OpenFile(filepath.Join(d.dir, state+".json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // dir is a reserved host path; state is an internal lifecycle constant
-	if err != nil {
-		return errors.New("credential issuance record could not be created")
-	}
-	_, writeErr := f.Write(data)
-	syncErr := f.Sync()
-	closeErr := f.Close()
-	if writeErr != nil || syncErr != nil || closeErr != nil {
-		return errors.New("credential issuance record could not be persisted")
-	}
-	if syncDir(d.dir) != nil {
-		return errors.New("credential issuance record directory could not be synced")
+	if err := d.rec.Record(context.Background(), r); err != nil {
+		return err
 	}
 	d.receipt = r
 	return nil

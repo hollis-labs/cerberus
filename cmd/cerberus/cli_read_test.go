@@ -174,3 +174,25 @@ func TestKeyFileMustBePrivate(t *testing.T) {
 		t.Error("a directory was accepted as a key file")
 	}
 }
+
+// The plugins section is the old line, from the serving Cerberus: how many are installed and
+// which are review_pending; a plugin the host gave up on leads with the old PLUGIN banner, after
+// the brakes' lockdown and freezes and before the breaker's. Observe mode runs none.
+func TestStatusReportsThePlugins(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/plugins/connectors" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"id":"echo","review_pending":false},{"id":"old","review_pending":true,"gave_up":"exited 3 times"}]`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &apiClient{base: srv.URL + "/api", http: srv.Client()}
+	if got := pluginsLine(context.Background(), c); got != "2 installed, 1 review pending: old" {
+		t.Fatalf("plugins line = %q", got)
+	}
+	banners := withPluginBanners([]string{"!!! LOCKDOWN x", "!!! BREAKER y"}, pluginBanners(context.Background(), c))
+	if len(banners) != 3 || !strings.HasPrefix(banners[1], "!!! PLUGIN old stopped after 3 restarts in 10m (exited 3 times)") || banners[2] != "!!! BREAKER y" {
+		t.Fatalf("banners = %q", banners)
+	}
+}

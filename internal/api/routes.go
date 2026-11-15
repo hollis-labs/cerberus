@@ -23,6 +23,7 @@ import (
 	libauth "github.com/hollis-labs/libs/security/auth"
 	"github.com/hollis-labs/substrate/apierr"
 
+	"github.com/hollis-labs/cerberus/internal/admin"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/gate"
@@ -93,6 +94,9 @@ type Options struct {
 	// approvals routes serve its broker. Nil is observe mode, where nothing is recorded: L6 is a
 	// redacted read, logged, and the approvals routes answer 503 approvals_unavailable.
 	Gate *gate.Gate
+	// Admin is the admin lane (connectors, credentials, plugins), in supervise mode; nil is
+	// observe mode, where its routes answer 503 admin_unavailable.
+	Admin *admin.Service
 	// Logger receives what the API logs; nil is slog.Default.
 	Logger *slog.Logger
 }
@@ -188,7 +192,7 @@ func (a *API) table() []Route {
 		Route{http.MethodPost, "/api/brakes/freeze/{id}/lift", ScopeAdmin, a.brakeLiftFreeze},
 		Route{http.MethodPost, "/api/brakes/suspensions/{id}/reset", ScopeAdmin, a.brakeResetSuspension},
 	)
-	return rs
+	return append(rs, a.adminRoutes()...)
 }
 
 // errNotFound marks a missing resource or host.

@@ -21,10 +21,18 @@ import (
 	"github.com/hollis-labs/substrate/modules/database"
 
 	"github.com/hollis-labs/cerberus/internal/api"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/storage"
 )
 
 func main() {
+	// The plugin shim: set a plugin's rlimits and exec it. It runs before anything else, so no
+	// config, data directory or database is touched on the way to the plugin.
+	if len(os.Args) > 1 && os.Args[1] == pluginhost.PluginExecCommand {
+		err := pluginhost.RunPluginExec(os.Args[2:], os.Environ())
+		fmt.Fprintln(os.Stderr, "cerberus:", err)
+		os.Exit(127)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Getenv, os.Args[1:]); err != nil {
@@ -58,6 +66,7 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	rootCmd.AddCommand(serve, auditCmd())
 	rootCmd.AddCommand(c.readCommands()...)
 	rootCmd.AddCommand(c.brakeCommands()...)
+	rootCmd.AddCommand(c.pluginCommands()...)
 	guardKeyCreate(rootCmd)
 	return rootCmd.ExecuteContext(ctx)
 }

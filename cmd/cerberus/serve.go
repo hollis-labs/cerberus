@@ -19,6 +19,7 @@ import (
 	"github.com/hollis-labs/substrate/modules/httphost"
 	"github.com/hollis-labs/substrate/modules/identity"
 
+	"github.com/hollis-labs/cerberus/internal/admin"
 	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/auditchain"
 	"github.com/hollis-labs/cerberus/internal/brake"
@@ -48,8 +49,8 @@ type cerberus struct {
 
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
 // place and never written, with runtime state from the supervision lane (nil: unknown). g is the
-// operation gate in supervise mode and nil in observe mode.
-func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate) (*api.API, error) {
+// operation gate and adm the admin lane in supervise mode; both are nil in observe mode.
+func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
@@ -80,6 +81,7 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate)
 		Home:    home,
 		Mutator: lane,
 		Gate:    g,
+		Admin:   adm,
 	})
 }
 
@@ -111,15 +113,31 @@ func (c *cerberus) serve(ctx context.Context) error {
 	}
 	lane := sup.lane
 	c.lane = lane
+	// The admin lane (supervise mode only): its plugins stop at step 5 of plan section 4.4,
+	// after the resource monitor, so their stop is deferred before the lane's shutdown.
+	adm, err := startAdmin(app, sup.gate, c.home)
+	if err != nil {
+		return err
+	}
+	if adm != nil {
+		defer adm.Plugins().Stop(context.WithoutCancel(ctx))
+	}
 	// The monitor and the approvals sweeper outlive the signal that ends serve: they stop after
 	// HTTP, in the order of plan section 4.4, never with it. Deferred calls run last first: the
-	// sweeper stops (step 3), then the resource monitor (step 4).
+	// sweeper stops (step 3), then the resource monitor (step 4), then the plugins (step 5).
 	lane.StartMonitor(context.WithoutCancel(ctx), supervise.DefaultMonitorConfig())
 	defer lane.Shutdown()
 	defer sup.startSweeper(context.WithoutCancel(ctx))()
+	if adm != nil {
+		// Once the lane runs, the plugins the state file marks loaded are restored, each recorded
+		// as automation via daemon_start. They outlive the signal, like the monitor.
+		if err = adm.Plugins().RestorePlugins(context.WithoutCancel(ctx)); err != nil {
+			return err
+		}
+	}
 	// The background loops stop after HTTP and before the sweeper and the resource monitor
 	// (deferred last, so they run first).
-	bg, err := c.startBackground(app, lane, sup.gate)
+	bg, err := c.startBackground(app, lane, sup.gate, adm)
 	if err != nil {
 		return err
 	}
@@ -128,7 +146,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if id == nil {
 		return errors.New("the identity module must be started")
 	}
-	a, err := newAPI(app, c.home, lane, sup.gate)
+	a, err := newAPI(app, c.home, lane, sup.gate, adm)
 	if err != nil {
 		return err
 	}
@@ -145,7 +163,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	// Stop order (plan section 4.4): HTTP stops accepting and drains first; then, deferred, the
 	// background loops (scheduler, then host monitor and janitor, snapshot recorder and event
 	// export, each flushed), the approvals sweeper, then the resource monitor, which stops no
-	// workload; the modules stop after serve returns.
+	// workload, then the plugin processes; the modules stop after serve returns.
 	err = httphost.Serve(ctx, app, handler, httphost.ServeOptions{
 		Ready: func(addr net.Addr) {
 			slog.Info("cerberus listening", "addr", addr.String())
@@ -159,7 +177,8 @@ func (c *cerberus) serve(ctx context.Context) error {
 }
 
 // startBackground starts the background loops for this app's settings (none in observe mode).
-func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *gate.Gate) (*background, error) {
+// adm, in supervise mode, gives the host monitor the ssh connector.
+func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, adm *admin.Service) (*background, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -172,7 +191,15 @@ func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *
 	if err != nil {
 		return nil, err
 	}
-	return startBackground(app, lane, g, st, dirs, slog.Default())
+	reg := registry.ForRoot(st.AdoptRoot)
+	lookup := func(id string) (*config.ResourceDef, bool) {
+		resolved, rerr := reg.Resolve()
+		if rerr != nil {
+			return nil, false
+		}
+		return gate.ConfigResourceLookup(resolved.Config)(id)
+	}
+	return startBackground(app, lane, g, st, dirs, hostSSH(adm, lookup), slog.Default())
 }
 
 // requireLoopback keeps the host on the loopback interface until identity and the scope
@@ -348,10 +375,4 @@ func superviseOptions(app *module.App, opts *supervise.Options, reg *registry.Re
 
 // policyDir is where the operator's policy lives: the config dir, beside the override file
 // (plan section 6).
-func policyDir(home string) string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(home, ".config")
-	}
-	return filepath.Join(base, "cerberus", "policy")
-}
+func policyDir(home string) string { return filepath.Join(configDir(home), "policy") }

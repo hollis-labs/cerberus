@@ -711,11 +711,17 @@ func (m *Manager) ExecuteOperation(ctx context.Context, args OperationArgs) (Ope
 		if !ok || proof.Connector != args.Connector || args.Operation != "query" || args.DryRun || args.Issuance != nil || json.Unmarshal(b, &query) != nil || proof.Permit.Validate(query, time.Now()) != nil {
 			return OperationResult{}, redact.Guidance("data queries require the versioned session-authorized data route")
 		}
+		// Unloading/stopping the primary instance cancels the query and its
+		// private instance, including a pending Init. The parent's done is
+		// read here, before `lp = inst` below: the goroutine must never read
+		// lp itself (CW-20261115-0002, a data race that also made it wait
+		// on the one-shot instance instead of the parent).
+		parentDone := lp.done
 		queryCtx, cancelQuery := context.WithCancel(ctx)
 		defer cancelQuery()
 		go func() {
 			select {
-			case <-lp.done:
+			case <-parentDone:
 				cancelQuery()
 			case <-queryCtx.Done():
 			}

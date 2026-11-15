@@ -62,7 +62,9 @@ func hostsPaths(st settings.Settings, dirs datadir.Dirs) (hostsYAML, state strin
 
 // startBackground starts the background loops in supervise mode and returns them for Stop.
 // In observe mode it starts nothing and returns an empty set.
-func startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) (*background, error) {
+// ssh is the admin lane's ssh connector for the host monitor's ssh hosts (nil: they are skipped).
+func startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, st settings.Settings, dirs datadir.Dirs,
+	ssh func(context.Context) (hostmon.SSH, error), logger *slog.Logger) (*background, error) {
 	b := &background{}
 	if st.Mode != settings.ModeSupervise {
 		return b, nil
@@ -79,7 +81,7 @@ func startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, st 
 	} else if sched != nil {
 		b.start(context.Background(), "scheduler", []loop{*sched})
 	}
-	hostLoops, err := hostMonitorLoops(app, g, st, dirs, logger)
+	hostLoops, err := hostMonitorLoops(app, g, st, dirs, ssh, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -90,8 +92,9 @@ func startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, st 
 
 // hostMonitorLoops builds the janitor (always, in supervise mode, so retention never depends on
 // probing) and the host monitor (when cerberus.host_monitor.enabled), writing class B through
-// the Telemetry store, and adds the telemetry check to /healthz.
-func hostMonitorLoops(app *module.App, g *gate.Gate, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) ([]loop, error) {
+// the Telemetry store, and adds the telemetry check to /healthz. ssh hosts are probed through the
+// admin lane's ssh connector, resolved per probe as the old host service did.
+func hostMonitorLoops(app *module.App, g *gate.Gate, st settings.Settings, dirs datadir.Dirs, ssh func(context.Context) (hostmon.SSH, error), logger *slog.Logger) ([]loop, error) {
 	ms, err := hostmon.Settings(st.HostMonitor)
 	if err != nil {
 		return nil, fmt.Errorf("%s.%w", settings.Key, err)
@@ -111,7 +114,7 @@ func hostMonitorLoops(app *module.App, g *gate.Gate, st settings.Settings, dirs 
 				}
 			}
 			return nil, false
-		}})
+		}, SSH: ssh})
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/hollis-labs/substrate/module"
 
+	"github.com/hollis-labs/cerberus/internal/admin"
 	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -291,7 +292,7 @@ func statusSections(ctx context.Context, c *apiClient) []statusSection {
 		{"daemon", daemon},
 		{"posture", "unavailable (slice 6)"},
 		{"you", "unavailable (slice 6)"},
-		{"plugins", "unavailable (slice 7)"},
+		{"plugins", pluginsLine(ctx, c)},
 		{"audit", "unavailable (slice 6)"},
 		{"web", "unavailable (slice 11)"},
 		{"passkeys", "not used: approvals come from the owner's console session (decision 0.1)"},
@@ -299,6 +300,59 @@ func statusSections(ctx context.Context, c *apiClient) []statusSection {
 		{"enforce", "unavailable (slice 6)"},
 		{"grants", "unavailable (slice 6)"},
 	}
+}
+
+// pluginsLine is the old plugins section: how many managed plugins are installed and which are
+// review_pending, from the serving Cerberus (observe mode runs none: unavailable).
+func pluginsLine(ctx context.Context, c *apiClient) string {
+	list, err := managedPlugins(ctx, c)
+	if err != nil {
+		return "unavailable (" + err.Error() + ")"
+	}
+	var pending []string
+	for _, p := range list {
+		if p.ReviewPending {
+			pending = append(pending, p.ID)
+		}
+	}
+	if len(pending) > 0 {
+		return fmt.Sprintf("%d installed, %d review pending: %s", len(list), len(pending), strings.Join(pending, ", "))
+	}
+	return fmt.Sprintf("%d installed, 0 review pending", len(list))
+}
+
+// managedPlugins reads GET /plugins/connectors.
+func managedPlugins(ctx context.Context, c *apiClient) ([]admin.PluginState, error) {
+	var list []admin.PluginState
+	err := c.get(ctx, "/plugins/connectors", &list)
+	return list, err
+}
+
+// pluginBanners are the old status's lines for a plugin the host stopped restarting.
+func pluginBanners(ctx context.Context, c *apiClient) []string {
+	list, err := managedPlugins(ctx, c)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, p := range list {
+		if p.GaveUp != "" {
+			out = append(out, fmt.Sprintf("!!! PLUGIN %s stopped after 3 restarts in 10m (%s). Load it again from the console (POST /api/plugins/connectors/%s/load)", p.ID, p.GaveUp, p.ID))
+		}
+	}
+	return out
+}
+
+// withPluginBanners puts the plugin lines where the old status had them: after the lockdown and
+// freezes, before the breaker's.
+func withPluginBanners(brakes, plugins []string) []string {
+	out := make([]string, 0, len(brakes)+len(plugins))
+	i := 0
+	for ; i < len(brakes) && !strings.HasPrefix(brakes[i], "!!! BREAKER"); i++ {
+		out = append(out, brakes[i])
+	}
+	out = append(out, plugins...)
+	return append(out, brakes[i:]...)
 }
 
 // writeStatus is the old layout: the brake banners, a title, then "  %-8s %s" per section.
@@ -389,7 +443,7 @@ func (c *cerberus) readCommands() []*cobra.Command {
 				}
 				return printJSON(cmd.OutOrStdout(), m)
 			}
-			writeStatus(cmd.OutOrStdout(), statusBanners(cmd.Context(), cl), sections)
+			writeStatus(cmd.OutOrStdout(), withPluginBanners(statusBanners(cmd.Context(), cl), pluginBanners(cmd.Context(), cl)), sections)
 			return nil
 		},
 	}
