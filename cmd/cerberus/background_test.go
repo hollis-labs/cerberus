@@ -25,11 +25,22 @@ func localStore(t *testing.T) *store.Store {
 	return st
 }
 
-func tableCount(t *testing.T, st *store.Store, like string) int {
+func tableCount(t *testing.T, st *store.Store, prefix string) int {
 	t.Helper()
-	var n int
-	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE ?`, like).Scan(&n); err != nil {
+	rows, err := st.DB().Query(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+	if err != nil {
 		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	n := 0
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(name, prefix) {
+			n++
+		}
 	}
 	return n
 }
@@ -43,14 +54,14 @@ func TestSchedulerOffByDefaultAndConfigOnly(t *testing.T) {
 	if err != nil || l != nil {
 		t.Fatalf("off: %v %v", l, err)
 	}
-	if n := tableCount(t, st, "gosched%"); n != 0 {
+	if n := tableCount(t, st, "gosched_"); n != 0 {
 		t.Fatalf("an off scheduler created %d tables", n)
 	}
 	l, err = schedulerLoop(ctx, st, settings.Settings{Scheduler: settings.Scheduler{Enabled: true}})
 	if err != nil || l == nil || l.name != "scheduler" {
 		t.Fatalf("on: %v %v", l, err)
 	}
-	if tableCount(t, st, "gosched%") == 0 || tableCount(t, st, "cerberus_schedule%") == 0 {
+	if tableCount(t, st, "gosched_") == 0 || tableCount(t, st, "cerberus_schedule_") == 0 {
 		t.Fatal("an enabled scheduler did not create its tables")
 	}
 	runCtx, cancel := context.WithCancel(ctx)

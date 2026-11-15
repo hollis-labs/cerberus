@@ -50,7 +50,7 @@ func schedulerLoop(ctx context.Context, local *store.Store, st settings.Settings
 
 // scheduleRows lists the scheduler's tables that hold rows, as "table=count", sorted.
 func scheduleRows(ctx context.Context, db *sql.DB) ([]string, error) {
-	q, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE 'gosched\_%' ESCAPE '\' OR name LIKE 'cerberus\_schedule\_%' ESCAPE '\')`)
+	q, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table'`)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,9 @@ func scheduleRows(ctx context.Context, db *sql.DB) ([]string, error) {
 			_ = q.Close()
 			return nil, err
 		}
-		tables = append(tables, name)
+		if strings.HasPrefix(name, "gosched_") || strings.HasPrefix(name, "cerberus_schedule_") {
+			tables = append(tables, name)
+		}
 	}
 	_ = q.Close()
 	if err := q.Err(); err != nil {
@@ -71,7 +73,7 @@ func scheduleRows(ctx context.Context, db *sql.DB) ([]string, error) {
 	var out []string
 	for _, t := range tables {
 		var n int64
-		// The names come from sqlite_master and match the patterns above.
+		// The names come from sqlite_master and carry the scheduler's prefixes.
 		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+t+`"`).Scan(&n); err != nil { //nolint:gosec // table names from sqlite_master
 			return nil, err
 		}
