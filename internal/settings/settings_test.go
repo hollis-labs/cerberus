@@ -80,3 +80,40 @@ func TestModeAndSelf(t *testing.T) {
 		t.Fatalf("non-string self: %v", err)
 	}
 }
+
+func TestBackgroundBlocks(t *testing.T) {
+	s, err := Parse(map[string]any{}, "/u/op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.HostMonitor != nil || s.Scheduler.Enabled || s.EventExport.Enabled {
+		t.Fatalf("defaults: %+v %+v %+v", s.HostMonitor, s.Scheduler, s.EventExport)
+	}
+	s, err = Parse(map[string]any{
+		"host_monitor": map[string]any{"enabled": true, "outpost_interval": "30s", "thresholds": map[string]any{"offline_after": 2}},
+		"scheduler":    map[string]any{"enabled": true, "allow_existing": true},
+		"event_export": map[string]any{"enabled": true, "grace_seconds": 5, "interval_seconds": 10, "hub": true},
+	}, "/u/op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.HostMonitor == nil || !s.HostMonitor.Enabled || s.HostMonitor.OutpostInterval != "30s" ||
+		s.HostMonitor.Thresholds == nil || s.HostMonitor.Thresholds.OfflineAfter != 2 {
+		t.Fatalf("host_monitor: %+v", s.HostMonitor)
+	}
+	if s.Scheduler != (Scheduler{Enabled: true, AllowExisting: true}) {
+		t.Fatalf("scheduler: %+v", s.Scheduler)
+	}
+	if s.EventExport != (EventExport{Enabled: true, GraceSeconds: 5, IntervalSeconds: 10, Hub: true}) {
+		t.Fatalf("event_export: %+v", s.EventExport)
+	}
+	for name, block := range map[string]map[string]any{
+		"host_monitor": {"enabeld": true},
+		"scheduler":    {"enabled": "yes please"},
+		"event_export": {"interval_seconds": -1},
+	} {
+		if _, err := Parse(map[string]any{name: block}, "/u/op"); err == nil || !strings.Contains(err.Error(), "cerberus."+name) {
+			t.Errorf("%s: want an error naming cerberus.%s, got %v", name, name, err)
+		}
+	}
+}

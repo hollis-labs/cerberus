@@ -7,6 +7,9 @@
 //	  mode: observe                      # observe (read and report only) or supervise
 //	  self_resource_id: ""               # the resource this process runs as, checked at start
 //	  cli_key_file: "~/.config/cerberus/cli.key"   # the API key the cerberus CLI presents
+//	  host_monitor: {enabled: false, ...}  # the old config.yaml host_monitor block, same keys
+//	  scheduler: {enabled: false, allow_existing: false}
+//	  event_export: {enabled: false, grace_seconds: 0, interval_seconds: 0, hub: false}
 //
 // install_root is adopted in place from the old build: the live resource units point their
 // ExecStart and log paths into it, so moving it would rewrite and restart every unit
@@ -19,14 +22,23 @@
 // self_resource_id names the resource the old build runs this process as (cerberus-substrate);
 // the start checks it against the process's own systemd unit.
 //
+// host_monitor, scheduler and event_export run only in supervise mode, and only when enabled.
+// The scheduler and event export are off by default (plan section 4.2); scheduler.allow_existing
+// lets an enabled scheduler start over schedule tables that already hold rows.
+//
 // An unknown key or a bad value is refused at start, naming the key.
 package settings
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/hollis-labs/cerberus/internal/config"
 )
 
 // Key is the name of the config block.
@@ -64,6 +76,29 @@ type Settings struct {
 	SelfResourceID string
 	// CLIKeyFile is absolute.
 	CLIKeyFile string
+	// HostMonitor is the host_monitor block as the old config.yaml held it; nil when unset
+	// (the defaults, which leave monitoring off).
+	HostMonitor *config.HostMonitorConfig
+	// Scheduler gates the scheduling core; off unless enabled.
+	Scheduler Scheduler
+	// EventExport gates event export; off unless enabled.
+	EventExport EventExport
+}
+
+// Scheduler is the scheduler block.
+type Scheduler struct {
+	Enabled bool `yaml:"enabled"`
+	// AllowExisting lets an enabled scheduler start while its tables hold rows.
+	AllowExisting bool `yaml:"allow_existing"`
+}
+
+// EventExport is the event_export block: the old events.yaml export keys.
+type EventExport struct {
+	Enabled         bool `yaml:"enabled"`
+	GraceSeconds    int  `yaml:"grace_seconds"`
+	IntervalSeconds int  `yaml:"interval_seconds"`
+	// Hub relays the outbox to the events hub as well.
+	Hub bool `yaml:"hub"`
 }
 
 // Parse reads the block (nil for a missing one). home expands a leading "~/".
@@ -77,7 +112,8 @@ func Parse(raw any, home string) (Settings, error) {
 		}
 		block = m
 	}
-	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true, "cli_key_file": true}
+	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true, "cli_key_file": true,
+		"host_monitor": true, "scheduler": true, "event_export": true}
 	var unknown []string
 	for k := range block {
 		if !known[k] {
@@ -114,7 +150,40 @@ func Parse(raw any, home string) (Settings, error) {
 	if s.CLIKeyFile, err = path(block, "cli_key_file", DefaultCLIKeyFile, home); err != nil {
 		return s, err
 	}
+	if v, ok := block["host_monitor"]; ok && v != nil {
+		s.HostMonitor = &config.HostMonitorConfig{}
+		if err := strict(v, "host_monitor", s.HostMonitor); err != nil {
+			return s, err
+		}
+	}
+	if err := strict(block["scheduler"], "scheduler", &s.Scheduler); err != nil {
+		return s, err
+	}
+	if err := strict(block["event_export"], "event_export", &s.EventExport); err != nil {
+		return s, err
+	}
+	if s.EventExport.GraceSeconds < 0 || s.EventExport.IntervalSeconds < 0 {
+		return s, fmt.Errorf("%s.event_export: grace_seconds and interval_seconds must not be negative", Key)
+	}
 	return s, nil
+}
+
+// strict decodes a sub-block into dst, refusing unknown keys and wrong types, naming the block.
+// A missing block leaves dst as it is.
+func strict(v any, name string, dst any) error {
+	if v == nil {
+		return nil
+	}
+	raw, err := yaml.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("%s.%s: %w", Key, name, err)
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(dst); err != nil {
+		return fmt.Errorf("%s.%s: %w", Key, name, err)
+	}
+	return nil
 }
 
 // str reads block[key] as a trimmed string, "" when unset.
