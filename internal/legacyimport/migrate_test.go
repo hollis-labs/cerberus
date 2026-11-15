@@ -659,3 +659,39 @@ func TestConfigBuildWebTransfers(t *testing.T) {
 		})
 	}
 }
+
+// The new database is checkpointed and closed before the data dir is renamed into place: the
+// migrated data dir holds one database file, no -wal carrying committed rows (nor an empty one,
+// nor the -shm index), and the file read alone (immutable: no WAL is read) passes
+// integrity_check and holds every migrated row: the host rows by their ordered digest, and the
+// class A state.
+func TestTheDatabaseIsOneCleanFile(t *testing.T) {
+	f, rep := migrate(t)
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if fi, err := os.Stat(f.DBPath + suffix); !os.IsNotExist(err) {
+			t.Errorf("%s%s is in the migrated data dir: %v %v", filepath.Base(f.DBPath), suffix, fi, err)
+		}
+	}
+	db, err := hostdump.Open(f.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var ok string
+	if err := db.QueryRow("PRAGMA integrity_check").Scan(&ok); err != nil || ok != "ok" {
+		t.Fatalf("integrity_check %q, %v", ok, err)
+	}
+	st, err := hostdump.ReadState(context.Background(), db, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.HostDumpSHA256 != rep.MainDB.HostDumpSHA256.Old || st.SQLiteSequence["host_events"] != 5 {
+		t.Fatalf("the file alone: host rows %s (want %s), sequence %v", st.HostDumpSHA256, rep.MainDB.HostDumpSHA256.Old, st.SQLiteSequence)
+	}
+	for table, want := range map[string]int{"pause_state": len(rep.Pause.Targets), "applied_definitions": rep.Applied.Count, "credential_issuance_receipts": rep.Receipts.Rows} {
+		var n int
+		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil || n != want || n == 0 {
+			t.Errorf("%s: %d rows in the file alone, want %d (%v)", table, n, want, err)
+		}
+	}
+}

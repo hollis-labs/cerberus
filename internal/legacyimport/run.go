@@ -503,11 +503,20 @@ func (m *migration) database(ctx context.Context, digester audit.Digester) error
 	m.row(StoreRow{Row: "R11", Store: "credential-issuance/<id>/<state>.json", Treatment: "transform", Dest: "<data>/" + filepath.Base(m.stagedDB) + " credential_issuance_receipts",
 		CountBefore: i64(len(m.receipts.byFile)), CountAfter: i64(rows), Verify: "row count equals file count; every row equals its file"})
 
+	if err = verifyHostTables(ctx, m.stagedDB, o.OldDB, r.MainDB); err != nil {
+		return err
+	}
+	// One clean database file: everything checkpointed into it and the WAL truncated before the
+	// store closes, so the data directory renamed into place carries no -wal holding committed
+	// rows. Checked afterwards by reading the file alone (immutable ignores any WAL).
+	if err = checkpoint(ctx, st); err != nil {
+		return err
+	}
 	closed = true
 	if err = st.Close(); err != nil {
 		return err
 	}
-	if err = verifyHostTables(ctx, m.stagedDB, o.OldDB, r.MainDB); err != nil {
+	if err = cleanDatabaseFile(ctx, m.stagedDB, r.MainDB.HostDumpSHA256.New); err != nil {
 		return err
 	}
 	var before, after int64

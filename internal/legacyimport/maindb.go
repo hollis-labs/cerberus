@@ -2,7 +2,9 @@ package legacyimport
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -330,4 +332,56 @@ func onlySequence(m map[string]int64) map[string]int64 {
 		out[hostdump.SequenceTable] = v
 	}
 	return out
+}
+
+// checkpoint copies every committed page of the new database's WAL into the file and truncates
+// the WAL. Nothing else has the staged database open, so the checkpoint must complete.
+func checkpoint(ctx context.Context, st *store.Store) error {
+	var busy, logFrames, checkpointed int64
+	if err := st.DB().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames, &checkpointed); err != nil {
+		return fmt.Errorf("checkpoint the new database: %w", err)
+	}
+	if busy != 0 || logFrames != checkpointed {
+		return fmt.Errorf("checkpoint the new database: busy %d, %d of %d WAL frames checkpointed", busy, checkpointed, logFrames)
+	}
+	return nil
+}
+
+// cleanDatabaseFile makes the closed new database one file and checks it: a -wal holding
+// anything is an error; an empty one and the -shm index (a read-only connection that closed last
+// leaves them) are removed, since nothing has the staged database open; and the file alone
+// (opened immutable, which reads no WAL) passes integrity_check and holds the host rows the
+// verify saw (their ordered digest).
+func cleanDatabaseFile(ctx context.Context, path, hostDump string) error {
+	fi, err := os.Stat(path + "-wal")
+	switch {
+	case err == nil && fi.Size() > 0:
+		return fmt.Errorf("the new database %s still has a %d-byte WAL after the checkpoint", path, fi.Size())
+	case err == nil:
+		if err = os.Remove(path + "-wal"); err != nil {
+			return err
+		}
+	case !errors.Is(err, os.ErrNotExist):
+		return err
+	}
+	if err = os.Remove(path + "-shm"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	db, err := hostdump.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	var ok string
+	if err = db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&ok); err != nil || ok != "ok" {
+		return errors.Join(fmt.Errorf("the new database file %s: integrity_check %q", path, ok), err)
+	}
+	st, err := hostdump.ReadState(ctx, db, "")
+	if err != nil {
+		return err
+	}
+	if st.HostDumpSHA256 != hostDump {
+		return fmt.Errorf("the new database file %s alone holds host rows %s, the verified database %s", path, st.HostDumpSHA256, hostDump)
+	}
+	return nil
 }
