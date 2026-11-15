@@ -84,12 +84,14 @@ const PluginDirNotAccepted = "plugin_dir is not accepted here: address the insta
 
 // Plugins is the managed plugin lane over the adopted plugin roots.
 type Plugins struct {
-	s           *Service
-	gate        *gate.Gate
-	issuance    *credentialbroker.Broker
-	manager     *pluginhost.Manager
-	statePath   string
-	store       pluginhost.Store
+	s         *Service
+	gate      *gate.Gate
+	issuance  *credentialbroker.Broker
+	manager   *pluginhost.Manager
+	statePath string
+	store     pluginhost.Store
+	// policy is the operator's policy directory, where a review writes suggested rules.
+	policy      policy.Store
 	warn        io.Writer
 	reservedIDs []string
 	logger      *slog.Logger
@@ -110,6 +112,7 @@ func newPlugins(s *Service) (*Plugins, error) {
 		issuance:    credentialbroker.New(o.Paths.Issuance(), credentialbroker.WithRecorder(o.Receipts)),
 		statePath:   o.Paths.PluginState(),
 		store:       pluginhost.Store{Root: o.Paths.PluginStore()},
+		policy:      policy.Store{Dir: o.Paths.PolicyDir()},
 		warn:        o.Stderr,
 		reservedIDs: append(append([]string(nil), hostServedIDs...), s.registry.BuiltInIDs()...),
 		logger:      s.logger,
@@ -185,48 +188,7 @@ func (p *Plugins) LoadedPlugins() []string {
 // It takes an id only, so it applies only what a review accepted, and a bundle that does not
 // match its accepted digest is refused before the running plugin is touched.
 func (p *Plugins) Reload(ctx context.Context, id string, opts GateOpts) (PluginState, *gate.ConnectorPlan, error) {
-	return p.admin(ctx, "reload", id, opts, func() (PluginState, error) {
-		state, err := readPluginState(p.statePath)
-		if err != nil {
-			return PluginState{}, err
-		}
-		i := state.findEntry(id)
-		if i < 0 {
-			return PluginState{}, redact.Guidance("plugin %q is not in plugin-connectors.json; install it from a terminal first", id)
-		}
-		entry := state.Entries[i]
-		next, err := p.inspect(entry)
-		if err != nil {
-			return PluginState{}, err
-		}
-		if next.ID != id {
-			return PluginState{}, fmt.Errorf("the state entry for %q now holds plugin %q; refusing", id, next.ID)
-		}
-		wasLoaded := p.manager.Loaded(id)
-		if wasLoaded || entry.Loaded {
-			if err := p.manager.CheckBundle(next); err != nil {
-				return PluginState{}, loadError(err)
-			}
-		}
-		if wasLoaded {
-			if err := p.manager.Unload(ctx, id); err != nil {
-				return PluginState{}, err
-			}
-		}
-		p.manager.RegisterInstalled(next)
-		entry.ID = id
-		p.setRecord(id, entry)
-		if wasLoaded || entry.Loaded {
-			if err := p.manager.Load(ctx, id); err != nil {
-				_ = p.persist()
-				return PluginState{}, loadError(err)
-			}
-		}
-		if err := p.persist(); err != nil {
-			return PluginState{}, err
-		}
-		return p.state(next, p.manager.Loaded(id)), nil
-	})
+	return p.admin(ctx, "reload", id, opts, func() (PluginState, error) { return p.reloadEntry(ctx, id) })
 }
 
 // Load starts an installed plugin and records it loaded.

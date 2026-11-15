@@ -75,7 +75,8 @@ func TestAdminRoutesInObserveMode(t *testing.T) {
 }
 
 // The routes carry the contract's scopes: every GET is cerberus.read, every write
-// cerberus.admin, and every gated write has its /plan and /confirm forms.
+// cerberus.admin, and every gated write has its /plan and /confirm forms, the plugin install
+// review's (install, upgrade, review) included.
 func TestAdminRoutesHaveTheContractsScopes(t *testing.T) {
 	a := newTestAPI(t, "")
 	forms := map[string]int{}
@@ -90,14 +91,10 @@ func TestAdminRoutesHaveTheContractsScopes(t *testing.T) {
 		base := strings.TrimSuffix(strings.TrimSuffix(rt.Pattern, "/plan"), "/confirm")
 		forms[base]++
 	}
-	for _, base := range []string{"/api/connectors/{id}/operations/{op}", "/api/credentials/{id}", "/api/plugins/connectors/{id}/load", "/api/plugins/connectors/{id}/unload"} {
+	for _, base := range []string{"/api/connectors/{id}/operations/{op}", "/api/credentials/{id}", "/api/plugins/connectors/{id}/load", "/api/plugins/connectors/{id}/unload",
+		"/api/plugins/connectors/install", "/api/plugins/connectors/{id}/upgrade", "/api/plugins/connectors/{id}/review"} {
 		if forms[base] != 3 {
 			t.Errorf("%s has %d forms, want the base, /plan and /confirm", base, forms[base])
-		}
-	}
-	for _, rt := range a.Routes() {
-		if p := strings.ReplaceAll(rt.Pattern, "uninstall", ""); strings.Contains(p, "install") || strings.Contains(p, "upgrade") || strings.Contains(p, "review") {
-			t.Errorf("%s %s: plugin install and review are not served until the ruling", rt.Method, rt.Pattern)
 		}
 	}
 }

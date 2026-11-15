@@ -194,12 +194,19 @@ func RunGate(t *testing.T, run func(t *testing.T, ctx context.Context, c Case) A
 // the ssh host and the issuing operation's target are production, so an agent's call there
 // needs the owner's approval, as for a resource verb.
 
-// AdminWrite is one admin-lane write: its name, the target id a freeze names to cover it, and
-// whether that target is production.
+// A plugin install or upgrade is the owner's (the lead's ruling (a) on decision 0.1): the gate's
+// routing comes first (a plan request, a confirmed plan, the brakes), then the owner accepts. A
+// person on the console accepts by typing the plugin id, so their call runs as a person's does;
+// an API key needs the owner's out-of-band approval whatever the target, so its plain call asks
+// for one (409 approval_pending) and an approval id the owner never decided is 428.
+
+// AdminWrite is one admin-lane write: its name, the target id a freeze names to cover it,
+// whether that target is production, and whether the owner accepts it (a plugin review).
 type AdminWrite struct {
 	Name   string
 	Target string
 	Prod   bool
+	Owner  bool
 }
 
 // The admin writes the table covers.
@@ -209,11 +216,13 @@ const (
 	PluginUnload        = "plugin-unload"
 	ProviderSave        = "console-provider-save"
 	PluginIssuingOp     = "plugin-issuing-op"
+	PluginInstall       = "plugin-install"
+	PluginUpgrade       = "plugin-upgrade"
 )
 
 // AdminWrites are the admin lane's writes, with the target ids an admin lane under test
-// resolves them to: the ssh resource "box" (production), the plugin "echo", and the issuing
-// operation's target "db" (production).
+// resolves them to: the ssh resource "box" (production), the plugin "echo", the issuing
+// operation's target "db" (production), and the plugin a fresh install installs, "fresh".
 func AdminWrites() []AdminWrite {
 	return []AdminWrite{
 		{Name: ConnectorExecuteSSH, Target: "box", Prod: true},
@@ -221,6 +230,8 @@ func AdminWrites() []AdminWrite {
 		{Name: PluginUnload, Target: "echo"},
 		{Name: ProviderSave, Target: "echo"},
 		{Name: PluginIssuingOp, Target: "db", Prod: true},
+		{Name: PluginInstall, Target: "fresh", Owner: true},
+		{Name: PluginUpgrade, Target: "echo", Owner: true},
 	}
 }
 
@@ -261,8 +272,18 @@ func AdminCases() []AdminCase {
 }
 
 // AdminGateWant is the old build's answer to c from who: GateWant's routing, enforced for an
-// agent only where the write's target is production.
+// agent only where the write's target is production; for a write the owner accepts, an agent's
+// call that passes the gate needs the owner's approval.
 func AdminGateWant(c AdminCase, who Caller) Want {
+	if c.Write.Owner && who.Agent {
+		switch c.Kind {
+		case Plain, FreezeElsewhere:
+			return Want{Status: http.StatusConflict, Code: gate.CodeApprovalPending}
+		case ApprovalID:
+			return Want{Status: http.StatusPreconditionRequired, Code: gate.CodeApprovalRequired}
+		}
+		return GateWant(Case{Kind: c.Kind}, Caller{})
+	}
 	as := who
 	as.Agent = who.Agent && c.Write.Prod
 	return GateWant(Case{Kind: c.Kind}, as)

@@ -116,17 +116,7 @@ func Install(adoptRoot, binary string, p Plugin) (Installed, error) {
 		return Installed{}, err
 	}
 	defer func() { _ = os.RemoveAll(src) }()
-	if err = os.MkdirAll(filepath.Join(src, "bin"), 0o700); err != nil {
-		return Installed{}, err
-	}
-	bin, err := os.ReadFile(binary) //nolint:gosec // the test's own build
-	if err != nil {
-		return Installed{}, err
-	}
-	if err = os.WriteFile(filepath.Join(src, "bin", "echo-plugin"), bin, 0o700); err != nil { //nolint:gosec // an executable
-		return Installed{}, err
-	}
-	if err = os.WriteFile(filepath.Join(src, "plugin.yaml"), []byte(Manifest(p.ID)), 0o600); err != nil {
+	if err = WriteSource(src, binary, p.ID); err != nil {
 		return Installed{}, err
 	}
 	store := pluginhost.Store{Root: filepath.Join(adoptRoot, "plugins")}
@@ -165,6 +155,22 @@ func Install(adoptRoot, binary string, p Plugin) (Installed, error) {
 		return Installed{}, err
 	}
 	return Installed{ID: p.ID, Path: path, Digest: staged.Digest}, nil
+}
+
+// WriteSource writes the echo plugin built at binary, as plugin id, into dir: a plugin source
+// directory an install reviews (plugin.yaml and bin/echo-plugin).
+func WriteSource(dir, binary, id string) error {
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o700); err != nil {
+		return err
+	}
+	bin, err := os.ReadFile(binary) //nolint:gosec // the test's own build
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(dir, "bin", "echo-plugin"), bin, 0o700); err != nil { //nolint:gosec // an executable
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "plugin.yaml"), []byte(Manifest(id)), 0o600)
 }
 
 // Marks are the files the echo plugin wrote under the adopted root's plugin-data (one directory

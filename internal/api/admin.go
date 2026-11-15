@@ -23,8 +23,10 @@ import (
 // status and code, the approval it names under details. Observe mode runs no admin lane:
 // every route answers 503 admin_unavailable.
 //
-// Not served, pending a ruling: plugin install, upgrade and install review (the old build's
-// terminal-only plugin_review.go). The old retired plugin_dir routes are not carried either.
+// Plugin install, upgrade and install review (the old build's terminal-only plugin_review.go)
+// are served under the lead's ruling (a): the owner accepts, a person on the console typing the
+// plugin id, or a key naming with approval_id an out-of-band approval the owner decided on the
+// console (pluginReview). The old retired plugin_dir routes are not carried.
 
 // pluginActions are the plugin lifecycle writes.
 var pluginActions = []string{"load", "unload", "reload", "uninstall"}
@@ -48,6 +50,11 @@ func (a *API) adminRoutes() []Route {
 		for _, action := range pluginActions {
 			rs = append(rs, Route{http.MethodPost, "/api/plugins/connectors/{id}/" + action + form, ScopeAdmin, a.pluginAction(action, form)})
 		}
+		rs = append(rs,
+			Route{http.MethodPost, "/api/plugins/connectors/install" + form, ScopeAdmin, a.pluginReview(admin.ReviewInstall, form)},
+			Route{http.MethodPost, "/api/plugins/connectors/{id}/upgrade" + form, ScopeAdmin, a.pluginReview(admin.ReviewUpgrade, form)},
+			Route{http.MethodPost, "/api/plugins/connectors/{id}/review" + form, ScopeAdmin, a.pluginReview(admin.ReviewMigrate, form)},
+		)
 	}
 	return rs
 }
@@ -295,4 +302,61 @@ func (a *API) pluginOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeScoped(ctx, w, out)
+}
+
+// pluginReview is POST /api/plugins/connectors/install, /api/plugins/connectors/{id}/upgrade
+// and /api/plugins/connectors/{id}/review, each [/plan|/confirm]: the install review. The body
+// is admin.ReviewRequest ({plugin_dir, dev, typed}; review takes no plugin_dir) with the form's
+// fields. The plan form answers the review as a plan (preview kind "review") and accepts
+// nothing. Accepting is the owner's: a person on the console with typed equal to the plugin
+// id; or a key naming with approval_id the out-of-band approval its first call opened (409
+// approval_pending, the approval under details) once the owner approved it on the console.
+// An MCP client is refused 428 approval_required. A plugin already matching its review is
+// 409 nothing_to_review.
+func (a *API) pluginReview(kind, form string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		svc, ok := a.adminLane(w)
+		if !ok {
+			return
+		}
+		var body struct {
+			admin.ReviewRequest
+			confirmBody
+		}
+		if err := decodeBody(r.Body, &body); err != nil {
+			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
+			return
+		}
+		opts, err := body.gateOpts(form)
+		if err != nil {
+			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
+			return
+		}
+		ctx := GateContext(r.Context())
+		plugins := svc.Plugins()
+		var out admin.ReviewResult
+		var shown *gate.ConnectorPlan
+		switch kind {
+		case admin.ReviewInstall:
+			out, shown, err = plugins.Install(ctx, body.ReviewRequest, opts)
+		case admin.ReviewUpgrade:
+			out, shown, err = plugins.Upgrade(ctx, r.PathValue("id"), body.ReviewRequest, opts)
+		default:
+			if body.PluginDir != "" {
+				apierr.Write(w, http.StatusBadRequest, "invalid_args", "a review takes no plugin_dir: it reviews the installed plugin's own directory", nil)
+				return
+			}
+			out, shown, err = plugins.Review(ctx, r.PathValue("id"), body.ReviewRequest, opts)
+		}
+		switch {
+		case errors.Is(err, admin.ErrNothingToReview):
+			apierr.Write(w, http.StatusConflict, "nothing_to_review", redact.Text(err.Error()), nil)
+		case err != nil:
+			writeAdminErr(w, err)
+		case shown != nil:
+			writeScoped(ctx, w, shown)
+		default:
+			writeScoped(ctx, w, out)
+		}
+	}
 }

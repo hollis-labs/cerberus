@@ -59,6 +59,15 @@ func (p Paths) Issuance() string { return filepath.Join(p.AdoptRoot, "credential
 // Transfers is transfers/, the root a non-terminal caller's local paths are held to.
 func (p Paths) Transfers() string { return filepath.Join(p.AdoptRoot, "transfers") }
 
+// PolicyDir is the operator's policy directory, beside the override file: a reviewed plugin's
+// suggested rules are written there as a working file (providers/<id>.yaml), inert until applied.
+func (p Paths) PolicyDir() string {
+	if p.ConfigDir == "" {
+		return ""
+	}
+	return filepath.Join(p.ConfigDir, "policy")
+}
+
 // ConnectorSecrets is connector-secrets.yaml, the reference mapping and per-access bindings.
 func (p Paths) ConnectorSecrets() string {
 	if p.ConfigDir == "" {

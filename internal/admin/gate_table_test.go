@@ -2,6 +2,8 @@ package admin_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,7 +16,9 @@ import (
 
 // Every admin write passes the gate as the old build routed it (approvertest): a plain call,
 // one naming an approval, a plan request, a confirmed plan, a lockdown, a freeze on its target
-// and one elsewhere, as the owner's console session and as an API key.
+// and one elsewhere, as the owner's console session and as an API key. A plugin install and
+// upgrade then need the owner: the console session's typed plugin id, or for a key the owner's
+// approval.
 func TestAdminWritesAreGated(t *testing.T) {
 	approvertest.RunAdminGate(t, func(t *testing.T, ctx context.Context, c approvertest.AdminCase) approvertest.AdminAnswer {
 		root, _ := install(t, admintest.Plugin{Loaded: c.Write.Name != approvertest.PluginLoad})
@@ -72,6 +76,30 @@ func TestAdminWritesAreGated(t *testing.T) {
 				return approvertest.AdminAnswer{PlanHash: out.Plan.PlanHash}
 			}
 			return approvertest.AdminAnswer{Ran: out.Success}
+		case approvertest.PluginInstall, approvertest.PluginUpgrade:
+			src := filepath.Join(t.TempDir(), "src")
+			id := c.Write.Target
+			if err := admintest.WriteSource(src, echoBinary, id); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(src, "NOTES"), []byte("a new release"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res, shown, err := l.svc.Plugins().Install(ctx, admin.ReviewRequest{PluginDir: src, Typed: id}, opts)
+			if err != nil {
+				return approvertest.AdminAnswer{Err: err}
+			}
+			if shown != nil {
+				return approvertest.AdminAnswer{PlanHash: shown.PlanHash}
+			}
+			want := admin.ReviewInstall
+			if c.Write.Name == approvertest.PluginUpgrade {
+				want = admin.ReviewUpgrade
+			}
+			if res.Kind != want || res.Proof != "typed" || res.State.ID != id {
+				t.Fatalf("the %s ran as %+v", c.Write.Name, res)
+			}
+			return approvertest.AdminAnswer{Ran: true}
 		}
 		t.Fatalf("no case for %s", c.Write.Name)
 		return approvertest.AdminAnswer{}
