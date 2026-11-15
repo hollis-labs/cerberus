@@ -323,6 +323,43 @@ func TestReceiptsAreWrittenOnceAndReadInOrder(t *testing.T) {
 	})
 }
 
+// ReceiptsAll lists every issuance's receipts, by id and then in lifecycle order, on both
+// dialects, with their references and times as recorded.
+func TestReceiptsAllListsEveryIssuance(t *testing.T) {
+	eachDialect(t, func(t *testing.T, st *store.Store, _ func() *store.Store) {
+		ctx := context.Background()
+		if got, err := storage.ReceiptsAll(ctx, st); err != nil || len(got) != 0 {
+			t.Fatalf("empty store: %v %v", got, err)
+		}
+		at := time.Date(2026, 11, 14, 12, 0, 0, 123456789, time.UTC)
+		for i, rc := range []struct{ id, state string }{{"iss-b", "prepared"}, {"iss-a", "completed"}, {"iss-b", "preparing"}, {"iss-a", "preparing"}, {"iss-a", "dispatching"}, {"iss-a", "prepared"}} {
+			r := storage.Receipt{IssuanceID: rc.id, State: rc.state, Connector: "postgres", Operation: "provision", BindingDigest: "d-" + rc.id,
+				At: at.Add(time.Duration(i) * time.Second)}
+			if rc.state != "preparing" {
+				r.References = map[string]string{"runtime": "file:///private/issued/" + rc.id + "/runtime"}
+			}
+			if err := storage.RecordReceipt(ctx, st, r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := storage.ReceiptsAll(ctx, st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var order []string
+		for _, r := range got {
+			order = append(order, r.IssuanceID+"/"+r.State)
+		}
+		want := []string{"iss-a/preparing", "iss-a/prepared", "iss-a/dispatching", "iss-a/completed", "iss-b/preparing", "iss-b/prepared"}
+		if !reflect.DeepEqual(order, want) {
+			t.Fatalf("order %v, want %v", order, want)
+		}
+		if got[0].References == nil || len(got[0].References) != 0 || got[1].References["runtime"] == "" || !got[5].At.Equal(at) || got[0].BindingDigest != "d-iss-a" {
+			t.Fatalf("receipts did not round-trip: %+v", got)
+		}
+	})
+}
+
 // Both dialects carry the same migration versions, so a class can move without a renumber.
 func TestDialectsHaveTheSameMigrations(t *testing.T) {
 	fsys, root := storage.Migrations()
