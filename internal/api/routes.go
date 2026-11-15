@@ -371,8 +371,11 @@ func personOnly(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// IsConsolePerson reports whether p is a signed-in person in a console session (an identity
-// user with a session), which is the only kind of caller allowed to approve.
+// IsConsolePerson reports whether p is a signed-in person in a console session, the only kind of
+// caller allowed to approve: the identity module's session principal (kind "user", a session
+// id), never a token minted from it at /api/token (which carries a token id or a parent, even
+// when it still names the person), an API key, or local trust.
 func IsConsolePerson(p libauth.Principal) bool {
-	return p.Verified && strings.HasPrefix(p.ID, "user:") && p.SessionID != ""
+	return p.Verified && p.Kind == "user" && strings.HasPrefix(p.ID, "user:") && p.SessionID != "" &&
+		p.TokenID == "" && p.Parent == ""
 }

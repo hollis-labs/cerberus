@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -130,6 +131,35 @@ func TestAuthEnforcedEndToEnd(t *testing.T) {
 		if resp.StatusCode != 403 || !strings.Contains(string(b), "scope_not_grantable") {
 			t.Fatalf("owner minting %s: %d %s", scopes, resp.StatusCode, b)
 		}
+	}
+
+	// Approve is the owner's console session itself: it reaches the handler (501 until slice 6),
+	// but a JWT minted from that session at /api/token is refused, though it names the owner.
+	cookiePost := func(path, body string) (int, string) {
+		req, _ := http.NewRequest("POST", base+path, strings.NewReader(body)) //nolint:noctx // loopback child
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Requested-With", "XMLHttpRequest")
+		req.Header.Set("Origin", base)
+		resp, err := owner.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, body := cookiePost("/api/approvals/a1/decide", `{}`); code != 501 {
+		t.Fatalf("owner session on approve: %d %s, want the handler (501)", code, body)
+	}
+	code, body := cookiePost("/api/token", `{}`)
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &minted) != nil || minted.Token == "" {
+		t.Fatalf("owner mints a token: %d %s", code, body)
+	}
+	if code, body := call(t, "POST", base+"/api/approvals/a1/decide", minted.Token); code != 403 || !strings.Contains(body, "user_required") {
+		t.Fatalf("a token minted from the owner's session on approve: %d %s, want 403 user_required", code, body)
 	}
 }
 

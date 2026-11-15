@@ -238,18 +238,21 @@ func TestApproveIsPersonOnly(t *testing.T) {
 	}
 	all := []string{"*"}
 	for name, p := range map[string]*libauth.Principal{
-		"no principal":                 nil,
-		"api key holding *":            {Verified: true, ID: "key:k1", Kind: libauth.KindService, Scopes: all},
-		"token minted from a key":      {Verified: true, ID: "key:k1", Kind: libauth.KindService, Scopes: all, TokenID: "t1", Parent: "key:k1"},
-		"local trust":                  {Verified: true, ID: "local:operator", Kind: libauth.KindOperator, Scopes: all},
-		"person without a session":     {Verified: true, ID: "user:u1", Scopes: all},
-		"unverified person in session": {ID: "user:u1", SessionID: "s1", Scopes: all},
+		"no principal":                  nil,
+		"api key holding *":             {Verified: true, ID: "key:k1", Kind: libauth.KindService, Scopes: all},
+		"token minted from a key":       {Verified: true, ID: "key:k1", Kind: libauth.KindService, Scopes: all, TokenID: "t1", Parent: "key:k1"},
+		"local trust":                   {Verified: true, ID: "local:operator", Kind: libauth.KindOperator, Scopes: all},
+		"person without a session":      {Verified: true, ID: "user:u1", Kind: "user", Scopes: all},
+		"token minted from the session": {Verified: true, ID: "user:u1", Kind: "user", SessionID: "s1", TokenID: "tok_1", Scopes: all},
+		"token with a parent":           {Verified: true, ID: "user:u1", Kind: "user", SessionID: "s1", Parent: "user:u1", Scopes: all},
+		"session principal, wrong kind": {Verified: true, ID: "user:u1", Kind: libauth.KindOperator, SessionID: "s1", Scopes: all},
+		"unverified person in session":  {ID: "user:u1", SessionID: "s1", Scopes: all},
 	} {
 		if code, body := post(p); code != 403 || !strings.Contains(body, `"code":"user_required"`) {
 			t.Errorf("%s: %d %s, want 403 user_required", name, code, body)
 		}
 	}
-	owner := &libauth.Principal{Verified: true, ID: "user:u1", SessionID: "s1", Scopes: all}
+	owner := &libauth.Principal{Verified: true, ID: "user:u1", Kind: "user", SessionID: "s1", Scopes: all}
 	if code, body := post(owner); code != 501 {
 		t.Errorf("owner in a console session: %d %s, want to reach the handler (501 until slice 6)", code, body)
 	}

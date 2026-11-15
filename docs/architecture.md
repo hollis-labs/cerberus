@@ -169,8 +169,9 @@ Observe mode:
 - mutations answer `409 observe_mode`.
 
 **Approve.** `cerberus.approve` is the owner's console identity session only (decision 0.1). Two rules enforce it:
-- The approve routes refuse any caller that is not a signed-in person with a session: an API key, a token minted
-  from one, or local trust gets `403 user_required`.
+- The approve routes accept only the identity module's session principal (kind `user`, a session id, no token id
+  or parent). An API key, any token minted at `/api/token` (from a key or from the owner's own session), and local
+  trust get `403 user_required`.
 - No machine credential may be minted with `*`, `cerberus.*` or `cerberus.approve`. `api.KeyGuard` refuses this on
   `POST /api/identity/keys` and `/api/identity/pairing-codes`, and the offline `identity key create` refuses the
   same scopes.
