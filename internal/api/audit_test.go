@@ -255,12 +255,17 @@ func TestAuditReanchorIsTheOwners(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(out, `"tail_trusted":false`) || !strings.Contains(out, "the log was cut") {
 		t.Fatalf("plan: %d %s", code, out)
 	}
+	before := out
 	code, out = g.call(t, localTrust, "POST", "/api/audit/reanchor", `{"acknowledged":true}`)
 	wantCode(t, "an MCP client reanchoring", code, out, http.StatusPreconditionRequired, "approval_required")
 	code, out = g.call(t, apiKey, "POST", "/api/audit/reanchor", `{}`)
 	wantCode(t, "a reanchor without the acknowledgment", code, out, http.StatusConflict, "acknowledgment_required")
 
 	id := g.approveAs(t, "/api/audit/reanchor", `{"acknowledged":true}`)
+	// The approval's own records reword the cut; it is the same cut, so the approval still holds.
+	if _, after := g.call(t, apiKey, "POST", "/api/audit/reanchor/plan", ""); !strings.Contains(before, "past the end") || !strings.Contains(after, "not where it was written") {
+		t.Fatalf("the cut was not reworded by the approval's records:\nbefore %s\nafter %s", before, after)
+	}
 	code, out = g.call(t, apiKey, "POST", "/api/audit/reanchor", `{"acknowledged":true,"approval_id":"`+id+`"}`)
 	if code != http.StatusOK || !strings.Contains(out, `"seq":`) || !strings.Contains(out, `"proof":"approval:`+id+`"`) {
 		t.Fatalf("the approved reanchor: %d %s", code, out)
@@ -376,4 +381,70 @@ func TestAuditLaneChainsForTheOldVerify(t *testing.T) {
 		t.Fatalf("a reanchored break still reports its problem and trusts what follows: %v %v", err, checked.Err())
 	}
 	keepAnchor(t, breakDir)
+}
+
+// breakChain continues the old fixture chain with three operations, and returns the file and
+// a function that rewrites the operation on line n from the end under its hash (or restores it).
+func breakChain(t *testing.T, dir string) (*gatedAPI, func(n int, tamper bool)) {
+	t.Helper()
+	head := copyOldChainInto(t, dir)
+	if err := (auditchain.KeychainAnchor{Dir: dir}).Store(head); err != nil {
+		t.Fatal(err)
+	}
+	g, sink := chainAPI(t, dir, &clock{t: time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)})
+	writeOps(t, sink, 3)
+	file := filepath.Join(dir, head.File)
+	data, err := os.ReadFile(file) //nolint:gosec // the test's own dir
+	if err != nil {
+		t.Fatal(err)
+	}
+	pristine := strings.SplitAfter(string(data), "\n")
+	return g, func(n int, tamper bool) {
+		now, rerr := os.ReadFile(file) //nolint:gosec // as above
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		lines := strings.SplitAfter(string(now), "\n")
+		i := len(pristine) - 1 - n
+		lines[i] = pristine[i]
+		if tamper {
+			lines[i] = strings.Replace(pristine[i], `"operation":"stop"`, `"operation":"stap"`, 1)
+		}
+		if werr := os.WriteFile(file, []byte(strings.Join(lines, "")), 0o600); werr != nil { //nolint:gosec // as above
+			t.Fatal(werr)
+		}
+	}
+}
+
+// A reanchor's approval is for the tampering it was asked about: an approval for a rewritten
+// record A does not acknowledge a different rewritten record B, though the chain shows as many
+// problems (409 plan_stale, nothing reanchored); an approval for A, still A after the approval's
+// own records, reanchors it.
+func TestAReanchorApprovalIsForItsTampering(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "audit")
+	g, rewrite := breakChain(t, dir)
+	rewrite(2, true) // A
+	id := g.approveAs(t, "/api/audit/reanchor", `{"acknowledged":true}`)
+	rewrite(2, false)
+	rewrite(4, true) // B: another record, one problem as before
+	_, plan := g.call(t, apiKey, "POST", "/api/audit/reanchor/plan", "")
+	if strings.Count(plan, "hash does not match") != 1 {
+		t.Fatalf("B is not one problem: %s", plan)
+	}
+	code, out := g.call(t, apiKey, "POST", "/api/audit/reanchor", `{"acknowledged":true,"approval_id":"`+id+`"}`)
+	wantCode(t, "an approval for A used on B", code, out, http.StatusConflict, "plan_stale")
+	if checked, err := audit.Check(dir); err != nil || checked.TailTrusted() {
+		t.Fatalf("B was reanchored: %v", err)
+	}
+
+	rewrite(4, false)
+	rewrite(2, true) // A again
+	id = g.approveAs(t, "/api/audit/reanchor", `{"acknowledged":true}`)
+	code, out = g.call(t, apiKey, "POST", "/api/audit/reanchor", `{"acknowledged":true,"approval_id":"`+id+`"}`)
+	if code != http.StatusOK || !strings.Contains(out, `"seq":`) {
+		t.Fatalf("the approved reanchor of A: %d %s", code, out)
+	}
+	if checked, err := audit.Check(dir); err != nil || !checked.TailTrusted() {
+		t.Fatalf("A was not reanchored: %v", err)
+	}
 }
