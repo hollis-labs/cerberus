@@ -25,6 +25,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/dataaccess"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/hostmon"
@@ -55,7 +56,7 @@ type cerberus struct {
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
 // place and never written, with runtime state from the supervision lane (nil: unknown). g is the
 // operation gate and adm the admin lane in supervise mode; both are nil in observe mode.
-func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service, reads *hostmon.Reads) (*api.API, error) {
+func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service, reads *hostmon.Reads, data *dataaccess.Service) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
@@ -95,11 +96,26 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 		Mutator: lane,
 		Gate:    g,
 		Admin:   adm,
+		Data:    data,
 		Policy: &api.PolicyOptions{
 			Store:       policy.Store{Dir: policyDir(home), AuditDir: filepath.Join(dirs.Data, "audit")},
 			Definitions: policyDefinitions(adm),
 		},
 	})
+}
+
+// openDataAccess is the data lane, opt-in by <config dir>/data-access.json, bound to the admin
+// lane (supervise mode only): nil when either is absent.
+func openDataAccess(ctx context.Context, adm *admin.Service, home string) (*dataaccess.Service, error) {
+	if adm == nil {
+		return nil, nil
+	}
+	d, err := dataaccess.Open(ctx, filepath.Join(configDir(home), dataaccess.ConfigFileName))
+	if err != nil || d == nil {
+		return nil, err
+	}
+	adm.BindDataService(d)
+	return d, nil
 }
 
 // policyDefinitions are every operation Cerberus can be asked to run, as old's
@@ -176,7 +192,11 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if id == nil {
 		return errors.New("the identity module must be started")
 	}
-	a, err := newAPI(app, c.home, lane, sup.gate, adm, parts.reads())
+	data, err := openDataAccess(context.WithoutCancel(ctx), adm, c.home)
+	if err != nil {
+		return err
+	}
+	a, err := newAPI(app, c.home, lane, sup.gate, adm, parts.reads(), data)
 	if err != nil {
 		return err
 	}

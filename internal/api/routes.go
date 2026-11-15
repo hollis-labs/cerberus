@@ -26,6 +26,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/admin"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/dataaccess"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/hostmon"
 	"github.com/hollis-labs/cerberus/internal/supervise"
@@ -103,6 +104,9 @@ type Options struct {
 	// Admin is the admin lane (connectors, credentials, plugins), in supervise mode; nil is
 	// observe mode, where its routes answer 503 admin_unavailable.
 	Admin *admin.Service
+	// Data is the data lane (docs/data-access.md): the session-bound data query service, bound
+	// to the admin lane; nil (no data-access.json, or observe mode) answers 503.
+	Data *dataaccess.Service
 	// Policy is the operator's policy, for whoami's posture and the policy and posture routes;
 	// nil reads as the built-in baseline and answers the policy routes 503 policy_unavailable.
 	Policy *PolicyOptions
@@ -214,6 +218,8 @@ func (a *API) table() []Route {
 	)
 	rs = append(rs, a.auditRoutes()...)
 	rs = append(rs, a.policyRoutes()...)
+	// The data lane (the old socket's POST /data/v1/query): a key's read, plus the data session.
+	rs = append(rs, Route{http.MethodPost, "/api/data/v1/query", ScopeRead, a.dataQuery})
 	return append(rs, a.adminRoutes()...)
 }
 
