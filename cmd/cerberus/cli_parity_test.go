@@ -44,59 +44,46 @@ var cliDecisions = map[string]parityDecision{
 	"cerberus --db":     {replaced, "the database path is database.sqlite.path in the override file (conversion-notes, Environment)"},
 
 	// Approvals: decision 0.1 makes deciding the owner's console session alone.
-	"cerberus approvals approve":           {obsolete, "decision 0.1: approvals are decided by the owner signed in to the console (POST /api/approvals/{id}/decide, cerberus.approve, refused on every key); no CLI principal can hold it"},
-	"cerberus approvals deny":              {obsolete, "decision 0.1: as approve; the console decides with approve:false"},
 	"cerberus approvals revoke":            {obsolete, "decision 0.1: revoking is the owner's console act (POST /api/approvals/{id}/revoke, person-only)"},
 	"cerberus approvals ack-break-glass":   {obsolete, "decision 0.1: the owner acknowledges a break-glass follow-up on the console (POST /api/approvals/{id}/ack-break-glass, person-only)"},
 	"cerberus approvals enroll":            {obsolete, "decision 0.1: passkey approvals are dropped; no enrollment"},
 	"cerberus approvals keys":              {obsolete, "decision 0.1: passkey approvals are dropped; the passkey registry is kept in place, unused"},
 	"cerberus approvals enrollment-policy": {obsolete, "decision 0.1: passkey approvals are dropped"},
-	"cerberus approvals":                   {ownerSlice7c, "the group with its list as JSON (--output) over GET /api/approvals (served); its --listen served the passkey browser ceremony, obsolete under decision 0.1"},
-	"cerberus approvals list":              {ownerSlice7c, "reads GET /api/approvals (served, cerberus.read)"},
-	"cerberus approvals show":              {ownerSlice7c, "reads GET /api/approvals/{id} (served, cerberus.read)"},
+	"cerberus approvals --listen":          {obsolete, "decision 0.1: the address of the old `cerberus web` console the approval and passkey links pointed at; the console is the serving Cerberus, and approve/deny name its /approvals page"},
 
 	// Audit: verify is here; the rest read the chain in <data>/audit.
-	"cerberus audit --output":  {ownerSlice7c, "audit query/tail output over the chain this build writes"},
-	"cerberus audit query":     {ownerSlice7c, "reads the hash-chained log in <data>/audit, which this build writes in old's format"},
-	"cerberus audit tail":      {ownerSlice7c, "as audit query"},
-	"cerberus audit prune":     {ownerSlice7c, "a write to the chain: needs the server's audit lane, not a second in-process writer"},
-	"cerberus audit reanchor":  {ownerSlice7c, "re-seats the keychain anchor of <data>/audit; with audit verify's lane"},
-	"cerberus component":       {ownerSlice7c, "the host component inventory; its store and gated writes come with the hosts lane's CLI (slice 8 serves hosts read-only)"},
-	"cerberus config migrate":  {ownerSlice10, "migrated the old config.yaml in place; the import of the old tree is migrate-from"},
-	"cerberus config validate": {ownerSlice7c, "registry and config validation (the console's GET /api/config/validate is slice 11's)"},
+	"cerberus config migrate": {ownerSlice10, "migrated the old config.yaml in place; the import of the old tree is migrate-from"},
 
 	// Connectors.
-	"cerberus connectors describe":                             {ownerSlice7c, "prints a definition from GET /api/connectors (served) with liveness, which needs a live-connectors read"},
 	"cerberus connectors exec --break-glass":                   {obsolete, "break glass needs a person at the CLI (principal human via cli, gate.breakGlassOnCall); under decision 0.1 a key is an agent via api, local trust an agent via mcp_stdio and the console a person via web, so no caller can break glass; an approval now comes from the owner on the console, then --approval <id>. The admin routes serve no break-glass form"},
 	"cerberus connectors exec --reason":                        {obsolete, "the reason of --break-glass, obsolete with it"},
 	"cerberus connectors plugin exec":                          {obsolete, "one-shot run of an unreviewed plugin directory: main itself answers 410 PluginDirRetired on the socket and the console (cerbapi socket_server.go, webui server.go); no client in inventory-clients.md calls it; managed install --dev plus connectors exec replace it"},
 	"cerberus connectors plugin health":                        {obsolete, "one-shot health of a plugin directory, as plugin exec: 410 PluginDirRetired on main; managed health <id> replaces it"},
 	"cerberus connectors plugin managed install --yes":         {obsolete, "the permissive-posture shortcut that skipped the typed id: accepting a review is the owner's (lead's ruling (a), decision 0.1), with no path that skips the owner"},
 	"cerberus connectors plugin managed load --accept-changes": {replaced, "accepting a changed bundle is `connectors plugin managed review <id>` (conversion-notes, Admin lane)"},
-	"cerberus connectors write-plugin-prototype":               {ownerSlice7c, "writes a docker plugin prototype directory; a developer tool, no server lane"},
 
 	// The process and its units.
 	"cerberus daemon":    {ownerLegacy, "replaced by `cerberus serve` under the new unit (slice 12's descriptor); the old daemon verbs stay on $LEGACY until F"},
 	"cerberus install":   {ownerLegacy, "wrote the old daemon unit; the new unit comes from the fleet-install descriptor (slice 12)"},
 	"cerberus uninstall": {ownerLegacy, "as install"},
+	"cerberus path":      {replaced, "printed the old go-apppaths layout and ~/.cerberus/config.yaml; the new paths are `cerberus config` (the resolved config: database path, adopted root) and conversion-notes, Paths"},
 	"cerberus init":      {ownerLegacy, "created the old ~/.cerberus tree and config.yaml; the new data directory is created by serve, the import by migrate-from"},
 	"cerberus web":       {ownerSlice11, "the console moves into the serving process (slice 11); the old console unit is retired"},
 	"cerberus mcp-http":  {ownerSlice9, "MCP over HTTP moves to /mcp on the same host; tokens become API keys"},
 
-	"cerberus data":   {ownerSlice7c, "data query over the data-access lane (internal/dataaccess)"},
-	"cerberus docker": {ownerSlice7c, "the docker connector's verbs; meanwhile `connectors exec docker <op>` runs every one of them over the admin lane"},
-	"cerberus ssh":    {ownerSlice7c, "the ssh connector's verbs; meanwhile `connectors exec ssh <op>` runs every one of them over the admin lane"},
-	"cerberus host":   {ownerSlice7c, "the hosts lane (slice 8) serves GET /api/hosts; its CLI, probes on demand and gated writes come with a hosts CLI"},
-	"cerberus path":   {ownerSlice7c, "printed the old state paths; the new paths are `cerberus config`"},
-
-	"cerberus pipeline":  {ownerSlice7c, "pipeline list/show/plan/run over the pipeline lane (internal/pipeline); the console's /api/pipelines is slice 11's"},
-	"cerberus policy":    {ownerSlice7c, "policy apply/enforce/explain/report over the policy point of slice 6"},
-	"cerberus posture":   {ownerSlice7c, "posture show/set/reset over the policy point of slice 6"},
-	"cerberus portfolio": {ownerSlice7c, "portfolio health over the overview lane"},
-	"cerberus project":   {ownerSlice7c, "project list/show from the registry"},
-	"cerberus schedule":  {ownerSlice7c, "the scheduling core (slice 8, off by default); its CLI comes when it is turned on"},
-	"cerberus validate":  {ownerSlice7c, "validates the registry's descriptors (registry.Resolve)"},
-	"cerberus whoami":    {ownerSlice7c, "the caller's principal and scopes: the key's, from the identity module"},
+	// Slice 7c's verbs with no served backend yet.
+	"cerberus audit prune":         {ownerSlice7c, "a write to the chain: needs the server's audit lane, not a second in-process writer"},
+	"cerberus audit reanchor":      {ownerSlice7c, "re-seats the keychain anchor of <data>/audit; with audit verify's lane"},
+	"cerberus component":           {ownerSlice7c, "the host component inventory; its store and gated writes come with the hosts lane's CLI (slice 8 serves hosts read-only)"},
+	"cerberus connectors describe": {ownerSlice7c, "prints a definition from GET /api/connectors (served) with liveness, which needs a live-connectors read"},
+	"cerberus data":                {ownerSlice7c, "data query over the data-access lane (internal/dataaccess)"},
+	"cerberus host":                {ownerSlice7c, "the hosts lane (slice 8) serves GET /api/hosts; its CLI, probes on demand and gated writes come with a hosts CLI"},
+	"cerberus pipeline":            {ownerSlice7c, "pipeline list/show/plan/run over the pipeline lane (internal/pipeline); the console's /api/pipelines is slice 11's"},
+	"cerberus policy":              {ownerSlice7c, "policy apply/enforce/explain/report over the policy point of slice 6"},
+	"cerberus posture":             {ownerSlice7c, "posture show/set/reset over the policy point of slice 6"},
+	"cerberus portfolio":           {ownerSlice7c, "portfolio health over the overview lane"},
+	"cerberus schedule":            {ownerSlice7c, "the scheduling core (slice 8, off by default); its CLI comes when it is turned on"},
+	"cerberus whoami":              {ownerSlice7c, "the caller's principal and scopes: the key's, from the identity module"},
 
 	// Resource verbs not carried yet, and the break-glass flags.
 	"cerberus resource apply --break-glass":        {obsolete, "break glass needs a person at the CLI, which no caller is under decision 0.1 (see connectors exec --break-glass); legacy-routes.md carries no break-glass form for L7/L8; approvals come from the owner on the console, then --approval <id>"},
@@ -199,7 +186,11 @@ func TestEveryOldVerbIsHereOrDecided(t *testing.T) {
 		}
 		for _, f := range old.flags {
 			name, short, _ := strings.Cut(strings.TrimPrefix(f, "--"), "/-")
+			// A group's own persistent flag is in Flags only once cobra has merged it.
 			got := c.Flags().Lookup(name)
+			if got == nil {
+				got = c.PersistentFlags().Lookup(name)
+			}
 			if got == nil {
 				got = c.InheritedFlags().Lookup(name)
 			}

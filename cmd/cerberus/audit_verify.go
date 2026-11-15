@@ -15,12 +15,19 @@ import (
 	"github.com/hollis-labs/cerberus/internal/gate"
 )
 
-// auditCmd is `cerberus audit verify`: the old build's check of the audit chain (contiguous,
+// auditCmd is `cerberus audit`: verify, the old build's check of the audit chain (contiguous,
 // hash-linked, its anchored head present), plus the owner-session seals on the approvals store
-// (decision 0.1, @archie's ruling (b)). A sealed decision that does not verify fails it; a
-// decision from before the cutover is listed as legacy.
+// (decision 0.1, @archie's ruling (b)), where a sealed decision that does not verify fails it
+// and a decision from before the cutover is listed as legacy; and tail and query, the old reads
+// (cli_audit.go). Its -o is old's, for tail and query.
 func auditCmd() *cobra.Command {
-	group := &cobra.Command{Use: "audit", Short: "The audit chain"}
+	var output string
+	group := &cobra.Command{Use: "audit", Short: "Read and verify the operation audit log"}
+	group.PersistentFlags().StringVarP(&output, "output", "o", outputText, "output format: text|json (JSON is one record per line, as written)")
+	group.AddCommand(auditReadCommands(auditDataDir(func() (string, error) {
+		dirs, err := datadir.Resolve(os.Getenv)
+		return dirs.Data, err
+	}), &output)...)
 	group.AddCommand(&cobra.Command{
 		Use:   "verify",
 		Short: "Verify the audit chain and the approvals' owner-session seals",

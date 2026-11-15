@@ -88,6 +88,11 @@ func rootCommand(ctx context.Context, c *cerberus) *cobra.Command {
 	rootCmd.AddCommand(c.runSecretsCmd(), c.secretsCommand())
 	rootCmd.AddCommand(c.registryCommands()...)
 	rootCmd.AddCommand(c.migrateFromCmd(), manifestCmd(), c.exportLegacyCmd(), importStandbyCmd())
+	if err := c.addFollowUpCommands(rootCmd); err != nil {
+		// The pending table is static: a path it cannot place is a build defect, caught by the
+		// parity test.
+		panic(err)
+	}
 	guardKeyCreate(rootCmd)
 	return rootCmd
 }

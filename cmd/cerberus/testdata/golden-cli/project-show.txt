@@ -1,0 +1,7 @@
+Project: Shop
+Slug:    shop
+
+ID   NAME  TYPE     CONNECTOR
+--   ----  ----     ---------
+box  Box   server   ssh
+dev  Dev   process  local
