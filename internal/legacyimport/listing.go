@@ -37,13 +37,13 @@ func topLevel(name string) (row, kind string) {
 	case name == "brakes" || name == "events":
 		return "R21", "migrated"
 	case name == "oauth" || name == "alerts":
-		return "R21", "pending"
+		return "R21", "migrated"
 	case name == "registry.yaml":
 		return "R14", "in_place"
 	case name == "hosts.yaml":
 		return "R15", "in_place"
 	case name == hosts.HistoryFileName || strings.HasPrefix(name, hosts.HistoryFileName+"."):
-		return "R8", "pending"
+		return "R8", "in_place"
 	case name == "apps" || strings.HasPrefix(name, "plugins") || strings.HasPrefix(name, "plugin-") ||
 		name == "outpost-tokens" || name == "events-tokens" || name == "secrets" || name == "transfers":
 		if strings.HasSuffix(name, ".lock") {
@@ -66,7 +66,7 @@ func topLevel(name string) (row, kind string) {
 
 // listTree lists the snapshot's top level by treatment, the in-place and not-migrated rows with
 // names and sizes only (passkeys, login keys and pid files are never opened).
-func listTree(oldHome string, d Decisions, r *Report) {
+func listTree(oldHome string, r *Report) {
 	entries, err := os.ReadDir(oldHome)
 	if err != nil {
 		r.refuse("read %s: %v", oldHome, err)
@@ -83,6 +83,9 @@ func listTree(oldHome string, d Decisions, r *Report) {
 		entry := Entry{Path: name, Size: size, Dir: e.IsDir(), Row: row}
 		switch kind {
 		case "in_place":
+			if row == "R8" || row == "R15" || name == "plugin-connectors.json" {
+				entry.Note = "in place in the adopted root, which the new build reads; excluded from the D3 manifest"
+			}
 			r.Listed.InPlace = append(r.Listed.InPlace, entry)
 		case "not_migrated":
 			r.Listed.NotMigrated = append(r.Listed.NotMigrated, listChildren(oldHome, name, row)...)
@@ -90,15 +93,6 @@ func listTree(oldHome string, d Decisions, r *Report) {
 			r.Listed.Runtime = append(r.Listed.Runtime, entry)
 		case "archive":
 			r.Listed.Archive = append(r.Listed.Archive, entry)
-		case "pending":
-			switch {
-			case row == "R8" && d.HostsHistory == DecisionInPlace:
-				entry.Note = "pending decision: in place in the adopted root"
-				r.Listed.InPlace = append(r.Listed.InPlace, entry)
-			case row == "R21" && d.OAuthAlerts == DecisionInPlace:
-				entry.Note = "pending decision: in place"
-				r.Listed.InPlace = append(r.Listed.InPlace, entry)
-			}
 		case "unknown":
 			entry.Note = "not part of the inventory: left in place, not migrated"
 			r.Listed.NotMigrated = append(r.Listed.NotMigrated, entry)

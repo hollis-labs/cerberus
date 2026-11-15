@@ -99,7 +99,7 @@ func TestManifestWriteLoadCheck(t *testing.T) {
 	if loaded.Anchor.Absent || len(loaded.Files) < 10 || loaded.DB.HostDumpSHA256 != m.DB.HostDumpSHA256 || loaded.DB.SQLiteSequence["host_events"] != 5 {
 		t.Fatalf("manifest: anchor %+v, %d files, db %+v", loaded.Anchor, len(loaded.Files), loaded.DB)
 	}
-	for _, rel := range []string{"oauth/tokens.jsonl", "registry.yaml", "standby.d/chain.jsonl", "hosts.yaml"} {
+	for _, rel := range []string{"oauth/tokens.jsonl", "registry.yaml", "standby.d/chain.jsonl", "hosts.yaml", "hosts.history.jsonl", "plugin-connectors.json"} {
 		if _, ok := loaded.Files[rel]; ok {
 			t.Errorf("%s is in the manifest; it is excluded", rel)
 		}
@@ -188,7 +188,29 @@ func TestManifestCheckDetectsChangesAndIgnoresCheckpoints(t *testing.T) {
 
 	expect(t, "")
 
+	// The files that stay in place in the adopted root are new's to edit while it runs: a
+	// rollback keeps those edits, so the check does not see them.
+	for _, rel := range []string{"hosts.yaml", "hosts.history.jsonl", "hosts.history.jsonl.1", "plugin-connectors.json", "registry.yaml"} {
+		appendTo(t, filepath.Join(l.home, rel), "\n# edited by the new build\n")
+	}
+	expect(t, "")
+
 	// Last: an event deleted (the janitor's kind of change) is a mismatch.
 	l.exec(t, `DELETE FROM host_events WHERE id = 3`)
 	expect(t, "host_events: 2 rows, was 3")
+}
+
+// appendTo appends to a file of the test's tree, creating it when absent.
+func appendTo(t *testing.T, p, data string) {
+	t.Helper()
+	fh, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600) //nolint:gosec // the test's own tree
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = fh.WriteString(data); err != nil {
+		t.Fatal(err)
+	}
+	if err = fh.Close(); err != nil {
+		t.Fatal(err)
+	}
 }

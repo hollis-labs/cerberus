@@ -115,6 +115,18 @@ func TestRefusalsWriteNothing(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{name: "existing connector-secrets.yaml in the config dir", want: "never replaces", skip: "connector-secrets.yaml", setup: func(t *testing.T, f *legacyimporttest.Fixture, _ *legacyimport.Options) {
+			if err := os.MkdirAll(f.ConfigDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(f.ConfigDir, "connector-secrets.yaml"), "kept: {}\n")
+		}},
+		{name: "non-empty target holding only a database", keepsTarget: true, want: "is not empty", setup: func(t *testing.T, f *legacyimporttest.Fixture, _ *legacyimport.Options) {
+			if err := os.MkdirAll(f.DataDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(f.DataDir, "cerberus.db"), "")
+		}},
 		{name: "receipt state mismatch", want: "do not match its path", setup: func(t *testing.T, f *legacyimporttest.Fixture, _ *legacyimport.Options) {
 			p := filepath.Join(f.OldHome, "credential-issuance", strings.Repeat("a", 32), "completed.json")
 			data, _ := os.ReadFile(p) //nolint:gosec // a path in the test's own dir
@@ -157,8 +169,9 @@ func TestRefusalsWriteNothing(t *testing.T) {
 				t.Fatalf("the new anchor changed: %q, was %q", got, anchorBefore)
 			}
 			if tc.skip != "" {
-				if fi, err := os.Stat(filepath.Join(f.ConfigDir, tc.skip)); err != nil || !fi.IsDir() {
-					t.Fatalf("the config dir's %s changed", tc.skip)
+				entries, err := os.ReadDir(f.ConfigDir)
+				if _, serr := os.Stat(filepath.Join(f.ConfigDir, tc.skip)); serr != nil || err != nil || len(entries) != 1 {
+					t.Fatalf("the config dir changed: %v (%v, %v)", entries, serr, err)
 				}
 				f.ConfigDir = filepath.Join(t.TempDir(), "unused")
 			}

@@ -37,7 +37,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
-	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/secrets"
@@ -69,9 +68,7 @@ type Options struct {
 	// Manifest, when set, is the D3 manifest the snapshot and backup must match; it is copied to
 	// <data>/migration/d3-manifest.json.
 	Manifest string
-	// Decisions are the pending rows' treatments (DefaultDecisions when zero).
-	Decisions Decisions
-	Now       func() time.Time
+	Now      func() time.Time
 	// TestHookAfterBuild, when set, runs after the build is verified and before the commit (a
 	// test changes the source there to prove the final check undoes the commit).
 	TestHookAfterBuild func()
@@ -80,7 +77,6 @@ type Options struct {
 // migration is one run's state.
 type migration struct {
 	o Options
-	d Decisions
 	r *Report
 
 	partial  string // <data>.partial
@@ -117,11 +113,10 @@ func Run(ctx context.Context, o Options) (*Report, error) {
 	if o.Now != nil {
 		now = o.Now
 	}
-	d := o.Decisions.withDefaults()
 	r := &Report{Version: ReportVersion, Started: now().UTC(), OldHome: o.OldHome, OldDB: o.OldDB, OldAnchorAccount: o.OldAnchorAccount,
-		DataDir: o.DataDir, DatabasePath: o.DBPath, ConfigDir: o.ConfigDir, Stores: []StoreRow{}, Decisions: d.report(),
+		DataDir: o.DataDir, DatabasePath: o.DBPath, ConfigDir: o.ConfigDir, Stores: []StoreRow{}, Rulings: rulings(),
 		Warnings: []string{}, Refusals: []string{}}
-	m := &migration{o: o, d: d, r: r, partial: o.DataDir + ".partial", cfgStage: filepath.Join(o.ConfigDir, ".migrate-from.partial")}
+	m := &migration{o: o, r: r, partial: o.DataDir + ".partial", cfgStage: filepath.Join(o.ConfigDir, ".migrate-from.partial")}
 	defer audit.SetAnchor("", nil)
 
 	finish := func(result string, err error) (*Report, error) {
@@ -264,17 +259,7 @@ func (m *migration) build(ctx context.Context) error {
 		}
 		m.row(StoreRow{Row: "R8", Store: "state/" + f, Treatment: "copy", Dest: rel(dst), SourceSHA256: sum.SHA256, DestSHA256: sum.SHA256, Verify: "sha256 equal"})
 	}
-	if m.d.HostsHistory == DecisionCopy {
-		matches, _ := filepath.Glob(filepath.Join(o.OldHome, hosts.HistoryFileName+"*"))
-		for _, src := range matches {
-			dst := filepath.Join(m.partial, "state", filepath.Base(src))
-			sum, cerr := copyFile(src, dst)
-			if cerr != nil {
-				return cerr
-			}
-			m.row(StoreRow{Row: "R8", Store: filepath.Base(src), Treatment: "copy", Dest: rel(dst), SourceSHA256: sum.SHA256, DestSHA256: sum.SHA256, Verify: "sha256 equal"})
-		}
-	}
+	// hosts.history.jsonl and its rotations stay in place in the adopted root (listed by listTree).
 
 	// The database: R1 host tables (Telemetry) and the class A state (Local).
 	if err = m.database(ctx, digester); err != nil {
@@ -299,15 +284,11 @@ func (m *migration) build(ctx context.Context) error {
 	}
 
 	// R21: brakes (state and problems equal; events never rewritten), the export outbox, and
-	// oauth/ and alerts/ (pending: carried inert by default).
+	// oauth/ and alerts/, carried inert (nothing in the new build reads them yet).
 	if err = m.brakes(); err != nil {
 		return err
 	}
-	carry := []string{"events"}
-	if m.d.OAuthAlerts == DecisionCarry {
-		carry = append(carry, "oauth", "alerts")
-	}
-	for _, dir := range carry {
+	for _, dir := range []string{"events", "oauth", "alerts"} {
 		src := filepath.Join(o.OldHome, dir)
 		if !exists(src) {
 			r.Listed.Absent = append(r.Listed.Absent, dir+"/")
@@ -327,13 +308,12 @@ func (m *migration) build(ctx context.Context) error {
 
 	// R13: the config fragment.
 	if m.fragment != nil {
-		where, cerr := m.d.Config.Stage(m.partial, m.fragment)
-		if cerr != nil {
+		if cerr := writePrivate(filepath.Join(m.partial, fragmentRel), m.fragment); cerr != nil {
 			return cerr
 		}
-		r.Config.Output = m.d.Config.Name()
-		r.Config.Fragment = filepath.Join(o.DataDir, where)
-		m.row(StoreRow{Row: "R13", Store: "config.yaml, events.yaml, connector-config.yaml", Treatment: "transform", Dest: filepath.Join("<data>", where),
+		r.Config.Output = fragmentOutput
+		r.Config.Fragment = filepath.Join(o.DataDir, fragmentRel)
+		m.row(StoreRow{Row: "R13", Store: "config.yaml, events.yaml, connector-config.yaml", Treatment: "transform", Dest: filepath.Join("<data>", fragmentRel),
 			DestSHA256: r.Config.FragmentSHA256, Verify: "parses as the cerberus block (settings.Parse)"})
 	}
 

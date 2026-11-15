@@ -536,3 +536,62 @@ func TestConfigListingResourcesIsReported(t *testing.T) {
 		t.Fatal("a listed resource was carried into the fragment")
 	}
 }
+
+// The ruled rows: oauth/ and alerts/ are carried inert into the data dir and reported; the
+// files that stay in the adopted root (hosts.yaml, hosts.history.jsonl and its rotations,
+// plugin-connectors.json) are listed in place and not copied; an empty reservation directory is
+// reported and left where it is.
+func TestRuledRows(t *testing.T) {
+	f := legacyimporttest.Materialize(t, t.TempDir())
+	for _, p := range []string{filepath.Join("oauth", "clients.json"), filepath.Join("alerts", "rules.yaml"), "hosts.history.jsonl.1"} {
+		if err := os.MkdirAll(filepath.Join(f.OldHome, filepath.Dir(p)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(f.OldHome, p), "inert\n")
+	}
+	rep, err := legacyimport.Run(context.Background(), options(f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	carried := map[string]bool{}
+	for _, s := range rep.Stores {
+		if s.Row == "R21" {
+			carried[s.Store] = true
+		}
+	}
+	for _, dir := range []string{"oauth", "alerts"} {
+		if !carried[dir+"/"] {
+			t.Errorf("%s/ has no store row: %+v", dir, rep.Stores)
+		}
+		if contains(rep.Listed.Absent, dir+"/") {
+			t.Errorf("%s/ reported absent", dir)
+		}
+	}
+	for _, p := range []string{filepath.Join("oauth", "clients.json"), filepath.Join("alerts", "rules.yaml")} {
+		if data, err := os.ReadFile(filepath.Join(f.DataDir, p)); err != nil || string(data) != "inert\n" { //nolint:gosec // a path in the test's own dir
+			t.Errorf("%s not carried: %q %v", p, data, err)
+		}
+	}
+	inPlace := map[string]legacyimport.Entry{}
+	for _, e := range rep.Listed.InPlace {
+		inPlace[e.Path] = e
+	}
+	for _, name := range []string{"hosts.yaml", "hosts.history.jsonl", "hosts.history.jsonl.1", "plugin-connectors.json"} {
+		if e, ok := inPlace[name]; !ok || !strings.Contains(e.Note, "excluded from the D3 manifest") {
+			t.Errorf("%s not listed in place: %+v", name, e)
+		}
+		if _, err := os.Lstat(filepath.Join(f.DataDir, "state", name)); !os.IsNotExist(err) {
+			t.Errorf("%s was copied into the data dir (%v)", name, err)
+		}
+	}
+	empty := strings.Repeat("d", 32)
+	if !reflect.DeepEqual(rep.Receipts.ReservationsWithoutReceipt, []string{empty}) {
+		t.Errorf("reservations without a receipt: %v", rep.Receipts.ReservationsWithoutReceipt)
+	}
+	if fi, err := os.Stat(filepath.Join(f.OldHome, "credential-issuance", empty)); err != nil || !fi.IsDir() {
+		t.Errorf("the empty reservation was not left in place: %v", err)
+	}
+	if len(rep.Rulings) == 0 {
+		t.Error("the report does not list the rulings")
+	}
+}

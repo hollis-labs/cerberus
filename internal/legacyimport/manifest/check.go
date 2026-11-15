@@ -8,13 +8,12 @@ import (
 	"sort"
 )
 
-// Check takes the tree as it is now with the manifest's own scope and compares: every file's
+// Check takes the tree as it is now and compares: every file's
 // sha256 (a file that appeared where the manifest recorded none is a mismatch, as is a new
 // paused.<id> or receipt), the reservation directories, the anchor's head, and main.db
 // logically. It returns the mismatches, first the files in path order; none means the tree
 // matches. The database is opened read-only (o.Live: through its WAL, never checkpointing).
 func Check(ctx context.Context, m *Manifest, o Options) ([]string, error) {
-	o.Scope = m.Scope
 	if o.AnchorAccount == "" && m.Anchor.Account != "" {
 		o.AnchorAccount = m.Anchor.Account
 	}

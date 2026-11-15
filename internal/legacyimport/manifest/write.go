@@ -5,10 +5,11 @@
 // audit anchor's head. export-legacy refuses a rollback unless the old tree still matches it,
 // and migrate-from checks its snapshot against it.
 //
-// Excluded: standby.d/ (old's own record of the window), registry.yaml (new may register while
-// it runs; old reads the same format), the cerberus-substrate unit, *.lock, cerberus.log, the
-// adopted root (apps, plugins, tokens), and main.db's -wal and -shm bytes. Pending a lead ruling
-// (Scope): hosts.history.jsonl, hosts.yaml and plugin-connectors.json, excluded by default.
+// Excluded: standby.d/ (old's own record of the window); registry.yaml, hosts.yaml,
+// hosts.history.jsonl and its rotations, and plugin-connectors.json (they stay in place in the
+// adopted root and new edits them while it runs; old reads the same format, so a rollback keeps
+// new's edits rather than refusing on them); the cerberus-substrate unit, *.lock, cerberus.log,
+// the rest of the adopted root (apps, plugins, tokens), and main.db's -wal and -shm bytes.
 //
 // It reads only: files are hashed, the keychain item is read, and the database is opened
 // read-only (immutable for a backup; plain read-only for the live file, which reads through its
@@ -48,8 +49,6 @@ type Manifest struct {
 	// path, so a snapshot of the tree checks against it).
 	OldHome string `json:"old_home"`
 	OldDB   string `json:"old_db"`
-	// Scope is what beyond the fixed set it covers.
-	Scope Scope `json:"scope"`
 	// Files are every file in scope by path relative to the old home: sha256 and size, or
 	// absent, so a file that appears later is a mismatch.
 	Files map[string]File `json:"files"`
@@ -80,14 +79,6 @@ type Anchor struct {
 	Head    json.RawMessage `json:"head,omitempty"`
 }
 
-// Scope widens the manifest past the fixed set. Each field waits on a lead ruling; all default
-// false (excluded).
-type Scope struct {
-	HostsHistory     bool `json:"hosts_history,omitempty"`
-	HostsYAML        bool `json:"hosts_yaml,omitempty"`
-	PluginConnectors bool `json:"plugin_connectors,omitempty"`
-}
-
 // Options say what to take or check.
 type Options struct {
 	OldHome string
@@ -97,9 +88,8 @@ type Options struct {
 	AnchorAccount string
 	// Live opens the database read-only through its WAL (the live main.db); otherwise it is
 	// opened immutable (a backup nothing writes).
-	Live  bool
-	Scope Scope
-	Now   func() time.Time
+	Live bool
+	Now  func() time.Time
 }
 
 // fixedFiles are the files export-legacy could touch that have one name each. Absent ones are
@@ -116,7 +106,8 @@ var fixedFiles = []string{
 
 // excluded is the documented exclusion list.
 var excluded = []string{
-	"standby.d/", "registry.yaml", "the cerberus-substrate unit file", "*.lock", "cerberus.log",
+	"standby.d/", "registry.yaml", "hosts.yaml", "hosts.history.jsonl*", "plugin-connectors.json",
+	"the cerberus-substrate unit file", "*.lock", "cerberus.log",
 	"the adopted root (apps/, plugins*, outpost-tokens/, events-tokens/, secrets/, transfers/, credential-issuance/secrets/)",
 	"main.db-wal and main.db-shm bytes (main.db is recorded logically)",
 }
@@ -137,10 +128,10 @@ func Take(ctx context.Context, o Options) (*Manifest, error) {
 	if o.Now != nil {
 		now = o.Now
 	}
-	m := &Manifest{Version: Version, CreatedAt: now().UTC(), OldHome: o.OldHome, OldDB: o.OldDB, Scope: o.Scope,
+	m := &Manifest{Version: Version, CreatedAt: now().UTC(), OldHome: o.OldHome, OldDB: o.OldDB,
 		Files: map[string]File{}, Dirs: []string{}, Excluded: excluded}
 	var err error
-	if m.Files, m.Dirs, err = files(o.OldHome, o.Scope); err != nil {
+	if m.Files, m.Dirs, err = files(o.OldHome); err != nil {
 		return nil, err
 	}
 	if m.Anchor, err = readAnchor(o.account()); err != nil {
@@ -153,7 +144,7 @@ func Take(ctx context.Context, o Options) (*Manifest, error) {
 }
 
 // files hashes every file in scope.
-func files(home string, scope Scope) (map[string]File, []string, error) {
+func files(home string) (map[string]File, []string, error) {
 	out := map[string]File{}
 	add := func(rel string) error {
 		p := filepath.Join(home, filepath.FromSlash(rel))
@@ -176,15 +167,6 @@ func files(home string, scope Scope) (map[string]File, []string, error) {
 		return nil
 	}
 	rels := append([]string(nil), fixedFiles...)
-	if scope.HostsYAML {
-		rels = append(rels, "hosts.yaml")
-	}
-	if scope.PluginConnectors {
-		rels = append(rels, "plugin-connectors.json")
-	}
-	if scope.HostsHistory {
-		rels = append(rels, "hosts.history.jsonl")
-	}
 	for _, pattern := range []string{"audit/*.jsonl", "paused.*", "credential-issuance/*/*.json"} {
 		matches, err := filepath.Glob(filepath.Join(home, filepath.FromSlash(pattern)))
 		if err != nil {
@@ -197,12 +179,6 @@ func files(home string, scope Scope) (map[string]File, []string, error) {
 				continue
 			}
 			rels = append(rels, rel)
-		}
-	}
-	if scope.HostsHistory {
-		rotated, _ := filepath.Glob(filepath.Join(home, "hosts.history.jsonl.*"))
-		for _, m := range rotated {
-			rels = append(rels, filepath.Base(m))
 		}
 	}
 	for _, rel := range rels {

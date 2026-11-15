@@ -59,10 +59,11 @@ type Report struct {
 	PluginDigests map[string]string `json:"plugin_digests,omitempty"`
 	Listed        Listed            `json:"listed"`
 
-	// Decisions are the pending-decision defaults this run applied (decisions.go).
-	Decisions map[string]string `json:"decisions"`
-	Warnings  []string          `json:"warnings"`
-	Refusals  []string          `json:"refusals"`
+	// Rulings are the lead's rulings on the rows the spec left pending (rulings.go): fixed
+	// treatments, listed so the report says what was done with each.
+	Rulings  map[string]string `json:"rulings"`
+	Warnings []string          `json:"warnings"`
+	Refusals []string          `json:"refusals"`
 }
 
 // ManifestReport is the D3 manifest the snapshot was checked against.

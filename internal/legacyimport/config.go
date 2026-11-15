@@ -17,29 +17,12 @@ import (
 	"github.com/hollis-labs/cerberus/internal/settings"
 )
 
-// ConfigWriter places R13's output: the old config.yaml, events.yaml and connector-config.yaml
-// keys as the new build's cerberus block. Where it goes waits on a lead ruling, so the
-// transform is one thing and its output another.
-type ConfigWriter interface {
-	// Name is the output as the report names it.
-	Name() string
-	// Stage writes the fragment (YAML, a top-level "cerberus" block) under the staged data
-	// directory, and returns its path relative to the data directory.
-	Stage(stagedData string, fragment []byte) (rel string, err error)
-}
-
-// FragmentFile is the default ConfigWriter: <data>/migration/config-fragment.yaml (0600), for
-// the operator to merge into the SUBSTRATE_CONFIG override file. Nothing reads it at start.
-type FragmentFile struct{}
-
-// Name implements ConfigWriter.
-func (FragmentFile) Name() string { return "fragment file <data>/migration/config-fragment.yaml" }
-
-// Stage implements ConfigWriter.
-func (FragmentFile) Stage(stagedData string, fragment []byte) (string, error) {
-	rel := filepath.Join("migration", "config-fragment.yaml")
-	return rel, writePrivate(filepath.Join(stagedData, rel), fragment)
-}
+// The config fragment (rulings.go): the operator merges it into the SUBSTRATE_CONFIG override
+// file in a runbook step. Nothing reads it at start.
+const (
+	fragmentRel    = "migration/config-fragment.yaml"
+	fragmentOutput = "fragment file <data>/migration/config-fragment.yaml"
+)
 
 // Config keys: where each old key goes. Every key of the three files is in one of these, or the
 // run refuses naming it.

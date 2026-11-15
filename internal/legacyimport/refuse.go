@@ -127,11 +127,11 @@ func (m *migration) preflight(ctx context.Context) error {
 	// R9 to R11, R13, R14, R15, the listings.
 	m.applied = readApplied(o.OldHome, r)
 	m.pause = readPause(o.OldHome, r)
-	m.receipts = readReceipts(o.OldHome, m.d, r)
+	m.receipts = readReceipts(o.OldHome, r)
 	m.fragment, r.Config = transformConfig(o.OldHome, o.Home, r)
 	r.Registry, m.resolved = inspectRegistry(o.OldHome, r)
 	r.Hosts = inspectHosts(o.OldHome, r)
-	listTree(o.OldHome, m.d, r)
+	listTree(o.OldHome, r)
 	if digests := pluginDigests(o.OldHome); len(digests) > 0 {
 		r.PluginDigests = digests
 	}

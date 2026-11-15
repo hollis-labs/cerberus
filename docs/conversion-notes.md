@@ -25,16 +25,18 @@ adds its rows. The plan is `docs/substrate-port-plan.md`.
 | `~/.cerberus/paused`, `paused.<id>` | `pause_state` in the class A store (migrated by slice 10) |
 | `~/.cerberus/runtime/applied.json` | `applied_definitions` in the class A store, same digests (key `<data dir>/audit/.digest_key`) |
 | `~/.cerberus/brakes/` | `<data dir>/brakes/` (copied if present) |
-| `~/.cerberus/hosts.yaml` | Unchanged, adopted in place (`<adopt_root>/hosts.yaml`); Outpost `token_file` paths keep pointing into the adopted root and are read in place on every call |
+| `~/.cerberus/hosts.yaml` | Unchanged, adopted in place (`<adopt_root>/hosts.yaml`); Outpost `token_file` paths keep pointing into the adopted root and are read in place on every call. `migrate-from` leaves it there and the D3 manifest excludes it, like `registry.yaml`: the new build edits it while it runs, and old reads the same format, so a rollback keeps those edits |
+| `~/.cerberus/hosts.history.jsonl` and its rotations | Unchanged, in place beside `hosts.yaml` in the adopted root, where the new build appends to it. Not copied by `migrate-from` and excluded from the D3 manifest, for the same reason as `hosts.yaml` |
 | `~/.cerberus/state/hosts.json` | `<data dir>/state/hosts.json` in supervise mode (copied by slice 10); observe mode reads the old file in place and never writes it |
 | `~/.cerberus/events/` (export outbox and hub cursor) | `<data dir>/events/`; export is off (`cerberus.event_export.enabled: false`) |
 | `~/.cerberus/events-tokens/` | Unchanged, adopted in place; written by the renewal job, read only by the hub relay through the eventbus environment when export and its hub are on |
 | `~/.cerberus/plugins/`, `plugin-data/`, `plugin-cache/` | Unchanged, adopted in place (`<adopt_root>/…`): the reviewed bundles at their recorded paths and digests, each plugin's data and cache directories |
-| `~/.cerberus/plugin-connectors.json` | Unchanged, shared in place (`<adopt_root>/plugin-connectors.json`), same format (version 2). Supervise mode reads it at start and writes it, under old's lock (`.lock`, flock) with an atomic 0600 rename, only when the operator loads, unloads, reloads or uninstalls a plugin; stopping plugins at exit does not rewrite it. Only one build runs plugins at a time |
+| `~/.cerberus/plugin-connectors.json` | Unchanged, shared in place (`<adopt_root>/plugin-connectors.json`), same format (version 2). Supervise mode reads it at start and writes it, under old's lock (`.lock`, flock) with an atomic 0600 rename, only when the operator loads, unloads, reloads or uninstalls a plugin; stopping plugins at exit does not rewrite it. Only one build runs plugins at a time. `migrate-from` leaves it in place (reporting the bundle digests it records) and the D3 manifest excludes it, like `registry.yaml`, so a rollback keeps new's edits |
 | `~/.cerberus/credential-issuance/<id>/<state>.json` (receipts) | `credential_issuance_receipts` in the class A store; inserting the `preparing` receipt is the exclusive reservation of an issuance id (migrated by slice 10). The issued secrets stay files in the adopted root, `<adopt_root>/credential-issuance/secrets/issued/<id>/<name>` |
 | `~/.cerberus/connector-secrets.yaml` | `<config dir>/cerberus/connector-secrets.yaml` (`$XDG_CONFIG_HOME/cerberus`, beside the policy), copied at 0600 by slice 10 |
 | `~/.cerberus/connector-config.yaml` | `cerberus.connectors` in the override file (Settings) |
-| `transfers.root` (default `~/.cerberus/transfers`) | `<adopt_root>/transfers`, fixed; the old config key is not read |
+| `transfers.root` (default `~/.cerberus/transfers`) | `<adopt_root>/transfers`, fixed; the old config key is not read. `migrate-from` refuses an old config that set another root, and reports the default or an unset key |
+| `~/.cerberus/oauth/`, `alerts/` | `<data dir>/oauth/`, `<data dir>/alerts/`: copied inert by `migrate-from` and reported; nothing in the new build reads them yet |
 
 ## Environment
 

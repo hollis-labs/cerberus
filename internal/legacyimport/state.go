@@ -144,7 +144,7 @@ type receipts struct {
 
 // readReceipts parses credential-issuance/<id>/<state>.json, skipping secrets/ (the issued
 // values, in place). A name, state or id that does not match its path is refused.
-func readReceipts(oldHome string, d Decisions, r *Report) receipts {
+func readReceipts(oldHome string, r *Report) receipts {
 	out := receipts{byFile: map[string]storage.Receipt{}}
 	root := filepath.Join(oldHome, "credential-issuance")
 	entries, err := os.ReadDir(root)
@@ -172,10 +172,8 @@ func readReceipts(oldHome string, d Decisions, r *Report) receipts {
 			continue
 		}
 		if len(files) == 0 {
+			// A reservation without a receipt: reported and left in place (rulings.go).
 			out.empty = append(out.empty, name)
-			if d.EmptyReservations == DecisionRefuse {
-				r.refuse("credential-issuance/%s is a reservation without a receipt", name)
-			}
 			continue
 		}
 		for _, f := range files {

@@ -31,7 +31,9 @@ type Table struct {
 	Name    string
 	Columns []string
 	Key     []string
-	// TimeColumn is the table's time column for max_time.
+	// TimeColumn is the table's time column for max_time (fixed by the 10a ruling: ts for samples
+	// and events, bucket_ts for rollups, watermark for host_rollup_state, last_attempt for
+	// host_status, the newest probe whether or not it succeeded).
 	TimeColumn string
 }
 
