@@ -93,6 +93,8 @@ The owner holds `*`. The access-keys page offers only read, operate and admin.
 | registry | POST **W** gated | `/api/registry/deregister` | admin | `{owner}` | `{success}` |
 | credentials | GET | `/api/credentials` | read | | `CredentialsResponse` (presence only, never values) |
 | credentials | POST **W** gated | `/api/credentials/{id}` | admin | `{secrets?, clear_secrets?}` | `CredentialSaveResult` |
+| (CLI `secrets set`) | GET | `/api/secrets/{service}/{key}` | read | | `{name, present}` (never the value) |
+| (CLI `secrets set`) | POST **W** gated | `/api/secrets/{service}/{key}` | admin | `{value}` | `SecretSetResult` `{success, name, length, existed}`; recorded as `secrets.set`, any well-formed name (no declaring connector needed) |
 | connectors | GET | `/api/connectors` | read | | `ConnectorDefinition[]` |
 | connectors | POST **W** gated | `/api/connectors/{id}/operations/{op}` | admin | `ConnectorOperationRequest` `{config?, dry_run?, acknowledged?}` | `ConnectorOperationResult` |
 | plugins | GET | `/api/plugins/connectors` | read | | `ManagedPluginState[]` |

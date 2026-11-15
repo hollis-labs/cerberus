@@ -62,8 +62,12 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	}
 	defer func() { _ = started.Stop(context.Background()) }()
 
-	c := &cerberus{app: started.App, home: home(getenv)}
-	rootCmd := cli.Root(started.App)
+	return rootCommand(ctx, &cerberus{app: started.App, home: home(getenv)}).ExecuteContext(ctx)
+}
+
+// rootCommand is the whole CLI over a started app: Substrate's root and every Cerberus verb.
+func rootCommand(ctx context.Context, c *cerberus) *cobra.Command {
+	rootCmd := cli.Root(c.app)
 	serve := c.serveCmd(ctx)
 	// `cerberus` with no command serves, like `cerberus serve`.
 	rootCmd.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
@@ -75,7 +79,7 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 	rootCmd.AddCommand(c.runSecretsCmd(), c.secretsCommand())
 	rootCmd.AddCommand(c.registryCommands()...)
 	guardKeyCreate(rootCmd)
-	return rootCmd.ExecuteContext(ctx)
+	return rootCmd
 }
 
 // guardKeyCreate refuses `cerberus identity key create` with a scope no machine credential may

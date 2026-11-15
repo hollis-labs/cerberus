@@ -1,0 +1,157 @@
+cerberus	--config --db
+cerberus approvals	--listen --output/-o
+cerberus approvals ack-break-glass	--note
+cerberus approvals approve	--browser --reason
+cerberus approvals deny	--reason
+cerberus approvals enroll	--browser --label
+cerberus approvals enrollment-policy	
+cerberus approvals keys	
+cerberus approvals keys remove	--browser
+cerberus approvals list	--status
+cerberus approvals revoke	--reason
+cerberus approvals show	
+cerberus audit	--output/-o
+cerberus audit prune	--before
+cerberus audit query	--connector --limit --op --outcome --since --surface --target --until
+cerberus audit reanchor	
+cerberus audit tail	--lines/-n
+cerberus audit verify	
+cerberus breaker	
+cerberus breaker list	
+cerberus breaker reset	
+cerberus component	--json --output/-o
+cerberus component create	--ack --approval-id --host --id --kind --notes --patch --patch-file --revision --serial --size --slot --spare --speed --type
+cerberus component get	
+cerberus component history	--limit
+cerberus component list	--host --kind --spare
+cerberus component move	--ack --approval-id --host --revision --slot --spare
+cerberus component remove	--ack --approval-id --revision
+cerberus component update	--ack --approval-id --kind --notes --patch --patch-file --revision --serial --size --speed --type
+cerberus config	
+cerberus config migrate	--dry-run
+cerberus config validate	
+cerberus connectors	
+cerberus connectors describe	
+cerberus connectors exec	--ack --approval --arg --arg-json --break-glass --dry-run --input --reason
+cerberus connectors plan	--ack --arg --arg-json --input
+cerberus connectors plugin	
+cerberus connectors plugin exec	--ack --arg --arg-json --dev --dry-run --input
+cerberus connectors plugin health	--dev
+cerberus connectors plugin managed	
+cerberus connectors plugin managed health	
+cerberus connectors plugin managed install	--dev --yes
+cerberus connectors plugin managed list	
+cerberus connectors plugin managed load	--accept-changes
+cerberus connectors plugin managed review	
+cerberus connectors plugin managed uninstall	
+cerberus connectors plugin managed unload	
+cerberus connectors write-plugin-prototype	--build-binary
+cerberus daemon	--foreground --override-launchd --override-supervisor --replace
+cerberus daemon restart	--override-launchd --override-supervisor
+cerberus daemon start	--foreground --override-launchd --override-supervisor --replace
+cerberus daemon status	
+cerberus daemon stop	--override-launchd --override-supervisor
+cerberus data	
+cerberus data query	--token-file
+cerberus deregister	
+cerberus docker	
+cerberus docker destroy	--ack --context --file/-f --host/-H
+cerberus docker down	--ack --context --file/-f --host/-H
+cerberus docker logs	--context --host/-H --lines
+cerberus docker ps	--context --host/-H
+cerberus docker up	--ack --context --file/-f --host/-H
+cerberus freeze	--approval --off --reason --scope
+cerberus host	--json --output/-o
+cerberus host act	--ack --approval-id --lines
+cerberus host capacity	--disk-type --explain --free-memory-slots --free-slot --include-offline --label --max-age --min-cpu --min-disk --min-disk-size --min-memory --min-memory-total --min-memory-upgrade --provider --recent-max-load --recent-min-disk --recent-min-memory --recent-window --role --status --tool
+cerberus host events	--after-id --follow --host --limit
+cerberus host get	
+cerberus host history	--limit
+cerberus host inventory	--ack --approval-id --dry-run --revision
+cerberus host list	--label --provider --role --state
+cerberus host monitor	
+cerberus host plan	--ack --approval-id --lines
+cerberus host probe	
+cerberus host remove	--ack --approval-id --revision
+cerberus host samples	--grain --limit --since --until
+cerberus host set	--ack --approval-id --create --label --owner --patch --patch-file --revision --role --unlabel
+cerberus host status	
+cerberus init	
+cerberus install	
+cerberus lockdown	--approval --off --reason
+cerberus mcp	
+cerberus mcp-http	--allow-host --allow-origin --insecure-listen --listen --no-auth --path --tls-cert --tls-key
+cerberus mcp-http token	
+cerberus mcp-http token issue	--client --scope --ttl
+cerberus mcp-http token list	
+cerberus mcp-http token revoke	
+cerberus path	
+cerberus pipeline	
+cerberus pipeline list	
+cerberus pipeline plan	--ack
+cerberus pipeline run	--ack --approval --break-glass --reason
+cerberus pipeline show	
+cerberus policy	
+cerberus policy apply	
+cerberus policy enforce	--all --id --off --scope --since
+cerberus policy explain	--adhoc --as --dry-run --output/-o --target --working
+cerberus policy report	--output/-o --scope --since --until
+cerberus portfolio	
+cerberus portfolio health	--host --include-unsupervised --json --kind --mode --output/-o --project --rollup-status
+cerberus posture	
+cerberus posture reset	--scope
+cerberus posture set	--scope
+cerberus posture show	--output/-o
+cerberus project	
+cerberus project list	--output/-o
+cerberus project show	
+cerberus register	
+cerberus registry	
+cerberus registry health	
+cerberus registry list	--output/-o
+cerberus resource	
+cerberus resource apply	--ack --approval --break-glass --reason
+cerberus resource deploy	--ack --approval --break-glass --install-after-build --no-install-after-build --reason
+cerberus resource doctor	
+cerberus resource ensure-fresh	--ack --approval --break-glass --force --install-after-build --no-install-after-build --reason
+cerberus resource inspect	
+cerberus resource list	--output/-o --project
+cerberus resource logs	--approval --lines/-n --stream
+cerberus resource plan	--ack
+cerberus resource reload	--ack --approval --break-glass --reason
+cerberus resource remove	--ack --approval --break-glass --reason
+cerberus resource show	
+cerberus resource status	--output/-o
+cerberus resource stop	--ack --approval --break-glass --reason
+cerberus resource sync	--ack --approval --break-glass --reason
+cerberus run-secrets	
+cerberus schedule	--json
+cerberus schedule admin-view	--ack --app --approval-id --id --state
+cerberus schedule create	--ack --app --approval-id --file --id --idempotency-key
+cerberus schedule delete	--ack --app --approval-id --id --revision
+cerberus schedule dry-run	--after --app --file --id --limit
+cerberus schedule get	--app --id
+cerberus schedule history	--app --id --limit
+cerberus schedule list	--app --id --state
+cerberus schedule logs	--app --fire-id --id
+cerberus schedule pause	--ack --app --approval-id --id --revision
+cerberus schedule register	--ack --app --approval-id --file --id --idempotency-key
+cerberus schedule resume	--ack --app --approval-id --id --revision
+cerberus schedule run-now	--ack --app --approval-id --id --request-id
+cerberus schedule update	--ack --app --approval-id --file --id --revision
+cerberus secrets	
+cerberus secrets set	
+cerberus ssh	
+cerberus ssh exec	--ack --dry-run
+cerberus ssh get	--ack
+cerberus ssh get-dir	--ack
+cerberus ssh put	--ack --dry-run
+cerberus ssh put-dir	--ack --dry-run
+cerberus ssh status	
+cerberus ssh stop	--ack --dry-run
+cerberus status	--output/-o
+cerberus uninstall	
+cerberus validate	
+cerberus web	--listen --open --session-idle --wait-for-daemon
+cerberus web open	--browser
+cerberus whoami	--output/-o
