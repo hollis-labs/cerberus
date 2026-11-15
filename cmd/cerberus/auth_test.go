@@ -276,7 +276,7 @@ func TestCLIReadsOverHTTPWithItsKeyFile(t *testing.T) {
 	if code, out := runWithStdin(t, s, "correct horse battery staple\n", "identity", "setup", "--username", "owner", "--display-name", "Owner"); code != 0 {
 		t.Fatalf("identity setup: %d %s", code, out)
 	}
-	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cli", "--scope", "cerberus.read", "--out", keyFile); code != 0 {
+	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cerberus-cli", "--scope", "cerberus.read", "--out", keyFile); code != 0 {
 		t.Fatalf("key create: %d %s", code, out)
 	}
 	cmd, base, log := start(t, s)
@@ -323,7 +323,7 @@ func TestCLIReadsOverHTTPWithItsKeyFile(t *testing.T) {
 	}
 	revoked := false
 	for _, k := range listed.Keys {
-		if k.Name == "cli" {
+		if k.Name == "cerberus-cli" {
 			if dc, db := send("DELETE", "/api/identity/keys/"+k.ID, ""); dc/100 != 2 {
 				t.Fatalf("revoke: %d %s", dc, db)
 			}

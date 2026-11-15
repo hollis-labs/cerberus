@@ -71,7 +71,7 @@ func TestLockdownEngagedByTheCLIAndLiftedWithTheOwnersApproval(t *testing.T) {
 	if code, out := runWithStdin(t, s, "correct horse battery staple\n", "identity", "setup", "--username", "owner", "--display-name", "Owner"); code != 0 {
 		t.Fatalf("identity setup: %d %s", code, out)
 	}
-	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cli", "--scope", "cerberus.read", "--scope", "cerberus.operate", "--scope", "cerberus.admin", "--out", keyFile); code != 0 {
+	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cerberus-cli", "--scope", "cerberus.read", "--scope", "cerberus.operate", "--scope", "cerberus.admin", "--out", keyFile); code != 0 {
 		t.Fatalf("key create: %d %s", code, out)
 	}
 	raw, err := os.ReadFile(keyFile) //nolint:gosec // the test's temp file

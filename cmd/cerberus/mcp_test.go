@@ -149,7 +149,7 @@ func TestMCPForwardsToServeAndTheAuditNamesTheChannel(t *testing.T) {
 	if code, out := runWithStdin(t, s, "correct horse battery staple\n", "identity", "setup", "--username", "owner", "--display-name", "Owner"); code != 0 {
 		t.Fatalf("identity setup: %d %s", code, out)
 	}
-	for name, file := range map[string]string{"cli": cliKeyFile, "cerberus-mcp": mcpKeyFile} {
+	for name, file := range map[string]string{"cerberus-cli": cliKeyFile, "cerberus-mcp": mcpKeyFile} {
 		if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", name, "--scope", "cerberus.read",
 			"--scope", "cerberus.operate", "--scope", "cerberus.admin", "--out", file); code != 0 {
 			t.Fatalf("key create %s: %d %s", name, code, out)

@@ -238,7 +238,7 @@ Served today:
 (`api.GateContext`): the owner's console session is a human via `web`, named by its session; local trust (MCP stdio)
 is an agent via `mcp_stdio`; an MCP tool call is an agent via `mcp_http` (HTTP `/mcp`, stamped in-process) or
 `mcp_stdio` (`cerberus mcp`'s own key, named `cerberus-mcp`), whoever sent it, with the MCP client's clientInfo name as
-its client (a label, unverified, as on main) and the principal id as its session; the CLI's key (named `cli`) is an
+its client (a label, unverified, as on main) and the principal id as its session; the CLI's key (named `cerberus-cli`, D6) is an
 agent via `cli`; any other API key, any token minted at `/api/token` and auth's off-mode operator are agents via
 `api`. An agent's principal id is its client and its session, so an approval one key asked for is not usable by
 another (`approval.SameRequester`). The label chooses default policy; it is never approval.
@@ -330,7 +330,9 @@ through `cerberus mcp`. The server is `cerberus` 0.1.0, as on main.
 - **The caller is the MCP client's, as on main.** The gate records HTTP `/mcp` as an agent via `mcp_http` and
   `cerberus mcp` as an agent via `mcp_stdio`, each with the MCP client's name (`api.MCPClientHeader` carries it from
   stdio, read only from the `cerberus-mcp` key's calls), so policy rules naming a client match as before, and the
-  circuit breaker (kind, channel, session) suspends an MCP caller without touching the CLI's.
+  circuit breaker (kind, channel, session) suspends an MCP caller without touching the CLI's. All stdio clients share
+  one breaker, the `cerberus-mcp` key's session (main kept one per client name): a trip suspends every stdio MCP
+  client together, failing closed, until a person resets it.
 - **Answers are main's.** Lists page into `{items,count,total,truncated,hint}`, reads are indented JSON, mutations
   answer `{success,message,error}` with `isError` on failure, and a gate refusal is main's structured refusal with
   its code, approval and next step (pointing at the console: decision 0.1).

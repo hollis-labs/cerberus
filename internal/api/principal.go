@@ -23,8 +23,8 @@ const LocalTrustID = "local:operator"
 // and the name of an API key (not of a token minted from it) says which client it is, as the
 // old socket told the CLI and `cerberus mcp` apart (plan section 6, key list at D6).
 const (
-	// CLIKeyName is the CLI's key (cerberus.cli_key_file): its calls are via cli.
-	CLIKeyName = "cli"
+	// CLIKeyName is the CLI's key (cerberus.cli_key_file; plan D6): its calls are via cli.
+	CLIKeyName = "cerberus-cli"
 	// MCPKeyName is `cerberus mcp`'s key (cerberus.mcp_key_file): its calls are via mcp_stdio,
 	// labeled with the MCP client the forwarder names in MCPClientHeader.
 	MCPKeyName = "cerberus-mcp"
