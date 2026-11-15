@@ -167,6 +167,10 @@ export interface ResourceInfo {
   recommended_action?: string
   recommended_next_step?: string
   tags?: string[]
+  // Target labels; "unknown" when the descriptor does not declare them.
+  env: string
+  owner: string
+  admin: string
 }
 
 export interface ResourceRuntimeStatus extends ResourceInfo {

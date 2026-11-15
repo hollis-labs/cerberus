@@ -62,7 +62,8 @@ export const cerberus = {
   settings: () => request<SettingsInfo>("settings"),
   listProjects: () => request<ProjectInfo[]>("projects"),
   listResources: () => request<ResourceInfo[]>("resources"),
-  getResource: (rid: string) => request<ResourceRuntimeStatus>(`resources/${id(rid)}`),
+  // The legacy-route status (L3), the same type the console reads.
+  getResource: (rid: string) => request<ResourceRuntimeStatus>(`resources/${id(rid)}/status`),
   getLogs: (rid: string, stream: string, lines = 120) =>
     request<LogLines>(`resources/${id(rid)}/logs`, "GET", undefined, { stream, lines }),
   listPipelines: () => request<PipelineInfo[]>("pipelines"),

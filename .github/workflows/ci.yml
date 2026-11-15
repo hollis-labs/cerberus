@@ -45,13 +45,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # The old console (web/) is still built so the branch keeps it compiling; the new
-      # console arrives with slice 11 and its embed with it.
       - name: Build the console
         working-directory: web
         run: |
           npm ci
           npm run typecheck
+          npm run lint
+          npm test
           npm run build
       - name: Format
         run: test -z "$(gofmt -l .)"
