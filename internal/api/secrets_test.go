@@ -265,10 +265,18 @@ func TestTheOwnersApprovalMeetsAPolicyApproveOnSecretsSet(t *testing.T) {
 		t.Fatalf("%d approvals: the refused second use asked for another", n)
 	}
 
-	// The console session is not an approval: under the policy the owner, too, is asked for one.
-	code, out = g.call(t, ownerSession, "POST", path, `{"value":"tok","acknowledged":true}`)
-	wantCode(t, "the owner on the console under the policy", code, out, http.StatusConflict, "approval_pending")
-	if got, _ := keyring.Get("cerberus", "keeper/ksm_config"); got != value {
-		t.Fatalf("the console write stored without an approval: %q", got)
+}
+
+// Under a policy rule enforcing approve on secrets.set, the console session alone is not an
+// approval: the owner on the console with no approval named gets 409 approval_pending, an owner
+// approval asked for out of band, and nothing is stored.
+func TestTheConsoleSessionIsNoApprovalUnderAPolicyApprove(t *testing.T) {
+	g := secretsAPI(t, gatetest.Options{Policy: approveSecretsSet(t), Enforcement: enforceAll{}})
+	id := g.pendingID(t, ownerSession, "POST", "/api/secrets/onepassword/console_token", `{"value":"tok","acknowledged":true}`)
+	if a, ok := g.w.Broker.Get(id); !ok || a.Channel != "out_of_band" || a.Rule != "secrets.set" || a.Connector != "secrets" {
+		t.Fatalf("the approval asked for: %+v", a)
+	}
+	if _, err := keyring.Get("cerberus", "onepassword/console_token"); err == nil {
+		t.Fatal("the console write stored without an approval")
 	}
 }
