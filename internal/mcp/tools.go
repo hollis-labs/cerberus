@@ -44,8 +44,7 @@ func ownerOf(name string) string {
 		return OwnerSlice8b
 	}
 	switch name {
-	case "cerberus_portfolio_health", "cerberus_host_capacity",
-		"cerberus_host_units", "cerberus_host_logs", "cerberus_host_start", "cerberus_host_stop", "cerberus_host_restart", "cerberus_host_plan":
+	case "cerberus_portfolio_health", "cerberus_host_capacity":
 		return OwnerSlice8b
 	}
 	return OwnerHere
@@ -61,6 +60,8 @@ func scopeOf(d Def) string {
 		return scopeOperate
 	case "cerberus_lockdown":
 		return scopeAdmin // the /api/brakes/lockdown route's scope
+	case "cerberus_host_start", "cerberus_host_stop", "cerberus_host_restart":
+		return scopeOperate // lifecycle, as the action routes
 	case "cerberus_ssh_status", "cerberus_docker_ps", "cerberus_docker_logs":
 		// Reads in main's catalog, but served by the admin lane's operations route, which needs
 		// cerberus.admin for every operation (slice 7); stricter than main, never wider.

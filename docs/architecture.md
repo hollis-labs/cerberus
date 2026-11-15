@@ -337,7 +337,7 @@ through `cerberus mcp`. The server is `cerberus` 0.1.0, as on main.
 - **Answers are main's.** Lists page into `{items,count,total,truncated,hint}`, reads are indented JSON, mutations
   answer `{success,message,error}` with `isError` on failure, and a gate refusal is main's structured refusal with
   its code, approval and next step (pointing at the console: decision 0.1).
-- **Not served yet.** 48 tools are served; a tool whose backend has not landed answers `not available in this build (slice N)`;
+- **Not served yet.** 54 tools are served; a tool whose backend has not landed answers `not available in this build (slice N)`;
   `internal/mcp.Pending()` lists them, and the list must be empty before phase A. The schedule tools answer that the
   scheduler is off (`cerberus.scheduler.enabled`).
 

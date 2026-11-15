@@ -182,8 +182,8 @@ func TestServedCatalogIsMain(t *testing.T) {
 	for _, owner := range []string{cmcp.OwnerSlice8b} {
 		t.Logf("pending, slice %s (%d): %s", owner, len(byOwner[owner]), strings.Join(byOwner[owner], ", "))
 	}
-	if served != 48 || len(off) != 13 || len(byOwner) != 1 || len(byOwner[cmcp.OwnerSlice8b]) != 10 {
-		t.Fatalf("served %d (want 48), scheduler-off %d (want 13), owners %v", served, len(off), byOwner)
+	if served != 54 || len(off) != 13 || len(byOwner) != 1 || len(byOwner[cmcp.OwnerSlice8b]) != 4 {
+		t.Fatalf("served %d (want 54), scheduler-off %d (want 13), owners %v", served, len(off), byOwner)
 	}
 	// A pending tool answers that it is not available, naming its slice.
 	if out, isErr := call(t, cs, "cerberus_pipeline_list", map[string]any{}); !isErr || !strings.Contains(out, "not available in this build (slice 8b") {
