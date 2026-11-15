@@ -92,7 +92,7 @@ func NewSnapshotRecorder(cfg SnapshotRecorderConfig, take SnapshotFunc, logger *
 	return &SnapshotRecorder{cfg: cfg, take: take, logger: logger}
 }
 
-// Run blocks until ctx is cancelled, sampling on the configured interval.
+// Run blocks until ctx is canceled, sampling on the configured interval.
 // On startup it loads the persisted buffer from disk; on each tick it
 // appends a new snapshot, evicts old entries, and writes the buffer back.
 // Sample errors are logged and skipped — the recorder never fails the
