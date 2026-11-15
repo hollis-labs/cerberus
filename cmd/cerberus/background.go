@@ -99,6 +99,8 @@ type hostParts struct {
 	tel      *hostmon.Telemetry
 	monitor  *hostmon.Monitor
 	settings hosts.MonitorSettings
+	// writer changes hosts.yaml (supervise mode, through the gate) and reads its history.
+	writer *hostmon.Writer
 }
 
 // buildHostParts builds the prober over hosts.yaml and the state file (hostsPaths), the sample
@@ -129,6 +131,14 @@ func buildHostParts(app *module.App, g *gate.Gate, st settings.Settings, dirs da
 	}
 	p := &hostParts{prober: prober, store: hosts.NewSampleStore(stores.Telemetry), tel: hostmon.NewTelemetry(0, logger), settings: ms}
 	p.monitor = hostmon.New(hostmon.Options{Prober: prober, Store: p.store, Telemetry: p.tel, Settings: ms, Record: hostMonitorRecorder(g, logger), Logger: logger})
+	p.writer = &hostmon.Writer{HostsPath: hostsYAML, Gate: g, Prober: prober, Logger: logger,
+		Resources: func(id string) (*config.ResourceDef, bool) {
+			resolved, rerr := reg.Resolve()
+			if rerr != nil {
+				return nil, false
+			}
+			return gate.ConfigResourceLookup(resolved.Config)(id)
+		}}
 	return p, nil
 }
 

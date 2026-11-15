@@ -40,12 +40,11 @@ func ownerOf(name string) string {
 	switch {
 	case strings.HasPrefix(name, "cerberus_schedule_"):
 		return OwnerSchedulerOff
-	case strings.HasPrefix(name, "cerberus_component_"), strings.HasPrefix(name, "cerberus_pipeline_"):
+	case strings.HasPrefix(name, "cerberus_pipeline_"):
 		return OwnerSlice8b
 	}
 	switch name {
 	case "cerberus_portfolio_health", "cerberus_host_capacity",
-		"cerberus_host_revision", "cerberus_host_update", "cerberus_host_inventory", "cerberus_host_remove", "cerberus_host_history",
 		"cerberus_host_units", "cerberus_host_logs", "cerberus_host_start", "cerberus_host_stop", "cerberus_host_restart", "cerberus_host_plan":
 		return OwnerSlice8b
 	}
