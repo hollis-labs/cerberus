@@ -19,11 +19,15 @@ import (
 	"github.com/hollis-labs/substrate/modules/identity"
 
 	"github.com/hollis-labs/cerberus/internal/api"
+	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/datadir"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/service"
 	"github.com/hollis-labs/cerberus/internal/settings"
+	"github.com/hollis-labs/cerberus/internal/storage"
 	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
@@ -42,7 +46,7 @@ type cerberus struct {
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
 // place and never written. Runtime state comes from the supervision lane once the adapter
 // follow-up wires it; until then every state is unknown.
-func newAPI(app *module.App, home string) (*api.API, error) {
+func newAPI(app *module.App, home string, lane *supervise.Service) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
@@ -60,7 +64,8 @@ func newAPI(app *module.App, home string) (*api.API, error) {
 			HostsPath: filepath.Join(st.AdoptRoot, "hosts.yaml"),
 			StatePath: filepath.Join(st.AdoptRoot, "state", "hosts.json"),
 		},
-		Home: home,
+		Home:    home,
+		Mutator: lane,
 	})
 }
 
@@ -95,7 +100,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if id == nil {
 		return errors.New("the identity module must be started")
 	}
-	a, err := newAPI(app, c.home)
+	a, err := newAPI(app, c.home, lane)
 	if err != nil {
 		return err
 	}
@@ -167,7 +172,13 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 		return nil, err
 	}
 	service.SetStateRoot(dirs.Data)
-	lane, err := supervise.New(supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: dirs.Data, SelfID: cfg.SelfResourceID})
+	opts := supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: dirs.Data, SelfID: cfg.SelfResourceID}
+	if cfg.Mode == settings.ModeSupervise {
+		if err := superviseOptions(app, &opts, reg, dirs.Data, home); err != nil {
+			return nil, err
+		}
+	}
+	lane, err := supervise.New(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -195,4 +206,49 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 	}
 	slog.Info("cerberus supervision", "mode", lane.Mode(), "resources", len(list), "registry", reg.IndexPath(), "self", cfg.SelfResourceID, "unit", check.Unit)
 	return lane, nil
+}
+
+// superviseOptions adds what supervise mode needs: the registry's config, the class A store,
+// the applied-digest key (the audit directory's, in the data dir) and the approver. Until
+// slice 6 the approver is the interim one, which cannot honour a policy, so a configured policy
+// refuses the start.
+func superviseOptions(app *module.App, opts *supervise.Options, reg *registry.Registry, data, home string) error {
+	if dir := policyDir(home); dirHasEntries(dir) {
+		return redact.Guidance("cerberus.mode supervise refuses to start: a policy is configured at %s, and this build has no policy gate or approvals yet (slice 6 of the port). "+
+			"Run in observe mode, or move the policy aside until the build that enforces it", dir)
+	}
+	opts.Config = func() (*config.ConfigV2, error) {
+		resolved, err := reg.Resolve()
+		if err != nil {
+			return nil, err
+		}
+		return resolved.Config, nil
+	}
+	opts.Store = storage.FromApp(app).Local
+	digester, err := audit.OpenDigester(filepath.Join(data, "audit"))
+	if err != nil {
+		return err
+	}
+	opts.Digester = digester
+	brakes := brake.Store{Dir: filepath.Join(data, "brakes")}
+	opts.Approver = supervise.InterimApprover{Brakes: func() brake.State {
+		st, _ := brakes.Load()
+		return st
+	}}
+	return nil
+}
+
+// policyDir is where the operator's policy lives: the config dir, beside the override file
+// (plan section 6).
+func policyDir(home string) string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "cerberus", "policy")
+}
+
+func dirHasEntries(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	return err == nil && len(entries) > 0
 }

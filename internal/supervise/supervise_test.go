@@ -136,8 +136,7 @@ func linuxSystemd(t *testing.T) {
 	}
 }
 
-// Observe mode refuses every acknowledged mutation, naming observe mode and the old CLI. The
-// acknowledgment is checked first, as in the old build.
+// Observe mode refuses every mutation, acknowledged or not, naming observe mode and the old CLI.
 func TestObserveRefusesEveryMutation(t *testing.T) {
 	w := newWorld(t)
 	for _, verb := range Verbs {
@@ -155,9 +154,8 @@ func TestObserveRefusesEveryMutation(t *testing.T) {
 					t.Errorf("refusal %q lacks %q", err, want)
 				}
 			}
-			_, err = w.svc.Mutate(context.Background(), Request{Verb: verb, ID: "api"})
-			if !errors.As(err, &r) || r.Code != "acknowledgment_required" {
-				t.Fatalf("without --ack: %v, want acknowledgment_required", err)
+			if _, err = w.svc.Mutate(context.Background(), Request{Verb: verb, ID: "api"}); !IsObserveRefusal(err) {
+				t.Fatalf("without --ack: %v, want the observe refusal first", err)
 			}
 		})
 	}

@@ -48,16 +48,21 @@ func failed(id string, err error) *OpResult {
 	return &OpResult{Success: false, ServiceID: id, Error: err.Error()}
 }
 
-// Mutate runs one verb. A refusal before the run (acknowledgment, approval, observe mode) is
+// Mutate runs one verb. A refusal before the run (observe mode, acknowledgment, approval) is
 // an error, a *Refusal for the gate; everything after it is an OpResult, with Success false
-// when the run failed. The order is the old build's: the acknowledgment, then the approver,
-// then the resource.
+// when the run failed. In supervise mode the order is the old build's: the acknowledgment,
+// then the approver, then the resource.
 func (s *Service) Mutate(ctx context.Context, req Request) (*OpResult, error) {
-	if err := requireAck(req); err != nil {
-		return nil, err
+	if _, ok := operation(req.Verb); !ok {
+		return nil, requireAck(req)
 	}
+	// Observe mode refuses before anything else (legacy-routes.md: L7 and L8 answer 409
+	// observe_mode until the handover).
 	if s.o.Mode != settings.ModeSupervise {
 		return nil, s.observeRefusal(req.Verb, req.ID)
+	}
+	if err := requireAck(req); err != nil {
+		return nil, err
 	}
 	cfg, err := s.config()
 	if err != nil {

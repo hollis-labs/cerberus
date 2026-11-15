@@ -283,7 +283,6 @@ func TestServeRefusesBadConfig(t *testing.T) {
 		"relative root": {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { install_root: apps }\n", "cerberus.install_root"},
 		"postgres":      {"httphost: { addr: \"127.0.0.1:0\" }\ndatabase: { driver: postgres }\n", "SQLite only"},
 		"bad mode":      {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: chaos }\n", "cerberus.mode must be observe or supervise"},
-		"supervise":     {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n", "slice 5"},
 		"unknown self":  {"httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { self_resource_id: ghost }\n", "lists no such resource"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -292,6 +291,23 @@ func TestServeRefusesBadConfig(t *testing.T) {
 				t.Fatalf("exit %d, want 1 naming %q:\n%s", code, c.want, out)
 			}
 		})
+	}
+}
+
+// Supervise mode refuses to start while a policy is configured: until slice 6 nothing would
+// enforce it.
+func TestServeInSuperviseModeRefusesAConfiguredPolicy(t *testing.T) {
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n")
+	dir := filepath.Join(s.home, ".config", "cerberus", "policy")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "applied.yaml"), []byte("rules: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out := runToExit(t, s, "serve")
+	if code != 1 || !strings.Contains(out, "a policy is configured") || !strings.Contains(out, "slice 6") {
+		t.Fatalf("exit %d, want 1 naming the policy:\n%s", code, out)
 	}
 }
 

@@ -217,8 +217,9 @@ func TestLegacyVersionHeaderAndObserveMode(t *testing.T) {
 			t.Fatalf("POST %s = %d %s", verb, code, body)
 		}
 	}
-	if code, _ = do(t, h, "POST", "/api/resources/nope/reload", nil); code != 404 {
-		t.Fatalf("a verb on an unknown resource = %d", code)
+	// L7 and L8 have no 404 (legacy-routes.md): in observe mode every id is refused alike.
+	if code, body = do(t, h, "POST", "/api/resources/nope/reload", nil); code != 409 || !strings.Contains(body, `"code":"observe_mode"`) {
+		t.Fatalf("a verb on an unknown resource = %d %s", code, body)
 	}
 }
 
