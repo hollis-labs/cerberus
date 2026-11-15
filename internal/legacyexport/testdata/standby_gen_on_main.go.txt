@@ -1,0 +1,81 @@
+// Generator for testdata/standby/standby.d: the old build's standby directory written by the OLD
+// build's own writers (standby.Paths.WriteSessionsOnce, audit.OpenFileSink on the standby audit
+// directory with its own .digest_key, and audit.Switch diverting the main sink to it, as the
+// daemon's standby fence does). Copy this file onto a checkout of main (git archive origin/main)
+// as internal/standbygen/gen_test.go and run:
+//
+//	CERBERUS_STANDBY_OUT=<this testdata dir>/standby \
+//	  CERBERUS_STANDBY_MAIN_AUDIT=<a scratch copy of ../../legacyimport/testdata/oldtree/audit> \
+//	  go test -count=1 -run TestGenerateStandby ./internal/standbygen
+//
+// The main audit directory is the old-tree fixture's, so the main digest key is the one
+// migrate-from carries into <data>/audit. The records' fields are shaped as cerbapi's beginAudit
+// and auditCall.finish shape a standby verb's intent and outcome (Principal automation via
+// "standby", connector local, config {"id": <resource>}); the verbs themselves are not run (that
+// needs a live process supervisor). The digests are what main computes:
+//   - apply of web: digested by the standby sink (Standby.Sink, standbyMutation's beginAudit),
+//     the standby key: what main does today;
+//   - stop of web: digested through the Switch (the main key): what a fix on main would give;
+//   - reload of web: the digest of another resource's arguments: matches neither key's
+//     recomputation for web;
+//   - a diverted read (hosts list) through the Switch: not a verb.
+// Do not commit this file to main.
+package standbygen
+
+import (
+	"os"
+	"testing"
+	"time"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/standby"
+)
+
+func TestGenerateStandby(t *testing.T) {
+	out, mainDir := os.Getenv("CERBERUS_STANDBY_OUT"), os.Getenv("CERBERUS_STANDBY_MAIN_AUDIT")
+	if out == "" || mainDir == "" {
+		t.Skip("CERBERUS_STANDBY_OUT and CERBERUS_STANDBY_MAIN_AUDIT are not set")
+	}
+	p := standby.PathsIn(out)
+	if _, err := p.WriteSessionsOnce([]string{"web", "api"}, time.Date(2026, 11, 15, 6, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	mainSink, err := audit.OpenFileSink(mainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sbSink, err := audit.OpenFileSink(p.AuditDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sw := audit.NewSwitch(mainSink)
+	sw.Divert(sbSink)
+
+	verb := func(w audit.Sink, op, digest string) {
+		intent := audit.Record{
+			Kind: audit.KindIntent, OperationID: audit.NewID(),
+			Principal:    audit.Principal{Kind: audit.PrincipalAutomation, Surface: "daemon", Via: "standby"},
+			Reason:       "standby: " + op + " of the flagged resource, requested by human via cli (cerberus-cli) on the socket surface",
+			Connector:    "local", Operation: op, Effect: "lifecycle", ArgsDigest: digest, Acknowledged: true,
+			Target: audit.Target{Kind: "local.resource", Fields: map[string]string{"id": "web"}, Resource: "web"},
+		}
+		if _, err := w.Write(intent); err != nil {
+			t.Fatal(err)
+		}
+		outcome := intent
+		outcome.Kind, outcome.ID, outcome.DurationMS, outcome.OutcomeCode, outcome.Decision = audit.KindOutcome, "", 12, "ok", audit.DecisionAllowed
+		if _, err := w.Write(outcome); err != nil {
+			t.Fatal(err)
+		}
+	}
+	webArgs := map[string]any{"id": "web"}
+	// A diverted read: the switch writes it to the standby chain, digested with the main key.
+	if _, err := sw.Write(audit.Record{Kind: audit.KindIntent, OperationID: audit.NewID(),
+		Principal: audit.Principal{Kind: "human", Surface: "socket", Via: "cli", Client: "cerberus-cli"},
+		Connector: "hosts", Operation: "list", Effect: "read", ArgsDigest: sw.Digest(map[string]any{})}); err != nil {
+		t.Fatal(err)
+	}
+	verb(sbSink, "apply", sbSink.Digest(webArgs))
+	verb(sw, "stop", sw.Digest(webArgs))
+	verb(sbSink, "reload", sbSink.Digest(map[string]any{"id": "api"}))
+}
