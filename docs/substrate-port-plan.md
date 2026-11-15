@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15).** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope.** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -31,7 +31,7 @@ has four parts:
 | Migrated data or fresh start? | **Migrated.** Live state has three parts: the workspace SQLite database `<XDG_DATA_HOME>/cerberus/workspaces/default/main.db` (`internal/config/layout.go`), the file tree under `~/.cerberus/`, and three OS keyring entries. Only the host-monitoring tables hold rows; the project, resource and schedule tables are empty (the live-facts item has the counts). |
 | Variant | `app-host`. One process serves the API, the console, MCP over HTTP and the supervision loops. Today's daemon (unix socket) and console process (`cerberus web`) become one. |
 | Identity | Cerberus's own (`identity` module), with the owner created offline. Machine callers hold API keys with scopes. |
-| Routes | Every `/api/` route has a scope (section 4.3). The outpost device protocol authenticates its own callers and is an open mount that says so in code. |
+| Routes | Every `/api/` route has a scope (section 4.3). There is no inbound outpost route: Cerberus is only an outbound client of the outpost protocol (`pkg/outpost`), as today. |
 | Background work | Resource monitor, host monitor and janitor, approval-expiry sweeper, overview snapshot recorder, plugin supervision, MCP plugin tool sync, event export (off live). App code owns them; the stop order is in section 4.4. The scheduling core is wired but has never been started; it is ported and stays off until it is turned on separately. |
 | UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in, sign-out, session-expired, keys and sessions use **kit-identity** (in the BOM). The approval page is app UI. |
 | Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. `libs/mesh/eventbus` is pinned (substrate 035e0d33). `libs/security/webauthn` is not needed (decision 0.1). |
@@ -172,7 +172,6 @@ Hard requirements carried into the slices:
 | `cerberus.operate` | start, stop, reload, apply, deploy |
 | `cerberus.admin` | connector writes, plugins, hosts, policy |
 | `cerberus.approve` | approving a gated plan: the owner's console identity session only |
-| `cerberus.outpost` | the outpost mount |
 | `public` | `/healthz` |
 
 MCP stdio runs with `LocalTrust: true` and `LocalScopes: [cerberus.read, cerberus.operate, cerberus.admin]`, **never
@@ -329,7 +328,7 @@ From `inventory-clients.md` (by role). What changes for each:
 | **tachyon** (machine sync, cerbcontrol) | old socket API through its Cerberus address setting: `/health`, `/resources`, `/hosts`, verb POSTs | **Named change, owned by tachyon's team (CW-20261114-0144)**: set its Cerberus address to new's HTTP URL and its token file to a key from D6. New serves the **legacy-route set** (these paths and shapes, under scope) on its HTTP API, so the change is configuration only. It must be ready before D and is applied at D9. |
 | **tether sysop** | old socket at a hard-coded path, `POST /resources/{id}/{action}` | **Named change, owned by @photon-tether (CW-20261114-0145)**: a code change to take a configurable address and token, pointed at new's HTTP API (legacy-route set). It must be merged and deployable before D and is applied at D9. |
 | Browser | console | New port 4786; sign-in through identity (kit-identity); approvals from the owner's session; the proxy entry is repointed in D9 and the public hostname is kept. |
-| Outposts | outpost protocol, tokens in the adopted root | Unchanged; the open mount verifies its own tokens. |
+| Outposts | outpost protocol, outbound only (`POST <outpost>/api/plugins/cerberus/execute`); bearer token files named in `hosts.yaml`, in the adopted root | Unchanged. New calls outposts exactly as old does, with the token files read in place. The `cerberus-outpost` plugin binary and plugin id are unchanged. |
 | Hadron (`cerberus_op`) and other API or MCP machine callers in the inventory | MCP / API | Each gets an API key with its scopes in D6. |
 | `cerberus-plugins` and third-party plugins | `pkg/plugin`, `plugin.yaml`, capabilities | Unchanged (contract). |
 | Go importers of `github.com/hollis-labs/cerberus/pkg/...` | module path | Unchanged (contract). |
@@ -547,7 +546,7 @@ delete them.
 6. `tether_gateway_status` shows the hub's origins connected after the reload. One MCP tool call through the
    restarted gateway entry succeeds; the approve tool is refused under local trust.
 7. tachyon's machine sync and tether sysop's resource action both succeed against new with their keys.
-8. One outpost reports in; one credentialed connector health op succeeds (keyring in place).
+8. One outpost probe succeeds through the outbound client; one credentialed connector health op succeeds (keyring in place).
 9. Plugins are all parented by new and none by old; the sessions from `sessions.json` run under new.
 10. SIGTERM to new (through old): new stops within its grace; no workload unit restarted.
 
@@ -576,7 +575,7 @@ delete them.
 | 5 | `substrate-port` | Supervise mode: apply, deploy, start, stop, reload, artifacts, pause state, dev sessions, self-guard. |
 | 6 | `substrate-port` | Audit (same format, anchor), approvals with the owner-session approver (no presence/WebAuthn), policy, redaction, egress, brakes. |
 | 7 | `substrate-port` | Admin lane: ssh, docker, external connector service, plugin host (`pkg/plugin` unchanged, adopted roots), secrets (keyring names unchanged), credential broker. |
-| 8 | `substrate-port` | Hosts and probes, janitor, scheduling core (off), outpost mount, event export (off), snapshot recorder. |
+| 8 | `substrate-port` | Hosts and probes, janitor, scheduling core (off, `cerberus.scheduler.enabled`), outbound outpost client, event export (off, `cerberus.event_export.*`), snapshot recorder. |
 | 9 | `substrate-port` | MCP: HTTP and stdio, tool-name parity test, local scopes without approve. |
 | 10 | `substrate-port` | `migrate-from`, `export-legacy`, verify, the standby-sidecar import, and the rehearsal (section 5, all seven steps). |
 | 11a and b | `substrate-port` | Console on app-shell: (a) contract and scaffold, (b) pages including the approval page (owner session). Sign-in is kit-identity; there is no ceremony slice. |
