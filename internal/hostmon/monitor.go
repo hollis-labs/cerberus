@@ -18,8 +18,8 @@ import (
 const hostListReloadEvery = 10 * time.Second
 
 // Recorder writes one monitor event (status changes, the first failure of a streak, the
-// hourly summary, a compaction) to the audit log as automation. nil records nothing; audit is
-// wired in slice 6.
+// hourly summary, a compaction) to the audit log as automation. nil records nothing (observe
+// mode); in supervise mode serve wires it to the gate (cmd/cerberus hostMonitorRecorder).
 type Recorder func(ctx context.Context, what, note string)
 
 // Options build a Monitor.

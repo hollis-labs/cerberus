@@ -119,7 +119,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	defer sup.startSweeper(context.WithoutCancel(ctx))()
 	// The background loops stop after HTTP and before the sweeper and the resource monitor
 	// (deferred last, so they run first).
-	bg, err := c.startBackground(app, lane)
+	bg, err := c.startBackground(app, lane, sup.gate)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 }
 
 // startBackground starts the background loops for this app's settings (none in observe mode).
-func (c *cerberus) startBackground(app *module.App, lane *supervise.Service) (*background, error) {
+func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *gate.Gate) (*background, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ func (c *cerberus) startBackground(app *module.App, lane *supervise.Service) (*b
 	if err != nil {
 		return nil, err
 	}
-	return startBackground(app, lane, st, dirs, slog.Default())
+	return startBackground(app, lane, g, st, dirs, slog.Default())
 }
 
 // requireLoopback keeps the host on the loopback interface until identity and the scope
