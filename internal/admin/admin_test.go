@@ -471,17 +471,3 @@ func TestAPluginLoadPlanRunsNothing(t *testing.T) {
 		t.Fatalf("state file mode: %v %v", fi, err)
 	}
 }
-
-// cerberus.connectors is the old connector-config.yaml's shape, unknown keys refused.
-func TestConnectorConfigIsTheOldFileShape(t *testing.T) {
-	cfg, err := admin.ConnectorConfig(map[string]any{"echo": map[string]any{"fields": map[string]any{"address": "http://127.0.0.1:1"}, "mcp": map[string]any{"expose": []any{"echo"}}}}, "cerberus.connectors")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Entries["echo"].MCP.Expose[0] != "echo" || cfg.SHA256 == "" {
-		t.Fatalf("cfg = %+v", cfg)
-	}
-	if _, err := admin.ConnectorConfig(map[string]any{"echo": map[string]any{"feilds": map[string]any{}}}, "cerberus.connectors"); err == nil || !strings.Contains(err.Error(), "cerberus.connectors") {
-		t.Fatalf("an unknown key: %v", err)
-	}
-}

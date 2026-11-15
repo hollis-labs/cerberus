@@ -26,11 +26,16 @@
 // The scheduler and event export are off by default (plan section 4.2); scheduler.allow_existing
 // lets an enabled scheduler start over schedule tables that already hold rows.
 //
+// connectors is the old connector-config.yaml as config keys, the same shape: each managed
+// plugin's declared fields, its MCP exposure and its limits (supervise mode, slice 7).
+//
 // An unknown key or a bad value is refused at start, naming the key.
 package settings
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -39,6 +44,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/pluginhost"
 )
 
 // Key is the name of the config block.
@@ -83,6 +89,9 @@ type Settings struct {
 	Scheduler Scheduler
 	// EventExport gates event export; off unless enabled.
 	EventExport EventExport
+	// Connectors is the managed plugins' settings, the old connector-config.yaml: never nil
+	// entries; SHA256 fingerprints the block as YAML, empty when unset.
+	Connectors pluginhost.ConnectorConfig
 }
 
 // Scheduler is the scheduler block.
@@ -113,7 +122,7 @@ func Parse(raw any, home string) (Settings, error) {
 		block = m
 	}
 	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true, "cli_key_file": true,
-		"host_monitor": true, "scheduler": true, "event_export": true}
+		"host_monitor": true, "scheduler": true, "event_export": true, "connectors": true}
 	var unknown []string
 	for k := range block {
 		if !known[k] {
@@ -165,7 +174,34 @@ func Parse(raw any, home string) (Settings, error) {
 	if s.EventExport.GraceSeconds < 0 || s.EventExport.IntervalSeconds < 0 {
 		return s, fmt.Errorf("%s.event_export: grace_seconds and interval_seconds must not be negative", Key)
 	}
+	if s.Connectors, err = connectors(block["connectors"]); err != nil {
+		return s, err
+	}
 	return s, nil
+}
+
+// connectors reads the connectors block: plugin id to its settings, unknown keys refused.
+func connectors(v any) (pluginhost.ConnectorConfig, error) {
+	cfg := pluginhost.ConnectorConfig{Path: Key + ".connectors", Entries: map[string]pluginhost.PluginSettings{}}
+	if v == nil {
+		return cfg, nil
+	}
+	if _, ok := v.(map[string]any); !ok {
+		return cfg, fmt.Errorf("%s.connectors must be a map of plugin id to its settings", Key)
+	}
+	if err := strict(v, "connectors", &cfg.Entries); err != nil {
+		return cfg, err
+	}
+	if cfg.Entries == nil {
+		cfg.Entries = map[string]pluginhost.PluginSettings{}
+	}
+	raw, err := yaml.Marshal(v)
+	if err != nil {
+		return cfg, fmt.Errorf("%s.connectors: %w", Key, err)
+	}
+	sum := sha256.Sum256(raw)
+	cfg.SHA256 = hex.EncodeToString(sum[:])
+	return cfg, nil
 }
 
 // strict decodes a sub-block into dst, refusing unknown keys and wrong types, naming the block.

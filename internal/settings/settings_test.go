@@ -117,3 +117,28 @@ func TestBackgroundBlocks(t *testing.T) {
 		}
 	}
 }
+
+// connectors is the old connector-config.yaml's shape: plugin id to fields, mcp.expose and
+// limits; an unknown key is refused naming the block, and the block is fingerprinted.
+func TestConnectors(t *testing.T) {
+	s, err := Parse(nil, "/u/op")
+	if err != nil || s.Connectors.Entries == nil || s.Connectors.SHA256 != "" {
+		t.Fatalf("unset connectors = %+v, %v", s.Connectors, err)
+	}
+	s, err = Parse(map[string]any{"connectors": map[string]any{"cloudflare": map[string]any{
+		"fields": map[string]any{"account": "a1"}, "mcp": map[string]any{"expose": []any{"list_zones"}}}}}, "/u/op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := s.Connectors.Entries["cloudflare"]; e.Fields["account"] != "a1" || len(e.MCP.Expose) != 1 || s.Connectors.SHA256 == "" {
+		t.Fatalf("connectors = %+v", s.Connectors)
+	}
+	for _, raw := range []any{
+		map[string]any{"connectors": map[string]any{"cloudflare": map[string]any{"feilds": map[string]any{}}}},
+		map[string]any{"connectors": []any{"cloudflare"}},
+	} {
+		if _, err := Parse(raw, "/u/op"); err == nil || !strings.Contains(err.Error(), "cerberus.connectors") {
+			t.Fatalf("Parse(%v) err = %v, want a refusal naming cerberus.connectors", raw, err)
+		}
+	}
+}
