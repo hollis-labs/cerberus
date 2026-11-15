@@ -96,9 +96,12 @@ plugin that reads it:
 You paste the value; it is not shown, and it is never an argument, so it stays
 out of your shell history and the process list. It runs only on an interactive
 terminal. The serving Cerberus writes it, as an admin write through its gate,
-recorded in the audit log as secrets.set by name, never by value. Where policy
-asks for an approval, the owner approves it on the console; then run this again
-with --approval <id> and paste the same value.`,
+recorded in the audit log as secrets.set by name, never by value.
+
+Setting a secret is the owner's. The owner sets it on the console, signed in; or
+from this CLI: the first run asks for the owner's approval and prints its id;
+the owner approves it on the console; then run this again with --approval <id>
+and paste the same value (the approval is for that value only).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !isTerminal() {
@@ -132,13 +135,18 @@ with --approval <id> and paste the same value.`,
 			if value == "" {
 				return errors.New("the value is empty; nothing was stored")
 			}
+			// Pasting the value at the operator's own terminal is the acknowledgment.
 			var res admin.SecretSetResult
 			err = cl.post(cmd.Context(), path, struct {
-				Value      string `json:"value"`
-				ApprovalID string `json:"approval_id,omitempty"`
-			}{value, approvalID}, &res)
+				Value        string `json:"value"`
+				Acknowledged bool   `json:"acknowledged"`
+				ApprovalID   string `json:"approval_id,omitempty"`
+			}{value, true, approvalID}, &res)
+			if pending, perr := approvalPending(out, err, approvalID); pending {
+				return perr
+			}
 			if err != nil {
-				return pendingHint(err, approvalID)
+				return ownerOnlyHint(err, cl, "a secret is stored")
 			}
 			_, _ = fmt.Fprintf(out, "Stored %s/%s (%d characters) in the OS credential store.\n", service, key, len(value))
 			_, _ = fmt.Fprintf(out, "A plugin reads its credentials when it loads. If %s is loaded, run `cerberus connectors plugin managed unload %s`, then `cerberus connectors plugin managed load %s`.\n", service, service, service)

@@ -23,10 +23,14 @@ import (
 // is what sets it apart from provider_save, which writes only what an installed connector
 // declares.
 //
-// Old recorded it with beginAudit alone. Here it is an admin write through the gate, recorded
-// as connector "secrets", operation "set", config {name}, with old's operation contract: the
-// brakes, policy and approvals decide it like any admin write, and the value never reaches a
-// record (the plan binds it as a keyed digest).
+// Old recorded it with beginAudit alone, and allowed it only from an interactive terminal. Here
+// it is an admin write through the gate, recorded as connector "secrets", operation "set", config
+// {name}, with old's operation contract: the brakes and policy decide it like any admin write,
+// and the value never reaches a record (the plan binds it as a keyed digest). Setting it is the
+// owner's (the lead's ruling (a), as for the brakes and plugin install): the owner signed in on
+// the console, or a key naming with approval_id an out-of-band approval the owner decided on the
+// console, bound to the plan and so to the value. A key's first call opens that approval (409
+// approval_pending); an MCP client is refused (428) and opens none.
 
 // SecretsConnector and SecretsSet are the names a stored-secret write is recorded under.
 const (
@@ -51,6 +55,9 @@ func secretStoreOperation() contract.Operation {
 type SecretSetRequest struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	// Acknowledged is the caller's acknowledgment that the write replaces what the store holds;
+	// a write without it is refused (acknowledgment_required), as the other admin writes are.
+	Acknowledged bool `json:"acknowledged"`
 }
 
 // SecretSetResult is what the write did. Existed says a value was replaced.
@@ -59,6 +66,9 @@ type SecretSetResult struct {
 	Name    string `json:"name"`
 	Length  int    `json:"length"`
 	Existed bool   `json:"existed"`
+	// Proof is what authorized the write: "console" (the owner on the console) or
+	// "approval:<id>" (the owner's out-of-band approval).
+	Proof string `json:"proof,omitempty"`
 	// Plan is the write's plan, for a plan request; nothing was written.
 	Plan *gate.ConnectorPlan `json:"-"`
 }
@@ -83,8 +93,9 @@ func splitSecretName(name string) (string, string, error) {
 	return service, key, nil
 }
 
-// SetStoredSecret writes one entry to the credential store through the gate. A malformed name or
-// an empty value is refused before the gate, as old refused it before the audit.
+// SetStoredSecret writes one entry to the credential store through the gate, authorized by the
+// owner (secretProof). A malformed name or an empty value is refused before the gate, as old
+// refused it before the audit.
 func (s *Service) SetStoredSecret(ctx context.Context, req SecretSetRequest, opts GateOpts) (*SecretSetResult, error) {
 	ctx, scope := redact.EnsureScope(ctx)
 	service, key, err := splitSecretName(req.Name)
@@ -96,9 +107,9 @@ func (s *Service) SetStoredSecret(ctx context.Context, req SecretSetRequest, opt
 	}
 	name := service + "/" + key
 	spec := gate.Spec{Connector: SecretsConnector, Operation: SecretsSet, Op: secretStoreOperation(), Known: true,
-		// Typing the value at the operator's own terminal is the act; the CLI sends nothing else.
-		Acknowledged: true, Config: map[string]any{"name": name},
-		ApprovalID: opts.ApprovalID, PlanOnly: opts.Plan, DryRun: opts.Plan, ConfirmedPlanHash: opts.ConfirmedPlanHash,
+		Acknowledged: req.Acknowledged, Config: map[string]any{"name": name},
+		// The approval named is the owner's (secretProof), never a policy approval for the call.
+		PlanOnly: opts.Plan, DryRun: opts.Plan, ConfirmedPlanHash: opts.ConfirmedPlanHash,
 		// The target is the secret's name, so an approver types what is being set; it has no
 		// labels of its own.
 		Resources: func(id string) (*config.ResourceDef, bool) {
@@ -128,6 +139,11 @@ func (s *Service) SetStoredSecret(ctx context.Context, req SecretSetRequest, opt
 		}
 		return &SecretSetResult{Success: true, Name: name, Plan: shown}, nil
 	}
+	proof, err := s.secretProof(ctx, spec, name, req.Acknowledged, opts.ApprovalID)
+	if err != nil {
+		call.Finish(err)
+		return nil, scopeError(scope, err)
+	}
 	existed := false
 	if v, getErr := s.keyring.Get(ctx, service, key); getErr == nil && v != "" {
 		existed = true
@@ -137,5 +153,23 @@ func (s *Service) SetStoredSecret(ctx context.Context, req SecretSetRequest, opt
 	if err != nil {
 		return nil, scopeError(scope, fmt.Errorf("store credential %s: %w", name, err))
 	}
-	return &SecretSetResult{Success: true, Name: name, Length: len(req.Value), Existed: existed}, nil
+	return &SecretSetResult{Success: true, Name: name, Length: len(req.Value), Existed: existed, Proof: proof}, nil
+}
+
+// secretProof is what authorizes the write: the acknowledgment, then the owner. The owner signed
+// in on the console sets it directly; any other caller but an MCP client names the owner's
+// out-of-band approval (asked for when none is named), bound to the plan, so to this name and
+// value. An MCP client is refused and asks for nothing.
+func (s *Service) secretProof(ctx context.Context, spec gate.Spec, name string, acknowledged bool, approvalID string) (string, error) {
+	if !acknowledged {
+		return "", gate.NewError(SecretsConnector, SecretsSet, gate.CodeAckRequired,
+			redact.Guidance("storing %s replaces what the credential store holds under that name, so it needs an acknowledgment (\"acknowledged\": true); nothing was stored", name))
+	}
+	if gate.ConsolePerson(ctx) && approvalID == "" {
+		return "console", nil
+	}
+	tgt, _ := gate.AuditTarget(spec)
+	return s.gate.OwnerApproval(ctx, gate.OwnerApprovalRequest{Connector: SecretsConnector, Operation: SecretsSet, Target: tgt,
+		ArgsDigest: s.gate.Sink().Digest(spec.Config), ApprovalID: approvalID, What: "storing secret " + name,
+		Rule: "secrets.set", Reason: "a stored secret is set by the owner on the console", Plan: spec.Plan})
 }

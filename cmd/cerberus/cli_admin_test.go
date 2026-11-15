@@ -11,29 +11,17 @@ import (
 	"strings"
 	"testing"
 
+	libauth "github.com/hollis-labs/libs/security/auth"
 	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
 
 	"github.com/hollis-labs/cerberus/internal/admin/admintest"
+	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/gate/gatetest"
-	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/supervise"
 )
-
-// approveAll is a policy that asks for an approval of every call, enforced everywhere.
-type approveAll struct{}
-
-func (approveAll) GlobalPosture() string { return policy.PostureSecure }
-func (approveAll) Authorize(policy.Request) policy.Result {
-	return policy.Result{Decision: policy.Approve, WouldBlock: true, Snapshot: "test",
-		Matched: []policy.Match{{Rule: "test.approve", Decision: policy.Approve, Reason: "the test asks"}}}
-}
-
-type enforceAll struct{}
-
-func (enforceAll) Enforced(policy.Request) bool { return true }
 
 // runCLI runs cmds under a bare root with args and stdin; stdout and stderr are kept apart.
 func runCLI(t *testing.T, cmds []*cobra.Command, stdin string, args ...string) (string, string, error) {
@@ -56,9 +44,12 @@ func (s *brakeServer) secretsCmd(terminal bool, value string) []*cobra.Command {
 }
 
 // `cerberus secrets set` over HTTP with the CLI's key: refused off a terminal and for a
-// malformed name before anything is read; a name no installed connector declares is stored
-// under service "cerberus", account "<service>/<key>" (the bootstrap order), with old's output
-// and hint; a second set warns that a value exists.
+// malformed name before anything is read. Setting is the owner's: the key's first set prints the
+// approval to decide on the console and how to run it again (exit 0, nothing stored); --approval
+// on a pending approval is an error and stores nothing; once the owner approves, the same command
+// with --approval and the same value stores a name no installed connector declares under service
+// "cerberus", account "<service>/<key>" (the bootstrap order), with old's output and hint. A
+// second set warns that a value exists. An MCP caller is refused with both owner paths named.
 func TestSecretsSetAtTheCLI(t *testing.T) {
 	s := newReviewServer(t, "")
 	if _, _, err := runCLI(t, s.secretsCmd(false, "v\n"), "", "secrets", "set", "keeper/ksm_config"); !errors.Is(err, errSecretsNotInteractive) {
@@ -73,11 +64,25 @@ func TestSecretsSetAtTheCLI(t *testing.T) {
 		t.Fatal("a refused name reached the gate")
 	}
 	out, _, err := runCLI(t, s.secretsCmd(true, "ksm-value\r"), "", "secrets", "set", "keeper/ksm_config")
+	id := s.onlyApproval(t)
+	if err != nil || !strings.Contains(out, "Paste the value for keeper/ksm_config (it is not shown), then press Enter: \r\n") ||
+		!strings.Contains(out, "Approve "+id+" on the console, signed in as the owner, then run this again with --approval "+id) ||
+		strings.Contains(out, "Stored") || strings.Contains(out, "ksm-value") {
+		t.Fatalf("first set: %v\n%s", err, out)
+	}
+	if _, _, err = runCLI(t, s.secretsCmd(true, "ksm-value\n"), "", "secrets", "set", "keeper/ksm_config", "--approval", id); err == nil ||
+		!strings.Contains(err.Error(), "approval "+id+" is not approved yet") {
+		t.Fatalf("a set on the pending approval: %v", err)
+	}
+	if _, kerr := keyring.Get("cerberus", "keeper/ksm_config"); kerr == nil {
+		t.Fatal("a pending set stored the value")
+	}
+	s.ownerApproves(t, id)
+	out, _, err = runCLI(t, s.secretsCmd(true, "ksm-value\r"), "", "secrets", "set", "keeper/ksm_config", "--approval", id)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if strings.Contains(out, "already has a value") || !strings.Contains(out, "Paste the value for keeper/ksm_config (it is not shown), then press Enter: \r\n") ||
-		!strings.Contains(out, "Stored keeper/ksm_config (9 characters) in the OS credential store.\n") ||
+	if strings.Contains(out, "already has a value") || !strings.Contains(out, "Stored keeper/ksm_config (9 characters) in the OS credential store.\n") ||
 		!strings.Contains(out, "run `cerberus connectors plugin managed unload keeper`, then `cerberus connectors plugin managed load keeper`") || strings.Contains(out, "ksm-value") {
 		t.Fatalf("output:\n%s", out)
 	}
@@ -85,7 +90,7 @@ func TestSecretsSetAtTheCLI(t *testing.T) {
 		t.Fatalf("keyring: %q %v", got, kerr)
 	}
 	out, _, err = runCLI(t, s.secretsCmd(true, "ksm-value-2\n"), "", "secrets", "set", "keeper/ksm_config")
-	if err != nil || !strings.Contains(out, "keeper/ksm_config already has a value; pasting replaces it.\n") {
+	if err != nil || !strings.Contains(out, "keeper/ksm_config already has a value; pasting replaces it.\n") || !strings.Contains(out, "on the console") {
 		t.Fatalf("second set: %v\n%s", err, out)
 	}
 	var recorded bool
@@ -105,26 +110,20 @@ func TestSecretsSetAtTheCLI(t *testing.T) {
 	}
 }
 
-// Where policy asks for an approval, the first set is refused with the owner's approval to
-// decide on the console (exit non-zero, nothing stored), and the same command with --approval
-// and the same value stores it once the owner approved.
-func TestSecretsSetUnderAnApproval(t *testing.T) {
-	s := newAdminServer(t, "", gatetest.Options{Policy: approveAll{}, Enforcement: enforceAll{}}, nil)
+// An MCP caller (local trust) is refused outright: the CLI names both owner paths, and no
+// approval is asked for.
+func TestSecretsSetRefusesAnMCPCaller(t *testing.T) {
+	s := newReviewServer(t, "")
+	*s.as = libauth.Principal{Verified: true, ID: api.LocalTrustID, Kind: libauth.KindOperator, Scopes: cliKey.Scopes}
 	_, _, err := runCLI(t, s.secretsCmd(true, "op-token\n"), "", "secrets", "set", "onepassword/service_account_token")
-	id := s.onlyApproval(t)
-	if err == nil || !strings.Contains(err.Error(), "409 approval_pending") || !strings.Contains(err.Error(), "Approve "+id+" on the console") {
-		t.Fatalf("first set: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "428 approval_required") || !strings.Contains(err.Error(), "a secret is stored by the owner: on the console") {
+		t.Fatalf("an MCP caller: %v", err)
+	}
+	if len(s.w.Broker.List()) != 0 {
+		t.Fatal("an MCP caller asked the owner for an approval")
 	}
 	if _, kerr := keyring.Get("cerberus", "onepassword/service_account_token"); kerr == nil {
-		t.Fatal("a pending set stored the value")
-	}
-	s.ownerApproves(t, id)
-	out, _, err := runCLI(t, s.secretsCmd(true, "op-token\n"), "", "secrets", "set", "onepassword/service_account_token", "--approval", id)
-	if err != nil || !strings.Contains(out, "Stored onepassword/service_account_token (8 characters)") {
-		t.Fatalf("approved set: %v\n%s", err, out)
-	}
-	if got, _ := keyring.Get("cerberus", "onepassword/service_account_token"); got != "op-token" {
-		t.Fatalf("keyring = %q", got)
+		t.Fatal("an MCP caller stored the value")
 	}
 }
 
