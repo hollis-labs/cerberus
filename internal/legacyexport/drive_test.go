@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -201,4 +202,29 @@ func TestDriveActivityForTheRehearsal(t *testing.T) {
 	}
 	act := driveNewActivity(t, data, db)
 	t.Logf("drove: approval %s consumed, %s pending; issuance %s; paused %s, resumed %s", act.ConsumedApproval, act.PendingApproval, act.Issuance, act.Paused, act.Resumed)
+}
+
+// The rehearsal script's check of the exported copy, which the old binary has no verb for: with
+// CERBERUS_EXPORT_CHECK_OLD_HOME (the copy) and CERBERUS_EXPORT_DRIVE_DATA (new's data dir) set,
+// the copy's approvals store reads whole to new's next seq and its brake store folds to new's
+// state. Skipped otherwise.
+func TestCheckTheExportedCopyForTheRehearsal(t *testing.T) {
+	old, data := os.Getenv("CERBERUS_EXPORT_CHECK_OLD_HOME"), os.Getenv("CERBERUS_EXPORT_DRIVE_DATA")
+	if old == "" || data == "" {
+		t.Skip("CERBERUS_EXPORT_CHECK_OLD_HOME is not set (scripts/verify-exported-chain.sh sets it)")
+	}
+	nb, err := approval.ReadFrom(filepath.Join(data, "approvals"), approval.Cursor{}, 0)
+	if err != nil || nb.Stop != nil {
+		t.Fatalf("new's approvals: %v %v", err, nb.Stop)
+	}
+	ob, err := approval.ReadFrom(filepath.Join(old, "approvals"), approval.Cursor{}, 0)
+	if err != nil || ob.Stop != nil || ob.Next.Seq != nb.Next.Seq || len(ob.Damaged) != 0 {
+		t.Fatalf("the copy's approvals: %v %v, next seq %d (new %d), damaged %v", err, ob.Stop, ob.Next.Seq, nb.Next.Seq, ob.Damaged)
+	}
+	ns, np := brake.Store{Dir: filepath.Join(data, "brakes")}.Load()
+	os2, op := brake.Store{Dir: filepath.Join(old, "brakes")}.Load()
+	if !reflect.DeepEqual(ns, os2) || len(op) != len(np) {
+		t.Fatalf("the copy's brakes fold to %+v (%v), new's %+v (%v)", os2, op, ns, np)
+	}
+	t.Logf("approvals: next seq %d on both; brakes: engaged %v on both", ob.Next.Seq, os2.Engaged())
 }
