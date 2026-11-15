@@ -160,9 +160,9 @@ func (m *migration) preflight(ctx context.Context) error {
 func (m *migration) preflightAudit() error {
 	o, r := m.o, m.r
 	dir := filepath.Join(o.OldHome, "audit")
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		r.refuse("the snapshot has no audit/ directory")
-		return nil
+	if fi, statErr := os.Stat(dir); statErr != nil || !fi.IsDir() {
+		r.refuse("the snapshot has no audit/ directory (%v)", statErr)
+		return nil //nolint:nilerr // a refusal, recorded on the report
 	}
 	key, err := os.Lstat(filepath.Join(dir, ".digest_key"))
 	switch {
@@ -176,7 +176,8 @@ func (m *migration) preflightAudit() error {
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		n := e.Name()
-		if n != ".digest_key" && n != ".lock" && !(strings.HasSuffix(n, ".jsonl") && e.Type().IsRegular()) {
+		chain := strings.HasSuffix(n, ".jsonl") && e.Type().IsRegular()
+		if n != ".digest_key" && n != ".lock" && !chain {
 			r.warn("audit/%s is not part of the chain; it is left in place and not copied", n)
 		}
 	}

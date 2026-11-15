@@ -73,7 +73,7 @@ func TestMigrateFromThenServe(t *testing.T) {
 	}
 
 	s := sandbox{home: f.Home, data: f.DataDir, override: filepath.Join(f.Root, "override.yaml")}
-	if err = os.WriteFile(s.override, []byte("httphost: { addr: \"127.0.0.1:0\" }\n"), 0o600); err != nil {
+	if err = os.WriteFile(s.override, []byte("httphost: { addr: \"127.0.0.1:0\" }\n"), 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 		t.Fatal(err)
 	}
 	_, base, log := start(t, s)

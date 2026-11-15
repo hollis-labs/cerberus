@@ -10,9 +10,10 @@ import (
 	"sort"
 )
 
-// copyFile copies src to dst byte for byte, creating dst (never replacing one) with mode, and
+// copyFile copies src to dst byte for byte, creating dst (never replacing one) at 0600, and
 // syncs it. It returns the source's digest and checks the copy's against it.
-func copyFile(src, dst string, mode os.FileMode) (FileDigest, error) {
+func copyFile(src, dst string) (FileDigest, error) {
+	const mode = 0o600
 	fi, err := os.Lstat(src)
 	if err != nil {
 		return FileDigest{}, err
@@ -77,7 +78,7 @@ func copyTree(src, dst string, skip func(rel string, d fs.DirEntry) bool) ([]Fil
 			}
 			return os.Chmod(target, 0o700) //nolint:gosec // a directory: 0700 is owner-only
 		case d.Type().IsRegular():
-			sum, err := copyFile(p, target, 0o600)
+			sum, err := copyFile(p, target)
 			if err != nil {
 				return err
 			}

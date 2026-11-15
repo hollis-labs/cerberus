@@ -195,12 +195,12 @@ func TestTheFixtureMigrates(t *testing.T) {
 			t.Fatal(err)
 		}
 		sample := bytes.ReplaceAll(buf.Bytes(), []byte(f.Root), []byte("<scratch>"))
-		if err := os.WriteFile(out, sample, 0o600); err != nil {
+		if err := os.WriteFile(out, sample, 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 			t.Fatal(err)
 		}
 		var text bytes.Buffer
 		_ = rep.WriteText(&text)
-		if err := os.WriteFile(strings.TrimSuffix(out, ".json")+".txt", bytes.ReplaceAll(text.Bytes(), []byte(f.Root), []byte("<scratch>")), 0o600); err != nil {
+		if err := os.WriteFile(strings.TrimSuffix(out, ".json")+".txt", bytes.ReplaceAll(text.Bytes(), []byte(f.Root), []byte("<scratch>")), 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 			t.Fatal(err)
 		}
 	}
@@ -255,8 +255,8 @@ func TestHostTablesAreTheOldRows(t *testing.T) {
 			"SELECT COUNT(*) FROM (SELECT " + cols + " FROM old." + tbl.Name + " EXCEPT SELECT " + cols + " FROM main." + tbl.Name + ")",
 		} {
 			var n int
-			if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil || n != 0 {
-				t.Errorf("%s: %d rows differ (%v)", tbl.Name, n, err)
+			if qerr := db.QueryRowContext(ctx, q).Scan(&n); qerr != nil || n != 0 {
+				t.Errorf("%s: %d rows differ (%v)", tbl.Name, n, qerr)
 			}
 		}
 		var a, b int
@@ -313,7 +313,7 @@ func TestAppliedDigestsAndNothingChanged(t *testing.T) {
 	f, _ := migrate(t)
 	ctx := context.Background()
 	st := openStore(t, f.DBPath)
-	raw, err := os.ReadFile(filepath.Join(f.OldHome, "runtime", "applied.json"))
+	raw, err := os.ReadFile(filepath.Join(f.OldHome, "runtime", "applied.json")) //nolint:gosec // a path in the test's own dir
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,8 +378,8 @@ func TestTheChainVerifiesBeforeAndAfter(t *testing.T) {
 		t.Fatalf("%d records before, %d after", len(before.Records), len(after.Records))
 	}
 	for _, name := range []string{"2026-11.jsonl", ".digest_key"} {
-		a, _ := os.ReadFile(filepath.Join(f.OldHome, "audit", name))
-		b, _ := os.ReadFile(filepath.Join(f.DataDir, "audit", name))
+		a, _ := os.ReadFile(filepath.Join(f.OldHome, "audit", name)) //nolint:gosec // the test's own dir
+		b, _ := os.ReadFile(filepath.Join(f.DataDir, "audit", name)) //nolint:gosec // the test's own dir
 		if !bytes.Equal(a, b) || len(a) == 0 {
 			t.Errorf("audit/%s differs in the copy", name)
 		}
@@ -402,15 +402,15 @@ func TestVerifyApprovalsNeverRunsOnTheSource(t *testing.T) {
 			f := legacyimporttest.Materialize(t, t.TempDir())
 			dir := filepath.Join(f.OldHome, "approvals")
 			// 0750 so a chmod to 0700 (approval.Open's) would show.
-			if err := os.Chmod(dir, 0o750); err != nil {
+			if err := os.Chmod(dir, 0o750); err != nil { //nolint:gosec // a directory in the test's own dir
 				t.Fatal(err)
 			}
 			if damaged {
 				p := filepath.Join(dir, approval.FileName)
-				data, _ := os.ReadFile(p)
+				data, _ := os.ReadFile(p) //nolint:gosec // the test's own file
 				lines := bytes.SplitAfter(data, []byte("\n"))
 				lines[0] = bytes.Replace(lines[0], []byte(`"deploy"`), []byte(`"deplox"`), 1)
-				if err := os.WriteFile(p, bytes.Join(lines, nil), 0o600); err != nil {
+				if err := os.WriteFile(p, bytes.Join(lines, nil), 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 					t.Fatal(err)
 				}
 			}
@@ -495,7 +495,7 @@ func TestMigrateChecksTheManifest(t *testing.T) {
 				t.Fatal(err)
 			}
 			if drift {
-				if err := os.WriteFile(filepath.Join(f.OldHome, "paused.api"), []byte("paused\n"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.OldHome, "paused.api"), []byte("paused\n"), 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 					t.Fatal(err)
 				}
 			}
@@ -510,8 +510,8 @@ func TestMigrateChecksTheManifest(t *testing.T) {
 			if err != nil || !rep.Manifest.SnapshotMatches || rep.Manifest.SHA256 == "" {
 				t.Fatalf("run: %v %+v", err, rep.Manifest)
 			}
-			kept, err := os.ReadFile(filepath.Join(f.DataDir, "migration", "d3-manifest.json"))
-			orig, _ := os.ReadFile(o.Manifest)
+			kept, err := os.ReadFile(filepath.Join(f.DataDir, "migration", "d3-manifest.json")) //nolint:gosec // a path in the test's own dir
+			orig, _ := os.ReadFile(o.Manifest)                                                  //nolint:gosec // a path in the test's own dir
 			if err != nil || !bytes.Equal(kept, orig) {
 				t.Fatalf("the manifest was not kept in the data dir: %v", err)
 			}
@@ -531,7 +531,7 @@ func TestConfigListingResourcesIsReported(t *testing.T) {
 	if rep.Config.ResourcesListed != 1 || rep.Config.ProjectsListed != 1 || !anyContains(rep.Warnings, "still lists 1 resources") {
 		t.Fatalf("config: %+v, warnings %v", rep.Config, rep.Warnings)
 	}
-	frag, _ := os.ReadFile(rep.Config.Fragment)
+	frag, _ := os.ReadFile(rep.Config.Fragment) //nolint:gosec // a path in the test's own dir
 	if bytes.Contains(frag, []byte("legacy")) {
 		t.Fatal("a listed resource was carried into the fragment")
 	}

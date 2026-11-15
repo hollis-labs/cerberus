@@ -45,7 +45,7 @@ func TestRefusalsWriteNothing(t *testing.T) {
 			if err := os.MkdirAll(f.DataDir, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(f.DataDir, "identity-signing.key"), []byte("x"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(f.DataDir, "identity-signing.key"), []byte("x"), 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 				t.Fatal(err)
 			}
 		}},
@@ -103,7 +103,7 @@ func TestRefusalsWriteNothing(t *testing.T) {
 		}},
 		{name: "old db in the old XDG data dir", want: "a live tree", setup: func(t *testing.T, f *legacyimporttest.Fixture, o *legacyimport.Options) {
 			live := filepath.Join(f.Home, ".local", "share", "cerberus", "workspaces", "default", "main.db")
-			data, _ := os.ReadFile(f.OldDB)
+			data, _ := os.ReadFile(f.OldDB) //nolint:gosec // a path in the test's own dir
 			if err := os.MkdirAll(filepath.Dir(live), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -117,7 +117,7 @@ func TestRefusalsWriteNothing(t *testing.T) {
 		}},
 		{name: "receipt state mismatch", want: "do not match its path", setup: func(t *testing.T, f *legacyimporttest.Fixture, _ *legacyimport.Options) {
 			p := filepath.Join(f.OldHome, "credential-issuance", strings.Repeat("a", 32), "completed.json")
-			data, _ := os.ReadFile(p)
+			data, _ := os.ReadFile(p) //nolint:gosec // a path in the test's own dir
 			writeFile(t, p, strings.Replace(string(data), `"state":"completed"`, `"state":"uncertain"`, 1))
 		}},
 		{name: "a pause marker that is a directory", want: "a pause marker is a file", setup: func(t *testing.T, f *legacyimporttest.Fixture, _ *legacyimport.Options) {
@@ -192,7 +192,7 @@ func TestAFailedRunLeavesNothing(t *testing.T) {
 
 func writeFile(t *testing.T, p, data string) {
 	t.Helper()
-	if err := os.WriteFile(p, []byte(data), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(data), 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 		t.Fatal(err)
 	}
 }

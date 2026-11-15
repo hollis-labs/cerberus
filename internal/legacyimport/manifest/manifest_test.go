@@ -89,7 +89,7 @@ func TestManifestWriteLoadCheck(t *testing.T) {
 	if fi, _ := os.Stat(out); fi.Mode().Perm() != 0o600 {
 		t.Fatalf("manifest mode %v", fi.Mode())
 	}
-	if _, err := manifest.Write(context.Background(), l.opts(), out); err == nil {
+	if _, again := manifest.Write(context.Background(), l.opts(), out); again == nil {
 		t.Fatal("a second write replaced the manifest")
 	}
 	loaded, sum, err := manifest.Load(out)
@@ -113,9 +113,10 @@ func TestManifestWriteLoadCheck(t *testing.T) {
 		t.Fatalf("a clean tree mismatches: %v", got)
 	}
 	// An edited manifest does not load.
-	data, _ := os.ReadFile(out)
+	data, _ := os.ReadFile(out) //nolint:gosec // the test's own file
 	edited := filepath.Join(t.TempDir(), "edited.json")
-	if err := os.WriteFile(edited, []byte(strings.Replace(string(data), `"count": 120`, `"count": 121`, 1)), 0o600); err != nil {
+	tampered := []byte(strings.Replace(string(data), `"count": 120`, `"count": 121`, 1))
+	if err := os.WriteFile(edited, tampered, 0o600); err != nil { //nolint:gosec // the test's own file
 		t.Fatal(err)
 	}
 	if _, _, err := manifest.Load(edited); err == nil || !strings.Contains(err.Error(), "edited") {
@@ -164,16 +165,16 @@ func TestManifestCheckDetectsChangesAndIgnoresCheckpoints(t *testing.T) {
 
 	// Files.
 	audit := filepath.Join(l.home, "audit", "2026-11.jsonl")
-	data, _ := os.ReadFile(audit)
-	if err := os.WriteFile(audit, append(data, '\n'), 0o600); err != nil {
+	data, _ := os.ReadFile(audit)                                          //nolint:gosec // the test's own file
+	if err := os.WriteFile(audit, append(data, '\n'), 0o600); err != nil { //nolint:gosec // the test's own file
 		t.Fatal(err)
 	}
 	expect(t, "audit/2026-11.jsonl")
-	if err := os.WriteFile(audit, data, 0o600); err != nil {
+	if err := os.WriteFile(audit, data, 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(l.home, "paused.x"), []byte("paused\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(l.home, "paused.x"), []byte("paused\n"), 0o600); err != nil { //nolint:gosec // a path in the test's own dir
 		t.Fatal(err)
 	}
 	expect(t, "paused.x: present")
@@ -183,7 +184,7 @@ func TestManifestCheckDetectsChangesAndIgnoresCheckpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect(t, "paused: gone")
-	_ = os.WriteFile(filepath.Join(l.home, "paused"), []byte("paused\n"), 0o600)
+	_ = os.WriteFile(filepath.Join(l.home, "paused"), []byte("paused\n"), 0o600) //nolint:gosec // a path in the test's own dir
 
 	expect(t, "")
 

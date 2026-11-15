@@ -93,14 +93,14 @@ func CopyTree(t testing.TB, dst string) {
 	empty, err := os.ReadFile(filepath.Join(td, "oldtree.emptydirs")) //nolint:gosec // the fixture
 	must(t, err)
 	for _, rel := range strings.Fields(string(empty)) {
-		must(t, os.MkdirAll(filepath.Join(dst, rel), 0o700))
+		must(t, os.MkdirAll(filepath.Join(dst, rel), 0o700)) //nolint:gosec // names from the fixture's own list, under the test's dir
 	}
 	apps := filepath.Join(filepath.Dir(dst), "apps")
 	copyFile(t, filepath.Join(td, "descriptors", "shop.cerberus.yaml"), filepath.Join(apps, "shop", "shop.cerberus.yaml"), 0o600)
 	reg := filepath.Join(dst, "registry.yaml")
 	data, err := os.ReadFile(reg) //nolint:gosec // the copy
 	must(t, err)
-	must(t, os.WriteFile(reg, bytes.ReplaceAll(data, []byte(GenRoot+"/apps"), []byte(apps)), 0o600))
+	must(t, os.WriteFile(reg, bytes.ReplaceAll(data, []byte(GenRoot+"/apps"), []byte(apps)), 0o600)) //nolint:gosec // the test's own copy
 }
 
 func copyFile(t testing.TB, src, dst string, mode os.FileMode) {
@@ -108,7 +108,7 @@ func copyFile(t testing.TB, src, dst string, mode os.FileMode) {
 	data, err := os.ReadFile(src) //nolint:gosec // the fixture
 	must(t, err)
 	must(t, os.MkdirAll(filepath.Dir(dst), 0o700))
-	must(t, os.WriteFile(dst, data, mode))
+	must(t, os.WriteFile(dst, data, mode)) //nolint:gosec // a path under the test's own dir
 }
 
 func must(t testing.TB, err error) {

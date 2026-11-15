@@ -204,7 +204,8 @@ func (m *migration) build(ctx context.Context) error {
 	// R4: the audit chain and its digest key, byte for byte.
 	auditSrc, auditDst := filepath.Join(o.OldHome, "audit"), filepath.Join(m.partial, "audit")
 	files, err := copyTree(auditSrc, auditDst, func(rel string, d fs.DirEntry) bool {
-		return !(rel == ".digest_key" || (filepath.Dir(rel) == "." && strings.HasSuffix(rel, ".jsonl") && d.Type().IsRegular()))
+		chain := filepath.Dir(rel) == "." && strings.HasSuffix(rel, ".jsonl") && d.Type().IsRegular()
+		return rel != ".digest_key" && !chain
 	})
 	if err != nil {
 		return fmt.Errorf("copy the audit chain: %w", err)
@@ -257,7 +258,7 @@ func (m *migration) build(ctx context.Context) error {
 			continue
 		}
 		dst := filepath.Join(m.partial, "state", f)
-		sum, cerr := copyFile(src, dst, 0o600)
+		sum, cerr := copyFile(src, dst)
 		if cerr != nil {
 			return cerr
 		}
@@ -267,7 +268,7 @@ func (m *migration) build(ctx context.Context) error {
 		matches, _ := filepath.Glob(filepath.Join(o.OldHome, hosts.HistoryFileName+"*"))
 		for _, src := range matches {
 			dst := filepath.Join(m.partial, "state", filepath.Base(src))
-			sum, cerr := copyFile(src, dst, 0o600)
+			sum, cerr := copyFile(src, dst)
 			if cerr != nil {
 				return cerr
 			}
@@ -287,7 +288,7 @@ func (m *migration) build(ctx context.Context) error {
 
 	// R16: connector-secrets.yaml at 0600. Its contents are never read or printed.
 	if src := filepath.Join(o.OldHome, "connector-secrets.yaml"); exists(src) {
-		sum, cerr := copyFile(src, filepath.Join(m.cfgStage, "connector-secrets.yaml"), 0o600)
+		sum, cerr := copyFile(src, filepath.Join(m.cfgStage, "connector-secrets.yaml"))
 		if cerr != nil {
 			return cerr
 		}
@@ -339,7 +340,7 @@ func (m *migration) build(ctx context.Context) error {
 	// The D3 manifest, kept with the migration.
 	if r.Manifest != nil {
 		dst := filepath.Join(m.partial, "migration", "d3-manifest.json")
-		if _, cerr := copyFile(o.Manifest, dst, 0o600); cerr != nil {
+		if _, cerr := copyFile(o.Manifest, dst); cerr != nil {
 			return cerr
 		}
 		r.Manifest.CopiedTo = filepath.Join(o.DataDir, "migration", "d3-manifest.json")
@@ -361,9 +362,12 @@ func (m *migration) approvals(digester audit.Digester) error {
 	}
 	srcBatch, err := approval.ReadFrom(filepath.Dir(src), approval.Cursor{}, 0)
 	if err != nil || srcBatch.Stop != nil {
-		return fmt.Errorf("approvals: the source no longer reads whole (%v %v)", err, srcBatch.Stop)
+		if srcBatch.Stop != nil {
+			err = errors.Join(err, srcBatch.Stop)
+		}
+		return fmt.Errorf("approvals: the source no longer reads whole: %w", err)
 	}
-	sum, err := copyFile(src, filepath.Join(dstDir, approval.FileName), 0o600)
+	sum, err := copyFile(src, filepath.Join(dstDir, approval.FileName))
 	if err != nil {
 		return err
 	}
@@ -449,7 +453,7 @@ func (m *migration) database(ctx context.Context, digester audit.Digester) error
 		}
 		fp, ok, kerr := storage.AppliedKey(ctx, stores.Local)
 		if kerr != nil || !ok || fp != digester.Fingerprint() {
-			return fmt.Errorf("applied digests: the key fingerprint was not recorded with them (%v)", kerr)
+			return errors.Join(errors.New("applied digests: the key fingerprint was not recorded with them"), kerr)
 		}
 		ap.Count = len(got)
 		seen := map[string]bool{}
@@ -495,7 +499,7 @@ func (m *migration) database(ctx context.Context, digester audit.Digester) error
 	if err != nil {
 		return err
 	}
-	if fmt.Sprint(gotPaused) != fmt.Sprint(pr.Targets) && !(len(gotPaused) == 0 && len(pr.Targets) == 0) {
+	if len(gotPaused) != len(pr.Targets) || fmt.Sprint(gotPaused) != fmt.Sprint(pr.Targets) {
 		return fmt.Errorf("pause state %v is not the markers' set %v", gotPaused, pr.Targets)
 	}
 	if len(pr.NoResource) > 0 {

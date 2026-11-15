@@ -41,13 +41,13 @@ func TestDigestIsOrderedAndTyped(t *testing.T) {
 		}
 		defer func() { _ = db.Close() }()
 		for _, tbl := range Tables {
-			if _, err := db.Exec("CREATE TABLE " + tbl.Name + " (" + tbl.ColumnList() + ")"); err != nil {
-				t.Fatal(err)
+			if _, cerr := db.Exec("CREATE TABLE " + tbl.Name + " (" + tbl.ColumnList() + ")"); cerr != nil {
+				t.Fatal(cerr)
 			}
 		}
 		for _, r := range rows {
-			if _, err := db.Exec(r); err != nil {
-				t.Fatal(err)
+			if _, ierr := db.Exec(r); ierr != nil {
+				t.Fatal(ierr)
 			}
 		}
 		d, err := Digest(ctx, db, "")
