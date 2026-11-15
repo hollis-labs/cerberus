@@ -61,7 +61,8 @@ type Report struct {
 	Applied   *AppliedReport    `json:"applied,omitempty"`
 	Receipts  *ReceiptsReport   `json:"receipts,omitempty"`
 	State     *StateFilesReport `json:"state,omitempty"`
-	// OldDaemonLock is the probe of old's daemon lock: "free", "absent" or who holds it.
+	// OldDaemonLock is old's daemon lock: "acquired" (held for the run), "absent" (no lock file;
+	// the run held none) or "held" (refused).
 	OldDaemonLock string           `json:"old_daemon_lock,omitempty"`
 	Anchor        *AnchorReport    `json:"anchor,omitempty"`
 	Telemetry     *TelemetryReport `json:"telemetry,omitempty"`

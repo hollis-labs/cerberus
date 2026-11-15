@@ -272,8 +272,8 @@ func TestExportLegacyRoundTrip(t *testing.T) {
 			t.Errorf("the JSON report lacks %s", want)
 		}
 	}
-	if r.OldDaemonLock != "free" {
-		t.Errorf("old daemon lock %q, want free (the fixture has an unheld daemon.lock)", r.OldDaemonLock)
+	if r.OldDaemonLock != "acquired" {
+		t.Errorf("old daemon lock %q, want acquired (the fixture has an unheld daemon.lock)", r.OldDaemonLock)
 	}
 
 	// The host tables: new EXCEPT old is empty on all five; old keeps what new's janitor removed.
@@ -636,7 +636,81 @@ func TestExportLegacyRefusesWhileTheOldDaemonRuns(t *testing.T) {
 	if r := mustExport(t, rt, o); r.Result != ResultExported {
 		t.Fatalf("--only telemetry after the daemon stopped: %s", r.Result)
 	}
-	// The probe never takes the lock: it is free for the old daemon afterwards, and still there.
+	// The run released the lock: it is free for the old daemon afterwards, and still there.
 	release = holdDaemonLock(t, rt.c2.OldHome)
 	release()
+}
+
+// tryDaemonLock is a second flock attempt, as the old daemon's start makes it.
+func tryDaemonLock(t *testing.T, oldHome string) error {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(oldHome, DaemonLockName), os.O_RDWR, 0) //nolint:gosec // the test's own tree
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) //nolint:gosec // a file descriptor fits an int
+	if err == nil {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:gosec // as above
+	}
+	return err
+}
+
+// export-legacy holds old's daemon lock for the whole run, the full run and --only telemetry
+// alike: an old daemon starting mid-export cannot take it; after the run it is free again and the
+// lock file is byte for byte what it was. A missing lock file is reported, and the run goes on.
+func TestExportLegacyHoldsTheOldDaemonLockForTheRun(t *testing.T) {
+	rt := setup(t)
+	lockPath := filepath.Join(rt.c2.OldHome, DaemonLockName)
+	lockBytes := readBytes(t, lockPath)
+	var during []error
+	o := rt.options()
+	// The Telemetry store is opened after every file step and the anchor ran: mid-run.
+	o.Telemetry = func(context.Context) (hostdump.Querier, func() error, error) {
+		during = append(during, tryDaemonLock(t, rt.c2.OldHome))
+		return nil, nil, errors.New("down")
+	}
+	var pending *PendingError
+	if _, err := rt.export(t, o); !errors.As(err, &pending) {
+		t.Fatalf("B pending: %v", err)
+	}
+	o.Only = OnlyTelemetry
+	o.Telemetry = func(ctx context.Context) (hostdump.Querier, func() error, error) {
+		during = append(during, tryDaemonLock(t, rt.c2.OldHome))
+		db, err := hostdump.OpenLive(rt.c1.DBPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		return db, db.Close, nil
+	}
+	if r := mustExport(t, rt, o); r.Result != ResultExported || r.OldDaemonLock != "acquired" {
+		t.Fatalf("--only telemetry: %s %s", r.Result, r.OldDaemonLock)
+	}
+	if len(during) != 2 {
+		t.Fatalf("%d attempts during the runs", len(during))
+	}
+	for i, err := range during {
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			t.Errorf("run %d: a second flock during the run: %v, want EWOULDBLOCK", i+1, err)
+		}
+	}
+	if err := tryDaemonLock(t, rt.c2.OldHome); err != nil {
+		t.Fatalf("the lock is not free after the run: %v", err)
+	}
+	if !bytes.Equal(readBytes(t, lockPath), lockBytes) {
+		t.Fatal("the run wrote the lock file")
+	}
+
+	// No lock file: the run proceeds without one, says so, and creates none.
+	rt2 := setup(t)
+	if err := os.Remove(filepath.Join(rt2.c2.OldHome, DaemonLockName)); err != nil {
+		t.Fatal(err)
+	}
+	r := mustExport(t, rt2, rt2.options())
+	if r.OldDaemonLock != "absent" || !strings.Contains(strings.Join(r.Warnings, " "), "holds no lock") {
+		t.Fatalf("no lock file: %s %v", r.OldDaemonLock, r.Warnings)
+	}
+	if _, err := os.Lstat(filepath.Join(rt2.c2.OldHome, DaemonLockName)); !os.IsNotExist(err) {
+		t.Fatalf("the run created the lock file (%v)", err)
+	}
 }

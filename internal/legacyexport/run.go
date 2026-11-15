@@ -11,7 +11,7 @@
 //   - the class B host tables, merged into old's main.db in one transaction (B last; if the
 //     Telemetry store is unreachable the run records it pending and exits 3).
 //
-// It refuses while the old daemon holds its lock, and, before writing anything, unless the old tree matches the D3 manifest migrate-from
+// It holds old's daemon lock for the whole run (refusing while the old daemon holds it), and, before writing anything, unless the old tree matches the D3 manifest migrate-from
 // kept, or the post-write state of the steps an earlier run did (manifest.Expect), so a partial
 // run resumes and a finished one is a no-op. It never writes new's data directory except its
 // progress file (StateRel).
@@ -101,6 +101,8 @@ type export struct {
 	newAudit, oldAudit string
 	newHead            audit.Head
 	plans              map[string]*plan
+	// releaseLock drops old's daemon lock, held from preflight to the end of the run.
+	releaseLock func()
 }
 
 // plan is one file step: the post state it leaves the old tree in, how to get there from the
@@ -174,6 +176,9 @@ func (x *export) close() {
 	if x.local != nil {
 		_ = x.local.Close()
 	}
+	if x.releaseLock != nil {
+		x.releaseLock()
+	}
 }
 
 func (x *export) save() error {
@@ -189,9 +194,6 @@ func (x *export) run(ctx context.Context, name string) error {
 	if x.state.Steps[name].done() {
 		x.r.step(name, StatusDone, false, "done by an earlier run; the old tree is in its post state")
 		return nil
-	}
-	if _, err := probeDaemonLock(x.o.OldHome); err != nil {
-		return err
 	}
 	x.state.Steps[name] = &Step{Status: StatusStarted, At: x.now().UTC(), Post: clonePost(&p.post)}
 	if err := x.save(); err != nil {
@@ -293,13 +295,17 @@ func (x *export) preflight(ctx context.Context) error {
 	}
 	x.newAudit, x.oldAudit = filepath.Join(o.DataDir, "audit"), filepath.Join(o.OldHome, "audit")
 
-	// The old daemon must not be running (plan rev 10): a try-lock on its single-instance lock,
-	// released at once. --only telemetry is held to it too.
-	lock, lockErr := probeDaemonLock(o.OldHome)
+	// The old daemon must not be running (plan rev 10): its single-instance lock is taken here and
+	// held until the run ends (close), so it cannot start mid-export. --only telemetry too.
+	lock, release, lockErr := acquireDaemonLock(o.OldHome)
 	r.OldDaemonLock = lock
 	if lockErr != nil {
 		r.refuse("%v", lockErr)
 		return nil
+	}
+	x.releaseLock = release
+	if lock == "absent" {
+		r.warn("old's daemon lock %s does not exist: the run holds no lock against an old daemon starting", filepath.Join(o.OldHome, DaemonLockName))
 	}
 
 	// The progress of an earlier run belongs to this handoff and this tree, or it is refused.

@@ -123,9 +123,10 @@ default to the tree the manifest was taken of; a rehearsal points them at a seco
 
 **Stop the old daemon first** (plan rev 10). Old folds approvals and loads `applied.json` once at start, so a daemon
 running across the export would chain from a stale seq and rewrite `applied.json` from a stale map. `export-legacy`
-(and `--only telemetry`) refuses while old's single-instance lock `<old home>/daemon.lock` is held: it opens the file
-read-only, tries a non-blocking flock and releases it at once (it never creates, writes or removes the file, and never
-touches the socket), in preflight and again before each step writes. Start old again in standby after the export.
+(and `--only telemetry`) takes old's single-instance lock `<old home>/daemon.lock` for the whole run and releases it on
+exit, so the old daemon cannot start mid-export; it refuses, naming the holder's PID, while the lock is held. The file
+is opened read-only (never created, written or removed) and the socket is never touched; a missing lock file means no
+lock, which the report says. Start old again in standby after the export.
 
 Progress is kept in `<data>/migration/export-state.json` (0600, tmp and rename), the one write into the new data
 directory. The report states the exported approvals head (seq and hash) and the sha256 of `runtime/applied.json` as
