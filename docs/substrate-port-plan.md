@@ -534,7 +534,7 @@ writes go to the standby chain.
 | B | Remove old's drop-ins and restart: back on the untouched installed binary. |
 | C | `$LEGACY resource stop cerberus-substrate --ack`, remove the descriptor; move new's data dir aside. |
 | D, before step 7 | `rm ~/.cerberus/standby` (old restarts its loops, plugins and the listed sessions); start the old console. Old's state is as at D2. |
-| D step 7 to the end of E | 1. `$LEGACY resource stop cerberus-substrate --ack` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
+| D step 7 to the end of E | 0. Check that the old binary parses each in-place file new may have edited: `$LEGACY hosts list` (`hosts.yaml`), `$LEGACY hosts history` (`hosts.history.jsonl*`) and `$LEGACY connectors list` (`plugin-connectors.json`); any parse error stops the rollback for a decision. 1. `$LEGACY resource stop cerberus-substrate --ack` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
 | after F | Re-enable old's units (files kept), stop new, then the same steps from step 2 above. Re-home is undone by removing the drop-in. |
 
 Old's files, `$LEGACY` and the rollback copies are kept until acceptance plus 30 days; the owner decides when to
@@ -611,6 +611,8 @@ Dependencies:
 - 4 before 9 and 11b;
 - slice 6 needs no webauthn pin (decision 0.1);
 - 5 to 9 and 8b before 10;
+- 6 before 7b; 8b before 7c;
+- the in-place files (`hosts.yaml`, `hosts.history.jsonl*`, `plugin-connectors.json`): slice 8b's acceptance and slice 10b's round-trip test show the old binary reads what new wrote, for all three (director's condition, rev 9);
 - 7b and 7c before phase A: every old CLI command path exists (the parity test in 7b shows no unowned row);
 - 6 and 7 before 8b (its writes are gated, and host actions use the admin lane);
 - 0 and 10 before 12.
