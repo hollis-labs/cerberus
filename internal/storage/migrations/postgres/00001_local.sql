@@ -25,16 +25,6 @@ CREATE TABLE applied_definitions (
     applied_at BIGINT NOT NULL
 );
 
--- The fingerprint of the key the digests above are keyed with (the audit chain's digest key,
--- audit/.digest_key). One row. The migration records it with the digests it imports; supervise
--- mode refuses to start when the key in the data dir has another fingerprint, since every
--- migrated digest would then compare unequal.
-CREATE TABLE applied_digest_key (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    fingerprint TEXT NOT NULL,
-    recorded_at BIGINT NOT NULL
-);
-
 -- Credential-issuance receipts (old: credential-issuance/<id>/<state>.json, each created once).
 -- One row per issuance and lifecycle state; the primary key keeps the old create-once rule.
 -- refs is the JSON object of name -> file:// reference (never a value). at is RFC 3339 with

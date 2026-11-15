@@ -3,12 +3,14 @@ package storage_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/hollis-labs/libs/core/store"
@@ -326,5 +328,45 @@ func TestDialectsHaveTheSameMigrations(t *testing.T) {
 	fsys, root := storage.Migrations()
 	if err := migrate.CheckParity(migrate.Source{FS: fsys, Root: root}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A data dir already at version 2 (00001 and 00002 applied, as substrate-port shipped them)
+// migrates to 00003 with its rows kept: the digest-key table is a new file, never an edit of an
+// applied one.
+func TestADataDirAtVersionTwoMigratesForward(t *testing.T) {
+	ctx := context.Background()
+	fsys, root := storage.Migrations()
+	v2 := fstest.MapFS{}
+	for _, name := range []string{"00001_local.sql", "00002_telemetry.sql"} {
+		raw, err := fs.ReadFile(fsys, root+"/sqlite/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v2[root+"/sqlite/"+name] = &fstest.MapFile{Data: raw}
+	}
+	path := filepath.Join(t.TempDir(), "data", "cerberus.db")
+	cfg := store.Config{Driver: store.DriverSQLite, SQLite: store.SQLiteConfig{Path: path, CreateParentDir: true, ReadConns: 1}}
+	st, err := store.Open(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = migrate.Ensure(ctx, cfg, st, migrate.Source{FS: v2, Root: root}); err != nil {
+		t.Fatalf("migrate to version 2: %v", err)
+	}
+	if err = storage.SetApplied(ctx, st, "web", "hmac-sha256:aa", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	st = open(t, path)
+	if n, err := storage.AppliedCount(ctx, st); err != nil || n != 1 {
+		t.Fatalf("applied rows after the upgrade: %d %v", n, err)
+	}
+	if err := storage.SetAppliedKey(ctx, st, "hmac-sha256:bb", time.Now()); err != nil {
+		t.Fatalf("the 00003 table is missing after the upgrade: %v", err)
+	}
+	if got := gooseVersions(t, st); got < 4 {
+		t.Fatalf("goose rows %d after the upgrade", got)
 	}
 }
