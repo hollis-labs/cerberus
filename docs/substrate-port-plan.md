@@ -454,7 +454,8 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
    **Director step:** list the dev sessions that are down, unpaused and `auto_restart`. They will not be in `sessions.json`,
    which records only running sessions. New's first monitor pass at D7 starts them, as old does on any restart (parity).
    The director reviews the list and pauses, with the old CLI, anything that must stay down, asking the owner only if
-   one looks like the owner's own. The pause is migrated with the rest of the pause set.
+   one looks like the owner's own. The pause is migrated with the rest of the pause set. After D3, the runbook re-derives the same
+   list from the snapshot and compares it with the D1 list; a difference stops the window.
 
    Any surprise stops the window.
 2. Stop the old console unit. `echo cerberus-substrate > ~/.cerberus/standby`. Wait until `$LEGACY daemon status`
@@ -469,8 +470,9 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
 5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. Read the report. It copies
    `audit/.digest_key` into new's data dir with the audit chain (section 5). **Before the first supervise start**,
    check that the sha256 of the key in new's data dir equals the snapshot's. Applied digests are keyed with it; a
-   fresh key would make every resource look changed. As a backstop, new refuses supervise mode when migrated
-   applied digests exist but its digest key is not the migrated one (slice 5, with a test).
+   fresh key would make every resource look changed. As a backstop, `migrate-from` records a fingerprint of
+   the migrated key beside the applied digests, and new refuses supervise mode when migrated applied digests exist
+   but its key's fingerprint differs (slice 5, tested with a fresh key next to migrated digests).
 6. Offline identity (the CLI uses identity's Go API; list, revoke and owner-exists come from CW-20261114-0131 /
    substrate #34; the app never reads identity's tables):
    - The owner runs `$NEW identity setup --username <owner>` at a terminal.
