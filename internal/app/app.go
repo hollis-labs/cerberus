@@ -147,28 +147,44 @@ func NewExternalConnectorService(configPath ...string) *cerbapi.ExternalConnecto
 }
 
 var (
-	auditOnce sync.Once
-	auditSink audit.Sink
+	auditOnce   sync.Once
+	auditSink   audit.Sink
+	auditSwitch *audit.Switch
 )
 
 // AuditSink is this process's audit sink: ~/.cerberus/audit, opened once and
 // shared, so every service in the process writes through one writer. When the
 // directory cannot be opened the sink refuses every write with the reason —
 // non-read operations are then refused and reads are logged (Decision 8).
+//
+// The sink is an audit.Switch over that directory's chain, so the daemon's standby mode can
+// divert every write to the standby chain without any service knowing (AuditSwitch).
+// Outside the daemon, nothing diverts it, so the chain is guarded instead: while
+// the standby flag is present every write is refused (standbyGuardSink).
 func AuditSink() audit.Sink {
 	auditOnce.Do(func() {
+		var primary audit.Sink
 		dir, err := AuditDir()
 		if err == nil {
 			var sink *audit.FileSink
 			if sink, err = audit.OpenFileSink(dir); err == nil {
-				auditSink = sink
-				return
+				primary = sink
 			}
 		}
-		auditSink = audit.Unavailable{Err: err}
+		if primary == nil {
+			primary = audit.Unavailable{Err: err}
+		}
+		auditSwitch = audit.NewSwitch(guardStandby(primary))
+		auditSink = auditSwitch
 	})
 	policyOnce.Do(installPolicy)
 	return auditSink
+}
+
+// AuditSwitch is AuditSink's switch, for the daemon's standby fence.
+func AuditSwitch() *audit.Switch {
+	AuditSink()
+	return auditSwitch
 }
 
 var policyOnce sync.Once
@@ -275,7 +291,9 @@ func AuditDir() (string, error) {
 // NewDaemonConnectorServices builds the daemon's managed plugin lane and its
 // admin lane, both writing to this process's audit sink. The admin lane
 // resolves resources against the daemon's runtime.
-func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, configPath string) (*cerbapi.ManagedPluginConnectorService, *cerbapi.ExternalConnectorService, error) {
+// opts are added to the managed plugin service's own (the daemon passes
+// cerbapi.WithDeferredPluginLoad, so standby decides whether plugins load).
+func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, configPath string, opts ...cerbapi.ManagedPluginOption) (*cerbapi.ManagedPluginConnectorService, *cerbapi.ExternalConnectorService, error) {
 	statePath, err := cerbapi.PluginConnectorStatePath()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve plugin connector state path: %w", err)
@@ -294,7 +312,7 @@ func NewDaemonConnectorServices(a *App, hostVersion string, stderr io.Writer, co
 			cerbapi.WithManagedPluginCoreSecrets(CoreConnectorSecrets(configPath)),
 			cerbapi.WithSecretBackendBinder(secretBackends.Bind),
 			cerbapi.WithManagedPluginConnectorConfig(ConnectorConfigPath(configPath)),
-			cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...)}, shimOpts...)...)
+			cerbapi.WithManagedPluginReservedIDs(a.Registry.BuiltInIDs()...)}, append(shimOpts, opts...)...)...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize managed plugin connectors: %w", err)
 	}

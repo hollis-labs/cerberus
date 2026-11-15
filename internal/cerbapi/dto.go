@@ -252,6 +252,16 @@ type DaemonStatus struct {
 	// The JSON key avoids the word credential: the response redaction masks the
 	// strings under a key that names one.
 	CredentialStore *CredentialStoreStatus `json:"keyring,omitempty"`
+	// Standby is set while the daemon is in standby (standby.go).
+	Standby *StandbyStatus `json:"standby,omitempty"`
+}
+
+// StandbyStatus is the daemon's standby: the one resource it still operates
+// (empty when the flag names none, with the reason in Problem) and since when.
+type StandbyStatus struct {
+	Resource string `json:"resource"`
+	Problem  string `json:"problem,omitempty"`
+	Since    string `json:"since"`
 }
 
 // CredentialStoreStatus says the OS credential store is degraded.

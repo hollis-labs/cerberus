@@ -21,6 +21,16 @@ func TestMain(m *testing.M) {
 		runChildDaemon()
 		return
 	}
+	// The standby end-to-end test re-executes it as a daemon under a scratch HOME.
+	if os.Getenv(childStandbyEnv) == "1" {
+		runChildStandbyDaemon()
+		return
+	}
+	// The standby CLI test re-executes it as one CLI command under a scratch HOME.
+	if args := os.Getenv(childStandbyCLIEnv); args != "" {
+		runChildStandbyCLI(args)
+		return
+	}
 	cleanupHome, err := testhome.Isolate()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

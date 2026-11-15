@@ -121,6 +121,11 @@ func (spec auditSpec) recordRequired() bool {
 // returns is the refusal to hand the caller — and a read goes on, logged
 // loudly (Decision 8), so a full disk does not blind the operator.
 func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec auditSpec) (*auditCall, error) {
+	if logger == nil {
+		// A service built without a logger (portfolio health) still reports
+		// a read that went unrecorded, instead of panicking on it.
+		logger = slog.Default()
+	}
 	intent := audit.Record{
 		Kind:         audit.KindIntent,
 		OperationID:  spec.operationIDOrNew(),
