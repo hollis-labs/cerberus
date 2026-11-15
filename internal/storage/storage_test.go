@@ -125,7 +125,7 @@ func TestSchemaMigratesOnEmptyAndSecondStartIsNoOp(t *testing.T) {
 	eachDialect(t, func(t *testing.T, st *store.Store, reopen func() *store.Store) {
 		first, versions := tables(t, st), gooseVersions(t, st)
 		want := []string{
-			"applied_definitions", "credential_issuance_receipts", "goose_db_version",
+			"applied_definitions", "applied_digest_key", "credential_issuance_receipts", "goose_db_version",
 			"host_events", "host_events_host", "host_rollup_state", "host_sample_rollups", "host_samples",
 			"host_status", "pause_state",
 		}

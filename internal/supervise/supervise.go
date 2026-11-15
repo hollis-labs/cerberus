@@ -20,6 +20,7 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 
+	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/domain"
@@ -56,6 +57,9 @@ type Options struct {
 	Digester Digester
 	// Approver decides each mutation before it runs.
 	Approver Approver
+	// Brakes returns the brake state; the monitor's restarts skip a frozen resource. Nil means
+	// none engaged. It is the lane's own source, whatever the approver is.
+	Brakes func() brake.State
 	// Logger receives the lane's records; nil is slog.Default.
 	Logger *slog.Logger
 	// Systemd configures the connector's systemd backend. Runner defaults to Options.Runner and

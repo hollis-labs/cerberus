@@ -81,6 +81,35 @@ func Applied(ctx context.Context, st *store.Store, resourceID string) (string, b
 	return d, err == nil, err
 }
 
+// AppliedCount is how many resources have an applied digest.
+func AppliedCount(ctx context.Context, st *store.Store) (int, error) {
+	var n int
+	err := st.Reader().QueryRowContext(ctx, `SELECT COUNT(*) FROM applied_definitions`).Scan(&n)
+	return n, err
+}
+
+// AppliedKey is the recorded fingerprint of the key applied digests are keyed with, if any.
+func AppliedKey(ctx context.Context, st *store.Store) (string, bool, error) {
+	var fp string
+	err := st.Reader().QueryRowContext(ctx, `SELECT fingerprint FROM applied_digest_key WHERE id = 1`).Scan(&fp)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return fp, err == nil, err
+}
+
+// SetAppliedKey records the fingerprint of the key applied digests are keyed with.
+func SetAppliedKey(ctx context.Context, st *store.Store, fingerprint string, now time.Time) error {
+	if fingerprint == "" {
+		return errors.New("applied digest key: empty fingerprint")
+	}
+	return st.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
+		_, err := tx.ExecContext(ctx, tx.Dialect().Rebind(`INSERT INTO applied_digest_key (id, fingerprint, recorded_at) VALUES (1, ?, ?)
+ON CONFLICT (id) DO UPDATE SET fingerprint = excluded.fingerprint, recorded_at = excluded.recorded_at`), fingerprint, now.UTC().Unix())
+		return err
+	})
+}
+
 // Receipt is one credential-issuance lifecycle record. References name file:// paths, never
 // values.
 type Receipt struct {

@@ -144,7 +144,10 @@ A dev session's `stop` and `remove` record the pause, and `apply`, `deploy` and 
 store (`pause_state`), never in `~/.cerberus/paused.<id>`. A successful `apply`, `deploy`, `reload` or `sync`
 records the definition's digest (`applied_definitions`), keyed with `<data dir>/audit/.digest_key`, the key the old
 audit chain digests with once it is copied (plan section 6), so a digest migrated from `runtime/applied.json`
-compares equal. There is no `start` verb: the old build has none, and `apply` starts.
+compares equal. The key's fingerprint is recorded beside the digests (`applied_digest_key`, written by the
+migration with the digests it imports, or by the first supervise start on an empty store), and supervise mode refuses
+to start when digests exist and the key is missing or has another fingerprint; it never creates a key over migrated
+digests. There is no `start` verb: the old build has none, and `apply` starts.
 
 The resource monitor (supervise mode only) restarts a dev session with `auto_restart` that went down, as old's did:
 not while paused or frozen, within `max_restart_attempts` and `restart_cooldown`, and only the definition last
@@ -153,8 +156,9 @@ applied. It stops no workload. Until slice 6 a restart is not recorded in an aud
 `cerberus.self_resource_id` names the resource this process runs as (`cerberus-substrate`, plan section 7.2 C). At
 start the process reads `/proc/self/cgroup`: running in a systemd unit other than the one that resource installs as is
 refused, and so is an id the registry does not list. A process outside any service unit (run from a shell) starts,
-with a warning. In supervise mode every verb on that resource is refused (200 `success:false` naming fleet-install),
-through the lane and through the connector's mutation guard.
+with a warning in observe mode; supervise mode refuses it, since a hand-run copy beside the unit would be a second
+writer. In supervise mode every verb on that resource is refused (200 `success:false` naming fleet-install), through
+the lane and through the connector's mutation guard.
 
 ### Unit renderer parity
 

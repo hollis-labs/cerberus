@@ -12,6 +12,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/redact"
+	"github.com/hollis-labs/cerberus/internal/settings"
 )
 
 // CgroupPath is where the process's own cgroup is read on Linux.
@@ -49,6 +50,19 @@ type SelfCheck struct {
 	Unit string
 	// Expected is the unit self_resource_id's resource installs as.
 	Expected string
+}
+
+// OutsideUnit decides a start outside any service unit with self_resource_id set. Observe mode
+// starts, with a warning (nil here; the caller logs). Supervise mode refuses: a hand-run
+// process beside the unit-run one would be a second writer, running its own monitor and
+// serving mutations (plan section 4.2), and the database lock stops it only when both use the
+// same data directory.
+func (c SelfCheck) OutsideUnit(mode settings.Mode, selfID string) error {
+	if selfID == "" || c.Unit != "" || mode != settings.ModeSupervise {
+		return nil
+	}
+	return redact.Guidance("cerberus.mode supervise refuses to start outside its systemd unit: cerberus.self_resource_id is %q, which installs as %s, "+
+		"and this process runs in no service unit. Start it through that unit, or run this copy with cerberus.mode: observe", selfID, c.Expected)
 }
 
 // CheckSelf compares the unit the process runs in (cgroup, read from the CgroupPath

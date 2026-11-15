@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/settings"
 )
 
 func TestUnitFromCgroup(t *testing.T) {
@@ -81,5 +82,28 @@ func TestCheckSelfOnThisHost(t *testing.T) {
 	t.Logf("this test runs in unit %q", unit)
 	if _, err := os.Stat(CgroupPath); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Outside any service unit, observe mode starts and supervise mode refuses, naming the unit.
+func TestSuperviseRefusesToRunOutsideItsUnit(t *testing.T) {
+	res := selfResources()
+	check, err := CheckSelf(strings.NewReader("0::/user.slice/user-1000.slice/session-2.scope\n"), "cerberus-substrate", res, "/u/op")
+	if err != nil || check.Unit != "" {
+		t.Fatalf("outside a unit: %+v %v", check, err)
+	}
+	if err = check.OutsideUnit(settings.ModeObserve, "cerberus-substrate"); err != nil {
+		t.Fatalf("observe refused: %v", err)
+	}
+	err = check.OutsideUnit(settings.ModeSupervise, "cerberus-substrate")
+	if err == nil || !strings.Contains(err.Error(), "outside its systemd unit") || !strings.Contains(err.Error(), check.Expected) || !strings.Contains(err.Error(), "observe") {
+		t.Fatalf("supervise outside its unit: %v", err)
+	}
+	inUnit, err := CheckSelf(cg(check.Expected), "cerberus-substrate", res, "/u/op")
+	if err != nil || inUnit.OutsideUnit(settings.ModeSupervise, "cerberus-substrate") != nil {
+		t.Fatalf("supervise in its unit: %+v %v", inUnit, err)
+	}
+	if (SelfCheck{}).OutsideUnit(settings.ModeSupervise, "") != nil {
+		t.Fatal("no self id refused")
 	}
 }

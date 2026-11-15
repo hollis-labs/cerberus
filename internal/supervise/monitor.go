@@ -228,15 +228,14 @@ func (m *monitor) check(ctx context.Context, cfg *config.ConfigV2, res config.Re
 	log.Info("daemon.resource_monitor.restart_success", "resource", res.ID, "attempt", m.failureCount[res.ID])
 }
 
-// frozen is the freeze covering a resource, from the approver's brakes when it has them.
+// frozen is the freeze covering a resource, from the lane's brake source.
 func (m *monitor) frozen(res config.ResourceDef) (brake.Freeze, bool) {
-	a, ok := m.s.o.Approver.(InterimApprover)
-	if !ok || a.Brakes == nil {
+	if m.s.o.Brakes == nil {
 		return brake.Freeze{}, false
 	}
 	labels := res.TargetLabels()
 	op, _ := operation(localconn.OpApply)
-	return a.Brakes().FreezeCovering("local", target.Resolve("local", op.Target.Kind, res.ID, &labels, false))
+	return m.s.o.Brakes().FreezeCovering("local", target.Resolve("local", op.Target.Kind, res.ID, &labels, false))
 }
 
 // startupOrder orders every resource after its dependencies (the old build's

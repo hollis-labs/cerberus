@@ -127,6 +127,7 @@ func newLane(t *testing.T, resources ...config.ResourceDef) *lane {
 		Store:    l.st,
 		Digester: l.digester,
 		Approver: supervise.InterimApprover{Brakes: func() brake.State { return l.brakes }},
+		Brakes:   func() brake.State { return l.brakes },
 		Systemd: localconn.SystemdOptions{
 			Runner:   l.manager,
 			Env:      localconn.RenderEnv{Home: l.home, Path: l.home + "/.local/bin:/usr/local/bin:/usr/bin:/bin", Cerberus: l.home + "/.local/bin/cerberus"},

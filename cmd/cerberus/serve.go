@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -19,7 +20,6 @@ import (
 	"github.com/hollis-labs/substrate/modules/identity"
 
 	"github.com/hollis-labs/cerberus/internal/api"
-	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/datadir"
@@ -209,6 +209,9 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 		if check, err = supervise.CheckSelf(r, cfg.SelfResourceID, list, home); err != nil {
 			return nil, err
 		}
+		if err = check.OutsideUnit(cfg.Mode, cfg.SelfResourceID); err != nil {
+			return nil, err
+		}
 		if check.Unit == "" {
 			slog.Warn("cerberus is not running in a systemd unit, so its identity is not checked", "self_resource_id", cfg.SelfResourceID, "expected_unit", check.Expected)
 		}
@@ -234,16 +237,17 @@ func superviseOptions(app *module.App, opts *supervise.Options, reg *registry.Re
 		return resolved.Config, nil
 	}
 	opts.Store = storage.FromApp(app).Local
-	digester, err := audit.OpenDigester(filepath.Join(data, "audit"))
+	digester, err := supervise.OpenAppliedKey(context.Background(), opts.Store, filepath.Join(data, "audit"), time.Now())
 	if err != nil {
 		return err
 	}
 	opts.Digester = digester
 	brakes := brake.Store{Dir: filepath.Join(data, "brakes")}
-	opts.Approver = supervise.InterimApprover{Brakes: func() brake.State {
+	opts.Brakes = func() brake.State {
 		st, _ := brakes.Load()
 		return st
-	}}
+	}
+	opts.Approver = supervise.InterimApprover{Brakes: opts.Brakes}
 	return nil
 }
 
