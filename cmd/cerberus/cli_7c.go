@@ -26,6 +26,7 @@ func (c *cerberus) addFollowUpCommands(root *cobra.Command) error {
 	}
 	root.AddCommand(c.whoamiCommand())
 	root.AddCommand(c.policyCommands()...)
+	root.AddCommand(c.dataCommand())
 	return addPendingCommands(root, pendingSpecs)
 }
 

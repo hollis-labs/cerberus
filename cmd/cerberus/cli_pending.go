@@ -14,27 +14,13 @@ import (
 // "pending (slice N)" with exit 1, having done nothing. The flags mirror main's
 // (`cerberus <path> --help` on main); the parity test checks every one of them.
 
-// The slices that own the backends these verbs wait for. Slice 7d (CW-20261115-0089) takes the
-// ones no slice owned: the policy point's CLI routes (policy, posture), the audit chain's writes
-// (audit prune, reanchor), the server's view of the caller (whoami) and data access. Slice 8b
-// owns the rest: host writes, components, pipelines, and every other backend not served yet.
-const (
-	slice7d = "slice 7d"
-	slice8b = "slice 8b"
-)
-
-// pendingOwner is the slice a path waits for, by the pendingWhy key that names it.
-var pendingOwner = map[string]string{
-	"data": slice7d,
-}
+// slice8b owns every backend these verbs wait for: host writes, components, pipelines, and the
+// rest not served yet. Slice 7d (CW-20261115-0089) served the ones no slice owned (policy,
+// posture, audit prune and reanchor, whoami, data query), so none waits on it.
+const slice8b = "slice 8b"
 
 // pendingSlice is the slice path waits for.
-func pendingSlice(path string) string {
-	if s, ok := pendingOwner[whyKey(path)]; ok {
-		return s
-	}
-	return slice8b
-}
+func pendingSlice(string) string { return slice8b }
 
 // flagSpec is one old flag: name, shorthand, type (bool, string, int, float, duration,
 // stringArray), default as old printed it, and usage.
@@ -52,7 +38,6 @@ type pendingSpec struct {
 var pendingWhy = map[string]string{
 	"component":           "the component inventory has no route on the serving Cerberus yet",
 	"connectors describe": "the definitions are served (GET /api/connectors), but the live field needs the serving Cerberus's live-connector read, which no route serves yet; `cerberus connectors exec <id> <op>` runs the connector's operations",
-	"data":                "the data-access route (old POST /data/v1/query) is not served yet",
 	"host":                "this host verb has no route yet; host list, get, probe, status, samples, monitor and events are served",
 	"pipeline":            "no pipeline route is served yet",
 	"portfolio":           "the portfolio health projection has no route yet",
@@ -203,10 +188,6 @@ var pendingSpecs = []pendingSpec{
 		{"revision", "", "string", "", "hosts.yaml revision this change is based on (default: the current one)"},
 	}},
 	{path: "connectors describe", use: "describe <connector-id>", short: "Show detailed connector discovery metadata", group: false, flags: []flagSpec{}},
-	{path: "data", use: "data", short: "Session-authorized named data projections", group: true, flags: []flagSpec{}},
-	{path: "data query", use: "query", short: "Read a JSON projection request from stdin; token comes from a private file", group: false, flags: []flagSpec{
-		{"token-file", "", "string", "", "Private Tether session token file (never the token itself)"},
-	}},
 	{path: "host capacity", use: "capacity", short: "List the hosts that satisfy constraints, from recorded facts", group: false, flags: []flagSpec{
 		{"disk-type", "", "stringArray", "", "a recorded disk of this type: ssd|hdd|nvme|emmc|usb|other (repeatable)"},
 		{"explain", "", "bool", "", "also list excluded hosts with the reason for each"},
