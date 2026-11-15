@@ -3,7 +3,7 @@ migrate-from: migrated
   old db:     <scratch>/backup/main.db
   data dir:   <scratch>/user/.local/share/cerberus-substrate
   config dir: <scratch>/user/.config/cerberus
-  source_unchanged: true (87 entries, sha256:492fad1645690a4f73c4c5f0c9515027ace2ce15738f19244385e5570cb2bd68)
+  source_unchanged: true (87 entries, sha256:8d170518d04fb253aa7e6e7e4144ca05fd2cfad94f2220b23df5da9399a08a9c)
 
   row   store                                                          treatment     before  after   verify
   R4    audit/*.jsonl, audit/.digest_key                               copy          10      10      audit.Check ok on source (old anchor) and copy (old head); key sha256 equal
@@ -34,7 +34,12 @@ migrate-from: migrated
   applied: 2 digests, changed []
   pause: [* ghost.x web]; naming no resource: [ghost.x]
   receipts: 10 files -> 10 rows; reservations without a receipt: [dddddddddddddddddddddddddddddddd]
-  config: fragment <scratch>/user/.local/share/cerberus-substrate/migration/config-fragment.yaml; unmapped [web.public_url = https://cerberus.example.test]; resources listed 0, projects listed 0
+  config: fragment <scratch>/user/.local/share/cerberus-substrate/migration/config-fragment.yaml; resources listed 0, projects listed 0
+    mapped: config.yaml host_monitor -> cerberus.host_monitor
+    mapped: events.yaml export -> cerberus.event_export (enabled forced false; was true)
+    mapped: connector-config.yaml -> cerberus.connectors
+    reported: web.public_url = https://cerberus.example.test (no cerberus key: set identity.allowed_origins (the origin) with identity.trusted_proxy: true; written in the fragment as a comment)
+    reported: transfers.root = unset (the default ~/.cerberus/transfers): the new build's root is <adopt_root>/transfers, the same directory; nothing to carry
   in place: <XDG_STATE_HOME>/cerberus, approvals/passkeys/key-counters.json, approvals/passkeys/keys.json, apps, credential-issuance/secrets, events-tokens, hosts.history.jsonl, hosts.yaml, keyring service cerberus, outpost-tokens, plugin-connectors.json, plugins, registry.yaml, secrets, transfers
   not migrated: pids/web.meta, pids/web.pid, web/login-fixture.key
   archive: <XDG_DATA_HOME>/cerberus, backups, cerberus.db, cerberus.log, config.yaml.bak-20261001, logs, policy/posture.yaml.bak-20261101

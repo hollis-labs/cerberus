@@ -1,8 +1,8 @@
 {
   "version": 1,
   "result": "migrated",
-  "started": "2026-11-15T05:42:45.077064018Z",
-  "finished": "2026-11-15T05:42:45.108708567Z",
+  "started": "2026-11-15T05:55:19.105332713Z",
+  "finished": "2026-11-15T05:55:19.141538961Z",
   "old_home": "<scratch>/snap/.cerberus",
   "old_db": "<scratch>/backup/main.db",
   "old_anchor_account": "<scratch>/user/.cerberus/audit",
@@ -10,8 +10,8 @@
   "database_path": "<scratch>/user/.local/share/cerberus-substrate/cerberus.db",
   "config_dir": "<scratch>/user/.config/cerberus",
   "source_unchanged": true,
-  "source_digest_before": "sha256:492fad1645690a4f73c4c5f0c9515027ace2ce15738f19244385e5570cb2bd68",
-  "source_digest_after": "sha256:492fad1645690a4f73c4c5f0c9515027ace2ce15738f19244385e5570cb2bd68",
+  "source_digest_before": "sha256:8d170518d04fb253aa7e6e7e4144ca05fd2cfad94f2220b23df5da9399a08a9c",
+  "source_digest_after": "sha256:8d170518d04fb253aa7e6e7e4144ca05fd2cfad94f2220b23df5da9399a08a9c",
   "source_entries": 87,
   "stores": [
     {
@@ -147,7 +147,7 @@
       "store": "config.yaml, events.yaml, connector-config.yaml",
       "treatment": "transform",
       "dest": "\u003cdata\u003e/migration/config-fragment.yaml",
-      "dest_sha256": "sha256:ce3d9cd76d753bcba113c3afce61022013263373847994c3d1f14cae3f13f8c4",
+      "dest_sha256": "sha256:7c41beba91eea32982c59589e8dde655c5abf2111b176b869f8b5ac53b9d5537",
       "verify": "parses as the cerberus block (settings.Parse)"
     }
   ],
@@ -278,7 +278,7 @@
     "unrecorded": [
       "box"
     ],
-    "applied_at_source": "2026-11-15T05:42:45.076688091Z",
+    "applied_at_source": "2026-11-15T05:55:19.104765916Z",
     "key_fingerprint": "hmac-sha256:965d21ecf6155ef58e43f05ac13d29227014beb6b20aed4c6e1a7118456e2203"
   },
   "pause": {
@@ -339,19 +339,22 @@
   "config": {
     "output": "fragment file \u003cdata\u003e/migration/config-fragment.yaml",
     "fragment": "<scratch>/user/.local/share/cerberus-substrate/migration/config-fragment.yaml",
-    "fragment_sha256": "sha256:ce3d9cd76d753bcba113c3afce61022013263373847994c3d1f14cae3f13f8c4",
+    "fragment_sha256": "sha256:7c41beba91eea32982c59589e8dde655c5abf2111b176b869f8b5ac53b9d5537",
     "mapped": [
       "config.yaml host_monitor -\u003e cerberus.host_monitor",
       "events.yaml export -\u003e cerberus.event_export (enabled forced false; was true)",
       "connector-config.yaml -\u003e cerberus.connectors"
     ],
     "unmapped": [
-      "web.public_url = https://cerberus.example.test"
+      "web.public_url = https://cerberus.example.test (no cerberus key: set identity.allowed_origins (the origin) with identity.trusted_proxy: true; written in the fragment as a comment)",
+      "transfers.root = unset (the default ~/.cerberus/transfers): the new build's root is \u003cadopt_root\u003e/transfers, the same directory; nothing to carry"
     ],
     "resources_listed": 0,
     "projects_listed": 0,
     "pipelines_listed": 0,
-    "event_export_was_enabled": true
+    "event_export_was_enabled": true,
+    "web_public_url": "https://cerberus.example.test",
+    "transfers_root": "unset (the default ~/.cerberus/transfers)"
   },
   "registry": {
     "entries": 1,
@@ -401,12 +404,13 @@
         "path": "hosts.history.jsonl",
         "size": 188,
         "row": "R8",
-        "note": "pending decision: in place in the adopted root"
+        "note": "in place in the adopted root, which the new build reads; excluded from the D3 manifest"
       },
       {
         "path": "hosts.yaml",
         "size": 109,
-        "row": "R15"
+        "row": "R15",
+        "note": "in place in the adopted root, which the new build reads; excluded from the D3 manifest"
       },
       {
         "path": "keyring service cerberus",
@@ -421,7 +425,8 @@
       {
         "path": "plugin-connectors.json",
         "size": 261,
-        "row": "R18"
+        "row": "R18",
+        "note": "in place in the adopted root, which the new build reads; excluded from the D3 manifest"
       },
       {
         "path": "plugins",
@@ -430,7 +435,7 @@
       },
       {
         "path": "registry.yaml",
-        "size": 225,
+        "size": 224,
         "row": "R14"
       },
       {
@@ -518,14 +523,15 @@
       "alerts/"
     ]
   },
-  "decisions": {
-    "D3 manifest extra files": "hosts.history.jsonl, hosts.yaml, plugin-connectors.json excluded",
-    "D3 manifest max_time": "host_status by last_attempt",
-    "R11 empty reservations": "report",
-    "R13 config output": "fragment file \u003cdata\u003e/migration/config-fragment.yaml",
-    "R15 hosts.yaml": "in_place",
-    "R21 oauth/, alerts/": "carry",
-    "R8 hosts.history.jsonl": "in_place"
+  "rulings": {
+    "D3 manifest extra files": "hosts.history.jsonl*, hosts.yaml, plugin-connectors.json excluded (in place; rollback keeps new's edits)",
+    "D3 manifest max_time": "host_status by last_attempt, host_rollup_state by watermark",
+    "R11 empty reservations": "reported as reservations_without_receipt; left in place",
+    "R13 config output": "fragment file \u003cdata\u003e/migration/config-fragment.yaml; unknown keys refused",
+    "R15 hosts.yaml": "in place in the adopted root; excluded from the D3 manifest",
+    "R18 plugin-connectors": "in place in the adopted root; excluded from the D3 manifest",
+    "R21 oauth/, alerts/": "carried inert to \u003cdata\u003e/oauth and \u003cdata\u003e/alerts",
+    "R8 hosts.history.jsonl": "in place in the adopted root; excluded from the D3 manifest"
   },
   "warnings": [
     "pause targets name no resource the registry lists: [ghost.x] (carried; the owner decides)",
