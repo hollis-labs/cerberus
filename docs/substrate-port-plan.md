@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope; revision 7 adds slice 8b for the lanes slice 9's tool-parity survey found unowned; revision 8 adds the `cerberus-mcp` key at D6 and fixes the key names that set the audit channel; revision 9 keeps `hosts.yaml`, host history and `plugin-connectors.json` in place, adds the config-fragment merge at D5, and adds slices 7b and 7c; revision 10 stops old's daemon around `export-legacy` in the rollback and corrects the standby chain's digest key.** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks; revision 5 adds the digest-key check at D5 and the D1 review of auto-restart dev sessions (director rulings, 2026-11-15); revision 6 corrects the outpost entry: outbound client only, no inbound mount or `cerberus.outpost` scope; revision 7 adds slice 8b for the lanes slice 9's tool-parity survey found unowned; revision 8 adds the `cerberus-mcp` key at D6 and fixes the key names that set the audit channel; revision 9 keeps `hosts.yaml`, host history and `plugin-connectors.json` in place, adds the config-fragment merge at D5, and adds slices 7b and 7c; revision 10 stops old's daemon around `export-legacy` in the rollback and corrects the standby chain's digest key; revision 11 names old's database path and makes every live backup read-only.** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -201,7 +201,7 @@ This is proved with a real process and SIGTERM.
 - prints a report: per store, source sha256 (logical state for `main.db`), record counts before and after,
   digests, chain verification, and `source_unchanged: true`.
 
-The snapshot is taken with old in standby (D3). `main.db` is copied with `sqlite3 main.db ".backup <copy>"` (it is in
+The snapshot is taken with old in standby (D3). `main.db` (old's workspace database, `<XDG_DATA_HOME>/cerberus/workspaces/default/main.db`, not under `~/.cerberus`) is copied only through a read-only URI, `sqlite3 'file:<absolute path>?mode=ro' ".backup <copy>"`, after `test -f` shows the file exists. A plain path would create an empty file if it were wrong (it is in
 WAL mode), never `cp`.
 
 Treatments, using the vocabulary of `inventory-data.md`. Every row of that inventory falls into one of these lines.
@@ -252,7 +252,7 @@ same format), and the
 - a `config.yaml` that still lists `resources:` or `projects:` (it must be empty, as it is live).
 
 **Rehearsal (cell, scratch directory, never the live tree).**
-1. Take a `.backup` of `main.db` and a `cp -a` of `~/.cerberus` (old running normally; the rehearsal does not need
+1. Take a read-only `.backup` of `<XDG_DATA_HOME>/cerberus/workspaces/default/main.db` (as above: `test -f`, then `file:...?mode=ro`), a `cp -a` of `~/.cerberus`, and a sha256 manifest of both live roots before and after the rehearsal to prove nothing was written (old running normally; the rehearsal does not need
    standby).
 2. Point `HOME`, `XDG_*` and `CERBERUS_DATA_DIR` at the scratch directory. Use a scratch keyring (`dbus-run-session`
    with its own gnome-keyring), because the anchor lives in the keyring.
@@ -464,7 +464,7 @@ From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` v
 2. Stop the old console unit. `echo cerberus-substrate > ~/.cerberus/standby`. Wait until `$LEGACY daemon status`
    reports standby, plugins stopped and the sessions listed.
 3. **Snapshot.**
-   - `sqlite3 main.db ".backup <dir>/main.db"`, then `integrity_check`.
+   - `test -f <XDG_DATA_HOME>/cerberus/workspaces/default/main.db`, then `sqlite3 'file:<that absolute path>?mode=ro' ".backup <dir>/main.db"`, then `integrity_check` on the copy.
    - `cp -a ~/.cerberus <dir>/cerberus-home`, excluding the adopted root's directories and `standby.d/`.
    - Write the D3 manifest (section 5).
    - All of it goes into a private 0700 directory.
