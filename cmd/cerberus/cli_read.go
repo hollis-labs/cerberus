@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"github.com/hollis-labs/substrate/module"
 
 	"github.com/hollis-labs/cerberus/internal/api"
+	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/settings"
 )
@@ -77,6 +79,8 @@ func newAPIClient(app *module.App, home string) (*apiClient, error) {
 type apiError struct {
 	Status        int
 	Code, Message string
+	// Approval is the approval an approval_pending refusal names under details.
+	Approval *gate.ApprovalRef
 }
 
 func (e *apiError) Error() string {
@@ -88,31 +92,56 @@ func (e *apiError) Error() string {
 
 // get decodes the JSON answer to GET path into out.
 func (c *apiClient) get(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	return c.do(ctx, http.MethodGet, path, nil, out)
+}
+
+// post sends in as the JSON body of POST path and decodes the answer into out.
+func (c *apiClient) post(ctx context.Context, path string, in, out any) error {
+	return c.do(ctx, http.MethodPost, path, in, out)
+}
+
+func (c *apiClient) do(ctx context.Context, method, path string, in, out any) error {
+	var body io.Reader
+	if in != nil {
+		data, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.key)
 	req.Header.Set("Accept", "application/json")
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("the serving Cerberus at %s is not answering (is `cerberus serve` running?): %w", c.base, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return err
 	}
 	if resp.StatusCode/100 != 2 {
-		var flat struct{ Code, Message string }
-		_ = json.Unmarshal(body, &flat)
-		e := &apiError{Status: resp.StatusCode, Code: flat.Code, Message: flat.Message}
+		var flat struct {
+			Code, Message string
+			Details       struct {
+				Approval *gate.ApprovalRef `json:"approval"`
+			}
+		}
+		_ = json.Unmarshal(data, &flat)
+		e := &apiError{Status: resp.StatusCode, Code: flat.Code, Message: flat.Message, Approval: flat.Details.Approval}
 		if resp.StatusCode == http.StatusUnauthorized {
 			return fmt.Errorf("%w (the key in %s was refused: revoked, expired or not a key of this Cerberus)", e, c.keyFile)
 		}
 		return e
 	}
-	return json.Unmarshal(body, out)
+	return json.Unmarshal(data, out)
 }
 
 // printJSON is the old CLI's -o json: indented, through the redactor.
@@ -272,8 +301,11 @@ func statusSections(ctx context.Context, c *apiClient) []statusSection {
 	}
 }
 
-// writeStatus is the old layout: a title, then "  %-8s %s" per section.
-func writeStatus(w io.Writer, sections []statusSection) {
+// writeStatus is the old layout: the brake banners, a title, then "  %-8s %s" per section.
+func writeStatus(w io.Writer, banners []string, sections []statusSection) {
+	for _, b := range banners {
+		_, _ = fmt.Fprintln(w, b)
+	}
 	_, _ = fmt.Fprintln(w, "Cerberus status")
 	for _, s := range sections {
 		_, _ = fmt.Fprintf(w, "  %-8s %s\n", s.label, s.value)
@@ -357,7 +389,7 @@ func (c *cerberus) readCommands() []*cobra.Command {
 				}
 				return printJSON(cmd.OutOrStdout(), m)
 			}
-			writeStatus(cmd.OutOrStdout(), sections)
+			writeStatus(cmd.OutOrStdout(), statusBanners(cmd.Context(), cl), sections)
 			return nil
 		},
 	}

@@ -128,17 +128,29 @@ resources fresh on every call. In both modes it reports each one:
 **Observe mode** refuses `apply`, `deploy`, `stop`, `reload`, `sync` and `remove` (L7, L8) with 409 `observe_mode`,
 before anything else. It writes nothing anywhere and starts no background work.
 
-**Supervise mode** runs the old build's six mutations with the old build's results (`supervise.Mutate`):
+**Supervise mode** runs the old build's six mutations with the old build's results (`supervise.Mutate`), through
+the operation gate (`internal/gate`) as old's `recordMutation` did:
 
-1. the acknowledgment, before the resource is looked up: 409 `acknowledgment_required` without it;
-2. the approver (`supervise.Approver`). Until slice 6 it is `InterimApprover`: an acknowledged request passes; a
-   request naming an approval, a plan or a confirmed plan is refused 428 `approvals_unavailable`, and a target a
-   lockdown or freeze in `<data dir>/brakes` covers is refused 423 `approvals_unavailable`. The table it is tested
-   against (`supervise/approvertest`) is the old build's routing, and slice 6 reuses it. A configured policy
-   (`<config dir>/cerberus/policy` not empty) refuses the start in supervise mode, since nothing would enforce it;
-3. the run. Every failure after the gate is 200 `{success:false, error}`: an unknown or non-local resource, a port
-   conflict, the self-guard, a build lock, build, install and apply failures. Deploy and apply add the config and
-   dependency warnings and redact their output through the resource's redactor, as old did.
+1. the acknowledgment, before the resource is looked up and before the gate: 409 `acknowledgment_required` without it,
+   and nothing is recorded;
+2. the gate (`gate.Begin`), with a spec for the local connector's operation: the id and the deploy override as its
+   arguments, the target labeled from the one config read the call uses, the approval id, the plan request and the
+   confirmed plan hash. It writes the intent, then checks the brakes (423 `lockdown`, `frozen`), then policy where it
+   is enforced (403 `policy_denied`, 428 `approval_required`, 409 `approval_pending` with `details.approval`, 409
+   `plan_stale`, `approval_expired`); a refusal is recorded as the outcome. The API answers each with
+   `gate.HTTPError`. There is no supervise mode without the gate: `supervise.New` refuses it;
+3. a plan request (`"plan": true`) runs nothing: it is answered with the lane's plan (`OpResult.plan`, the plan an
+   approval binds to: the definition digest, the checkout for a deploy, the artifact for apply and sync, the rendered
+   unit for apply and deploy, the observed state), recorded as a dry run;
+4. the run. Every failure after the gate is 200 `{success:false, error}`: an unknown or non-local resource, a port
+   conflict, the self-guard, a build lock, build, install and apply failures, and a deploy whose checkout changed
+   since the gate read it. Deploy and apply add the config and dependency warnings and redact their output through
+   the resource's redactor, as old did;
+5. the applied digest on success, egress policy over the result (`build_output` and `install_output` are
+   `cerb:"untrusted"`), and the outcome record (`operation_failed` for a result with `success:false`).
+
+The table of what old routes away from a plain run (`supervise/approvertest`: approval id, plan, confirmed plan,
+lockdown, freeze) runs against the real lane for the owner's console session and for an API key, with old's codes.
 
 A dev session's `stop` and `remove` record the pause, and `apply`, `deploy` and `reload` clear it, in the class A
 store (`pause_state`), never in `~/.cerberus/paused.<id>`. A successful `apply`, `deploy`, `reload` or `sync`
@@ -150,8 +162,27 @@ to start when digests exist and the key is missing or has another fingerprint; i
 digests. There is no `start` verb: the old build has none, and `apply` starts.
 
 The resource monitor (supervise mode only) restarts a dev session with `auto_restart` that went down, as old's did:
-not while paused or frozen, within `max_restart_attempts` and `restart_cooldown`, and only the definition last
-applied. It stops no workload. Until slice 6 a restart is not recorded in an audit chain.
+not while paused or frozen (the gate's brakes), within `max_restart_attempts` and `restart_cooldown`, and only the
+definition last applied. It stops no workload. A restart is never gated (Decision 14) and always recorded, as old's
+was: an automation intent and outcome on `local.apply`, with the reason `auto_restart: the workload was <state>;
+restart attempt <n> of <max>`.
+
+### The gate in supervise mode
+
+`serve` builds the gate in supervise mode only, as old's daemon installed it (`internal/app` `installPolicy` and
+`cmd_daemon` on `main`):
+
+- the audit chain in `<data dir>/audit` (`auditchain.Open`), in old's format, continuing old's chain once it is
+  copied, with its head anchored in the keychain under old's item. It shares `.digest_key` with the applied digests;
+  `OpenAppliedKey` runs first and keeps its refusals;
+- the policy from `<config dir>/cerberus/policy` (`policy.NewReloading`, which follows `cerberus policy apply`
+  itself), with the applied snapshot's enforcement (`gate.SnapshotEnforcement`): shadow except what the snapshot
+  enforces and the built-in protections (`policy.BaselineEnforced`: an agent's change to production or to an
+  owner-administered target). A snapshot that fails its hash check is recorded (`gate.RecordPolicyLoad`);
+- the approvals broker in `<data dir>/approvals`, with the owner-session verifier (below);
+- the brakes in `<data dir>/brakes`, read with the audit chain's brake records, and the rate limits.
+
+Observe mode opens none of these and writes nothing.
 
 `cerberus.self_resource_id` names the resource this process runs as (`cerberus-substrate`, plan section 7.2 C). At
 start the process reads `/proc/self/cgroup`: running in a systemd unit other than the one that resource installs as is
@@ -187,13 +218,36 @@ callers get API keys (`cerberus identity key create`).
 Served today:
 - the legacy-route set L1 to L9 under `/api` (`docs/substrate-port/legacy-routes.md`, an approved cross-app
   contract), with the old shapes, held byte for byte to the old types by goldens;
-- the approve routes, registered with `cerberus.approve` and person-only.
+- the approvals routes, the old socket's `/approvals` with the old bodies: `GET /api/approvals` (`ApprovalList`) and
+  `GET /api/approvals/{id}` (`cerberus.read`); `POST /api/approvals/{id}/decide`, `/revoke` and `/ack-break-glass`
+  (`cerberus.approve`, person-only). Refusals use the flat body with old's statuses (`gate.ApprovalErrorStatus`). In
+  observe mode they answer 503 `approvals_unavailable`: old holds the approvals until the handover;
+- the brake routes, the old socket's `/brakes` with the old bodies (`gate.BrakesView`, `BrakeEngageArgs`,
+  `BrakeLiftArgs`, `BrakeResetArgs`): `GET /api/brakes` (`cerberus.read`); `POST /api/brakes/lockdown`,
+  `/lockdown/lift`, `/freeze`, `/freeze/{id}/lift` and `/suspensions/{id}/reset` (`cerberus.admin`). The gate decides
+  the rest: anyone holding admin engages (an agent may stop itself). Lifting a brake and resetting a suspension are
+  the owner's, on the console or from the CLI naming an out-of-band approval the owner decided on the console: a
+  key's first call is 409 `approval_pending` with `details.approval`, and its retry with `approval_id` goes through
+  once the owner has approved (the lift's record notes `approval:<id>`); the owner's console session resets with the
+  typed `reset <id>`. An MCP client (local trust) is refused with 428 `approval_required`. A brake that is not engaged is old's 409
+  (`not_engaged`), a freeze without a match 400 `invalid_args`. In observe mode they answer 503 `brakes_unavailable`.
+
+**The caller in the gate.** Each request is entered into the gate as the caller the guard established
+(`api.GateContext`): the owner's console session is a human via `web`, named by its session; local trust (MCP stdio)
+is an agent via `mcp_stdio`; an API key, any token minted at `/api/token` and auth's off-mode operator are agents via
+`api`. An agent's principal id is its client and its session, so an approval one key asked for is not usable by
+another (`approval.SameRequester`). The label chooses default policy; it is never approval.
+
+**L6 is read_sensitive** in supervise mode, as old's `ResourceLogs` was: the read passes the gate as `local.logs`
+(intent and outcome, brakes, policy, an approval named by `?approval_id=`), egress policy shapes `content`
+(`cerb:"untrusted"`), and the resource's redaction is kept. In observe mode no audit chain is open and nothing may be
+written, so L6 stays slice 4a's redacted read, logged (`api.logs.read gated=false`).
 
 Observe mode:
 - reads come from the registry under `cerberus.adopt_root`, and from `hosts.yaml` and `state/hosts.json` there, all
   read in place;
 - runtime state comes from an `Observer`: the supervision lane, through `laneObserver` (`cmd/cerberus/observer.go`). L3 carries a systemd unit's `systemd_*` fields from its show record;
-- mutations answer `409 observe_mode`.
+- mutations answer `409 observe_mode`; L6 is not recorded; the approvals and brake routes answer 503.
 
 **Approve.** `cerberus.approve` is the owner's console identity session only (decision 0.1). Two rules enforce it:
 - The approve routes accept only the identity module's session principal (kind `user`, a session id, no token id
@@ -202,6 +256,20 @@ Observe mode:
 - No machine credential may be minted with `*`, `cerberus.*` or `cerberus.approve`. `api.KeyGuard` refuses this on
   `POST /api/identity/keys` and `/api/identity/pairing-codes`, and the offline `identity key create` refuses the
   same scopes.
+
+**Owner-session approvals.** Passkeys are gone (decision 0.1). The decide route passes `gate.OwnerSession` (the
+caller is a console person, and its session id) to `Broker.DecideAs`, which puts the owner-session proof on an
+approve: the marker `owner-session:` and a digest of the session id, in the field the passkey fingerprint used, so the
+approvals file format is unchanged. The decision's `assertion` carries a seal: the time it was made and an HMAC, under
+the audit chain's digest key (`audit/.digest_key`, 0600), over the approval id, the action's digests, the verdict, the
+marker and that time. `gate.OwnerSessionVerifier` accepts an out-of-band approval only with that proof and a seal that
+verifies, on a human's approve over the web console, when it is decided and again when it is used. `cerberus audit
+verify` checks the chain against its keychain anchor and every owner-session seal in the approvals store
+(`gate.VerifyApprovals`, which export-legacy runs too in slice 10): a seal that does not verify fails it, and a
+pre-cutover decision (a passkey, no seal) is listed as legacy and accepted. A process that can write the approvals
+store but cannot read the key cannot forge a decision; one running as the owner can read the key, which is the residual
+risk recorded under post-adoption improvements in `docs/conversion-notes.md`. The no-self-approval rule is old's: a decider
+on the requester's own surface is refused, except the owner's console session on an out-of-band approval.
 
 Order of the handler, outermost first: `api.KeyGuard`, then `identity.Middleware` (cookie to bearer, with
 `X-Requested-With` and a same-origin `Origin` on cookie writes), then the host (guard, routes).
@@ -217,7 +285,7 @@ Defaults are in the manifest. The operator overrides any key in the YAML file na
 | `database.sqlite.path` | `cerberus.db` (under the data directory) | The database. |
 | `logging.level`, `logging.format` | `info`, `text` | Logging module. |
 | `cerberus.install_root` | `~/.cerberus/apps` | Artifact installs and resource logs, adopted in place (plan section 3). Absolute or `~/`-prefixed. |
-| `cerberus.mode` | `observe` | `observe` (read and report, refuse every mutation) or `supervise` (slice 5; refused for now). |
+| `cerberus.mode` | `observe` | `observe` (read and report, refuse every mutation, write nothing) or `supervise` (run the mutations through the gate, with the audit chain, policy, approvals and brakes). |
 | `cerberus.self_resource_id` | empty | The resource this process runs as; checked against its systemd unit at start. |
 | `cerberus.adopt_root` | `~/.cerberus` | Files kept in place in the old format because other programs read them: the registry index `registry.yaml` (tether sysop reads it). Absolute or `~/`-prefixed. |
 | `cerberus.cli_key_file` | `~/.config/cerberus/cli.key` | The API key the CLI presents as a bearer to `http://<httphost.addr>/api`. Created offline (`cerberus identity key create --out`). |
@@ -225,9 +293,10 @@ Defaults are in the manifest. The operator overrides any key in the YAML file na
 ## Shutdown
 
 SIGINT or SIGTERM cancels the context. In the order of plan section 4.4: `httphost.Serve` stops accepting and waits
-for in-flight handlers; the resource monitor stops (it runs on a context the signal does not cancel, and stops no
-workload: an `os_service` unit and a dev session outlive the process); `run` then stops the modules in reverse start
-order. Proved with a real process, a fake `systemctl` on PATH and SIGTERM (`cmd/cerberus/main_test.go`). Later slices
+for in-flight handlers; the approvals sweeper stops (step 3; supervise mode only, started after the lane, it expires
+approvals once a minute); the resource monitor stops (step 4; both run on a context the signal does not cancel, and
+the monitor stops no workload: an `os_service` unit and a dev session outlive the process); `run` then stops the
+modules in reverse start order. Proved with a real process, a fake `systemctl` on PATH and SIGTERM (`cmd/cerberus/main_test.go`). Later slices
 add the scheduler, host monitor and plugins to this drain at their steps.
 
 ## Checks

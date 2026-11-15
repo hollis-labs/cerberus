@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
@@ -87,10 +89,17 @@ type Options struct {
 	Home string
 	// Mutator runs L7 and L8 (the supervision lane); nil answers them 409 observe_mode.
 	Mutator Mutator
+	// Gate is the operation gate, in supervise mode: L6 passes it as read_sensitive, and the
+	// approvals routes serve its broker. Nil is observe mode, where nothing is recorded: L6 is a
+	// redacted read, logged, and the approvals routes answer 503 approvals_unavailable.
+	Gate *gate.Gate
+	// Logger receives what the API logs; nil is slog.Default.
+	Logger *slog.Logger
 }
 
 // Mutator runs one resource mutation. A *supervise.Refusal is answered with its status and
-// the flat {code, message} body; a result, successful or not, with 200.
+// the flat {code, message} body, a *gate.Error with the old status for its code and the
+// approval it names under details; a result, successful or not, with 200.
 type Mutator interface {
 	Mutate(ctx context.Context, req supervise.Request) (*supervise.OpResult, error)
 }
@@ -108,6 +117,9 @@ func New(o Options) (*API, error) {
 	}
 	if o.Observer == nil {
 		o.Observer = NoObserver{}
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
 	}
 	a := &API{o: o}
 	a.routes = a.table()
@@ -158,10 +170,23 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/resources/{id}/{action}", ScopeRead, unknownAction},
 		Route{http.MethodPost, "/api/resources/{id}/{action}", ScopeOperate, unknownAction},
 		Route{http.MethodGet, "/api/hosts", ScopeRead, a.hosts},
-		// Approvals are decided by the owner's console session (slice 6 serves them). They are
-		// registered now so the scope and the person check are in force from the start.
-		Route{http.MethodPost, "/api/approvals/{id}/decide", ScopeApprove, personOnly(notYet("deciding an approval", "slice 6"))},
-		Route{http.MethodPost, "/api/approvals/{id}/revoke", ScopeApprove, personOnly(notYet("revoking a grant", "slice 6"))},
+		// Approvals (the old socket's /approvals routes): anyone who may read sees them; only the
+		// owner signed in to the console decides, revokes or acknowledges one (decision 0.1).
+		Route{http.MethodGet, "/api/approvals", ScopeRead, a.approvalList},
+		Route{http.MethodGet, "/api/approvals/{id}", ScopeRead, a.approvalGet},
+		Route{http.MethodPost, "/api/approvals/{id}/decide", ScopeApprove, personOnly(a.approvalDecide)},
+		Route{http.MethodPost, "/api/approvals/{id}/revoke", ScopeApprove, personOnly(a.approvalRevoke)},
+		Route{http.MethodPost, "/api/approvals/{id}/ack-break-glass", ScopeApprove, personOnly(a.approvalAckBreakGlass)},
+		// The brakes (the old socket's /brakes routes): anyone who may read sees them; engaging,
+		// lifting and resetting need cerberus.admin, and the gate decides the rest as the old
+		// daemon did (brakes.go): engaging is open, a lift needs a person and the owner's console
+		// approval, a reset a person and the typed phrase.
+		Route{http.MethodGet, "/api/brakes", ScopeRead, a.brakesGet},
+		Route{http.MethodPost, "/api/brakes/lockdown", ScopeAdmin, a.brakeLockdown},
+		Route{http.MethodPost, "/api/brakes/lockdown/lift", ScopeAdmin, a.brakeLiftLockdown},
+		Route{http.MethodPost, "/api/brakes/freeze", ScopeAdmin, a.brakeFreeze},
+		Route{http.MethodPost, "/api/brakes/freeze/{id}/lift", ScopeAdmin, a.brakeLiftFreeze},
+		Route{http.MethodPost, "/api/brakes/suspensions/{id}/reset", ScopeAdmin, a.brakeResetSuspension},
 	)
 	return rs
 }
@@ -287,40 +312,105 @@ func (a *API) doctor(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// logs serves L6. Logs are text the workload wrote, so in supervise mode the read is
+// read_sensitive and passes the gate like every operation, as the old build's ResourceLogs did
+// (I1, CERB-GAP-889): an intent and an outcome are recorded, the brakes and policy decide it,
+// an approval named by ?approval_id= is spent on it, and egress policy shapes the content. In
+// observe mode no audit chain is open and nothing may be written, so the read is the redacted
+// read of slice 4a, logged.
 func (a *API) logs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	d, err := findResource(a.o.Resources, id)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
 	lines := 50
 	if n, perr := strconv.Atoi(r.URL.Query().Get("lines")); perr == nil && n > 0 {
 		lines = n
 	}
 	stream := r.URL.Query().Get("stream")
+	if a.o.Gate == nil {
+		a.o.Logger.Info("api.logs.read", "resource", id, "gated", false, "reason", "observe mode: no audit chain is open, so the read is redacted and not recorded")
+		out, err := a.readLogs(id, lines, stream)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, out)
+		return
+	}
+	ctx := GateContext(r.Context())
+	op, known := localconn.Definition().Operation(localconn.OpLogs)
+	args := map[string]any{localconn.InputID: id, "lines": lines}
+	if stream != "" {
+		args["stream"] = stream
+	}
+	call, err := a.o.Gate.Begin(ctx, gate.Spec{
+		Connector: localconn.Definition().ID, Operation: localconn.OpLogs, Op: op, Known: known,
+		Config: args, Resources: a.resourceLookup(), ApprovalID: r.URL.Query().Get("approval_id"),
+	})
+	if err != nil {
+		writeGateErr(w, err)
+		return
+	}
+	out, err := a.readLogs(id, lines, stream)
+	if err == nil {
+		out, err = gate.ShapeAs(call, out)
+	}
+	call.Finish(err)
+	if err != nil {
+		writeGateErr(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+// resourceLookup looks resources up in one read of the registry, for the gate's target labels.
+func (a *API) resourceLookup() gate.ResourceLookup {
+	defs, err := a.o.Resources()
+	if err != nil {
+		return nil
+	}
+	return gate.ConfigResourceLookup(&config.ConfigV2{Resources: defs})
+}
+
+// readLogs is the old readResourceLogs: the last lines of the resource's log, redacted through
+// the resource's own redactor.
+func (a *API) readLogs(id string, lines int, stream string) (*LogLines, error) {
+	d, err := findResource(a.o.Resources, id)
+	if err != nil {
+		return nil, err
+	}
 	sp, ok := spec(d)
 	if !ok {
-		writeErr(w, fmt.Errorf("%w: resource %q has no local process logs", errNotFound, id))
-		return
+		return nil, fmt.Errorf("%w: resource %q has no local process logs", errNotFound, id)
 	}
 	path, err := logPath(a.o.Home, d, sp, stream)
 	if err != nil {
-		writeErr(w, fmt.Errorf("%w: %s", errNotFound, err.Error()))
-		return
+		return nil, fmt.Errorf("%w: %s", errNotFound, err.Error())
 	}
 	content, err := readLastNLines(path, lines)
 	if os.IsNotExist(err) {
 		content, err = fmt.Sprintf("Log file does not exist: %s", path), nil
 	}
 	if err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
 	if !strings.HasPrefix(content, "Log file does not exist: ") {
 		content = localconn.OutputRedactor(sp).Text(content)
 	}
-	writeJSON(w, LogLines{ResourceID: id, Stream: stream, LogPath: path, Content: content})
+	return &LogLines{ResourceID: id, Stream: stream, LogPath: path, Content: content}, nil
+}
+
+// writeGateErr answers a gate refusal with its old status and code, and the approval it names
+// under details (legacy-routes.md section 3), and anything else as writeErr does.
+func writeGateErr(w http.ResponseWriter, err error) {
+	status, code, message, details, ok := gate.HTTPError(err)
+	if !ok {
+		writeErr(w, err)
+		return
+	}
+	var body any
+	if details.Approval != nil {
+		body = map[string]any{"approval": details.Approval}
+	}
+	apierr.Write(w, status, string(code), message, body)
 }
 
 // logPath is the old resourceLogPath: a dev session's log, or the install root's logs/.
@@ -360,14 +450,14 @@ func (a *API) mutate(verb string) http.HandlerFunc {
 			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
 			return
 		}
-		out, err := a.o.Mutator.Mutate(r.Context(), req)
+		out, err := a.o.Mutator.Mutate(GateContext(r.Context()), req)
 		if err != nil {
 			var refusal *supervise.Refusal
 			if errors.As(err, &refusal) {
 				apierr.Write(w, refusal.Status, refusal.Code, refusal.Message, nil)
 				return
 			}
-			writeErr(w, err)
+			writeGateErr(w, err)
 			return
 		}
 		writeJSON(w, opResult(out))
@@ -419,17 +509,14 @@ func opResult(o *supervise.OpResult) OpResult {
 	if o.Activation != nil {
 		out.Activation = &ActivationArtifact{Path: o.Activation.Path, SHA256: o.Activation.SHA256, ModifiedAt: o.Activation.ModifiedAt}
 	}
+	if o.Plan != nil {
+		out.Plan, _ = json.Marshal(o.Plan)
+	}
 	return out
 }
 
 func unknownAction(w http.ResponseWriter, r *http.Request) {
 	apierr.Write(w, http.StatusNotFound, "not_found", fmt.Sprintf("unknown resource action %q", r.PathValue("action")), nil)
-}
-
-func notYet(what, slice string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		apierr.Write(w, http.StatusNotImplemented, "not_implemented", what+" arrives with "+slice, nil)
-	}
 }
 
 // personOnly refuses any caller that is not a signed-in person in a console session: an API

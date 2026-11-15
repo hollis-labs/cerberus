@@ -151,8 +151,9 @@ func TestAuthEnforcedEndToEnd(t *testing.T) {
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b)
 	}
-	if code, body := cookiePost("/api/approvals/a1/decide", `{}`); code != 501 {
-		t.Fatalf("owner session on approve: %d %s, want the handler (501)", code, body)
+	// The owner's session reaches the handler, which in observe mode holds no approvals.
+	if code, body := cookiePost("/api/approvals/a1/decide", `{}`); code != 503 || !strings.Contains(body, "approvals_unavailable") {
+		t.Fatalf("owner session on approve: %d %s, want the handler (503 approvals_unavailable in observe mode)", code, body)
 	}
 	code, body := cookiePost("/api/token", `{}`)
 	var minted struct {
@@ -394,7 +395,8 @@ func TestNeedsData(t *testing.T) {
 	for args, want := range map[string]bool{
 		"": true, "serve": true, "identity setup --username o": true, "identity key create --name k": true,
 		"--help": false, "serve --help": false, "version": false, "config": false, "health": false,
-		"resource list": false, "resource status web": false, "status": false, "identity": false, "nonsense": false,
+		"resource list": false, "resource status web": false, "status": false,
+		"lockdown --reason x": false, "freeze --scope env=prod": false, "freeze --off frz_1": false, "breaker reset sus_1": false, "identity": false, "nonsense": false,
 	} {
 		if got := needsData(strings.Fields(args)); got != want {
 			t.Errorf("needsData(%q) = %v, want %v", args, got, want)

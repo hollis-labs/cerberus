@@ -22,6 +22,8 @@ import (
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
+	"github.com/hollis-labs/cerberus/internal/gate"
+	"github.com/hollis-labs/cerberus/internal/gate/gatetest"
 	"github.com/hollis-labs/cerberus/internal/service"
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/storage"
@@ -81,7 +83,7 @@ type lane struct {
 	st         *store.Store
 	manager    *systemctlFake
 	digester   audit.Digester
-	brakes     brake.State
+	gate       *gatetest.World
 	svc        *supervise.Service
 }
 
@@ -105,6 +107,12 @@ func openStore(t *testing.T, path string) *store.Store {
 // a migrated class A store. Dev-session pid and lock files go to the data dir.
 func newLane(t *testing.T, resources ...config.ResourceDef) *lane {
 	t.Helper()
+	return newLaneAs(t, "cerberus-substrate", resources...)
+}
+
+// newLaneAs is newLane for a process that runs as the resource self.
+func newLaneAs(t *testing.T, self string, resources ...config.ResourceDef) *lane {
+	t.Helper()
 	base := t.TempDir()
 	l := &lane{home: filepath.Join(base, "home"), data: filepath.Join(base, "data"), manager: &systemctlFake{units: map[string]string{}}}
 	t.Setenv("HOME", l.home)
@@ -121,13 +129,13 @@ func newLane(t *testing.T, resources ...config.ResourceDef) *lane {
 	if l.digester, err = audit.OpenDigester(filepath.Join(l.data, "audit")); err != nil {
 		t.Fatal(err)
 	}
+	l.gate = gatetest.New(t, gatetest.Options{})
 	l.svc, err = supervise.New(supervise.Options{
-		Mode: settings.ModeSupervise, Home: l.home, StateDir: l.data, Runner: l.manager, SelfID: "cerberus-substrate",
+		Mode: settings.ModeSupervise, Home: l.home, StateDir: l.data, Runner: l.manager, SelfID: self,
 		Config:   func() (*config.ConfigV2, error) { return l.cfg, nil },
 		Store:    l.st,
 		Digester: l.digester,
-		Approver: supervise.InterimApprover{Brakes: func() brake.State { return l.brakes }},
-		Brakes:   func() brake.State { return l.brakes },
+		Gate:     l.gate.Gate,
 		Systemd: localconn.SystemdOptions{
 			Runner:   l.manager,
 			Env:      localconn.RenderEnv{Home: l.home, Path: l.home + "/.local/bin:/usr/local/bin:/usr/bin:/bin", Cerberus: l.home + "/.local/bin/cerberus"},
@@ -285,24 +293,37 @@ func TestSuperviseRefusesEveryVerbOnItself(t *testing.T) {
 	}
 }
 
-// The interim approver against the old build's routing table.
-func TestInterimApproverRefusesWhatOldRoutesAway(t *testing.T) {
-	approvertest.RunInterim(t, func(st brake.State) supervise.Approver {
-		return supervise.InterimApprover{Brakes: func() brake.State { return st }}
+// The old build's routing table against the real, gate-backed lane: each case is answered with
+// the old build's code, for the owner's console session and for an API key. The lane runs as
+// the resource itself (SelfID), so a case that passes the gate fails at the self-guard and
+// nothing is started.
+func TestGateRoutesWhatOldRoutesAway(t *testing.T) {
+	approvertest.RunGate(t, func(t *testing.T, ctx context.Context, c approvertest.Case) approvertest.Answer {
+		l := newLaneAs(t, "web", approvertest.Resource())
+		l.gate.Engage(t, c.Brakes)
+		out, err := l.svc.Mutate(ctx, c.Req)
+		if err == nil && out.Plan == nil && (out.Success || !strings.Contains(out.Error, "the resource this Cerberus runs as")) {
+			t.Fatalf("a case that passed the gate was not stopped by the self-guard: %+v", out)
+		}
+		return approvertest.Answer{Out: out, Err: err}
 	})
 }
 
-// Through the lane, a routed request is refused before anything runs.
-func TestSuperviseRefusesRoutedRequestsBeforeRunning(t *testing.T) {
+// Through the lane, a braked request is refused before anything runs, and the refusal is
+// recorded: an intent and a refused outcome coded lockdown.
+func TestSuperviseRefusesBrakedRequestsBeforeRunning(t *testing.T) {
 	l := newLane(t, devSession("web-dev"))
-	l.brakes = brake.State{Lockdown: &brake.Lockdown{ID: "lk"}}
+	l.gate.Engage(t, brake.State{Lockdown: &brake.Lockdown{ID: "lk"}})
 	_, err := l.svc.Mutate(context.Background(), supervise.Request{Verb: "apply", ID: "web-dev", Acknowledged: true})
-	var r *supervise.Refusal
-	if !errors.As(err, &r) || r.Code != supervise.ErrApprovalsUnavailable || r.Status != 423 {
+	if status, code, _, _, ok := gate.HTTPError(err); !ok || status != 423 || code != gate.CodeLockdown {
 		t.Fatalf("under a lockdown: %v", err)
 	}
 	if pidOf(t, l, "web-dev") != 0 {
 		t.Fatal("a refused apply started the session")
+	}
+	outcomes := l.gate.Records(audit.KindOutcome)
+	if len(l.gate.Records(audit.KindIntent)) != 1 || len(outcomes) != 1 || outcomes[0].OutcomeCode != string(gate.CodeLockdown) || outcomes[0].Decision != audit.DecisionRefused {
+		t.Fatalf("records: %+v", l.gate.Sink.Records())
 	}
 }
 

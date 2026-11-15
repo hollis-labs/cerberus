@@ -20,9 +20,12 @@ import (
 	"github.com/hollis-labs/substrate/modules/identity"
 
 	"github.com/hollis-labs/cerberus/internal/api"
+	"github.com/hollis-labs/cerberus/internal/auditchain"
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/datadir"
+	"github.com/hollis-labs/cerberus/internal/gate"
+	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/service"
@@ -44,8 +47,9 @@ type cerberus struct {
 }
 
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
-// place and never written, with runtime state from the supervision lane (nil: unknown).
-func newAPI(app *module.App, home string, lane *supervise.Service) (*api.API, error) {
+// place and never written, with runtime state from the supervision lane (nil: unknown). g is the
+// operation gate in supervise mode and nil in observe mode.
+func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
@@ -75,6 +79,7 @@ func newAPI(app *module.App, home string, lane *supervise.Service) (*api.API, er
 		},
 		Home:    home,
 		Mutator: lane,
+		Gate:    g,
 	})
 }
 
@@ -100,18 +105,21 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if database.From(app) == nil {
 		return errors.New("the database module must be started")
 	}
-	lane, err := startSupervision(app)
+	sup, err := startSupervision(app)
 	if err != nil {
 		return err
 	}
+	lane := sup.lane
 	c.lane = lane
-	// The monitor outlives the signal that ends serve: it stops after HTTP, in the order of
-	// plan section 4.4, never with it.
+	// The monitor and the approvals sweeper outlive the signal that ends serve: they stop after
+	// HTTP, in the order of plan section 4.4, never with it. Deferred calls run last first: the
+	// sweeper stops (step 3), then the resource monitor (step 4).
 	lane.StartMonitor(context.WithoutCancel(ctx), supervise.DefaultMonitorConfig())
 	defer lane.Shutdown()
-	// The background loops stop after HTTP and before the resource monitor (deferred, so they
-	// run before lane.Shutdown).
-	bg, err := c.startBackground(app, lane)
+	defer sup.startSweeper(context.WithoutCancel(ctx))()
+	// The background loops stop after HTTP and before the sweeper and the resource monitor
+	// (deferred last, so they run first).
+	bg, err := c.startBackground(app, lane, sup.gate)
 	if err != nil {
 		return err
 	}
@@ -120,7 +128,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if id == nil {
 		return errors.New("the identity module must be started")
 	}
-	a, err := newAPI(app, c.home, lane)
+	a, err := newAPI(app, c.home, lane, sup.gate)
 	if err != nil {
 		return err
 	}
@@ -136,8 +144,8 @@ func (c *cerberus) serve(ctx context.Context) error {
 	handler = api.KeyGuard(id.Middleware(handler))
 	// Stop order (plan section 4.4): HTTP stops accepting and drains first; then, deferred, the
 	// background loops (scheduler, then host monitor and janitor, snapshot recorder and event
-	// export, each flushed), then the resource monitor, which stops no workload; the modules stop
-	// after serve returns.
+	// export, each flushed), the approvals sweeper, then the resource monitor, which stops no
+	// workload; the modules stop after serve returns.
 	err = httphost.Serve(ctx, app, handler, httphost.ServeOptions{
 		Ready: func(addr net.Addr) {
 			slog.Info("cerberus listening", "addr", addr.String())
@@ -151,7 +159,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 }
 
 // startBackground starts the background loops for this app's settings (none in observe mode).
-func (c *cerberus) startBackground(app *module.App, lane *supervise.Service) (*background, error) {
+func (c *cerberus) startBackground(app *module.App, lane *supervise.Service, g *gate.Gate) (*background, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -164,7 +172,7 @@ func (c *cerberus) startBackground(app *module.App, lane *supervise.Service) (*b
 	if err != nil {
 		return nil, err
 	}
-	return startBackground(app, lane, st, dirs, slog.Default())
+	return startBackground(app, lane, g, st, dirs, slog.Default())
 }
 
 // requireLoopback keeps the host on the loopback interface until identity and the scope
@@ -187,18 +195,46 @@ func requireLoopback(app *module.App) error {
 	return fmt.Errorf("cerberus requires a loopback httphost.addr (for example 127.0.0.1:4786), got %q", addr)
 }
 
+// supervision is what startSupervision built: the lane, and in supervise mode the operation
+// gate it and the API pass.
+type supervision struct {
+	lane *supervise.Service
+	gate *gate.Gate
+}
+
+// startSweeper starts the approvals sweeper in supervise mode (never in observe mode, which
+// writes nothing) and returns what stops it and waits for it.
+func (s supervision) startSweeper(ctx context.Context) (stop func()) {
+	if s.gate == nil || s.gate.Broker() == nil {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.gate.Broker().RunSweeper(ctx, time.Minute)
+	}()
+	slog.Info("approvals.sweeper.start")
+	return func() {
+		cancel()
+		<-done
+		slog.Info("approvals.sweeper.stop")
+	}
+}
+
 // startSupervision builds the supervision lane over the descriptors the registry lists
 // (<adopt_root>/registry.yaml) and checks the process's own identity: when
 // cerberus.self_resource_id is set, the systemd unit the process runs in must be the unit
-// that resource installs as. Observe mode writes nothing.
-func startSupervision(app *module.App) (*supervise.Service, error) {
+// that resource installs as. Observe mode writes nothing: it opens no audit chain, approvals
+// store or brakes.
+func startSupervision(app *module.App) (supervision, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, err
+		return supervision{}, err
 	}
 	cfg, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
-		return nil, err
+		return supervision{}, err
 	}
 	reg := registry.ForRoot(cfg.AdoptRoot)
 	resources := func() ([]config.ResourceDef, error) {
@@ -212,28 +248,29 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 	// the old tree's pids/ or locks/ (plan section 3).
 	dirs, err := datadir.Resolve(os.Getenv)
 	if err != nil {
-		return nil, err
+		return supervision{}, err
 	}
 	service.SetStateRoot(dirs.Data)
 	opts := supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: dirs.Data, SelfID: cfg.SelfResourceID}
 	if cfg.Mode == settings.ModeSupervise {
 		if err = superviseOptions(app, &opts, reg, dirs.Data, home); err != nil {
-			return nil, err
+			return supervision{}, err
 		}
 	}
+	// supervise.New refuses supervise mode without the gate: nothing is wired to mutate ungated.
 	lane, err := supervise.New(opts)
 	if err != nil {
-		return nil, err
+		return supervision{}, err
 	}
 	list, err := resources()
 	if err != nil {
-		return nil, fmt.Errorf("read the registry at %s: %w", reg.IndexPath(), err)
+		return supervision{}, fmt.Errorf("read the registry at %s: %w", reg.IndexPath(), err)
 	}
 	var check supervise.SelfCheck
 	if cfg.SelfResourceID != "" {
 		cgroup, openErr := supervise.OpenCgroup()
 		if openErr != nil {
-			return nil, openErr
+			return supervision{}, openErr
 		}
 		var r io.Reader
 		if cgroup != nil {
@@ -241,28 +278,27 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 			r = cgroup
 		}
 		if check, err = supervise.CheckSelf(r, cfg.SelfResourceID, list, home); err != nil {
-			return nil, err
+			return supervision{}, err
 		}
 		if err = check.OutsideUnit(cfg.Mode, cfg.SelfResourceID); err != nil {
-			return nil, err
+			return supervision{}, err
 		}
 		if check.Unit == "" {
 			slog.Warn("cerberus is not running in a systemd unit, so its identity is not checked", "self_resource_id", cfg.SelfResourceID, "expected_unit", check.Expected)
 		}
 	}
 	slog.Info("cerberus supervision", "mode", lane.Mode(), "resources", len(list), "registry", reg.IndexPath(), "self", cfg.SelfResourceID, "unit", check.Unit)
-	return lane, nil
+	return supervision{lane: lane, gate: opts.Gate}, nil
 }
 
 // superviseOptions adds what supervise mode needs: the registry's config, the class A store,
-// the applied-digest key (the audit directory's, in the data dir) and the approver. Until
-// slice 6 the approver is the interim one, which cannot enforce a policy, so a configured policy
-// refuses the start.
+// the applied-digest key, and the operation gate the old build's daemon installed
+// (internal/app installPolicy and cmd_daemon on main): the audit chain in <data>/audit,
+// continued and anchored in the keychain, which shares the digest key with the applied digests;
+// the reloading policy from the config dir with the applied snapshot's enforcement; the
+// approvals broker in <data>/approvals with the owner-session verifier; the brakes in
+// <data>/brakes; and the rate limits.
 func superviseOptions(app *module.App, opts *supervise.Options, reg *registry.Registry, data, home string) error {
-	if dir := policyDir(home); dirHasEntries(dir) {
-		return redact.Guidance("cerberus.mode supervise refuses to start: a policy is configured at %s, and this build has no policy gate or approvals yet (slice 6 of the port). "+
-			"Run in observe mode, or move the policy aside until the build that enforces it", dir)
-	}
 	opts.Config = func() (*config.ConfigV2, error) {
 		resolved, err := reg.Resolve()
 		if err != nil {
@@ -271,17 +307,42 @@ func superviseOptions(app *module.App, opts *supervise.Options, reg *registry.Re
 		return resolved.Config, nil
 	}
 	opts.Store = storage.FromApp(app).Local
-	digester, err := supervise.OpenAppliedKey(context.Background(), opts.Store, filepath.Join(data, "audit"), time.Now())
+	auditDir := filepath.Join(data, "audit")
+	// The applied-digest key first: its refusals (a missing or different key under migrated
+	// digests) name the migration step, before the audit chain would create a key of its own.
+	digester, err := supervise.OpenAppliedKey(context.Background(), opts.Store, auditDir, time.Now())
 	if err != nil {
 		return err
 	}
 	opts.Digester = digester
-	brakes := brake.Store{Dir: filepath.Join(data, "brakes")}
-	opts.Brakes = func() brake.State {
-		st, _ := brakes.Load()
-		return st
+	sink, err := auditchain.Open(auditDir)
+	if err != nil {
+		return fmt.Errorf("open the audit chain in %s: %w", auditDir, err)
 	}
-	opts.Approver = supervise.InterimApprover{Brakes: opts.Brakes}
+	pdp := policy.NewReloading(policy.Store{Dir: policyDir(home), AuditDir: auditDir}, func(status policy.LoadStatus) {
+		if recErr := gate.RecordPolicyLoad(sink, status); recErr != nil {
+			slog.Error("policy.load_record_failed", "error", redact.Text(recErr.Error()))
+		}
+		if status.Mismatch() {
+			slog.Warn("policy.snapshot_changed", "problem", status.Problem, "enforcement", status.Enforcement,
+				"consequence", "the baseline decides until `cerberus policy apply` runs again")
+		}
+	})
+	broker, err := gate.NewBroker(sink, filepath.Join(data, "approvals"))
+	if err != nil {
+		return fmt.Errorf("open the approvals store: %w", err)
+	}
+	// The default verifier seals and checks owner-session decisions with the audit chain's digest key.
+	broker.SetVerifier(gate.OwnerSessionVerifier{Key: sink})
+	opts.Gate = gate.New(gate.Options{
+		Sink:        sink,
+		Policy:      pdp,
+		Enforcement: gate.SnapshotEnforcement{},
+		Broker:      broker,
+		Brakes:      &gate.Brakes{Store: brake.Store{Dir: filepath.Join(data, "brakes")}, AuditDir: auditDir, Sink: sink},
+		Rates:       &gate.RateLimiter{AuditDir: auditDir},
+		Logger:      slog.Default(),
+	})
 	return nil
 }
 
@@ -293,9 +354,4 @@ func policyDir(home string) string {
 		base = filepath.Join(home, ".config")
 	}
 	return filepath.Join(base, "cerberus", "policy")
-}
-
-func dirHasEntries(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	return err == nil && len(entries) > 0
 }

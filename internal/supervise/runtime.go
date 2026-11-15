@@ -12,6 +12,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/registry"
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/storage"
@@ -26,11 +27,13 @@ type OpResult struct {
 	Success        bool                          `json:"success"`
 	ServiceID      string                        `json:"service_id"`
 	Message        string                        `json:"message,omitempty"`
-	BuildOutput    string                        `json:"build_output,omitempty"`
+	BuildOutput    string                        `json:"build_output,omitempty" cerb:"untrusted"`
 	BuildLogPath   string                        `json:"build_log_path,omitempty"`
-	InstallOutput  string                        `json:"install_output,omitempty"`
+	InstallOutput  string                        `json:"install_output,omitempty" cerb:"untrusted"`
 	InstallSkipped bool                          `json:"install_skipped,omitempty"`
 	Error          string                        `json:"error,omitempty"`
+	// Plan is the call's plan, for a plan request; nothing ran.
+	Plan *gate.ConnectorPlan `json:"plan,omitempty"`
 }
 
 // Digester keys an applied definition's digest. The Substrate build uses the audit chain's
@@ -48,10 +51,13 @@ func failed(id string, err error) *OpResult {
 	return &OpResult{Success: false, ServiceID: id, Error: err.Error()}
 }
 
-// Mutate runs one verb. A refusal before the run (observe mode, acknowledgment, approval) is
-// an error, a *Refusal for the gate; everything after it is an OpResult, with Success false
-// when the run failed. In supervise mode the order is the old build's: the acknowledgment,
-// then the approver, then the resource.
+// Mutate runs one verb, through the operation gate as the old build's recordMutation did. A
+// refusal before the run is an error: a *Refusal for observe mode, an unknown verb or a
+// missing acknowledgment, and a *gate.Error for the gate's own (policy, approvals, brakes),
+// which the API maps with gate.HTTPError. Everything after the gate is an OpResult, with
+// Success false when the run failed. In supervise mode the order is the old build's: the
+// acknowledgment, then the gate (intent record, brakes, policy and approval), then the run,
+// the applied digest, egress on the result and the outcome record.
 func (s *Service) Mutate(ctx context.Context, req Request) (*OpResult, error) {
 	if _, ok := operation(req.Verb); !ok {
 		return nil, requireAck(req)
@@ -64,43 +70,69 @@ func (s *Service) Mutate(ctx context.Context, req Request) (*OpResult, error) {
 	if err := requireAck(req); err != nil {
 		return nil, err
 	}
+	// One read of the config for the whole call (M10): the gate labels the target, the plan
+	// hashes the definition and the run executes it, all from this.
 	cfg, err := s.config()
 	if err != nil {
 		return failed(req.ID, err), nil
 	}
 	res := findResource(cfg, req.ID)
-	if err := s.o.Approver.Approve(ctx, req, res); err != nil {
+	// A deploy's checkout is read once too: the plan hashes it, and the build refuses a tree
+	// that changed since (M10).
+	if req.Verb == localconn.OpDeploy && res != nil {
+		if pspec, perr := localconn.SpecFromResourceConfig(res.Config); perr == nil && localconn.HasBuildStrategy(pspec) {
+			ctx = withCheckedSource(ctx, pspec.Dir)
+		}
+	}
+	call, err := s.o.Gate.Begin(ctx, s.mutationSpec(cfg, req))
+	if err != nil {
 		return nil, err
 	}
+	if req.Plan {
+		shown, planErr := call.ShowPlan(ctx)
+		call.Finish(planErr)
+		if planErr != nil {
+			return nil, planErr
+		}
+		return &OpResult{Success: true, ServiceID: req.ID, Message: "plan only; nothing ran", Plan: shown}, nil
+	}
+	out, err := s.run(ctx, cfg, req)
+	if err == nil && out != nil && out.Success && appliedVerbs[req.Verb] && res != nil {
+		if aerr := storage.SetApplied(ctx, s.o.Store, req.ID, s.o.Digester.Digest(*res), time.Now()); aerr != nil {
+			s.o.Logger.Error("supervise.applied_record_failed", "resource", req.ID, "error", aerr.Error())
+		}
+	}
+	if err == nil && out != nil {
+		// Egress policy on what comes back (P4-4): build and install output are untrusted.
+		out, err = gate.ShapeAs(call, out)
+	}
+	call.Finish(resultError(req.Verb, err, out != nil && !out.Success))
+	return out, err
+}
+
+// run runs a verb that passed the gate.
+func (s *Service) run(ctx context.Context, cfg *config.ConfigV2, req Request) (*OpResult, error) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	var out *OpResult
 	switch req.Verb {
 	case localconn.OpReload:
-		out = s.reload(ctx, cfg, req.ID)
+		return s.reload(ctx, cfg, req.ID), nil
 	case localconn.OpStop:
-		out = s.stop(ctx, cfg, req.ID)
+		return s.stop(ctx, cfg, req.ID), nil
 	case localconn.OpDeploy:
-		out = s.deploy(ctx, cfg, req)
+		return s.deploy(ctx, cfg, req), nil
 	case localconn.OpApply:
-		out = s.apply(ctx, cfg, req.ID)
+		return s.apply(ctx, cfg, req.ID), nil
 	case localconn.OpSync:
 		// The old build's sync answers a canceled call with the error, not a result.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		out = s.sync(cfg, req.ID)
+		return s.sync(cfg, req.ID), nil
 	case localconn.OpRemove:
-		out = s.remove(ctx, cfg, req.ID)
-	default:
-		return nil, fmt.Errorf("unknown resource verb %q", req.Verb)
+		return s.remove(ctx, cfg, req.ID), nil
 	}
-	if out.Success && appliedVerbs[req.Verb] && res != nil {
-		if err := storage.SetApplied(ctx, s.o.Store, req.ID, s.o.Digester.Digest(*res), time.Now()); err != nil {
-			s.o.Logger.Error("supervise.applied_record_failed", "resource", req.ID, "error", err.Error())
-		}
-	}
-	return out, nil
+	return nil, fmt.Errorf("unknown resource verb %q", req.Verb)
 }
 
 func (s *Service) config() (*config.ConfigV2, error) {
@@ -249,6 +281,10 @@ func (s *Service) deployRun(ctx context.Context, cfg *config.ConfigV2, res *conf
 		return failed(id, err)
 	}
 	defer release()
+	// Under the build lock, the tree must still be the one the gate read.
+	if changed := sourceChanged(ctx, spec.Dir); changed != "" {
+		return failed(id, errors.New(changed))
+	}
 	dr := ResourceToDomain(res)
 	out := &OpResult{ServiceID: id}
 	if localconn.HasBuildStrategy(spec) {

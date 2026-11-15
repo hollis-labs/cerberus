@@ -1,0 +1,11 @@
+# internal/gate carries the old build's gate tests from internal/cerbapi (CW-20261115-0018).
+# The same fixtures were triaged on main in legacy.allow (CW-20261114-0119): each value is a fake
+# credential-shaped string that exercises redaction or secret detection; none is a real credential.
+# Lines are RULE-ID PATH-GLOB REASON; allowlisted findings are still printed by the scan.
+
+curl-auth-header internal/gate/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential (moved from internal/cerbapi)
+generic-api-key internal/gate/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential (moved from internal/cerbapi)
+github-pat internal/gate/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential (moved from internal/cerbapi)
+github-token internal/gate/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential (moved from internal/cerbapi)
+secret-assignment internal/gate/approval_shown_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential (moved from internal/cerbapi)
+secret-assignment internal/gate/begin_request_test.go test fixture: a fake credential-shaped string that exercises redaction or secret detection; not a real credential (moved from internal/cerbapi)

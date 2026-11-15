@@ -14,6 +14,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/datadir"
+	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/hostmon"
 	"github.com/hollis-labs/cerberus/internal/hosts"
 	"github.com/hollis-labs/cerberus/internal/registry"
@@ -61,7 +62,7 @@ func hostsPaths(st settings.Settings, dirs datadir.Dirs) (hostsYAML, state strin
 
 // startBackground starts the background loops in supervise mode and returns them for Stop.
 // In observe mode it starts nothing and returns an empty set.
-func startBackground(app *module.App, lane *supervise.Service, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) (*background, error) {
+func startBackground(app *module.App, lane *supervise.Service, g *gate.Gate, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) (*background, error) {
 	b := &background{}
 	if st.Mode != settings.ModeSupervise {
 		return b, nil
@@ -78,7 +79,7 @@ func startBackground(app *module.App, lane *supervise.Service, st settings.Setti
 	} else if sched != nil {
 		b.start(context.Background(), "scheduler", []loop{*sched})
 	}
-	hostLoops, err := hostMonitorLoops(app, st, dirs, logger)
+	hostLoops, err := hostMonitorLoops(app, g, st, dirs, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +91,7 @@ func startBackground(app *module.App, lane *supervise.Service, st settings.Setti
 // hostMonitorLoops builds the janitor (always, in supervise mode, so retention never depends on
 // probing) and the host monitor (when cerberus.host_monitor.enabled), writing class B through
 // the Telemetry store, and adds the telemetry check to /healthz.
-func hostMonitorLoops(app *module.App, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) ([]loop, error) {
+func hostMonitorLoops(app *module.App, g *gate.Gate, st settings.Settings, dirs datadir.Dirs, logger *slog.Logger) ([]loop, error) {
 	ms, err := hostmon.Settings(st.HostMonitor)
 	if err != nil {
 		return nil, fmt.Errorf("%s.%w", settings.Key, err)
@@ -118,7 +119,7 @@ func hostMonitorLoops(app *module.App, st settings.Settings, dirs datadir.Dirs, 
 	if h := health.From(app); h != nil {
 		h.Add("telemetry", tel.Check)
 	}
-	m := hostmon.New(hostmon.Options{Prober: prober, Store: hosts.NewSampleStore(stores.Telemetry), Telemetry: tel, Settings: ms, Logger: logger})
+	m := hostmon.New(hostmon.Options{Prober: prober, Store: hosts.NewSampleStore(stores.Telemetry), Telemetry: tel, Settings: ms, Record: hostMonitorRecorder(g, logger), Logger: logger})
 	loops := []loop{{name: "janitor", run: m.RunJanitor, flush: tel.Flush}}
 	if ms.Enabled {
 		loops = append([]loop{{name: "host_monitor", run: m.Run}}, loops...)
