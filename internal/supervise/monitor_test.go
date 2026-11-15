@@ -16,6 +16,7 @@ import (
 	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/gate/gatetest"
 	"github.com/hollis-labs/cerberus/internal/policy"
 	"github.com/hollis-labs/cerberus/internal/service"
 	"github.com/hollis-labs/cerberus/internal/settings"
@@ -25,11 +26,11 @@ import (
 // monitorWorld is a supervise-mode lane for the monitor's own tests (ported from main's
 // internal/cerbapi/resource_monitor_test.go), with a store, a key and brakes it controls.
 type monitorWorld struct {
-	cfg    *config.ConfigV2
-	st     *store.Store
-	key    audit.Digester
-	brakes brake.State
-	svc    *Service
+	cfg  *config.ConfigV2
+	st   *store.Store
+	key  audit.Digester
+	gate *gatetest.World
+	svc  *Service
 }
 
 func newMonitorWorld(t *testing.T) *monitorWorld {
@@ -53,10 +54,11 @@ func newMonitorWorld(t *testing.T) *monitorWorld {
 	if w.key, err = audit.OpenDigester(filepath.Join(base, "data", "audit")); err != nil {
 		t.Fatal(err)
 	}
+	w.gate = gatetest.New(t, gatetest.Options{})
 	w.svc, err = New(Options{
 		Mode: settings.ModeSupervise, Home: filepath.Join(base, "home"), StateDir: filepath.Join(base, "data"),
 		Config: func() (*config.ConfigV2, error) { return w.cfg, nil }, Store: st, Digester: w.key,
-		Approver: InterimApprover{}, Brakes: func() brake.State { return w.brakes },
+		Gate:   w.gate.Gate,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
@@ -188,14 +190,25 @@ func TestResourceMonitorSkipsPausedAndFrozen(t *testing.T) {
 	if err := storage.SetPaused(ctx, w.st, "paused", true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	w.brakes = brake.State{
+	w.gate.Engage(t, brake.State{
 		Lockdown: &brake.Lockdown{ID: "lk"},
 		Freezes:  []brake.Freeze{{ID: "fz", Match: policy.TargetMatch{ID: "frozen"}}},
-	}
+	})
 	m := w.monitor(DefaultMonitorConfig())
 	m.checkAll(ctx)
 	waitRuns(t, locked, 1)
 	if runs(paused) != 0 || runs(frozen) != 0 {
 		t.Fatalf("restarted while paused (%d) or frozen (%d)", runs(paused), runs(frozen))
+	}
+	// The restart is recorded as the old build recorded it: automation, never gated, with what
+	// the monitor saw as the reason, and an outcome.
+	intents, outcomes := w.gate.Records(audit.KindIntent), w.gate.Records(audit.KindOutcome)
+	if len(intents) != 1 || len(outcomes) != 1 {
+		t.Fatalf("want one restart recorded, got %d intents and %d outcomes", len(intents), len(outcomes))
+	}
+	in := intents[0]
+	if in.Principal.Kind != audit.PrincipalAutomation || in.Principal.Via != "monitor" || in.Connector != "local" || in.Operation != "apply" ||
+		in.Target.Resource != "locked" || !strings.HasPrefix(in.Reason, "auto_restart: the workload was ") || outcomes[0].OperationID != in.OperationID {
+		t.Fatalf("restart records: %+v / %+v", in, outcomes[0])
 	}
 }

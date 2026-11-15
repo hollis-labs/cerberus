@@ -18,6 +18,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hollis-labs/libs/core/store"
+
+	"github.com/hollis-labs/cerberus/internal/audit"
 	"github.com/hollis-labs/cerberus/internal/config"
 	"github.com/hollis-labs/cerberus/internal/domain"
 	"github.com/hollis-labs/cerberus/internal/service"
@@ -171,11 +174,17 @@ func TestObserveRefusesEveryMutation(t *testing.T) {
 	}
 }
 
-// Supervise mode needs its config, store, digest key and approver; an unknown mode is refused.
+// Supervise mode needs its config, store, digest key and the operation gate; an unknown mode is
+// refused. Without the gate nothing is built: no wiring can run a mutation ungated.
 func TestSuperviseModeNeedsItsDependencies(t *testing.T) {
 	_, err := New(Options{Mode: settings.ModeSupervise, Resources: func() ([]config.ResourceDef, error) { return nil, nil }})
 	if err == nil || !strings.Contains(err.Error(), "config source") {
 		t.Fatalf("err = %v", err)
+	}
+	_, err = New(Options{Mode: settings.ModeSupervise, Config: func() (*config.ConfigV2, error) { return &config.ConfigV2{}, nil },
+		Store: &store.Store{}, Digester: audit.Digester{}})
+	if err == nil || !strings.Contains(err.Error(), "operation gate") {
+		t.Fatalf("supervise mode without a gate: %v", err)
 	}
 	if _, err := New(Options{Mode: "chaos", Resources: func() ([]config.ResourceDef, error) { return nil, nil }}); err == nil {
 		t.Fatal("an unknown mode was accepted")

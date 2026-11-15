@@ -20,10 +20,10 @@ import (
 
 	"github.com/hollis-labs/libs/core/store"
 
-	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/settings"
 )
@@ -55,11 +55,10 @@ type Options struct {
 	Store *store.Store
 	// Digester keys applied digests (the audit chain's digest key).
 	Digester Digester
-	// Approver decides each mutation before it runs.
-	Approver Approver
-	// Brakes returns the brake state; the monitor's restarts skip a frozen resource. Nil means
-	// none engaged. It is the lane's own source, whatever the approver is.
-	Brakes func() brake.State
+	// Gate is the operation gate every mutation passes (policy, approvals, brakes, audit,
+	// egress), and the monitor records its restarts on and skips a frozen resource by. There is
+	// no supervise mode without one: New refuses it.
+	Gate *gate.Gate
 	// Logger receives the lane's records; nil is slog.Default.
 	Logger *slog.Logger
 	// Systemd configures the connector's systemd backend. Runner defaults to Options.Runner and
@@ -99,8 +98,8 @@ func New(o Options) (*Service, error) {
 			return nil, errors.New("supervise: supervise mode needs the class A store")
 		case o.Digester == nil:
 			return nil, errors.New("supervise: supervise mode needs the applied-digest key")
-		case o.Approver == nil:
-			return nil, errors.New("supervise: supervise mode needs an approver")
+		case o.Gate == nil:
+			return nil, errors.New("supervise: supervise mode needs the operation gate; nothing mutates ungated")
 		}
 	default:
 		return nil, fmt.Errorf("unknown supervision mode %q", o.Mode)

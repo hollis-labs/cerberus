@@ -190,7 +190,7 @@ type LogLines struct {
 	ServiceID  string `json:"service_id,omitempty"`
 	ResourceID string `json:"resource_id,omitempty"`
 	Stream     string `json:"stream,omitempty"`
-	Content    string `json:"content"`
+	Content    string `json:"content" cerb:"untrusted"`
 	LogPath    string `json:"log_path"`
 }
 
@@ -201,9 +201,9 @@ type OpResult struct {
 	Success        bool                `json:"success"`
 	ServiceID      string              `json:"service_id"`
 	Message        string              `json:"message,omitempty"`
-	BuildOutput    string              `json:"build_output,omitempty"`
+	BuildOutput    string              `json:"build_output,omitempty" cerb:"untrusted"`
 	BuildLogPath   string              `json:"build_log_path,omitempty"`
-	InstallOutput  string              `json:"install_output,omitempty"`
+	InstallOutput  string              `json:"install_output,omitempty" cerb:"untrusted"`
 	InstallSkipped bool                `json:"install_skipped,omitempty"`
 	Error          string              `json:"error,omitempty"`
 	Plan           json.RawMessage     `json:"plan,omitempty"`

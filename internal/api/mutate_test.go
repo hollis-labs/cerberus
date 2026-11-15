@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/supervise"
 )
 
@@ -95,10 +97,17 @@ func TestMutationAnswersAsTheOldSocketDid(t *testing.T) {
 			`{"build_performed":false,"success":true,"service_id":"web","message":"resource \"web\" reloaded successfully"}` + "\n"},
 		{"no ack", &recordingMutator{err: &supervise.Refusal{Status: 409, Code: "acknowledgment_required", Message: "needs --ack"}}, 409,
 			`"code":"acknowledgment_required"`},
-		{"routed", &recordingMutator{err: &supervise.Refusal{Status: 428, Code: supervise.ErrApprovalsUnavailable, Message: "names an approval"}}, 428,
-			`"code":"approvals_unavailable"`},
-		{"braked", &recordingMutator{err: &supervise.Refusal{Status: 423, Code: supervise.ErrApprovalsUnavailable, Message: "lockdown"}}, 423,
-			`"code":"approvals_unavailable"`},
+		{"approval required", &recordingMutator{err: gate.NewError("local", "reload", gate.CodeApprovalRequired, errors.New("no approval ap-1"))}, 428,
+			`"code":"approval_required"`},
+		{"approval pending", &recordingMutator{err: &gate.Error{Code: gate.CodeApprovalPending, Connector: "local", Operation: "reload", Err: errors.New("pending"),
+			Approval: &gate.ApprovalRef{ID: "apr_1", ApproveWith: "approve it on the console", Channel: "out_of_band"}}}, 409,
+			`"code":"approval_pending","message":"local reload: approval_pending: pending","details":{"approval":{"id":"apr_1","expires_at":"0001-01-01T00:00:00Z","approve_with":"approve it on the console","channel":"out_of_band"}}}`},
+		{"policy denied", &recordingMutator{err: gate.NewError("local", "reload", gate.CodePolicyDenied, errors.New("denied"))}, 403,
+			`"code":"policy_denied"`},
+		{"lockdown", &recordingMutator{err: gate.NewError("local", "reload", gate.CodeLockdown, errors.New("LOCKDOWN"))}, 423,
+			`"code":"lockdown"`},
+		{"frozen", &recordingMutator{err: gate.NewError("local", "reload", gate.CodeFrozen, errors.New("FROZEN"))}, 423,
+			`"code":"frozen"`},
 		{"observe", &recordingMutator{err: &supervise.Refusal{Status: 409, Code: "observe_mode", Message: "observe"}}, 409,
 			`"code":"observe_mode"`},
 	} {
@@ -121,6 +130,7 @@ func TestMutationAnswersAsTheOldSocketDid(t *testing.T) {
 func TestLaneResultMapsToTheOldOpResult(t *testing.T) {
 	var lane supervise.OpResult
 	fill(reflect.ValueOf(&lane).Elem(), "OpResult", 0)
+	lane.Plan = nil // the golden file leaves the plan out (golden_test.go)
 	want, err := os.ReadFile(filepath.Join("testdata", "golden", "OpResult.full.json"))
 	if err != nil {
 		t.Fatal(err)

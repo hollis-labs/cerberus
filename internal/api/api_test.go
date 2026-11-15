@@ -228,8 +228,14 @@ func TestLegacyVersionHeaderAndObserveMode(t *testing.T) {
 // they hold the scope (the guard has already checked it).
 func TestApproveIsPersonOnly(t *testing.T) {
 	h := newTestAPI(t, "").Mux()
+	for _, action := range []string{"decide", "revoke", "ack-break-glass"} {
+		t.Run(action, func(t *testing.T) { approveIsPersonOnly(t, h, action) })
+	}
+}
+
+func approveIsPersonOnly(t *testing.T, h http.Handler, action string) {
 	post := func(p *libauth.Principal) (int, string) {
-		req := httptest.NewRequest("POST", "/api/approvals/a1/decide", bytes.NewReader([]byte(`{}`)))
+		req := httptest.NewRequest("POST", "/api/approvals/a1/"+action, bytes.NewReader([]byte(`{}`)))
 		if p != nil {
 			req = req.WithContext(libauth.WithPrincipal(req.Context(), *p))
 		}
@@ -254,8 +260,8 @@ func TestApproveIsPersonOnly(t *testing.T) {
 		}
 	}
 	owner := &libauth.Principal{Verified: true, ID: "user:u1", Kind: "user", SessionID: "s1", Scopes: all}
-	if code, body := post(owner); code != 501 {
-		t.Errorf("owner in a console session: %d %s, want to reach the handler (501 until slice 6)", code, body)
+	if code, body := post(owner); code != 503 || !strings.Contains(body, `"code":"approvals_unavailable"`) {
+		t.Errorf("owner in a console session: %d %s, want to reach the handler (503 without a broker, as in observe mode)", code, body)
 	}
 }
 

@@ -89,6 +89,8 @@ func (s sandbox) command(ctx context.Context, args ...string) *exec.Cmd {
 		"XDG_CACHE_HOME=" + filepath.Join(s.home, ".cache"),
 		"CERBERUS_DATA_DIR=" + s.data,
 		"SUBSTRATE_CONFIG=" + s.override,
+		// A dead session bus: the audit chain's keychain anchor never reaches the host's keyring.
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=" + filepath.Join(filepath.Dir(s.home), "nobus"),
 	}
 	return cmd
 }
@@ -323,10 +325,11 @@ func TestServeRefusesBadConfig(t *testing.T) {
 	}
 }
 
-// Supervise mode refuses to start while a policy is configured: until slice 6 nothing would
-// enforce it.
-func TestServeInSuperviseModeRefusesAConfiguredPolicy(t *testing.T) {
-	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise, host_monitor: { enabled: true }, scheduler: { enabled: true }, event_export: { enabled: true } }\n")
+// Supervise mode loads a configured policy rather than refusing it (slice 6): the reloading
+// decision point reads the config dir's policy, and a snapshot without the hash `cerberus
+// policy apply` records is a mismatch, recorded in the audit chain in the data dir.
+func TestServeInSuperviseModeLoadsAConfiguredPolicy(t *testing.T) {
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n")
 	dir := filepath.Join(s.home, ".config", "cerberus", "policy")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -334,9 +337,18 @@ func TestServeInSuperviseModeRefusesAConfiguredPolicy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "applied.yaml"), []byte("rules: []\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out := runToExit(t, s, "serve")
-	if code != 1 || !strings.Contains(out, "a policy is configured") || !strings.Contains(out, "slice 6") {
-		t.Fatalf("exit %d, want 1 naming the policy:\n%s", code, out)
+	cmd, _, log := start(t, s)
+	stopServe(t, cmd, log)
+	var found bool
+	_ = filepath.Walk(filepath.Join(s.data, "audit"), func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			b, _ := os.ReadFile(p) //nolint:gosec // the sandbox's own tree
+			found = found || strings.Contains(string(b), "policy_snapshot_changed")
+		}
+		return nil
+	})
+	if !found {
+		t.Fatalf("the policy load was not recorded in the audit chain:\n%s", log)
 	}
 }
 
@@ -451,6 +463,12 @@ func TestServeInObserveModeWritesNothingInTheAdoptedTree(t *testing.T) {
 			t.Errorf("added: %s", k)
 		}
 	}
+	// Nor does it open the audit chain, the approvals store or the brakes in its own data dir.
+	for _, d := range []string{"audit", "approvals", "brakes"} {
+		if _, err := os.Stat(filepath.Join(s.data, d)); !os.IsNotExist(err) {
+			t.Errorf("observe mode created %s in the data dir: %v", d, err)
+		}
+	}
 }
 
 // fakeSystemctl is a systemctl on PATH that records every call and reports every unit loaded,
@@ -464,7 +482,7 @@ exit 0
 `
 
 // Supervise mode's stop order (plan section 4.4), with a real process and SIGTERM: HTTP stops
-// first, then the resource monitor; the process exits 0; no os_service unit is stopped,
+// first, then the approvals sweeper, then the resource monitor; the process exits 0; no os_service unit is stopped,
 // disabled, killed or restarted, and the dev session the monitor started is left running.
 func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise, host_monitor: { enabled: true }, scheduler: { enabled: true }, event_export: { enabled: true } }\n")
@@ -509,9 +527,9 @@ func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 	stopServe(t, cmd, log)
 
 	out := log.String()
-	httpAt, monitorAt := strings.Index(out, "cerberus http stopped"), strings.Index(out, "daemon.resource_monitor.stop")
-	if httpAt < 0 || monitorAt < 0 || httpAt > monitorAt {
-		t.Fatalf("stop order: http at %d, monitor at %d, want http first:\n%s", httpAt, monitorAt, out)
+	httpAt, sweeperAt, monitorAt := strings.Index(out, "cerberus http stopped"), strings.Index(out, "approvals.sweeper.stop"), strings.Index(out, "daemon.resource_monitor.stop")
+	if httpAt < 0 || sweeperAt < 0 || monitorAt < 0 || httpAt > sweeperAt || sweeperAt > monitorAt {
+		t.Fatalf("stop order: http at %d, sweeper at %d, monitor at %d, want http, then the sweeper, then the monitor:\n%s", httpAt, sweeperAt, monitorAt, out)
 	}
 	// The background loops (host monitor, janitor) stop after HTTP and before the resource
 	// monitor, the host monitor before the janitor's flush.

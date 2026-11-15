@@ -2,15 +2,15 @@ package supervise
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/hollis-labs/cerberus/internal/brake"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/domain"
+	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/settings"
 	"github.com/hollis-labs/cerberus/internal/storage"
-	"github.com/hollis-labs/cerberus/internal/target"
 )
 
 // MonitorConfig is the resource monitor's cadence and restart budget (the old build's
@@ -194,7 +194,7 @@ func (m *monitor) check(ctx context.Context, cfg *config.ConfigV2, res config.Re
 		return
 	}
 	// A freeze pauses restarts; a lockdown does not, since they restore declared state.
-	if f, frozen := m.frozen(res); frozen {
+	if f, frozen := m.s.o.Gate.FrozenResource(res); frozen {
 		log.Warn("daemon.resource_monitor.restart_skipped", "resource", res.ID, "freeze", f.ID, "reason", "the resource is frozen; lift it with `cerberus freeze --off "+f.ID+"`")
 		return
 	}
@@ -216,9 +216,24 @@ func (m *monitor) check(ctx context.Context, cfg *config.ConfigV2, res config.Re
 	m.failureCount[res.ID]++
 	m.lastRestart[res.ID] = time.Now()
 	log.Info("daemon.resource_monitor.restart_attempt", "resource", res.ID, "attempt", m.failureCount[res.ID], "max", maxAttempts)
+	// Supervision is never gated (Decision 14), but it is always recorded: an automation
+	// principal, with what the monitor saw as the reason. An unwritable log is logged and the
+	// restart goes ahead.
+	applyOp, _ := operation(localconn.OpApply)
+	call, _ := m.s.o.Gate.BeginAudit(ctx, gate.Spec{
+		Connector: localconn.Definition().ID, Operation: localconn.OpApply, Op: applyOp, Known: true,
+		Resources: sameResource(&res, gate.ConfigResourceLookup(cfg)),
+		Config:    map[string]any{localconn.InputID: res.ID}, Automation: true,
+		Reason: fmt.Sprintf("auto_restart: the workload was %s; restart attempt %d of %d", state, m.failureCount[res.ID], maxAttempts),
+	})
 	m.s.opMu.Lock()
 	_, err = m.s.conn.Apply(ctx, dr)
 	m.s.opMu.Unlock()
+	if err != nil {
+		call.Finish(gate.NewError(localconn.Definition().ID, localconn.OpApply, gate.CodeOperationFailed, err))
+	} else {
+		call.Finish(nil)
+	}
 	if err != nil {
 		m.lastError[res.ID] = err.Error()
 		log.Warn("daemon.resource_monitor.restart_failed", "resource", res.ID, "attempt", m.failureCount[res.ID], "error", err.Error())
@@ -228,14 +243,15 @@ func (m *monitor) check(ctx context.Context, cfg *config.ConfigV2, res config.Re
 	log.Info("daemon.resource_monitor.restart_success", "resource", res.ID, "attempt", m.failureCount[res.ID])
 }
 
-// frozen is the freeze covering a resource, from the lane's brake source.
-func (m *monitor) frozen(res config.ResourceDef) (brake.Freeze, bool) {
-	if m.s.o.Brakes == nil {
-		return brake.Freeze{}, false
+// sameResource looks res up as itself, and any other id through lookup: a restart's record is
+// labeled from the definition it restarts.
+func sameResource(res *config.ResourceDef, lookup gate.ResourceLookup) gate.ResourceLookup {
+	return func(id string) (*config.ResourceDef, bool) {
+		if id == res.ID {
+			return res, true
+		}
+		return lookup(id)
 	}
-	labels := res.TargetLabels()
-	op, _ := operation(localconn.OpApply)
-	return m.s.o.Brakes().FreezeCovering("local", target.Resolve("local", op.Target.Kind, res.ID, &labels, false))
 }
 
 // startupOrder orders every resource after its dependencies (the old build's
