@@ -44,7 +44,7 @@ func ownerOf(name string) string {
 		return OwnerSlice8b
 	}
 	switch name {
-	case "cerberus_portfolio_health", "cerberus_host_capacity":
+	case "cerberus_portfolio_health":
 		return OwnerSlice8b
 	}
 	return OwnerHere

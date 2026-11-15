@@ -190,6 +190,7 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/hosts/_status", ScopeRead, a.hostStatusAll},
 		Route{http.MethodGet, "/api/hosts/_monitor", ScopeRead, a.hostMonitor},
 		Route{http.MethodGet, "/api/hosts/_events", ScopeRead, a.hostEvents},
+		Route{http.MethodPost, "/api/hosts/capacity", ScopeRead, a.hostCapacity},
 		Route{http.MethodGet, "/api/hosts/{name}", ScopeRead, a.hostGet},
 		Route{http.MethodPost, "/api/hosts/{name}/probe", ScopeRead, a.hostProbe},
 		Route{http.MethodGet, "/api/hosts/{name}/status", ScopeRead, a.hostStatus},
