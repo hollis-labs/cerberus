@@ -25,10 +25,10 @@ import (
 // old binary, kept as $LEGACY through the cutover; obsolete and replaced need their evidence in
 // the reason.
 const (
-	ownerSlice7c = "slice 7c" // CLI follow-up over lanes this branch already serves (to be filed)
-	ownerSlice9  = "slice 9"  // MCP
-	ownerSlice10 = "slice 10" // migrate-from, export-legacy
-	ownerSlice11 = "slice 11" // console
+	ownerSlice7c = "CW-20261115-0065" // slice 7c: the CLI follow-up over lanes this branch already serves
+	ownerSlice9  = "slice 9"          // MCP
+	ownerSlice10 = "slice 10"         // migrate-from, export-legacy
+	ownerSlice11 = "slice 11"         // console
 	ownerLegacy  = "slice 12; $LEGACY until F"
 	obsolete     = "obsolete"
 	replaced     = "replaced"

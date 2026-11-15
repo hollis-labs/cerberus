@@ -100,7 +100,7 @@ reason; an unknown old verb, or a decision for something now present, fails it. 
 |---|---|---|
 | obsolete | 26 | Passkey verbs (`approvals enroll`, `keys`, `enrollment-policy`) and `approvals approve`, `deny`, `revoke`, `ack-break-glass` (decision 0.1: the owner decides on the console); one-shot `connectors plugin exec/health <dir>` (410 on main); `--break-glass`/`--reason` on `connectors exec`, the six resource verbs and `resource ensure-fresh`; `managed install --yes` |
 | replaced | 3 | Root `--config` (the override file) and `--db` (`database.sqlite.path`); `managed load --accept-changes` (`managed review <id>`) |
-| slice 7c (CLI follow-up, to be filed) | 25 | Verbs over lanes this branch already serves: `approvals` list/show, `audit` query/tail/prune/reanchor, `component`, `config validate`, `connectors describe`, `write-plugin-prototype`, `data`, `docker`, `ssh` (meanwhile `connectors exec docker\|ssh <op>`), `host`, `path`, `pipeline`, `policy`, `posture`, `portfolio`, `project`, `schedule`, `validate`, `whoami` |
+| CW-20261115-0065 (slice 7c, the CLI follow-up) | 25 | Verbs over lanes this branch already serves: `approvals` list/show, `audit` query/tail/prune/reanchor, `component`, `config validate`, `connectors describe`, `write-plugin-prototype`, `data`, `docker`, `ssh` (meanwhile `connectors exec docker\|ssh <op>`), `host`, `path`, `pipeline`, `policy`, `posture`, `portfolio`, `project`, `schedule`, `validate`, `whoami` |
 | slice 9 | 2 | `mcp`, `mcp-http` (and its `token` verbs) |
 | slice 10 | 1 | `config migrate` (the import is `migrate-from`) |
 | slice 11 | 1 | `web` (the console moves into the serving process) |
