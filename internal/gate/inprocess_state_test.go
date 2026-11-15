@@ -13,7 +13,7 @@ import (
 // refused before it runs or is recorded anywhere; reads, dry runs and calls
 // through the daemon are not affected (M11).
 func TestAnInProcessMutationNeedsTheRealState(t *testing.T) {
-	setInProcessStateCheck(func() error { return errors.New(`HOME is "/tmp/x", but this account's home is "/home/operator"`) })
+	setInProcessStateCheck(func() error { return errors.New(`HOME is "/tmp/x", but this account's home is "/u/op"`) })
 	t.Cleanup(func() { setInProcessStateCheck(nil) })
 	sink := audit.NewMemory()
 	svc, backend := dockerLane(t, sink)
