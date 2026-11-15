@@ -117,8 +117,16 @@ func TestConnectorOperationForms(t *testing.T) {
 	wantCode(t, "confirm without a hash", code, out, http.StatusBadRequest, "invalid_args")
 	code, out = g.call(t, ownerSession, "POST", "/api/connectors/ssh/operations/exec/confirm", `{"config":{"id":"box","command":"uptime"},"acknowledged":true,"confirmed_plan_hash":"sha256:abc"}`)
 	wantCode(t, "confirm with another plan", code, out, http.StatusConflict, "plan_stale")
-	if id := g.pendingID(t, apiKey, "POST", "/api/connectors/ssh/operations/exec", body); id == "" {
-		t.Fatal("no approval named")
+	id := g.pendingID(t, apiKey, "POST", "/api/connectors/ssh/operations/exec", body)
+	if code, out = g.call(t, ownerSession, "POST", "/api/approvals/"+id+"/decide", `{"approve":true}`); code != http.StatusOK {
+		t.Fatalf("the owner's approval: %d %s", code, out)
+	}
+	// The key's retry naming the approval passes the gate (the host is unreachable, so the run
+	// itself fails past it), and spends the approval.
+	retry := `{"config":{"id":"box","command":"uptime"},"acknowledged":true,"approval_id":"` + id + `"}`
+	code, out = g.call(t, apiKey, "POST", "/api/connectors/ssh/operations/exec", retry)
+	if code != http.StatusBadGateway || !strings.Contains(out, `"code":"operation_failed"`) {
+		t.Fatalf("the retry under the approval did not pass the gate: %d %s", code, out)
 	}
 	code, out = g.call(t, ownerSession, "POST", "/api/connectors/nope/operations/exec", body)
 	wantCode(t, "an unknown connector", code, out, http.StatusNotFound, "operation_unsupported")

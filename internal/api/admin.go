@@ -134,13 +134,13 @@ func (a *API) connectorOperation(form string) http.HandlerFunc {
 		}
 		var body struct {
 			admin.OperationArgs
-			confirmBody
+			ConfirmedPlanHash string `json:"confirmed_plan_hash"`
 		}
 		if err := decodeBody(r.Body, &body); err != nil {
 			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
 			return
 		}
-		opts, err := body.gateOpts(form)
+		opts, err := confirmBody{ApprovalID: body.ApprovalID, ConfirmedPlanHash: body.ConfirmedPlanHash}.gateOpts(form)
 		if err != nil {
 			apierr.Write(w, http.StatusBadRequest, "invalid_args", err.Error(), nil)
 			return
