@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -189,7 +190,7 @@ func TestPostureSetMatchesMainAndIsTheOwners(t *testing.T) {
 	} {
 		want = strings.Replace(want, old, now, 1)
 	}
-	if _, err := s.run(t, false, "", "posture", "set", "permissive"); err != errPostureNotInteractive {
+	if _, err := s.run(t, false, "", "posture", "set", "permissive"); !errors.Is(err, errPostureNotInteractive) {
 		t.Fatalf("off a terminal: %v", err)
 	}
 	out, err := s.run(t, true, "nope\n", "posture", "set", "permissive")

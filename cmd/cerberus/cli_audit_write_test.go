@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -195,7 +196,7 @@ func TestAuditPruneAtTheCLIMatchesMain(t *testing.T) {
 	want := strings.ReplaceAll(golden(t, "audit-prune.txt"), "<dir>", dir)
 	prompt := `Type "prune before 2026-11-01" to confirm: `
 
-	if _, err := s.runAudit(t, false, "", "audit", "prune", "--before", "2026-11-01"); err != errAuditPruneNotInteractive {
+	if _, err := s.runAudit(t, false, "", "audit", "prune", "--before", "2026-11-01"); !errors.Is(err, errAuditPruneNotInteractive) {
 		t.Fatalf("off a terminal: %v", err)
 	}
 	out, err := s.runAudit(t, true, "nope\n", "audit", "prune", "--before", "2026-11-01")

@@ -117,7 +117,7 @@ func (a *API) sampleTargets() []policy.SampleTarget {
 }
 
 // appliedPDP is the applied snapshot and how old named it (explainPDP).
-func appliedPDP(store policy.Store) (*policy.Evaluator, policy.LoadStatus, string) {
+func appliedPDP(store policy.Store) (*policy.Evaluator, string) {
 	pdp, status := store.LoadVerified()
 	source := "the applied snapshot " + status.Snapshot
 	switch {
@@ -126,7 +126,7 @@ func appliedPDP(store policy.Store) (*policy.Evaluator, policy.LoadStatus, strin
 	case status.Mismatch():
 		source = mismatchSource(status)
 	}
-	return pdp, status, source
+	return pdp, source
 }
 
 // mismatchSource says what decides on a snapshot mismatch (old's).
@@ -249,7 +249,7 @@ func (a *API) explain(ctx context.Context, opts *PolicyOptions, args PolicyExpla
 		}
 		pdp, source = policy.NewEvaluator(f, "working"), "the working files (not applied)"
 	} else {
-		pdp, _, source = appliedPDP(opts.Store)
+		pdp, source = appliedPDP(opts.Store)
 	}
 	res := pdp.Authorize(req)
 	out := &PolicyExplain{Request: req, Result: res, Policy: source, Posture: res.Posture, BreakGlass: policy.BreakGlassLimitsOf(pdp), Text: &PolicyExplainText{}}
@@ -461,7 +461,7 @@ func (a *API) policyReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	o.pdp, _, o.source = appliedPDP(opts.Store)
+	o.pdp, o.source = appliedPDP(opts.Store)
 	writeJSON(w, buildReport(recs, o))
 }
 
