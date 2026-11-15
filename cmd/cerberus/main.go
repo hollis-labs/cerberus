@@ -22,6 +22,7 @@ import (
 
 	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
+	"github.com/hollis-labs/cerberus/internal/redact"
 	"github.com/hollis-labs/cerberus/internal/storage"
 )
 
@@ -30,13 +31,15 @@ func main() {
 	// config, data directory or database is touched on the way to the plugin.
 	if len(os.Args) > 1 && os.Args[1] == pluginhost.PluginExecCommand {
 		err := pluginhost.RunPluginExec(os.Args[2:], os.Environ())
-		fmt.Fprintln(os.Stderr, "cerberus:", err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(127)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Getenv, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "cerberus:", err)
+		// Once, as main's did: the root silences cobra's own print, and the text goes through
+		// the redactor's regex net.
+		fmt.Fprintln(os.Stderr, "Error:", redact.ErrorText(err))
 		stop()
 		os.Exit(exitCode(err))
 	}
@@ -77,10 +80,14 @@ func run(ctx context.Context, getenv func(string) string, args []string) error {
 // rootCommand is the whole CLI over a started app: Substrate's root and every Cerberus verb.
 func rootCommand(ctx context.Context, c *cerberus) *cobra.Command {
 	rootCmd := cli.Root(c.app)
+	// main's root: errors are printed once, by main; misuse (a bad flag or argument, found
+	// before any hook runs) prints its usage, and a failure after that does not.
+	rootCmd.SilenceErrors, rootCmd.SilenceUsage = true, false
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) { cmd.SilenceUsage = true }
 	serve := c.serveCmd(ctx)
 	// `cerberus` with no command serves, like `cerberus serve`.
 	rootCmd.RunE = func(cmd *cobra.Command, args []string) error { return serve.RunE(cmd, args) }
-	rootCmd.Args = cobra.NoArgs
+	rootCmd.Args = unknownCommand
 	rootCmd.AddCommand(serve, auditCmd(), c.mcpCmd(ctx))
 	rootCmd.AddCommand(c.readCommands()...)
 	rootCmd.AddCommand(c.brakeCommands()...)
@@ -88,8 +95,30 @@ func rootCommand(ctx context.Context, c *cerberus) *cobra.Command {
 	rootCmd.AddCommand(c.runSecretsCmd(), c.secretsCommand())
 	rootCmd.AddCommand(c.registryCommands()...)
 	rootCmd.AddCommand(c.migrateFromCmd(), manifestCmd(), c.exportLegacyCmd(), importStandbyCmd())
+	if err := c.addFollowUpCommands(rootCmd); err != nil {
+		// The pending table is static: a path it cannot place is a build defect, caught by the
+		// parity test.
+		panic(err)
+	}
 	guardKeyCreate(rootCmd)
 	return rootCmd
+}
+
+// unknownCommand is cobra's answer to a word that names no command, as main's root (which had
+// no Run) gave it: one line, with cobra's suggestions, and no usage block.
+func unknownCommand(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	cmd.SilenceUsage = true
+	msg := fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath())
+	if suggestions := cmd.SuggestionsFor(args[0]); len(suggestions) > 0 {
+		msg += "\n\nDid you mean this?\n"
+		for _, s := range suggestions {
+			msg += "\t" + s + "\n"
+		}
+	}
+	return errors.New(msg)
 }
 
 // guardKeyCreate refuses `cerberus identity key create` with a scope no machine credential may

@@ -1,0 +1,89 @@
+{
+  "approvals": [
+    {
+      "args_digest": "hmac-sha256:22",
+      "channel": "out_of_band",
+      "connector": "ssh",
+      "created_at": "2026-11-15T07:32:51.12931034Z",
+      "decision": {
+        "approve": false,
+        "at": "2026-11-15T07:32:51.129939271Z",
+        "by": {
+          "kind": "human",
+          "self_reported": false,
+          "surface": "",
+          "via": "web"
+        },
+        "reason": "no"
+      },
+      "effect": "destructive",
+      "expires_at": "2126-10-22T07:32:51.12931034Z",
+      "id": "apr_fa84bbf553ad",
+      "operation": "exec",
+      "principal": {
+        "client": "key:k1",
+        "kind": "agent",
+        "self_reported": false,
+        "session": "key:k1",
+        "surface": "socket",
+        "via": "api"
+      },
+      "rule": "baseline.destructive.agent",
+      "scope": "once",
+      "status": "denied",
+      "target": {
+        "fields": {
+          "id": "box"
+        },
+        "kind": "ssh.host",
+        "resource": "box"
+      }
+    },
+    {
+      "args_digest": "hmac-sha256:00",
+      "channel": "out_of_band",
+      "connector": "local",
+      "created_at": "2026-11-15T07:32:51.118152846Z",
+      "effect": "lifecycle",
+      "expires_at": "2126-10-22T07:32:51.118152846Z",
+      "id": "apr_69b3b42eda6c",
+      "operation": "deploy",
+      "plan_hash": "sha256:11",
+      "principal": {
+        "client": "key:k1",
+        "kind": "agent",
+        "self_reported": false,
+        "session": "key:k1",
+        "surface": "socket",
+        "via": "api"
+      },
+      "reason": "deploys are approved",
+      "rule": "approve-deploys",
+      "scope": "once",
+      "shown": {
+        "arguments": {
+          "id": "dev"
+        },
+        "plan": {
+          "lane": "local",
+          "operation": "deploy",
+          "target": "dev"
+        },
+        "untrusted": [
+          "/arguments"
+        ]
+      },
+      "status": "pending",
+      "target": {
+        "admin": "ours",
+        "env": "dev",
+        "fields": {
+          "id": "dev"
+        },
+        "kind": "local.resource",
+        "owner": "ours",
+        "resource": "dev"
+      }
+    }
+  ]
+}

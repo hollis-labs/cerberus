@@ -1,0 +1,22 @@
+Approval apr_69b3b42eda6c: pending
+  Operation:    local.deploy [lifecycle]
+  Target:       dev [dev/ours/ours]
+  Requested by: agent via api (key:k1) at 2026-11-15T07:32:51Z
+  Why:          rule approve-deploys: deploys are approved
+  How:          out_of_band, scope once, expires 2126-10-22T07:32:51Z
+  Plan:         sha256:11
+
+  Plan it binds to:
+    {
+      "lane": "local",
+      "operation": "deploy",
+      "target": "dev"
+    }
+
+  Arguments:  (written by the requester, not Cerberus: check it, do not take its word)
+    {
+      "id": "dev"
+    }
+
+  Decide with:  cerberus approvals approve apr_69b3b42eda6c
+(from the store, read directly: the daemon is not running)

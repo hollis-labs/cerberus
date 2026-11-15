@@ -1,0 +1,1 @@
+Config OK: 1 registered, resolved to 1 projects, 2 resources
