@@ -313,7 +313,7 @@ func parityCase(t *testing.T, dir, home string) (config.ResourceDef, []byte, str
 		t.Fatal(err)
 	}
 	var r config.ResourceDef
-	if err := yaml.Unmarshal([]byte(strings.ReplaceAll(string(raw), "/u/op", home)), &r); err != nil {
+	if err = yaml.Unmarshal([]byte(strings.ReplaceAll(string(raw), "/u/op", home)), &r); err != nil {
 		t.Fatal(err)
 	}
 	golden, err := os.ReadFile(filepath.Join(dir, "unit.golden")) //nolint:gosec // test fixtures

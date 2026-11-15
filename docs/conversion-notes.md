@@ -21,6 +21,10 @@ adds its rows. The plan is `docs/substrate-port-plan.md`.
 | `~/.cerberus/config.yaml` (`--config`) | Manifest defaults plus the `SUBSTRATE_CONFIG` override file |
 | `~/.cerberus/apps/` | Unchanged, adopted in place: `cerberus.install_root` |
 | `~/.cerberus/cerberus.sock`, `daemon.lock`, `cerberus.pid` | None. One process per data directory, held by the database open lock (`<db>.open.lock`) and the unit. |
+| `~/.cerberus/pids/<id>.{pid,meta}`, `~/.cerberus/locks/` | `<data dir>/pids/`, `<data dir>/locks/`. Never read or written by the new build; old's running sessions are listed in `standby.d/sessions.json` and started under new at D7. |
+| `~/.cerberus/paused`, `paused.<id>` | `pause_state` in the class A store (migrated by slice 10) |
+| `~/.cerberus/runtime/applied.json` | `applied_definitions` in the class A store, same digests (key `<data dir>/audit/.digest_key`) |
+| `~/.cerberus/brakes/` | `<data dir>/brakes/` (copied if present) |
 
 ## Environment
 
@@ -59,3 +63,13 @@ Steps to take after the new build is accepted. None blocks the cutover.
 
 - Narrow tachyon's Cerberus key by dropping `cerberus.admin` once tachyon no longer uses `remove` (legacy route L8;
   `docs/substrate-port/legacy-routes.md` section 4).
+
+## Resource verbs (slice 5)
+
+| Old | New |
+|---|---|
+| `cerberus resource {apply,deploy,reload,stop,sync,remove} <id> --ack` over the socket | L7/L8 `POST /api/resources/{id}/{verb}` with `{"acknowledged":true}`; same `OpResult` and the same 200 `success:false` for a failed run |
+| No `--ack` | 409 `acknowledgment_required`, before the resource is looked up (unchanged) |
+| `--approval`, `--plan`, the confirm route, a lockdown or freeze | Until slice 6: refused, 428 or 423 `approvals_unavailable`. Run it with the old build, or without that option. |
+| Supervise mode with a policy in force | Refused at start until slice 6 |
+| A self-mutation guarded by the daemon's executable path and labels | Guarded by `cerberus.self_resource_id`: every verb on it is refused; upgrade with fleet-install |

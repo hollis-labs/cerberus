@@ -85,11 +85,11 @@ func (s *Service) Mutate(ctx context.Context, req Request) (*OpResult, error) {
 	case localconn.OpApply:
 		out = s.apply(ctx, cfg, req.ID)
 	case localconn.OpSync:
-		// The old build's sync answers a cancelled call with the error, not a result.
+		// The old build's sync answers a canceled call with the error, not a result.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		out = s.sync(ctx, cfg, req.ID)
+		out = s.sync(cfg, req.ID)
 	case localconn.OpRemove:
 		out = s.remove(ctx, cfg, req.ID)
 	default:
@@ -375,12 +375,12 @@ func (s *Service) formatApplyError(id string, res *config.ResourceDef, spec loca
 	)
 }
 
-func (s *Service) sync(ctx context.Context, cfg *config.ConfigV2, id string) *OpResult {
+func (s *Service) sync(cfg *config.ConfigV2, id string) *OpResult {
 	res, spec, err := requireLocalProcess(cfg, id)
 	if err != nil {
 		return failed(id, err)
 	}
-	if err := s.refuseSelf(res); err != nil {
+	if err = s.refuseSelf(res); err != nil {
 		return failed(id, err)
 	}
 	if spec.RunFrom != localconn.ProcessRunFromArtifact {

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -94,8 +95,27 @@ func (s sandbox) command(ctx context.Context, args ...string) *exec.Cmd {
 
 var listening = regexp.MustCompile(`msg="cerberus listening".*addr=(\S+)`)
 
+// serveLog is serve's stderr as the reader goroutine collects it; the test reads it while the
+// process still logs, so it is guarded.
+type serveLog struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *serveLog) WriteString(s string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.b.WriteString(s)
+}
+
+func (l *serveLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // start runs `cerberus serve` and returns its base URL once it listens.
-func start(t *testing.T, s sandbox) (*exec.Cmd, string, *strings.Builder) {
+func start(t *testing.T, s sandbox) (*exec.Cmd, string, *serveLog) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	t.Cleanup(cancel)
@@ -109,7 +129,7 @@ func start(t *testing.T, s sandbox) (*exec.Cmd, string, *strings.Builder) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
-	log := &strings.Builder{}
+	log := &serveLog{}
 	addr := make(chan string, 1)
 	go func() {
 		sc := bufio.NewScanner(stderr)

@@ -183,7 +183,7 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 	service.SetStateRoot(dirs.Data)
 	opts := supervise.Options{Mode: cfg.Mode, Resources: resources, Home: home, StateDir: dirs.Data, SelfID: cfg.SelfResourceID}
 	if cfg.Mode == settings.ModeSupervise {
-		if err := superviseOptions(app, &opts, reg, dirs.Data, home); err != nil {
+		if err = superviseOptions(app, &opts, reg, dirs.Data, home); err != nil {
 			return nil, err
 		}
 	}
@@ -219,7 +219,7 @@ func startSupervision(app *module.App) (*supervise.Service, error) {
 
 // superviseOptions adds what supervise mode needs: the registry's config, the class A store,
 // the applied-digest key (the audit directory's, in the data dir) and the approver. Until
-// slice 6 the approver is the interim one, which cannot honour a policy, so a configured policy
+// slice 6 the approver is the interim one, which cannot enforce a policy, so a configured policy
 // refuses the start.
 func superviseOptions(app *module.App, opts *supervise.Options, reg *registry.Registry, data, home string) error {
 	if dir := policyDir(home); dirHasEntries(dir) {

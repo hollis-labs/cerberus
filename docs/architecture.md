@@ -29,8 +29,8 @@ with each slice and states only what the branch does now.
 | `internal/datadir` | Resolves the data directory and refuses the old build's state (`RefuseLegacy`). |
 | `internal/storage` | The schema: one embedded goose migration (`migrations/sqlite/00001_schema.sql`), registered with `database.UseMigrationFS` in `main.go`, plus typed functions for pause state, applied digests and credential-issuance receipts. |
 | `internal/registry` | Descriptor discovery and validation, carried; `ForRoot(adopt_root)` is the Substrate build's entry point (see Registry). |
-| `internal/supervise` | The supervision lane: observe mode (status of every resource, every mutation refused) and the self check (see Supervision). |
-| `internal/connector/local` | The local connector, carried. `observe.go` is its read-only half: `RenderSystemdUnit`, `ObserveSystemdUnit`, `ObserveDevSession`. |
+| `internal/supervise` | The supervision lane: status, the six mutations in supervise mode, the interim approver, the resource monitor and the self-guard (see Supervision). |
+| `internal/connector/local` | The local connector, carried. `observe.go` is its read-only half: `RenderSystemdUnit`, `ObserveSystemdUnit`, `ObserveDevSession`; `NewWithSystemd` sets its systemd runner and unit environment. |
 | `internal/api` | The route table with a scope per route, the legacy-route set, the approve person check and the key guard (see Identity, scopes and the API). |
 
 The rest of `internal/` and `pkg/` is the old build's code, carried unchanged until its slice moves it
@@ -115,23 +115,46 @@ the carried callers until their slices port them.
 
 ## Supervision
 
-`cerberus.mode` is `observe` (the default) until slice 5 enables `supervise`; `supervise` is refused at start. In
-observe mode the lane (`internal/supervise`) reads the registry's resources fresh on every call and reports each one:
+`cerberus.mode` is `observe` (the default) or `supervise`. The lane (`internal/supervise`) reads the registry's
+resources fresh on every call. In both modes it reports each one:
 
 - an `os_service` supervised by `systemd_user` (or `auto` on Linux), Cerberus-written or a native unit named by
-  `service_name`: its state from `systemctl --user show <unit>`, and nothing else is run;
-- a `dev_session`: its state from the old build's `<adopt_root>/pids/<id>.pid` and `.meta`, checked against the
-  running process's start identity. Nothing is adopted, and a stale pid file is reported and left in place (the old
-  build's poll removes it; observe never does);
+  `service_name`: its state from `systemctl --user show <unit>`;
+- a `dev_session`: its state from this build's `<data dir>/pids/<id>.pid` and `.meta`, checked against the running
+  process's start identity. The new build never reads or writes the old tree's `pids/` or `locks/`
+  (`internal/service.SetStateRoot`); it learns old's sessions only from `standby.d/sessions.json` (plan 7.1).
 - anything that is not a local process (an ssh server, a container): unobserved, a named handle.
 
-`apply`, `deploy`, `start`, `stop`, `reload`, `sync` and `remove` are refused with guidance naming observe mode and
-the old CLI. Observe writes nothing anywhere: no pid, lock or pause file, no unit, no directory.
+**Observe mode** refuses `apply`, `deploy`, `stop`, `reload`, `sync` and `remove` (L7, L8) with 409 `observe_mode`,
+before anything else. It writes nothing anywhere and starts no background work.
 
-`cerberus.self_resource_id` names the resource the old build runs this process as (`cerberus-substrate`, plan
-section 7.2 C). At start the process reads `/proc/self/cgroup`: running in a systemd unit other than the one that
-resource installs as is refused, and so is an id the registry does not list. A process outside any service unit (run
-from a shell) starts, with a warning.
+**Supervise mode** runs the old build's six mutations with the old build's results (`supervise.Mutate`):
+
+1. the acknowledgment, before the resource is looked up: 409 `acknowledgment_required` without it;
+2. the approver (`supervise.Approver`). Until slice 6 it is `InterimApprover`: an acknowledged request passes; a
+   request naming an approval, a plan or a confirmed plan is refused 428 `approvals_unavailable`, and a target a
+   lockdown or freeze in `<data dir>/brakes` covers is refused 423 `approvals_unavailable`. The table it is tested
+   against (`supervise/approvertest`) is the old build's routing, and slice 6 reuses it. A configured policy
+   (`<config dir>/cerberus/policy` not empty) refuses the start in supervise mode, since nothing would enforce it;
+3. the run. Every failure after the gate is 200 `{success:false, error}`: an unknown or non-local resource, a port
+   conflict, the self-guard, a build lock, build, install and apply failures. Deploy and apply add the config and
+   dependency warnings and redact their output through the resource's redactor, as old did.
+
+A dev session's `stop` and `remove` record the pause, and `apply`, `deploy` and `reload` clear it, in the class A
+store (`pause_state`), never in `~/.cerberus/paused.<id>`. A successful `apply`, `deploy`, `reload` or `sync`
+records the definition's digest (`applied_definitions`), keyed with `<data dir>/audit/.digest_key`, the key the old
+audit chain digests with once it is copied (plan section 6), so a digest migrated from `runtime/applied.json`
+compares equal. There is no `start` verb: the old build has none, and `apply` starts.
+
+The resource monitor (supervise mode only) restarts a dev session with `auto_restart` that went down, as old's did:
+not while paused or frozen, within `max_restart_attempts` and `restart_cooldown`, and only the definition last
+applied. It stops no workload. Until slice 6 a restart is not recorded in an audit chain.
+
+`cerberus.self_resource_id` names the resource this process runs as (`cerberus-substrate`, plan section 7.2 C). At
+start the process reads `/proc/self/cgroup`: running in a systemd unit other than the one that resource installs as is
+refused, and so is an id the registry does not list. A process outside any service unit (run from a shell) starts,
+with a warning. In supervise mode every verb on that resource is refused (200 `success:false` naming fleet-install),
+through the lane and through the connector's mutation guard.
 
 ### Unit renderer parity
 
@@ -196,9 +219,11 @@ Defaults are in the manifest. The operator overrides any key in the YAML file na
 
 ## Shutdown
 
-SIGINT or SIGTERM cancels the context; `httphost.Serve` stops accepting and waits for in-flight handlers; `run`
-then stops the modules in reverse start order. Proved with a real process (`cmd/cerberus/main_test.go`). Later
-slices add their background work to this drain in the order of plan section 4.4.
+SIGINT or SIGTERM cancels the context. In the order of plan section 4.4: `httphost.Serve` stops accepting and waits
+for in-flight handlers; the resource monitor stops (it runs on a context the signal does not cancel, and stops no
+workload: an `os_service` unit and a dev session outlive the process); `run` then stops the modules in reverse start
+order. Proved with a real process, a fake `systemctl` on PATH and SIGTERM (`cmd/cerberus/main_test.go`). Later slices
+add the scheduler, host monitor and plugins to this drain at their steps.
 
 ## Checks
 

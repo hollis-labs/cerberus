@@ -171,9 +171,9 @@ func (m *monitor) check(ctx context.Context, cfg *config.ConfigV2, res config.Re
 		}
 		return
 	}
-	if err := refusePortConflict(cfg, res.ID); err != nil {
-		m.lastError[res.ID] = err.Error()
-		log.Warn("daemon.resource_monitor.port_conflict", "resource", res.ID, "error", err.Error())
+	if conflict := refusePortConflict(cfg, res.ID); conflict != nil {
+		m.lastError[res.ID] = conflict.Error()
+		log.Warn("daemon.resource_monitor.port_conflict", "resource", res.ID, "error", conflict.Error())
 		return
 	}
 	maxAttempts := m.cfg.DefaultMaxRestartAttempts
@@ -186,7 +186,7 @@ func (m *monitor) check(ctx context.Context, cfg *config.ConfigV2, res config.Re
 	}
 	cooldown := m.cfg.DefaultRestartCooldown
 	if spec.RestartCooldown != "" {
-		if d, err := time.ParseDuration(spec.RestartCooldown); err == nil && d > 0 {
+		if d, parseErr := time.ParseDuration(spec.RestartCooldown); parseErr == nil && d > 0 {
 			cooldown = d
 		}
 	}
@@ -201,13 +201,13 @@ func (m *monitor) check(ctx context.Context, cfg *config.ConfigV2, res config.Re
 	// Only the definition last applied restarts; one edited since waits for an apply. A
 	// resource with no record is taken as it is.
 	digest := m.s.o.Digester.Digest(res)
-	if prev, ok, err := storage.Applied(ctx, m.s.o.Store, res.ID); err == nil && ok && prev != digest {
+	if prev, ok, readErr := storage.Applied(ctx, m.s.o.Store, res.ID); readErr == nil && ok && prev != digest {
 		m.lastError[res.ID] = "its definition changed since it was last applied, so the monitor does not restart it; run `cerberus resource apply " + res.ID + "`"
 		log.Warn("daemon.resource_monitor.restart_skipped", "resource", res.ID, "reason", m.lastError[res.ID])
 		return
-	} else if err == nil && !ok {
-		if err := storage.SetApplied(ctx, m.s.o.Store, res.ID, digest, time.Now()); err != nil {
-			log.Warn("daemon.resource_monitor.applied_record_failed", "resource", res.ID, "error", err.Error())
+	} else if readErr == nil && !ok {
+		if setErr := storage.SetApplied(ctx, m.s.o.Store, res.ID, digest, time.Now()); setErr != nil {
+			log.Warn("daemon.resource_monitor.applied_record_failed", "resource", res.ID, "error", setErr.Error())
 		}
 	}
 	for _, w := range m.s.dependencyWarnings(ctx, cfg, &res) {
