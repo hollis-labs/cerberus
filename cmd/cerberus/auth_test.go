@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
@@ -254,4 +256,93 @@ func TestLegacyRoutesAnswerUnderAPIWithTheirScopes(t *testing.T) {
 			t.Errorf("%s %s %s: %d %s, want %d containing %s", c.id, c.method, c.path, code, body, c.want, c.body)
 		}
 	}
+}
+
+// The CLI reads its key from cerberus.cli_key_file and calls the serving Cerberus over HTTP.
+// Without the file it exits non-zero naming the path; a revoked key is refused (401) and shown.
+func TestCLIReadsOverHTTPWithItsKeyFile(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "cli.key")
+	// The sandbox's override sets a fixed loopback port so the CLI and the server agree.
+	port := freePort(t)
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:"+port+"\" }\ncerberus: { cli_key_file: \""+keyFile+"\" }\n")
+	writeRegistry(t, s)
+
+	if code, out := runWithStdin(t, s, "", "resource", "list"); code == 0 || !strings.Contains(out, "no API key at "+keyFile) {
+		t.Fatalf("without a key file: %d %s", code, out)
+	}
+
+	if code, out := runWithStdin(t, s, "correct horse battery staple\n", "identity", "setup", "--username", "owner", "--display-name", "Owner"); code != 0 {
+		t.Fatalf("identity setup: %d %s", code, out)
+	}
+	if code, out := runWithStdin(t, s, "", "identity", "key", "create", "--name", "cli", "--scope", "cerberus.read", "--out", keyFile); code != 0 {
+		t.Fatalf("key create: %d %s", code, out)
+	}
+	cmd, base, log := start(t, s)
+	defer stopServe(t, cmd, log)
+
+	if code, out := runWithStdin(t, s, "", "resource", "list"); code != 0 || !strings.Contains(out, "web  Web") {
+		t.Fatalf("resource list: %d %s", code, out)
+	}
+	if code, out := runWithStdin(t, s, "", "resource", "status", "web"); code != 0 || !strings.Contains(out, "Resource:    web") {
+		t.Fatalf("resource status: %d %s", code, out)
+	}
+	if code, out := runWithStdin(t, s, "", "status"); code != 0 || !strings.Contains(out, "  daemon   running at "+base) {
+		t.Fatalf("status: %d %s", code, out)
+	}
+
+	// The owner revokes the key; the CLI then shows the server's 401.
+	jar, _ := cookiejar.New(nil)
+	owner := &http.Client{Jar: jar}
+	send := func(method, path, body string) (int, string) {
+		req, _ := http.NewRequest(method, base+path, strings.NewReader(body)) //nolint:noctx // loopback child
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Requested-With", "XMLHttpRequest")
+		req.Header.Set("Origin", base)
+		resp, err := owner.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, body := send("POST", "/api/login", `{"username":"owner","password":"correct horse battery staple"}`); code != 200 {
+		t.Fatalf("login: %d %s", code, body)
+	}
+	code, body := send("GET", "/api/identity/keys", "")
+	var listed struct {
+		Keys []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"keys"`
+	}
+	if code != 200 || json.Unmarshal([]byte(body), &listed) != nil {
+		t.Fatalf("list keys: %d %s", code, body)
+	}
+	revoked := false
+	for _, k := range listed.Keys {
+		if k.Name == "cli" {
+			if dc, db := send("DELETE", "/api/identity/keys/"+k.ID, ""); dc/100 != 2 {
+				t.Fatalf("revoke: %d %s", dc, db)
+			}
+			revoked = true
+		}
+	}
+	if !revoked {
+		t.Fatalf("no key named cli in %s", body)
+	}
+	if code, out := runWithStdin(t, s, "", "resource", "list"); code == 0 || !strings.Contains(out, "401") || !strings.Contains(out, keyFile) {
+		t.Fatalf("revoked key: %d %s", code, out)
+	}
+}
+
+// freePort returns a loopback port nothing listens on now.
+func freePort(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	return fmt.Sprint(l.Addr().(*net.TCPAddr).Port)
 }

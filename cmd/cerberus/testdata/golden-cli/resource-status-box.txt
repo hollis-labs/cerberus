@@ -1,0 +1,5 @@
+Resource:    box
+Name:        Box
+Status:      unsupervised
+Context:     server/ssh resources are administered through the ssh connector, not supervised by the local runtime lane
+Next Step:   cerberus ssh status box | cerberus ssh exec box -- <command>

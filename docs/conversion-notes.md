@@ -51,6 +51,7 @@ The remaining old variables (`CERBERUS_PRINCIPAL`, `CERBERUS_DOCKER_PATH`, `CERB
 |---|---|
 | `cerberus daemon --foreground` | `cerberus serve` (also the default with no command) |
 | — | `cerberus identity setup` (offline owner), `cerberus identity key create` (refuses `*`, `cerberus.*` and `cerberus.approve`) |
+| `cerberus resource list` / `resource status <id>` / `status` over the socket | The same verbs, flags and output, over HTTP to `/api` with the API key in `cerberus.cli_key_file` (default `~/.config/cerberus/cli.key`). `status` keeps the old section labels; sections later slices own print `unavailable (slice N)` |
 | Every other verb | Not on this branch yet; each returns in its slice with the same name and flags (plan section 6). |
 
 ## Post-adoption improvements

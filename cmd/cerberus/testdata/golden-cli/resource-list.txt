@@ -1,0 +1,4 @@
+ID   NAME  TYPE     PROJECT  CONNECTOR  MODE         SUPERVISOR  RUN FROM   STATUS        ARTIFACT  NEXT  ENV      OWNER    ADMIN    TAGS
+--   ----  ----     -------  ---------  ----         ----------  --------   ------        --------  ----  ---      -----    -----    ----
+box  Box   server   shop     ssh        -            -           -          unsupervised  -         -     unknown  unknown  unknown  -
+dev  Dev   process  shop     local      dev_session  auto        workspace  stopped       -         -     unknown  unknown  unknown  ui

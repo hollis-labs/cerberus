@@ -1,0 +1,11 @@
+Cerberus status
+  daemon   not running (socket missing at $HOME/.cerberus/cerberus.sock)
+  posture  secure
+  you      unavailable (the daemon is not running)
+  plugins  unavailable (the daemon is not running)
+  audit    chain intact (no audit records yet)
+  web      no console running
+  passkeys unavailable (the daemon is not running)
+  presence cerberus-presence is not used on linux: enrollment uses polkit; see `cerberus approvals keys` for setup
+  enforce  shadow (only the built-in protections are enforced)
+  grants   unavailable (the daemon is not running)

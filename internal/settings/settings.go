@@ -6,6 +6,7 @@
 //	  adopt_root: "~/.cerberus"          # the old state tree files adopted in place live under
 //	  mode: observe                      # observe (read and report only) or supervise
 //	  self_resource_id: ""               # the resource this process runs as, checked at start
+//	  cli_key_file: "~/.config/cerberus/cli.key"   # the API key the cerberus CLI presents
 //
 // install_root is adopted in place from the old build: the live resource units point their
 // ExecStart and log paths into it, so moving it would rewrite and restart every unit
@@ -47,6 +48,10 @@ const (
 	ModeSupervise Mode = "supervise"
 )
 
+// DefaultCLIKeyFile is cli_key_file when the block does not set it: under the new build's config
+// directory, created offline with `cerberus identity key create --out` (mode 0600).
+const DefaultCLIKeyFile = "~/.config/cerberus/cli.key"
+
 // Settings are the parsed block.
 type Settings struct {
 	// InstallRoot is absolute.
@@ -57,6 +62,8 @@ type Settings struct {
 	Mode Mode
 	// SelfResourceID is empty unless set.
 	SelfResourceID string
+	// CLIKeyFile is absolute.
+	CLIKeyFile string
 }
 
 // Parse reads the block (nil for a missing one). home expands a leading "~/".
@@ -70,7 +77,7 @@ func Parse(raw any, home string) (Settings, error) {
 		}
 		block = m
 	}
-	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true}
+	known := map[string]bool{"install_root": true, "adopt_root": true, "mode": true, "self_resource_id": true, "cli_key_file": true}
 	var unknown []string
 	for k := range block {
 		if !known[k] {
@@ -102,6 +109,9 @@ func Parse(raw any, home string) (Settings, error) {
 		return s, fmt.Errorf("%s.mode must be observe or supervise, got %q", Key, mode)
 	}
 	if s.SelfResourceID, err = str(block, "self_resource_id"); err != nil {
+		return s, err
+	}
+	if s.CLIKeyFile, err = path(block, "cli_key_file", DefaultCLIKeyFile, home); err != nil {
 		return s, err
 	}
 	return s, nil

@@ -1,0 +1,17 @@
+kind: cerberus-project/v1
+owner: shop
+project: {id: shop, name: Shop}
+resources:
+  - id: dev
+    name: Dev
+    type: process
+    connector: local
+    project: shop
+    tags: [ui]
+    config: {command: ["npm", "run", "dev"], port: 5173}
+  - id: box
+    name: Box
+    type: server
+    connector: ssh
+    project: shop
+    config: {host: box-1.example}
