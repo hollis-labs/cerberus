@@ -181,6 +181,11 @@ func TestServeAnswersHealthAndDrainsOnSIGTERM(t *testing.T) {
 		t.Fatalf("cerberus did not exit within 20s of SIGTERM:\n%s", log)
 	}
 
+	// Observe mode (the default) starts no background loop: no probe, janitor, scheduler,
+	// snapshot recorder or export (plan section 4.2).
+	if strings.Contains(log.String(), "cerberus background start") {
+		t.Fatalf("observe mode started a background loop:\n%s", log)
+	}
 	for p, want := range map[string]os.FileMode{s.data: 0o700, filepath.Join(s.data, "cerberus.db"): 0o600} {
 		fi, err := os.Stat(p)
 		if err != nil {
@@ -321,7 +326,7 @@ func TestServeRefusesBadConfig(t *testing.T) {
 // Supervise mode refuses to start while a policy is configured: until slice 6 nothing would
 // enforce it.
 func TestServeInSuperviseModeRefusesAConfiguredPolicy(t *testing.T) {
-	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n")
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise, host_monitor: { enabled: true } }\n")
 	dir := filepath.Join(s.home, ".config", "cerberus", "policy")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -462,7 +467,7 @@ exit 0
 // first, then the resource monitor; the process exits 0; no os_service unit is stopped,
 // disabled, killed or restarted, and the dev session the monitor started is left running.
 func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
-	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise }\n")
+	s := newSandbox(t, "httphost: { addr: \"127.0.0.1:0\" }\ncerberus: { mode: supervise, host_monitor: { enabled: true } }\n")
 	s.bin = filepath.Join(filepath.Dir(s.home), "bin")
 	if err := os.MkdirAll(s.bin, 0o700); err != nil {
 		t.Fatal(err)
@@ -507,6 +512,14 @@ func TestServeInSuperviseModeStopsInOrderAndLeavesWorkloads(t *testing.T) {
 	httpAt, monitorAt := strings.Index(out, "cerberus http stopped"), strings.Index(out, "daemon.resource_monitor.stop")
 	if httpAt < 0 || monitorAt < 0 || httpAt > monitorAt {
 		t.Fatalf("stop order: http at %d, monitor at %d, want http first:\n%s", httpAt, monitorAt, out)
+	}
+	// The background loops (host monitor, janitor) stop after HTTP and before the resource
+	// monitor, the host monitor before the janitor's flush.
+	hostAt, janitorAt := strings.Index(out, "daemon.host_monitor.stop"), strings.Index(out, "loop=janitor")
+	bgAt := strings.Index(out, "cerberus background stopped all")
+	if hostAt < 0 || janitorAt < 0 || bgAt < 0 || hostAt < httpAt || bgAt > monitorAt || janitorAt > bgAt {
+		t.Fatalf("background stop order: http %d, host monitor %d, janitor %d, all %d, resource monitor %d:\n%s",
+			httpAt, hostAt, janitorAt, bgAt, monitorAt, out)
 	}
 	if syscall.Kill(pid, 0) != nil {
 		t.Fatal("the dev session did not outlive cerberus")

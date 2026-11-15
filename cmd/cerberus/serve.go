@@ -55,6 +55,11 @@ func newAPI(app *module.App, home string, lane *supervise.Service) (*api.API, er
 	if lane != nil {
 		observer = laneObserver{lane: lane}
 	}
+	dirs, err := dataDirs()
+	if err != nil {
+		return nil, err
+	}
+	hostsYAML, hostsState := hostsPaths(st, dirs)
 	return api.New(api.Options{
 		Observer: observer,
 		Resources: func() ([]config.ResourceDef, error) {
@@ -65,8 +70,8 @@ func newAPI(app *module.App, home string, lane *supervise.Service) (*api.API, er
 			return resolved.Config.Resources, nil
 		},
 		Hosts: api.FileHosts{
-			HostsPath: filepath.Join(st.AdoptRoot, "hosts.yaml"),
-			StatePath: filepath.Join(st.AdoptRoot, "state", "hosts.json"),
+			HostsPath: hostsYAML,
+			StatePath: hostsState,
 		},
 		Home:    home,
 		Mutator: lane,
@@ -104,6 +109,13 @@ func (c *cerberus) serve(ctx context.Context) error {
 	// plan section 4.4, never with it.
 	lane.StartMonitor(context.WithoutCancel(ctx), supervise.DefaultMonitorConfig())
 	defer lane.Shutdown()
+	// The background loops stop after HTTP and before the resource monitor (deferred, so they
+	// run before lane.Shutdown).
+	bg, err := c.startBackground(app)
+	if err != nil {
+		return err
+	}
+	defer bg.Stop()
 	id := identity.From(app)
 	if id == nil {
 		return errors.New("the identity module must be started")
@@ -122,9 +134,10 @@ func (c *cerberus) serve(ctx context.Context) error {
 	// cookie writes need X-Requested-With and a same-origin Origin), then the host (guard,
 	// routes).
 	handler = api.KeyGuard(id.Middleware(handler))
-	// Stop order (plan section 4.4): HTTP stops accepting and drains first; then, through the
-	// deferred Shutdown, the resource monitor, which stops no workload; the modules stop after
-	// serve returns.
+	// Stop order (plan section 4.4): HTTP stops accepting and drains first; then, deferred, the
+	// background loops (scheduler, then host monitor and janitor, snapshot recorder and event
+	// export, each flushed), then the resource monitor, which stops no workload; the modules stop
+	// after serve returns.
 	err = httphost.Serve(ctx, app, handler, httphost.ServeOptions{
 		Ready: func(addr net.Addr) {
 			slog.Info("cerberus listening", "addr", addr.String())
@@ -135,6 +148,23 @@ func (c *cerberus) serve(ctx context.Context) error {
 	})
 	slog.Info("cerberus http stopped")
 	return err
+}
+
+// startBackground starts the background loops for this app's settings (none in observe mode).
+func (c *cerberus) startBackground(app *module.App) (*background, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	st, err := settings.Parse(app.Config[settings.Key], home)
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := dataDirs()
+	if err != nil {
+		return nil, err
+	}
+	return startBackground(app, st, dirs, slog.Default())
 }
 
 // requireLoopback keeps the host on the loopback interface until identity and the scope

@@ -245,8 +245,14 @@ func TestMonitorWithTelemetryStoreDown(t *testing.T) {
 	if tel.State().Held != 0 || tel.Check(ctx) != nil || ds.writes.Load() != 4 {
 		t.Fatalf("after recovery: %+v %v, %d writes landed", tel.State(), tel.Check(ctx), ds.writes.Load())
 	}
-	if _, ok, err := ds.Status(ctx, "box-c"); err != nil || !ok {
-		t.Fatalf("held status did not land: %v %v", ok, err)
+	// With the store back, the next round writes straight through for every host.
+	clock.Add(int64(settings.OutpostInterval / time.Second))
+	m.tick(ctx)
+	m.wg.Wait()
+	for _, h := range []string{"box-a", "box-b", "box-c"} {
+		if _, ok, err := ds.Status(ctx, h); err != nil || !ok {
+			t.Fatalf("%s: no status after recovery: %v %v", h, ok, err)
+		}
 	}
 }
 
