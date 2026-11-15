@@ -176,7 +176,7 @@ func TestApprovalsMatchTheOldCLI(t *testing.T) {
 			t.Fatalf("%s: %v", args, err)
 		}
 		want := strings.ReplaceAll(golden(t, name), oldSource, newSource)
-		want = strings.ReplaceAll(want, "cerberus approvals approve "+pending, "approve it on the console: /approvals/"+pending)
+		want = strings.ReplaceAll(want, "cerberus approvals approve "+pending, "approve it on the console: /approvals?id="+pending)
 		if out != want {
 			t.Errorf("%s:\n got:\n%s\nwant (%s, source and decide line as this build says them):\n%s", args, out, name, want)
 		}
@@ -188,7 +188,7 @@ func TestApprovalsMatchTheOldCLI(t *testing.T) {
 	// No CLI decides one (decision 0.1): approve and deny name the console page and fail.
 	for _, verb := range []string{"approve", "deny"} {
 		out, _, err := runCLI(t, cmds(), "", "approvals", verb, pending, "--reason", "r")
-		if err == nil || err.Error() != verb+" it on the console: /approvals/"+pending || out != "" {
+		if err == nil || err.Error() != verb+" it on the console: /approvals?id="+pending || out != "" {
 			t.Fatalf("approvals %s: %q %v", verb, out, err)
 		}
 		if _, _, err = runCLI(t, cmds(), "", "approvals", verb, denied); err == nil || !strings.Contains(err.Error(), "is denied, not pending") {

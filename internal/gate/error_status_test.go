@@ -45,7 +45,7 @@ func TestHTTPErrorCarriesTheCodeAndTheApproval(t *testing.T) {
 	if !ok || status != http.StatusConflict || code != CodeApprovalPending || msg != err.Error() {
 		t.Fatalf("%d %s %q %v", status, code, msg, ok)
 	}
-	if details.Approval == nil || details.Approval.ID != a.ID || details.Approval.ApproveWith != "approve it on the console: /approvals/"+a.ID ||
+	if details.Approval == nil || details.Approval.ID != a.ID || details.Approval.ApproveWith != "approve it on the console: /approvals?id="+a.ID ||
 		!details.Approval.ExpiresAt.Equal(a.ExpiresAt) || details.Connector != "local" || details.Operation != "remove" || details.Detail == "" {
 		t.Fatalf("details %+v", details)
 	}
