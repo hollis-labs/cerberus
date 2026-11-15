@@ -187,3 +187,123 @@ func RunGate(t *testing.T, run func(t *testing.T, ctx context.Context, c Case) A
 		}
 	}
 }
+
+// The admin lane (slice 7) runs the same routing for each of its writes. Its targets are not
+// all production: a plugin and a connector's credentials carry no labels, so the baseline does
+// not enforce an agent's change to them, and an agent's call runs as a person's does (shadow);
+// the ssh host and the issuing operation's target are production, so an agent's call there
+// needs the owner's approval, as for a resource verb.
+
+// AdminWrite is one admin-lane write: its name, the target id a freeze names to cover it, and
+// whether that target is production.
+type AdminWrite struct {
+	Name   string
+	Target string
+	Prod   bool
+}
+
+// The admin writes the table covers.
+const (
+	ConnectorExecuteSSH = "connector-execute-ssh-prod"
+	PluginLoad          = "plugin-load"
+	PluginUnload        = "plugin-unload"
+	ProviderSave        = "console-provider-save"
+	PluginIssuingOp     = "plugin-issuing-op"
+)
+
+// AdminWrites are the admin lane's writes, with the target ids an admin lane under test
+// resolves them to: the ssh resource "box" (production), the plugin "echo", and the issuing
+// operation's target "db" (production).
+func AdminWrites() []AdminWrite {
+	return []AdminWrite{
+		{Name: ConnectorExecuteSSH, Target: "box", Prod: true},
+		{Name: PluginLoad, Target: "echo"},
+		{Name: PluginUnload, Target: "echo"},
+		{Name: ProviderSave, Target: "echo"},
+		{Name: PluginIssuingOp, Target: "db", Prod: true},
+	}
+}
+
+// AdminCase is one routing decision on one admin write.
+type AdminCase struct {
+	Name  string
+	Kind  string
+	Write AdminWrite
+	// ApprovalID, Plan and ConfirmedPlanHash are the call's gated-write form.
+	ApprovalID        string
+	Plan              bool
+	ConfirmedPlanHash string
+	Brakes            brake.State
+}
+
+// AdminCases is the table for every admin write.
+func AdminCases() []AdminCase {
+	lockdown := brake.State{Lockdown: &brake.Lockdown{ID: "lk-1", EngagedAt: time.Unix(0, 0)}}
+	var out []AdminCase
+	for _, w := range AdminWrites() {
+		covers := brake.State{Freezes: []brake.Freeze{{ID: "fz-" + w.Target, Match: policy.TargetMatch{ID: w.Target}, EngagedAt: time.Unix(0, 0)}}}
+		elsewhere := brake.State{Freezes: []brake.Freeze{{ID: "fz-api", Match: policy.TargetMatch{ID: "api"}, EngagedAt: time.Unix(0, 0)}}}
+		for _, c := range []AdminCase{
+			{Kind: Plain},
+			{Kind: ApprovalID, ApprovalID: "ap-1"},
+			{Kind: PlanOnly, Plan: true},
+			{Kind: ConfirmedPlan, ConfirmedPlanHash: "sha256:abc"},
+			{Kind: Lockdown, Brakes: lockdown},
+			{Kind: FreezeCovers, Brakes: covers},
+			{Kind: FreezeElsewhere, Brakes: elsewhere},
+		} {
+			c.Write = w
+			c.Name = w.Name + "/" + c.Kind
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// AdminGateWant is the old build's answer to c from who: GateWant's routing, enforced for an
+// agent only where the write's target is production.
+func AdminGateWant(c AdminCase, who Caller) Want {
+	as := who
+	as.Agent = who.Agent && c.Write.Prod
+	return GateWant(Case{Kind: c.Kind}, as)
+}
+
+// AdminAnswer is what the admin lane answered a case: it ran, it answered with a plan (its
+// hash), or it refused.
+type AdminAnswer struct {
+	Ran      bool
+	PlanHash string
+	Err      error
+}
+
+// RunAdminGate runs the admin table as each caller through run, which builds a gate-backed
+// admin lane under the case's brakes and makes the write with ctx, and checks every answer.
+func RunAdminGate(t *testing.T, run func(t *testing.T, ctx context.Context, c AdminCase) AdminAnswer) {
+	t.Helper()
+	for _, who := range Callers() {
+		for _, c := range AdminCases() {
+			t.Run(who.Name+"/"+c.Name, func(t *testing.T) {
+				want := AdminGateWant(c, who)
+				got := run(t, who.Context(context.Background()), c)
+				if got.Err == nil {
+					switch {
+					case want.Plan && got.PlanHash == "":
+						t.Fatalf("want the plan, got %+v", got)
+					case want.Ran && (!got.Ran || got.PlanHash != ""):
+						t.Fatalf("want a run, got %+v", got)
+					case !want.Ran && !want.Plan:
+						t.Fatalf("passed the gate (%+v), want %d %s", got, want.Status, want.Code)
+					}
+					return
+				}
+				status, code, _, details, ok := gate.HTTPError(got.Err)
+				if !ok || status != want.Status || code != want.Code {
+					t.Fatalf("err = %v (%d %s), want %d %s", got.Err, status, code, want.Status, want.Code)
+				}
+				if code == gate.CodeApprovalPending && (details.Approval == nil || details.Approval.ID == "") {
+					t.Fatalf("approval_pending without the approval it is pending on: %+v", details)
+				}
+			})
+		}
+	}
+}
