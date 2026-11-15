@@ -9,6 +9,7 @@ import (
 
 	"github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/budget"
 
+	"github.com/hollis-labs/cerberus/internal/api"
 	"github.com/hollis-labs/cerberus/internal/approval"
 	"github.com/hollis-labs/cerberus/internal/gate"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -57,12 +58,8 @@ func indented(v any) (any, error) {
 	return string(data), nil
 }
 
-// lifecycleResult is the part of an OpResult a mutation tool answers with.
-type lifecycleResult struct {
-	Success bool   `json:"success"`
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
-}
+// lifecycleResult is what a mutation tool answers with: main's OpResult (tools_result.go).
+type lifecycleResult = api.OpResult
 
 // toolResult answers a mutation: indented JSON on success, an isError result whose body is the
 // result on failure.
