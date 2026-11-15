@@ -1,6 +1,6 @@
 # Substrate port plan: Cerberus
 
-Status: **plan, revision 3, not started.** It has been amended from two reviews of #73 and from the four inventories
+Status: **approved (revision 3, #73); revision 4 folds in the framework sign-off notes and the client tasks.** It has been amended from two reviews of #73 and from the four inventories
 under `docs/substrate-port/`. No port code merges before the program director approves this plan. Torque:
 CW-20261112-0099 (wave 3). Follows `hollis-labs/substrate` `docs/adopting-substrate.md` (section 11 is the cutover)
 and the shape of a finished port (`hollis-labs/station` `docs/cutover-plan.md`).
@@ -33,60 +33,39 @@ has four parts:
 | Identity | Cerberus's own (`identity` module), with the owner created offline. Machine callers hold API keys with scopes. |
 | Routes | Every `/api/` route has a scope (section 4.3). The outpost device protocol authenticates its own callers and is an open mount that says so in code. |
 | Background work | Resource monitor, host monitor and janitor, approval-expiry sweeper, overview snapshot recorder, plugin supervision, MCP plugin tool sync, event export (off live). App code owns them; the stop order is in section 4.4. The scheduling core is wired but has never been started; it is ported and stays off until it is turned on separately. |
-| UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in is app-owned until identity has a UI kit. |
-| Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. `libs/mesh/eventbus` is being added to the BOM. `libs/security/webauthn` is pinned only if decision 0.1 keeps passkey approvals. |
+| UI | app-shell plus BOM-pinned kits; the app's nav goes in `ui/app.json`. Sign-in, sign-out, session-expired, keys and sessions use **kit-identity** (in the BOM). The approval page is app UI. |
+| Pins, Substrate gaps, identity questions | Through @substrate-manager. This cell does not edit `bom/bom.yaml` or Substrate. `libs/mesh/eventbus` is pinned (substrate 035e0d33). `libs/security/webauthn` is not needed (decision 0.1). |
 | Where the port lives | **This repository, long-lived branch `substrate-port`** (from `main` at `493a9f0`). Port PRs target it. Merges go through @substrate-manager. `main` stays the live app's source until phase F (section 10). |
 | Live-app change needed | **Yes, one: the standby mode on `main` (section 7.1).** The director approves it with this plan. |
-| Owner decision | **Keep passkey approvals (0.1)?** Recommended: keep. |
+| Owner decision | **0.1: passkey approvals are dropped for the port** (decided by Chrispian, 2026-11-14). |
 | Changes in other apps | **Two socket clients must move to the new API before the handoff** (section 6). Their owners and scheduling are the director's. |
 
-### 0.1 Decision for the owner: keep passkey approvals?
+### 0.1 Decision: passkey approvals are dropped for the port
 
-The adoption guide (section 5, item 8) says strict-mode proofs, passkeys and signed approvals included, are not part
-of a port: they are dropped and recorded as a follow-up. Tachyon dropped its WebAuthn route under that rule. Keeping
-them in Cerberus is an exception, which the owner grants through the director. @substrate-manager pins
-`libs/security/webauthn` the same day if it is granted.
+**Decided by Chrispian, 2026-11-14, through @archie: take the simplest path. Adoption is the priority, and passkeys
+can be improved per app afterwards.** This follows the adoption guide (section 5, item 8: strict-mode proofs are
+not part of a port), as Tachyon did.
 
-- **Who uses it today.** The owner, alone, approves gated admin-lane operations (destructive or high-effect
-  connector writes) out of band with a passkey. The approvals log has a few dozen entries since September (the
-  live-facts item has the count). Agents request approvals; they cannot give them.
-- **What it protects against.** Agents run as the owner's OS user on the same host. A passkey assertion needs user
-  presence on an authenticator, which no process of that user can produce. That is why `cerberus.approve` is
-  unreachable from any key or local-trust MCP process.
-- **If dropped**, the owner approves from a signed-in identity session in the console, as in Tangent and Tachyon:
-  - approval stays human and bound to the plan hash;
-  - the console session's password is the only factor, and a same-user agent that ever learns it, or holds a
-    browser session, could approve;
-  - the passkey files and the approvals chain are still migrated and kept (data is not dropped), but no longer
-    verified;
-  - slices 6 and 11c get smaller; the presence and cool-down code is not ported.
-- **The cost of keeping it:**
-  - one BOM pin;
-  - `internal/presence` ported as app code (registry, counters, cool-down, the ceremony) in slices 6 and 11c;
-  - the allowed-origins config and the RP-ID rehearsal assertion;
-  - Cerberus carries a strict-mode path alone until Substrate has one, and that is recorded as a Substrate
-    follow-up.
-- **Recommendation: keep.** Cerberus is the one app whose approvals gate writes to live infrastructure, and the
-  same-user-agent threat is exactly what the passkey closes.
-
-Until it is decided, the skeleton builds without `internal/presence`, and slice 11c waits.
+- **Approvals stay human and bound to the plan hash.** The owner approves a gated operation from a signed-in
+  identity session in the console (kit-identity sign-in). `cerberus.approve` is held only by the owner's console
+  session; no API key and no local-trust MCP process can hold it.
+- **What is weaker than today:** the console password is the only factor. A same-user agent that learned it, or
+  that held a browser session, could approve. A per-app passkey (or Substrate strict-mode) path is a follow-up, filed
+  with @substrate-manager.
+- **Data:** the passkey registry (`approvals/passkeys/`) is **kept in place, not migrated, and unused**. The approvals
+  chain (`approvals/events.jsonl`) is still migrated, because it is approval history.
+- **Code:** `internal/presence`, the WebAuthn ceremony and the cool-down are not ported. No webauthn BOM pin.
 
 ## 1. What changes for the owner
 
 - **One password, typed once**, at the offline `cerberus identity setup` in the window.
 - **The CLI uses an API key.** It calls the loopback HTTP API with a key read from a 0600 file instead of the unix
   socket. The verbs, flags and output that skills and agents use stay the same.
-- **Approvals: passkey-bound if decision 0.1 keeps them** (the recommendation). The passkey registry is then carried
-  byte for byte with the audit chain that records its hash, so no 24-hour cool-down starts. Either way, no API key and
-  no local-trust MCP process can hold `cerberus.approve`.
+- **Approvals come from the owner's console session** (decision 0.1): no passkey. No API key and no local-trust MCP
+  process can hold `cerberus.approve`.
 - **The console moves to `127.0.0.1:4786`.** The old console's default is 4783, and the old build's `mcp-http`
-  default is 4785, so both are avoided. **A passkey is bound to the hostname of the origin it was enrolled on (its RP
-  ID)**. The enrolled passkey is bound to the console's **public** hostname, so an approval only verifies through
-  that origin. The hostname must not change: the proxy keeps serving the console under the same public hostname and
-  is repointed to 4786 in the window, **before** the approval check (9.5). `cerberus.passkeys.allowed_origins` is
-  migrated from `web.public_url`, plus `http://localhost:4786` for keys enrolled later. Today the origins are derived
-  from the old login-key file. The rehearsal compares each stored credential's `rpIdHash` with
-  `sha256(host of an allowed origin)` and fails if any key matches none.
+  default is 4785, so both are avoided. The console keeps its public hostname: the proxy is repointed to 4786 in the
+  window, and the override carries that name in the allowed hosts with `identity.trusted_proxy: true`.
 - **Restarts the owner will see:**
   - `os_service` units (Cerberus-written and native) are never restarted.
   - Plugin processes and running dev sessions live in the daemon's cgroup. They restart at phase B, at the handoff
@@ -113,7 +92,7 @@ internal/supervise/      monitor, mode (observe|supervise), pause state, self id
 internal/connector/      local (systemd, launchd, artifact, dev session), ssh, docker
 internal/registry/       descriptors (cerberus-project/v1, unchanged), registry index
 internal/admin/          external connector service: dry-run, ack, redaction, generated tools
-internal/approval/, presence/, audit/, policy/, egress/, redact/, brake/
+internal/approval/, audit/, policy/, egress/, redact/, brake/
 internal/hosts/, scheduling/, outpost/, eventexport/, credentialbroker/, pluginhost/
 internal/api/            HTTP handlers; every route has a scope; the legacy-route set (section 6)
 internal/mcp/            typed tools; names unchanged
@@ -126,7 +105,6 @@ web/, ui/app.json        the console on app-shell
 - **The data dir** `~/.local/share/cerberus-substrate/` (0700) holds what new owns and writes:
   - SQLite (host monitoring, pause state, applied digests, credential-issuance receipts);
   - the hash-chained logs (audit, approvals, host history), kept as JSONL in their current format;
-  - the passkey registry files;
   - state snapshots;
   - the signing key.
 - **The adopted root** `~/.cerberus` (config key `cerberus.adopt_root`) holds what new reads and writes **in place**,
@@ -136,7 +114,9 @@ web/, ui/app.json        the console on app-shell
   - `outpost-tokens/` (named by absolute path in `hosts.yaml`);
   - `events-tokens/` (written by the renewal job);
   - `secrets/` and `credential-issuance/secrets/issued/`;
-  - `transfers/`.
+  - `transfers/`;
+  - `registry.yaml`, the descriptor index. tether sysop reads it directly (`inventory-clients.md`), so it stays in the same
+    path and format.
 
   New never reads `~/.cerberus/paused*`, `standby`, `standby.d/`, `pids/`, `locks/`, `daemon.lock` or the socket (a test asserts
   this).
@@ -156,17 +136,19 @@ Config: the operator override is `~/.config/cerberus/substrate.yaml` (`SUBSTRATE
 | web login keys and sessions | `identity` + `auth` (`enforce`) |
 | `internal/mcp` transport | `mcp` module: HTTP `/mcp`; stdio with `LocalTrust` and narrowed `LocalScopes` |
 | CLI root | `cli` module root; the app adds its verbs |
-| `daemon.lock`, pid file, stray sweep, `procident` | unit plus the database open lock; supervision identifies itself by unit (4.2) |
+| `daemon.lock`, pid file, stray sweep, `procident` | unit plus the database open lock (`<db>.open.lock`, substrate #18); supervision identifies itself by unit (4.2). The lock guards one database file only; "one writer across old and new" rests on the standby mode (7.1), not on it. |
 
 `pluginhost`, `scheduler`, `secrets`, `policy`, `events`: each is evaluated in its slice. The rule: **a published
 contract does not change to fit a module.** Today the plugin contract and the keyring service and account names
 are published contracts. If a module cannot carry one, the app keeps its own code and the gap is filed in project
-Substrate through @substrate-manager.
+Substrate through @substrate-manager. `modules/pluginhost` is changing for the Outpost port (CW-20261114-0100, -0101,
+-0102: config-driven inventory, optional plugins with per-plugin health, a 503 gate, a health monitor). Slice 7 reads
+those first and tells @substrate-manager where Cerberus's plugin contract conflicts, so the framework changes once.
 
 ### 4.2 Stays app code (moved, tests ported)
 
 The supervision lane, the local connector, the unit renderer, the ssh and docker connectors, the admin lane,
-registry, approvals and presence, audit, policy, egress, brakes, hosts and probes, scheduling core, outpost
+registry, approvals (owner-session approver), audit, policy, egress, brakes, hosts and probes, scheduling core, outpost
 controller, event export, credential broker, plugin host semantics.
 
 Hard requirements carried into the slices:
@@ -189,12 +171,17 @@ Hard requirements carried into the slices:
 | `cerberus.read` | reads |
 | `cerberus.operate` | start, stop, reload, apply, deploy |
 | `cerberus.admin` | connector writes, plugins, hosts, policy |
-| `cerberus.approve` | approving a gated plan: a console session plus a passkey ceremony only |
+| `cerberus.approve` | approving a gated plan: the owner's console identity session only |
 | `cerberus.outpost` | the outpost mount |
 | `public` | `/healthz` |
 
 MCP stdio runs with `LocalTrust: true` and `LocalScopes: [cerberus.read, cerberus.operate, cerberus.admin]`, **never
 `cerberus.approve`**. Tests assert that every route has a scope and that no key or local principal reaches approve.
+
+This means every process of the owner's OS user holds `cerberus.admin` over stdio. That is **parity with today's
+socket**, which trusts any process of that user. The safety property is unchanged: admin-lane writes that policy
+gates still stop at the approval gate. A test asserts that a local-trust principal with `cerberus.admin` cannot
+complete a gated write without an approval.
 
 ### 4.4 Stop order
 
@@ -228,14 +215,14 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 | `audit/*.jsonl` + `audit/.digest_key` (secret, 0600) | **copy** byte for byte into the data dir; new continues the chain from its head in the same format | `audit verify` on the copy before and after; sha256 of the key |
 | keyring `cerberus-audit-anchor` (account = audit dir path) | **transform**: write the same head under the new dir's path; the old entry stays | `audit verify` against both anchors |
 | `approvals/events.jsonl` | **copy** byte for byte; new continues the chain | chain verify; line count |
-| `approvals/passkeys/keys.json`, `key-counters.json` | **copy** byte for byte (no re-serialisation; the registry hash recorded in audit must match, or a 24 h cool-down starts) | sha256 equal; one approval on the rehearsal copy verifies with no cool-down |
+| `approvals/passkeys/keys.json`, `key-counters.json` | **in place, not migrated, unused** (decision 0.1); archived with the old tree at F | listed in the report |
 | `hosts.history.jsonl` (+ rotations), `state/hosts.json`, `state/overview_snapshots.json` | **copy** | sha256 |
 | `runtime/applied.json` | **transform** into SQLite, digest for digest | per-resource digest equal; observe mode reports no resource as changed |
 | `paused`, `paused.<id>` | **transform** into pause state (operator intent) | set equal |
 | `credential-issuance/<id>/*.json` | **transform** (receipts) | counts |
 | `policy/` (`applied.yaml`, `applied.sha256`, `posture.yaml`, `enforcement.yaml`, `providers/*`) | **copy** into the config dir; `applied.sha256` is checked against `applied.yaml` before and after | sha256; `policy show` equal on both |
 | `config.yaml`, `events.yaml`, `connector-config.yaml` | **transform** to config keys (table in conversion-notes; unknown key = error). Event export stays off. | `cerberus config` reviewed against the old values |
-| `registry.yaml` | **copy**; the descriptors it lists stay in place (they belong to their apps) | entry and resource counts equal (observe mode) |
+| `registry.yaml` | **in place** (adopted root, same v1 format); the descriptors it lists stay in place too (they belong to their apps). Excluded from the D3 manifest: rollback keeps any registration new made, because old reads the same format. Register from one build at a time during the transition, since concurrent registers can lose one. | entry and resource counts equal (observe mode); a compat test that old's `LoadIndex` reads a file new wrote |
 | `hosts.yaml` | **copy**; `token_file` paths keep pointing into the adopted root | `hosts list` equal |
 | `connector-secrets.yaml` (secret refs) | **copy** at 0600 | sha256 |
 | keyring `cerberus` service: connector and plugin credentials, `cerberus-oauth/issuer-ed25519` | **in place**: same service and account names (a contract) | one credentialed health op succeeds |
@@ -250,10 +237,17 @@ Treatments, using the vocabulary of `inventory-data.md`. Every row of that inven
 
 **The D3 manifest** records:
 - for each old file that `export-legacy` could touch, its sha256;
-- for `main.db`, **logical state, not bytes**: per table, the row count, `max(rowid)` and a digest of the ordered
+- for `main.db`, **logical state, not bytes**: per table, the row count, the maximum of its primary-key time column
+  (`ts` or `bucket_ts`; three host tables are `WITHOUT ROWID`, so there is no `rowid`) and a digest of the ordered
   `.dump` of the five host tables. A WAL checkpoint or a restart of old changes the bytes without a logical write.
 
-The standby chain and session list are excluded from the manifest.
+Excluded from the manifest: `standby.d/` (the standby chain and the session list), `registry.yaml` (above), and the
+`cerberus-substrate` unit file, which old's allowed verbs may rewrite.
+
+`migrate-from` also reports:
+- pause targets that name no resource (today two are test debris; the owner decides, and they are not carried
+  silently);
+- a `config.yaml` that still lists `resources:` or `projects:` (it must be empty, as it is live).
 
 **Rehearsal (cell, scratch directory, never the live tree).**
 1. Take a `.backup` of `main.db` and a `cp -a` of `~/.cerberus` (old running normally; the rehearsal does not need
@@ -263,7 +257,7 @@ The standby chain and session list are excluded from the manifest.
 3. Run `migrate-from` three times. Record counts, digests, both chain checks and timing.
 4. Start new in `observe` mode on the copy with a fake supervisor backend. It must list the same resources and pause
    set as the copy, and no "changed" resource.
-5. Verify one approval with a copied passkey and no cool-down.
+5. Approve one gated plan from the owner's identity session on the copy; refused for a key and for local trust.
 6. Run `export-legacy` back onto a second copy, then run the old binary's `audit verify` there.
 7. Run old with the slice 0 build on a third copy: standby entry, the allowed verbs, exit. The main chain, its anchor
    and the manifest-logical state of `main.db` must be unchanged.
@@ -277,6 +271,53 @@ The standby chain and session list are excluded from the manifest.
   `main.db` and the old files;
 - leaves the new data dir intact.
 
+Class B (section 5.1) stays on SQLite through D, E and F; it moves to Postgres only after acceptance. So, until then,
+`export-legacy` reads B rows from new's SQLite file, like A. A rollback run after B has moved (the "after F" row in
+section 8) reads B through the same named database handle that the running instance uses.
+If Postgres is down then, it completes the A and file steps, records the B step as pending and refuses to report
+success, and `export-legacy --since <handoff> --only telemetry` finishes it once Postgres is back. Old runs
+without those rows meanwhile, because they are history and supervision does not read them. No B row is dropped.
+
+### 5.1 Database dialects and table classes (Postgres direction, 2026-11-14)
+
+The port is **dialect-ready, and the cutover stays on SQLite.** The Postgres switch for any table class is a
+separate, reversible step taken after new is accepted (end of E). It is not part of phases B to F.
+
+**Dialect-ready means:**
+- every store access goes through `database.From(app)`;
+- one goose migration set per dialect (`migrations/sqlite`, `migrations/postgres`), with SQL through
+  `Dialect().Rebind`;
+- CI runs the store tests on SQLite and on Postgres (`SUBSTRATE_TEST_POSTGRES_DSN`, the cell's scratch database
+  when it exists). Slice 2 carries this, and every later slice that adds a table keeps both green.
+
+**Table classes.**
+
+| Class | Tables / stores | Where | Why |
+|---|---|---|---|
+| **A**: local SQLite, always boots | pause state; applied digests; credential-issuance receipts; identity (owner, keys, sessions); standby state. Files: config, policy, `registry.yaml` and descriptors, `hosts.yaml` | SQLite in the data dir, always | Supervision needs these to run, and Cerberus supervises the shared Postgres itself (a docker resource). Cerberus must boot and act when Postgres is down. |
+| **B**: events, logs, telemetry (Postgres first) | `host_samples`, `host_sample_rollups`, `host_rollup_state`, `host_events`, `host_status`; the scheduler's run logs (`cerberus_schedule_logs`, `_outcomes`, `_episodes`, `_observations`, `_outbox`; empty) | SQLite at cutover; Postgres after acceptance | Telemetry and history; losing them for a while does not stop supervision. `host_rollup_state` moves with the rollups so watermarks stay consistent. |
+| **C**: domain data (Postgres later) | schedule definitions and runs (`cerberus_schedule_desired`, `_registrations`, `_creates`, `_generations`, `_manual`, `_receipts`, `gosched_*`; empty, scheduler off) | SQLite until the scheduler is turned on and a later step moves it | Domain state with no data today. |
+| (files) | audit and approvals chains, host history, overview snapshots | JSONL files in the data dir, as today | Hash-chained formats are a contract (section 4.2). Moving them to a database is a separate decision. |
+
+**When Postgres is down**, with B or C on Postgres:
+- new still boots on its A store;
+- `/healthz` reports `database unavailable` for the affected class;
+- the console shows a banner;
+- C endpoints answer 503 (`database_unavailable`) and their writes are refused;
+- B producers (host probes) batch in memory with a bound, drop the oldest when full, and expose the drop counter in
+  health, so the gap is visible.
+
+There is **no durable write spool**. **A writes are never refused**: supervision, pause, start, stop, approvals and
+credential issuance keep working, because Cerberus is what restarts Postgres. No control-plane path (supervision,
+approvals, credential issuance, standby) ever waits on a Postgres call. A data is never kept in the shared cluster that
+Cerberus supervises. (Confirmed by the Postgres coordinator, 2026-11-14.)
+
+**Two stores.** A stays on the default `database` store. B uses a named store, `database.Named(app, "data")`, with
+`required: false`, `schema_mode: verify` (migrations run from a deploy step, not by the app), the `database.Gate`
+middleware for the 503, and `database.Statuses` for the banner. This is hollis-labs/substrate PR #44
+(CW-20261114-0151), not yet merged or pinned. Until it lands, the B store code sits behind a small interface, served
+by the default store, so the later switch is one wiring change. The cutover itself is all-SQLite.
+
 ## 6. Clients
 
 From `inventory-clients.md` (by role). What changes for each:
@@ -285,9 +326,9 @@ From `inventory-clients.md` (by role). What changes for each:
 |---|---|---|
 | Agents and skills (`deploy`, `service-start`, `service-stop`, ad hoc) | `cerberus` CLI on `PATH` | The verbs, flags and output they use stay the same; the CLI reads its key file. At D8 the CLI on `PATH` becomes new. |
 | Long-lived `cerberus mcp` stdio children and the Tether gateway's cerberus entries | stdio MCP, `cerberus_*` tool names | Tool names and shapes stay the same. Children started before D8 dial old's socket; in standby, old refuses writes with an error naming the new CLI, and marks reads `standby: true`. **D9 restarts the gateway's entries**; harnesses respawn the rest. The MCP server id stays `cerberus`: renaming it disables the gateway's authority gate for it. |
-| **tachyon** (machine sync, cerbcontrol) | old socket API through its Cerberus address setting: `/health`, `/resources`, `/hosts`, verb POSTs | **Named change, owned by tachyon's cell**: set its Cerberus address to new's HTTP URL and its token file to a key from D6. New serves the **legacy-route set** (these paths and shapes, under scope) on its HTTP API, so the change is configuration only. It must be ready before D and is applied at D9. |
-| **tether sysop** | old socket at a hard-coded path, `POST /resources/{id}/{action}` | **Named change, owned by Tether's cell**: a code change to take a configurable address and token, pointed at new's HTTP API (legacy-route set). It must be merged and deployable before D and is applied at D9. |
-| Browser | console | New port 4786; sign-in through identity; passkeys carried; proxy (if any) changed in D. |
+| **tachyon** (machine sync, cerbcontrol) | old socket API through its Cerberus address setting: `/health`, `/resources`, `/hosts`, verb POSTs | **Named change, owned by tachyon's team (CW-20261114-0144)**: set its Cerberus address to new's HTTP URL and its token file to a key from D6. New serves the **legacy-route set** (these paths and shapes, under scope) on its HTTP API, so the change is configuration only. It must be ready before D and is applied at D9. |
+| **tether sysop** | old socket at a hard-coded path, `POST /resources/{id}/{action}` | **Named change, owned by @photon-tether (CW-20261114-0145)**: a code change to take a configurable address and token, pointed at new's HTTP API (legacy-route set). It must be merged and deployable before D and is applied at D9. |
+| Browser | console | New port 4786; sign-in through identity (kit-identity); approvals from the owner's session; the proxy entry is repointed in D9 and the public hostname is kept. |
 | Outposts | outpost protocol, tokens in the adopted root | Unchanged; the open mount verifies its own tokens. |
 | Hadron (`cerberus_op`) and other API or MCP machine callers in the inventory | MCP / API | Each gets an API key with its scopes in D6. |
 | `cerberus-plugins` and third-party plugins | `pkg/plugin`, `plugin.yaml`, capabilities | Unchanged (contract). |
@@ -338,13 +379,20 @@ On entry:
   entry while it exists leaves it unchanged, so a restart of old in standby cannot shrink the list.
 
 While in standby:
-- **The socket** refuses every request except reads and `resource status|start|stop|reload` on the one resource named
-  in the flag file. The refusal is guidance naming the new CLI. Reads carry `standby: true`.
+- **The socket** refuses every request except reads and `resource status|apply|stop|reload` on the one resource
+  named in the flag file. The old CLI starts a stopped resource with `apply --ack` and stops one with `stop --ack`; both verbs
+  refuse without `--ack`. The refusal is guidance naming the
+  new CLI. Reads carry `standby: true`, and reads that audit today (hosts, components, portfolio health) write to the
+  standby chain, never the main one.
 - **The allowed verbs on the flagged resource** do not write `paused.<id>` or `runtime/applied.json`. They need no
   approval: policy is asserted to gate nothing on that resource, with a test.
-- **Audit records for those verbs** go to a **separate chain**, `~/.cerberus/standby.d/audit-<date>.jsonl`, with its
-  own genesis and its own digest key, not the main chain. Nothing else under `~/.cerberus` or in `main.db` is
+- **Audit records for those verbs** go to a **separate chain**, `~/.cerberus/standby.d/audit/YYYY-MM.jsonl`, with
+  its own genesis, not the main chain. Argument digests in it are keyed with the **main** chain's digest key
+  (`audit/.digest_key`), so the same arguments digest the same in both chains. Verify them against that key, never a
+  separate standby key. Nothing else under `~/.cerberus` or in `main.db` is
   written: the main audit chain, its anchor and `approvals/events.jsonl` stay byte-identical.
+- **Approvals after a rollback.** Approvals that new decided from the owner's session are not honoured by old (old
+  expects its passkey proof). An operation approved under new must be re-approved under old. This fails closed.
 
 Removing the flag returns old to normal: loops and plugins start again, and the sessions in `sessions.json` are
 started again.
@@ -397,6 +445,8 @@ Soak for at least 24 h. Checks:
 - no plugin process with new as its parent.
 
 **D. Handoff window (director with owner; a write pause of minutes).**
+From D2 to D9, nobody runs the `cerberus` CLI against old except the `$LEGACY` verbs this section lists.
+
 1. Announce a freeze on Cerberus mutations. Re-check:
    - the schedule, project and resource tables are still empty;
    - which of `brakes/`, `oauth/` and `events/` exist.
@@ -409,21 +459,24 @@ Soak for at least 24 h. Checks:
    - `cp -a ~/.cerberus <dir>/cerberus-home`, excluding the adopted root's directories and `standby.d/`.
    - Write the D3 manifest (section 5).
    - All of it goes into a private 0700 directory.
-4. `$LEGACY resource stop cerberus-substrate` (recorded in the standby chain only). Move new's observe-mode data dir
+4. `$LEGACY resource stop cerberus-substrate --ack` (recorded in the standby chain only). Move new's observe-mode data dir
    aside.
 5. `$NEW migrate-from --old-home <dir>/cerberus-home --old-db <dir>/main.db`. Read the report.
-6. Offline identity:
+6. Offline identity (the CLI uses identity's Go API; list, revoke and owner-exists come from CW-20261114-0131 /
+   substrate #34; the app never reads identity's tables):
    - The owner runs `$NEW identity setup --username <owner>` at a terminal.
    - Then create keys with `--out` (0600): `cerberus-cli` (read, operate, admin), one for tachyon, one for tether
      sysop, `hadron`, and one per other machine caller in section 6.
 7. Hand over.
-   - Set `mode: supervise` in the override file, then `$LEGACY resource start cerberus-substrate` and
+   - Set `mode: supervise` in the override file, then `$LEGACY resource apply cerberus-substrate --ack` (the old CLI has no `start`) and
      `$LEGACY resource status cerberus-substrate`.
    - New loads the plugins and starts the host monitor.
-   - `$NEW resource start <id>` for exactly the ids in `~/.cerberus/standby.d/sessions.json`.
+   - `$NEW resource apply <id> --ack` for exactly the ids in `~/.cerberus/standby.d/sessions.json`.
 8. Point the CLI on `PATH` at `$NEW` (atomic rename). Old is unaffected: it runs from `$LEGACY`.
-9. Apply the tachyon and tether sysop changes, the proxy entry (if any) and the backup job's path list. Restart the
-   Tether gateway's cerberus entries. Run the section 9 checks. Then lift the freeze.
+9. Apply the tachyon (CW-20261114-0144) and tether sysop (CW-20261114-0145) changes, the proxy entry and the backup
+   job's path list. The override already carries the public name in the allowed hosts and `identity.trusted_proxy:
+   true`. The owner reloads the Tether hub, because restarting the gateway's cerberus entries can leave a hub-facing
+   origin marked failed with no retry. Run the section 9 checks. Then lift the freeze.
 
 Old stays running in standby. It owns the `cerberus-substrate` unit and can stop, start or roll back new. Its only
 writes go to the standby chain.
@@ -454,9 +507,9 @@ writes go to the standby chain.
 | From | Rollback |
 |---|---|
 | B | Remove old's drop-ins and restart: back on the untouched installed binary. |
-| C | `$LEGACY resource stop cerberus-substrate`, remove the descriptor; move new's data dir aside. |
+| C | `$LEGACY resource stop cerberus-substrate --ack`, remove the descriptor; move new's data dir aside. |
 | D, before step 7 | `rm ~/.cerberus/standby` (old restarts its loops, plugins and the listed sessions); start the old console. Old's state is as at D2. |
-| D step 7 to the end of E | 1. `$LEGACY resource stop cerberus-substrate` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
+| D step 7 to the end of E | 1. `$LEGACY resource stop cerberus-substrate --ack` (new stops its plugins and dev sessions; the standby chain records the stop). 2. `$NEW export-legacy --since <handoff>`, which fails closed on any D3 manifest mismatch. 3. Repoint the CLI on `PATH` to the legacy binary. 4. Revert the section 6 client changes (tachyon, tether sysop, proxy). 5. `rm ~/.cerberus/standby`: old restarts its loops and plugins and starts exactly the sessions in `sessions.json`. 6. Start the old console. 7. `$LEGACY audit verify`. No `os_service` workload restarts. |
 | after F | Re-enable old's units (files kept), stop new, then the same steps from step 2 above. Re-home is undone by removing the drop-in. |
 
 Old's files, `$LEGACY` and the rollback copies are kept until acceptance plus 30 days; the owner decides when to
@@ -464,7 +517,9 @@ delete them.
 
 ## 9. Live verification (D9, and again after F)
 
-1. `/healthz` is 200 on 4786. `GET /api/setup` answers `setup_required: false`; `POST /api/setup` answers 403.
+1. `/healthz` is 200 on 4786 **and through the public name**. `GET /api/setup` answers `setup_required: false`;
+   `POST /api/setup` answers 403. Sign-in through the public name sets a session cookie that is `HttpOnly`, `Secure`
+   and `SameSite`; the check uses the public name, never loopback alone.
 2. Refusals:
    - no credential: 401;
    - a key without the scope: 403;
@@ -475,9 +530,10 @@ delete them.
    rewritten, no restart).
 4. One write the owner chooses (pause and resume a non-critical resource). It is recorded in new's audit, and `audit
    verify` passes across the old head into new's records against the new anchor. The old main chain is unchanged.
-5. One approval through the console **at its public hostname** (the proxy already repointed in D9) with the carried
-   passkey: no cool-down.
-6. One MCP tool call through the restarted Tether gateway entry; the approve tool is refused under local trust.
+5. One approval of a gated plan through the console **at its public hostname** from the owner's session; the same
+   approval attempted with an API key is refused.
+6. `tether_gateway_status` shows the hub's origins connected after the reload. One MCP tool call through the
+   restarted gateway entry succeeds; the approve tool is refused under local trust.
 7. tachyon's machine sync and tether sysop's resource action both succeed against new with their keys.
 8. One outpost reports in; one credentialed connector health op succeeds (keyring in place).
 9. Plugins are all parented by new and none by old; the sessions from `sessions.json` run under new.
@@ -502,23 +558,29 @@ delete them.
 | 0 | `main` | Standby mode in old (section 7.1), with tests. |
 | — | `main` | scan-public tree triage (allowlist and real fixes), so the port's CI gate is green. |
 | 1 | `substrate-port` | Skeleton: manifest, wiring, entry point, settings, data dir, startup guard, CI. |
-| 2 | `substrate-port` | Store schema (goose) and registry (v1 descriptors, `registry.yaml` index). |
+| 2 | `substrate-port` | Store schema (goose, one set per dialect, CI on SQLite and Postgres) and registry (v1 descriptors, `registry.yaml` index). |
 | 3 | `substrate-port` | Supervision in observe mode: local connector, renderer with byte-parity fixtures (from an env path), status, self identity. |
 | 4 | `substrate-port` | Identity, scopes, read API, the legacy-route set, CLI over HTTP with a key file; scope-coverage test. |
 | 5 | `substrate-port` | Supervise mode: apply, deploy, start, stop, reload, artifacts, pause state, dev sessions, self-guard. |
-| 6 | `substrate-port` | Audit (same format, anchor), approvals and presence (byte-exact registry), policy, redaction, egress, brakes. |
+| 6 | `substrate-port` | Audit (same format, anchor), approvals with the owner-session approver (no presence/WebAuthn), policy, redaction, egress, brakes. |
 | 7 | `substrate-port` | Admin lane: ssh, docker, external connector service, plugin host (`pkg/plugin` unchanged, adopted roots), secrets (keyring names unchanged), credential broker. |
 | 8 | `substrate-port` | Hosts and probes, janitor, scheduling core (off), outpost mount, event export (off), snapshot recorder. |
 | 9 | `substrate-port` | MCP: HTTP and stdio, tool-name parity test, local scopes without approve. |
 | 10 | `substrate-port` | `migrate-from`, `export-legacy`, verify, the standby-sidecar import, and the rehearsal (section 5, all seven steps). |
-| 11a to c | `substrate-port` | Console on app-shell: (a) contract and scaffold, (b) pages, (c) sign-in and the approval ceremony. |
+| 11a and b | `substrate-port` | Console on app-shell: (a) contract and scaffold, (b) pages including the approval page (owner session). Sign-in is kit-identity; there is no ceremony slice. |
 | 12 | `substrate-port` | Deploy: `cerberus-substrate` descriptor, `fleet-install` descriptor, `cutover-runbook.md`. |
+
+Until slice 6 lands, the logs route (L6, `legacy-routes.md`) is redacted, but it is not gated, approved, audited
+or egress-checked the way old's `read_sensitive` path is. So no client API key is issued to a running new build
+before slice 6 is merged; D6 comes after it in any case. Slice 6's acceptance restores `read_sensitive` on L6 (policy
+gate, approval where policy asks, audit record, egress check), with a parity test against old's behaviour.
 
 Dependencies:
 - the triage and slice 1 before every `substrate-port` merge;
 - 2 before 3;
 - 3 and 4 before 5;
 - 4 before 9 and 11b;
+- slice 6 needs no webauthn pin (decision 0.1);
 - 5 to 9 before 10;
 - 0 and 10 before 12.
 
@@ -528,7 +590,7 @@ Dependencies:
   and 8; gaps go to project Substrate through @substrate-manager.
 - The client changes for tachyon and tether sysop (section 6) need owners and a schedule from the director.
 - The history findings of `scan-public` (old commits) go to the program-wide history pass, through @substrate-manager.
-- The owner of the backup job and of the console proxy (if any) is named in the runbook before D.
+- The owner of the backup job and of the console proxy is named in the runbook before D.
 - `transfers/` (operator payloads) is adopted in place. Whether to move it later is the owner's call.
 
 ## 13. Inventories
