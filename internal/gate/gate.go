@@ -14,8 +14,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"

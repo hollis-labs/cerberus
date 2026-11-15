@@ -207,6 +207,7 @@ func (a *API) table() []Route {
 		Route{http.MethodPost, "/api/brakes/freeze/{id}/lift", ScopeAdmin, a.brakeLiftFreeze},
 		Route{http.MethodPost, "/api/brakes/suspensions/{id}/reset", ScopeAdmin, a.brakeResetSuspension},
 	)
+	rs = append(rs, a.auditRoutes()...)
 	return append(rs, a.adminRoutes()...)
 }
 
