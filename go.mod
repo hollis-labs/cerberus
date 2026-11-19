@@ -13,7 +13,7 @@ require (
 	github.com/hollis-labs/libs/harness/core v0.14.1
 	github.com/hollis-labs/libs/mcp/plugin-mcp v0.3.0
 	github.com/hollis-labs/libs/mesh/eventbus v0.2.0
-	github.com/hollis-labs/libs/security/auth v0.1.0
+	github.com/hollis-labs/libs/security/auth v0.3.1
 	github.com/hollis-labs/libs/security/secrets v0.1.0
 	github.com/hollis-labs/libs/security/webauthn v0.1.0
 	github.com/hollis-labs/libs/ui/ui-go v0.1.0
