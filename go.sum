@@ -50,8 +50,8 @@ github.com/hollis-labs/libs/mesh/core v0.6.0 h1:WQwxbGozmC+elJK96iNw275yNEKT+uC9
 github.com/hollis-labs/libs/mesh/core v0.6.0/go.mod h1:K1a1oeFXakkaJDyKogI/I2j+2lpKklTZgdtzSw45Bss=
 github.com/hollis-labs/libs/mesh/eventbus v0.2.0 h1:9mstpH3GWQWRqnNkgzFiNo2e1/sg20enIs/gHePLcRw=
 github.com/hollis-labs/libs/mesh/eventbus v0.2.0/go.mod h1:KKQBH8hpxgkuoMlowUnqn809z3BDMQqkLHteAIcpkZU=
-github.com/hollis-labs/libs/security/auth v0.1.0 h1:Bq4pmTr4bnRY7a1bQq2ycuutRlCD4RCh44xPdb0PnBw=
-github.com/hollis-labs/libs/security/auth v0.1.0/go.mod h1:GGJqJuSZwR57ygyml3kPt6Aw2rwPqAzTV2M9CXjTjo8=
+github.com/hollis-labs/libs/security/auth v0.3.1 h1:Oi9xrIucjr0mBcGCWGOiS8KC/+cI/HH8ZJ+ZIobFXKU=
+github.com/hollis-labs/libs/security/auth v0.3.1/go.mod h1:GGJqJuSZwR57ygyml3kPt6Aw2rwPqAzTV2M9CXjTjo8=
 github.com/hollis-labs/libs/security/secrets v0.1.0 h1:/wrYAM5viUnYMpDhvbQmPlTMesqMIVfvfz+GiZ7jMAs=
 github.com/hollis-labs/libs/security/secrets v0.1.0/go.mod h1:Krd1kgmisOVmeN1G/ltaLMva58tIBki9xShsySqd86Y=
 github.com/hollis-labs/libs/security/webauthn v0.1.0 h1:m4YRsByFkFV88av/ouLjF3XLjZ1WCTM24lLFg5vAYyo=
