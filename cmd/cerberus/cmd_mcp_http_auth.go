@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	mcpauth "github.com/hollis-labs/libs/mcp/plugin-mcp/go-mcp/auth"
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
@@ -69,10 +70,10 @@ func setupMCPHTTPAuth(ctx context.Context, client authCapabilityClient) (*mcpHTT
 	return &mcpHTTPAuth{cfg: cfg, verifier: v, caps: caps}, nil
 }
 
-// tokenVerifier adapts the verifier to the SDK's bearer middleware. The raw
+// Verifier adapts the verifier to the SDK's bearer middleware. The raw
 // token rides in TokenInfo.Extra only as far as ScopeMiddleware, which
 // hands it to the socket client to forward.
-func (a *mcpHTTPAuth) tokenVerifier() sdkauth.TokenVerifier {
+func (a *mcpHTTPAuth) Verifier() sdkauth.TokenVerifier {
 	return func(ctx context.Context, token string, _ *http.Request) (*sdkauth.TokenInfo, error) {
 		id, err := a.verifier.Verify(ctx, token)
 		if err != nil {
@@ -101,11 +102,18 @@ func (a *mcpHTTPAuth) authorizationServers() []string {
 	return out
 }
 
+var _ mcpauth.Provider = (*mcpHTTPAuth)(nil)
+
+// Options preserves the existing discovery challenge and expiry tolerance.
+func (a *mcpHTTPAuth) Options() *sdkauth.RequireBearerTokenOptions {
+	return &sdkauth.RequireBearerTokenOptions{
+		ResourceMetadataURL: a.metadataURL(), ClockSkew: time.Minute,
+	}
+}
+
 // mount serves the protected /mcp handler and the metadata documents.
 func (a *mcpHTTPAuth) mount(mux *http.ServeMux, path string, mcpHandler http.Handler) {
-	mux.Handle(path, sdkauth.RequireBearerToken(a.tokenVerifier(), &sdkauth.RequireBearerTokenOptions{
-		ResourceMetadataURL: a.metadataURL(), ClockSkew: time.Minute,
-	})(mcpHandler))
+	mux.Handle(path, mcpauth.HTTPMiddleware(a)(mcpHandler))
 	prm := sdkauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
 		Resource:               a.cfg.Resource,
 		AuthorizationServers:   a.authorizationServers(),
