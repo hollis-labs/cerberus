@@ -18,11 +18,6 @@ import (
 const (
 	// OwnerHere is a tool served now.
 	OwnerHere = ""
-	// OwnerSlice7 is the admin lane: connectors, ssh, docker.
-	OwnerSlice7 = "7"
-	// OwnerSlice8b is the host writes, components, outpost host actions, capacity, portfolio
-	// health, pipelines and ensure_fresh (plan rev 7).
-	OwnerSlice8b = "8b"
 	// OwnerSchedulerOff is the schedule tools: the scheduling core is ported but off.
 	OwnerSchedulerOff = "scheduler-off"
 )
@@ -42,16 +37,6 @@ func ownerOf(name string) string {
 	switch {
 	case strings.HasPrefix(name, "cerberus_schedule_"):
 		return OwnerSchedulerOff
-	case strings.HasPrefix(name, "cerberus_connector_"), strings.HasPrefix(name, "cerberus_ssh_"), strings.HasPrefix(name, "cerberus_docker_"):
-		return OwnerSlice7
-	case strings.HasPrefix(name, "cerberus_component_"), strings.HasPrefix(name, "cerberus_pipeline_"):
-		return OwnerSlice8b
-	}
-	switch name {
-	case "cerberus_portfolio_health", "cerberus_resource_ensure_fresh", "cerberus_host_capacity",
-		"cerberus_host_revision", "cerberus_host_update", "cerberus_host_inventory", "cerberus_host_remove", "cerberus_host_history",
-		"cerberus_host_units", "cerberus_host_logs", "cerberus_host_start", "cerberus_host_stop", "cerberus_host_restart", "cerberus_host_plan":
-		return OwnerSlice8b
 	}
 	return OwnerHere
 }
@@ -66,6 +51,12 @@ func scopeOf(d Def) string {
 		return scopeOperate
 	case "cerberus_lockdown":
 		return scopeAdmin // the /api/brakes/lockdown route's scope
+	case "cerberus_host_start", "cerberus_host_stop", "cerberus_host_restart":
+		return scopeOperate // lifecycle, as the action routes
+	case "cerberus_ssh_status", "cerberus_docker_ps", "cerberus_docker_logs":
+		// Reads in main's catalog, but served by the admin lane's operations route, which needs
+		// cerberus.admin for every operation (slice 7); stricter than main, never wider.
+		return scopeAdmin
 	}
 	if d.ReadOnlyHint {
 		return scopeRead

@@ -91,6 +91,12 @@ type Options struct {
 	// HostReads answers the host reads beyond L9 (status, samples, the monitor, events, probe)
 	// and puts the monitor's status on host views; nil answers them 503 hosts_unavailable.
 	HostReads *hostmon.Reads
+	// HostActions runs the Outpost host actions (supervise mode; nil answers them 409
+	// observe_mode).
+	HostActions *hostmon.Actions
+	// HostWriter changes hosts.yaml and reads its history (supervise mode; nil answers the host
+	// and component writes 409 observe_mode).
+	HostWriter *hostmon.Writer
 	// Projects lists the registry's projects, read fresh; nil serves an empty list.
 	Projects func() ([]config.ProjectDef, error)
 	// Home is the home directory install layouts derive from (log paths).
@@ -110,6 +116,10 @@ type Options struct {
 	// Policy is the operator's policy, for whoami's posture and the policy and posture routes;
 	// nil reads as the built-in baseline and answers the policy routes 503 policy_unavailable.
 	Policy *PolicyOptions
+	// Pipelines runs the configured pipelines; nil answers their routes 503 pipelines_unavailable.
+	Pipelines Pipelines
+	// Portfolio is the portfolio health projection; nil answers it 503 portfolio_unavailable.
+	Portfolio *Portfolio
 	// Logger receives what the API logs; nil is slog.Default.
 	Logger *slog.Logger
 }
@@ -191,6 +201,8 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/hosts/_status", ScopeRead, a.hostStatusAll},
 		Route{http.MethodGet, "/api/hosts/_monitor", ScopeRead, a.hostMonitor},
 		Route{http.MethodGet, "/api/hosts/_events", ScopeRead, a.hostEvents},
+		Route{http.MethodPost, "/api/hosts/capacity", ScopeRead, a.hostCapacity},
+		Route{http.MethodGet, "/api/portfolio/health", ScopeRead, a.portfolioHealth},
 		Route{http.MethodGet, "/api/hosts/{name}", ScopeRead, a.hostGet},
 		Route{http.MethodPost, "/api/hosts/{name}/probe", ScopeRead, a.hostProbe},
 		Route{http.MethodGet, "/api/hosts/{name}/status", ScopeRead, a.hostStatus},
@@ -198,6 +210,11 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/projects", ScopeRead, a.projects},
 		// The server's view of the caller (the old socket's GET /whoami).
 		Route{http.MethodGet, "/api/whoami", ScopeRead, a.whoami},
+	)
+	rs = append(rs, a.hostWriteRoutes()...)
+	rs = append(rs, a.pipelineRoutes()...)
+	rs = append(rs, a.hostActionRoutes()...)
+	rs = append(rs,
 		// Approvals (the old socket's /approvals routes): anyone who may read sees them; only the
 		// owner signed in to the console decides, revokes or acknowledges one (decision 0.1).
 		Route{http.MethodGet, "/api/approvals", ScopeRead, a.approvalList},

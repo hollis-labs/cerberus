@@ -28,7 +28,6 @@ import (
 	"github.com/hollis-labs/cerberus/internal/dataaccess"
 	"github.com/hollis-labs/cerberus/internal/datadir"
 	"github.com/hollis-labs/cerberus/internal/gate"
-	"github.com/hollis-labs/cerberus/internal/hostmon"
 	cmcp "github.com/hollis-labs/cerberus/internal/mcp"
 	"github.com/hollis-labs/cerberus/internal/pipeline"
 	"github.com/hollis-labs/cerberus/internal/policy"
@@ -56,7 +55,7 @@ type cerberus struct {
 // newAPI builds the API over the registry and the hosts files in the adopted root, read in
 // place and never written, with runtime state from the supervision lane (nil: unknown). g is the
 // operation gate and adm the admin lane in supervise mode; both are nil in observe mode.
-func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service, reads *hostmon.Reads, data *dataaccess.Service) (*api.API, error) {
+func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate, adm *admin.Service, parts *hostParts, data *dataaccess.Service) (*api.API, error) {
 	st, err := settings.Parse(app.Config[settings.Key], home)
 	if err != nil {
 		return nil, err
@@ -71,8 +70,37 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 		return nil, err
 	}
 	hostsYAML, hostsState := hostsPaths(st, dirs)
+	po := api.PortfolioOptions{Config: func() (*config.ConfigV2, api.ResolveDiagnostics, error) {
+		resolved, err := reg.Resolve()
+		if err != nil {
+			return nil, api.ResolveDiagnostics{}, err
+		}
+		d := api.ResolveDiagnostics{Skipped: len(resolved.Skipped), Warned: len(resolved.Warned)}
+		for _, r := range resolved.Skipped {
+			d.SkippedOwners = append(d.SkippedOwners, r.Owner)
+		}
+		for _, r := range resolved.Warned {
+			d.WarnedOwners = append(d.WarnedOwners, r.Owner)
+		}
+		return resolved.Config, d, nil
+	}}
+	var pipelines api.Pipelines
+	if lane != nil {
+		po.DependencyWarnings = lane.DependencyWarnings
+		pipelines = lane
+	}
+	if adm != nil {
+		po.Connectors = func(ctx context.Context) (defs, live []contract.Definition) {
+			return adm.Definitions(), adm.LiveDefinitions(ctx)
+		}
+		if pl := adm.Plugins(); pl != nil {
+			po.Plugins = pl.List
+		}
+	}
 	return api.New(api.Options{
-		Observer: observer,
+		Portfolio: api.NewPortfolio(po),
+		Pipelines: pipelines,
+		Observer:  observer,
 		Resources: func() ([]config.ResourceDef, error) {
 			resolved, err := reg.Resolve()
 			if err != nil {
@@ -84,7 +112,9 @@ func newAPI(app *module.App, home string, lane *supervise.Service, g *gate.Gate,
 			HostsPath: hostsYAML,
 			StatePath: hostsState,
 		},
-		HostReads: reads,
+		HostReads:   parts.reads(),
+		HostWriter:  parts.writer,
+		HostActions: parts.actions,
 		Projects: func() ([]config.ProjectDef, error) {
 			resolved, err := reg.Resolve()
 			if err != nil {
@@ -196,7 +226,7 @@ func (c *cerberus) serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	a, err := newAPI(app, c.home, lane, sup.gate, adm, parts.reads(), data)
+	a, err := newAPI(app, c.home, lane, sup.gate, adm, parts, data)
 	if err != nil {
 		return err
 	}

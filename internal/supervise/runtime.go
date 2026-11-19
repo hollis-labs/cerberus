@@ -472,6 +472,12 @@ func ResolveInstallAfterBuild(rawCfg map[string]any, resourceVal, globalDefault 
 
 const statusProbeTimeout = 750 * time.Millisecond
 
+// DependencyWarnings is the advisory dependency check for res against cfg (the portfolio
+// projection's dependency_warnings).
+func (s *Service) DependencyWarnings(ctx context.Context, cfg *config.ConfigV2, res *config.ResourceDef) []string {
+	return s.dependencyWarnings(ctx, cfg, res)
+}
+
 // dependencyWarnings are advisory, as in the old build: an explicit operation runs, with each
 // unavailable dependency named. Nothing else is started.
 func (s *Service) dependencyWarnings(ctx context.Context, cfg *config.ConfigV2, res *config.ResourceDef) []string {

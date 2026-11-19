@@ -175,19 +175,9 @@ func TestServedCatalogIsMain(t *testing.T) {
 	t.Logf("served: %d", served)
 	t.Logf("scheduler off (answer that cerberus.scheduler.enabled is false): %d", len(off))
 	t.Logf("dropped beside the tools: the host events SSE stream (Accept: text/event-stream on /hosts/_events); no caller in inventory-clients.md, and cerberus_host_events is served")
-	byOwner := map[string][]string{}
-	for _, p := range pending {
-		byOwner[p.Owner] = append(byOwner[p.Owner], p.Name)
-	}
-	for _, owner := range []string{cmcp.OwnerSlice7, cmcp.OwnerSlice8b} {
-		t.Logf("pending, slice %s (%d): %s", owner, len(byOwner[owner]), strings.Join(byOwner[owner], ", "))
-	}
-	if served != 22 || len(off) != 13 || len(byOwner) != 2 {
-		t.Fatalf("served %d (want 22), scheduler-off %d (want 13), owners %v", served, len(off), byOwner)
-	}
-	// A pending tool answers that it is not available, naming its slice.
-	if out, isErr := call(t, cs, "cerberus_ssh_status", map[string]any{"resource_id": "x"}); !isErr || !strings.Contains(out, "not available in this build (slice 7") {
-		t.Fatalf("pending tool: %q %v", out, isErr)
+	// Every tool is served but the scheduler's: slice 8b served the last pending ones.
+	if served != 58 || len(off) != 13 || len(pending) != 0 {
+		t.Fatalf("served %d (want 58), scheduler-off %d (want 13), pending %v", served, len(off), pending)
 	}
 	if out, isErr := call(t, cs, "cerberus_schedule_list", map[string]any{}); !isErr || !strings.Contains(out, "scheduler is off") {
 		t.Fatalf("scheduler tool: %q %v", out, isErr)
