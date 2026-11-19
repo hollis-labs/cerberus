@@ -1,0 +1,33 @@
+{
+  "host_wide": [
+    {
+      "live": true,
+      "now": "review summary and a confirmation on a terminal",
+      "switch": "plugin install"
+    },
+    {
+      "live": true,
+      "now": "refused until re-reviewed",
+      "switch": "changed plugin"
+    },
+    {
+      "live": true,
+      "now": "only what connector-config.yaml exposes",
+      "switch": "MCP exposure of plugin operations"
+    },
+    {
+      "live": true,
+      "now": "loopback only",
+      "switch": "mcp-http listen"
+    }
+  ],
+  "posture": {
+    "break_glass": {
+      "per_target": 3,
+      "window": 86400000000000
+    },
+    "enforcement": "shadow (only the built-in protections are enforced)",
+    "global": "secure",
+    "snapshot": "baseline"
+  }
+}

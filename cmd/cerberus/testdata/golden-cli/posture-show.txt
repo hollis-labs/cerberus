@@ -1,0 +1,16 @@
+Posture: secure
+Snapshot: baseline
+
+Host-wide switches (the global posture, secure):
+  plugin install: review summary and a confirmation on a terminal
+  changed plugin: refused until re-reviewed
+  MCP exposure of plugin operations: only what connector-config.yaml exposes
+  mcp-http listen: loopback only
+
+Enforcement: shadow (only the built-in protections are enforced) (change it with `cerberus policy enforce`).
+
+Break glass: at most 3 per target per 24h0m0s (break_glass in policy; change it with `cerberus policy apply`).
+
+Always enforced, whatever the enforcement above: an agent's write, lifecycle, destructive or exec operation on a target labeled env: prod or admin: owner. Policy's decision on those is applied, in shadow too.
+Enforced only where the enforcement above covers it: everything else, including a person's calls and targets with no env or admin label.
+Always on: the audit log, and credential redaction. The --ack gate is an intent check the caller sets itself, not a person's approval.

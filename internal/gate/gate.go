@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/approval"
@@ -587,7 +588,14 @@ func approvalReference(a approval.Approval) *ApprovalRef {
 // not carry; internal/approval is shared with main, so the value is replaced here. Tachyon and
 // tether sysop display approve_with (or pass the body through) and do not parse it.
 func ApproveWith(a approval.Approval) string {
-	return "approve it on the console: /approvals/" + a.ID
+	return "approve it on the console: " + ConsoleApprovalLink(a.ID)
+}
+
+// ConsoleApprovalLink is the console's deep link to one approval, the console contract's
+// /approvals?id=<id> (docs/substrate-port/console-api-contract.md section 4): the page signs the
+// owner in if needed, then opens the approval.
+func ConsoleApprovalLink(id string) string {
+	return "/approvals?id=" + url.QueryEscape(id)
 }
 
 // inProcessStateRefusal refuses an in-process mutation when the gate's

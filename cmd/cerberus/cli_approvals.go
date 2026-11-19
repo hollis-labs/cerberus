@@ -111,7 +111,7 @@ print where to do it.`,
 			if verb == "approve" {
 				return errors.New(gate.ApproveWith(a))
 			}
-			return fmt.Errorf("%s it on the console: /approvals/%s", verb, a.ID)
+			return fmt.Errorf("%s it on the console: %s", verb, gate.ConsoleApprovalLink(a.ID))
 		}
 	}
 	approve := &cobra.Command{
@@ -187,7 +187,7 @@ func writeApproval(w io.Writer, a approval.Approval, source string) error {
 	if bg := a.BreakGlass; bg != nil {
 		p("  BREAK GLASS:  %q (target typed: %s)\n", bg.Reason, bg.Typed)
 		if bg.AckedAt.IsZero() {
-			p("  Follow-up:    open; the owner acknowledges it on the console: /approvals/%s\n", a.ID)
+			p("  Follow-up:    open; the owner acknowledges it on the console: %s\n", gate.ConsoleApprovalLink(a.ID))
 		} else {
 			p("  Follow-up:    acknowledged at %s\n", bg.AckedAt.UTC().Format(time.RFC3339))
 		}

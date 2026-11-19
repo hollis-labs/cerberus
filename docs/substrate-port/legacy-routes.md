@@ -114,6 +114,12 @@ No client key holds `cerberus.approve`; the server refuses it on any key (decisi
 - `/ping`, `/whoami`, `/hosts/{name}` and the `/hosts/_…` routes; the plan, confirm and break-glass forms of the
   mutations; streaming (`X-Cerberus-Progress`). No current caller uses them. The console uses its own routes
   (`console-api-contract.md`).
+
+  *Note (slice 7d, CW-20261115-0089):* the CLI's own routes now serve `whoami` (`GET /api/whoami`, the caller as
+  the gate and the identity module see it, not old's body), the audit lane, policy and posture, and data access
+  (`POST /api/data/v1/query`, with the session token in `X-Cerberus-Data-Token` beside a key, where old's
+  `/data/v1/query` took the session as the bearer). They are not legacy routes: no tachyon or sysop caller uses them
+  (conversion-notes.md, CLI parity rows).
 - The CLI fallbacks. sysop runs `cerberus resource <action> <id>` and `cerberus register <file>`
   (`main.go:5345-5356, 5424-5484`), and tachyon's approve-and-run path runs `cerberus resource <verb> <id> --ack`
   and `cerberus resource list -o json` over SSH (`internal/actionrun/registry.go:67-72`,
@@ -144,8 +150,12 @@ No client key holds `cerberus.approve`; the server refuses it on any key (decisi
 4. Paths in L3 to L6 (`log_path`, `install_root`, `artifact_path`, unit paths) are unchanged, because the install
    root is adopted in place.
 5. `details.approval.approve_with` on an `approval_pending` refusal now reads
-   `approve it on the console: /approvals/<id>` instead of `cerberus approvals approve <id>`, a verb the new
+   `approve it on the console: /approvals?id=<id>` instead of `cerberus approvals approve <id>`, a verb the new
    build does not carry (decision 0.1: the owner decides on the console). The field and its type are unchanged.
+
+   *Note (slice 7d, CW-20261115-0089):* the link is the console contract's deep link `/approvals?id=<id>`
+   (console-api-contract.md section 4); slices 7b and 7c wrote `/approvals/<id>`, a page the console does not
+   serve. Only the text changed.
    No client parses it: neither repository names `approve_with`. tachyon passes the refusal body through
    (`cerbcontrol.go:150-151`, `register_cerbcontrol.go:67-75`); sysop decodes only `success` and `error`
    (`main.go:5359-5362, 5407-5420`).

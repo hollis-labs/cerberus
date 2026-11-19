@@ -148,7 +148,7 @@ func TestResourceEnsureFreshAtTheCLI(t *testing.T) {
 		t.Fatalf("unsupervised: %v %v", err, a.posts)
 	}
 
-	a.refuse = `{"code":"approval_pending","message":"local deploy needs approval","details":{"approval":{"id":"apr_9","expires_at":"0001-01-01T00:00:00Z","approve_with":"approve it on the console: /approvals/apr_9","channel":"out_of_band"}}}`
+	a.refuse = `{"code":"approval_pending","message":"local deploy needs approval","details":{"approval":{"id":"apr_9","expires_at":"0001-01-01T00:00:00Z","approve_with":"approve it on the console: /approvals?id=apr_9","channel":"out_of_band"}}}`
 	if _, _, err = runCLI(t, readCmds(c, t.TempDir()), "", "resource", "ensure-fresh", "web", "--force", "--ack"); err == nil ||
 		!strings.Contains(err.Error(), "Approve apr_9 on the console, signed in as the owner, then run this again with --approval apr_9") {
 		t.Fatalf("pending: %v", err)

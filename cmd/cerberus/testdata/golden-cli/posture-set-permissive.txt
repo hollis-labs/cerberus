@@ -1,0 +1,136 @@
+Posture: secure
+     to: permissive
+
+Host-wide switches change (the global posture goes secure -> permissive):
+  plugin install: review summary and a confirmation on a terminal -> summary printed; --yes skips the confirmation
+  changed plugin: refused until re-reviewed -> loaded, with a warning and an audit record
+  MCP exposure of plugin operations: only what connector-config.yaml exposes -> every declared operation, narrowed by connector-config.yaml
+  mcp-http listen: loopback only -> --insecure-listen allowed, with a warning and an audit record
+
+124 sampled decision(s) change:
+  docker.destroy          (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  docker.destroy          (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  docker.destroy          (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  docker.destroy          (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  docker.destroy          (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  docker.destroy          (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  docker.list_containers  (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  docker.list_containers  (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  docker.logs             (unregistered) [unknown/unknown/unknown]  agent       approve* -> allow  posture.permissive
+  docker.logs             (unregistered) [unknown/unknown/unknown]  automation  approve* -> allow  posture.permissive
+  docker.logs             (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  docker.logs             (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  docker.start            (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  docker.start            (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  docker.start            (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  docker.start            (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  docker.start            (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  docker.start            (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  docker.stop             (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  docker.stop             (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  docker.stop             (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  docker.stop             (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  docker.stop             (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  docker.stop             (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.apply             (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  local.apply             (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  local.apply             (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  local.apply             (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  local.apply             (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.apply             (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.deploy            (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  local.deploy            (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  local.deploy            (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  local.deploy            (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  local.deploy            (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.deploy            (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.doctor            (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.doctor            (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.ensure_fresh      (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  local.ensure_fresh      (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  local.ensure_fresh      (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  local.ensure_fresh      (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  local.ensure_fresh      (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.ensure_fresh      (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.inspect           (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.inspect           (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.list              (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.list              (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.logs              (unregistered) [unknown/unknown/unknown]  agent       approve* -> allow  posture.permissive
+  local.logs              (unregistered) [unknown/unknown/unknown]  automation  approve* -> allow  posture.permissive
+  local.logs              (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.logs              (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.reload            (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  local.reload            (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  local.reload            (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  local.reload            (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  local.reload            (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.reload            (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.remove            (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  local.remove            (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  local.remove            (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  local.remove            (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  local.remove            (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.remove            (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.status            (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.status            (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.stop              (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  local.stop              (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  local.stop              (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  local.stop              (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  local.stop              (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.stop              (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  local.sync              (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  local.sync              (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  local.sync              (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  local.sync              (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  local.sync              (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  local.sync              (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  pipeline.list           (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  pipeline.list           (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  pipeline.run            (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  pipeline.run            (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  pipeline.run            (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  pipeline.run            (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  pipeline.run            (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  pipeline.run            (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  ssh.exec                (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  ssh.exec                (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  ssh.exec                (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  ssh.exec                (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  ssh.exec                (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  ssh.exec                (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  ssh.get                 (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  ssh.get                 (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  ssh.get                 (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  ssh.get                 (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  ssh.get                 (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  ssh.get                 (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  ssh.get_dir             (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  ssh.get_dir             (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  ssh.get_dir             (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  ssh.get_dir             (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  ssh.get_dir             (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  ssh.get_dir             (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  ssh.put                 (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  ssh.put                 (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  ssh.put                 (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  ssh.put                 (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  ssh.put                 (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  ssh.put                 (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  ssh.put_dir             (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  ssh.put_dir             (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  ssh.put_dir             (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  ssh.put_dir             (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  ssh.put_dir             (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  ssh.put_dir             (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  ssh.status              (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  ssh.status              (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+  ssh.stop                (unregistered) [unknown/unknown/unknown]  human       deny* -> allow     posture.permissive
+  ssh.stop                (unregistered) [unknown/unknown/unknown]  agent       deny* -> allow     posture.permissive
+  ssh.stop                (unregistered) [unknown/unknown/unknown]  automation  deny* -> allow     posture.permissive
+  ssh.stop                (ad hoc) [unknown/unknown/unknown]        human       deny* -> allow     posture.permissive
+  ssh.stop                (ad hoc) [unknown/unknown/unknown]        agent       deny* -> allow     posture.permissive
+  ssh.stop                (ad hoc) [unknown/unknown/unknown]        automation  deny* -> allow     posture.permissive
+
+This will set the global posture to permissive. Type "posture c3fce88ed9dd" to apply: 

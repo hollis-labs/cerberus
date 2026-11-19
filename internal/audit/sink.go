@@ -380,6 +380,10 @@ type Checked struct {
 	Problems []string
 	// cut is a log that no longer holds its anchored head.
 	cut bool
+	// CutHead is the anchored head the log no longer holds where it was written (a cut or
+	// rewritten log), or nil. It stays put until a reanchor moves it: no other write advances
+	// an anchor whose record is gone.
+	CutHead *Head
 }
 
 // Err is the chain's problems as an error, or nil.
@@ -508,6 +512,8 @@ func Check(dir string) (Checked, error) {
 			problems = append(problems, "the chain's anchor could not be read: "+loadErr.Error())
 		case ok:
 			if problem := headProblem(dir, h); problem != "" {
+				head := h
+				out.CutHead = &head
 				// A cut or rewritten log: nothing in it is vouched for,
 				// until a person reanchors it.
 				problems = append(problems, problem)

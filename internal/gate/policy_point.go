@@ -122,6 +122,72 @@ func (g *Gate) RecordEnforcementChange(ctx context.Context, before, after policy
 	return nil
 }
 
+// OwnerPolicyArgs authorize a policy change through the serving Cerberus: the acknowledgment
+// (old's typed phrase at the CLI) and, from any caller but the owner on the console, the owner's
+// out-of-band approval.
+type OwnerPolicyArgs struct {
+	Acknowledged bool
+	ApprovalID   string
+	// What names the change in the refusals ("applying the policy snapshot 0123abcd").
+	What string
+	// Prepare, when set, writes the working file the snapshot is made from (posture.yaml,
+	// enforcement.yaml), once the change is authorized and before it is applied; its restore
+	// runs if the apply fails.
+	Prepare func() (restore func(), err error)
+}
+
+// ApplyOwnerPolicy is ApplyPolicy for the serving Cerberus's policy routes (slice 7d): `cerberus
+// policy apply`, `policy enforce`, `posture set` and `posture reset` from the CLI or the console.
+// Old applied policy only in-process, after a person typed the confirmation on a terminal
+// (Decision 10). No caller is a person at a terminal under decision 0.1, so the authority is the
+// owner's, as for secrets set and the brakes: the record is old's (policy apply, effect admin,
+// acknowledged, target policy.snapshot, config {hash, flips}, the enforcement and the snapshot),
+// written before anything changes; then the owner signed in on the console applies directly, and
+// any other caller but an MCP client names the owner's out-of-band approval, bound to the
+// snapshot's hash. Where policy also asks to approve the change, that one approval meets it.
+func (g *Gate) ApplyOwnerPolicy(ctx context.Context, store policy.Store, file policy.File, flips int, args OwnerPolicyArgs) (_ string, proof string, retErr error) {
+	data, err := policy.Encode(file)
+	if err != nil {
+		return "", "", err
+	}
+	hash := policy.Hash(data)
+	op := contract.Operation{Name: "apply", Effect: contract.EffectAdmin, Target: contract.TargetDescriptor{Kind: "policy.snapshot", From: []string{"hash"}},
+		Preview: contract.PreviewNone, Output: contract.OutputStructured, Cost: contract.CostNone, LocalFS: contract.LocalFSWrites}.Finalize()
+	spec := Spec{Connector: "policy", Operation: "apply", Op: op, Known: true, Acknowledged: args.Acknowledged,
+		Config: map[string]any{"hash": hash, "flips": flips}, Enforcement: file.EnforcementOf().Record(), Snapshot: string(data),
+		OwnerAuthorized: true}
+	if !args.Acknowledged {
+		return "", "", codedError(opArgs{Connector: "policy", Operation: "apply"}, CodeAckRequired,
+			redact.Guidance("%s changes what policy decides, so it needs an acknowledgment (\"acknowledged\": true: the typed phrase at the CLI); nothing was changed", args.What))
+	}
+	call, err := g.Begin(ctx, spec)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { call.Finish(retErr) }()
+	proof = "console"
+	if !ConsolePerson(ctx) || args.ApprovalID != "" || call.PolicyApproves() {
+		tgt, _ := AuditTarget(spec)
+		if proof, err = call.OwnerApproval(ctx, OwnerApprovalRequest{Connector: "policy", Operation: "apply", Target: tgt,
+			ArgsDigest: g.sink.Digest(spec.Config), ApprovalID: args.ApprovalID, What: args.What,
+			Rule: "policy.apply", Reason: "policy and the posture are changed by the owner on the console"}); err != nil {
+			return "", "", err
+		}
+	}
+	restore := func() {}
+	if args.Prepare != nil {
+		if restore, err = args.Prepare(); err != nil {
+			return "", "", err
+		}
+	}
+	written, err := store.Apply(file)
+	if err != nil {
+		restore()
+		return "", "", err
+	}
+	return written, proof, nil
+}
+
 // AllowsRead reports whether policy lets the caller see one target in a read projection (the
 // old build's portfolio allowTarget): where the decision on a read of it is enforced, deny and
 // approve both hide it. Nothing is recorded.

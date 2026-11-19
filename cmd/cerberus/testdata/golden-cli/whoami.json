@@ -1,0 +1,25 @@
+{
+  "daemon_note": "the daemon is not running",
+  "local": {
+    "explanation": "stdin or stdout is not a terminal, so this is treated as an agent (Decision 9)",
+    "principal": {
+      "client": "cerberus-cli",
+      "kind": "agent",
+      "self_reported": true,
+      "uid": <uid>,
+      "uid_verified": true,
+      "via": "cli"
+    },
+    "stdin_tty": false,
+    "stdout_tty": false
+  },
+  "posture": {
+    "break_glass": {
+      "per_target": 3,
+      "window": 86400000000000
+    },
+    "enforcement": "shadow (only the built-in protections are enforced)",
+    "global": "secure",
+    "snapshot": "baseline"
+  }
+}

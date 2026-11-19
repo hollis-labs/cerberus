@@ -1,0 +1,57 @@
+{
+  "break_glass": {
+    "per_target": 3,
+    "window": 86400000000000
+  },
+  "egress_warnings": null,
+  "grant_warnings": null,
+  "policy": "the built-in baseline (no snapshot is applied)",
+  "posture": "secure",
+  "posture_rules": null,
+  "request": {
+    "Connector": "local",
+    "DryRun": false,
+    "Effect": "lifecycle",
+    "EffectUndeclared": false,
+    "Operation": "deploy",
+    "Principal": {
+      "ActingFor": "",
+      "Client": "",
+      "Issuer": "",
+      "Kind": "agent",
+      "Session": "",
+      "Subject": "",
+      "Verified": false
+    },
+    "Target": {
+      "admin_for": "unknown",
+      "connector": "local",
+      "env": "unknown",
+      "kind": "local.resource",
+      "owner": "unknown"
+    }
+  },
+  "result": {
+    "decision": "deny",
+    "matched_rules": [
+      {
+        "decision": "approve",
+        "reason": "the baseline requires approval for an agent's lifecycle operation",
+        "rule": "baseline.lifecycle.agent"
+      },
+      {
+        "decision": "deny",
+        "reason": "nobody declared who administers this target, so it is read as the owner's (label it with admin:)",
+        "rule": "builtin.admin-unknown"
+      },
+      {
+        "decision": "approve",
+        "reason": "no env declared, so it is read as production (label it with env:)",
+        "rule": "builtin.env-unknown"
+      }
+    ],
+    "posture": "secure",
+    "snapshot": "baseline",
+    "would_block": true
+  }
+}

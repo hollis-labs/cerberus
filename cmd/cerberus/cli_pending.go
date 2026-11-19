@@ -14,27 +14,13 @@ import (
 // "pending (slice N)" with exit 1, having done nothing. The flags mirror main's
 // (`cerberus <path> --help` on main); the parity test checks every one of them.
 
-// The slices that own the backends these verbs wait for. Slice 7d (CW-20261115-0089) takes the
-// ones no slice owned: the policy point's CLI routes (policy, posture), the audit chain's writes
-// (audit prune, reanchor), the server's view of the caller (whoami) and data access. Slice 8b
-// owns the rest: host writes, components, pipelines, and every other backend not served yet.
-const (
-	slice7d = "slice 7d"
-	slice8b = "slice 8b"
-)
-
-// pendingOwner is the slice a path waits for, by the pendingWhy key that names it.
-var pendingOwner = map[string]string{
-	"audit": slice7d, "data": slice7d, "policy": slice7d, "posture": slice7d, "whoami": slice7d,
-}
+// slice8b owns every backend these verbs wait for: host writes, components, pipelines, and the
+// rest not served yet. Slice 7d (CW-20261115-0089) served the ones no slice owned (policy,
+// posture, audit prune and reanchor, whoami, data query), so none waits on it.
+const slice8b = "slice 8b"
 
 // pendingSlice is the slice path waits for.
-func pendingSlice(path string) string {
-	if s, ok := pendingOwner[whyKey(path)]; ok {
-		return s
-	}
-	return slice8b
-}
+func pendingSlice(string) string { return slice8b }
 
 // flagSpec is one old flag: name, shorthand, type (bool, string, int, float, duration,
 // stringArray), default as old printed it, and usage.
@@ -50,17 +36,12 @@ type pendingSpec struct {
 
 // pendingWhy is why a path is pending, by the longest prefix that names it.
 var pendingWhy = map[string]string{
-	"audit":               "pruning and reanchoring write the audit chain, which only the serving Cerberus writes, and no served lane does either yet (a second, in-process writer would race it)",
 	"component":           "the component inventory has no route on the serving Cerberus yet",
 	"connectors describe": "the definitions are served (GET /api/connectors), but the live field needs the serving Cerberus's live-connector read, which no route serves yet; `cerberus connectors exec <id> <op>` runs the connector's operations",
-	"data":                "the data-access route (old POST /data/v1/query) is not served yet",
 	"host":                "this host verb has no route yet; host list, get, probe, status, samples, monitor and events are served",
 	"pipeline":            "no pipeline route is served yet",
-	"policy":              "the policy point runs inside the serving Cerberus, and no route serves policy to the CLI yet",
 	"portfolio":           "the portfolio health projection has no route yet",
-	"posture":             "the posture is the policy's, and no route serves it to the CLI yet",
 	"schedule":            "the scheduling core is off and no schedule route is served",
-	"whoami":              "how the serving Cerberus classifies this CLI (it calls with its API key, an agent via api) needs a route not served yet",
 }
 
 // pendingError is a pending verb's answer.
@@ -150,10 +131,6 @@ func addFlagSpec(fs *pflag.FlagSet, f flagSpec) error {
 }
 
 var pendingSpecs = []pendingSpec{
-	{path: "audit prune", use: "prune --before <date>", short: "Remove whole audit month files older than a date (interactive only)", group: false, flags: []flagSpec{
-		{"before", "", "string", "", "remove month files wholly before this date (required)"},
-	}},
-	{path: "audit reanchor", use: "reanchor", short: "Acknowledge an audit chain that does not verify (interactive only)", group: false, flags: []flagSpec{}},
 	{path: "component", use: "component", short: "Spare and installed parts recorded in hosts.yaml (read-only)", group: true, flags: []flagSpec{
 		{"json", "", "bool", "", "print JSON"},
 		{"output", "o", "string", "text", "output format: text|json"},
@@ -211,10 +188,6 @@ var pendingSpecs = []pendingSpec{
 		{"revision", "", "string", "", "hosts.yaml revision this change is based on (default: the current one)"},
 	}},
 	{path: "connectors describe", use: "describe <connector-id>", short: "Show detailed connector discovery metadata", group: false, flags: []flagSpec{}},
-	{path: "data", use: "data", short: "Session-authorized named data projections", group: true, flags: []flagSpec{}},
-	{path: "data query", use: "query", short: "Read a JSON projection request from stdin; token comes from a private file", group: false, flags: []flagSpec{
-		{"token-file", "", "string", "", "Private Tether session token file (never the token itself)"},
-	}},
 	{path: "host capacity", use: "capacity", short: "List the hosts that satisfy constraints, from recorded facts", group: false, flags: []flagSpec{
 		{"disk-type", "", "stringArray", "", "a recorded disk of this type: ssd|hdd|nvme|emmc|usb|other (repeatable)"},
 		{"explain", "", "bool", "", "also list excluded hosts with the reason for each"},
@@ -286,29 +259,6 @@ var pendingSpecs = []pendingSpec{
 		{"break-glass", "", "bool", "", "get past an approve decision yourself, loudly: needs a terminal, --reason and the target typed; never gets past a deny"},
 		{"reason", "", "string", "", "why you are breaking glass (required with --break-glass; it goes on the record)"},
 	}},
-	{path: "policy", use: "policy", short: "Explain, apply and report on the operator's policy", group: true, flags: []flagSpec{}},
-	{path: "policy apply", use: "apply", short: "Make the working policy files the applied snapshot (interactive)", group: false, flags: []flagSpec{}},
-	{path: "policy enforce", use: "enforce --scope <key=value,...> | --all", short: "Switch enforcement on for a scope, or back to shadow (interactive)", group: false, flags: []flagSpec{
-		{"all", "", "bool", "", "enforce everything (mode: enforce)"},
-		{"id", "", "string", "", "a name for the enforced scope"},
-		{"off", "", "bool", "", "return the scope, or with --all the mode, to shadow"},
-		{"scope", "", "string", "", "the scope to enforce, as comma-separated key=value terms"},
-		{"since", "", "duration", "168h0m0s", "the shadow data to show for the scope"},
-	}},
-	{path: "policy explain", use: "explain <connector.operation>", short: "Show the decision for an operation and every rule that matched", group: false, flags: []flagSpec{
-		{"adhoc", "", "bool", "", "evaluate a target named by connection settings rather than a registered resource"},
-		{"as", "", "string", "", "principal kind: human, agent or automation (default: how this terminal is classified)"},
-		{"dry-run", "", "bool", "", "evaluate as a dry run (the plan step)"},
-		{"output", "o", "string", "text", "output format: text|json"},
-		{"target", "", "string", "", "a registered resource id to evaluate against"},
-		{"working", "", "bool", "", "evaluate the working files instead of the applied snapshot"},
-	}},
-	{path: "policy report", use: "report", short: "Summarize what policy would block, and what enforcing it would need", group: false, flags: []flagSpec{
-		{"output", "o", "string", "text", "output format: text|json"},
-		{"scope", "", "string", "", "only decisions in this scope: key=value terms, comma-separated (principal, env, effect, connector, target, rule)"},
-		{"since", "", "string", "", "decisions at or after this date or time"},
-		{"until", "", "string", "", "decisions before this date or time"},
-	}},
 	{path: "portfolio", use: "portfolio", short: "Combined portfolio health and cross-fleet observation", group: true, flags: []flagSpec{}},
 	{path: "portfolio health", use: "health", short: "Combined portfolio health projection across hosts, projects, and deployments", group: false, flags: []flagSpec{
 		{"host", "", "string", "", "filter to one host name"},
@@ -319,16 +269,6 @@ var pendingSpecs = []pendingSpec{
 		{"output", "o", "string", "text", "output format: text|json"},
 		{"project", "", "string", "", "filter to one project ID"},
 		{"rollup-status", "", "string", "", "filter by rollup status"},
-	}},
-	{path: "posture", use: "posture", short: "Show or change the posture: secure by default, permissive by choice", group: true, flags: []flagSpec{}},
-	{path: "posture show", use: "show", short: "Show the applied posture and what it relaxes", group: false, flags: []flagSpec{
-		{"output", "o", "string", "text", "output format: text|json"},
-	}},
-	{path: "posture set", use: "set <secure|permissive>", short: "Set the global posture, or with --scope a posture rule (interactive)", group: false, flags: []flagSpec{
-		{"scope", "", "stringArray", "", "a posture rule's scope, as key=value (repeatable)"},
-	}},
-	{path: "posture reset", use: "reset", short: "Return to the secure default, or with --scope remove one posture rule (interactive)", group: false, flags: []flagSpec{
-		{"scope", "", "stringArray", "", "a posture rule's scope, as key=value (repeatable)"},
 	}},
 	{path: "schedule", use: "schedule", short: "Manage durable schedules (engine remains inactive)", group: true, flags: []flagSpec{
 		{"json", "", "bool", "", "print the shared JSON response (errors also use JSON)"},
@@ -417,8 +357,5 @@ var pendingSpecs = []pendingSpec{
 		{"file", "", "string", "-", "JSON job file, or - for stdin"},
 		{"id", "", "string", "", "job ID selector"},
 		{"revision", "", "string", "", "required revision from get; stale edits refuse"},
-	}},
-	{path: "whoami", use: "whoami", short: "Show how Cerberus classifies the current caller", group: false, flags: []flagSpec{
-		{"output", "o", "string", "text", "output format: text|json"},
 	}},
 }

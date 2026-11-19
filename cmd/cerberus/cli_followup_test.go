@@ -176,7 +176,7 @@ func TestApprovalsMatchTheOldCLI(t *testing.T) {
 			t.Fatalf("%s: %v", args, err)
 		}
 		want := strings.ReplaceAll(golden(t, name), oldSource, newSource)
-		want = strings.ReplaceAll(want, "cerberus approvals approve "+pending, "approve it on the console: /approvals/"+pending)
+		want = strings.ReplaceAll(want, "cerberus approvals approve "+pending, "approve it on the console: /approvals?id="+pending)
 		if out != want {
 			t.Errorf("%s:\n got:\n%s\nwant (%s, source and decide line as this build says them):\n%s", args, out, name, want)
 		}
@@ -188,7 +188,7 @@ func TestApprovalsMatchTheOldCLI(t *testing.T) {
 	// No CLI decides one (decision 0.1): approve and deny name the console page and fail.
 	for _, verb := range []string{"approve", "deny"} {
 		out, _, err := runCLI(t, cmds(), "", "approvals", verb, pending, "--reason", "r")
-		if err == nil || err.Error() != verb+" it on the console: /approvals/"+pending || out != "" {
+		if err == nil || err.Error() != verb+" it on the console: /approvals?id="+pending || out != "" {
 			t.Fatalf("approvals %s: %q %v", verb, out, err)
 		}
 		if _, _, err = runCLI(t, cmds(), "", "approvals", verb, denied); err == nil || !strings.Contains(err.Error(), "is denied, not pending") {
@@ -462,7 +462,7 @@ func TestDockerAndSSHOverTheAdminLane(t *testing.T) {
 }
 
 // Every pending verb exists with old's flags (the parity test), parses them, and answers
-// pending with the slice that owns its backend (7d or 8b), exit 1, having called nothing.
+// pending with the slice that owns its backend (8b; 7d's are served), exit 1, having called nothing.
 func TestPendingVerbsAnswerPending(t *testing.T) {
 	tree := newTree(t)
 	for _, s := range pendingSpecs {
@@ -474,10 +474,8 @@ func TestPendingVerbsAnswerPending(t *testing.T) {
 			t.Fatalf("%s is not in the tree", s.path)
 		}
 		err := c.RunE(c, nil)
+		// Slice 7d served every verb it owned: none answers pending on it.
 		want := "pending (slice 8b)"
-		if top := strings.Fields(s.path)[0]; top == "policy" || top == "posture" || top == "audit" || top == "whoami" || top == "data" {
-			want = "pending (slice 7d)"
-		}
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "nothing was done") {
 			t.Fatalf("%s: %v", s.path, err)
 		}
@@ -493,12 +491,7 @@ func TestPendingVerbsAnswerPending(t *testing.T) {
 		{"slice 8b", []string{"host", "set", "zeta", "--ack", "--label", "a=b", "--revision", "r1", "-o", "json"}},
 		{"slice 8b", []string{"schedule", "--json", "create", "--file", "-", "--ack"}},
 		{"slice 8b", []string{"pipeline", "show", "release"}},
-		{"slice 7d", []string{"policy", "enforce", "--since", "24h", "--all"}},
 		{"slice 8b", []string{"host", "capacity", "--max-age", "5m", "--recent-max-load", "0.5", "--free-slot", "nvme_m2=1"}},
-		{"slice 7d", []string{"audit", "prune", "--before", "2026-01-01"}},
-		{"slice 7d", []string{"whoami", "-o", "json"}},
-		{"slice 7d", []string{"data", "query", "--token-file", "x"}},
-		{"slice 7d", []string{"posture", "show"}},
 	} {
 		root.SetArgs(c.args)
 		if err := root.ExecuteContext(t.Context()); err == nil || !strings.Contains(err.Error(), "pending ("+c.slice+")") {

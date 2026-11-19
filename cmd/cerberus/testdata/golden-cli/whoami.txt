@@ -1,0 +1,6 @@
+Classified as: agent (via cli, uid <uid>)
+  stdin TTY: false, stdout TTY: false, CERBERUS_PRINCIPAL: (unset)
+  stdin or stdout is not a terminal, so this is treated as an agent (Decision 9)
+The daemon's view: unavailable (the daemon is not running)
+Posture: secure
+This is a label for default policy, never approval.
