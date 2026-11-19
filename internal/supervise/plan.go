@@ -33,19 +33,30 @@ import (
 //   - every verb: the observed state, so an approval to stop a running service does not stop
 //     it after it was restarted as something else.
 func (s *Service) planResource(ctx context.Context, cfg *config.ConfigV2, spec gate.Spec, id string) (plan.Plan, error) {
-	res, pspec, err := requireLocalProcess(cfg, id)
+	res, _, err := requireLocalProcess(cfg, id)
 	if err != nil {
-		if res != nil {
-			return plan.Plan{}, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
-		}
 		return plan.Plan{}, err
+	}
+	return s.planResourceDef(ctx, spec, res, spec.Operation)
+}
+
+// verbBuild is a pipeline's build action: a deploy's build without its install.
+const verbBuild = "build"
+
+// planResourceDef is planResource for a definition in hand, as a pipeline's checked snapshot
+// holds it, planning what verb would do: one of the local connector's operations, or
+// verbBuild (the old build's planResourceDef).
+func (s *Service) planResourceDef(ctx context.Context, spec gate.Spec, res *config.ResourceDef, verb string) (plan.Plan, error) {
+	id := res.ID
+	pspec, err := localconn.SpecFromResourceConfig(res.Config)
+	if err != nil {
+		return plan.Plan{}, fmt.Errorf("decode process spec for %q: %w", res.ID, err)
 	}
 	digest := s.o.Gate.Sink().Digest
 	tgt, _ := gate.AuditTarget(spec)
 	p := plan.Plan{Lane: plan.LaneResource, Connector: spec.Connector, Operation: spec.Operation, Effect: string(spec.Op.Effect),
 		Target: tgt, ArgsDigest: digest(spec.Config), Digests: map[string]string{"spec": digest(res)}}
-	verb := spec.Operation
-	builds := verb == localconn.OpDeploy
+	builds := verb == localconn.OpDeploy || verb == verbBuild
 	installs := builds || verb == localconn.OpApply || verb == localconn.OpSync
 	if builds && localconn.HasBuildStrategy(pspec) {
 		p.Source = checkedSource(ctx, pspec.Dir)

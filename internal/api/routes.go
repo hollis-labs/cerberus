@@ -109,6 +109,10 @@ type Options struct {
 	// Admin is the admin lane (connectors, credentials, plugins), in supervise mode; nil is
 	// observe mode, where its routes answer 503 admin_unavailable.
 	Admin *admin.Service
+	// Pipelines runs the configured pipelines; nil answers their routes 503 pipelines_unavailable.
+	Pipelines Pipelines
+	// Portfolio is the portfolio health projection; nil answers it 503 portfolio_unavailable.
+	Portfolio *Portfolio
 	// Logger receives what the API logs; nil is slog.Default.
 	Logger *slog.Logger
 }
@@ -190,6 +194,8 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/hosts/_status", ScopeRead, a.hostStatusAll},
 		Route{http.MethodGet, "/api/hosts/_monitor", ScopeRead, a.hostMonitor},
 		Route{http.MethodGet, "/api/hosts/_events", ScopeRead, a.hostEvents},
+		Route{http.MethodPost, "/api/hosts/capacity", ScopeRead, a.hostCapacity},
+		Route{http.MethodGet, "/api/portfolio/health", ScopeRead, a.portfolioHealth},
 		Route{http.MethodGet, "/api/hosts/{name}", ScopeRead, a.hostGet},
 		Route{http.MethodPost, "/api/hosts/{name}/probe", ScopeRead, a.hostProbe},
 		Route{http.MethodGet, "/api/hosts/{name}/status", ScopeRead, a.hostStatus},
@@ -197,6 +203,7 @@ func (a *API) table() []Route {
 		Route{http.MethodGet, "/api/projects", ScopeRead, a.projects},
 	)
 	rs = append(rs, a.hostWriteRoutes()...)
+	rs = append(rs, a.pipelineRoutes()...)
 	rs = append(rs, a.hostActionRoutes()...)
 	rs = append(rs,
 		// Approvals (the old socket's /approvals routes): anyone who may read sees them; only the

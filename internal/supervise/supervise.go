@@ -76,7 +76,9 @@ type Service struct {
 	o Options
 	// opMu serializes mutations, as the old build's runtime service did.
 	opMu sync.Mutex
-	conn *localconn.Connector
+	// pipelineMu serializes pipeline runs, as the old build's runtime service did.
+	pipelineMu sync.Mutex
+	conn       *localconn.Connector
 
 	monMu sync.Mutex
 	mon   *monitor
