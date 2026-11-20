@@ -40,6 +40,9 @@ type HostService struct {
 	probeLimit time.Duration
 	mu         sync.Mutex // serializes the read-modify-write of stored state
 	mon        *HostMonitor
+
+	fleetMu sync.Mutex
+	fleet   *fleetState
 }
 
 // HostSSH is the part of the ssh connector a probe uses.

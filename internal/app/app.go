@@ -339,7 +339,9 @@ func NewHostService(connectors *connector.Registry, resources cerbapi.ResourceLo
 			return execer, nil
 		},
 	}
-	return cerbapi.NewHostService(AuditSink(), opts)
+	svc := cerbapi.NewHostService(AuditSink(), opts)
+	svc.SetFleetOptions(FleetOptions(config.DefaultPath()))
+	return svc
 }
 
 // NewLocalHostService is the host service for the CLI's in-process lane,
@@ -352,13 +354,15 @@ func NewLocalHostService(configPath ...string) *cerbapi.HostService {
 		path = configPath[0]
 	}
 	connectors, _ := newConnectorRegistry(path)
-	return NewHostService(connectors, func(id string) (*config.ResourceDef, bool) {
+	svc := NewHostService(connectors, func(id string) (*config.ResourceDef, bool) {
 		cfg, err := registry.ResolveConfig(path)
 		if err != nil {
 			return nil, false
 		}
 		return cerbapi.ConfigResourceLookup(cfg)(id)
 	})
+	svc.SetFleetOptions(FleetOptions(path))
+	return svc
 }
 
 // NewResourceRuntimeService builds the in-process supervision lane for the

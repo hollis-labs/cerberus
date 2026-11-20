@@ -35,7 +35,7 @@ const (
 // HostWriteOperations are the host connector's operations cerberus:hosts.write
 // covers. host_remove and the unit actions are deliberately not in it.
 var HostWriteOperations = map[string]bool{
-	"host_update": true, "host_inventory": true,
+	"host_update": true, "host_inventory": true, "fleet_stage_probe": true,
 	"component_create": true, "component_update": true, "component_move": true, "component_remove": true,
 }
 

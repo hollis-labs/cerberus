@@ -268,6 +268,9 @@ func (s *SocketServer) routes() *http.ServeMux {
 	mux.Handle("/portfolio/health", PortfolioHealthHTTP(PortfolioHealthClientOf(s.client)))
 	mux.Handle("/v1/portfolio/health", PortfolioHealthHTTP(PortfolioHealthClientOf(s.client)))
 
+	// /v1/fleet/inventory — what runs where and what it was built from (cerberus.fleet.inventory.v1).
+	mux.Handle("/v1/fleet/inventory", FleetInventoryHTTP(FleetClientOf(s.client)))
+
 	// /health — daemon + v2 resource health.
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ping", s.handlePing)
