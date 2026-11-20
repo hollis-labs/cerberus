@@ -119,6 +119,56 @@ architecture and hosts already at this build are skipped. It is an audited write
 tool. The CLI reads through the daemon when it serves the route and falls back to
 running the inventory in process.
 
+## Audit
+
+```
+cerberus fleet audit                      # findings, newest-first marks
+cerberus fleet audit --new                # only what is new since the last run
+cerberus fleet audit --json               # cerberus.fleet.audit.v1
+cerberus fleet audit --notify-command 'mail -s "$FLEET_AUDIT_SUBJECT" ops@example.com'
+```
+
+`fleet audit` takes a fresh inventory and reports findings, most severe first:
+
+| Kind | Severity | Finding |
+|---|---|---|
+| `dirty_build` | high (service), low (binary) | Built from a tree with uncommitted changes; a script service running from a dirty work tree is medium. |
+| `unstamped` | medium | A running Go service with no VCS revision. |
+| `replaced_on_disk` | medium | A process running a binary replaced after it started: a restart is pending. |
+| `module_mismatch` | medium | A resource with a `build_strategy` runs a build of a different Go module than its source dir declares. |
+| `stale_descriptor` | medium | A `*.cerberus.yaml` under the descriptor dirs that the registry index does not load; edits to it change nothing. |
+| `not_running` | medium | An `auto_start` resource with no running unit or container. |
+| `host_unreachable` / `no_probe` | medium / low | A host the inventory could not probe. |
+| `behind` | low, medium past 5× | More than `--behind-threshold` (default 20) commits behind the default branch; installed binaries use twice the threshold. |
+| `drift` | low | The same executable at different builds across hosts. |
+
+Each finding has an ID that stays the same while the problem does (same host,
+subject and build). The last run's IDs are kept in `--state-dir` (default
+`~/.cerberus/fleet-audit/state.json`), so each run marks findings `new` and lists
+the IDs `resolved` since; every run's report is kept in `reports/` (the last 30).
+`--notify-command` runs only when there is something new, with `sh -c`, the
+summary on stdin and the subject in `FLEET_AUDIT_SUBJECT`, so a daily timer stays
+quiet while nothing changes. Descriptor directories default to `~/.config`, or the
+colon-separated `CERBERUS_FLEET_DESCRIPTOR_DIRS`.
+
+Cerberus's scheduler does not run commands, so schedule the audit with the host's
+own scheduler, for example a systemd user timer:
+
+```ini
+# ~/.config/systemd/user/cerberus-fleet-audit.service
+[Service]
+Type=oneshot
+Environment=CERBERUS_FLEET_REPO_ROOTS=%h/src
+ExecStart=%h/.local/bin/cerberus fleet audit --new --notify-command 'your-notifier'
+
+# ~/.config/systemd/user/cerberus-fleet-audit.timer
+[Timer]
+OnCalendar=*-*-* 08:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
 ## Schema `cerberus.fleet.probe.v1`
 
 ```jsonc

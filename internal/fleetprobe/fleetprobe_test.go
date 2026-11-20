@@ -153,7 +153,7 @@ func TestReleaseOf(t *testing.T) {
 }
 
 func TestSkipBinaryName(t *testing.T) {
-	for _, n := range []string{"cerberus.prev-20261030-2536a02", "basalisk.pre-fleet-install", "cerberus.before-shared-outpost", "agy.bak-20261024-1.4.0", "x.bak", "x.old", ".hidden", "tool.prev20261001"} {
+	for _, n := range []string{"cerberus.prev-20261030-2536a02", "basalisk.pre-fleet-install", "cerberus.before-shared-outpost", "agy.bak-20261024-1.4.0", "x.bak", "x.old", ".hidden", "tool.prev20261001", "tesseract.cutover-old"} {
 		if !skipBinaryName(n) {
 			t.Errorf("%s should be skipped", n)
 		}
