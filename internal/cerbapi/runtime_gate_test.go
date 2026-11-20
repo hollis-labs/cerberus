@@ -53,6 +53,7 @@ func TestRuntimeEffectClassification(t *testing.T) {
 		// Hosts (ADR 0004): a probe measures and records, it changes no host.
 		"host.list": contract.EffectRead, "host.get": contract.EffectRead,
 		"host.probe": contract.EffectRead, "host.capacity": contract.EffectRead,
+		"host.fleet_inventory": contract.EffectRead, "host.fleet_stage_probe": contract.EffectWrite,
 		"host.component_list": contract.EffectRead, "host.component_get": contract.EffectRead,
 		// Hosts C: validated writes to hosts.yaml, and the reads around them.
 		"host.host_update": contract.EffectWrite, "host.host_remove": contract.EffectWrite,

@@ -136,9 +136,11 @@ func RouteScope(r RouteSpec) string {
 }
 
 // unpublishedHostOperations are host operations with no route in HostRoutes:
-// the Outpost unit actions (their own routes, under operate) and the monitor
-// audit record (not a route).
+// the Outpost unit actions (their own routes, under operate), the monitor
+// audit record (not a route), the fleet inventory (served at
+// /v1/fleet/inventory) and probe staging (in process only).
 var unpublishedHostOperations = map[string]bool{
+	OpFleetInventory: true, OpFleetStageProbe: true,
 	OpMonitorEvent: true,
 	"units":        true, "logs": true, "start": true, "stop": true, "restart": true, "plan": true,
 }

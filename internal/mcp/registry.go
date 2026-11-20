@@ -20,6 +20,7 @@ func AllTools(client cerbapi.Client) []Tool {
 	tools := []Tool{
 		NewCerberusHealthTool(client),
 		NewCerberusPortfolioHealthTool(client),
+		NewCerberusFleetInventoryTool(client),
 		NewCerberusProjectListTool(client),
 		NewCerberusResourceListTool(client),
 		NewCerberusResourceStatusTool(client),

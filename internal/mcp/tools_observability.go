@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"strings"
 
 	"github.com/hollis-labs/cerberus/internal/redact"
 
@@ -84,6 +85,44 @@ func NewCerberusPortfolioHealthTool(client cerbapi.Client) Tool {
 				return "", err
 			}
 			data, err := redact.MarshalIndent(proj, "", "  ")
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
+		},
+	})
+}
+
+// NewCerberusFleetInventoryTool creates the cerberus_fleet_inventory tool.
+func NewCerberusFleetInventoryTool(client cerbapi.Client) Tool {
+	fClient := cerbapi.FleetClientOf(client)
+	return contractTool(Tool{
+		Name: "cerberus_fleet_inventory",
+		Description: "What runs on each fleet host and what it was built from (cerberus.fleet.inventory.v1): every service, container and installed binary " +
+			"with its VCS revision, whether the build came from a dirty tree, whether a process still runs a binary since replaced on disk (pending restart), " +
+			"how many commits it is behind its repository's default branch with the merged PRs it lacks, and executables that differ across hosts (drift). " +
+			"Use it to answer 'is PR #N live?' or 'what version of X runs where?'. Results are cached for a minute; refresh=true probes again.",
+		InputSchema: objectSchema(map[string]interface{}{
+			"hosts":   map[string]interface{}{"type": "string", "description": "Comma-separated host names; empty is every host."},
+			"role":    map[string]interface{}{"type": "string", "description": "Only hosts with this role (hub, worker, builder, ...)."},
+			"refresh": map[string]interface{}{"type": "boolean", "description": "Bypass the one-minute cache."},
+		}),
+		Handler: func(ctx context.Context, args map[string]interface{}) (any, error) {
+			var q cerbapi.FleetInventoryQuery
+			if hs, _ := args["hosts"].(string); strings.TrimSpace(hs) != "" {
+				for _, h := range strings.Split(hs, ",") {
+					if h = strings.TrimSpace(h); h != "" {
+						q.Hosts = append(q.Hosts, h)
+					}
+				}
+			}
+			q.Role, _ = args["role"].(string)
+			q.Refresh, _ = args["refresh"].(bool)
+			inv, err := fClient.FleetInventory(ctx, q)
+			if err != nil {
+				return "", err
+			}
+			data, err := redact.MarshalIndent(inv, "", "  ")
 			if err != nil {
 				return "", err
 			}

@@ -70,6 +70,55 @@ keeps beside a tool (`tool.prev-20261030`, `tool.before-x`, `tool.bak`) are skip
 | `child-dirty:<name>`, `child-replaced:<name>` | The same, for a child executable. |
 | `unreadable` | The executable could not be read (another user's process). |
 
+## Inventory across the fleet
+
+```
+cerberus fleet stage-probe --ack            # once, and after upgrading cerberus
+cerberus fleet inventory                    # every host in hosts.yaml
+cerberus fleet inventory --role worker --issues --binaries
+cerberus fleet inventory --service torque   # one service everywhere
+cerberus fleet inventory --json             # cerberus.fleet.inventory.v1
+```
+
+`fleet inventory` probes every host in `hosts.yaml` (or `--host`, `--role`) and
+prints a host summary, one row per service (and binary, with `--binaries`), and the
+executables that differ across hosts:
+
+| Column | Meaning |
+|---|---|
+| `BUILD` | Module and revision (and release version), image reference, or script and revision. |
+| `FLAGS` | `dirty`, `unstamped`, `replaced-on-disk`, as for the probe. |
+| `BEHIND` | Commits on the repository's default branch that the build lacks, with the first merged pull requests it lacks (`3 (#321 #320 #319)`). `-` when unknown. |
+| `DRIFT` | The same executable (name and module) at different builds on two or more hosts. |
+
+The local host is probed in process, with resource attribution and health. Other
+hosts are probed over their `reach.ssh` with a fixed command that runs the staged
+probe; a host without one reports `no_probe` with the command to stage it, and a
+host with no ssh reach reports `no_reach`. Hosts are probed six at a time with a
+90-second limit each. Results are cached for a minute (`--refresh` probes again).
+
+`BEHIND` is computed on the controller from local checkouts: Go modules found under
+`CERBERUS_FLEET_REPO_ROOTS` (colon-separated; default `~/dev`), compared with each
+checkout's last fetch of `origin`'s default branch. The probe never contacts a git
+remote, so fetch your checkouts for current numbers. A revision missing from the
+local checkout is reported with a note rather than a count.
+
+**Per-host binary directories.** A host's `fleet.bin_dirs` label in `hosts.yaml`
+(colon-separated) names the installed-binary directories reported there; without
+it the probe's default (`~/.local/bin`) applies. On the local host,
+`CERBERUS_FLEET_BIN_DIRS` is the fallback.
+
+**Staging.** `fleet stage-probe --ack` copies the running cerberus binary to each
+selected host's `~/.local/share/cerberus/fleet-probe/cerberus` over its ssh reach,
+verifies the upload's sha256 and moves it into place. Hosts of another OS or
+architecture and hosts already at this build are skipped. It is an audited write
+(`host/fleet_stage_probe`); the inventory itself is a read (`host/fleet_inventory`).
+
+**MCP and the daemon.** The daemon serves the inventory at `GET /v1/fleet/inventory`
+(`hosts`, `role`, `refresh` query parameters) and as the `cerberus_fleet_inventory`
+tool. The CLI reads through the daemon when it serves the route and falls back to
+running the inventory in process.
+
 ## Schema `cerberus.fleet.probe.v1`
 
 ```jsonc

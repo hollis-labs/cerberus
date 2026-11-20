@@ -83,7 +83,10 @@ type Artifact struct {
 	Go      *GoBuild `json:"go,omitempty"`
 	Script  *Script  `json:"script,omitempty"`
 	Release *Release `json:"release,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	// Upstream relates the build to its repository's default branch. The
+	// probe leaves it empty; the fleet inventory fills it from local checkouts.
+	Upstream *Upstream `json:"upstream,omitempty"`
+	Error    string    `json:"error,omitempty"`
 }
 
 // GoBuild is the provenance embedded in a Go binary.
