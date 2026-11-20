@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hollis-labs/cerberus/internal/buildlock"
 	"github.com/hollis-labs/cerberus/internal/config"
 	localconn "github.com/hollis-labs/cerberus/internal/connector/local"
 	"github.com/hollis-labs/cerberus/internal/gitenv"
@@ -155,12 +156,40 @@ func gitSource(ctx context.Context, dir string) *plan.Source {
 		return src
 	}
 	src.HEAD = strings.TrimSpace(string(head))
-	status, err := run("status", "--porcelain")
-	src.Dirty = err != nil || len(strings.TrimSpace(string(status))) > 0
+	status, err := run("status", "--porcelain", "-z")
+	src.Dirty = err != nil || statusDirty(status)
 	if src.Dirty {
 		src.Content = dirtyContent(ctx, dir)
 	}
 	return src
+}
+
+// statusDirty says whether `git status --porcelain -z` output shows a change
+// other than Cerberus's own build lock. A deploy takes that lock (creating the
+// file) after its gate read the checkout, so in a repository that does not
+// ignore it, the recheck would otherwise see a tree "changed" by Cerberus.
+func statusDirty(out []byte) bool {
+	entries := strings.Split(string(out), "\x00")
+	for i := 0; i < len(entries); i++ {
+		e := entries[i]
+		if len(e) < 4 {
+			continue
+		}
+		code, path := e[:2], e[3:]
+		if code[0] == 'R' || code[0] == 'C' {
+			i++ // a rename or copy is followed by its source path
+		}
+		if code == "??" && isBuildLock(path) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// isBuildLock is whether a repository-relative path is a build lock file.
+func isBuildLock(rel string) bool {
+	return filepath.Base(rel) == buildlock.Filename
 }
 
 // sourceKey carries the checkout a deploy was checked against: its commit
@@ -236,7 +265,7 @@ func dirtyContent(ctx context.Context, dir string) string {
 	paths := strings.Split(strings.TrimRight(string(untracked), "\x00"), "\x00")
 	sort.Strings(paths)
 	for _, rel := range paths {
-		if rel == "" {
+		if rel == "" || isBuildLock(rel) {
 			continue
 		}
 		h.Write([]byte("\x00untracked\x00" + rel + "\x00"))
