@@ -25,6 +25,22 @@ func TestSelectFleetHosts(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0].Name != "w1" || got[1].Name != "w2" {
 		t.Fatalf("role select = %+v %v", got, err)
 	}
+	// Selecting by name returns exactly the named hosts, wherever they sit in the file.
+	for _, names := range [][]string{{"w2"}, {"hub"}, {"w1"}, {"w1", "w2"}} {
+		got, err := selectFleetHosts(all, FleetInventoryQuery{Hosts: names})
+		if err != nil || len(got) != len(names) {
+			t.Fatalf("select %v = %+v %v", names, got, err)
+		}
+		for _, h := range got {
+			ok := false
+			for _, n := range names {
+				ok = ok || h.Name == n
+			}
+			if !ok {
+				t.Fatalf("select %v returned %s", names, h.Name)
+			}
+		}
+	}
 	if _, err := selectFleetHosts(all, FleetInventoryQuery{Hosts: []string{"w1", "nope"}}); err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("unknown host not refused: %v", err)
 	}

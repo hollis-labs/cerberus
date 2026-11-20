@@ -279,6 +279,13 @@ func skipBinaryName(name string) bool {
 		return true
 	}
 	for _, seg := range strings.Split(name, ".")[1:] {
+		for _, word := range strings.FieldsFunc(seg, func(r rune) bool { return r == '-' || r == '_' }) {
+			for _, m := range backupMarkers {
+				if word == m {
+					return true
+				}
+			}
+		}
 		for _, m := range backupMarkers {
 			if seg == m || strings.HasPrefix(seg, m+"-") || strings.HasPrefix(seg, m+"_") || (strings.HasPrefix(seg, m) && strings.Trim(strings.TrimPrefix(seg, m), "0123456789-") == "") {
 				return true

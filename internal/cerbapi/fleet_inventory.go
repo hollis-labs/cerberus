@@ -218,24 +218,29 @@ func (s *HostService) FleetInventory(ctx context.Context, q FleetInventoryQuery)
 func selectFleetHosts(all []hosts.Host, q FleetInventoryQuery) ([]hosts.Host, error) {
 	want := map[string]bool{}
 	for _, n := range q.Hosts {
-		want[n] = true
+		if n = strings.TrimSpace(n); n != "" {
+			want[n] = true
+		}
 	}
+	found := map[string]bool{}
 	var out []hosts.Host
 	for _, h := range all {
 		if len(want) > 0 && !want[h.Name] {
 			continue
 		}
+		found[h.Name] = true
 		if q.Role != "" && h.Role != q.Role {
 			continue
 		}
-		delete(want, h.Name)
 		out = append(out, h)
 	}
-	if len(want) > 0 {
-		var missing []string
-		for n := range want {
+	var missing []string
+	for n := range want {
+		if !found[n] {
 			missing = append(missing, n)
 		}
+	}
+	if len(missing) > 0 {
 		sort.Strings(missing)
 		return nil, redact.Guidance("unknown host(s) %s; run `cerberus host list`", strings.Join(missing, ", "))
 	}
