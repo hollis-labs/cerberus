@@ -60,6 +60,16 @@ running container.
 **Binaries.** Every executable in the installed-binary directories. Copies an operator
 keeps beside a tool (`tool.prev-20261030`, `tool.before-x`, `tool.bak`) are skipped.
 
+### Why a build is `unstamped`
+
+Go records the VCS revision only when the module sits in a repository whose `.git` is
+a **directory**. A `git worktree` has a `.git` *file*, so `go build` in a worktree
+produces a binary with no `vcs.*` settings at all, silently, even with
+`-buildvcs=true`. To ship a stamped build from a worktree's commit, build from a clone
+instead (`git clone --shared <repo> <dir> && git -C <dir> checkout <commit>`). Run any
+step that rewrites tracked files (`npm install` updating a lockfile) and restore them
+before `go build`, or the build is stamped `vcs.modified=true`.
+
 ## Flags in the table
 
 | Flag | Meaning |

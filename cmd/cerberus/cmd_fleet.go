@@ -21,7 +21,10 @@ var fleetCmd = &cobra.Command{
 	Long: `Fleet commands report what runs on a host and its build provenance.
 
 Subcommands:
-  probe     report this host's running services and installed binaries`,
+  probe        report this host's running services and installed binaries
+  inventory    what runs on every host, how far behind main, and drift
+  stage-probe  copy this build to hosts as their fleet probe (a write; --ack)
+  audit        provenance findings across the fleet, marking what is new`,
 }
 
 var fleetProbeOpts struct {

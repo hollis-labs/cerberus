@@ -98,7 +98,8 @@ func NewCerberusFleetInventoryTool(client cerbapi.Client) Tool {
 	fClient := cerbapi.FleetClientOf(client)
 	return contractTool(Tool{
 		Name: "cerberus_fleet_inventory",
-		Description: "What runs on each fleet host and what it was built from (cerberus.fleet.inventory.v1): every service, container and installed binary " +
+		Description: "What runs on each fleet host and what it was built from. " +
+			"Reports (cerberus.fleet.inventory.v1) every service, container and installed binary " +
 			"with its VCS revision, whether the build came from a dirty tree, whether a process still runs a binary since replaced on disk (pending restart), " +
 			"how many commits it is behind its repository's default branch with the merged PRs it lacks, and executables that differ across hosts (drift). " +
 			"Use it to answer 'is PR #N live?' or 'what version of X runs where?'. Results are cached for a minute; refresh=true probes again.",
