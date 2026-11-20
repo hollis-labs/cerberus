@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 )
 
 func TestFromFileReadsGoBuildInfo(t *testing.T) {
@@ -75,8 +77,8 @@ func TestHelperSleep(t *testing.T) {
 func TestScriptServiceUsesScriptAndGit(t *testing.T) {
 	dir := t.TempDir()
 	git := func(args ...string) {
-		c := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		c := gitenv.Command(context.Background(), dir, args...)
+		c.Env = append(c.Env, "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Skipf("git unavailable: %v %s", err, out)
 		}
@@ -141,11 +143,11 @@ func TestIsInterpreter(t *testing.T) {
 }
 
 func TestReleaseOf(t *testing.T) {
-	r := releaseOf("/home/u/.local/share/fleet/releases/caster/v0.0.0-327-g437deea/caster")
+	r := releaseOf("/Users/me/.local/share/fleet/releases/caster/v0.0.0-327-g437deea/caster")
 	if r == nil || r.App != "caster" || r.Version != "v0.0.0-327-g437deea" || !strings.HasSuffix(r.Dir, "/releases/caster/v0.0.0-327-g437deea") {
 		t.Fatalf("release = %+v", r)
 	}
-	if releaseOf("/home/u/.local/bin/caster") != nil {
+	if releaseOf("/Users/me/.local/bin/caster") != nil {
 		t.Fatal("non-release path matched")
 	}
 }
@@ -171,13 +173,13 @@ func TestParsePPIDWithSpacesInComm(t *testing.T) {
 
 func TestParseShow(t *testing.T) {
 	out := "Id=warden.service\nMainPID=10\nExecMainStartTimestamp=Thu 2026-11-19 21:55:43 UTC\n" +
-		"ExecStart={ path=/home/u/.local/bin/warden ; argv[]=/home/u/.local/bin/warden serve ; ignore_errors=no }\n\n" +
+		"ExecStart={ path=/Users/me/.local/bin/warden ; argv[]=/Users/me/.local/bin/warden serve ; ignore_errors=no }\n\n" +
 		"Id=other.service\nMainPID=0\nExecMainStartTimestamp=n/a\nExecStart=\n"
 	us := parseShow(out)
 	if len(us) != 2 {
 		t.Fatalf("units = %+v", us)
 	}
-	if us[0].ID != "warden.service" || us[0].MainPID != 10 || us[0].ExecPath != "/home/u/.local/bin/warden" {
+	if us[0].ID != "warden.service" || us[0].MainPID != 10 || us[0].ExecPath != "/Users/me/.local/bin/warden" {
 		t.Fatalf("unit 0 = %+v", us[0])
 	}
 	if want := time.Date(2026, 11, 19, 21, 55, 43, 0, time.UTC); !us[0].StartedAt.Equal(want) {

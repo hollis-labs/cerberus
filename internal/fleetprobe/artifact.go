@@ -10,13 +10,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/hollis-labs/cerberus/internal/gitenv"
 )
 
 // maxHashSize bounds the files the probe hashes; larger files report no digest.
@@ -250,8 +251,8 @@ func readGit(ctx context.Context, dir string) *GitInfo {
 	run := func(args ...string) (string, error) {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(cctx, "git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
+		cmd := gitenv.Command(cctx, dir, args...)
+		cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err
 	}
