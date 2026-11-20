@@ -409,6 +409,8 @@ Hosts are machines Cerberus keeps a record of (`~/.cerberus/hosts.yaml`, see
 `docs/hosts.md`). The four host commands are reads, and Cerberus reports facts
 only: it does not rank hosts, reserve them or choose where work goes.
 
+`cerberus fleet probe` reports what runs on this host and what it was built from: each service's executable, its VCS revision and whether it came from a dirty tree, and whether a process still runs a binary since replaced on disk. See `docs/fleet.md`.
+
 ```bash
 cerberus host list [--role worker] [--provider homelab] [--state online] [--label zone=a]
 cerberus host get <name>
