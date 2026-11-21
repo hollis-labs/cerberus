@@ -25,6 +25,8 @@ const (
 	deployStarted   = "started"
 	deploySucceeded = "succeeded"
 	deployFailed    = "failed"
+	// deployRolledBack is the outcome a deploy_record reports for a rollback.
+	deployRolledBack = "rolled_back"
 )
 
 // MapLifecycle maps the outcome record of an operation that changed a resource's
@@ -45,6 +47,8 @@ const (
 //     from the one outcome record, so started is announced after the fact with
 //     its true time (the outcome's time minus its duration) and the operation id
 //     as correlation id;
+//   - deploy_record (a deploy done outside `resource deploy`): one terminal
+//     deploy.state_changed (succeeded, failed or rolled_back);
 //   - a failed operation (apply, reload, deploy, stop, remove) says only that the
 //     operation failed, not what state the resource is in (a failed build leaves
 //     the previous process running), so no resource state is exported for it; a
@@ -98,6 +102,14 @@ func MapLifecycle(rec audit.Record) []Mapped {
 	case "remove":
 		if ok {
 			state(end, "", stateRemoved, "")
+		}
+	case "deploy_record":
+		// A deploy done outside `resource deploy`, recorded after the fact by
+		// `cerberus deploy record`: one terminal deploy.state_changed, no
+		// resource state (nothing here observed the process).
+		to := map[string]string{"deployed": deploySucceeded, "deploy_failed": deployFailed, "rolled_back": deployRolledBack}[rec.DeployOutcome]
+		if to != "" {
+			add(deployState(end, id, rec, "", to, "", trigger))
 		}
 	case "deploy":
 		add(deployState(start, id, rec, "", deployStarted, "", trigger))
@@ -177,6 +189,10 @@ func deployState(at time.Time, id string, rec audit.Record, from, to, reason str
 	}
 	setIf(p, "from", from)
 	setIf(p, "reason", reason)
+	// The Ops identifiers are flat and top-level, each when known.
+	setIf(p, "ops_id", rec.OpsID)
+	setIf(p, "workstream_id", rec.WorkstreamID)
+	setIf(p, "task", rec.Task)
 	severity := "info"
 	if to == deployFailed {
 		severity = "warning"

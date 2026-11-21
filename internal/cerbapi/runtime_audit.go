@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/hollis-labs/cerberus/internal/config"
+	"github.com/hollis-labs/cerberus/internal/gitenv"
+	"github.com/hollis-labs/cerberus/internal/opsref"
 	"github.com/hollis-labs/cerberus/internal/target"
+	"strings"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/plan"
 
@@ -161,12 +165,19 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	// plan hashes the definition and the run executes it, all from this.
 	snap := s.snapshotConfig()
 	ctx = withConfigSnapshot(ctx, snap)
+	// The Ops identifiers: what the caller resolved (flag, env), then the
+	// configured mapping for the resource and its project.
+	facts := deployFacts{refs: s.resolveOpsRefs(opts, id, snap)}
 	// A deploy's checkout is read once too: the plan hashes it, and the
 	// build refuses a tree that changed since (M10).
 	if operation == localconn.OpDeploy {
 		if res := findResourceDef(snap, id); res != nil {
 			if pspec, perr := localconn.SpecFromResourceConfig(res.Config); perr == nil && localconn.HasBuildStrategy(pspec) {
 				ctx = withCheckedSource(ctx, pspec.Dir)
+				facts.revision = checkoutRevision(ctx, pspec.Dir)
+			}
+			if pspec, perr := localconn.SpecFromResourceConfig(res.Config); perr == nil {
+				facts.health = strings.TrimSpace(pspec.HealthCheck.URL)
 			}
 		}
 	}
@@ -174,6 +185,7 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 		connector: def.ID, operation: operation, op: op, known: known,
 		config: config, acknowledged: opts.Acknowledged, resources: resourcesIn(snap),
 		approvalID: opts.ApprovalID, planOnly: opts.Plan, dryRun: opts.Plan, confirmedPlanHash: opts.ConfirmedPlanHash, breakGlass: opts.BreakGlass,
+		deploy: facts,
 	}
 	if opts.Plan {
 		spec.approvalID, spec.confirmedPlanHash, spec.breakGlass = "", "", nil
@@ -219,6 +231,16 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 		// Egress policy on what comes back (P4-4): build and install
 		// output are untrusted.
 		out, err = shapeAs(call, out)
+	}
+	if operation == localconn.OpDeploy {
+		// What the deploy can say about health: it ran to the end, or it did not.
+		// The health ref is "<url> ok|failed" when the resource declares a
+		// health URL, else plain ok|failed.
+		status := "ok"
+		if err != nil || out == nil || !out.Success {
+			status = "failed"
+		}
+		call.intent.Health = strings.TrimSpace(facts.health + " " + status)
 	}
 	call.finish(resultError(err, out != nil && !out.Success))
 	return out, err
@@ -276,4 +298,39 @@ func pipelineTargetLookup(id string, snap *pipelineSnapshot) func(string) (*conf
 		}
 		return &def, true
 	}
+}
+
+// resolveOpsRefs completes the identifiers a caller sent with the configured
+// mapping (the resource's entry, then its project's). An identifier nothing
+// names stays empty: a deploy is never refused for a missing one.
+func (s *ResourceRuntimeService) resolveOpsRefs(opts MutationOpts, id string, snap *config.ConfigV2) opsref.Refs {
+	given := opsref.Refs{OpsID: opts.OpsID, WorkstreamID: opts.WorkstreamID, Task: opts.Task}
+	if s.opsMapping == nil {
+		return given.Clean()
+	}
+	project := ""
+	if res := findResourceDef(snap, id); res != nil {
+		project = res.Project
+	}
+	return given.Fill(s.opsMapping().Lookup(id, project))
+}
+
+// ProjectOf is the project a resource belongs to, "" when it is unknown.
+func (s *ResourceRuntimeService) ProjectOf(id string) string {
+	if res := findResourceDef(s.snapshotConfig(), id); res != nil {
+		return res.Project
+	}
+	return ""
+}
+
+// checkoutRevision is the short commit of a checkout, "" when it cannot be
+// read. Best effort: the revision is evidence, and a deploy does not depend on it.
+func checkoutRevision(ctx context.Context, dir string) string {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := gitenv.Command(ctx, dir, "rev-parse", "--short=12", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

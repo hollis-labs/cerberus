@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/opsref"
 	"io"
 	"log/slog"
 	"net"
@@ -990,6 +991,7 @@ func decodeMutationOptions(body io.Reader, route mutationRoute) ([]MutationOptio
 	if opts.InstallAfterBuildOverride != nil {
 		options = append(options, WithInstallAfterBuildOverride(*opts.InstallAfterBuildOverride))
 	}
+	options = append(options, WithOpsRefs(opsref.Refs{OpsID: opts.OpsID, WorkstreamID: opts.WorkstreamID, Task: opts.Task}))
 	return options, nil
 }
 

@@ -223,6 +223,18 @@ type Record struct {
 	// PluginReview is what an install review showed and what was accepted.
 	PluginReview *PluginReview `json:"plugin_review,omitempty"`
 
+	// OpsID, WorkstreamID and Task say which Ops item, workstream and Torque task
+	// a deploy belongs to, each when known. Revision is what was deployed (a
+	// commit or tag), Health what the deploy's health check said, and
+	// DeployOutcome the outcome a deploy_record reports (deployed, deploy_failed,
+	// rolled_back). All are on deploy and deploy_record outcomes only.
+	OpsID         string `json:"ops_id,omitempty"`
+	WorkstreamID  string `json:"workstream_id,omitempty"`
+	Task          string `json:"task,omitempty"`
+	Revision      string `json:"revision,omitempty"`
+	Health        string `json:"health,omitempty"`
+	DeployOutcome string `json:"deploy_outcome,omitempty"`
+
 	// Note explains a chain_start, file_start, chain_break or
 	// chain_reanchored record.
 	Note     string `json:"note,omitempty"`

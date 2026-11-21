@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/hollis-labs/cerberus/internal/app"
 	"github.com/hollis-labs/cerberus/internal/cerbapi"
@@ -45,7 +46,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(127)
 	}
-	if err := rootCmd.Execute(); err != nil {
+	err := rootCmd.Execute()
+	// An in-process deploy posts its outcome to Ops in the background; give it
+	// a bounded moment to finish before the process exits.
+	app.WaitOps(30 * time.Second)
+	if err != nil {
 		// A pre-rendered error — rendered where it was made, here or by a
 		// daemon that said so — keeps its prose; anything else gets the
 		// regex net.

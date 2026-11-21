@@ -3,6 +3,7 @@ package eventexport
 import (
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/opsref"
 	"os"
 	"path/filepath"
 	"time"
@@ -14,6 +15,9 @@ import (
 // turns it on, so shipping this code changes nothing until an operator opts in.
 type Settings struct {
 	Export ExportSettings `yaml:"export"`
+	// Ops posts each deploy outcome to the Ops service (off by default) and maps
+	// resources and projects to Ops identifiers.
+	Ops opsref.Settings `yaml:"ops"`
 }
 
 // ExportSettings configures the exporter.
