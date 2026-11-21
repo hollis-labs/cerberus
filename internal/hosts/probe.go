@@ -2,6 +2,7 @@ package hosts
 
 import (
 	"bufio"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,26 +12,31 @@ import (
 // allow-list of keys and shapes: nothing a remote host prints reaches it
 // except a number, a bool or a short token that matches factRE.
 type Probed struct {
-	Source          string            `json:"source"` // "posix"
-	OS              string            `json:"os,omitempty"`
-	OSVersion       string            `json:"os_version,omitempty"`
-	Arch            string            `json:"arch,omitempty"`
-	Kernel          string            `json:"kernel,omitempty"`
-	CPU             int               `json:"cpu,omitempty"`
-	CPUModel        string            `json:"cpu_model,omitempty" cerb:"untrusted"`
-	GPUCount        *int              `json:"gpu_count,omitempty"` // nil: not determined; 0: none
-	GPUModel        string            `json:"gpu_model,omitempty" cerb:"untrusted"`
-	DiskMount       string            `json:"disk_mount,omitempty"`
-	MemoryTotal     int64             `json:"memory_total,omitempty"`
-	MemoryAvailable int64             `json:"memory_available,omitempty"`
-	DiskTotal       int64             `json:"disk_total,omitempty"`
-	DiskFree        int64             `json:"disk_free,omitempty"`
-	Load1           *float64          `json:"load1,omitempty"`
-	Load5           *float64          `json:"load5,omitempty"`
-	Load15          *float64          `json:"load15,omitempty"`
-	UptimeSeconds   int64             `json:"uptime_seconds,omitempty"`
-	Tools           map[string]bool   `json:"tools,omitempty"`
-	Units           map[string]string `json:"units,omitempty"`
+	Source          string        `json:"source"` // "posix"
+	OS              string        `json:"os,omitempty"`
+	OSVersion       string        `json:"os_version,omitempty"`
+	Arch            string        `json:"arch,omitempty"`
+	Kernel          string        `json:"kernel,omitempty"`
+	CPUPercent      *float64      `json:"cpu_percent,omitempty"`
+	Mounts          []MountSample `json:"mounts,omitempty"`
+	CPU             int           `json:"cpu,omitempty"`
+	CPUModel        string        `json:"cpu_model,omitempty" cerb:"untrusted"`
+	GPUCount        *int          `json:"gpu_count,omitempty"` // nil: not determined; 0: none
+	GPUModel        string        `json:"gpu_model,omitempty" cerb:"untrusted"`
+	DiskMount       string        `json:"disk_mount,omitempty"`
+	MemoryTotal     int64         `json:"memory_total,omitempty"`
+	MemoryAvailable int64         `json:"memory_available,omitempty"`
+	// MemoryAvailableUnknown: the probe did not report a valid available figure,
+	// so MemoryAvailable 0 is absence, not a measured zero.
+	MemoryAvailableUnknown bool              `json:"memory_available_unknown,omitempty"`
+	DiskTotal              int64             `json:"disk_total,omitempty"`
+	DiskFree               int64             `json:"disk_free,omitempty"`
+	Load1                  *float64          `json:"load1,omitempty"`
+	Load5                  *float64          `json:"load5,omitempty"`
+	Load15                 *float64          `json:"load15,omitempty"`
+	UptimeSeconds          int64             `json:"uptime_seconds,omitempty"`
+	Tools                  map[string]bool   `json:"tools,omitempty"`
+	Units                  map[string]string `json:"units,omitempty"`
 	// Hardware identity a non-root user can read (DMI on Linux, hw.model on
 	// macOS). Serial numbers need root and are never probed; see Hardware.
 	HWVendor  string       `json:"hw_vendor,omitempty" cerb:"untrusted"`
@@ -77,7 +83,11 @@ mount=/
 for d in /data /System/Volumes/Data; do [ -d "$d" ] && { mount=$d; break; }; done
 echo "disk_mount=$mount"
 echo "disk_kb=$(df -Pk "$mount" 2>/dev/null | awk 'NR==2{print $2, $4}')"
+for d in / /data /home /var /var/tmp /tmp /System/Volumes/Data; do
+  [ -d "$d" ] && df -Pk "$d" 2>/dev/null | awk -v mount="$d" 'NR==2{print "mount_kb=" mount " " $2 " " $3}'
+done
 if [ "$kind" = Darwin ]; then
+  echo "cpu_percent=$(top -l 2 -s 1 -n 0 2>/dev/null | awk '/CPU usage:/{gsub(/%/, "", $7); used=100-$7} END{if (used != "") print used}')"
   echo "os_version=$(sw_vers -productVersion 2>/dev/null)"
   echo "cpu=$(sysctl -n hw.ncpu 2>/dev/null)"
   echo "cpu_model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
@@ -88,6 +98,10 @@ if [ "$kind" = Darwin ]; then
   echo "load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"
   echo "uptime_seconds=$(sysctl -n kern.boottime 2>/dev/null | awk -v now="$(date +%s)" '{gsub(/[^0-9]/," "); if ($1) print now-$1}')"
 else
+  before=$(awk '/^cpu /{print; exit}' /proc/stat 2>/dev/null)
+  sleep 1
+  after=$(awk '/^cpu /{print; exit}' /proc/stat 2>/dev/null)
+  echo "cpu_percent=$(printf '%s\n%s\n' "$before" "$after" | awk 'NF>=5{total=0; for(i=2;i<=9 && i<=NF;i++) total+=$i; idle=$5+$6; if(NR==1){t=total; id=idle}else if(total>t) print 100*(1-(idle-id)/(total-t))}')"
   echo "os_version=$(awk -F= '/^VERSION_ID=/{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
   echo "cpu=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null)"
   echo "cpu_model=$(awk -F: '/^model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null)"
@@ -302,6 +316,7 @@ func ParsePosixProbe(out string) Probed {
 	p := Probed{Source: "posix", Tools: map[string]bool{}, Units: map[string]string{}}
 	sc := bufio.NewScanner(strings.NewReader(out))
 	sc.Buffer(make([]byte, 0, 4096), 1<<20)
+	memAvailable := false
 	for sc.Scan() {
 		key, val, ok := strings.Cut(sc.Text(), "=")
 		if !ok {
@@ -317,6 +332,27 @@ func ParsePosixProbe(out string) Probed {
 			p.Kernel = cleanFact(val)
 		case "os_version":
 			p.OSVersion = cleanFact(val)
+		case "cpu_percent":
+			if v, err := strconv.ParseFloat(val, 64); err == nil && !math.IsNaN(v) && v >= 0 && v <= 100 {
+				p.CPUPercent = &v
+			}
+		case "mount_kb":
+			f := strings.Fields(val)
+			if len(f) == 3 && IsMainMount(f[0]) {
+				total, e1 := strconv.ParseInt(f[1], 10, 64)
+				used, e2 := strconv.ParseInt(f[2], 10, 64)
+				if e1 == nil && e2 == nil && total > 0 && total <= math.MaxInt64/1024 && used >= 0 && used <= total {
+					found := false
+					for _, m := range p.Mounts {
+						if m.Mount == f[0] {
+							found = true
+						}
+					}
+					if !found {
+						p.Mounts = append(p.Mounts, MountSample{Mount: f[0], Total: total * 1024, Used: used * 1024})
+					}
+				}
+			}
 		case "cpu":
 			p.CPU = atoiBounded(val, 4096)
 		case "cpu_model":
@@ -332,18 +368,18 @@ func ParsePosixProbe(out string) Probed {
 				p.DiskMount = val
 			}
 		case "mem_available_bytes":
-			p.MemoryAvailable = atoi64(val)
+			p.MemoryAvailable, memAvailable = atoi64(val), validCount(val)
 		case "mem_total_kb":
 			p.MemoryTotal = atoi64(val) * 1024
 		case "mem_available_kb":
-			p.MemoryAvailable = atoi64(val) * 1024
+			p.MemoryAvailable, memAvailable = atoi64(val)*1024, validCount(val)
 		case "mem_total_bytes":
 			p.MemoryTotal = atoi64(val)
 		case "load":
 			f := strings.Fields(val)
 			loads := [3]**float64{&p.Load1, &p.Load5, &p.Load15}
 			for i := 0; i < len(f) && i < 3; i++ {
-				if v, err := strconv.ParseFloat(f[i], 64); err == nil && v >= 0 {
+				if v, err := strconv.ParseFloat(f[i], 64); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 {
 					*loads[i] = &v
 				}
 			}
@@ -392,6 +428,7 @@ func ParsePosixProbe(out string) Probed {
 			}
 		}
 	}
+	p.MemoryAvailableUnknown = !memAvailable
 	if len(p.Tools) == 0 {
 		p.Tools = nil
 	}
@@ -399,6 +436,12 @@ func ParsePosixProbe(out string) Probed {
 		p.Units = nil
 	}
 	return p
+}
+
+// validCount reports whether s is a nonnegative integer atoi64 reads as itself.
+func validCount(s string) bool {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return err == nil && n >= 0
 }
 
 func atoi64(s string) int64 {

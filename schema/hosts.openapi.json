@@ -548,6 +548,333 @@
         ],
         "type": "object"
       },
+      "FleetMetrics": {
+        "properties": {
+          "cpu_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MountSample"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "load1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "load15": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "load5": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpu_percent",
+          "disks",
+          "load1",
+          "load15",
+          "load5",
+          "memory_total",
+          "memory_used",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "FleetPoint": {
+        "properties": {
+          "cpu_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MountSample"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "load1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "load15": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "load5": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sample_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpu_percent",
+          "disks",
+          "load1",
+          "load15",
+          "load5",
+          "memory_total",
+          "memory_used",
+          "sample_at",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "FleetSnapshot": {
+        "properties": {
+          "generated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "hosts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FleetSnapshotHost"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema": {
+            "type": "string"
+          },
+          "step_seconds": {
+            "type": "integer"
+          },
+          "total_hosts": {
+            "type": "integer"
+          },
+          "window_start": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "generated_at",
+          "hosts",
+          "next_offset",
+          "schema",
+          "step_seconds",
+          "total_hosts",
+          "window_start"
+        ],
+        "type": "object"
+      },
+      "FleetSnapshotHost": {
+        "properties": {
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FleetMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "reachable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FleetPoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "last_seen",
+          "latest",
+          "name",
+          "reachable",
+          "roles",
+          "series",
+          "stale"
+        ],
+        "type": "object"
+      },
       "GPUCeiling": {
         "properties": {
           "power_budget_w": {
@@ -1262,6 +1589,25 @@
         ],
         "type": "object"
       },
+      "MountSample": {
+        "properties": {
+          "mount": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "used": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mount",
+          "total",
+          "used"
+        ],
+        "type": "object"
+      },
       "OutpostReach": {
         "properties": {
           "token_file": {
@@ -1327,6 +1673,9 @@
             "type": "string",
             "x-cerberus-untrusted": true
           },
+          "cpu_percent": {
+            "type": "number"
+          },
           "disk_free": {
             "type": "integer"
           },
@@ -1376,8 +1725,17 @@
           "memory_available": {
             "type": "integer"
           },
+          "memory_available_unknown": {
+            "type": "boolean"
+          },
           "memory_total": {
             "type": "integer"
+          },
+          "mounts": {
+            "items": {
+              "$ref": "#/components/schemas/MountSample"
+            },
+            "type": "array"
           },
           "nics": {
             "items": {
@@ -1613,6 +1971,9 @@
           "cpu": {
             "type": "integer"
           },
+          "cpu_percent": {
+            "type": "number"
+          },
           "disk_free": {
             "type": "integer"
           },
@@ -1634,8 +1995,17 @@
           "memory_available": {
             "type": "integer"
           },
+          "memory_available_unknown": {
+            "type": "boolean"
+          },
           "memory_total": {
             "type": "integer"
+          },
+          "mounts": {
+            "items": {
+              "$ref": "#/components/schemas/MountSample"
+            },
+            "type": "array"
           },
           "probe_ms": {
             "type": "integer"
@@ -2572,6 +2942,60 @@
           }
         ],
         "summary": "Status-change events after an id (JSON), or a Server-Sent Events stream with Accept: text/event-stream; resume with Last-Event-ID.",
+        "x-cerberus-scope": "cerberus:hosts.read (or cerberus:read)"
+      }
+    },
+    "/api/hosts/_fleet_snapshot": {
+      "get": {
+        "operationId": "fleet_snapshot_get_hosts__fleet_snapshot",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetSnapshot"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Refused: the body is {error, success:false}. 401 bad or missing credential, 403 scope or gate, 404 unknown host/component, 409 stale revision, 428 revision required."
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "cerberus:hosts.read"
+            ]
+          }
+        ],
+        "summary": "Bounded fleet health page with latest metrics and twelve five-minute samples; no remote probes.",
         "x-cerberus-scope": "cerberus:hosts.read (or cerberus:read)"
       }
     },

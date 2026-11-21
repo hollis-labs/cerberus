@@ -77,7 +77,7 @@ func TestAnExistingDatabaseUpgradesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pretend it predates the host monitoring migrations (6 is the last E1 one).
-	for _, q := range []string{`DROP TABLE host_sample_rollups`, `DROP TABLE host_rollup_state`, `DROP TABLE host_events`, `DELETE FROM schema_migrations WHERE version > 6`} {
+	for _, q := range []string{`ALTER TABLE host_samples DROP COLUMN cpu_percent`, `ALTER TABLE host_samples DROP COLUMN mounts`, `ALTER TABLE host_samples DROP COLUMN mem_available_unknown`, `DROP TABLE host_sample_rollups`, `DROP TABLE host_rollup_state`, `DROP TABLE host_events`, `DELETE FROM schema_migrations WHERE version > 6`} {
 		if _, err := old.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}

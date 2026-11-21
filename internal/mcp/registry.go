@@ -21,6 +21,7 @@ func AllTools(client cerbapi.Client) []Tool {
 		NewCerberusHealthTool(client),
 		NewCerberusPortfolioHealthTool(client),
 		NewCerberusFleetInventoryTool(client),
+		NewCerberusFleetSnapshotTool(cerbapi.FleetSnapshotClientOf(client)),
 		NewCerberusProjectListTool(client),
 		NewCerberusResourceListTool(client),
 		NewCerberusResourceStatusTool(client),

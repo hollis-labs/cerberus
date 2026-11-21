@@ -700,6 +700,7 @@ func HostDefinition() contract.Definition {
 			contract.Field("labels", labels)),
 		read(OpHostGet, "Show one host.", []string{"name"}, name),
 		read(OpHostProbe, "Measure one host over ssh and record the facts. A read: the commands are fixed.", []string{"name"}, name),
+		read(OpFleetSnapshot, "Fleet health from stored monitor samples: bounded latest metrics and one hour at five-minute intervals.", nil, contract.Field("offset", contract.IntegerSchema("Host offset (default 0).")), contract.Field("limit", contract.IntegerSchema("Hosts per page (default 100, maximum 100)."))),
 		read(OpFleetInventory, "What runs on each host and what it was built from: services, containers and installed binaries with VCS revision, dirty flag, pending restarts, commits behind the default branch, and drift across hosts. A read: runs a staged probe with a fixed command.", nil,
 			contract.Field("hosts", contract.StringSchema("Comma-separated host names; empty is every host.")),
 			contract.Field("role", contract.StringSchema("Only hosts with this role.")),
