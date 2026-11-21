@@ -127,3 +127,21 @@ func TestEventStore(t *testing.T) {
 		t.Fatalf("reused id %d", id)
 	}
 }
+
+func TestSampleStoreKeepsMemoryAvailabilityUnknown(t *testing.T) {
+	st, ctx := newStore(t), context.Background()
+	base := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	for i, p := range []string{"mem_total_kb=8\n", "mem_total_kb=8\nmem_available_kb=0\n"} {
+		pr := hosts.ParsePosixProbe(p)
+		if err := st.AppendSample(ctx, hosts.SampleFrom("a", base.Add(time.Duration(i)*time.Minute), &pr, 1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.Recent(ctx, "a", 2) // newest first
+	if err != nil || len(got) != 2 {
+		t.Fatalf("recent: %v %v", got, err)
+	}
+	if got[0].MemoryAvailableUnknown || !got[1].MemoryAvailableUnknown {
+		t.Fatalf("measured zero must stay known, missing must stay unknown: %+v", got)
+	}
+}

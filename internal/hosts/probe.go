@@ -12,28 +12,31 @@ import (
 // allow-list of keys and shapes: nothing a remote host prints reaches it
 // except a number, a bool or a short token that matches factRE.
 type Probed struct {
-	Source          string            `json:"source"` // "posix"
-	OS              string            `json:"os,omitempty"`
-	OSVersion       string            `json:"os_version,omitempty"`
-	Arch            string            `json:"arch,omitempty"`
-	Kernel          string            `json:"kernel,omitempty"`
-	CPUPercent      *float64          `json:"cpu_percent,omitempty"`
-	Mounts          []MountSample     `json:"mounts,omitempty"`
-	CPU             int               `json:"cpu,omitempty"`
-	CPUModel        string            `json:"cpu_model,omitempty" cerb:"untrusted"`
-	GPUCount        *int              `json:"gpu_count,omitempty"` // nil: not determined; 0: none
-	GPUModel        string            `json:"gpu_model,omitempty" cerb:"untrusted"`
-	DiskMount       string            `json:"disk_mount,omitempty"`
-	MemoryTotal     int64             `json:"memory_total,omitempty"`
-	MemoryAvailable int64             `json:"memory_available,omitempty"`
-	DiskTotal       int64             `json:"disk_total,omitempty"`
-	DiskFree        int64             `json:"disk_free,omitempty"`
-	Load1           *float64          `json:"load1,omitempty"`
-	Load5           *float64          `json:"load5,omitempty"`
-	Load15          *float64          `json:"load15,omitempty"`
-	UptimeSeconds   int64             `json:"uptime_seconds,omitempty"`
-	Tools           map[string]bool   `json:"tools,omitempty"`
-	Units           map[string]string `json:"units,omitempty"`
+	Source          string        `json:"source"` // "posix"
+	OS              string        `json:"os,omitempty"`
+	OSVersion       string        `json:"os_version,omitempty"`
+	Arch            string        `json:"arch,omitempty"`
+	Kernel          string        `json:"kernel,omitempty"`
+	CPUPercent      *float64      `json:"cpu_percent,omitempty"`
+	Mounts          []MountSample `json:"mounts,omitempty"`
+	CPU             int           `json:"cpu,omitempty"`
+	CPUModel        string        `json:"cpu_model,omitempty" cerb:"untrusted"`
+	GPUCount        *int          `json:"gpu_count,omitempty"` // nil: not determined; 0: none
+	GPUModel        string        `json:"gpu_model,omitempty" cerb:"untrusted"`
+	DiskMount       string        `json:"disk_mount,omitempty"`
+	MemoryTotal     int64         `json:"memory_total,omitempty"`
+	MemoryAvailable int64         `json:"memory_available,omitempty"`
+	// MemoryAvailableUnknown: the probe did not report a valid available figure,
+	// so MemoryAvailable 0 is absence, not a measured zero.
+	MemoryAvailableUnknown bool              `json:"memory_available_unknown,omitempty"`
+	DiskTotal              int64             `json:"disk_total,omitempty"`
+	DiskFree               int64             `json:"disk_free,omitempty"`
+	Load1                  *float64          `json:"load1,omitempty"`
+	Load5                  *float64          `json:"load5,omitempty"`
+	Load15                 *float64          `json:"load15,omitempty"`
+	UptimeSeconds          int64             `json:"uptime_seconds,omitempty"`
+	Tools                  map[string]bool   `json:"tools,omitempty"`
+	Units                  map[string]string `json:"units,omitempty"`
 	// Hardware identity a non-root user can read (DMI on Linux, hw.model on
 	// macOS). Serial numbers need root and are never probed; see Hardware.
 	HWVendor  string       `json:"hw_vendor,omitempty" cerb:"untrusted"`
@@ -313,6 +316,7 @@ func ParsePosixProbe(out string) Probed {
 	p := Probed{Source: "posix", Tools: map[string]bool{}, Units: map[string]string{}}
 	sc := bufio.NewScanner(strings.NewReader(out))
 	sc.Buffer(make([]byte, 0, 4096), 1<<20)
+	memAvailable := false
 	for sc.Scan() {
 		key, val, ok := strings.Cut(sc.Text(), "=")
 		if !ok {
@@ -364,11 +368,11 @@ func ParsePosixProbe(out string) Probed {
 				p.DiskMount = val
 			}
 		case "mem_available_bytes":
-			p.MemoryAvailable = atoi64(val)
+			p.MemoryAvailable, memAvailable = atoi64(val), validCount(val)
 		case "mem_total_kb":
 			p.MemoryTotal = atoi64(val) * 1024
 		case "mem_available_kb":
-			p.MemoryAvailable = atoi64(val) * 1024
+			p.MemoryAvailable, memAvailable = atoi64(val)*1024, validCount(val)
 		case "mem_total_bytes":
 			p.MemoryTotal = atoi64(val)
 		case "load":
@@ -424,6 +428,7 @@ func ParsePosixProbe(out string) Probed {
 			}
 		}
 	}
+	p.MemoryAvailableUnknown = !memAvailable
 	if len(p.Tools) == 0 {
 		p.Tools = nil
 	}
@@ -431,6 +436,12 @@ func ParsePosixProbe(out string) Probed {
 		p.Units = nil
 	}
 	return p
+}
+
+// validCount reports whether s is a nonnegative integer atoi64 reads as itself.
+func validCount(s string) bool {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return err == nil && n >= 0
 }
 
 func atoi64(s string) int64 {

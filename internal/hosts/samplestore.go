@@ -66,13 +66,13 @@ func (s *SampleStore) AppendSample(ctx context.Context, x Sample) error {
 			return fmt.Errorf("%w: sample at %s is before the rolled-up watermark %s", ErrLateSample, x.At.UTC().Format(time.RFC3339), time.Unix(w, 0).UTC().Format(time.RFC3339))
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO host_samples
-			(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms, cpu_percent, mounts)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms, cpu_percent, mounts, mem_available_unknown)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(host, ts) DO UPDATE SET load1 = excluded.load1, load5 = excluded.load5, load15 = excluded.load15,
 			  cpu = excluded.cpu, mem_total = excluded.mem_total, mem_available = excluded.mem_available,
-			  disk_total = excluded.disk_total, disk_free = excluded.disk_free, uptime_s = excluded.uptime_s, probe_ms = excluded.probe_ms, cpu_percent = excluded.cpu_percent, mounts = excluded.mounts`,
+			  disk_total = excluded.disk_total, disk_free = excluded.disk_free, uptime_s = excluded.uptime_s, probe_ms = excluded.probe_ms, cpu_percent = excluded.cpu_percent, mounts = excluded.mounts, mem_available_unknown = excluded.mem_available_unknown`,
 			x.Host, unix(x.At), nullF(x.Load1), nullF(x.Load5), nullF(x.Load15), x.CPU, x.MemoryTotal, x.MemoryAvailable,
-			x.DiskTotal, x.DiskFree, x.UptimeSeconds, x.ProbeMS, nullF(x.CPUPercent), string(mounts))
+			x.DiskTotal, x.DiskFree, x.UptimeSeconds, x.ProbeMS, nullF(x.CPUPercent), string(mounts), x.MemoryAvailableUnknown)
 		return err
 	})
 }
@@ -82,8 +82,8 @@ func scanSample(rows *sql.Rows) (Sample, error) {
 	var ts int64
 	var l1, l5, l15, cpuPercent sql.NullFloat64
 	var mounts sql.NullString
-	var cpu, mt, ma, dt, df, up, pm sql.NullInt64
-	if err := rows.Scan(&x.Host, &ts, &l1, &l5, &l15, &cpu, &mt, &ma, &dt, &df, &up, &pm, &cpuPercent, &mounts); err != nil {
+	var cpu, mt, ma, dt, df, up, pm, maUnknown sql.NullInt64
+	if err := rows.Scan(&x.Host, &ts, &l1, &l5, &l15, &cpu, &mt, &ma, &dt, &df, &up, &pm, &cpuPercent, &mounts, &maUnknown); err != nil {
 		return x, err
 	}
 	if cpuPercent.Valid {
@@ -102,11 +102,14 @@ func scanSample(rows *sql.Rows) (Sample, error) {
 		}
 	}
 	x.CPU, x.MemoryTotal, x.MemoryAvailable = int(cpu.Int64), mt.Int64, ma.Int64
+	// Rows from before the flag cannot tell a measured zero from a missing
+	// figure; a zero there is read as unknown.
+	x.MemoryAvailableUnknown = maUnknown.Int64 != 0 || (!maUnknown.Valid && ma.Int64 == 0)
 	x.DiskTotal, x.DiskFree, x.UptimeSeconds, x.ProbeMS = dt.Int64, df.Int64, up.Int64, pm.Int64
 	return x, nil
 }
 
-const sampleCols = `host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms, cpu_percent, mounts`
+const sampleCols = `host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms, cpu_percent, mounts, mem_available_unknown`
 
 // Recent returns a host's latest n samples, newest first.
 func (s *SampleStore) Recent(ctx context.Context, host string, n int) ([]Sample, error) {

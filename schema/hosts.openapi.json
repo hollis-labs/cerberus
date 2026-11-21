@@ -1725,6 +1725,9 @@
           "memory_available": {
             "type": "integer"
           },
+          "memory_available_unknown": {
+            "type": "boolean"
+          },
           "memory_total": {
             "type": "integer"
           },
@@ -1991,6 +1994,9 @@
           },
           "memory_available": {
             "type": "integer"
+          },
+          "memory_available_unknown": {
+            "type": "boolean"
           },
           "memory_total": {
             "type": "integer"

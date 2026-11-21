@@ -180,3 +180,27 @@ func TestFleetSnapshotDefaultPageBound(t *testing.T) {
 		t.Fatalf("bound: %+v", out)
 	}
 }
+
+func TestFleetMetricsMemoryAvailabilityStaysUnknown(t *testing.T) {
+	cases := []struct {
+		name, out string
+		known     bool
+		used      int64
+	}{
+		{"missing", "mem_total_kb=1024\n", false, 0},
+		{"invalid", "mem_total_kb=1024\nmem_available_kb=invalid\n", false, 0},
+		{"negative", "mem_total_kb=1024\nmem_available_kb=-5\n", false, 0},
+		{"measured zero", "mem_total_kb=1024\nmem_available_kb=0\n", true, 1 << 20},
+		{"measured", "mem_total_kb=1024\nmem_available_kb=256\n", true, 768 << 10},
+	}
+	for _, c := range cases {
+		p := hosts.ParsePosixProbe(c.out)
+		m := fleetMetrics(hosts.SampleFrom("h", time.Unix(1000, 0), &p, 1))
+		if m.MemoryTotal == nil || *m.MemoryTotal != 1<<20 {
+			t.Fatalf("%s: total must stay available: %+v", c.name, m.MemoryTotal)
+		}
+		if c.known != (m.MemoryUsed != nil) || (c.known && *m.MemoryUsed != c.used) {
+			t.Fatalf("%s: used = %v, want known=%v %d", c.name, m.MemoryUsed, c.known, c.used)
+		}
+	}
+}

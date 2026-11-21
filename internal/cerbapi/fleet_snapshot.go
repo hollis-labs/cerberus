@@ -72,10 +72,13 @@ func fleetMetrics(x hosts.Sample) FleetMetrics {
 	if m.CPUPercent != nil && *m.CPUPercent > 100 {
 		m.CPUPercent = nil
 	}
-	if x.MemoryTotal > 0 && x.MemoryAvailable >= 0 && x.MemoryAvailable <= x.MemoryTotal {
-		used := x.MemoryTotal - x.MemoryAvailable
-		m.MemoryUsed = &used
-		m.MemoryTotal = &x.MemoryTotal
+	if x.MemoryTotal > 0 {
+		total := x.MemoryTotal
+		m.MemoryTotal = &total
+		if !x.MemoryAvailableUnknown && x.MemoryAvailable >= 0 && x.MemoryAvailable <= x.MemoryTotal {
+			used := x.MemoryTotal - x.MemoryAvailable
+			m.MemoryUsed = &used
+		}
 	}
 	seen := map[string]bool{}
 	for _, d := range x.Mounts {

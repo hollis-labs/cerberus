@@ -203,16 +203,18 @@ type Sample struct {
 	CPU             int           `json:"cpu,omitempty"`
 	MemoryTotal     int64         `json:"memory_total,omitempty"`
 	MemoryAvailable int64         `json:"memory_available,omitempty"`
-	DiskTotal       int64         `json:"disk_total,omitempty"`
-	DiskFree        int64         `json:"disk_free,omitempty"`
-	UptimeSeconds   int64         `json:"uptime_seconds,omitempty"`
-	ProbeMS         int64         `json:"probe_ms,omitempty"`
+	// MemoryAvailableUnknown: MemoryAvailable 0 is absence, not a measured zero.
+	MemoryAvailableUnknown bool  `json:"memory_available_unknown,omitempty"`
+	DiskTotal              int64 `json:"disk_total,omitempty"`
+	DiskFree               int64 `json:"disk_free,omitempty"`
+	UptimeSeconds          int64 `json:"uptime_seconds,omitempty"`
+	ProbeMS                int64 `json:"probe_ms,omitempty"`
 }
 
 // SampleFrom builds the sample a successful probe yields.
 func SampleFrom(host string, at time.Time, p *Probed, probeMS int64) Sample {
 	return Sample{Host: host, At: at.UTC().Truncate(time.Second), Load1: p.Load1, Load5: p.Load5, Load15: p.Load15, CPU: p.CPU,
-		MemoryTotal: p.MemoryTotal, MemoryAvailable: p.MemoryAvailable, DiskTotal: p.DiskTotal, DiskFree: p.DiskFree,
+		MemoryTotal: p.MemoryTotal, MemoryAvailable: p.MemoryAvailable, MemoryAvailableUnknown: p.MemoryAvailableUnknown, DiskTotal: p.DiskTotal, DiskFree: p.DiskFree,
 		UptimeSeconds: p.UptimeSeconds, ProbeMS: probeMS, CPUPercent: p.CPUPercent, Mounts: p.Mounts}
 }
 
@@ -241,7 +243,7 @@ func (t Thresholds) Reasons(o Observation, recent []Sample, timeout time.Duratio
 			out = append(out, Reason{"disk_low", fmt.Sprintf("%.0f%% free (%s) of the data disk", pct, humanSize(s.DiskFree))})
 		}
 	}
-	if s.MemoryTotal > 0 {
+	if s.MemoryTotal > 0 && !s.MemoryAvailableUnknown {
 		if pct := float64(s.MemoryAvailable) / float64(s.MemoryTotal) * 100; pct < t.MemoryAvailablePercent {
 			out = append(out, Reason{"memory_low", fmt.Sprintf("%.0f%% of memory available (%s)", pct, humanSize(s.MemoryAvailable))})
 		}
