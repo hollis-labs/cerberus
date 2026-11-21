@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -189,8 +190,11 @@ func (s *Sink) Wait(ctx context.Context) {
 // send posts with bounded retries. A refusal from Ops is final (retrying the
 // same post cannot change it); a transport error or a 5xx is retried.
 func (s *Sink) send(post Post) {
-	attempts := 1 + *s.cfg.Retries
-	var last error
+	attempts := 1
+	if s.cfg.Retries != nil && *s.cfg.Retries > 0 {
+		attempts += *s.cfg.Retries
+	}
+	last := errors.New("no attempt was made")
 	for i := 1; i <= attempts; i++ {
 		retry, err := s.postOnce(post)
 		if err == nil {

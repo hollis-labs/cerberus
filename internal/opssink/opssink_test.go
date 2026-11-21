@@ -359,3 +359,19 @@ func TestMissingTokenFileIsLoggedNotFatal(t *testing.T) {
 		t.Fatalf("not logged: %s", logs.String())
 	}
 }
+
+// A negative retries setting must send exactly once and never panic.
+func TestNegativeRetriesSendsOnce(t *testing.T) {
+	f := &fakeOps{handler: func(w http.ResponseWriter, _ *http.Request, _ int) { http.Error(w, "boom", 500) }}
+	srv := f.server(t)
+	var logs bytes.Buffer
+	s := newSink(t, srv.URL, -1, &logs)
+	s.Observe(outcomeRec(OpDeploy, "ok"))
+	wait(s)
+	if f.calls.Load() != 1 {
+		t.Fatalf("%d attempts, want 1", f.calls.Load())
+	}
+	// Even a sink built around unclamped settings must not panic.
+	s.cfg.Retries = nil
+	s.send(Post{Kind: "deployed"})
+}

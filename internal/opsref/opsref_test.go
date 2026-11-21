@@ -56,3 +56,13 @@ func TestSettingsDefaults(t *testing.T) {
 		t.Fatal("an explicit retries: 0 must survive")
 	}
 }
+
+func TestSettingsClamp(t *testing.T) {
+	neg, big := -1, 1000
+	if got := (Settings{Retries: &neg, TimeoutSeconds: -5}).WithDefaults(); *got.Retries != 0 || got.TimeoutSeconds != 5 {
+		t.Errorf("negative: retries %d timeout %d", *got.Retries, got.TimeoutSeconds)
+	}
+	if got := (Settings{Retries: &big}).WithDefaults(); *got.Retries != MaxRetries {
+		t.Errorf("big: retries %d, want %d", *got.Retries, MaxRetries)
+	}
+}

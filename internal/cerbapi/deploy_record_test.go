@@ -134,6 +134,7 @@ func TestResourceDeployRecordsIdentifiersAndPostsOneOutcome(t *testing.T) {
 	cfg := &config.ConfigV2{Resources: []config.ResourceDef{{ID: id, Project: "proj", Type: "process", Connector: "local", Config: map[string]any{
 		"dir": dir, "command": []string{"./app"}, "log_file": filepath.Join(dir, "runtime.log"), "install_root": filepath.Join(dir, "install"),
 		"install_after_build": false, "build_strategy": map[string]any{"kind": "make_standard", "rules": map[string]any{"output": "./app"}},
+		"health_check": map[string]any{"url": "http://127.0.0.1:9/healthz"},
 	}}}}
 	mem := audit.NewMemory()
 	svc := NewResourceRuntimeService(opssink.Wrap(mem, ops), WithResourceRuntimeConfigV2(cfg),
@@ -152,7 +153,7 @@ func TestResourceDeployRecordsIdentifiersAndPostsOneOutcome(t *testing.T) {
 			outcome = rec
 		}
 	}
-	if outcome.OpsID != "mapped-ops" || outcome.Task != "CW-7" || outcome.Health != "failed" {
+	if outcome.OpsID != "mapped-ops" || outcome.Task != "CW-7" || outcome.Health != "http://127.0.0.1:9/healthz failed" {
 		t.Fatalf("outcome record: ops=%q task=%q health=%q", outcome.OpsID, outcome.Task, outcome.Health)
 	}
 	// The intent carries them too, so a deploy that never finishes is still linked.

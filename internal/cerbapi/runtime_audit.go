@@ -176,6 +176,9 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 				ctx = withCheckedSource(ctx, pspec.Dir)
 				facts.revision = checkoutRevision(ctx, pspec.Dir)
 			}
+			if pspec, perr := localconn.SpecFromResourceConfig(res.Config); perr == nil {
+				facts.health = strings.TrimSpace(pspec.HealthCheck.URL)
+			}
 		}
 	}
 	spec := auditSpec{
@@ -231,10 +234,13 @@ func (s *ResourceRuntimeService) recordMutation(ctx context.Context, operation, 
 	}
 	if operation == localconn.OpDeploy {
 		// What the deploy can say about health: it ran to the end, or it did not.
-		call.intent.Health = "ok"
+		// The health ref is "<url> ok|failed" when the resource declares a
+		// health URL, else plain ok|failed.
+		status := "ok"
 		if err != nil || out == nil || !out.Success {
-			call.intent.Health = "failed"
+			status = "failed"
 		}
+		call.intent.Health = strings.TrimSpace(facts.health + " " + status)
 	}
 	call.finish(resultError(err, out != nil && !out.Success))
 	return out, err

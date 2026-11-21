@@ -34,7 +34,7 @@ The arguments are flat and top-level. `ops_id`, `workstream_id` and `task` are e
 - The evidence `kind` is `commit` when the revision looks like a commit hash, otherwise `revision`.
 - A deploy with no known id **is still posted**; Ops files it as unlinked. Cerberus never skips a post for a missing id and never refuses a deploy for one.
 - Cerberus writes no Torque comment itself. Ops mirrors the post to the task.
-- For `resource deploy`, the revision is the checkout's short commit and `health` is `ok` or `failed` (the deploy ran to the end, or it did not). `deploy record` carries whatever `--revision` and `--health` say.
+- For `resource deploy`, the revision is the checkout's short commit and `health` is `<health url> ok|failed` when the resource declares `health_check.url`, else plain `ok|failed`. `deploy record` carries whatever `--revision` and `--health` say.
 
 The same fields (`ops_id`, `workstream_id`, `task`) are carried flat on the exported `deploy.state_changed` event, and on the audit record (new fields `ops_id`, `workstream_id`, `task`, `revision`, `health`, `deploy_outcome`).
 

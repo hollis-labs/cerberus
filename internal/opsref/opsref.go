@@ -23,6 +23,9 @@ const (
 	defaultRetries = 2
 )
 
+// MaxRetries caps ops.retries.
+const MaxRetries = 10
+
 // Refs are the identifiers, each possibly empty.
 type Refs struct {
 	OpsID        string `json:"ops_id,omitempty"`
@@ -118,9 +121,12 @@ func (s Settings) WithDefaults() Settings {
 	if s.TimeoutSeconds <= 0 {
 		s.TimeoutSeconds = defaultTimeout
 	}
-	if s.Retries == nil {
-		r := defaultRetries
-		s.Retries = &r
+	// Retries is clamped to 0..MaxRetries; a negative or absent value is not a
+	// reason to skip the first attempt or to retry without bound.
+	r := defaultRetries
+	if s.Retries != nil {
+		r = min(max(*s.Retries, 0), MaxRetries)
 	}
+	s.Retries = &r
 	return s
 }
