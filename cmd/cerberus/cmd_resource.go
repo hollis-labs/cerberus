@@ -334,6 +334,7 @@ func ackOption(cmd *cobra.Command) cerbapi.MutationOption {
 	return func(o *cerbapi.MutationOpts) {
 		cerbapi.WithAcknowledged(ack)(o)
 		cerbapi.WithApprovalID(approvalID)(o)
+		cerbapi.WithOpsRefs(opsRefsFromCommand(cmd))(o)
 	}
 }
 
@@ -1082,6 +1083,9 @@ func init() {
 	for _, c := range []*cobra.Command{resourceDeployCmd, resourceEnsureFreshCmd, resourceApplyCmd, resourceReloadCmd, resourceStopCmd, resourceSyncCmd, resourceRemoveCmd} {
 		c.Flags().Bool("ack", false, "acknowledge the operation; every resource mutation requires it")
 		c.Flags().String("approval", "", "run under this approved approval id")
+		if c == resourceDeployCmd || c == resourceApplyCmd || c == resourceReloadCmd || c == resourceEnsureFreshCmd {
+			addOpsFlags(c)
+		}
 		c.Flags().Bool("break-glass", false, "get past an approve decision yourself, loudly: needs a terminal, --reason and the target typed; never gets past a deny")
 		c.Flags().String("reason", "", "why you are breaking glass (required with --break-glass; it goes on the record)")
 	}

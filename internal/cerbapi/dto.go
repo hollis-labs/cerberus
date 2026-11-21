@@ -25,6 +25,7 @@ package cerbapi
 
 import (
 	"encoding/json"
+	"github.com/hollis-labs/cerberus/internal/opsref"
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/config"
@@ -123,6 +124,13 @@ type MutationOpts struct {
 	// approval would bind to, and its hash. It is recorded as a dry run.
 	Plan bool `json:"plan,omitempty"`
 
+	// OpsID, WorkstreamID and Task are the Ops identifiers the caller resolved
+	// (flag, then its environment). The serving process fills the ones still
+	// empty from its configured mapping. They are recorded on the audit record.
+	OpsID        string `json:"ops_id,omitempty"`
+	WorkstreamID string `json:"workstream_id,omitempty"`
+	Task         string `json:"task,omitempty"`
+
 	// ConfirmedPlanHash is the plan a person confirmed on their own
 	// terminal (P3-3); only a confirm route sets it, never a request body.
 	ConfirmedPlanHash string `json:"-"`
@@ -162,6 +170,11 @@ func WithApprovalID(id string) MutationOption {
 // terminal, for the plan with this hash (P3-3).
 func WithConfirmedPlanHash(hash string) MutationOption {
 	return func(o *MutationOpts) { o.ConfirmedPlanHash = hash }
+}
+
+// WithOpsRefs carries the Ops identifiers the caller resolved.
+func WithOpsRefs(r opsref.Refs) MutationOption {
+	return func(o *MutationOpts) { o.OpsID, o.WorkstreamID, o.Task = r.OpsID, r.WorkstreamID, r.Task }
 }
 
 // WithPlan asks for the call's plan instead of running it.

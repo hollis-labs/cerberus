@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/opssink"
 	"io"
 	"log/slog"
 	"os"
@@ -95,6 +96,7 @@ func NewWithOptions(opts Options) (*App, error) {
 		cerbapi.WithResourceRuntimeConfigV2(v2),
 		cerbapi.WithResourceRuntimeConfigPath(opts.ConfigPath),
 		cerbapi.WithResourceRuntimeAppliedPath(appliedPath()),
+		cerbapi.WithResourceRuntimeOpsMapping(OpsMapping),
 	)
 	external := cerbapi.NewExternalConnectorService(AuditSink(), registry)
 	external.SetResourceLookup(runtime.ResourceDef)
@@ -175,7 +177,8 @@ func AuditSink() audit.Sink {
 			primary = audit.Unavailable{Err: err}
 		}
 		auditSwitch = audit.NewSwitch(guardStandby(primary))
-		auditSink = auditSwitch
+		// Deploy outcomes are also posted to Ops, when ops.enabled.
+		auditSink = opssink.Wrap(auditSwitch, openOpsSink())
 	})
 	policyOnce.Do(installPolicy)
 	return auditSink
@@ -369,7 +372,7 @@ func NewLocalHostService(configPath ...string) *cerbapi.HostService {
 // CLI, over the config at configPath (the default when empty), writing to
 // this process's audit sink. cfg, when non-nil, is an already-resolved config.
 func NewResourceRuntimeService(configPath string, cfg *config.ConfigV2) *cerbapi.ResourceRuntimeService {
-	opts := []cerbapi.ResourceRuntimeOption{cerbapi.WithResourceRuntimeConfigPath(configPath), cerbapi.WithResourceRuntimeAppliedPath(appliedPath())}
+	opts := []cerbapi.ResourceRuntimeOption{cerbapi.WithResourceRuntimeConfigPath(configPath), cerbapi.WithResourceRuntimeAppliedPath(appliedPath()), cerbapi.WithResourceRuntimeOpsMapping(OpsMapping)}
 	if cfg != nil {
 		opts = append(opts, cerbapi.WithResourceRuntimeConfigV2(cfg))
 	}

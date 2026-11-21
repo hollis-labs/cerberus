@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hollis-labs/cerberus/internal/opsref"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -36,6 +37,10 @@ type ResourceRuntimeService struct {
 	audit  audit.Sink
 
 	cfgPath string
+
+	// opsMapping is the configured resource/project -> Ops identifier mapping,
+	// read on each call so an edit to the settings file applies without a restart.
+	opsMapping func() opsref.Mapping
 
 	cfgMu sync.RWMutex
 	cfg   *config.ConfigV2
@@ -82,6 +87,12 @@ func (s *ResourceRuntimeService) lookupDrift(id string) (localconn.ArtifactStatu
 const resourceStatusProbeTimeout = 750 * time.Millisecond
 
 type ResourceRuntimeOption func(*ResourceRuntimeService)
+
+// WithResourceRuntimeOpsMapping supplies the mapping a deploy's Ops
+// identifiers are completed from.
+func WithResourceRuntimeOpsMapping(f func() opsref.Mapping) ResourceRuntimeOption {
+	return func(s *ResourceRuntimeService) { s.opsMapping = f }
+}
 
 func WithResourceRuntimeConfigV2(cfg *config.ConfigV2) ResourceRuntimeOption {
 	return func(s *ResourceRuntimeService) { s.cfg = cfg }

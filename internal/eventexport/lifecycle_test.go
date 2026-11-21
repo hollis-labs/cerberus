@@ -213,3 +213,58 @@ func TestExporterTurnsAnAuditedDeployIntoLifecycleEventsOnce(t *testing.T) {
 		t.Fatalf("after restart kinds = %s", got)
 	}
 }
+
+func deployPayloads(t *testing.T, ms []Mapped) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, m := range ms {
+		if string(m.Envelope.Kind) != "deploy.state_changed" {
+			continue
+		}
+		var p map[string]any
+		if err := json.Unmarshal(m.Envelope.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func TestDeployEventsCarryOpsIdentifiersFlat(t *testing.T) {
+	rec := lifecycleOutcome("deploy", "ok", audit.Principal{Kind: "agent", Surface: "socket"})
+	rec.OpsID, rec.WorkstreamID, rec.Task = "ops-system-of-record", "workstream:01M7Z8Q1TYGJRP0X85Z7Z88N90", "CW-20261121-0155"
+	ps := deployPayloads(t, MapLifecycle(rec))
+	if len(ps) != 2 {
+		t.Fatalf("%d deploy events, want started and succeeded", len(ps))
+	}
+	for _, p := range ps {
+		if p["ops_id"] != "ops-system-of-record" || p["workstream_id"] != "workstream:01M7Z8Q1TYGJRP0X85Z7Z88N90" || p["task"] != "CW-20261121-0155" {
+			t.Errorf("identifiers are not flat top-level fields: %v", p)
+		}
+	}
+	// Unknown identifiers are left out, not sent empty.
+	bare := deployPayloads(t, MapLifecycle(lifecycleOutcome("deploy", "ok", audit.Principal{Kind: "human"})))
+	for _, p := range bare {
+		for _, k := range []string{"ops_id", "workstream_id", "task"} {
+			if _, ok := p[k]; ok {
+				t.Errorf("%s present with no value: %v", k, p)
+			}
+		}
+	}
+}
+
+func TestDeployRecordEmitsOneTerminalDeployEvent(t *testing.T) {
+	for outcome, to := range map[string]string{"deployed": "succeeded", "deploy_failed": "failed", "rolled_back": "rolled_back"} {
+		rec := lifecycleOutcome("deploy_record", "ok", audit.Principal{Kind: "agent", Surface: "in_process"})
+		rec.DeployOutcome, rec.Task = outcome, "CW-1"
+		ms := MapLifecycle(rec)
+		ps := deployPayloads(t, ms)
+		if len(ms) != 1 || len(ps) != 1 || ps[0]["to"] != to || ps[0]["task"] != "CW-1" {
+			t.Errorf("%s: %d events, payloads %v, want one deploy event to %s", outcome, len(ms), ps, to)
+		}
+	}
+	rec := lifecycleOutcome("deploy_record", "ok", audit.Principal{})
+	if got := MapLifecycle(rec); got != nil {
+		t.Fatalf("a deploy_record with no outcome produced %d events", len(got))
+	}
+}

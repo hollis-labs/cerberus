@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hollis-labs/cerberus/internal/audit"
+	"github.com/hollis-labs/cerberus/internal/opsref"
 	"github.com/hollis-labs/cerberus/internal/plan"
 	"github.com/hollis-labs/cerberus/internal/pluginhost"
 	"github.com/hollis-labs/cerberus/internal/redact"
@@ -77,7 +78,18 @@ type auditSpec struct {
 	// operationID, when set, is the id the call's records carry: a
 	// break-glass record is written before the intent, and links to it.
 	operationID string
-	plan        func(context.Context) (plan.Plan, error)
+	// deploy is what a deploy or deploy_record says about itself: the Ops
+	// identifiers, revision, health and (for deploy_record) outcome.
+	deploy deployFacts
+	plan   func(context.Context) (plan.Plan, error)
+}
+
+// deployFacts are the deploy-specific fields of a record.
+type deployFacts struct {
+	refs     opsref.Refs
+	revision string
+	health   string
+	outcome  string
 }
 
 // auditCall is one operation's pair of records.
@@ -143,6 +155,9 @@ func beginAudit(ctx context.Context, sink audit.Sink, logger *slog.Logger, spec 
 		Preview:                spec.preview,
 		PluginReview:           spec.review,
 		Enforcement:            spec.enforcement,
+
+		OpsID: spec.deploy.refs.OpsID, WorkstreamID: spec.deploy.refs.WorkstreamID, Task: spec.deploy.refs.Task,
+		Revision: spec.deploy.revision, Health: spec.deploy.health, DeployOutcome: spec.deploy.outcome,
 	}
 	var resolved target.Target
 	intent.Target, resolved = auditTarget(spec)
