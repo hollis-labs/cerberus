@@ -174,27 +174,46 @@ type HostStatus struct {
 	CandidateCount int    `json:"candidate_count,omitempty"`
 }
 
+// MountSample is filesystem usage for one fixed main path, in bytes.
+// Paths sharing a filesystem deliberately appear separately (for example /var/tmp).
+type MountSample struct {
+	Mount string `json:"mount"`
+	Used  int64  `json:"used"`
+	Total int64  `json:"total"`
+}
+
+// IsMainMount bounds probe and fleet output to the main filesystem paths.
+func IsMainMount(m string) bool {
+	switch m {
+	case "/", "/data", "/home", "/var", "/var/tmp", "/tmp", "/System/Volumes/Data":
+		return true
+	}
+	return false
+}
+
 // Sample is one successful measurement.
 type Sample struct {
-	Host            string    `json:"host"`
-	At              time.Time `json:"ts"`
-	Load1           *float64  `json:"load1,omitempty"`
-	Load5           *float64  `json:"load5,omitempty"`
-	Load15          *float64  `json:"load15,omitempty"`
-	CPU             int       `json:"cpu,omitempty"`
-	MemoryTotal     int64     `json:"memory_total,omitempty"`
-	MemoryAvailable int64     `json:"memory_available,omitempty"`
-	DiskTotal       int64     `json:"disk_total,omitempty"`
-	DiskFree        int64     `json:"disk_free,omitempty"`
-	UptimeSeconds   int64     `json:"uptime_seconds,omitempty"`
-	ProbeMS         int64     `json:"probe_ms,omitempty"`
+	Host            string        `json:"host"`
+	At              time.Time     `json:"ts"`
+	Load1           *float64      `json:"load1,omitempty"`
+	Load5           *float64      `json:"load5,omitempty"`
+	Load15          *float64      `json:"load15,omitempty"`
+	CPUPercent      *float64      `json:"cpu_percent,omitempty"`
+	Mounts          []MountSample `json:"mounts,omitempty"`
+	CPU             int           `json:"cpu,omitempty"`
+	MemoryTotal     int64         `json:"memory_total,omitempty"`
+	MemoryAvailable int64         `json:"memory_available,omitempty"`
+	DiskTotal       int64         `json:"disk_total,omitempty"`
+	DiskFree        int64         `json:"disk_free,omitempty"`
+	UptimeSeconds   int64         `json:"uptime_seconds,omitempty"`
+	ProbeMS         int64         `json:"probe_ms,omitempty"`
 }
 
 // SampleFrom builds the sample a successful probe yields.
 func SampleFrom(host string, at time.Time, p *Probed, probeMS int64) Sample {
 	return Sample{Host: host, At: at.UTC().Truncate(time.Second), Load1: p.Load1, Load5: p.Load5, Load15: p.Load15, CPU: p.CPU,
 		MemoryTotal: p.MemoryTotal, MemoryAvailable: p.MemoryAvailable, DiskTotal: p.DiskTotal, DiskFree: p.DiskFree,
-		UptimeSeconds: p.UptimeSeconds, ProbeMS: probeMS}
+		UptimeSeconds: p.UptimeSeconds, ProbeMS: probeMS, CPUPercent: p.CPUPercent, Mounts: p.Mounts}
 }
 
 // Observation is what one probe attempt found.

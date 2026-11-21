@@ -411,6 +411,9 @@ only: it does not rank hosts, reserve them or choose where work goes.
 
 `cerberus fleet probe` reports what runs on this host and what it was built from: each service's executable, its VCS revision and whether it came from a dirty tree, and whether a process still runs a binary since replaced on disk. See `docs/fleet.md`.
 
+Fleet health is available through [`cerberus_fleet_snapshot`](docs/fleet-snapshot.md),
+a bounded read of monitor samples with latest metrics and one hour of five-minute points.
+
 ```bash
 cerberus host list [--role worker] [--provider homelab] [--state online] [--label zone=a]
 cerberus host get <name>

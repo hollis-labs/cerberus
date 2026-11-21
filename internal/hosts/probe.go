@@ -2,6 +2,7 @@ package hosts
 
 import (
 	"bufio"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,6 +17,8 @@ type Probed struct {
 	OSVersion       string            `json:"os_version,omitempty"`
 	Arch            string            `json:"arch,omitempty"`
 	Kernel          string            `json:"kernel,omitempty"`
+	CPUPercent      *float64          `json:"cpu_percent,omitempty"`
+	Mounts          []MountSample     `json:"mounts,omitempty"`
 	CPU             int               `json:"cpu,omitempty"`
 	CPUModel        string            `json:"cpu_model,omitempty" cerb:"untrusted"`
 	GPUCount        *int              `json:"gpu_count,omitempty"` // nil: not determined; 0: none
@@ -77,7 +80,11 @@ mount=/
 for d in /data /System/Volumes/Data; do [ -d "$d" ] && { mount=$d; break; }; done
 echo "disk_mount=$mount"
 echo "disk_kb=$(df -Pk "$mount" 2>/dev/null | awk 'NR==2{print $2, $4}')"
+for d in / /data /home /var /var/tmp /tmp /System/Volumes/Data; do
+  [ -d "$d" ] && df -Pk "$d" 2>/dev/null | awk -v mount="$d" 'NR==2{print "mount_kb=" mount " " $2 " " $3}'
+done
 if [ "$kind" = Darwin ]; then
+  echo "cpu_percent=$(top -l 2 -s 1 -n 0 2>/dev/null | awk '/CPU usage:/{gsub(/%/, "", $7); used=100-$7} END{if (used != "") print used}')"
   echo "os_version=$(sw_vers -productVersion 2>/dev/null)"
   echo "cpu=$(sysctl -n hw.ncpu 2>/dev/null)"
   echo "cpu_model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
@@ -88,6 +95,10 @@ if [ "$kind" = Darwin ]; then
   echo "load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"
   echo "uptime_seconds=$(sysctl -n kern.boottime 2>/dev/null | awk -v now="$(date +%s)" '{gsub(/[^0-9]/," "); if ($1) print now-$1}')"
 else
+  before=$(awk '/^cpu /{print; exit}' /proc/stat 2>/dev/null)
+  sleep 1
+  after=$(awk '/^cpu /{print; exit}' /proc/stat 2>/dev/null)
+  echo "cpu_percent=$(printf '%s\n%s\n' "$before" "$after" | awk 'NF>=5{total=0; for(i=2;i<=9 && i<=NF;i++) total+=$i; idle=$5+$6; if(NR==1){t=total; id=idle}else if(total>t) print 100*(1-(idle-id)/(total-t))}')"
   echo "os_version=$(awk -F= '/^VERSION_ID=/{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
   echo "cpu=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null)"
   echo "cpu_model=$(awk -F: '/^model name/{print $2; exit}' /proc/cpuinfo 2>/dev/null)"
@@ -317,6 +328,27 @@ func ParsePosixProbe(out string) Probed {
 			p.Kernel = cleanFact(val)
 		case "os_version":
 			p.OSVersion = cleanFact(val)
+		case "cpu_percent":
+			if v, err := strconv.ParseFloat(val, 64); err == nil && !math.IsNaN(v) && v >= 0 && v <= 100 {
+				p.CPUPercent = &v
+			}
+		case "mount_kb":
+			f := strings.Fields(val)
+			if len(f) == 3 && IsMainMount(f[0]) {
+				total, e1 := strconv.ParseInt(f[1], 10, 64)
+				used, e2 := strconv.ParseInt(f[2], 10, 64)
+				if e1 == nil && e2 == nil && total > 0 && total <= math.MaxInt64/1024 && used >= 0 && used <= total {
+					found := false
+					for _, m := range p.Mounts {
+						if m.Mount == f[0] {
+							found = true
+						}
+					}
+					if !found {
+						p.Mounts = append(p.Mounts, MountSample{Mount: f[0], Total: total * 1024, Used: used * 1024})
+					}
+				}
+			}
 		case "cpu":
 			p.CPU = atoiBounded(val, 4096)
 		case "cpu_model":
@@ -343,7 +375,7 @@ func ParsePosixProbe(out string) Probed {
 			f := strings.Fields(val)
 			loads := [3]**float64{&p.Load1, &p.Load5, &p.Load15}
 			for i := 0; i < len(f) && i < 3; i++ {
-				if v, err := strconv.ParseFloat(f[i], 64); err == nil && v >= 0 {
+				if v, err := strconv.ParseFloat(f[i], 64); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 {
 					*loads[i] = &v
 				}
 			}

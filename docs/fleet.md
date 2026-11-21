@@ -1,5 +1,7 @@
 # Fleet provenance
 
+For the stored CPU/memory/disk/load health view, see [Fleet health snapshot](fleet-snapshot.md).
+
 `cerberus fleet probe` answers, for one host, *what is running and what was it built
 from*. It is the data layer for fleet inventory: run it on every host and you can tell
 which commit each service runs, whether that build came from a clean tree, and whether

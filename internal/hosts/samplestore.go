@@ -48,6 +48,10 @@ func unixPtr(t *time.Time) any {
 // AppendSample records a measurement. A second sample in the same second for a
 // host replaces the first.
 func (s *SampleStore) AppendSample(ctx context.Context, x Sample) error {
+	mounts, err := json.Marshal(x.Mounts)
+	if err != nil {
+		return err
+	}
 	return s.core.WriteTx(ctx, func(ctx context.Context, tx store.Tx) error {
 		// A sample behind the host's 5-minute watermark belongs to a bucket that
 		// has already been rolled up (a host clock that stepped backwards, say).
@@ -62,13 +66,13 @@ func (s *SampleStore) AppendSample(ctx context.Context, x Sample) error {
 			return fmt.Errorf("%w: sample at %s is before the rolled-up watermark %s", ErrLateSample, x.At.UTC().Format(time.RFC3339), time.Unix(w, 0).UTC().Format(time.RFC3339))
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO host_samples
-			(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+			(host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms, cpu_percent, mounts)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(host, ts) DO UPDATE SET load1 = excluded.load1, load5 = excluded.load5, load15 = excluded.load15,
 			  cpu = excluded.cpu, mem_total = excluded.mem_total, mem_available = excluded.mem_available,
-			  disk_total = excluded.disk_total, disk_free = excluded.disk_free, uptime_s = excluded.uptime_s, probe_ms = excluded.probe_ms`,
+			  disk_total = excluded.disk_total, disk_free = excluded.disk_free, uptime_s = excluded.uptime_s, probe_ms = excluded.probe_ms, cpu_percent = excluded.cpu_percent, mounts = excluded.mounts`,
 			x.Host, unix(x.At), nullF(x.Load1), nullF(x.Load5), nullF(x.Load15), x.CPU, x.MemoryTotal, x.MemoryAvailable,
-			x.DiskTotal, x.DiskFree, x.UptimeSeconds, x.ProbeMS)
+			x.DiskTotal, x.DiskFree, x.UptimeSeconds, x.ProbeMS, nullF(x.CPUPercent), string(mounts))
 		return err
 	})
 }
@@ -76,10 +80,19 @@ func (s *SampleStore) AppendSample(ctx context.Context, x Sample) error {
 func scanSample(rows *sql.Rows) (Sample, error) {
 	var x Sample
 	var ts int64
-	var l1, l5, l15 sql.NullFloat64
+	var l1, l5, l15, cpuPercent sql.NullFloat64
+	var mounts sql.NullString
 	var cpu, mt, ma, dt, df, up, pm sql.NullInt64
-	if err := rows.Scan(&x.Host, &ts, &l1, &l5, &l15, &cpu, &mt, &ma, &dt, &df, &up, &pm); err != nil {
+	if err := rows.Scan(&x.Host, &ts, &l1, &l5, &l15, &cpu, &mt, &ma, &dt, &df, &up, &pm, &cpuPercent, &mounts); err != nil {
 		return x, err
+	}
+	if cpuPercent.Valid {
+		x.CPUPercent = &cpuPercent.Float64
+	}
+	if mounts.Valid {
+		if err := json.Unmarshal([]byte(mounts.String), &x.Mounts); err != nil {
+			return x, fmt.Errorf("decode sample mounts: %w", err)
+		}
 	}
 	x.At = time.Unix(ts, 0).UTC()
 	for src, dst := range map[*sql.NullFloat64]**float64{&l1: &x.Load1, &l5: &x.Load5, &l15: &x.Load15} {
@@ -93,7 +106,7 @@ func scanSample(rows *sql.Rows) (Sample, error) {
 	return x, nil
 }
 
-const sampleCols = `host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms`
+const sampleCols = `host, ts, load1, load5, load15, cpu, mem_total, mem_available, disk_total, disk_free, uptime_s, probe_ms, cpu_percent, mounts`
 
 // Recent returns a host's latest n samples, newest first.
 func (s *SampleStore) Recent(ctx context.Context, host string, n int) ([]Sample, error) {
