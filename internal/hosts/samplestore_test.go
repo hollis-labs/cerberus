@@ -145,3 +145,26 @@ func TestSampleStoreKeepsMemoryAvailabilityUnknown(t *testing.T) {
 		t.Fatalf("measured zero must stay known, missing must stay unknown: %+v", got)
 	}
 }
+
+func TestSampleStoreLegacyMemoryRowsReadUnknownWhenZero(t *testing.T) {
+	s, err := sqlite.Open(filepath.Join(t.TempDir(), "cerberus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	st, ctx := hosts.NewSampleStore(s.Core()), context.Background()
+	base := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	// Rows written before the flag existed: NULL mem_available_unknown.
+	for i, ma := range []int64{0, 4} {
+		if _, err := s.DB().Exec(`INSERT INTO host_samples (host, ts, mem_total, mem_available) VALUES ('old', ?, 8, ?)`, base.Add(time.Duration(i)*time.Minute).Unix(), ma); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.Recent(ctx, "old", 2) // newest first
+	if err != nil || len(got) != 2 {
+		t.Fatalf("recent: %v %v", got, err)
+	}
+	if got[0].MemoryAvailableUnknown || !got[1].MemoryAvailableUnknown {
+		t.Fatalf("legacy zero must read unknown, legacy nonzero known: %+v", got)
+	}
+}

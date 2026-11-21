@@ -204,3 +204,23 @@ func TestFleetMetricsMemoryAvailabilityStaysUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestFleetMetricsUnknownMemoryEncodesNull(t *testing.T) {
+	p := hosts.ParsePosixProbe("mem_total_kb=1024\n")
+	b, err := json.Marshal(fleetMetrics(hosts.SampleFrom("h", time.Unix(1000, 0), &p, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := m["memory_used"]; !ok || v != nil || m["memory_total"] != float64(1<<20) {
+		t.Fatalf("memory_used must be null with total kept: %s", b)
+	}
+	none := hosts.ParsePosixProbe("")
+	b, _ = json.Marshal(fleetMetrics(hosts.SampleFrom("h", time.Unix(1000, 0), &none, 1)))
+	if !strings.Contains(string(b), `"memory_used":null`) || !strings.Contains(string(b), `"memory_total":null`) {
+		t.Fatalf("missing total must be null too: %s", b)
+	}
+}
