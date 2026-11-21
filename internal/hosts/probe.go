@@ -17,6 +17,7 @@ type Probed struct {
 	OSVersion       string        `json:"os_version,omitempty"`
 	Arch            string        `json:"arch,omitempty"`
 	Kernel          string        `json:"kernel,omitempty"`
+	ProbeVersion    int           `json:"probe_version,omitempty"` // 0: legacy script that predates the marker
 	CPUPercent      *float64      `json:"cpu_percent,omitempty"`
 	Mounts          []MountSample `json:"mounts,omitempty"`
 	CPU             int           `json:"cpu,omitempty"`
@@ -76,6 +77,7 @@ var ProbedTools = []string{"docker", "tmux", "tailscale", "caddy"}
 // Any fact a host cannot supply is simply absent.
 const posixProbeScript = `PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH; export PATH
 kind=$(uname -s 2>/dev/null)
+echo "probe_version=2"
 echo "os=$kind"
 echo "arch=$(uname -m 2>/dev/null)"
 echo "kernel=$(uname -r 2>/dev/null)"
@@ -332,6 +334,8 @@ func ParsePosixProbe(out string) Probed {
 			p.Kernel = cleanFact(val)
 		case "os_version":
 			p.OSVersion = cleanFact(val)
+		case "probe_version":
+			p.ProbeVersion = atoiBounded(val, 1000)
 		case "cpu_percent":
 			if v, err := strconv.ParseFloat(val, 64); err == nil && !math.IsNaN(v) && v >= 0 && v <= 100 {
 				p.CPUPercent = &v

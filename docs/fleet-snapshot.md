@@ -32,6 +32,7 @@ Response schema `cerberus.fleet.snapshot.v1`:
     "reachable": true,
     "last_seen": "2026-11-21T04:59:00Z",
     "stale": false,
+    "metrics_gap": null,
     "latest": {
       "ts": "2026-11-21T04:59:00Z",
       "cpu_percent": 12.5,
@@ -89,3 +90,32 @@ and one latest measurement. It contains only host names, declared roles,
 observation timestamps and numeric metrics. It excludes host addresses,
 credentials, labels, raw probe output, units, processes, and agent/session data.
 Agent membership belongs to the separate Tether live-agents read.
+
+## Probe version and stale plugins
+
+The POSIX probe script emits `probe_version=2` as its first fact. Version 2 is
+the first script that reports `cpu_percent` and per-mount `mount_kb` lines.
+`ParsePosixProbe` records it as `Probed.ProbeVersion`, the monitor carries it
+into `Sample.probe_version`, and migration 010 stores it in the nullable
+`host_samples.probe_version` column. Rows from before the marker are NULL (0 in
+Go) and are never rewritten.
+
+Each snapshot host has `metrics_gap`, null normally. When a host is reachable
+(fresh, successful attempt) and its latest sample has `probe_version` below 2,
+it is `{"code": "probe_outdated", "detail": "..."}`: the host's
+`cerberus-outpost` plugin predates CPU% and per-mount disk metrics. Online and
+offline status semantics are unchanged, and the metrics stay null; nothing is
+estimated.
+
+`/`, `/home`, `/var`, `/var/tmp`, `/tmp` and `/data` are each probed with their
+own `df -Pk` call, so a path that shares a filesystem with `/` still appears as
+its own entry.
+
+### Rollout
+
+Plugins staged before this change (built from commit 76801e8 or earlier) emit
+no CPU% and no mounts, so the snapshot reports `probe_outdated` for those hosts.
+Restage `cerberus-outpost` on each host with the outpost repo's
+`scripts/stage-machine.py`; the Lead Orchestrator coordinates restaging and
+restarts because outposts are shared services. The next sample after restaging
+has `probe_version` 2 and the gap clears.

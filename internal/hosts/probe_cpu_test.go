@@ -37,3 +37,27 @@ func TestProbeCPUExpressions(t *testing.T) {
 		}
 	}
 }
+
+func TestProbeVersionAndSharedFilesystemMounts(t *testing.T) {
+	if !strings.Contains(posixProbeScript, `echo "probe_version=2"`) {
+		t.Fatal("probe script must emit probe_version=2")
+	}
+	// Paths that share one filesystem stay separate entries.
+	p := ParsePosixProbe("probe_version=2\nmount_kb=/ 100 50\nmount_kb=/var/tmp 100 50\nmount_kb=/home 100 50\nmount_kb=/home 100 50\n")
+	if p.ProbeVersion != 2 || len(p.Mounts) != 3 {
+		t.Fatalf("%+v", p)
+	}
+	if ParsePosixProbe("os=Linux\n").ProbeVersion != 0 {
+		t.Fatal("legacy output must have probe_version 0")
+	}
+}
+
+// The mount loop prints every existing allow-listed path, even ones that share
+// a filesystem with /.
+func TestProbeScriptMountLoopCoversRequiredPaths(t *testing.T) {
+	for _, d := range []string{"/", "/var/tmp", "/home"} {
+		if !strings.Contains(posixProbeScript, " "+d+" ") && !strings.Contains(posixProbeScript, "for d in "+d+" ") {
+			t.Fatalf("mount loop lacks %s", d)
+		}
+	}
+}

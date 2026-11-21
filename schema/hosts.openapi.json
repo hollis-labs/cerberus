@@ -640,6 +640,21 @@
         ],
         "type": "object"
       },
+      "FleetMetricsGap": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
       "FleetPoint": {
         "properties": {
           "cpu_percent": {
@@ -821,6 +836,16 @@
               }
             ]
           },
+          "metrics_gap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FleetMetricsGap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -867,6 +892,7 @@
         "required": [
           "last_seen",
           "latest",
+          "metrics_gap",
           "name",
           "reachable",
           "roles",
@@ -1749,6 +1775,9 @@
           "os_version": {
             "type": "string"
           },
+          "probe_version": {
+            "type": "integer"
+          },
           "source": {
             "type": "string"
           },
@@ -2008,6 +2037,9 @@
             "type": "array"
           },
           "probe_ms": {
+            "type": "integer"
+          },
+          "probe_version": {
             "type": "integer"
           },
           "ts": {

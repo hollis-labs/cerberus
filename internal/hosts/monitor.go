@@ -193,16 +193,19 @@ func IsMainMount(m string) bool {
 
 // Sample is one successful measurement.
 type Sample struct {
-	Host            string        `json:"host"`
-	At              time.Time     `json:"ts"`
-	Load1           *float64      `json:"load1,omitempty"`
-	Load5           *float64      `json:"load5,omitempty"`
-	Load15          *float64      `json:"load15,omitempty"`
-	CPUPercent      *float64      `json:"cpu_percent,omitempty"`
-	Mounts          []MountSample `json:"mounts,omitempty"`
-	CPU             int           `json:"cpu,omitempty"`
-	MemoryTotal     int64         `json:"memory_total,omitempty"`
-	MemoryAvailable int64         `json:"memory_available,omitempty"`
+	Host       string        `json:"host"`
+	At         time.Time     `json:"ts"`
+	Load1      *float64      `json:"load1,omitempty"`
+	Load5      *float64      `json:"load5,omitempty"`
+	Load15     *float64      `json:"load15,omitempty"`
+	CPUPercent *float64      `json:"cpu_percent,omitempty"`
+	Mounts     []MountSample `json:"mounts,omitempty"`
+	// ProbeVersion is the probe script schema that produced the sample; 0 means
+	// a legacy sample (stored NULL) from a plugin that predates the marker.
+	ProbeVersion    int   `json:"probe_version,omitempty"`
+	CPU             int   `json:"cpu,omitempty"`
+	MemoryTotal     int64 `json:"memory_total,omitempty"`
+	MemoryAvailable int64 `json:"memory_available,omitempty"`
 	// MemoryAvailableUnknown: MemoryAvailable 0 is absence, not a measured zero.
 	MemoryAvailableUnknown bool  `json:"memory_available_unknown,omitempty"`
 	DiskTotal              int64 `json:"disk_total,omitempty"`
@@ -215,7 +218,7 @@ type Sample struct {
 func SampleFrom(host string, at time.Time, p *Probed, probeMS int64) Sample {
 	return Sample{Host: host, At: at.UTC().Truncate(time.Second), Load1: p.Load1, Load5: p.Load5, Load15: p.Load15, CPU: p.CPU,
 		MemoryTotal: p.MemoryTotal, MemoryAvailable: p.MemoryAvailable, MemoryAvailableUnknown: p.MemoryAvailableUnknown, DiskTotal: p.DiskTotal, DiskFree: p.DiskFree,
-		UptimeSeconds: p.UptimeSeconds, ProbeMS: probeMS, CPUPercent: p.CPUPercent, Mounts: p.Mounts}
+		UptimeSeconds: p.UptimeSeconds, ProbeMS: probeMS, CPUPercent: p.CPUPercent, Mounts: p.Mounts, ProbeVersion: p.ProbeVersion}
 }
 
 // Observation is what one probe attempt found.

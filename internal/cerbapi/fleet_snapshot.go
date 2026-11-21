@@ -37,7 +37,24 @@ type FleetSnapshotHost struct {
 	LastSeen  *time.Time    `json:"last_seen"`
 	Stale     bool          `json:"stale"`
 	Latest    *FleetMetrics `json:"latest"`
-	Series    []FleetPoint  `json:"series"`
+	// MetricsGap explains why a reachable host's CPU and per-mount disk are
+	// null; null when there is nothing to explain.
+	MetricsGap *FleetMetricsGap `json:"metrics_gap"`
+	Series     []FleetPoint     `json:"series"`
+}
+
+// FleetMetricsGap codes.
+const (
+	MetricsGapProbeOutdated = "probe_outdated"
+	// minProbeVersion is the first probe script schema that reports CPU percent
+	// and per-mount disk.
+	minProbeVersion = 2
+)
+
+// FleetMetricsGap is an operator-facing reason for missing metrics.
+type FleetMetricsGap struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail"`
 }
 
 // FleetMetrics uses null for unmeasured values; CPU percent is never load or
@@ -153,6 +170,9 @@ func (s *HostService) FleetSnapshot(ctx context.Context, q FleetSnapshotQuery) (
 			v.Stale = false
 			reachable := st.ConsecutiveFailures == 0 && st.LastOK != nil
 			v.Reachable = &reachable
+			if reachable && last != nil && last.ProbeVersion < minProbeVersion {
+				v.MetricsGap = &FleetMetricsGap{Code: MetricsGapProbeOutdated, Detail: "this host's cerberus-outpost plugin predates CPU% and per-mount disk metrics (probe_version 2); restage cerberus-outpost on the host to populate them"}
+			}
 		}
 		for i := range v.Series {
 			v.Series[i].FleetMetrics = FleetMetrics{TS: out.WindowStart.Add(time.Duration(i) * 5 * time.Minute), Disks: []hosts.MountSample{}}

@@ -77,7 +77,7 @@ func TestAnExistingDatabaseUpgradesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pretend it predates the host monitoring migrations (6 is the last E1 one).
-	for _, q := range []string{`ALTER TABLE host_samples DROP COLUMN cpu_percent`, `ALTER TABLE host_samples DROP COLUMN mounts`, `ALTER TABLE host_samples DROP COLUMN mem_available_unknown`, `DROP TABLE host_sample_rollups`, `DROP TABLE host_rollup_state`, `DROP TABLE host_events`, `DELETE FROM schema_migrations WHERE version > 6`} {
+	for _, q := range []string{`ALTER TABLE host_samples DROP COLUMN cpu_percent`, `ALTER TABLE host_samples DROP COLUMN mounts`, `ALTER TABLE host_samples DROP COLUMN mem_available_unknown`, `ALTER TABLE host_samples DROP COLUMN probe_version`, `DROP TABLE host_sample_rollups`, `DROP TABLE host_rollup_state`, `DROP TABLE host_events`, `DELETE FROM schema_migrations WHERE version > 6`} {
 		if _, err := old.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}
@@ -109,6 +109,11 @@ func TestAnExistingDatabaseUpgradesInPlace(t *testing.T) {
 	var cpu int
 	if err := s.DB().QueryRow(`SELECT cpu FROM host_samples WHERE host='h'`).Scan(&cpu); err != nil || cpu != 4 {
 		t.Fatalf("sample lost: %d %v", cpu, err)
+	}
+	// The legacy row gains the probe_version column as NULL, not an invented value.
+	var pv sql.NullInt64
+	if err = s.DB().QueryRow(`SELECT probe_version FROM host_samples WHERE host='h'`).Scan(&pv); err != nil || pv.Valid {
+		t.Fatalf("legacy probe_version must be NULL: %v %v", pv, err)
 	}
 	// Re-opening is a no-op.
 	s.Close() //nolint:errcheck
