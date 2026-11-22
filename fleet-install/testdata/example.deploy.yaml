@@ -1,0 +1,35 @@
+# A generic fleet-deploy/v1 example (two targets, one app), used by the schema test.
+schema: fleet-deploy/v1
+app: example
+repo: example-org/example
+artifact:
+  name: "example-{sha12}"
+  tarball: "example_{version}_{os}_{arch}.tar.gz"
+  sums: SHA256SUMS
+targets:
+  - id: linux-service
+    when: {os: linux, arch: amd64}
+    hosts: [host-a]
+    binary: example
+    install_root: /srv/example/releases
+    symlinks:
+      - path: /srv/example/bin/example
+    preflight:
+      - {kind: sql_zero, db: /srv/example/data/main.db, sql: "select count(*) from jobs where state = 'running'"}
+      - {kind: sqlite_backup, db: /srv/example/data/main.db, dest: "{backup_dir}/main.pre-{version}.db"}
+      - {kind: migration_check, db: /srv/example/data/main.db}
+    restart:
+      - {via: systemd-user, unit: example.service}
+    health:
+      - {url: "http://127.0.0.1:8080/healthz", expect_status: [200], timeout: 60s, version_json: version}
+  - id: mac-service
+    when: {os: darwin, arch: arm64}
+    hosts: [host-b]
+    binary: example
+    install_root: ~/.local/share/example/releases
+    symlinks:
+      - path: ~/.local/share/example/current/example
+    restart:
+      - {via: cerberus, resource: example-service, verb: reload}
+    health:
+      - {url: "http://127.0.0.1:8080/healthz", expect_status: [200, 401], timeout: 60s}

@@ -1,0 +1,32 @@
+kind: cerberus-project/v1
+owner: outpost
+namespace: local
+project:
+  id: outpost
+  name: Outpost
+resources:
+  - id: outpost
+    name: Shared machine Outpost
+    type: process
+    project: outpost
+    connector: local
+    env: prod
+    owner: self
+    admin: self
+    config:
+      install_after_build: false
+      build_strategy:
+        kind: make_standard
+        rules:
+          target: build
+          output: bin/outpost
+      command:
+        - ./bin/outpost
+        - --config
+        - ~/.config/outpost/outpost.json
+        - run
+      dir: .
+      mode: os_service
+      run_from: artifact
+      supervisor: auto
+    tags: [outpost, plugin-host]

@@ -1,0 +1,13 @@
+/bin/
+__pycache__/
+
+# Local inventories, state and credentials belong outside the repository.
+/outpost.json
+/pairings.json
+/state/
+*.token
+.env
+.env.*
+!.env.example
+*.before-outpost
+*.staged
