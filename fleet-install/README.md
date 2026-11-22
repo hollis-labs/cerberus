@@ -5,7 +5,7 @@ that ships inside the release tarball (CW-20261024-0120; design in
 `docs/architecture/ci-binaries-0120.md`). Nothing in the code is app-specific: every
 path, probe, restart and health check comes from `deploy.yaml`.
 
-Build: `cd tools/fleet-install && GOWORK=off CGO_ENABLED=0 go build -o fleet-install .`
+Build: `cd fleet-install && GOWORK=off CGO_ENABLED=0 go build -o fleet-install .`
 (own `go.mod`; the repository root module does not include it). Test:
 `go vet ./... && go test -count=1 ./...` (hermetic: fakes for `gh`, `systemctl`,
 `cerberus`; `httptest` for health; real `sqlite3` where tests need a database and

@@ -31,6 +31,12 @@ Operator-specific notes (which hosts, which tenants) belong in the operator's ow
 - `docs/plans/agent-authority-and-secrets.md` — what an agent may do with Cerberus's reach, what it may see, and what is recorded afterwards. Read before adding a credential backend, a redaction rule, or anything that gates an operation. The acknowledgment gate is an intent gate, not a human one. The audit log (`~/.cerberus/audit/`, append-only, hash-chained) covers the admin lane and plugin lifecycle.
 - `docs/plans/live-systems-security-target.md` — the end state that security work converges on: effect classes, named targets, layered policy, human approval bound to a plan, egress labels, audit. Read before adding a gate, a policy rule or an approval path.
 
+## Companion module boundaries
+
+- `outpost/` and `fleet-install/` are independent modules and binaries owned here. Root Go checks do not traverse nested modules; run their own checks or workflows.
+- Preserve separate configuration, deployment and release cycles. Do not import these applications into Cerberus core merely because the source is colocated.
+- Go module identities, released pins and live install/source paths are deferred until the portfolio reorganization finishes. Do not deploy or restart live services as part of source relocation.
+
 ## Commands
 
 ```bash

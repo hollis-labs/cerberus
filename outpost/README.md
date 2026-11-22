@@ -17,13 +17,17 @@ Outpost builds on the public [app-host](https://github.com/hollis-labs/libs/tree
 for sessions/mail and native service operations. Their binaries are installed
 separately; Outpost imports neither application.
 
+## Source location
+
+Outpost source lives in the Cerberus repository at `outpost/`. It remains an independent binary; existing Go module identity and released versions are adopted after the portfolio reorganization. The build commands below run from this module directory.
+
 ## Install
 
 Requires Go 1.26.10 or later. Linux and macOS are the intended host platforms.
 
 ```sh
-go install github.com/hollis-labs/tools/outpost/cmd/outpost@latest
-outpost version
+make build
+./bin/outpost version
 ```
 
 From this module's directory, `make build` creates `bin/outpost`. Source builds

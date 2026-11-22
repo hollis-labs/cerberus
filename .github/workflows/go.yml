@@ -2,7 +2,9 @@ name: Go
 on:
   push:
     branches: [main]
+    paths-ignore: ["outpost/**", "fleet-install/**"]
   pull_request:
+    paths-ignore: ["outpost/**", "fleet-install/**"]
 permissions:
   contents: read
 jobs:
