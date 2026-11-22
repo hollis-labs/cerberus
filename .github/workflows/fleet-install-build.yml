@@ -1,0 +1,20 @@
+name: fleet-install-build
+# Builds the fleet-install CLI through the shared go-app-build workflow so nobody builds it on build-1 by hand.
+# Artifact: fleet-install-<sha12> (linux/amd64 + darwin/arm64 tarballs, SHA256SUMS, build-info.json).
+on:
+  push:
+    branches: [main]
+    paths: ["fleet-install/**", ".github/workflows/go-app-build.yml", ".github/workflows/fleet-install-build.yml"]
+  pull_request:
+    paths: ["fleet-install/**", ".github/workflows/go-app-build.yml", ".github/workflows/fleet-install-build.yml"]
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  build:
+    uses: hollis-labs/tools/.github/workflows/go-app-build.yml@ed4eb5a1de176b0a383009fea6d056476c851dce
+    with:
+      app: fleet-install
+      # Companion artifacts must not inherit Cerberus core release tags.
+      version: v0.0.0-ci.${{ github.run_number }}
+      main_pkg: .
+      working_directory: fleet-install

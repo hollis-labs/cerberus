@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// Every package with tests runs them under a scratch home (internal/testhome),
+// Every package in the Cerberus Go module runs tests under a scratch home (internal/testhome),
 // so `go test ./...` never writes the operator's ~/.cerberus or XDG
 // directories, whatever HOME the suite starts with (CW-20261114-0143: a
 // pre-push run removed a live dev session's pid file). A new test package
@@ -23,6 +23,15 @@ func TestEveryTestPackageRunsUnderAScratchHome(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
+			// Go does not include nested modules in go test ./.... Their own
+			// workflows own their test isolation; this guard owns Cerberus core.
+			if p != root {
+				if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil {
+					return filepath.SkipDir
+				} else if !os.IsNotExist(err) {
+					return err
+				}
+			}
 			switch d.Name() {
 			case ".git", "node_modules", "web", "testdata", "dist":
 				return filepath.SkipDir
