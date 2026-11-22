@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 )
@@ -98,14 +97,16 @@ func ExtractTarGz(tarball, dest string) error {
 			return fmt.Errorf("reading tarball: %v", err)
 		}
 		name := h.Name
-		clean := path.Clean(strings.TrimPrefix(name, "./"))
-		if name == "" || path.IsAbs(name) || clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(name, "\\") {
+		// IsLocal checks the untrusted name before cleaning or joining it. A local
+		// name joined to dest cannot escape lexically; links are rejected below.
+		if !filepath.IsLocal(name) || strings.Contains(name, "\\") {
 			return fmt.Errorf("tarball rejected: unsafe path %q", name)
 		}
+		clean := filepath.Clean(name)
 		if clean == "." {
 			continue
 		}
-		target := filepath.Join(dest, filepath.FromSlash(clean))
+		target := filepath.Join(dest, clean)
 		switch h.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
