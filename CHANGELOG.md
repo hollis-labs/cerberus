@@ -10,6 +10,8 @@ This file is backfilled from the git log on a good-faith basis, not exhaustively
 
 ### Changed
 
+- Scope the scratch-home guard to the Cerberus Go module, stopping at nested go.mod boundaries while retaining core package coverage.
+
 - Move Outpost and fleet-install source here from tools with filtered history, retaining independent modules, binaries and deployment cycles. Existing module identities and downstream pins remain pending the portfolio adoption pass.
 
 - Route MCP HTTP authentication through the shared go-mcp provider seam while preserving OAuth validation, discovery and scope enforcement (CW-20261119-0141).
