@@ -18,7 +18,7 @@ project writes about itself, the data it holds, or the credentials it needs.
 
 This repository also owns [Outpost](outpost/), the per-machine host for trusted subprocess plugins, and [fleet-install](fleet-install/), the release installer. They remain separate Go modules and binaries with independent configuration and deployment cycles. Cerberus core does not import or bundle either program.
 
-Build from each module directory: `cd outpost && make build`, or `cd fleet-install && GOWORK=off go build .`. Their source history was imported from `hollis-labs/tools`. Existing Go module identities and released dependency pins stay unchanged until the portfolio reorganization's adoption pass; do not publish new module tags here before that pass. Moving source does not update live binaries or registered service paths.
+Build from each module directory: `cd outpost && make build`, or `cd fleet-install && GOWORK=off go build .`. Their source history was imported from `hollis-labs/tools`. Existing Go module identities and released dependency pins stay unchanged until the portfolio reorganization's adoption pass; do not publish new module tags here before that pass. Companion artifact builds use their own CI versions rather than Cerberus core release tags. Moving source does not update live binaries or registered service paths.
 
 ## What it is today
 

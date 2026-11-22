@@ -11,8 +11,10 @@ on:
 permissions: { contents: read }
 jobs:
   build:
-    uses: hollis-labs/tools/.github/workflows/go-app-build.yml@145fb50d827a1af7e38236eda5751cee22970ba5
+    uses: hollis-labs/tools/.github/workflows/go-app-build.yml@ed4eb5a1de176b0a383009fea6d056476c851dce
     with:
       app: fleet-install
+      # Companion artifacts must not inherit Cerberus core release tags.
+      version: v0.0.0-ci.${{ github.run_number }}
       main_pkg: .
       working_directory: fleet-install
