@@ -7,7 +7,7 @@ on:
 permissions: { contents: read }
 jobs:
   build:
-    uses: hollis-labs/tools/.github/workflows/go-app-build.yml@145fb50d827a1af7e38236eda5751cee22970ba5   # tools main (extra_files, pre_test_cmd)
+    uses: hollis-labs/substrate/.github/workflows/go-app-build.yml@1ed895f38a725bdc928232721ac4642d744468ef   # tools main (extra_files, pre_test_cmd)
     with:
       app: cerberus
       main_pkg: ./cmd/cerberus
